@@ -1,0 +1,241 @@
+{
+  "scope": "Only the four exact requested leaf scopes. The demanded parent Employment/Wages paragraphs remain operative; these entries do not declare those parents repealed.",
+  "reviewers": [
+    "review_legacy_admission",
+    "coordinating root"
+  ],
+  "review_date": "2026-10-15",
+  "review_method": "Each complete labeled notice, root/parent/leaf citation and identifier, raw parent_id chain, publication/source dates and document identity, root demand offset and literal window independently inspected by both agents. Unlabeled repeated bibliography was rejected as ownership evidence.",
+  "baseline_registry_sha256": "3dfa00327fe73b1deca582f06ecd6fecc4137b23bee8616ab7496c564cd445f0",
+  "baseline_entries": 345,
+  "releases": {
+    "current_release": "c0097c7ca468769aef0b5c7996dc9da91881a7e025f38a6baf2d31617afe2121",
+    "pinned_workflow_release": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "pinned_release_git_commit": "e79781bddeaba4d3697c5375c7371b2a038f0f74"
+  },
+  "review_artifacts": {
+    "independent-review.json": "a4dc7a30f9857249c35f440666444912f727e9dba717e2e88e2e64be218f92a5",
+    "entry-inventory.json": "4137967689d09ff785c85c4c3f4b412e0b6843d7ffdf31f87bb362c776a18bfd",
+    "four-owner-source-spans.json": "0a07d00855cbb503bfe6a8344ad11d554e34336362ba77559691d9c1c69b77e2",
+    "root-plan-review.json": "0b22a7d9d8dd0ba6c4ee5685ce07ee9e503cf9ed878a597cd36f21976899e517"
+  },
+  "occurrences": [
+    {
+      "target": "us/statute/26/3121/b/17",
+      "notice_span": [
+        32223,
+        32326
+      ],
+      "exact_notice": "(17) Repealed. Pub. L. 113–295, div. A, title II, § 221(a)(99)(C)(i) , Dec. 19, 2014 , 128 Stat. 4052 ]",
+      "root": {
+        "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+        "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+        "line_number": 63,
+        "record_id": "81cdf05a-27b2-597a-aa7d-0e9ff6cba484",
+        "citation_path": "us/statute/26/3121",
+        "jurisdiction": "us",
+        "document_class": "statute",
+        "version": "2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup",
+        "source_path": "sources/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup/official-documents/usc26-section-3121.xml",
+        "source_as_of": "2026-07-13",
+        "expression_date": "2026-07-13",
+        "body_sha256": "b559f25fcb8a8e6a2bf4bb37235c24b3065fe118eb7349bc78fbac2cfccbdba3"
+      },
+      "parent": {
+        "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+        "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+        "line_number": 536,
+        "record_id": "96886a9f-406e-591e-9c1f-d0dbffca9103",
+        "citation_path": "us/statute/26/3121/b",
+        "jurisdiction": "us",
+        "document_class": "statute",
+        "version": "2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup",
+        "source_path": "sources/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup/official-documents/usc26-section-3121.xml",
+        "source_as_of": "2026-07-13",
+        "expression_date": "2026-07-13",
+        "body_sha256": "4724d02268a81aee35aebe2ecaf6e22b1dbf1db5f6dbc79a3149da2e82fba5c2"
+      },
+      "leaf": {
+        "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+        "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+        "line_number": 1864,
+        "record_id": "0721beb1-cda9-5ef1-8b26-3eda766450af",
+        "citation_path": "us/statute/26/3121/b/17",
+        "jurisdiction": "us",
+        "document_class": "statute",
+        "version": "2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup",
+        "source_path": "sources/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup/official-documents/usc26-section-3121.xml",
+        "source_as_of": "2026-07-13",
+        "expression_date": "2026-07-13",
+        "body_sha256": "69398d21a7b72498ee36dde3b3ab706ce994e58b59a18cf7536e552b1c02d0f7"
+      },
+      "authenticated_parent_links": {
+        "parent": "81cdf05a-27b2-597a-aa7d-0e9ff6cba484",
+        "leaf": "96886a9f-406e-591e-9c1f-d0dbffca9103"
+      }
+    },
+    {
+      "target": "us/statute/26/3306/b/8",
+      "notice_span": [
+        7109,
+        7196
+      ],
+      "exact_notice": "(8) Repealed. Pub. L. 98–21, title III, § 324(b)(3)(B) , Apr. 20, 1983 , 97 Stat. 124 ]",
+      "root": {
+        "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+        "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+        "line_number": 84,
+        "record_id": "eee51368-a0be-578a-92f2-95027c382965",
+        "citation_path": "us/statute/26/3306",
+        "jurisdiction": "us",
+        "document_class": "statute",
+        "version": "2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup",
+        "source_path": "sources/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup/official-documents/usc26-section-3306.xml",
+        "source_as_of": "2026-07-13",
+        "expression_date": "2026-07-13",
+        "body_sha256": "eeb9d8da8084dd18b6bd90f296eff74884335e21781c4c9a23b67e0785b45717"
+      },
+      "parent": {
+        "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+        "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+        "line_number": 657,
+        "record_id": "43d44668-9bfa-5a32-b6a5-c912f202eb23",
+        "citation_path": "us/statute/26/3306/b",
+        "jurisdiction": "us",
+        "document_class": "statute",
+        "version": "2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup",
+        "source_path": "sources/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup/official-documents/usc26-section-3306.xml",
+        "source_as_of": "2026-07-13",
+        "expression_date": "2026-07-13",
+        "body_sha256": "87f2a5c8308ae48eac29c83a86b4c9538864815ae7a23c79089c52c0a8346526"
+      },
+      "leaf": {
+        "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+        "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+        "line_number": 2123,
+        "record_id": "9924e69b-175c-5bd2-b0e6-28f2efb9e8a1",
+        "citation_path": "us/statute/26/3306/b/8",
+        "jurisdiction": "us",
+        "document_class": "statute",
+        "version": "2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup",
+        "source_path": "sources/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup/official-documents/usc26-section-3306.xml",
+        "source_as_of": "2026-07-13",
+        "expression_date": "2026-07-13",
+        "body_sha256": "1cf3fe1042fd904cce5d0d39fbdbc55a8239d086c52f71eabe81134cb8e10f84"
+      },
+      "authenticated_parent_links": {
+        "parent": "eee51368-a0be-578a-92f2-95027c382965",
+        "leaf": "43d44668-9bfa-5a32-b6a5-c912f202eb23"
+      }
+    },
+    {
+      "target": "us/statute/26/3121/a/9",
+      "notice_span": [
+        7706,
+        7793
+      ],
+      "exact_notice": "(9) Repealed. Pub. L. 98–21, title III, § 324(a)(3)(B) , Apr. 20, 1983 , 97 Stat. 123 ]",
+      "root": {
+        "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+        "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+        "line_number": 63,
+        "record_id": "81cdf05a-27b2-597a-aa7d-0e9ff6cba484",
+        "citation_path": "us/statute/26/3121",
+        "jurisdiction": "us",
+        "document_class": "statute",
+        "version": "2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup",
+        "source_path": "sources/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup/official-documents/usc26-section-3121.xml",
+        "source_as_of": "2026-07-13",
+        "expression_date": "2026-07-13",
+        "body_sha256": "b559f25fcb8a8e6a2bf4bb37235c24b3065fe118eb7349bc78fbac2cfccbdba3"
+      },
+      "parent": {
+        "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+        "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+        "line_number": 535,
+        "record_id": "5283a294-c444-5f7f-9933-df23dcab92df",
+        "citation_path": "us/statute/26/3121/a",
+        "jurisdiction": "us",
+        "document_class": "statute",
+        "version": "2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup",
+        "source_path": "sources/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup/official-documents/usc26-section-3121.xml",
+        "source_as_of": "2026-07-13",
+        "expression_date": "2026-07-13",
+        "body_sha256": "d7856c60ad50046e185e827a0777e1da468d1a1fd1c45c6ae654e20c8c976ff1"
+      },
+      "leaf": {
+        "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+        "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+        "line_number": 1833,
+        "record_id": "9a6a9a52-ca81-5146-a44c-2350a3bc6c01",
+        "citation_path": "us/statute/26/3121/a/9",
+        "jurisdiction": "us",
+        "document_class": "statute",
+        "version": "2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup",
+        "source_path": "sources/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup/official-documents/usc26-section-3121.xml",
+        "source_as_of": "2026-07-13",
+        "expression_date": "2026-07-13",
+        "body_sha256": "4ab84127990b542781d629210248e9f1c7a044124296dfe1ea57ecc702ac9302"
+      },
+      "authenticated_parent_links": {
+        "parent": "81cdf05a-27b2-597a-aa7d-0e9ff6cba484",
+        "leaf": "5283a294-c444-5f7f-9933-df23dcab92df"
+      }
+    },
+    {
+      "target": "us/statute/26/3306/b/12",
+      "notice_span": [
+        8146,
+        8250
+      ],
+      "exact_notice": "(12) Repealed. Pub. L. 113–295, div. A, title II, § 221(a)(19)(B)(vi) , Dec. 19, 2014 , 128 Stat. 4040 ]",
+      "root": {
+        "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+        "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+        "line_number": 84,
+        "record_id": "eee51368-a0be-578a-92f2-95027c382965",
+        "citation_path": "us/statute/26/3306",
+        "jurisdiction": "us",
+        "document_class": "statute",
+        "version": "2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup",
+        "source_path": "sources/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup/official-documents/usc26-section-3306.xml",
+        "source_as_of": "2026-07-13",
+        "expression_date": "2026-07-13",
+        "body_sha256": "eeb9d8da8084dd18b6bd90f296eff74884335e21781c4c9a23b67e0785b45717"
+      },
+      "parent": {
+        "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+        "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+        "line_number": 657,
+        "record_id": "43d44668-9bfa-5a32-b6a5-c912f202eb23",
+        "citation_path": "us/statute/26/3306/b",
+        "jurisdiction": "us",
+        "document_class": "statute",
+        "version": "2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup",
+        "source_path": "sources/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup/official-documents/usc26-section-3306.xml",
+        "source_as_of": "2026-07-13",
+        "expression_date": "2026-07-13",
+        "body_sha256": "87f2a5c8308ae48eac29c83a86b4c9538864815ae7a23c79089c52c0a8346526"
+      },
+      "leaf": {
+        "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+        "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+        "line_number": 2127,
+        "record_id": "0b3d5394-e278-50e1-bf04-e2e77531b499",
+        "citation_path": "us/statute/26/3306/b/12",
+        "jurisdiction": "us",
+        "document_class": "statute",
+        "version": "2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup",
+        "source_path": "sources/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup/official-documents/usc26-section-3306.xml",
+        "source_as_of": "2026-07-13",
+        "expression_date": "2026-07-13",
+        "body_sha256": "bc37349901e9ee8c1c851019c198bd94a13679350fd2585b7f0032ee97fa045e"
+      },
+      "authenticated_parent_links": {
+        "parent": "eee51368-a0be-578a-92f2-95027c382965",
+        "leaf": "43d44668-9bfa-5a32-b6a5-c912f202eb23"
+      }
+    }
+  ],
+  "limits": "This is byte-bound source coverage review, not source fidelity, calculation, waiver-ratchet, signature, or publication clearance. Other requested scopes and changed source bytes remain subject to all ordinary checks."
+}

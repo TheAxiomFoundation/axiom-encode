@@ -1,0 +1,1 @@
+Use the same 64 MiB release-object limit for `corpus-fetch` and signed corpus binding, so large pinned union releases can be placed without changing artifact verification. Preserve another writer's replacement file when a publication identity check fails, and cover corpus placement changes with a synchronized encoder version bump.

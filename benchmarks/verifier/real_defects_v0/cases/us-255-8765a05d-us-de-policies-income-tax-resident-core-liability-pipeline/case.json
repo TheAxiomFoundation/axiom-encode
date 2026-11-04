@@ -1,0 +1,891 @@
+{
+  "id": "us-255-8765a05d-us-de-policies-income-tax-resident-core-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "8765a05da5df2c5dcc7538b2b768fee7f5ddb205",
+  "parent_commit": "669d5eb47a512e0386c5aef40f9e19a252d00a8e",
+  "commit_date": "2026-07-23T19:50:06-04:00",
+  "commit_subject": "Harden Delaware resident income-tax core",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1027",
+  "module_path": "us-de/policies/income_tax/resident_core_liability_pipeline.yaml",
+  "corpus_citation_path": "us-de/statute/30/1102",
+  "corpus_citation_paths_all": [
+    "us-de/statute/30/1102",
+    "us-de/statute/30/1108",
+    "us-de/statute/30/1109",
+    "us-de/statute/30/1110",
+    "us-de/statute/30/1114",
+    "us-de/statute/30/1117"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.76,
+  "description": "an overbroad §1102(d) table-status claim; a profile that was not fail-closed; credits capped against schedule tax when the table could control",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        23,
+        23
+      ],
+      [
+        25,
+        29
+      ],
+      [
+        41,
+        56
+      ],
+      [
+        62,
+        65
+      ],
+      [
+        76,
+        77
+      ],
+      [
+        84,
+        84
+      ],
+      [
+        87,
+        89
+      ],
+      [
+        91,
+        93
+      ],
+      [
+        100,
+        103
+      ],
+      [
+        112,
+        112
+      ],
+      [
+        121,
+        121
+      ],
+      [
+        126,
+        126
+      ],
+      [
+        132,
+        132
+      ],
+      [
+        135,
+        135
+      ],
+      [
+        140,
+        144
+      ],
+      [
+        348,
+        348
+      ],
+      [
+        369,
+        369
+      ],
+      [
+        395,
+        395
+      ],
+      [
+        412,
+        412
+      ],
+      [
+        414,
+        414
+      ],
+      [
+        432,
+        434
+      ],
+      [
+        458,
+        458
+      ],
+      [
+        488,
+        488
+      ],
+      [
+        505,
+        506
+      ],
+      [
+        509,
+        509
+      ],
+      [
+        525,
+        525
+      ],
+      [
+        527,
+        527
+      ],
+      [
+        544,
+        551
+      ],
+      [
+        556,
+        556
+      ],
+      [
+        562,
+        562
+      ],
+      [
+        566,
+        566
+      ],
+      [
+        568,
+        568
+      ],
+      [
+        573,
+        573
+      ],
+      [
+        583,
+        583
+      ],
+      [
+        585,
+        585
+      ],
+      [
+        591,
+        591
+      ],
+      [
+        605,
+        610
+      ],
+      [
+        612,
+        612
+      ],
+      [
+        614,
+        614
+      ],
+      [
+        620,
+        620
+      ],
+      [
+        631,
+        631
+      ],
+      [
+        634,
+        634
+      ],
+      [
+        637,
+        638
+      ],
+      [
+        644,
+        644
+      ],
+      [
+        650,
+        650
+      ],
+      [
+        664,
+        668
+      ],
+      [
+        673,
+        673
+      ],
+      [
+        691,
+        691
+      ],
+      [
+        698,
+        698
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        23,
+        23
+      ],
+      [
+        25,
+        38
+      ],
+      [
+        50,
+        67
+      ],
+      [
+        73,
+        78
+      ],
+      [
+        89,
+        90
+      ],
+      [
+        97,
+        104
+      ],
+      [
+        107,
+        110
+      ],
+      [
+        112,
+        116
+      ],
+      [
+        123,
+        126
+      ],
+      [
+        135,
+        135
+      ],
+      [
+        144,
+        144
+      ],
+      [
+        149,
+        149
+      ],
+      [
+        155,
+        201
+      ],
+      [
+        204,
+        222
+      ],
+      [
+        227,
+        237
+      ],
+      [
+        255,
+        270
+      ],
+      [
+        457,
+        457
+      ],
+      [
+        470,
+        478
+      ],
+      [
+        487,
+        487
+      ],
+      [
+        500,
+        523
+      ],
+      [
+        537,
+        537
+      ],
+      [
+        554,
+        554
+      ],
+      [
+        556,
+        556
+      ],
+      [
+        574,
+        576
+      ],
+      [
+        600,
+        600
+      ],
+      [
+        613,
+        618
+      ],
+      [
+        636,
+        636
+      ],
+      [
+        653,
+        654
+      ],
+      [
+        657,
+        657
+      ],
+      [
+        673,
+        673
+      ],
+      [
+        675,
+        675
+      ],
+      [
+        692,
+        699
+      ],
+      [
+        704,
+        704
+      ],
+      [
+        710,
+        730
+      ],
+      [
+        734,
+        739
+      ],
+      [
+        741,
+        741
+      ],
+      [
+        746,
+        746
+      ],
+      [
+        756,
+        759
+      ],
+      [
+        761,
+        761
+      ],
+      [
+        767,
+        767
+      ],
+      [
+        774,
+        779
+      ],
+      [
+        787,
+        794
+      ],
+      [
+        796,
+        797
+      ],
+      [
+        799,
+        799
+      ],
+      [
+        805,
+        805
+      ],
+      [
+        809,
+        811
+      ],
+      [
+        819,
+        819
+      ],
+      [
+        822,
+        822
+      ],
+      [
+        825,
+        826
+      ],
+      [
+        832,
+        832
+      ],
+      [
+        838,
+        838
+      ],
+      [
+        845,
+        847
+      ],
+      [
+        855,
+        862
+      ],
+      [
+        866,
+        870
+      ],
+      [
+        872,
+        872
+      ],
+      [
+        890,
+        890
+      ],
+      [
+        897,
+        897
+      ]
+    ],
+    "rule_names": [
+      "de_pit_2026_tax_table_method_applies",
+      "de_pit_2026_definite_tax_table_method_controls",
+      "de_pit_2026_tax_method_uncertain_without_2026_director_ceiling",
+      "de_pit_2026_schedule_method_controls",
+      "de_pit_2026_definite_schedule_method_controls",
+      "de_pit_2026_minimum_director_tax_table_income_ceiling",
+      "de_pit_2026_definite_schedule_personal_credit_candidate",
+      "de_pit_2026_definite_schedule_other_jurisdiction_credit_candidate",
+      "de_pit_2026_definite_schedule_child_and_dependent_care_credit_candidate",
+      "de_pit_2026_supported_modification_profile_applies",
+      "de_pit_2026_supported_profile_applies",
+      "de_pit_2026_input_domain_is_valid"
+    ],
+    "rule_path": "rules[de_pit_2026_definite_tax_table_method_controls].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "274889ce1151b1c09fd5f9b5c0de3472e4a84d8e071e811f7fccaeffd7d4bab5",
+  "post_fix_artifact_sha256": "cf0d8c2ae189ae0b66c6c305003f7a58e2f27209a19ea874c9c4259605eca749",
+  "provision_sha256": "e0e92f1aabe4b1b4ec8b1c24ff59b7344741e896e9b501497fa4119f7d79c536",
+  "provision_chars": 18046,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-de/statute/30/1102",
+    "provision_file": "data/corpus/provisions/us-de/statute/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "ab575c6995c1ddb4fef09dd5ef5d64e5c511dd641979721de137ed281ad64b8e",
+    "line_number": 1,
+    "record_id": "17fa0a94-7389-57ab-9bf0-942a036b82e6",
+    "stored_body_sha256": "e0e92f1aabe4b1b4ec8b1c24ff59b7344741e896e9b501497fa4119f7d79c536",
+    "resolved_text_sha256": "e0e92f1aabe4b1b4ec8b1c24ff59b7344741e896e9b501497fa4119f7d79c536",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "dc965655f3b2a7ac39e58f426eaf86e73e331520",
+    "requested_citation_path": "us-de/statute/30/1102",
+    "release_errors_before_success": []
+  },
+  "provision_extension": null,
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "de_pit_2026_tax_table_method_applies",
+      "de_pit_2026_definite_tax_table_method_controls",
+      "de_pit_2026_tax_method_uncertain_without_2026_director_ceiling",
+      "de_pit_2026_schedule_method_controls",
+      "de_pit_2026_definite_schedule_method_controls",
+      "de_pit_2026_minimum_director_tax_table_income_ceiling",
+      "de_pit_2026_definite_schedule_personal_credit_candidate",
+      "de_pit_2026_definite_schedule_other_jurisdiction_credit_candidate",
+      "de_pit_2026_definite_schedule_child_and_dependent_care_credit_candidate",
+      "de_pit_2026_supported_modification_profile_applies",
+      "de_pit_2026_supported_profile_applies",
+      "de_pit_2026_input_domain_is_valid"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "$110 for each personal exemption to which such individual is entitled",
+        "where": [
+          "de_pit_2026_definite_schedule_personal_credit_candidate.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1110",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "50 percent of the child and dependent care expense credit allowable for federal income tax purposes",
+        "where": [
+          "de_pit_2026_definite_schedule_child_and_dependent_care_credit_candidate.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1114",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "A resident individual shall be allowed a credit against the tax otherwise due under this chapter",
+        "where": [
+          "de_pit_2026_definite_schedule_other_jurisdiction_credit_candidate.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1110",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "An additional $110 in the case of each resident person age 60 or over",
+        "where": [
+          "de_pit_2026_definite_schedule_personal_credit_candidate.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1110",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Any deduction, to the extent such deduction exceeds $30,000, for a net operating loss carryback",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "For persons age 60 or older, amounts received, not to exceed $12,500, as pensions",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In no event shall the allowable credit under this subsection exceed the tax otherwise due",
+        "where": [
+          "de_pit_2026_definite_schedule_child_and_dependent_care_credit_candidate.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1114",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In no event shall the credit allowed under subsection (b) of this section exceed the tax otherwise due",
+        "where": [
+          "de_pit_2026_definite_schedule_personal_credit_candidate.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1110",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The amount of $2,000 by any person who has a total and permanent disability or by a person who is over 60 years of age",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The deduction of a resident individual shall be the standard deduction, unless the individual elects to itemize deductions",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1108",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The entire taxable income of a resident of this State",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "a separate tax in the amount determined in paragraph (b)(2) of this section, on the ordinary income portion of a lump sum distribution",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "but in any event not less than $20,000",
+        "where": [
+          "de_pit_2026_definite_tax_table_method_controls.versions[0].formula",
+          "de_pit_2026_minimum_director_tax_table_income_ceiling.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "contributed by an individual during the taxable year to 1 or more accounts established and maintained pursuant to the DE529 Education Savings Plan",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "contributed by an individual during the taxable year to 1 or more accounts established and maintained pursuant to the Delaware Achieving a Better Life Experience",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "does not exceed $60,000, or such lesser amount as the Director may determine but in any event not less than $20,000",
+        "where": [
+          "de_pit_2026_tax_method_uncertain_without_2026_director_ceiling.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "shall not exceed the amount computed by multiplying the tax otherwise due under this chapter by a fraction",
+        "where": [
+          "de_pit_2026_definite_schedule_other_jurisdiction_credit_candidate.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1110",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "spouses who file a joint federal return but who elect to determine their Delaware taxes separately",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1114",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the amount of taxable income",
+        "where": [
+          "de_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the standard deduction of a resident individual shall be $3,250, and the standard deduction of resident spouses shall be $6,500 if they file a joint return and $3,250 each if they file separate returns",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1108",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "whose tax table income for the taxable year does not exceed $60,000",
+        "where": [
+          "de_pit_2026_definite_schedule_method_controls.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "20000",
+        "where": [
+          "de_pit_2026_minimum_director_tax_table_income_ceiling.versions[0].formula"
+        ],
+        "forms": [
+          "20000",
+          "20,000"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "...whose tax table income for the taxable year does not exceed $60,000, or such lesser amount as the Director may determine but in any event not less than $20,000, a tax determined under tables... prescribed by the Director of Revenue.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "For taxable income at or below $60,000, section 1102(d) requires a Director-prescribed table",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "but in any event not less than $20,000",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "tax table income for the taxable year does not exceed $60,000",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "whose tax table income for the taxable year does not exceed $60,000, or such lesser amount as the Director may determine but in any event not less than $20,000",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 27,
+    "post_side_matched": 10,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-de/statute/30/1102",
+        "quote": "whose tax table income for the taxable year does not exceed $60,000, or such lesser amount as the Director may determine but in any event not less than $20,000, a tax determined under tables",
+        "span": [
+          15026,
+          15216
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Section 1102(d)(1) lets the Director set the table ceiling anywhere from $20,000 to $60,000. The pre-fix rule treats $60,000 as a fixed ceiling (table method if taxable income is at or below $60,000, schedule method above it). That asserts the table method across the whole $20,000-$60,000 band, which the text leaves undecided. The post-fix rule adds the $20,000 floor and an 'uncertain' status for that band.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "adjudication_note": "",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
+  "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-8765a05d-1b48ce393e78",
+  "family_size": 1,
+  "family_representative": true,
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module encoded 30 Del. C. §1102(d)(1) as \"table method applies iff taxable income <= $60,000\", dropping the statute's qualifying clause that the Director may instead set a lesser tax-table-income ceiling \"but in any event not less than $20,000\", so it asserted the table method (and, by complement, capped credits against schedule tax) across the whole $20,000-$60,000 band where the source does not establish which method controls.",
+    "triage_notes": "Provision read through the pinned corpus release: §1102(d)(1) verbatim is \"...whose tax table income for the taxable year does not exceed $60,000, or such lesser amount as the Director may determine but in any event not less than $20,000, a tax determined under tables... prescribed by the Director of Revenue.\" Pre-fix rules were `de_pit_2026_tax_table_method_applies: taxable_income <= de_pit_2026_tax_table_income_ceiling (60000)` and `de_pit_2026_schedule_method_controls: taxable_income > 60000`; post-fix adds parameter `de_pit_2026_minimum_director_tax_table_income_ceiling = 20000` (proof atom excerpt \"but in any event not less than $20,000\") and splits into three mutually exclusive statuses, and the three credit rules now return 0 unless `de_pit_2026_definite_schedule_method_controls`, so credits are no longer capped against a schedule amount in the uncertain band. Kind is a judgment call between unrepresented_clause (the Director-lesser-ceiling clause was absent and the fix adds it, which is how I labeled it) and untraceable_branch (the pre-fix table/schedule status branch asserted more than the cited source supports); the numeric $60,000 itself was never wrong. This commit is a multi-thread hardening of a single module and also carries: (a) a second fidelity-relevant scope/logic thread — the supported-profile guard moved from fail-open `<= 0` comparisons to exact `== 0` plus a new nonnegative input-domain guard and newly required conditions (`is_full_year_resident`, `not is_joint_return`, `elects_standard_deduction`, `not uses_separate_spouse_mechanics`, `not has_section_1102_b_lump_sum_distribution`), i.e. the module previously produced full-year non-joint standard-deduction numbers without checking that profile and treated negative category amounts as in-profile (this alone would read as polarity_or_logic / wrong_entity_or_scope); (b) boundary-disclosure relabeling of three inputs the module had presented as raw but that are caller-completed (`fiduciary_adjustment` -> `completed_section_1634_fiduciary_adjustment`, `taxable_income_from_other_jurisdiction` -> `completed_section_1122_other_jurisdiction_taxable_income`, `potential_low_income_age_or_disability_exclusion` -> `completed_low_income_age_or_disability_exclusion_trigger`); (c) a purely mechanical/provenance layer — pervasive `profile_candidate_*` renames, expanded summary/rationale prose, and many added exact-subsection proof-atom excerpts. Defect was caught by pre-merge review inside PR #1027, so the defective state (669d5eb4) never reached main; if the corpus requires defects that were merged, flag this. Companion test file gained 737 lines and the apply manifest was regenerated; no other module changed.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.81,
+    "verifier_justification": "The pinned corpus text of 30 Del. C. §1102(d)(1) reads \"whose tax table income for the taxable year does not exceed $60,000, or such lesser amount as the Director may determine but in any event not less than $20,000\" — so the source fixes only a band ($20,000–$60,000) within which the operative table ceiling lies, and does not establish which method controls above $20,000. The pre-fix module dropped that qualifying clause entirely (its proof atom excerpt was only \"tax table income for the taxable year does not exceed $60,000\") and encoded a definite public judgment `de_pit_2026_tax_table_method_applies = taxable_income <= 60000`, with the complement `schedule_method_controls = taxable_income > 60000`; its summary even asserted \"For taxable income at or below $60,000, section 1102(d) requires a Director-prescribed table\", which the statute does not say. The fix adds the missing clause as a grounded parameter (`de_pit_2026_minimum_director_tax_table_income_ceiling = 20000`, proof excerpt \"but in any event not less than $20,000\") and splits the single boolean into three mutually exclusive statuses, adding the previously absent uncertain $20k–$60k branch. I tried to refute this as mere added precision, but the pre-fix rule made an affirmative, exposed status claim across the whole band, so this corrects encoded meaning rather than adding coverage the module never claimed.",
+    "verifier_quote": "-        formula: de_pit_2026_taxable_income <= de_pit_2026_tax_table_income_ceiling\n+            source: {corpus_citation_path: us-de/statute/30/1102, excerpt: \"but in any event not less than $20,000\"}",
+    "verifier_notes": "Kinds I ruled out: amount_mismatch (the $60,000 is verbatim in the source and was not wrong; $20,000 is new, from the omitted clause); boundary_direction (strictness stayed `<=`/`>` on both sides — the change is a new threshold created by the added clause, not a flipped bound); untraceable_branch (the `<= $60,000` branch did have source basis, it was just unqualified). Caveat for the reviewer: a defensible counter-reading is that $60,000 is the statutory default and the Director's lesser determination is an unexercised external fact, which would make the pre-fix a defensible default rather than a wrong encoding — I weighted against it because the module's own source_verification declares the 2026 Director ceiling absent from the pinned corpus, so asserting the maximum-ceiling reading as definite exceeds the source. Also note this commit bundles at least two further distinct fidelity issues named in the same PR-body sentence that are NOT covered by the flagged rule_path: (1) the fail-open profile guard, `de_pit_2026_federal_nol_carryback_deduction <= 0` → `== 0` plus a new `de_pit_2026_input_domain_is_valid` nonnegativity conjunct (polarity_or_logic); (2) credits previously capped unconditionally against schedule tax, now gated on `if de_pit_2026_definite_schedule_method_controls:` (also polarity/scope). If the corpus wants one kind per commit, unrepresented_clause is correct for the flagged rule; if it admits multiple, the fail-closed change deserves its own entry. Source verified via resolve_provision.py, corpus release us-rulespec-2026-07-22-current-la-status-fix, body sha256 e0e92f1a…, fix_time_corpus_match: same_body.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen",
+    "screen_reason": "Harden: rewrites Delaware resident_core_liability_pipeline (405 lines), narrows accepted boundaries and re-cites proof atoms to the recovered official document.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
+  },
+  "triage_notes": "Provision read through the pinned corpus release: §1102(d)(1) verbatim is \"...whose tax table income for the taxable year does not exceed $60,000, or such lesser amount as the Director may determine but in any event not less than $20,000, a tax determined under tables... prescribed by the Director of Revenue.\" Pre-fix rules were `de_pit_2026_tax_table_method_applies: taxable_income <= de_pit_2026_tax_table_income_ceiling (60000)` and `de_pit_2026_schedule_method_controls: taxable_income > 60000`; post-fix adds parameter `de_pit_2026_minimum_director_tax_table_income_ceiling = 20000` (proof atom excerpt \"but in any event not less than $20,000\") and splits into three mutually exclusive statuses, and the three credit rules now return 0 unless `de_pit_2026_definite_schedule_method_controls`, so credits are no longer capped against a schedule amount in the uncertain band. Kind is a judgment call between unrepresented_clause (the Director-lesser-ceiling clause was absent and the fix adds it, which is how I labeled it) and untraceable_branch (the pre-fix table/schedule status branch asserted more than the cited source supports); the numeric $60,000 itself was never wrong. This commit is a multi-thread hardening of a single module and also carries: (a) a second fidelity-relevant scope/logic thread — the supported-profile guard moved from fail-open `<= 0` comparisons to exact `== 0` plus a new nonnegative input-domain guard and newly required conditions (`is_full_year_resident`, `not is_joint_return`, `elects_standard_deduction`, `not uses_separate_spouse_mechanics`, `not has_section_1102_b_lump_sum_distribution`), i.e. the module previously produced full-year non-joint standard-deduction numbers without checking that profile and treated negative category amounts as in-profile (this alone would read as polarity_or_logic / wrong_entity_or_scope); (b) boundary-disclosure relabeling of three inputs the module had presented as raw but that are caller-completed (`fiduciary_adjustment` -> `completed_section_1634_fiduciary_adjustment`, `taxable_income_from_other_jurisdiction` -> `completed_section_1122_other_jurisdiction_taxable_income`, `potential_low_income_age_or_disability_exclusion` -> `completed_low_income_age_or_disability_exclusion_trigger`); (c) a purely mechanical/provenance layer — pervasive `profile_candidate_*` renames, expanded summary/rationale prose, and many added exact-subsection proof-atom excerpts. Defect was caught by pre-merge review inside PR #1027, so the defective state (669d5eb4) never reached main; if the corpus requires defects that were merged, flag this. Companion test file gained 737 lines and the apply manifest was regenerated; no other module changed. | verifier confirmed at 0.81"
+}

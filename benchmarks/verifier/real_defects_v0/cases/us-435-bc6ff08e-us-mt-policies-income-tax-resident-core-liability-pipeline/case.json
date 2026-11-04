@@ -1,0 +1,1296 @@
+{
+  "id": "us-435-bc6ff08e-us-mt-policies-income-tax-resident-core-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "bc6ff08e695906690cbc5c0f55e1bed2802068e0",
+  "parent_commit": "34b60479ef6dc579fb6544947347c3bc45752e40",
+  "commit_date": "2026-07-23T23:01:49-04:00",
+  "commit_subject": "Address Montana resident core review",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1031",
+  "module_path": "us-mt/policies/income_tax/resident_core_liability_pipeline.yaml",
+  "corpus_citation_path": "us-mt/statute/15-30-2101",
+  "corpus_citation_paths_all": [
+    "us-mt/statute/15-30-2101",
+    "us-mt/statute/15-30-2103",
+    "us-mt/statute/15-30-2105",
+    "us-mt/statute/15-30-2120",
+    "us-mt/statute/15-30-2302",
+    "us-mt/statute/15-30-2318/block-1",
+    "us-mt/statute/15-30-2321",
+    "us-mt/statute/15-30-2328",
+    "us-mt/statute/15-30-2334",
+    "us-mt/statute/15-30-2335",
+    "us-mt/statute/15-30-2337",
+    "us-mt/statute/15-30-2338",
+    "us-mt/statute/15-30-2340",
+    "us-mt/statute/15-30-2341",
+    "us-mt/statute/15-30-2342",
+    "us-mt/statute/15-30-2357",
+    "us-mt/statute/15-30-2359",
+    "us-mt/statute/15-30-2361",
+    "us-mt/statute/15-30-2380",
+    "us-mt/statute/15-30-3005",
+    "us-mt/statute/15-30-3328",
+    "us-mt/statute/15-30-3703",
+    "us-mt/statute/15-30-3704",
+    "us-mt/statute/15-62-208"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.8,
+  "description": "Separate taxes and recoveries under sections 15-30-2105, 15-30-3005, 15-62-208, 53-25-118, 15-30-2328(3), and 15-30-2359(6), plus the refundable pass-through-entity-tax credit under 15-30-3328, are represented by distinct raw applicability facts and must be absent.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        44,
+        45
+      ],
+      [
+        50,
+        50
+      ],
+      [
+        55,
+        56
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        68,
+        69
+      ],
+      [
+        74,
+        76
+      ],
+      [
+        79,
+        79
+      ],
+      [
+        91,
+        91
+      ],
+      [
+        403,
+        406
+      ],
+      [
+        451,
+        451
+      ],
+      [
+        462,
+        462
+      ],
+      [
+        583,
+        583
+      ],
+      [
+        600,
+        601
+      ],
+      [
+        605,
+        605
+      ],
+      [
+        623,
+        623
+      ],
+      [
+        641,
+        641
+      ],
+      [
+        788,
+        789
+      ],
+      [
+        832,
+        836
+      ],
+      [
+        857,
+        857
+      ],
+      [
+        947,
+        948
+      ],
+      [
+        958,
+        958
+      ],
+      [
+        969,
+        969
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        9,
+        9
+      ],
+      [
+        26,
+        27
+      ],
+      [
+        30,
+        30
+      ],
+      [
+        37,
+        37
+      ],
+      [
+        40,
+        41
+      ],
+      [
+        43,
+        43
+      ],
+      [
+        52,
+        54
+      ],
+      [
+        59,
+        63
+      ],
+      [
+        68,
+        70
+      ],
+      [
+        78,
+        78
+      ],
+      [
+        82,
+        86
+      ],
+      [
+        91,
+        93
+      ],
+      [
+        96,
+        96
+      ],
+      [
+        108,
+        109
+      ],
+      [
+        196,
+        198
+      ],
+      [
+        240,
+        275
+      ],
+      [
+        343,
+        345
+      ],
+      [
+        351,
+        368
+      ],
+      [
+        400,
+        402
+      ],
+      [
+        483,
+        485
+      ],
+      [
+        487,
+        488
+      ],
+      [
+        520,
+        549
+      ],
+      [
+        559,
+        577
+      ],
+      [
+        583,
+        590
+      ],
+      [
+        600,
+        608
+      ],
+      [
+        648,
+        674
+      ],
+      [
+        691,
+        761
+      ],
+      [
+        803,
+        859
+      ],
+      [
+        882,
+        882
+      ],
+      [
+        885,
+        885
+      ],
+      [
+        902,
+        902
+      ],
+      [
+        906,
+        925
+      ],
+      [
+        943,
+        943
+      ],
+      [
+        961,
+        961
+      ],
+      [
+        979,
+        981
+      ],
+      [
+        1091,
+        1120
+      ],
+      [
+        1141,
+        1148
+      ],
+      [
+        1191,
+        1198
+      ],
+      [
+        1219,
+        1223
+      ],
+      [
+        1312,
+        1315
+      ],
+      [
+        1317,
+        1322
+      ],
+      [
+        1333,
+        1340
+      ],
+      [
+        1350,
+        1351
+      ]
+    ],
+    "rule_names": [
+      "mt_pit_2026_supported_profile_applies",
+      "mt_pit_2026_input_domain_is_valid",
+      "mt_pit_2026_family_education_single_or_separate_cap",
+      "mt_pit_2026_family_education_joint_cap",
+      "mt_pit_2026_eligible_child_or_stepchild_family_education_contributions",
+      "mt_pit_2026_eligible_family_education_contributions",
+      "mt_pit_2026_family_education_contribution_subtraction",
+      "mt_pit_2026_profile_candidate_subtractions",
+      "mt_pit_2026_adopted_child_age_limit",
+      "mt_pit_2026_adopted_child_is_eligible",
+      "mt_pit_2026_refundable_adoption_credit",
+      "mt_pit_2026_profile_candidate_signed_section_2101_amount",
+      "mt_pit_2026_profile_candidate_schedule_tax_base",
+      "mt_pit_2026_profile_candidate_net_long_term_capital_gain",
+      "mt_pit_2026_profile_candidate_nonqualified_taxable_income",
+      "mt_pit_2026_refundable_earned_income_credit",
+      "mt_pit_2026_refundable_public_access_credit"
+    ],
+    "rule_path": "rules[mt_pit_2026_supported_profile_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "906c9205a0c3f38a7f60e374cbee2b0a46698907e4e14bbf4177e7b27b7421f1",
+  "post_fix_artifact_sha256": "12ee2cb860541e4554f37649c16060f505eb7f93a8079e1d74a584c7db65c237",
+  "provision_sha256": "a3601aa7e4684a11658fc81ced920868cc99e58bc4858e04b7bba530da446eb5",
+  "provision_chars": 17347,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-mt/statute/15-30-2101",
+    "provision_file": "data/corpus/provisions/us-mt/statute/2026-07-16-pit-central-us-mt-title-15.jsonl",
+    "provision_file_sha256": "c464e5931eb7d9eb0ea0e703996c9f0a260c6cb661b6d3dca80629ac496a87f4",
+    "line_number": 1261,
+    "record_id": "20415b07-3c5e-5a2d-a608-8ad02c29e9e2",
+    "stored_body_sha256": "0598a7152cb135b361d52bcf334cb9eba3c344b3313bb727a95f7b536f0f2f54",
+    "resolved_text_sha256": "0598a7152cb135b361d52bcf334cb9eba3c344b3313bb727a95f7b536f0f2f54",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-03-24",
+    "source_as_of": "2026-03-24",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "7b1fc1524ec2373ef9a53f56d1f18c1789be1fa1",
+    "requested_citation_path": "us-mt/statute/15-30-2101",
+    "release_errors_before_success": []
+  },
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "0598a7152cb135b361d52bcf334cb9eba3c344b3313bb727a95f7b536f0f2f54",
+    "first_citation_chars": 13326,
+    "added": [
+      {
+        "citation_path": "us-mt/statute/15-30-3328",
+        "text_sha256": "34feaaa1edef1636788ef53fcc9190f8c2568365618306c3fb07c9a9284ea35f",
+        "chars": 1070,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us-mt/statute/15-30-3328",
+          "provision_file": "data/corpus/provisions/us-mt/statute/2026-07-16-pit-central-us-mt-title-15.jsonl",
+          "provision_file_sha256": "c464e5931eb7d9eb0ea0e703996c9f0a260c6cb661b6d3dca80629ac496a87f4",
+          "line_number": 1444,
+          "record_id": "aace07b5-3d2e-5e80-8f12-25f4d1bb33e6",
+          "stored_body_sha256": "34feaaa1edef1636788ef53fcc9190f8c2568365618306c3fb07c9a9284ea35f",
+          "resolved_text_sha256": "34feaaa1edef1636788ef53fcc9190f8c2568365618306c3fb07c9a9284ea35f",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-03-24",
+          "source_as_of": "2026-03-24",
+          "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3"
+        }
+      },
+      {
+        "citation_path": "us-mt/statute/15-62-208",
+        "text_sha256": "937da9d8703a8082dc127c2a2529d176d644b13d08e0bd526151acc3a59e0289",
+        "chars": 2825,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us-mt/statute/15-62-208",
+          "provision_file": "data/corpus/provisions/us-mt/statute/2026-07-16-pit-central-us-mt-title-15.jsonl",
+          "provision_file_sha256": "c464e5931eb7d9eb0ea0e703996c9f0a260c6cb661b6d3dca80629ac496a87f4",
+          "line_number": 2046,
+          "record_id": "44f42723-f9ae-5cc4-aebb-a936caf1544b",
+          "stored_body_sha256": "937da9d8703a8082dc127c2a2529d176d644b13d08e0bd526151acc3a59e0289",
+          "resolved_text_sha256": "937da9d8703a8082dc127c2a2529d176d644b13d08e0bd526151acc3a59e0289",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-03-24",
+          "source_as_of": "2026-03-24",
+          "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "mt_pit_2026_supported_profile_applies",
+      "mt_pit_2026_input_domain_is_valid",
+      "mt_pit_2026_family_education_single_or_separate_cap",
+      "mt_pit_2026_family_education_joint_cap",
+      "mt_pit_2026_eligible_child_or_stepchild_family_education_contributions",
+      "mt_pit_2026_eligible_family_education_contributions",
+      "mt_pit_2026_family_education_contribution_subtraction",
+      "mt_pit_2026_profile_candidate_subtractions",
+      "mt_pit_2026_adopted_child_age_limit",
+      "mt_pit_2026_adopted_child_is_eligible",
+      "mt_pit_2026_refundable_adoption_credit",
+      "mt_pit_2026_profile_candidate_signed_section_2101_amount",
+      "mt_pit_2026_profile_candidate_schedule_tax_base",
+      "mt_pit_2026_profile_candidate_net_long_term_capital_gain",
+      "mt_pit_2026_profile_candidate_nonqualified_taxable_income",
+      "mt_pit_2026_refundable_earned_income_credit",
+      "mt_pit_2026_refundable_public_access_credit"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "\"eligible child\" means a child under the age of 18",
+        "where": [
+          "mt_pit_2026_adopted_child_age_limit.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2321",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "\"eligible child\" means a child under the age of 18 or a person who is physically or mentally incapable of providing self-care",
+        "where": [
+          "mt_pit_2026_adopted_child_is_eligible.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2321",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "A separate tax is imposed on that portion of a lump-sum distribution",
+        "where": [
+          "mt_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2105",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "If the property through which access is provided is owned by multiple taxpayers",
+        "where": [
+          "mt_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2380",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Married taxpayers who file a joint return are entitled to a reduction, not in excess of $9,000",
+        "where": [
+          "mt_pit_2026_family_education_joint_cap.versions[0].formula",
+          "mt_pit_2026_family_education_contribution_subtraction.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Montana taxable income or any part of that income",
+        "where": [
+          "mt_pit_2026_profile_candidate_schedule_tax_base.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Only one credit is allowed for each eligible child.",
+        "where": [
+          "mt_pit_2026_adopted_child_is_eligible.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2321",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The distribution is taxable, and a penalty equal to 10% of the tax due",
+        "where": [
+          "mt_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-3005",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The items in subsection (2) are added to and the items in subsection (3) are subtracted from federal taxable income to determine Montana taxable income.",
+        "where": [
+          "mt_pit_2026_profile_candidate_signed_section_2101_amount.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "There is a recapture tax at a rate equal to the highest rate of tax provided in 15-30-2103",
+        "where": [
+          "mt_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-62-208",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "a payment received by a private landowner for providing public access to public land",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "after accounting for amounts included in taxable income that is not net long-term capital gains",
+        "where": [
+          "mt_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "all payments made under the World War I bonus law, the Korean bonus law, and the veterans' bonus law",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "applies only to contributions to an account of which the account owner is the taxpayer, the taxpayer's spouse, or the taxpayer's child or stepchild",
+        "where": [
+          "mt_pit_2026_eligible_family_education_contributions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "contributions or earnings withdrawn from a family education savings account",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "for the legal adoption of an eligible child",
+        "where": [
+          "mt_pit_2026_adopted_child_is_eligible.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2321",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "if the taxpayer's child or stepchild is a Montana resident",
+        "where": [
+          "mt_pit_2026_eligible_family_education_contributions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "income attributable to providing a bona fide loan in an arms'-length transaction",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "income received from the manufacture of ammunition components",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "increase the amount of tax due under 15-30-2103 or 15-31-101 by the amount of the credit allowed",
+        "where": [
+          "mt_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2328",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "interest and other income related to contributions that were made prior to January 1, 2024",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "interest from obligations of the United States government and exempt-interest dividends attributable to that interest",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "may claim the distributive share of the owner's entity tax paid by an electing pass-through entity as a refundable credit",
+        "where": [
+          "mt_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-3328",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "may reduce taxable income by the lesser of $3,000 or the amount of the contribution",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "may reduce taxable income by the lesser of $4,500 or the amount of the contribution",
+        "where": [
+          "mt_pit_2026_family_education_single_or_separate_cap.versions[0].formula",
+          "mt_pit_2026_family_education_contribution_subtraction.versions[0].formula",
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "payments from the Montana end of watch trust",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "railroad retirement benefits",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "salary received from the armed forces by residents of Montana who are serving on active duty in the regular armed forces",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "separate properties owned by different taxpayers, the taxpayer for each property may claim a $750 credit",
+        "where": [
+          "mt_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2380",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "subject to the recapture tax provided in 53-25-118",
+        "where": [
+          "mt_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the amount of a scholarship to an eligible student by a student scholarship organization",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the amount of any refund or credit for overpayment of income taxes imposed by this state or any other taxing jurisdiction",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the amount of the gain recognized from the sale or exchange of a mobile home park",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the amount of the property tax rebate received under 15-1-2307",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the amount received by a beneficiary pursuant to 10-1-1201",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the recovery during the tax year of any amount deducted in any prior tax year",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the salary received by residents of Montana for active duty in the national guard",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the taxpayer's child or stepchild if the taxpayer's child or stepchild is a Montana resident",
+        "where": [
+          "mt_pit_2026_eligible_child_or_stepchild_family_education_contributions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "\"Montana taxable income\" means federal taxable income as determined for federal income tax purposes and adjusted as provided in 15-30-2120.",
+        "where": [
+          "mt_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2101",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "\"Nonqualified taxable income\" means Montana taxable income that is not considered net long-term capital gains.",
+        "where": [
+          "mt_pit_2026_profile_candidate_nonqualified_taxable_income.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "\"Resident\" applies only to natural persons and includes, for the purpose of determining liability to the tax imposed by this chapter",
+        "where": [
+          "mt_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2101",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "$5,000 in the tax year the adoption is final if the eligible child does not meet the requirements",
+        "where": [
+          "mt_pit_2026_refundable_adoption_credit.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2321",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "$7,500 in the tax year the adoption is final if the eligible child was in foster care",
+        "where": [
+          "mt_pit_2026_refundable_adoption_credit.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2321",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "By November 1 of each year, the department shall multiply the subtractions from federal taxable income",
+        "where": [
+          "mt_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Property tax billed and rent-equivalent tax paid are reduced according to the following schedule",
+        "where": [
+          "mt_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2340",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Subject to the conditions of 15-30-3703, an alternative tax rate of 0% is imposed",
+        "where": [
+          "mt_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-3704",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The allowable credit must be computed by a formula prescribed by the department.",
+        "where": [
+          "mt_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2302",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The maximum credit that a taxpayer may claim in a year under this section is $3,000.",
+        "where": [
+          "mt_pit_2026_refundable_public_access_credit.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2380",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "a resident taxpayer is allowed as a credit against the tax imposed by 15-30-2103",
+        "where": [
+          "mt_pit_2026_refundable_earned_income_credit.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2318/block-1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "for every married individual who files a joint return and for every surviving spouse",
+        "where": [
+          "mt_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "in the amount of $750 for each qualified access to public land that is provided",
+        "where": [
+          "mt_pit_2026_refundable_public_access_credit.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2380",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "is allowed to deduct the amount of the business expense paid when there is no corresponding state income tax credit or deduction",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "that portion of a taxpayer's Montana taxable income that consists of net long-term capital gains",
+        "where": [
+          "mt_pit_2026_profile_candidate_net_long_term_capital_gain.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the amount of the state tax credit provided for in subsection (2) is reduced by the reduction percentage",
+        "where": [
+          "mt_pit_2026_refundable_earned_income_credit.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2318/block-1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the following are subtracted from federal taxable income",
+        "where": [
+          "mt_pit_2026_profile_candidate_subtractions.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2120",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "18",
+        "where": [
+          "mt_pit_2026_adopted_child_age_limit.versions[0].formula"
+        ],
+        "forms": [
+          "18"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "mt_pit_2026_adopted_child_age_limit.versions[0].effective_from",
+          "mt_pit_2026_adopted_child_is_eligible.versions[0].effective_from",
+          "mt_pit_2026_eligible_child_or_stepchild_family_education_contributions.versions[0].effective_from",
+          "mt_pit_2026_eligible_family_education_contributions.versions[0].effective_from",
+          "mt_pit_2026_family_education_contribution_subtraction.versions[0].effective_from",
+          "mt_pit_2026_family_education_joint_cap.versions[0].effective_from",
+          "mt_pit_2026_family_education_single_or_separate_cap.versions[0].effective_from",
+          "mt_pit_2026_profile_candidate_schedule_tax_base.versions[0].effective_from",
+          "mt_pit_2026_profile_candidate_signed_section_2101_amount.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "mt_pit_2026_adopted_child_age_limit.versions[0].effective_to",
+          "mt_pit_2026_adopted_child_is_eligible.versions[0].effective_to",
+          "mt_pit_2026_eligible_child_or_stepchild_family_education_contributions.versions[0].effective_to",
+          "mt_pit_2026_eligible_family_education_contributions.versions[0].effective_to",
+          "mt_pit_2026_family_education_contribution_subtraction.versions[0].effective_to",
+          "mt_pit_2026_family_education_joint_cap.versions[0].effective_to",
+          "mt_pit_2026_family_education_single_or_separate_cap.versions[0].effective_to",
+          "mt_pit_2026_profile_candidate_schedule_tax_base.versions[0].effective_to",
+          "mt_pit_2026_profile_candidate_signed_section_2101_amount.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "4500",
+        "where": [
+          "mt_pit_2026_family_education_single_or_separate_cap.versions[0].formula"
+        ],
+        "forms": [
+          "4500",
+          "4,500"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "9000",
+        "where": [
+          "mt_pit_2026_family_education_joint_cap.versions[0].formula"
+        ],
+        "forms": [
+          "9000",
+          "9,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ", but 15-30-2120(7)(a) indexes only subsections (3)(g) and (3)(o), so the fixed $4,500/$9,000 caps in (5)(a) were a source-stated deduction left unrepresented. The one weak item is 15-30-2105, which the pinned corpus row marks metadata.status",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "= under 18 or incapable of self-care. MCA 15-30-2105 could NOT be resolved: the resolver reported",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Only one credit is allowed for each eligible child",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Only one credit is allowed for each eligible child.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "There is a recapture tax at a rate equal to the highest rate of tax provided in 15-30-2103",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "computes Montana taxable income without forcing a nonnegative floor, floors only the schedule base",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "for every candidate release, so the lump-sum-distribution excerpt is taken from the module's own proof atom, not independently verified. Commit message body is empty; PR body is the best commit-level evidence (",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "increase the amount of tax due under 15-30-2103 or 15-31-101 by the amount of the credit allowed",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "may claim the distributive share of the owner's entity tax paid by an electing pass-through entity as a refundable credit",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 52,
+    "post_side_matched": 5,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-mt/statute/15-30-3328",
+        "quote": "An owner that is not a pass-through entity may claim the distributive share of the owner's entity tax paid by an electing pass-through entity as a refundable credit against the taxes under this chapter.",
+        "span": [
+          13514,
+          13716
+        ]
+      },
+      {
+        "citation_path": "us-mt/statute/15-62-208",
+        "quote": "There is a recapture tax at a rate equal to the highest rate of tax provided in 15-30-2103 on the recapturable withdrawal of amounts that were deducted from income in calculating Montana individual income taxes.",
+        "span": [
+          14593,
+          14804
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "15-30-3328 grants a refundable pass-through-entity credit against the chapter's taxes, and 15-62-208 imposes a separate recapture tax on individuals. Both change a resident's net Montana liability. The pre-fix mt_pit_2026_supported_profile_applies gate has no conjunct or hold for either one, so it admits those taxpayers and reports a net liability that leaves them out. The post-fix gate excludes them through explicit applicability facts.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "adjudicated",
+    "adjudication_note": "Both readers give the same verdict and both quote 15-30-3328 and 15-62-208. Reader A adds 15-30-2328 (other/006). It is valid but not needed, and the two shortest files the post-fix gate's proof atoms cite carry the point. 019 (1,070 chars) and 022 (2,825 chars) are short enough to fit the judge window together. Both quotes check against the files.",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.75,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
+  "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-bc6ff08e-4d2888fb8d15",
+  "family_size": 1,
+  "family_representative": true,
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module returned a full-year-resident net liability that silently omitted clauses the cited Montana statutes state: the separate lump-sum/farm-ranch/recapture taxes and credit recoveries under 15-30-2105, 15-30-3005, 15-62-208, 53-25-118, 15-30-2328(3) and 15-30-2359(6) and the refundable 15-30-3328 pass-through-entity credit had no representation at all, the 15-30-2120(5)(a) family-education deduction was parked as a typed hold even though its $4,500/$9,000 caps and account-owner relationship test are in the pinned corpus, and the adoption credit multiplied per-adoption amounts by unbounded counts with none of 15-30-2321's eligible-child (under 18 or incapable of self-care), adoption-final-in-year, or \"Only one credit is allowed for each eligible child\" conditions.",
+    "triage_notes": "Single module file, but this is a multi-defect review-fix commit; at least four distinct fidelity corrections land in the same diff and I had to pick one kind. (1) unrepresented_clause, the dominant pattern: missing separate taxes/recaptures and the PTE credit (now fail-closed applicability holds in mt_pit_2026_supported_profile_applies), the missing 15-30-2120(5)(a) family-education deduction (new caps 4500/9000, child/stepchild Montana-residency test, added into mt_pit_2026_profile_candidate_subtractions and the corresponding hold input mt_pit_2026_has_family_education_contribution_deduction deleted), and the missing 15-30-2321 eligible-child/one-credit conditions on mt_pit_2026_refundable_adoption_credit. (2) untraceable_branch: the pre-fix mt_pit_2026_profile_candidate_montana_taxable_income wrapped fed TI + additions - subtractions in max(0, ...) with no basis in 15-30-2101; the fix renames it to mt_pit_2026_profile_candidate_signed_section_2101_amount without the floor and introduces mt_pit_2026_profile_candidate_schedule_tax_base = max(0, ...) so only the 15-30-2103 schedule base is floored (module summary: \"computes Montana taxable income without forcing a nonnegative floor, floors only the schedule base\"). (3) polarity_or_logic / fail-open: the refundable adoption, EITC, and public-access credit rules previously computed unconditionally and now return 0 when mt_pit_2026_supported_profile_applies is false (PR body: \"transitive fail-closed gates\"). (4) capital character: a new gate requires section_1222_net_long_term_capital_gain == 0 or both additions and subtractions == 0, because Montana modifications can change income character. Also in scope but not a defect: the public-access hold was renamed and NARROWED (mt_pit_2026_has_shared_or_duplicate_public_access_claim -> mt_pit_2026_has_shared_ownership_or_same_property_public_access_allocation, so separate properties under 15-30-2380(4) no longer set the hold), and ~25 cross-title modification inputs gained `== 0` requirements in the profile gate (PR body finding \"caller-completed legal results\"). Provisions read through the pinned release: MCA 15-30-2120(5)(a) confirms the $4,500/$9,000 caps, the taxpayer/spouse/child-or-stepchild account-owner constraint with the Montana-residency condition, and (5)(b) the 15-62-208 recapture tax; MCA 15-30-2321 confirms the $7,500/$5,000 amounts, subsection (5) \"Only one credit is allowed for each eligible child.\" and subsection (7) \"eligible child\" = under 18 or incapable of self-care. MCA 15-30-2105 could NOT be resolved: the resolver reported \"Active corpus source 'us-mt/statute/15-30-2105' is repealed\" for every candidate release, so the lump-sum-distribution excerpt is taken from the module's own proof atom, not independently verified. Commit message body is empty; PR body is the best commit-level evidence (\"Findings covering specialty taxes and recaptures, capital character, transitive fail-closed gates, caller-completed legal results, public-output gating, federal-EITC domain consistency, adoption proof completeness, and generated-artifact minimality were fixed and revalidated.\"). Follow-up: 915fc7cc8 \"Tighten Montana resident core domain\" touches this same module after this commit; a PR comment says that rebase carried no substantive Montana changes, so reviewers should check whether 915fc7cc8 contains further fidelity fixes. Companion test file changed by +3,181 lines in the same commit.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.82,
+    "verifier_justification": "The pre-fix module (34b60479:us-mt/.../resident_core_liability_pipeline.yaml, rule mt_pit_2026_supported_profile_applies, lines 414-465) emitted mt_pit_2026_supported_profile_candidate_net_income_tax_liability = \"Net Montana income-tax liability before payments\" for a gate that had no conjunct, input, or hold for the separate taxes and recaptures MCA 15-30-3005, 15-62-208, 15-30-2328(3), 15-30-2359(6) and 15-30-2120(6)(b)/53-25-118 impose, or for the refundable 15-30-3328 pass-through-entity credit, so a resident with any of them silently got an understated liability; the fix adds the raw facts and gate conjuncts, i.e. it adds representation of clauses the source states. I read those provisions in the release the commit's toolchain pins (us-rulespec-2026-07-22-current) and every added proof excerpt is verbatim in the corpus body (\"There is a recapture tax at a rate equal to the highest rate of tax provided in 15-30-2103\"; \"increase the amount of tax due under 15-30-2103 or 15-31-101 by the amount of the credit allowed\"; \"may claim the distributive share of the owner's entity tax paid by an electing pass-through entity as a refundable credit\"). The \"new coverage it never claimed\" defense fails because the pre-fix gate affirmatively admitted those taxpayers, and it also fails for the family-education deduction: the pre-fix hold rationale called it \"indexed\", but 15-30-2120(7)(a) indexes only subsections (3)(g) and (3)(o), so the fixed $4,500/$9,000 caps in (5)(a) were a source-stated deduction left unrepresented. The one weak item is 15-30-2105, which the pinned corpus row marks metadata.status \"repealed\".",
+    "verifier_quote": "+          and not mt_pit_2026_has_lump_sum_distribution_tax\n+          and not mt_pit_2026_has_farm_ranch_risk_account_distribution\n+          and not mt_pit_2026_has_farm_ranch_risk_account_penalty\n+          and not mt_pit_2026_has_529_recapture_tax\n+          and not mt_pit_2026_has_able_recapture_tax\n+          and not mt_pit_2026_has_endowment_recovery_or_credit_recapture\n+          and not mt_pit_2026_has_trades_training_recovery_or_credit_recapture\n+          and not mt_pit_2026_has_refundable_pass_through_entity_tax_credit",
+    "verifier_notes": "Reviewer caveats. (1) Multi-defect commit: besides the quoted unrepresented clauses it also (a) rewrites the refundable adoption credit from an ungated count product (`mt_pit_2026_foster_care_adoption_amount * ..._count + ...`) to a single child-level claim conditioned on 15-30-2321's \"eligible child\" age-18/self-care test, 2026 finality and \"Only one credit is allowed for each eligible child.\" (all three excerpts verified verbatim) — also unrepresented_clause; (b) gates mt_pit_2026_refundable_earned_income_credit and mt_pit_2026_refundable_public_access_credit on the profile, which is a fail-open→fail-closed fix (polarity_or_logic); (c) splits mt_pit_2026_profile_candidate_montana_taxable_income into a signed 15-30-2101 amount plus a floored 15-30-2103 schedule base, removing an ungrounded max(0) on Montana taxable income (arguably untraceable_branch). If the corpus wants one kind per case, unrepresented_clause is the dominant and the one the quoted comment supports; wrong_entity_or_scope is an adjacent reading (the supported population was too broad) but the cause is the missing clauses. (2) Partial weakness in the first reader's quote: MCA 15-30-2105 (lump-sum distribution tax) carries metadata.status \"repealed\" in the pinned release row (656 of the MT Title-15 rows carry that status, so the flag is meaningful), and `resolve_provision.py` refuses it as \"Active corpus source ... is repealed\" — the lump-sum hold added for it is conservative rather than source-required. The other six items are active sections and carry the fidelity finding on their own. (3) Provenance: this is a review-fix commit inside PR #1031, the PR that first introduced the module, so the defective state never reached main; that is a corpus-curation question (does the corpus admit intra-PR fixes?), not a classification one. (4) Verified read-only via git show, the scratchpad release JSONL, and resolve_provision.py; no repo state touched.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword",
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
+  },
+  "triage_notes": "Single module file, but this is a multi-defect review-fix commit; at least four distinct fidelity corrections land in the same diff and I had to pick one kind. (1) unrepresented_clause, the dominant pattern: missing separate taxes/recaptures and the PTE credit (now fail-closed applicability holds in mt_pit_2026_supported_profile_applies), the missing 15-30-2120(5)(a) family-education deduction (new caps 4500/9000, child/stepchild Montana-residency test, added into mt_pit_2026_profile_candidate_subtractions and the corresponding hold input mt_pit_2026_has_family_education_contribution_deduction deleted), and the missing 15-30-2321 eligible-child/one-credit conditions on mt_pit_2026_refundable_adoption_credit. (2) untraceable_branch: the pre-fix mt_pit_2026_profile_candidate_montana_taxable_income wrapped fed TI + additions - subtractions in max(0, ...) with no basis in 15-30-2101; the fix renames it to mt_pit_2026_profile_candidate_signed_section_2101_amount without the floor and introduces mt_pit_2026_profile_candidate_schedule_tax_base = max(0, ...) so only the 15-30-2103 schedule base is floored (module summary: \"computes Montana taxable income without forcing a nonnegative floor, floors only the schedule base\"). (3) polarity_or_logic / fail-open: the refundable adoption, EITC, and public-access credit rules previously computed unconditionally and now return 0 when mt_pit_2026_supported_profile_applies is false (PR body: \"transitive fail-closed gates\"). (4) capital character: a new gate requires section_1222_net_long_term_capital_gain == 0 or both additions and subtractions == 0, because Montana modifications can change income character. Also in scope but not a defect: the public-access hold was renamed and NARROWED (mt_pit_2026_has_shared_or_duplicate_public_access_claim -> mt_pit_2026_has_shared_ownership_or_same_property_public_access_allocation, so separate properties under 15-30-2380(4) no longer set the hold), and ~25 cross-title modification inputs gained `== 0` requirements in the profile gate (PR body finding \"caller-completed legal results\"). Provisions read through the pinned release: MCA 15-30-2120(5)(a) confirms the $4,500/$9,000 caps, the taxpayer/spouse/child-or-stepchild account-owner constraint with the Montana-residency condition, and (5)(b) the 15-62-208 recapture tax; MCA 15-30-2321 confirms the $7,500/$5,000 amounts, subsection (5) \"Only one credit is allowed for each eligible child.\" and subsection (7) \"eligible child\" = under 18 or incapable of self-care. MCA 15-30-2105 could NOT be resolved: the resolver reported \"Active corpus source 'us-mt/statute/15-30-2105' is repealed\" for every candidate release, so the lump-sum-distribution excerpt is taken from the module's own proof atom, not independently verified. Commit message body is empty; PR body is the best commit-level evidence (\"Findings covering specialty taxes and recaptures, capital character, transitive fail-closed gates, caller-completed legal results, public-output gating, federal-EITC domain consistency, adoption proof completeness, and generated-artifact minimality were fixed and revalidated.\"). Follow-up: 915fc7cc8 \"Tighten Montana resident core domain\" touches this same module after this commit; a PR comment says that rebase carried no substantive Montana changes, so reviewers should check whether 915fc7cc8 contains further fidelity fixes. Companion test file changed by +3,181 lines in the same commit. | verifier confirmed at 0.82"
+}

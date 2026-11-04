@@ -78,6 +78,7 @@ def test_fresh_legacy_required_tests_route_all_stages(stage, conflict, version):
         **{
             key: ""
             for key in [
+                "CORPUS_EXPORT_RUN_ID",
                 "REPAIR_RUN_ID",
                 "QUEUE_ID",
                 "DEPENDENT_CITATION",
@@ -123,7 +124,66 @@ def test_fresh_legacy_required_tests_route_all_stages(stage, conflict, version):
         assert json.loads(signing_cases) == [CASE]
 
 
-def test_fresh_legacy_encode_receives_exact_required_contract(tmp_path):
+@pytest.mark.parametrize("stage", STAGES)
+@pytest.mark.parametrize("repair_lane", ["target", "dependent"])
+def test_bound_legacy_repair_keeps_required_tests_in_signing_contract(
+    stage, repair_lane
+):
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    command = next(
+        s["run"] for s in workflow["jobs"]["encode"]["steps"] if s.get("name") == stage
+    )
+    command = command[
+        command.index("canonical_refresh_primary_required_test_cases_json=") :
+    ]
+    command = command.split("source_bundle_args=(", 1)[0]
+    command += '\nprintf "%s\\n%s\\n" "$canonical_refresh_primary_required_test_cases_json" "$primary_required_test_cases_json"\n'
+    payload = split_atomic_source_input(
+        json.dumps(
+            {
+                "schema": "axiom-encode/atomic-source-transaction/v3",
+                "source_bundle": [],
+                "canonical_refresh_bundle": [],
+                "require_complete_source_unit": True,
+                "primary_required_test_cases": [CASE],
+            }
+        )
+    )
+    env = {
+        **os.environ,
+        "CORPUS_EXPORT_RUN_ID": "789",
+        "REPAIR_RUN_ID": "123",
+        "REPAIR_RUN_LANE": repair_lane,
+        "QUEUE_ID": "",
+        "DEPENDENT_CITATION": "us/guidance/dependent",
+        "SECOND_DEPENDENT_CITATION": "",
+        "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+        "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+        "REPAIR_TESTS_ONLY": "false",
+        "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+        "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
+        "REPLACE_RULESPEC_PATH": "us/policies/example.yaml",
+        "REPLACE_LEGACY_RULESPEC_PATH": "us/policies/example.yaml",
+        "primary_required_test_cases_json": json.dumps([CASE]),
+        "atomic_source_payload": json.dumps(payload),
+    }
+    result = subprocess.run(
+        ["bash", "-eu", "-c", command], env=env, capture_output=True, text=True
+    )
+    if repair_lane == "dependent":
+        assert result.returncode != 0
+        assert "cannot mix transaction modes" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+        refresh_cases, signing_cases = result.stdout.splitlines()
+        assert json.loads(refresh_cases) == []
+        assert json.loads(signing_cases) == [CASE]
+
+
+@pytest.mark.parametrize("legacy", [True, False])
+def test_fresh_replacement_encode_receives_exact_required_contract(tmp_path, legacy):
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
     )
@@ -135,7 +195,9 @@ def test_fresh_legacy_encode_receives_exact_required_contract(tmp_path):
     builder = command.split("run_signed_encode() {", 1)[1].split(
         'if [ -n "${REPAIR_CANDIDATE_ROOT:-}" ]', 1
     )[0]
-    invocation = command.rsplit("run_signed_encode \\\n", 1)[1].split("\n  fi", 1)[0]
+    invocation = command.rsplit("queue_operation encode \\\n", 1)[1].split("\n  fi", 1)[
+        0
+    ]
     invocation = invocation.split("\nfi", 1)[0]
     script = "retained_successor_paths=()\nrun_signed_encode() {" + builder
     script += '\nprintf "%s\\0" "${args[@]}"\n}\nrun_signed_encode \\\n' + invocation
@@ -151,13 +213,17 @@ def test_fresh_legacy_encode_receives_exact_required_contract(tmp_path):
     env = {
         **os.environ,
         **{key: "" for key in step["env"]},
+        "workflow_python": os.sys.executable,
+        "backfill_helper": str(ROOT / "scripts/prepare_signed_backfill.py"),
+        "PYTHONPATH": str(ROOT / "src"),
         "RUNNER_TEMP": str(tmp_path),
         "GITHUB_WORKSPACE": str(tmp_path),
+        "RULES_ENGINE_REF": "a" * 40,
         "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
         "CITATION": "us/guidance/example",
         "REVIEW_FINDING": "",
         "REPLACE_RULESPEC_PATH": "us/policies/example.yaml",
-        "REPLACE_LEGACY_RULESPEC_PATH": "us/policies/example.yaml",
+        "REPLACE_LEGACY_RULESPEC_PATH": "us/policies/example.yaml" if legacy else "",
         "required_imports_enabled": "false",
         "target_require_complete_source_unit": "true",
         "primary_required_test_cases_json": json.dumps(cases),
@@ -169,8 +235,9 @@ def test_fresh_legacy_encode_receives_exact_required_contract(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     args = result.stdout.rstrip("\0").split("\0")
+    assert args[args.index("--axiom-rules-engine-ref") + 1] == "a" * 40
     assert "--require-complete-source-unit" in args
-    assert "--replace-legacy-rulespec-path" in args
+    assert ("--replace-legacy-rulespec-path" in args) == legacy
     assert json.loads(args[args.index("--review-contract-json") + 1]) == {
         "schema": "axiom-encode/review-contract/v2",
         "citation": env["CITATION"],

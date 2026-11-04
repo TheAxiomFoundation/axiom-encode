@@ -1,0 +1,51 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3111
+  summary: |-
+    Hospital insurance tax imposed on every employer equal to 1.45 percent of wages paid by the employer with respect to employment.
+rules:
+  - name: hospital_insurance_employer_tax_rate
+    kind: parameter
+    dtype: Rate
+    source: 26 USC 3111(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us/statute/26/3111
+              excerpt: equal to 1.45 percent
+    versions:
+      - effective_from: '1986-01-01'
+        formula: |-
+          0.0145
+
+  - name: hospital_insurance_employer_tax
+    kind: derived
+    entity: Employer
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3111(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/3111
+              excerpt: wages (as defined in section 3121(a)) paid by the employer with respect to employment (as defined in section 3121(b))
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/3111/b#hospital_insurance_employer_tax_rate
+              output: hospital_insurance_employer_tax_rate
+              hash: sha256:local
+    versions:
+      - effective_from: '1986-01-01'
+        formula: |-
+          wages * hospital_insurance_employer_tax_rate

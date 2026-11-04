@@ -1,0 +1,292 @@
+- name: member_income_and_shared_credit_ty2025
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-az:statutes/43-1072#input.claimant_age: 65
+    us-az:statutes/43-1072#input.claimant_is_recipient_of_public_monies_under_title_16_social_security_act: false
+    us-az:statutes/43-1072#input.claimant_lived_with_spouse_or_one_or_more_persons: true
+    us-az:statutes/43-1072#input.claimant_paid_property_taxes_or_rent_during_taxable_year: true
+    us-az:statutes/43-1072#input.property_taxes_or_rent_amount_paid_for_credit: 600
+    us-az:statutes/43-1072#input.department_adjusted_gross_income: 2500
+    us-az:statutes/43-1072#input.capital_gains_excluded_from_adjusted_gross_income: 0
+    us-az:statutes/43-1072#input.nontaxable_strike_benefits: 0
+    us-az:statutes/43-1072#input.nontaxable_federal_interest: 0
+    us-az:statutes/43-1072#input.state_or_political_subdivision_retirement_payments: 0
+    us-az:statutes/43-1072#input.federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.subsection_i_exempt_federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.gross_pension_or_annuity_amount: 0
+    us-az:statutes/43-1072#input.pension_or_annuity_amount_exempt_under_subsection_i: 0
+    us-az:statutes/43-1072#input.other_household_members_income_received_while_members: 1000
+  output:
+    us-az:statutes/43-1072#member_income: 2500
+    us-az:statutes/43-1072#household_income: 3500
+    us-az:statutes/43-1072#shared_household_credit_band: 7
+    us-az:statutes/43-1072#shared_household_table_credit_amount: 345
+    us-az:statutes/43-1072#shared_household_property_tax_or_rent_credit: 345
+    us-az:statutes/43-1072#claimant_meets_age_or_public_money_condition: holds
+    us-az:statutes/43-1072#eligible_under_shared_household_income_path: holds
+    us-az:statutes/43-1072#shared_household_claimant_credit_eligible: holds
+- name: included_gains_not_counted_twice_ty2025
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-az:statutes/43-1072#input.claimant_age: 65
+    us-az:statutes/43-1072#input.claimant_is_recipient_of_public_monies_under_title_16_social_security_act: false
+    us-az:statutes/43-1072#input.claimant_lived_with_spouse_or_one_or_more_persons: true
+    us-az:statutes/43-1072#input.claimant_paid_property_taxes_or_rent_during_taxable_year: true
+    us-az:statutes/43-1072#input.property_taxes_or_rent_amount_paid_for_credit: 600
+    us-az:statutes/43-1072#input.department_adjusted_gross_income: 3000
+    us-az:statutes/43-1072#input.capital_gains_excluded_from_adjusted_gross_income: 0
+    us-az:statutes/43-1072#input.nontaxable_strike_benefits: 0
+    us-az:statutes/43-1072#input.nontaxable_federal_interest: 0
+    us-az:statutes/43-1072#input.state_or_political_subdivision_retirement_payments: 0
+    us-az:statutes/43-1072#input.federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.subsection_i_exempt_federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.gross_pension_or_annuity_amount: 0
+    us-az:statutes/43-1072#input.pension_or_annuity_amount_exempt_under_subsection_i: 0
+    us-az:statutes/43-1072#input.other_household_members_income_received_while_members: 0
+  output:
+    us-az:statutes/43-1072#member_income: 3000
+    us-az:statutes/43-1072#shared_household_credit_band: 4
+    us-az:statutes/43-1072#shared_household_table_credit_amount: 412
+- name: excluded_gains_added_to_member_income_ty2025
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-az:statutes/43-1072#input.claimant_age: 65
+    us-az:statutes/43-1072#input.claimant_is_recipient_of_public_monies_under_title_16_social_security_act: false
+    us-az:statutes/43-1072#input.claimant_lived_with_spouse_or_one_or_more_persons: true
+    us-az:statutes/43-1072#input.claimant_paid_property_taxes_or_rent_during_taxable_year: true
+    us-az:statutes/43-1072#input.property_taxes_or_rent_amount_paid_for_credit: 600
+    us-az:statutes/43-1072#input.department_adjusted_gross_income: 2000
+    us-az:statutes/43-1072#input.capital_gains_excluded_from_adjusted_gross_income: 1000
+    us-az:statutes/43-1072#input.nontaxable_strike_benefits: 0
+    us-az:statutes/43-1072#input.nontaxable_federal_interest: 0
+    us-az:statutes/43-1072#input.state_or_political_subdivision_retirement_payments: 0
+    us-az:statutes/43-1072#input.federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.subsection_i_exempt_federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.gross_pension_or_annuity_amount: 0
+    us-az:statutes/43-1072#input.pension_or_annuity_amount_exempt_under_subsection_i: 0
+    us-az:statutes/43-1072#input.other_household_members_income_received_while_members: 0
+  output:
+    us-az:statutes/43-1072#member_income: 3000
+    us-az:statutes/43-1072#shared_household_credit_band: 4
+    us-az:statutes/43-1072#shared_household_table_credit_amount: 412
+- name: subsection_i_exempt_pension_excluded_ty2025
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-az:statutes/43-1072#input.claimant_age: 65
+    us-az:statutes/43-1072#input.claimant_is_recipient_of_public_monies_under_title_16_social_security_act: false
+    us-az:statutes/43-1072#input.claimant_lived_with_spouse_or_one_or_more_persons: true
+    us-az:statutes/43-1072#input.claimant_paid_property_taxes_or_rent_during_taxable_year: true
+    us-az:statutes/43-1072#input.property_taxes_or_rent_amount_paid_for_credit: 600
+    us-az:statutes/43-1072#input.department_adjusted_gross_income: 2000
+    us-az:statutes/43-1072#input.capital_gains_excluded_from_adjusted_gross_income: 0
+    us-az:statutes/43-1072#input.nontaxable_strike_benefits: 0
+    us-az:statutes/43-1072#input.nontaxable_federal_interest: 0
+    us-az:statutes/43-1072#input.state_or_political_subdivision_retirement_payments: 0
+    us-az:statutes/43-1072#input.federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.subsection_i_exempt_federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.gross_pension_or_annuity_amount: 1000
+    us-az:statutes/43-1072#input.pension_or_annuity_amount_exempt_under_subsection_i: 1000
+    us-az:statutes/43-1072#input.other_household_members_income_received_while_members: 0
+  output:
+    us-az:statutes/43-1072#member_income: 2000
+    us-az:statutes/43-1072#gross_pension_or_annuity_income: 0
+    us-az:statutes/43-1072#household_income: 2000
+    us-az:statutes/43-1072#shared_household_credit_band: 0
+    us-az:statutes/43-1072#shared_household_table_credit_amount: 502
+- name: household_income_limit_blocks_shared_path
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-az:statutes/43-1072#input.claimant_age: 65
+    us-az:statutes/43-1072#input.claimant_is_recipient_of_public_monies_under_title_16_social_security_act: false
+    us-az:statutes/43-1072#input.claimant_lived_with_spouse_or_one_or_more_persons: true
+    us-az:statutes/43-1072#input.claimant_paid_property_taxes_or_rent_during_taxable_year: true
+    us-az:statutes/43-1072#input.property_taxes_or_rent_amount_paid_for_credit: 100
+    us-az:statutes/43-1072#input.department_adjusted_gross_income: 5501
+    us-az:statutes/43-1072#input.capital_gains_excluded_from_adjusted_gross_income: 0
+    us-az:statutes/43-1072#input.nontaxable_strike_benefits: 0
+    us-az:statutes/43-1072#input.nontaxable_federal_interest: 0
+    us-az:statutes/43-1072#input.state_or_political_subdivision_retirement_payments: 0
+    us-az:statutes/43-1072#input.federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.subsection_i_exempt_federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.gross_pension_or_annuity_amount: 0
+    us-az:statutes/43-1072#input.pension_or_annuity_amount_exempt_under_subsection_i: 0
+    us-az:statutes/43-1072#input.other_household_members_income_received_while_members: 0
+  output:
+    us-az:statutes/43-1072#eligible_under_shared_household_income_path: not_holds
+    us-az:statutes/43-1072#shared_household_claimant_credit_eligible: not_holds
+    us-az:statutes/43-1072#shared_household_credit_band: -1
+    us-az:statutes/43-1072#shared_household_table_credit_amount: 0
+    us-az:statutes/43-1072#shared_household_property_tax_or_rent_credit: 0
+- name: shared_household_credit_and_income_components_ty2025
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-az:statutes/43-1072#input.claimant_age: 65
+    us-az:statutes/43-1072#input.claimant_is_recipient_of_public_monies_under_title_16_social_security_act: false
+    us-az:statutes/43-1072#input.claimant_lived_with_spouse_or_one_or_more_persons: true
+    us-az:statutes/43-1072#input.claimant_paid_property_taxes_or_rent_during_taxable_year: true
+    us-az:statutes/43-1072#input.property_taxes_or_rent_amount_paid_for_credit: 600
+    us-az:statutes/43-1072#input.department_adjusted_gross_income: 2500
+    us-az:statutes/43-1072#input.capital_gains_excluded_from_adjusted_gross_income: 0
+    us-az:statutes/43-1072#input.nontaxable_strike_benefits: 0
+    us-az:statutes/43-1072#input.nontaxable_federal_interest: 0
+    us-az:statutes/43-1072#input.state_or_political_subdivision_retirement_payments: 0
+    us-az:statutes/43-1072#input.federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.subsection_i_exempt_federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.gross_pension_or_annuity_amount: 0
+    us-az:statutes/43-1072#input.pension_or_annuity_amount_exempt_under_subsection_i: 0
+  output:
+    us-az:statutes/43-1072#member_income: 2500
+    us-az:statutes/43-1072#household_income: 3500
+    us-az:statutes/43-1072#shared_household_credit_band: 7
+    us-az:statutes/43-1072#shared_household_table_credit_amount: 345
+    us-az:statutes/43-1072#shared_household_property_tax_or_rent_credit: 345
+    us-az:statutes/43-1072#gross_pension_or_annuity_income: 0
+- name: capital_gains_already_in_agi_not_counted_twice
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-az:statutes/43-1072#input.claimant_age: 65
+    us-az:statutes/43-1072#input.claimant_is_recipient_of_public_monies_under_title_16_social_security_act: false
+    us-az:statutes/43-1072#input.claimant_lived_with_spouse_or_one_or_more_persons: true
+    us-az:statutes/43-1072#input.claimant_paid_property_taxes_or_rent_during_taxable_year: true
+    us-az:statutes/43-1072#input.property_taxes_or_rent_amount_paid_for_credit: 600
+    us-az:statutes/43-1072#input.department_adjusted_gross_income: 3000
+    us-az:statutes/43-1072#input.capital_gains_excluded_from_adjusted_gross_income: 0
+    us-az:statutes/43-1072#input.nontaxable_strike_benefits: 0
+    us-az:statutes/43-1072#input.nontaxable_federal_interest: 0
+    us-az:statutes/43-1072#input.state_or_political_subdivision_retirement_payments: 0
+    us-az:statutes/43-1072#input.federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.subsection_i_exempt_federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.gross_pension_or_annuity_amount: 0
+    us-az:statutes/43-1072#input.pension_or_annuity_amount_exempt_under_subsection_i: 0
+  output:
+    us-az:statutes/43-1072#member_income: 3000
+    us-az:statutes/43-1072#shared_household_credit_band: 4
+    us-az:statutes/43-1072#shared_household_table_credit_amount: 412
+- name: genuinely_excluded_capital_gains_are_included_in_income
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-az:statutes/43-1072#input.claimant_age: 65
+    us-az:statutes/43-1072#input.claimant_is_recipient_of_public_monies_under_title_16_social_security_act: false
+    us-az:statutes/43-1072#input.claimant_lived_with_spouse_or_one_or_more_persons: true
+    us-az:statutes/43-1072#input.claimant_paid_property_taxes_or_rent_during_taxable_year: true
+    us-az:statutes/43-1072#input.property_taxes_or_rent_amount_paid_for_credit: 600
+    us-az:statutes/43-1072#input.department_adjusted_gross_income: 2000
+    us-az:statutes/43-1072#input.capital_gains_excluded_from_adjusted_gross_income: 1000
+    us-az:statutes/43-1072#input.nontaxable_strike_benefits: 0
+    us-az:statutes/43-1072#input.nontaxable_federal_interest: 0
+    us-az:statutes/43-1072#input.state_or_political_subdivision_retirement_payments: 0
+    us-az:statutes/43-1072#input.federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.subsection_i_exempt_federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.gross_pension_or_annuity_amount: 0
+    us-az:statutes/43-1072#input.pension_or_annuity_amount_exempt_under_subsection_i: 0
+  output:
+    us-az:statutes/43-1072#member_income: 3000
+    us-az:statutes/43-1072#shared_household_credit_band: 4
+    us-az:statutes/43-1072#shared_household_table_credit_amount: 412
+- name: subsection_i_exempt_pension_does_not_enter_household_income
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-az:statutes/43-1072#input.claimant_age: 65
+    us-az:statutes/43-1072#input.claimant_is_recipient_of_public_monies_under_title_16_social_security_act: false
+    us-az:statutes/43-1072#input.claimant_lived_with_spouse_or_one_or_more_persons: true
+    us-az:statutes/43-1072#input.claimant_paid_property_taxes_or_rent_during_taxable_year: true
+    us-az:statutes/43-1072#input.property_taxes_or_rent_amount_paid_for_credit: 600
+    us-az:statutes/43-1072#input.department_adjusted_gross_income: 2000
+    us-az:statutes/43-1072#input.capital_gains_excluded_from_adjusted_gross_income: 0
+    us-az:statutes/43-1072#input.nontaxable_strike_benefits: 0
+    us-az:statutes/43-1072#input.nontaxable_federal_interest: 0
+    us-az:statutes/43-1072#input.state_or_political_subdivision_retirement_payments: 0
+    us-az:statutes/43-1072#input.federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.subsection_i_exempt_federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.gross_pension_or_annuity_amount: 1000
+    us-az:statutes/43-1072#input.pension_or_annuity_amount_exempt_under_subsection_i: 1000
+  output:
+    us-az:statutes/43-1072#member_income: 2000
+    us-az:statutes/43-1072#gross_pension_or_annuity_income: 0
+    us-az:statutes/43-1072#shared_household_credit_band: 0
+    us-az:statutes/43-1072#shared_household_table_credit_amount: 502
+    us-az:statutes/43-1072#shared_household_property_tax_or_rent_credit: 502
+- name: shared_household_income_limit_blocks_credit
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-az:statutes/43-1072#input.claimant_age: 65
+    us-az:statutes/43-1072#input.claimant_is_recipient_of_public_monies_under_title_16_social_security_act: false
+    us-az:statutes/43-1072#input.claimant_lived_with_spouse_or_one_or_more_persons: true
+    us-az:statutes/43-1072#input.claimant_paid_property_taxes_or_rent_during_taxable_year: true
+    us-az:statutes/43-1072#input.property_taxes_or_rent_amount_paid_for_credit: 100
+    us-az:statutes/43-1072#input.department_adjusted_gross_income: 5501
+    us-az:statutes/43-1072#input.capital_gains_excluded_from_adjusted_gross_income: 0
+    us-az:statutes/43-1072#input.nontaxable_strike_benefits: 0
+    us-az:statutes/43-1072#input.nontaxable_federal_interest: 0
+    us-az:statutes/43-1072#input.state_or_political_subdivision_retirement_payments: 0
+    us-az:statutes/43-1072#input.federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.subsection_i_exempt_federal_retirement_program_payments: 0
+    us-az:statutes/43-1072#input.gross_pension_or_annuity_amount: 0
+    us-az:statutes/43-1072#input.pension_or_annuity_amount_exempt_under_subsection_i: 0
+  output:
+    us-az:statutes/43-1072#eligible_under_shared_household_income_path: not_holds
+    us-az:statutes/43-1072#shared_household_claimant_credit_eligible: not_holds
+    us-az:statutes/43-1072#shared_household_credit_band: -1
+    us-az:statutes/43-1072#shared_household_table_credit_amount: 0
+    us-az:statutes/43-1072#shared_household_property_tax_or_rent_credit: 0
+- name: auto_positive_eligible_under_shared_household_income_path
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-az:statutes/43-1072#input.claimant_lived_with_spouse_or_one_or_more_persons: true
+  output:
+    us-az:statutes/43-1072#eligible_under_shared_household_income_path: holds
+- name: auto_positive_claimant_meets_age_or_public_money_condition
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-az:statutes/43-1072#input.claimant_age: 999999
+    us-az:statutes/43-1072#input.claimant_is_recipient_of_public_monies_under_title_16_social_security_act: false
+  output:
+    us-az:statutes/43-1072#claimant_meets_age_or_public_money_condition: holds
+- name: auto_positive_shared_household_claimant_credit_eligible
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-az:statutes/43-1072#input.claimant_age: 999999
+    us-az:statutes/43-1072#input.claimant_is_recipient_of_public_monies_under_title_16_social_security_act: false
+    us-az:statutes/43-1072#input.claimant_lived_with_spouse_or_one_or_more_persons: true
+    us-az:statutes/43-1072#input.claimant_paid_property_taxes_or_rent_during_taxable_year: true
+  output:
+    us-az:statutes/43-1072#shared_household_claimant_credit_eligible: holds
