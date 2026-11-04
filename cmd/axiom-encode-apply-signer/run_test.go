@@ -300,6 +300,9 @@ func TestLauncherRequiresCompleteCodexSubscriptionPathSet(t *testing.T) {
 		{"--codex-subscription-auth", "/tmp/auth.json"},
 		{"--codex-auth-outbox", "/tmp/auth.json.refreshed"},
 		{"--trusted-codex-cli-config", "/opt/axiom-verification/codex-cli.json"},
+		{"--codex-subscription-auth", "/tmp/auth.json", "--codex-auth-outbox", "/tmp/auth.json.refreshed"},
+		{"--codex-subscription-auth", "/tmp/auth.json", "--trusted-codex-cli-config", "/opt/axiom-verification/codex-cli.json"},
+		{"--codex-auth-outbox", "/tmp/auth.json.refreshed", "--trusted-codex-cli-config", "/opt/axiom-verification/codex-cli.json"},
 	} {
 		arguments := append(append([]string{}, base[:8]...), partial...)
 		arguments = append(arguments, base[8:]...)
