@@ -1122,6 +1122,10 @@ _EVENTS = {
         "github.event_name": "workflow_dispatch",
         "github.event.pull_request.draft": None,
     },
+    "merge queue": {
+        "github.event_name": "merge_group",
+        "github.event.pull_request.draft": None,
+    },
     # Opened, pushed to, reopened or turned back into a draft.
     "draft pull request": {
         "github.event_name": "pull_request",
@@ -1170,6 +1174,8 @@ def test_pull_requests_run_on_ready_for_review_and_any_branch_can_dispatch():
             ],
         },
         "workflow_dispatch": None,
+        # The required checks must report on the merge queue's branch.
+        "merge_group": {"types": ["checks_requested"]},
     }
 
 
@@ -1198,6 +1204,7 @@ def test_drafts_run_lint_and_quick_tests_and_everything_else_runs_in_full():
     assert runs == {
         "push to main": full,
         "workflow_dispatch": full,
+        "merge queue": full,
         "draft pull request": {
             "shards and real-engine": False,
             "quick tests": True,
