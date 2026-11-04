@@ -11666,11 +11666,11 @@ companion test file required by the task and deterministic validation.
         if tests_only
         else (
             "- Return syntactically complete RuleSpec and companion test YAML, but "
-            "you may omit unchanged named inputs, named rules, imports, deferred "
+            "you may omit unchanged named units, named inputs, named rules, imports, deferred "
             "outputs, and named companion cases. The encoder overlays those "
             "omitted items from the hash-bound candidate before validation. Re-emit "
             "the complete item only when changing or replacing it. To remove an "
-            "obsolete named input, rule, or companion case from this rejected "
+            "obsolete named unit, input, rule, or companion case from this rejected "
             "candidate, emit an exact YAML item containing only "
             "`name: <existing name>` and `repair_remove: true`; input removal is "
             "accepted only after no repaired rule or companion case references "
