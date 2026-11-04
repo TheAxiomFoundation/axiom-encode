@@ -492,12 +492,21 @@ def test_controller_observes_after_worker_exit_and_refuses_drift(
 
 
 def test_copied_interpreter_cannot_borrow_unmeasured_stdlib(tmp_path):
+    import sysconfig
     import venv
 
     from axiom_encode.notary.producer_runtime import DETERMINISTIC_BOOTSTRAP
 
     root = tmp_path / "copied-runtime"
     venv.EnvBuilder(with_pip=False, symlinks=False).create(root)
+    environment = os.environ.copy()
+    if sys.platform == "darwin":
+        # uv's copied interpreter may need its original libpython to start.
+        # Supply only the loader dependency; the bootstrap must still refuse
+        # stdlib imports outside the measured runtime.
+        libdir = sysconfig.get_config_var("LIBDIR")
+        assert libdir
+        environment["DYLD_LIBRARY_PATH"] = str(libdir)
     result = subprocess.run(
         [
             str(root / "bin/python"),
@@ -509,6 +518,7 @@ def test_copied_interpreter_cannot_borrow_unmeasured_stdlib(tmp_path):
             str(tmp_path / "absent-job"),
         ],
         capture_output=True,
+        env=environment,
     )
     assert result.returncode != 0
     assert b"external import roots" in result.stderr
