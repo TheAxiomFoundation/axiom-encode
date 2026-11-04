@@ -24,7 +24,8 @@ func parseTestTrustRoots(t *testing.T, payload map[string]any) ([]byte, []byte, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return parseProtectedTrustRoots(raw, "/protected/signing-trust-roots.json")
+	apply, eval, corpus, _, _, err := parseProtectedTrustRoots(raw, "/protected/signing-trust-roots.json")
+	return apply, eval, corpus, err
 }
 
 func baseTrustRoots() map[string]any {
@@ -431,5 +432,178 @@ func TestCodexScratchPolicyRejectsRootOwnedHomeForNonRootRuntime(t *testing.T) {
 func TestCodexScratchPolicyAcceptsOperatorOwnedProtectedHome(t *testing.T) {
 	if err := validateCodexScratchPolicy(os.ModeDir|0700, 1000, 1000); err != nil {
 		t.Fatalf("expected operator-owned 0700 scratch acceptance, got %v", err)
+	}
+}
+
+func frozenTestInventory() map[string]any {
+	return map[string]any{
+		"schema": "axiom-encode/retired-apply-inventory/v1",
+		"repositories": []any{map[string]any{
+			"repository":    "TheAxiomFoundation/rulespec-us",
+			"cutoff_commit": strings.Repeat("a", 40),
+			"artifacts": []any{map[string]any{
+				"path":   ".axiom/encoding-manifests/frozen.json",
+				"sha256": strings.Repeat("b", 64),
+				"covered_files": []any{map[string]any{
+					"path": "statute/frozen.yaml", "sha256": strings.Repeat("c", 64),
+				}},
+			}},
+		}},
+	}
+}
+
+func retiredTestTrustRoots() map[string]any {
+	payload := baseTrustRoots()
+	payload["schema"] = "axiom-encode/signing-trust-roots/v4"
+	payload["retired_apply_ed25519_public_keys"] = []string{encodedTestPublicKey(0xef)}
+	payload["retired_apply_inventory"] = frozenTestInventory()
+	return payload
+}
+
+func TestProtectedTrustRootsAcceptsFrozenRetiredApplyV4(t *testing.T) {
+	for _, pluralCorpus := range []bool{false, true} {
+		payload := retiredTestTrustRoots()
+		if pluralCorpus {
+			delete(payload, "corpus_release_ed25519_public_key")
+			payload["corpus_release_ed25519_public_keys"] = []string{encodedTestPublicKey(0x17), encodedTestPublicKey(0x18)}
+		}
+		raw, _ := json.Marshal(payload)
+		active, _, _, retired, inventory, err := parseProtectedTrustRoots(raw, "/protected/trust.json")
+		if err != nil || len(retired) != 1 || retired[0][0] != 0xef || active[0] != 0xab || inventory.Repositories[0].CutoffCommit != strings.Repeat("a", 40) {
+			t.Fatalf("frozen retired trust rejected or changed active key: %v", err)
+		}
+	}
+}
+
+func TestProtectedTrustRootsRejectsMalformedRetiredApplyV4(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{"v3 retirement", func(p map[string]any) { p["schema"] = "axiom-encode/signing-trust-roots/v3" }},
+		{"missing roots", func(p map[string]any) { delete(p, "retired_apply_ed25519_public_keys") }},
+		{"missing inventory", func(p map[string]any) { delete(p, "retired_apply_inventory") }},
+		{"null roots", func(p map[string]any) { p["retired_apply_ed25519_public_keys"] = nil }},
+		{"empty roots", func(p map[string]any) { p["retired_apply_ed25519_public_keys"] = []string{} }},
+		{"bad root", func(p map[string]any) { p["retired_apply_ed25519_public_keys"] = []string{"bad-base64!"} }},
+		{"short root", func(p map[string]any) {
+			p["retired_apply_ed25519_public_keys"] = []string{base64.StdEncoding.EncodeToString([]byte("short"))}
+		}},
+		{"duplicate root", func(p map[string]any) {
+			p["retired_apply_ed25519_public_keys"] = []string{encodedTestPublicKey(0xef), encodedTestPublicKey(0xef)}
+		}},
+		{"active overlap", func(p map[string]any) { p["retired_apply_ed25519_public_keys"] = []string{encodedTestPublicKey(0xab)} }},
+		{"eval overlap", func(p map[string]any) { p["retired_apply_ed25519_public_keys"] = []string{encodedTestPublicKey(0xcd)} }},
+		{"corpus overlap", func(p map[string]any) { p["retired_apply_ed25519_public_keys"] = []string{encodedTestPublicKey(0x17)} }},
+		{"null inventory", func(p map[string]any) { p["retired_apply_inventory"] = nil }},
+		{"unknown inventory field", func(p map[string]any) { p["retired_apply_inventory"].(map[string]any)["caller_override"] = true }},
+		{"bad inventory schema", func(p map[string]any) { p["retired_apply_inventory"].(map[string]any)["schema"] = "v0" }},
+		{"duplicate repository", func(p map[string]any) {
+			inv := p["retired_apply_inventory"].(map[string]any)
+			repos := inv["repositories"].([]any)
+			inv["repositories"] = append(repos, repos[0])
+		}},
+		{"bad cutoff", func(p map[string]any) {
+			repo := p["retired_apply_inventory"].(map[string]any)["repositories"].([]any)[0].(map[string]any)
+			repo["cutoff_commit"] = "main"
+		}},
+		{"uncanonical repository", func(p map[string]any) {
+			repo := p["retired_apply_inventory"].(map[string]any)["repositories"].([]any)[0].(map[string]any)
+			repo["repository"] = "https://github.com/TheAxiomFoundation/rulespec-us"
+		}},
+		{"duplicate artifact", func(p map[string]any) {
+			repo := p["retired_apply_inventory"].(map[string]any)["repositories"].([]any)[0].(map[string]any)
+			artifacts := repo["artifacts"].([]any)
+			repo["artifacts"] = append(artifacts, artifacts[0])
+		}},
+		{"traversal artifact", func(p map[string]any) {
+			artifact := p["retired_apply_inventory"].(map[string]any)["repositories"].([]any)[0].(map[string]any)["artifacts"].([]any)[0].(map[string]any)
+			artifact["path"] = "../frozen.json"
+		}},
+		{"bad artifact digest", func(p map[string]any) {
+			artifact := p["retired_apply_inventory"].(map[string]any)["repositories"].([]any)[0].(map[string]any)["artifacts"].([]any)[0].(map[string]any)
+			artifact["sha256"] = "sha256:" + strings.Repeat("b", 64)
+		}},
+		{"missing coverage", func(p map[string]any) {
+			artifact := p["retired_apply_inventory"].(map[string]any)["repositories"].([]any)[0].(map[string]any)["artifacts"].([]any)[0].(map[string]any)
+			delete(artifact, "covered_files")
+		}},
+		{"duplicate covered path", func(p map[string]any) {
+			artifact := p["retired_apply_inventory"].(map[string]any)["repositories"].([]any)[0].(map[string]any)["artifacts"].([]any)[0].(map[string]any)
+			files := artifact["covered_files"].([]any)
+			artifact["covered_files"] = append(files, files[0])
+		}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			payload := retiredTestTrustRoots()
+			testCase.mutate(payload)
+			raw, _ := json.Marshal(payload)
+			if _, _, _, _, _, err := parseProtectedTrustRoots(raw, "/protected/trust.json"); err == nil {
+				t.Fatal("malformed retired trust was accepted")
+			}
+		})
+	}
+}
+
+func TestProtectedTrustRootsRejectsDuplicateInventoryJSONFields(t *testing.T) {
+	raw, _ := json.Marshal(retiredTestTrustRoots())
+	raw = bytes.Replace(raw, []byte(`"cutoff_commit":`), []byte(`"cutoff_commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","cutoff_commit":`), 1)
+	if _, _, _, _, _, err := parseProtectedTrustRoots(raw, "/protected/trust.json"); err == nil || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("duplicate inventory field accepted: %v", err)
+	}
+}
+
+func TestBrokerStatusWithoutRetirementHasUnchangedJSON(t *testing.T) {
+	status := brokerStatus{Capabilities: []string{}, ApplyPublicKey: []byte{1}, EvalPublicKey: []byte{2}, CorpusReleasePublicKey: []byte{3}, CorpusReleasePublicKeys: [][]byte{{3}}}
+	raw, err := json.Marshal(status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != `{"capabilities":[],"apply_public_key":"AQ==","eval_public_key":"Ag==","corpus_release_public_key":"Aw==","corpus_release_public_keys":["Aw=="]}` {
+		t.Fatalf("legacy status bytes changed: %s", raw)
+	}
+}
+
+func TestRetiredInventoryPathsPreserveLegacyPOSIXNames(t *testing.T) {
+	for _, path := range []string{"us/statutes/26/26:1.yaml", "us/statutes/42/1437c–1.yaml", "He-W 704.yaml"} {
+		if !validRetiredArtifactPath(path) {
+			t.Fatalf("historical path rejected: %q", path)
+		}
+	}
+	for _, path := range []string{"/absolute", "../traversal", "a//b", "a/./b", "a/../b", "-option", ":(glob)*", "a?b", "a[b", "a\\b", "a\x00b", "a\u0085b"} {
+		if validRetiredArtifactPath(path) {
+			t.Fatalf("ambiguous path accepted: %q", path)
+		}
+	}
+}
+
+func TestRetiredInventoryCoveredHistoricalVersions(t *testing.T) {
+	payload := retiredTestTrustRoots()
+	artifact := payload["retired_apply_inventory"].(map[string]any)["repositories"].([]any)[0].(map[string]any)["artifacts"].([]any)[0].(map[string]any)
+	files := artifact["covered_files"].([]any)
+	artifact["covered_files"] = append(files, map[string]any{"path": "statute/frozen.yaml", "sha256": strings.Repeat("d", 64), "source_commit": strings.Repeat("e", 40)})
+	raw, _ := json.Marshal(payload)
+	if _, _, _, _, _, err := parseProtectedTrustRoots(raw, "/protected/trust.json"); err != nil {
+		t.Fatalf("distinct frozen historical version rejected: %v", err)
+	}
+	for _, source := range []any{nil, "main", strings.Repeat("e", 39)} {
+		artifact["covered_files"].([]any)[1].(map[string]any)["source_commit"] = source
+		raw, _ := json.Marshal(payload)
+		if _, _, _, _, _, err := parseProtectedTrustRoots(raw, "/protected/trust.json"); err == nil {
+			t.Fatalf("invalid historical source commit accepted: %v", source)
+		}
+	}
+}
+
+func TestLegacyTrustRootsRetainsSizeBound(t *testing.T) {
+	legacy, _ := json.Marshal(baseTrustRoots())
+	legacy = append(legacy, bytes.Repeat([]byte(" "), 64*1024)...)
+	if _, _, _, _, _, err := parseProtectedTrustRoots(legacy, "/protected/trust.json"); err == nil || !strings.Contains(err.Error(), "64 KiB") {
+		t.Fatalf("legacy size bound changed: %v", err)
+	}
+	retired, _ := json.Marshal(retiredTestTrustRoots())
+	retired = append(retired, bytes.Repeat([]byte(" "), 64*1024)...)
+	if _, _, _, _, _, err := parseProtectedTrustRoots(retired, "/protected/trust.json"); err != nil {
+		t.Fatalf("v4 inventory cannot exceed legacy bound: %v", err)
 	}
 }

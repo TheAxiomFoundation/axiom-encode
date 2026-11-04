@@ -1,0 +1,606 @@
+{
+  "id": "uk-010-60501ec6-policies-govuk-state-pension",
+  "jurisdiction": "uk",
+  "repo": "TheAxiomFoundation/rulespec-uk",
+  "commit": "60501ec6fd17753059cc604f61be7c12096ecff0",
+  "parent_commit": "00faa4332f510bbabbbef5456e057ce83a74da3a",
+  "commit_date": "2026-06-10T21:36:30+01:00",
+  "commit_subject": "ground policy surfaces in ingested sources",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/44",
+  "module_path": "policies/govuk/state-pension.yaml",
+  "corpus_citation_path": "uk/guidance/govuk/new-state-pension/what-youll-get",
+  "corpus_citation_paths_all": [
+    "uk/guidance/govuk/new-state-pension/what-youll-get",
+    "uk/guidance/govuk/new-state-pension/eligibility",
+    "uk/guidance/govuk/state-pension/how-much-you-get",
+    "uk/statute/ukpga/2014/19/3"
+  ],
+  "corpus_release": "uk-rulespec-2026-07-12",
+  "corpus_release_content_sha256": "ec59e4017cd0c9b935ffed9092506fcc15313f58fe1ed18c1af909c8d0cd47e1",
+  "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.78,
+  "description": "state pension from qualifying years (gov.uk new/basic pension pages + Pensions Act 2014 s.3)",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        8,
+        8
+      ],
+      [
+        13,
+        13
+      ],
+      [
+        19,
+        19
+      ],
+      [
+        24,
+        24
+      ],
+      [
+        26,
+        27
+      ],
+      [
+        29,
+        33
+      ],
+      [
+        41,
+        41
+      ],
+      [
+        43,
+        43
+      ],
+      [
+        45,
+        45
+      ],
+      [
+        51,
+        51
+      ],
+      [
+        56,
+        56
+      ],
+      [
+        58,
+        59
+      ],
+      [
+        66,
+        71
+      ],
+      [
+        73,
+        73
+      ],
+      [
+        75,
+        75
+      ],
+      [
+        83,
+        83
+      ],
+      [
+        88,
+        98
+      ],
+      [
+        100,
+        100
+      ],
+      [
+        102,
+        102
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        10
+      ],
+      [
+        12,
+        19
+      ],
+      [
+        24,
+        75
+      ],
+      [
+        81,
+        81
+      ],
+      [
+        86,
+        86
+      ],
+      [
+        88,
+        89
+      ],
+      [
+        91,
+        94
+      ],
+      [
+        102,
+        102
+      ],
+      [
+        104,
+        104
+      ],
+      [
+        106,
+        106
+      ],
+      [
+        112,
+        112
+      ],
+      [
+        117,
+        117
+      ],
+      [
+        119,
+        125
+      ],
+      [
+        133,
+        133
+      ],
+      [
+        135,
+        135
+      ],
+      [
+        143,
+        143
+      ],
+      [
+        148,
+        151
+      ],
+      [
+        153,
+        153
+      ],
+      [
+        155,
+        155
+      ]
+    ],
+    "rule_names": [
+      "new_state_pension_weekly_amount",
+      "basic_state_pension_weekly_amount",
+      "state_pension_weekly_amount",
+      "new_state_pension_full_rate_qualifying_years",
+      "new_state_pension_minimum_qualifying_years",
+      "basic_state_pension_full_rate_qualifying_years"
+    ],
+    "rule_path": "rules[new_state_pension_weekly_amount].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "6ce37946c02e0d75280ee2cbca87330e681a443623c264b99b06ceef7510f804",
+  "post_fix_artifact_sha256": "ce1620225218a6373d90549f8af04476b38a56b699b94df91053612a4e74998f",
+  "provision_sha256": "9699891206212612f29d7717aa3a1a5d215e2ef3cef657ce345876d54a4f01cb",
+  "provision_chars": 1062,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "uk/guidance/govuk/new-state-pension/what-youll-get",
+    "provision_file": "data/corpus/provisions/uk/guidance/2026-07-10-uk-rulespec-source-promotion.jsonl",
+    "provision_file_sha256": "91208a858cdfd837af1d01cbcc4bbe7c57e6e37b681b70b02d0489ee3dfebc2b",
+    "line_number": 7,
+    "record_id": "d770881e-656c-521d-87cb-cdabf132fd0d",
+    "stored_body_sha256": "11c8c553ec6b1804e15a5723bd344d575afdfce759eacffc41271b20b3619651",
+    "resolved_text_sha256": "11c8c553ec6b1804e15a5723bd344d575afdfce759eacffc41271b20b3619651",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-06-10",
+    "source_as_of": "2026-06-10",
+    "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 1,
+    "toolchain_corpus_ref": "de9b2eb9bcd03356cc8d5855216f2c83e7a085ab",
+    "requested_citation_path": "uk/guidance/govuk/new-state-pension/what-youll-get",
+    "release_errors_before_success": [
+      {
+        "release": "uk-legislation-pilot",
+        "error": "No active corpus source found for 'uk/guidance/govuk/new-state-pension/what-youll-get'"
+      }
+    ]
+  },
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "11c8c553ec6b1804e15a5723bd344d575afdfce759eacffc41271b20b3619651",
+    "first_citation_chars": 312,
+    "added": [
+      {
+        "citation_path": "uk/statute/ukpga/2014/19/3",
+        "text_sha256": "a9a22090db4c31d9225c742657959e9261d1081fd9bd1b758149ed13ebb0b495",
+        "chars": 383,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "uk/statute/ukpga/2014/19/3",
+          "provision_file": "data/corpus/provisions/uk/statute/2026-07-10-uk-rulespec-source-promotion.jsonl",
+          "provision_file_sha256": "b2cd6c0cb00b39b8f1ff2ed2ebf72987dbd15ff4d229e6acf0c3b2bdd7da0cf3",
+          "line_number": 71,
+          "record_id": "5be3fef8-3a70-5985-b333-2e61e3c7f4cd",
+          "stored_body_sha256": "a9a22090db4c31d9225c742657959e9261d1081fd9bd1b758149ed13ebb0b495",
+          "resolved_text_sha256": "a9a22090db4c31d9225c742657959e9261d1081fd9bd1b758149ed13ebb0b495",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-06-10",
+          "source_as_of": "2026-06-10",
+          "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5"
+        }
+      },
+      {
+        "citation_path": "uk/guidance/govuk/new-state-pension/eligibility",
+        "text_sha256": "4c999c0ef390d048bb67696de3406e62495a939f5323034a5c5199bc501f0e4c",
+        "chars": 189,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "uk/guidance/govuk/new-state-pension/eligibility",
+          "provision_file": "data/corpus/provisions/uk/guidance/2026-07-10-uk-rulespec-source-promotion.jsonl",
+          "provision_file_sha256": "91208a858cdfd837af1d01cbcc4bbe7c57e6e37b681b70b02d0489ee3dfebc2b",
+          "line_number": 6,
+          "record_id": "ed0216fe-36d9-5ce0-99dd-e4ee637b2b5f",
+          "stored_body_sha256": "4c999c0ef390d048bb67696de3406e62495a939f5323034a5c5199bc501f0e4c",
+          "resolved_text_sha256": "4c999c0ef390d048bb67696de3406e62495a939f5323034a5c5199bc501f0e4c",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-06-10",
+          "source_as_of": "2026-06-10",
+          "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "new_state_pension_weekly_amount",
+      "basic_state_pension_weekly_amount",
+      "state_pension_weekly_amount",
+      "new_state_pension_full_rate_qualifying_years",
+      "new_state_pension_minimum_qualifying_years",
+      "basic_state_pension_full_rate_qualifying_years"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "10 qualifying years on your National Insurance record to get any new State Pension",
+        "where": [
+          "new_state_pension_minimum_qualifying_years.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/new-state-pension/eligibility",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "30 qualifying years if you were born between 1945 and 1951",
+        "where": [
+          "basic_state_pension_full_rate_qualifying_years.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/state-pension/how-much-you-get",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The full basic State Pension is £184.90 per week",
+        "where": [
+          "basic_state_pension_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/state-pension/how-much-you-get",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The full rate of new State Pension is £241.30 a week",
+        "where": [
+          "new_state_pension_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/new-state-pension/what-youll-get",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the following proportion of the full rate— 1/35 × the person's number of qualifying years",
+        "where": [
+          "new_state_pension_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/statute/ukpga/2014/19/3",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "you will need 35 qualifying years to get the full rate",
+        "where": [
+          "new_state_pension_full_rate_qualifying_years.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/new-state-pension/what-youll-get",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "you'll get the new State Pension instead",
+        "where": [
+          "state_pension_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/state-pension/how-much-you-get",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "your basic State Pension will be less than £184.90 per week",
+        "where": [
+          "basic_state_pension_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/state-pension/how-much-you-get",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "10",
+        "where": [
+          "new_state_pension_minimum_qualifying_years.versions[0].formula"
+        ],
+        "forms": [
+          "10"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2010-04-06",
+        "where": [
+          "basic_state_pension_full_rate_qualifying_years.versions[0].effective_from",
+          "basic_state_pension_weekly_amount.versions[0].effective_from"
+        ],
+        "forms": [
+          "2010-04-06",
+          "April 6, 2010",
+          "6 April 2010"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2016-04-06",
+        "where": [
+          "new_state_pension_full_rate_qualifying_years.versions[0].effective_from",
+          "new_state_pension_minimum_qualifying_years.versions[0].effective_from",
+          "new_state_pension_weekly_amount.versions[0].effective_from",
+          "state_pension_weekly_amount.versions[0].effective_from"
+        ],
+        "forms": [
+          "2016-04-06",
+          "April 6, 2016",
+          "6 April 2016"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "30",
+        "where": [
+          "basic_state_pension_full_rate_qualifying_years.versions[0].formula"
+        ],
+        "forms": [
+          "30"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "35",
+        "where": [
+          "new_state_pension_full_rate_qualifying_years.versions[0].formula"
+        ],
+        "forms": [
+          "35"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-04-06",
+        "where": [
+          "state_pension_weekly_amount.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-04-06",
+          "April 6, 2026",
+          "6 April 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ", i.e. it was a knowingly-labeled model wrapper rather than a misread of law, and the PR title frames it as",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In section 44(4) of the Contributions and Benefits Act ... for \\",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The fix removes them and re-grounds on Pensions Act 2014 s.3, whose resolved text (",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The reduced rate of the state pension for a person is the following proportion of the full rate— 1/35 × the person's number of qualifying years",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "is the strongest counter-reading, since the pre-fix summary openly said",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "is untenable — formulas, rule names, effective dates and the output set all changed. (2)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 19,
+    "post_side_matched": 7,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "uk/statute/ukpga/2014/19/3",
+        "quote": "The reduced rate of the state pension for a person is the following proportion of the full rate— 1/35 × the person's number of qualifying years.",
+        "span": [
+          523,
+          667
+        ]
+      },
+      {
+        "citation_path": "uk/guidance/govuk/new-state-pension/eligibility",
+        "quote": "You'll need 10 qualifying years on your National Insurance record to get any new State Pension.",
+        "span": [
+          873,
+          968
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Pensions Act 2014 s.3 sets the reduced rate at 1/35 of the full rate per qualifying year, and the eligibility page sets a 10-year minimum. The pre-fix new-pension rule instead prorates a reported data-year receipt and never uses qualifying years. provision.txt alone gives only the 35-year full-rate condition, not the proportional formula or the minimum.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "adjudication_note": "",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.72,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.62,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
+  "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "uk-60501ec6-f83e6b9c5e4b",
+  "family_size": 1,
+  "family_representative": true,
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module derived the state pension from a reported dataset-year receipt prorated by dataset-year rate ceilings and then scaled by policy levers (`state_pension_abolished_by_policy`, `state_pension_policy_uprating_factor`) that appear nowhere in the uprating order it cited, instead of the qualifying-years proportion the source sets out (1/35 of the full new state pension, with no entitlement below 10 qualifying years; 30 years for the full basic pension).",
+    "triage_notes": "Provision read: the vendored slice uk/statute/ukpga/2014/19/3 says \"The reduced rate of the state pension for a person is the following proportion of the full rate— 1/35 × the person's number of qualifying years\", and the gov.uk slices supply the 35-year full rate, 10-year minimum and 30-year basic full rate - so the post-fix formulas are grounded and the pre-fix prorating / abolition / uprating-factor branches were not. This is the clearest untraceable_branch instance in the chunk and the one the commit message names most specifically (\"state pension from qualifying years\"). Also fixes the timeline: version windows move from a single 2026-04-06 window to 2016-04-06 (new) and 2010-04-06 (basic), and the additional/protected state pension amount above the ceiling is dropped entirely (additional state pension is no longer encoded - a coverage loss a reviewer may want to note). New rule uses min(1, years/35) so records above 35 qualifying years cap at the full rate.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.79,
+    "verifier_justification": "The pre-fix module declared `source_verification.corpus_citation_path: uk/regulation/uksi/2026/148/article/4` and carried a `kind: formula` proof atom asserting its formula was supported by that provision, but resolving that citation through the pinned release returns only a rate substitution (\"In section 44(4) of the Contributions and Benefits Act ... for \\\"£176.45\\\" substitute \\\"£184.90\\\"\"), which says nothing about dataset-year receipt proration, an abolition switch, or a policy uprating multiplier. The three surfaces were therefore formulas grounded on the wrong provision, with two branches (`state_pension_abolished_by_policy`, `state_pension_policy_uprating_factor`) having no basis in any cited source, which is the untraceable_branch definition including \"formulas grounded on the wrong provision.\" The fix removes them and re-grounds on Pensions Act 2014 s.3, whose resolved text (\"The reduced rate of the state pension for a person is the following proportion of the full rate— 1/35 × the person's number of qualifying years\") matches the new formula. The \"this was deliberate scaffolding, not an error\" refutation fails because the module ran with `proof_validation: required: true` and affirmatively cited article 4 as the formula's source; the maintainer's own words confirm the pattern was debt, not design (\"those surfaces are the old pattern this PR removes ... `reported_*` inputs\").",
+    "verifier_quote": "-          if state_pension_abolished_by_policy: 0 else: (current_state_pension_flat_weekly_amount + additional_state_pension_weekly_amount) * state_pension_policy_uprating_factor",
+    "verifier_notes": "Refutation attempts and why they failed: (1) \"mechanical\" is untenable — formulas, rule names, effective dates and the output set all changed. (2) \"not_a_defect / enhancement\" is the strongest counter-reading, since the pre-fix summary openly said \"This PolicyEngine-alignment surface returns the weekly State Pension amount used by PolicyEngine UK\", i.e. it was a knowingly-labeled model wrapper rather than a misread of law, and the PR title frames it as \"PolicyEngine wrapper retirement.\" It fails only because the module simultaneously asserted source grounding it did not have: proof atom `corpus_citation_path: uk/regulation/uksi/2026/148/article/4` / `excerpt: \"Category A basic retirement pension\"` on a formula that proration and policy levers cannot be derived from. If the taxonomy treats a self-declared alignment wrapper as \"never claimed\" law fidelity, this would drop to unclear — that is the one reviewer judgment call here. (3) Competing kinds: the fix also moves effective_from 2026-04-06 → 2016-04-06 / 2010-04-06 (wrong_period_or_effective_date), drops the `current_state_pension_flat_weekly_amount` and `additional_state_pension_weekly_amount` outputs (wrong_entity_or_scope), and adds the 10-year floor and 35/30-year proportions (unrepresented_clause). All three are consequences of the re-grounding rather than the primary defect, so untraceable_branch remains the best single fit. Provenance caveats for the reviewer: the guidance slices were captured by hand on 2026-06-10, not through the corpus extractor, and the corpus resolver reports `fix_time_corpus_match: provision_file_absent_at_corpus_ref` with `selection_basis: earliest_release_after_toolchain_corpus_ref`, so both source texts were read from release uk-rulespec-2026-07-12 rather than the exact fix-time corpus. Also note the commit was hand-authored, not encoder-produced (\"Ah I see I should have got the encoder to do this rather than claude... will refile\"), which bears on the repo's encoding regime but not on the fidelity classification. Finally, the post-fix encoding is guidance-level and omits transitional starting-amount / protected-payment rules — a simplification, but not evidence against the pre-fix defect.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword",
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
+  },
+  "triage_notes": "Provision read: the vendored slice uk/statute/ukpga/2014/19/3 says \"The reduced rate of the state pension for a person is the following proportion of the full rate— 1/35 × the person's number of qualifying years\", and the gov.uk slices supply the 35-year full rate, 10-year minimum and 30-year basic full rate - so the post-fix formulas are grounded and the pre-fix prorating / abolition / uprating-factor branches were not. This is the clearest untraceable_branch instance in the chunk and the one the commit message names most specifically (\"state pension from qualifying years\"). Also fixes the timeline: version windows move from a single 2026-04-06 window to 2016-04-06 (new) and 2010-04-06 (basic), and the additional/protected state pension amount above the ceiling is dropped entirely (additional state pension is no longer encoded - a coverage loss a reviewer may want to note). New rule uses min(1, years/35) so records above 35 qualifying years cap at the full rate. | verifier confirmed at 0.79"
+}

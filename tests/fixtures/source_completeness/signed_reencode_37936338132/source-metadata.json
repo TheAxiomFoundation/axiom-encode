@@ -1,0 +1,48 @@
+{
+  "source_attestation": {
+    "component_rows": [
+      {
+        "body_sha256": "af1e346b14806f54847780859f15ed0e0ad5e8ee4e8e6d95bdaddbd33de27cd9",
+        "citation_path": "us-az/statute/43-1072/block-1",
+        "document_class": "statute",
+        "expression_date": "2026-07-13",
+        "jurisdiction": "us-az",
+        "line_number": 8,
+        "provision_file": "data/corpus/provisions/us-az/statute/2026-07-13-recovery.jsonl",
+        "provision_file_sha256": "e22c71da063975aab19f40c8b1c83dc409d6e46813aed5dbe4675fc1926cdd89",
+        "record_id": "277ff103-9191-5bda-a81f-b911af39cbe2",
+        "source_as_of": "2026-07-13",
+        "source_path": "sources/us-az/statute/2026-07-13-recovery/official-documents/us-az-code-43-1072",
+        "version": "2026-07-13-recovery"
+      }
+    ],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2026-07-13",
+    "generation_input_sha256": "30d1dc61d45b77e7820e088fdeed82cf9b20b6c2b85923dff17f8440f0d0680f",
+    "provision_file": "data/corpus/provisions/us-az/statute/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "e22c71da063975aab19f40c8b1c83dc409d6e46813aed5dbe4675fc1926cdd89",
+    "requested_corpus_citation_path": "us-az/statute/43-1072",
+    "resolved_corpus_citation_path": "us-az/statute/43-1072",
+    "resolved_text_sha256": "30d1dc61d45b77e7820e088fdeed82cf9b20b6c2b85923dff17f8440f0d0680f",
+    "row": {
+      "body_sha256": null,
+      "citation_path": "us-az/statute/43-1072",
+      "document_class": "statute",
+      "expression_date": "2026-07-13",
+      "jurisdiction": "us-az",
+      "line_number": 7,
+      "provision_file": "data/corpus/provisions/us-az/statute/2026-07-13-recovery.jsonl",
+      "provision_file_sha256": "e22c71da063975aab19f40c8b1c83dc409d6e46813aed5dbe4675fc1926cdd89",
+      "record_id": "3346406c-7af4-5f6f-9d27-024d4d157f02",
+      "source_as_of": "2026-07-13",
+      "source_path": "sources/us-az/statute/2026-07-13-recovery/official-documents/us-az-code-43-1072",
+      "version": "2026-07-13-recovery"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us-az",
+    "source_as_of": "2026-07-13",
+    "source_sha256": "30d1dc61d45b77e7820e088fdeed82cf9b20b6c2b85923dff17f8440f0d0680f"
+  }
+}

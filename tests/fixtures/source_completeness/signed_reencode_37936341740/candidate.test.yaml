@@ -1,0 +1,52 @@
+- name: account contribution limited and eligible excess carried forward
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-va:statutes/58.1/58/1-322/03#input.account_owner_age: 45
+    us-va:statutes/58.1/58/1-322/03#input.account_contribution: 6000
+    us-va:statutes/58.1/58/1-322/03#input.eligible_opening_carryforward: 0
+    us-va:statutes/58.1/58/1-322/03#input.contribution_claimed_as_federal_deduction: false
+  output:
+    us-va:statutes/58.1/58/1-322/03#college_savings_account_deduction: 4000
+    us-va:statutes/58.1/58/1-322/03#college_savings_account_carryforward: 2000
+- name: opening carryforward is deductible without a new contribution
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-va:statutes/58.1/58/1-322/03#input.account_owner_age: 45
+    us-va:statutes/58.1/58/1-322/03#input.account_contribution: 0
+    us-va:statutes/58.1/58/1-322/03#input.eligible_opening_carryforward: 2000
+    us-va:statutes/58.1/58/1-322/03#input.contribution_claimed_as_federal_deduction: false
+  output:
+    us-va:statutes/58.1/58/1-322/03#college_savings_account_deduction: 2000
+    us-va:statutes/58.1/58/1-322/03#college_savings_account_carryforward: 0
+- name: age seventy exception permits deduction above account limit
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-va:statutes/58.1/58/1-322/03#input.account_owner_age: 70
+    us-va:statutes/58.1/58/1-322/03#input.account_contribution: 10000
+    us-va:statutes/58.1/58/1-322/03#input.eligible_opening_carryforward: 2000
+    us-va:statutes/58.1/58/1-322/03#input.contribution_claimed_as_federal_deduction: false
+  output:
+    us-va:statutes/58.1/58/1-322/03#college_savings_account_deduction: 12000
+    us-va:statutes/58.1/58/1-322/03#college_savings_account_carryforward: 0
+- name: federally deducted account contribution is disallowed
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-va:statutes/58.1/58/1-322/03#input.account_owner_age: 69
+    us-va:statutes/58.1/58/1-322/03#input.account_contribution: 3000
+    us-va:statutes/58.1/58/1-322/03#input.eligible_opening_carryforward: 0
+    us-va:statutes/58.1/58/1-322/03#input.contribution_claimed_as_federal_deduction: true
+  output:
+    us-va:statutes/58.1/58/1-322/03#college_savings_account_deduction: 0
+    us-va:statutes/58.1/58/1-322/03#college_savings_account_carryforward: 0

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from axiom_encode.prepare_signed_backfill import immutable_atomic_source_contract
 from scripts.extract_repair_candidate import (
     MAX_ARCHIVE_MEMBERS,
     MAX_CANDIDATE_BYTES,
@@ -84,14 +85,17 @@ def _add_retained_candidate(
     tests: bytes = b"[]\n",
     citation: str = "us/statute/42/1437c\u20131",
     module: str = "statutes/42/1437c-1.yaml",
+    issue_text: str = "best candidate still needs one repair",
+    extra_fields: dict | None = None,
 ) -> Path:
     root = "target/final-rejected-candidate"
     issues = json.dumps(
         {
+            **(extra_fields or {}),
             "schema": "axiom-encode/failed-encode-candidate/v1",
             "citation": citation,
             "path": module,
-            "issues": ["best candidate still needs one repair"],
+            "issues": [issue_text],
             "rulespec_sha256": hashlib.sha256(candidate).hexdigest(),
             "tests_sha256": hashlib.sha256(tests).hexdigest(),
             "encoder_version": "0.2.1713",
@@ -148,6 +152,46 @@ def _rewrite_metadata(
                 body = json.dumps(metadata).encode()
                 member.size = len(body)
             target.addfile(member, io.BytesIO(body))
+    return destination
+
+
+def _add_initial_runner_pair(
+    source_archive: Path,
+    destination: Path,
+    metadata: dict,
+    *,
+    module: str,
+) -> Path:
+    runner = "openai-gpt-6-luna"
+    payloads = {
+        f"target/{runner}/{module}": b"format: rulespec/v1\nrules: [initial]\n",
+        f"target/{runner}/{module.removesuffix('.yaml')}.test.yaml": b"[]\n",
+    }
+    metadata["files"].extend(
+        {
+            "path": path,
+            "size": len(body),
+            "sha256": hashlib.sha256(body).hexdigest(),
+        }
+        for path, body in payloads.items()
+    )
+    metadata["files"].sort(key=lambda entry: entry["path"])
+    with (
+        tarfile.open(source_archive, "r") as source,
+        tarfile.open(destination, "w") as target,
+    ):
+        for member in source.getmembers():
+            extracted = source.extractfile(member)
+            assert extracted is not None
+            body = extracted.read()
+            if member.name == "metadata.json":
+                body = json.dumps(metadata).encode()
+                member.size = len(body)
+            target.addfile(member, io.BytesIO(body))
+        for path, body in payloads.items():
+            info = tarfile.TarInfo(f"generated/{path}")
+            info.size = len(body)
+            target.addfile(info, io.BytesIO(body))
     return destination
 
 
@@ -310,6 +354,44 @@ def test_prefers_integrity_bound_retained_best_candidate(tmp_path):
     assert (root / result["path"]).read_bytes() == retained
 
 
+def test_accepts_retained_candidate_with_typed_issues(tmp_path):
+    archive, metadata = _archive(tmp_path, candidate=b"final regression\n")
+    retained = b"strongest retained candidate\n"
+    replacement = _add_retained_candidate(
+        archive,
+        tmp_path / "retained.tar",
+        metadata,
+        candidate=retained,
+        extra_fields={
+            "typed_issues": {
+                "schema": "axiom-encode/validation-issue/v2",
+                "total": 1,
+                "typed": 1,
+                "issues": [],
+            }
+        },
+    )
+
+    result = extract_candidate(_args(tmp_path, replacement))
+
+    assert result["runner"] == "retained-best"
+    assert (Path(result["root"]) / result["path"]).read_bytes() == retained
+
+
+def test_rejects_retained_candidate_with_malformed_typed_issues(tmp_path):
+    archive, metadata = _archive(tmp_path, candidate=b"final regression\n")
+    replacement = _add_retained_candidate(
+        archive,
+        tmp_path / "retained.tar",
+        metadata,
+        candidate=b"strongest retained candidate\n",
+        extra_fields={"typed_issues": {"schema": "other", "issues": []}},
+    )
+
+    with pytest.raises(ValueError, match="retained repair candidate metadata"):
+        extract_candidate(_args(tmp_path, replacement))
+
+
 def test_extracts_dependent_candidate_for_atomic_repair(tmp_path):
     archive, metadata = _archive(tmp_path)
     replacement = _rewrite_as_dependent_candidate(
@@ -330,6 +412,238 @@ def test_extracts_dependent_candidate_for_atomic_repair(tmp_path):
 
     assert result["runner"] == "openai-gpt-5.6-sol"
     assert result["path"] == "statutes/42/1437c-1.yaml"
+
+
+@pytest.mark.parametrize("include_initial_runner", [False, True])
+def test_extracts_bound_legacy_primary_after_dependent_failure(
+    tmp_path, include_initial_runner
+):
+    archive, metadata = _archive(tmp_path)
+    primary_citation = "us/guidance/primary/source"
+    primary_path = "us/statutes/42/1437c-1.yaml"
+    dependent_citation = "us/statute/42/dependent"
+    atomic_source = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v3",
+            "source_bundle": [],
+            "canonical_refresh_bundle": [],
+            "require_complete_source_unit": True,
+            "primary_required_test_cases": [
+                {
+                    "name": "March boundary",
+                    "period": {
+                        "period_kind": "month",
+                        "start": "2026-03-01",
+                        "end": "2026-03-31",
+                    },
+                    "input": {"us:test#input": 1000},
+                    "required_output": {"us:test#output": 2.0},
+                }
+            ],
+        }
+    )
+    metadata.pop("source_bundle_input")
+    metadata["atomic_source_input"] = atomic_source
+    metadata["citation"] = primary_citation
+    metadata["dependent_citation"] = dependent_citation
+    metadata["replace_legacy_rulespec_path"] = primary_path
+    metadata["generated_lanes"] = ["dependent", "target"]
+    metadata["files"] = [
+        entry
+        for entry in metadata["files"]
+        if not entry["path"].endswith(".repair.json")
+    ]
+    prior = _rewrite_metadata(archive, tmp_path / "legacy-dependent.tar", metadata)
+    if include_initial_runner:
+        prior = _add_initial_runner_pair(
+            prior,
+            tmp_path / "legacy-dependent-escalated.tar",
+            metadata,
+            module="statutes/42/1437c-1.yaml",
+        )
+
+    result = extract_candidate(
+        _args(
+            tmp_path,
+            prior,
+            citation=primary_citation,
+            atomic_source_json=atomic_source,
+            dependent_citation=dependent_citation,
+            replace_legacy_rulespec_path=primary_path,
+            transaction_citation=primary_citation,
+            transaction_rulespec_path=primary_path,
+        )
+    )
+
+    assert result["lane"] == "target"
+    assert result["runner"] == "openai-gpt-5.6-sol"
+    assert (Path(result["root"]) / "statutes/42/1437c-1.yaml").is_file()
+
+
+def test_legacy_primary_replay_rejects_empty_boundary_cases_in_both_runs(tmp_path):
+    archive, metadata = _archive(tmp_path)
+    primary_citation = "us/guidance/primary/source"
+    primary_path = "us/statutes/42/1437c-1.yaml"
+    dependent_citation = "us/statute/42/dependent"
+    atomic_source = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v3",
+            "source_bundle": [],
+            "canonical_refresh_bundle": [],
+            "require_complete_source_unit": True,
+            "primary_required_test_cases": [],
+        }
+    )
+    metadata.pop("source_bundle_input")
+    metadata["atomic_source_input"] = atomic_source
+    metadata["citation"] = primary_citation
+    metadata["dependent_citation"] = dependent_citation
+    metadata["replace_legacy_rulespec_path"] = primary_path
+    metadata["generated_lanes"] = ["dependent", "target"]
+    metadata["files"] = [
+        entry
+        for entry in metadata["files"]
+        if not entry["path"].endswith(".repair.json")
+    ]
+    prior = _rewrite_metadata(archive, tmp_path / "empty-boundaries.tar", metadata)
+
+    with pytest.raises(ValueError, match="boundary tests"):
+        extract_candidate(
+            _args(
+                tmp_path,
+                prior,
+                citation=primary_citation,
+                atomic_source_json=atomic_source,
+                dependent_citation=dependent_citation,
+                replace_legacy_rulespec_path=primary_path,
+                transaction_citation=primary_citation,
+                transaction_rulespec_path=primary_path,
+            )
+        )
+
+
+def test_legacy_primary_replay_rejects_dependent_lane_before_archive_read(tmp_path):
+    primary_path = "us/statutes/42/1437c-1.yaml"
+    with pytest.raises(ValueError, match="legacy dependent repair target identity"):
+        extract_candidate(
+            _args(
+                tmp_path,
+                tmp_path / "missing-archive.tar",
+                citation="us/guidance/primary/source",
+                atomic_source_json=json.dumps(
+                    {
+                        "schema": "axiom-encode/atomic-source-transaction/v3",
+                        "source_bundle": [],
+                        "canonical_refresh_bundle": [],
+                        "require_complete_source_unit": True,
+                        "primary_required_test_cases": [{"name": "March boundary"}],
+                    }
+                ),
+                dependent_citation="us/statute/42/dependent",
+                replace_legacy_rulespec_path=primary_path,
+                transaction_citation="us/guidance/primary/source",
+                transaction_rulespec_path=primary_path,
+                repair_lane="dependent",
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("changed_field", "changed_value"),
+    [
+        ("corpus_artifact_run_id", "124"),
+        ("provision_export_run_ids", ["456", "790"]),
+    ],
+)
+def test_legacy_primary_replay_binds_corpus_transport_export_ids(
+    tmp_path, changed_field, changed_value
+):
+    archive, metadata = _archive(tmp_path)
+    primary_citation = "us/guidance/primary/source"
+    primary_path = "us/statutes/42/1437c-1.yaml"
+    dependent_citation = "us/statute/42/dependent"
+    transaction = {
+        "schema": "axiom-encode/atomic-source-transaction/v3",
+        "source_bundle": [],
+        "canonical_refresh_bundle": [],
+        "require_complete_source_unit": True,
+        "primary_required_test_cases": [{"name": "March boundary"}],
+    }
+    transport = {
+        "schema": "axiom-encode/corpus-artifact-transport/v1",
+        "transaction": transaction,
+        "corpus_artifact_run_id": "123",
+        "provision_export_run_ids": ["456", "789"],
+    }
+    prior_source = json.dumps(transport)
+    metadata.pop("source_bundle_input")
+    metadata["atomic_source_input"] = prior_source
+    metadata["citation"] = primary_citation
+    metadata["dependent_citation"] = dependent_citation
+    metadata["replace_legacy_rulespec_path"] = primary_path
+    metadata["generated_lanes"] = ["dependent", "target"]
+    metadata["files"] = [
+        entry
+        for entry in metadata["files"]
+        if not entry["path"].endswith(".repair.json")
+    ]
+    prior = _rewrite_metadata(archive, tmp_path / "transport-dependent.tar", metadata)
+    replay_args = {
+        "citation": primary_citation,
+        "dependent_citation": dependent_citation,
+        "replace_legacy_rulespec_path": primary_path,
+        "transaction_citation": primary_citation,
+        "transaction_rulespec_path": primary_path,
+    }
+
+    exact = extract_candidate(
+        _args(tmp_path, prior, atomic_source_json=prior_source, **replay_args)
+    )
+    assert exact["lane"] == "target"
+
+    changed_source = json.dumps({**transport, changed_field: changed_value})
+    assert immutable_atomic_source_contract(
+        changed_source
+    ) == immutable_atomic_source_contract(prior_source)
+    with pytest.raises(ValueError, match="exact prior source transport"):
+        extract_candidate(
+            _args(
+                tmp_path,
+                prior,
+                destination=tmp_path / "changed-export-ids",
+                atomic_source_json=changed_source,
+                **replay_args,
+            )
+        )
+
+
+def test_rejects_legacy_primary_when_required_test_contract_changes(tmp_path):
+    archive, metadata = _archive(tmp_path)
+    metadata.pop("source_bundle_input")
+    metadata["atomic_source_input"] = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v3",
+            "source_bundle": [],
+            "canonical_refresh_bundle": [],
+            "require_complete_source_unit": True,
+            "primary_required_test_cases": [{"name": "prior"}],
+        }
+    )
+    metadata["dependent_citation"] = "us/statute/42/dependent"
+    metadata["replace_legacy_rulespec_path"] = metadata["replace_rulespec_path"]
+    metadata["generated_lanes"] = ["dependent", "target"]
+    prior = _rewrite_metadata(archive, tmp_path / "legacy-dependent.tar", metadata)
+
+    with pytest.raises(ValueError, match="metadata mismatch: atomic_source_input"):
+        extract_candidate(
+            _args(
+                tmp_path,
+                prior,
+                atomic_source_json="[]",
+                dependent_citation="us/statute/42/dependent",
+                replace_legacy_rulespec_path="us/statutes/42/1437c-1.yaml",
+            )
+        )
 
 
 def test_rejects_dependent_candidate_with_different_citation(tmp_path):
@@ -556,7 +870,16 @@ def test_extracts_replayed_final_composition_without_redundant_preflight(tmp_pat
     assert result["runner"] == "openai-gpt-5.6-sol"
 
 
-def test_extracts_digest_bound_source_candidates_from_final_composition(tmp_path):
+@pytest.mark.parametrize(
+    ("initial_runner", "escalation_runner"),
+    [
+        ("openai-gpt-5.6-terra", "openai-gpt-5.6-sol"),
+        ("openai-gpt-6-luna", "openai-gpt-6-sol"),
+    ],
+)
+def test_extracts_digest_bound_source_candidates_from_final_composition(
+    tmp_path, initial_runner, escalation_runner
+):
     source_citations = [
         "us/statute/7/2015/f",
         "us/guidance/usda/fns/snap-obbb-alien-eligibility-implementation-memo",
@@ -585,12 +908,12 @@ def test_extracts_digest_bound_source_candidates_from_final_composition(tmp_path
     source_one = b"format: rulespec/v1\n# final statute source\nrules: []\n"
     source_two = b"format: rulespec/v1\n# final guidance source\nrules: []\n"
     payloads = {
-        "source-01/openai-gpt-5.6-terra/statutes/7/2015/f.yaml": b"older\n",
-        "source-01/openai-gpt-5.6-terra/statutes/7/2015/f.test.yaml": b"[]\n",
-        "source-01/openai-gpt-5.6-sol/statutes/7/2015/f.yaml": source_one,
-        "source-01/openai-gpt-5.6-sol/statutes/7/2015/f.test.yaml": b"[]\n",
-        "source-02/openai-gpt-5.6-sol/policies/usda/fns/snap-obbb-alien-eligibility-implementation-memo.yaml": source_two,
-        "source-02/openai-gpt-5.6-sol/policies/usda/fns/snap-obbb-alien-eligibility-implementation-memo.test.yaml": b"[]\n",
+        f"source-01/{initial_runner}/statutes/7/2015/f.yaml": b"older\n",
+        f"source-01/{initial_runner}/statutes/7/2015/f.test.yaml": b"[]\n",
+        f"source-01/{escalation_runner}/statutes/7/2015/f.yaml": source_one,
+        f"source-01/{escalation_runner}/statutes/7/2015/f.test.yaml": b"[]\n",
+        f"source-02/{escalation_runner}/policies/usda/fns/snap-obbb-alien-eligibility-implementation-memo.yaml": source_two,
+        f"source-02/{escalation_runner}/policies/usda/fns/snap-obbb-alien-eligibility-implementation-memo.test.yaml": b"[]\n",
     }
     replacement = _add_generated_payloads(
         archive,
@@ -612,7 +935,7 @@ def test_extracts_digest_bound_source_candidates_from_final_composition(tmp_path
         source_citations
     )
     first, second = result["source_candidates"]
-    assert first["runner"] == "openai-gpt-5.6-sol"
+    assert first["runner"] == escalation_runner
     assert (Path(first["root"]) / first["path"]).read_bytes() == source_one
     assert (Path(second["root"]) / second["path"]).read_bytes() == source_two
 
@@ -1213,3 +1536,335 @@ def test_candidate_size_bound_rejects_limit_plus_one(tmp_path):
 
     with pytest.raises(ValueError, match="exceeds its size limit"):
         extract_candidate(_args(tmp_path, archive))
+
+
+def test_retained_large_diagnostics_do_not_use_yaml_size_bound(tmp_path):
+    archive, metadata = _archive(tmp_path)
+    retained = _add_retained_candidate(
+        archive,
+        tmp_path / "large-issues.tar",
+        metadata,
+        candidate=b"format: rulespec/v1\nrules: []\n",
+        issue_text="diagnostic " * 60000,
+    )
+    result = extract_candidate(_args(tmp_path, retained))
+    assert (
+        Path(result["root"], result["path"]).read_text()
+        == "format: rulespec/v1\nrules: []\n"
+    )
+
+
+def test_retained_diagnostics_reject_shared_limit_plus_one(tmp_path):
+    from scripts.extract_repair_candidate import MAX_ISSUES_BYTES
+
+    archive, metadata = _archive(tmp_path)
+    retained = _add_retained_candidate(
+        archive,
+        tmp_path / "oversize-issues.tar",
+        metadata,
+        candidate=b"format: rulespec/v1\nrules: []\n",
+        issue_text="x" * MAX_ISSUES_BYTES,
+    )
+    with pytest.raises(ValueError, match="exceeds its size limit"):
+        extract_candidate(_args(tmp_path, retained))
+
+
+@pytest.mark.parametrize(
+    "prior_lane,changed_primary,incompatible,second_dependent",
+    [
+        ("target", False, False, False),
+        ("target", False, False, True),
+        ("dependent", False, False, True),
+        ("dependent", False, False, False),
+        ("target", False, True, False),
+        ("target", False, True, True),
+        ("target", True, False, False),
+    ],
+)
+def test_workflow_authenticates_retained_lane_before_new_dependent(
+    tmp_path: Path,
+    prior_lane: str,
+    changed_primary: bool,
+    incompatible: bool,
+    second_dependent: bool,
+) -> None:
+    import os
+    import subprocess
+    import sys
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[1]
+    primary_citation = "us/guidance/primary/source"
+    primary_path = "us/guidance/primary/source.yaml"
+    dependent_citation = "us/statute/42/1437c\u20131"
+    dependent_path = "us/statutes/42/1437c-1.yaml"
+    if prior_lane == "target":
+        archive, metadata = _archive(
+            tmp_path,
+            citation=primary_citation,
+            module="guidance/primary/source.yaml",
+            replace_rulespec_path=primary_path,
+        )
+    else:
+        archive, metadata = _archive(tmp_path)
+        archive = _rewrite_as_dependent_candidate(
+            archive, tmp_path / "dependent.tar", metadata
+        )
+    repo = tmp_path / "rulespec-us"
+    repo.mkdir()
+
+    def git(*args):
+        return subprocess.check_output(
+            ["git", "-C", str(repo), *args], text=True
+        ).strip()
+
+    git("init", "--quiet")
+    git("config", "user.name", "Test")
+    git("config", "user.email", "test@example.invalid")
+    for path in (primary_path, dependent_path):
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+        target.with_suffix(".test.yaml").write_text("[]\n")
+        manifest = repo / ".axiom/encoding-manifests" / Path(path).with_suffix(".json")
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text("{}\n")
+    git("add", ".")
+    git("commit", "-qm", "source base")
+    metadata["rulespec_ref"] = git("rev-parse", "HEAD")
+    if incompatible:
+        metadata["corpus_ref"] = "e" * 40
+    archive = _rewrite_metadata(archive, tmp_path / "bound.tar", metadata)
+    if changed_primary:
+        (repo / primary_path).write_text("changed primary\n")
+        git("add", ".")
+        git("commit", "-qm", "changed primary")
+    workflow = yaml.safe_load(
+        (root / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    step = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Resolve trusted prior-run repair candidate"
+    )
+    command = (
+        "set -euo pipefail\n" + step[step.index("extract_authenticated_repair() {") :]
+    )
+    command = command.replace("axiom-encode/.venv/bin/python", sys.executable)
+    for name in ("extract_repair_candidate.py", "verify_repair_base_advance.py"):
+        command = command.replace(
+            f"axiom-encode/scripts/{name}", str(root / "scripts" / name)
+        )
+    output_file = tmp_path / "outputs"
+    completed = subprocess.run(
+        ["bash", "-c", command],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output_file),
+            "repair_archive": str(archive),
+            "repair_encoder_commit": "a" * 40,
+            "repair_citation": dependent_citation,
+            "repair_rulespec_path": dependent_path,
+            "REPAIR_RUN_LANE": "dependent",
+            "CITATION": primary_citation,
+            "REPLACE_RULESPEC_PATH": primary_path,
+            "SECOND_DEPENDENT_CITATION": "us/statute/42/402/w"
+            if second_dependent
+            else "",
+            "COUNTRY": "us",
+            "CORPUS_REF": "b" * 40,
+            "RULES_ENGINE_REF": "c" * 40,
+            "RULESPEC_REF": git("rev-parse", "HEAD"),
+            "RULESPEC_CHECKOUT": str(repo),
+            "REPAIR_RUN_ID": "1234",
+            "ATOMIC_SOURCE_JSON": "[]",
+            "source_bundle_json": "[]",
+            "primary_required_test_cases_json": "[]",
+            "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+        },
+    )
+    if second_dependent and prior_lane == "dependent":
+        assert completed.returncode != 0
+        assert (
+            "two fresh dependents require an authenticated single-target primary"
+            in completed.stderr
+        )
+        assert not (tmp_path / "repair-candidate").exists()
+        assert not output_file.exists()
+        return
+    if incompatible:
+        assert completed.returncode != 0
+        if second_dependent:
+            assert (
+                "two fresh dependents require an authenticated single-target primary"
+                in completed.stderr
+            )
+            assert (
+                "metadata mismatch: corpus_ref"
+                in (tmp_path / "repair-primary-probe.log").read_text()
+            )
+        else:
+            assert "metadata mismatch: corpus_ref" in completed.stderr
+        assert not output_file.exists()
+        return
+    if changed_primary:
+        assert completed.returncode != 0
+        assert (
+            "target identity changed after its source RuleSpec base" in completed.stderr
+        )
+        assert (tmp_path / "repair-primary-candidate.json").is_file()
+        assert not (tmp_path / "repair-candidate").exists()
+        assert not output_file.exists()
+        return
+    assert completed.returncode == 0, completed.stderr
+    outputs = dict(line.split("=", 1) for line in output_file.read_text().splitlines())
+    expected_path = primary_path if prior_lane == "target" else dependent_path
+    assert outputs["lane"] == prior_lane
+    assert outputs["rulespec_path"] == expected_path
+    assert outputs["path"] == expected_path.removeprefix("us/")
+    assert outputs["source_rulespec_ref"] == metadata["rulespec_ref"]
+    candidate = Path(outputs["root"]) / outputs["path"]
+    assert (
+        hashlib.sha256(candidate.read_bytes()).hexdigest() == outputs["rulespec_sha256"]
+    )
+    assert (
+        hashlib.sha256(candidate.with_suffix(".test.yaml").read_bytes()).hexdigest()
+        == outputs["tests_sha256"]
+    )
+
+
+@pytest.mark.parametrize("changed_export_id", [False, True])
+def test_workflow_replays_legacy_primary_and_reports_probe_failure(
+    tmp_path: Path, changed_export_id: bool
+) -> None:
+    import os
+    import subprocess
+    import sys
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[1]
+    primary_citation = "us/guidance/primary/source"
+    primary_path = "us/statutes/42/1437c-1.yaml"
+    dependent_citation = "us/guidance/dependent"
+    dependent_path = "us/guidance/dependent.yaml"
+    transport = {
+        "schema": "axiom-encode/corpus-artifact-transport/v1",
+        "transaction": {
+            "schema": "axiom-encode/atomic-source-transaction/v3",
+            "source_bundle": [],
+            "canonical_refresh_bundle": [],
+            "require_complete_source_unit": True,
+            "primary_required_test_cases": [{"name": "March boundary"}],
+        },
+        "corpus_artifact_run_id": "789",
+    }
+    prior_source = json.dumps(transport)
+    archive, metadata = _archive(tmp_path)
+    metadata.pop("source_bundle_input")
+    metadata["atomic_source_input"] = prior_source
+    metadata["citation"] = primary_citation
+    metadata["dependent_citation"] = dependent_citation
+    metadata["replace_legacy_rulespec_path"] = primary_path
+    metadata["generated_lanes"] = ["dependent", "target"]
+    metadata["files"] = [
+        entry
+        for entry in metadata["files"]
+        if not entry["path"].endswith(".repair.json")
+    ]
+
+    repo = tmp_path / "rulespec-us"
+    repo.mkdir()
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(
+            ["git", "-C", str(repo), *args], text=True
+        ).strip()
+
+    git("init", "--quiet")
+    git("config", "user.name", "Test")
+    git("config", "user.email", "test@example.invalid")
+    for path in (primary_path, dependent_path):
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+        target.with_suffix(".test.yaml").write_text("[]\n")
+        manifest = repo / ".axiom/encoding-manifests" / Path(path).with_suffix(".json")
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text("{}\n")
+    git("add", ".")
+    git("commit", "-qm", "source base")
+    metadata["rulespec_ref"] = git("rev-parse", "HEAD")
+    archive = _rewrite_metadata(archive, tmp_path / "legacy-transport.tar", metadata)
+
+    workflow = yaml.safe_load(
+        (root / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    step = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Resolve trusted prior-run repair candidate"
+    )
+    command = (
+        "set -euo pipefail\n" + step[step.index("extract_authenticated_repair() {") :]
+    )
+    command = command.replace("axiom-encode/.venv/bin/python", sys.executable)
+    for name in ("extract_repair_candidate.py", "verify_repair_base_advance.py"):
+        command = command.replace(
+            f"axiom-encode/scripts/{name}", str(root / "scripts" / name)
+        )
+    requested_transport = {
+        **transport,
+        "corpus_artifact_run_id": "790" if changed_export_id else "789",
+    }
+    output_file = tmp_path / "outputs"
+    completed = subprocess.run(
+        ["bash", "-c", command],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output_file),
+            "repair_archive": str(archive),
+            "repair_encoder_commit": "a" * 40,
+            "repair_citation": dependent_citation,
+            "repair_rulespec_path": dependent_path,
+            "REPAIR_RUN_LANE": "dependent",
+            "CITATION": primary_citation,
+            "REPLACE_RULESPEC_PATH": primary_path,
+            "REPLACE_LEGACY_RULESPEC_PATH": primary_path,
+            "DEPENDENT_CITATION": dependent_citation,
+            "SECOND_DEPENDENT_CITATION": "",
+            "COUNTRY": "us",
+            "CORPUS_REF": "b" * 40,
+            "RULES_ENGINE_REF": "c" * 40,
+            "RULESPEC_REF": metadata["rulespec_ref"],
+            "RULESPEC_CHECKOUT": str(repo),
+            "REPAIR_RUN_ID": "1234",
+            "ATOMIC_SOURCE_JSON": json.dumps(requested_transport),
+            "source_bundle_json": "[]",
+            "primary_required_test_cases_json": '[{"name":"March boundary"}]',
+            "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+        },
+    )
+    if changed_export_id:
+        assert completed.returncode != 0
+        assert "exact prior source transport" in completed.stderr
+        assert (
+            "legacy dependent repair target identity is invalid" not in completed.stderr
+        )
+        assert not output_file.exists()
+    else:
+        assert completed.returncode == 0, completed.stderr
+        outputs = dict(
+            line.split("=", 1) for line in output_file.read_text().splitlines()
+        )
+        assert outputs["lane"] == "target"
+        assert outputs["rulespec_path"] == primary_path

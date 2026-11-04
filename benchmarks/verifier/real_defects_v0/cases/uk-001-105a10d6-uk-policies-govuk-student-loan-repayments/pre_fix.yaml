@@ -1,0 +1,304 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: uk/guidance/govuk/student-loan-repayments/what-you-pay
+  summary: |-
+    GOV.UK student loan repayment guidance sets yearly income thresholds of GBP 26900 for Plan 1, GBP 29385 for Plan 2, GBP 33795 for Plan 4, GBP 25000 for Plan 5, and GBP 21000 for Postgraduate Loans. A borrower repays 9% of income over the threshold for Plan 1, Plan 2, Plan 4, or Plan 5, and 6% of income over the threshold for a Postgraduate Loan plan.
+rules:
+  - name: plan_1_annual_income_threshold
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: GOV.UK student loan repayment yearly income thresholds
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/guidance/govuk/student-loan-repayments/what-you-pay
+              excerpt: "Plan 1, £26,900"
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          26900
+
+  - name: plan_2_annual_income_threshold
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: GOV.UK student loan repayment yearly income thresholds
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/guidance/govuk/student-loan-repayments/what-you-pay
+              excerpt: "Plan 2, £29,385"
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          29385
+
+  - name: plan_4_annual_income_threshold
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: GOV.UK student loan repayment yearly income thresholds
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/guidance/govuk/student-loan-repayments/what-you-pay
+              excerpt: "Plan 4, £33,795"
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          33795
+
+  - name: plan_5_annual_income_threshold
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: GOV.UK student loan repayment yearly income thresholds
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/guidance/govuk/student-loan-repayments/what-you-pay
+              excerpt: "Plan 5, £25,000"
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          25000
+
+  - name: postgraduate_loan_annual_income_threshold
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: GOV.UK student loan repayment yearly income thresholds
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/guidance/govuk/student-loan-repayments/what-you-pay
+              excerpt: "Postgraduate Loan, £21,000"
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          21000
+
+  - name: undergraduate_plan_repayment_rate
+    kind: parameter
+    dtype: Rate
+    source: GOV.UK student loan repayment percentage for Plan 1, Plan 2, Plan 4, and Plan 5
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: uk/guidance/govuk/student-loan-repayments/what-you-pay
+              excerpt: "You repay 9% of your income over the threshold if you are on Plan 1, Plan 2, Plan 4, or Plan 5."
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          0.09
+
+  - name: postgraduate_loan_repayment_rate
+    kind: parameter
+    dtype: Rate
+    source: GOV.UK student loan repayment percentage for Postgraduate Loan plan
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: uk/guidance/govuk/student-loan-repayments/what-you-pay
+              excerpt: "You repay 6% of your income over the threshold if you are on a Postgraduate Loan plan."
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          0.06
+
+  - name: listed_student_loan_plan_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: GOV.UK student loan repayment plan types
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/govuk/student-loan-repayments/what-you-pay
+              excerpt: "Plan 1, Plan 2, Plan 4, or Plan 5"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/govuk/student-loan-repayments/what-you-pay
+              excerpt: "Postgraduate Loan plan"
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          loan_plan_is_plan_1
+          or loan_plan_is_plan_2
+          or loan_plan_is_plan_4
+          or loan_plan_is_plan_5
+          or loan_plan_is_postgraduate
+
+  - name: student_loan_annual_income_threshold
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: GOV.UK student loan repayment yearly income threshold for the person's plan
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/guidance/govuk/student-loan-repayments/what-you-pay
+              excerpt: "The yearly income thresholds are: Plan 1, £26,900; Plan 2, £29,385; Plan 4, £33,795; Plan 5, £25,000; Postgraduate Loan, £21,000."
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:policies/govuk/student-loan-repayments#plan_1_annual_income_threshold
+              output: plan_1_annual_income_threshold
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:policies/govuk/student-loan-repayments#plan_2_annual_income_threshold
+              output: plan_2_annual_income_threshold
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:policies/govuk/student-loan-repayments#plan_4_annual_income_threshold
+              output: plan_4_annual_income_threshold
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:policies/govuk/student-loan-repayments#plan_5_annual_income_threshold
+              output: plan_5_annual_income_threshold
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:policies/govuk/student-loan-repayments#postgraduate_loan_annual_income_threshold
+              output: postgraduate_loan_annual_income_threshold
+              hash: sha256:local
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          if loan_plan_is_plan_1: plan_1_annual_income_threshold else: if loan_plan_is_plan_2: plan_2_annual_income_threshold else: if loan_plan_is_plan_4: plan_4_annual_income_threshold else: if loan_plan_is_plan_5: plan_5_annual_income_threshold else: if loan_plan_is_postgraduate: postgraduate_loan_annual_income_threshold else: 0
+
+  - name: student_loan_repayment_rate
+    kind: derived
+    entity: Person
+    dtype: Rate
+    period: Year
+    source: GOV.UK student loan repayment rate for the person's plan
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/guidance/govuk/student-loan-repayments/what-you-pay
+              excerpt: "You repay 9% of your income over the threshold if you are on Plan 1, Plan 2, Plan 4, or Plan 5. You repay 6% of your income over the threshold if you are on a Postgraduate Loan plan."
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:policies/govuk/student-loan-repayments#undergraduate_plan_repayment_rate
+              output: undergraduate_plan_repayment_rate
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:policies/govuk/student-loan-repayments#postgraduate_loan_repayment_rate
+              output: postgraduate_loan_repayment_rate
+              hash: sha256:local
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          if loan_plan_is_postgraduate: postgraduate_loan_repayment_rate else: if loan_plan_is_plan_1 or loan_plan_is_plan_2 or loan_plan_is_plan_4 or loan_plan_is_plan_5: undergraduate_plan_repayment_rate else: 0
+
+  - name: student_loan_repayment
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: GOV.UK student loan repayment amount
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/guidance/govuk/student-loan-repayments/what-you-pay
+              excerpt: "You repay a percentage of your income over the income threshold for your type of loan."
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:policies/govuk/student-loan-repayments#student_loan_repayment_rate
+              output: student_loan_repayment_rate
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:policies/govuk/student-loan-repayments#student_loan_annual_income_threshold
+              output: student_loan_annual_income_threshold
+              hash: sha256:local
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          if listed_student_loan_plan_applies: student_loan_repayment_rate * max(0, annual_income_before_tax_and_other_deductions - student_loan_annual_income_threshold) else: 0
+
+  - name: student_loan_repayments
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: GOV.UK student loan repayment amount
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/guidance/govuk/student-loan-repayments/what-you-pay
+              excerpt: "How much you repay depends on your income"
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:policies/govuk/student-loan-repayments#student_loan_repayment
+              output: student_loan_repayment
+              hash: sha256:local
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          student_loan_repayment

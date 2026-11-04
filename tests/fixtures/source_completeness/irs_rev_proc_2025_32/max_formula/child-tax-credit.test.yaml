@@ -1,0 +1,118 @@
+- name: tax_year_2026_credit_amounts
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input: {}
+  output:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#adoption_credit_refundable_determination_amount: 5120
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#child_credit_maximum_allowed_amount: 2200
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#child_credit_refundable_determination_amount: 1700
+- name: earned_income_at_amount_allows_maximum_credit
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.earned_income: 13020
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.earned_income_amount: 13020
+  output:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#earned_income_credit_maximum_amount_allowed: holds
+- name: earned_income_below_amount_does_not_allow_maximum_credit
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.earned_income: 13019
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.earned_income_amount: 13020
+  output:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#earned_income_credit_maximum_amount_allowed: not_holds
+- name: threshold_phaseout_change_pair_below_or_equal
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.adjusted_gross_income: 23891
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.earned_income: 20000
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.threshold_phaseout_amount: 23891
+  output:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#earned_income_credit_maximum_amount_begins_to_phase_out: not_holds
+- name: threshold_phaseout_change_pair_above
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.adjusted_gross_income: 23891
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.earned_income: 20000
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.threshold_phaseout_amount: 23890
+  output:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#earned_income_credit_maximum_amount_begins_to_phase_out: holds
+- name: completed_phaseout_enable_pair_below
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.adjusted_gross_income: 51593
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.earned_income: 30000
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.completed_phaseout_amount: 51594
+  output:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#earned_income_credit_is_fully_phased_out: not_holds
+- name: completed_phaseout_enable_pair_at_threshold
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.adjusted_gross_income: 51593
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.earned_income: 30000
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.completed_phaseout_amount: 51593
+  output:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#earned_income_credit_is_fully_phased_out: holds
+- name: threshold_phaseout_equal_does_not_begin_phaseout
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.adjusted_gross_income: 23890
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.earned_income: 20000
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.threshold_phaseout_amount: 23890
+  output:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#earned_income_credit_maximum_amount_begins_to_phase_out: not_holds
+- name: threshold_phaseout_above_begins_phaseout
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.adjusted_gross_income: 23891
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.earned_income: 20000
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.threshold_phaseout_amount: 23890
+  output:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#earned_income_credit_maximum_amount_begins_to_phase_out: holds
+- name: below_completed_phaseout_still_allows_credit
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.adjusted_gross_income: 51592
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.earned_income: 30000
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.completed_phaseout_amount: 51593
+  output:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#earned_income_credit_is_fully_phased_out: not_holds
+- name: at_completed_phaseout_no_credit_is_allowed
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.adjusted_gross_income: 51593
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.earned_income: 30000
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#input.completed_phaseout_amount: 51593
+  output:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#earned_income_credit_is_fully_phased_out: holds

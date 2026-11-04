@@ -20,6 +20,18 @@ personal Codex with truthful sampling metadata. Pavel owns enrollment
 preparation, the generator adapter, deployment and operations and takes one
 review/approval custodian role; Max retains the administrative key. These
 assignments do not establish which operational steps are already complete.
+Its sequencing decision supersedes only v33's sentence that nothing
+admission-capable may **merge** before §9 preconditions are satisfied
+([v33 opening](notary-admission-design.md)); every §9 custody, deployment,
+authorization, and pilot precondition still gates **activation**.
+
+This documentation checkout does not authenticate the companion implementation
+or a deployed lane. For a dated implementation snapshot, inspect
+[#1662 at `deaad2a9c`](https://github.com/TheAxiomFoundation/axiom-encode/commit/deaad2a9c529ec5cbedb52a573cc4e0253f5a349),
+[#1663 at `d8f6341e`](https://github.com/TheAxiomFoundation/axiom-encode/commit/d8f6341e7353d66a88997c4c1906949fdcfdebf4),
+and [#1664 at `829c7a7f`](https://github.com/TheAxiomFoundation/axiom-encode/commit/829c7a7f69039080402f73d4f137aa8ff23f905c).
+Those commits and their own review/CI records, not this plan's CI, are the
+evidence for their code. Their PR heads and deployment status can change.
 
 ## Contributor outcome
 
@@ -101,9 +113,11 @@ authenticated generation records.
 
 ## Enrollment work packages
 
-These are the enrollment deliverables and acceptance requirements. The companion
-implementation now supplies executable tools; none is a deployed production path
-until custody, configuration and pilot prerequisites are completed.
+These are the enrollment deliverables and acceptance requirements. Companion
+[#1662](https://github.com/TheAxiomFoundation/axiom-encode/pull/1662)
+proposes executable tools; this documentation PR does not verify that code,
+and none is a deployed production path until custody, configuration and pilot
+prerequisites are completed.
 Use the roles, closed schemas, registry, and administrative transitions in
 v33; enrollment must not introduce an alternate key authority or signing path.
 The implementation in [#1662](https://github.com/TheAxiomFoundation/axiom-encode/pull/1662)
@@ -258,11 +272,11 @@ checks. Those are tracked deployment prerequisites, not completed by docs.
    enrollment/emission tools, and notary integration against the acceptance
    cases below. [#1511](https://github.com/TheAxiomFoundation/axiom-encode/pull/1511)
    is the initial verifier-core work. [#1662](https://github.com/TheAxiomFoundation/axiom-encode/pull/1662)
-   integrates that core with enrollment checks, exact-byte coverage replay,
+   proposes integrating that core with enrollment checks, exact-byte coverage replay,
    supervised personal-Codex and deterministic emission, correction tooling, the contributor
    client, hardware approval adapter, external typed services, two-App broker,
    atomic publication/finalization, CI renderer and guard integration. Its
-   deployment runbook specifies the actual custodian configuration and pilot
+   deployment runbook describes proposed custodian configuration and pilot
    evidence still required. Code and fixture tests do not enroll a host.
 3. **Operator deployment and pilot:** satisfy every v33 §9
    precondition, complete the custody ceremony, and activate the `rulespec-nz`
@@ -290,12 +304,13 @@ workflow requires the new encoder command and is adopted by full SHA in a
 separate lane rollout. Existing pinned callers are unaffected by its merge.
 
 Max's 22 September decision permits implementation PRs to merge without
-activating admission. Deployment, custody and pilot prerequisites still gate
-activation. Reconcile Pavel's existing work with the reference-deployment
+activating admission; it supersedes v33's precondition-before-merge sentence,
+not the §9 preconditions themselves. Deployment, custody and pilot prerequisites
+still gate activation. Reconcile Pavel's existing work with the reference-deployment
 choices and sampling amendment, recording verified hardware/host custody,
 service endpoints, public fingerprints, measured identities, App/ruleset/
 environment IDs and the executable NZ oracle profile.
-The runbook includes commands and schemas for turning those real inputs into
+The companion runbook proposes commands and schemas for turning those real inputs into
 immutable lane workflow/configuration PRs and the exact activation sequence.
 
 A final NZ/US consumer activation PR cannot truthfully contain those identities
@@ -305,10 +320,11 @@ steps with Pavel before requesting any administrative action from Max. Merging t
 make an arbitrary local Codex draft eligible. Personal subscriptions remain the
 generation path, subject to the enrolled supervised-runtime boundary.
 
-The second runtime binds measured generator code, its runtime and input
-hashes, fixed parameters and observed output hashes. Its separate evidence
-schema contains no invented model/sampling fields. The B1.6 adapter and exact
-extension contract live in #1662, under `docs/notary-deterministic-producer.md`.
+The companion #1662 proposes a second runtime binding measured generator code,
+runtime and input hashes, fixed parameters and observed output hashes. Its
+proposed separate evidence schema contains no invented model/sampling fields.
+The B1.6 adapter and extension contract are reviewed with #1662, under
+`docs/notary-deterministic-producer.md`.
 Max's temporary actor-signed/hardware-reviewed correction authorization applies
 only to #1383's two note 50/52 modules and their companion tests, after US
 activation, and ends when the deterministic producer exists. It grants no

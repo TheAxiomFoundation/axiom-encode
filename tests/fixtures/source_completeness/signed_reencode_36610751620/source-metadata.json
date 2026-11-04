@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2026-07-13",
+    "generation_input_sha256": "2020af7aebb79c6b952cbfda9809b1067975a2bcf992bb2690acd60de6eb652e",
+    "provision_file": "data/corpus/provisions/us/regulation/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "9133fa7c05ffc60be99ca8c9363e78cebb13256f853936e13324559b2573085f",
+    "requested_corpus_citation_path": "us/regulation/42/457/622",
+    "resolved_corpus_citation_path": "us/regulation/42/457/622",
+    "resolved_text_sha256": "2020af7aebb79c6b952cbfda9809b1067975a2bcf992bb2690acd60de6eb652e",
+    "row": {
+      "body_sha256": "2020af7aebb79c6b952cbfda9809b1067975a2bcf992bb2690acd60de6eb652e",
+      "citation_path": "us/regulation/42/457/622",
+      "document_class": "regulation",
+      "expression_date": "2026-07-13",
+      "jurisdiction": "us",
+      "line_number": 203,
+      "provision_file": "data/corpus/provisions/us/regulation/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+      "provision_file_sha256": "9133fa7c05ffc60be99ca8c9363e78cebb13256f853936e13324559b2573085f",
+      "record_id": "a8ad791c-6e7b-524f-8e61-279997306246",
+      "source_as_of": "2026-07-13",
+      "source_path": "sources/us/regulation/2026-07-13-recovery-r2026-07-17-dedup/official-documents/ecfrtitle-42-part-457.xml",
+      "version": "2026-07-13-recovery-r2026-07-17-dedup"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us",
+    "source_as_of": "2026-07-13",
+    "source_sha256": "2020af7aebb79c6b952cbfda9809b1067975a2bcf992bb2690acd60de6eb652e"
+  }
+}

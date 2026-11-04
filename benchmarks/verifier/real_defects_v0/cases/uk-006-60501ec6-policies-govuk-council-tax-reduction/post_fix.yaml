@@ -1,0 +1,220 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_paths:
+      - uk/regulation/uksi/2012/2885/schedule/1/paragraph/2
+      - uk/regulation/uksi/2012/2885/schedule/1/paragraph/3
+      - uk/regulation/uksi/2012/2885/schedule/1/paragraph/7
+      - uk/regulation/uksi/2012/2885/schedule/1/paragraph/10
+      - uk/regulation/uksi/2012/2885/schedule/1/paragraph/37
+  summary: |-
+    Council tax reduction under the prescribed requirements for pension-age
+    applicants in England: the reduction is found by deducting amount B from
+    amount A, where amount A is the maximum council tax reduction (the
+    council tax for the year less non-dependant deductions) and amount B is
+    2 6/7 per cent of the weekly excess of income over the applicable amount.
+    Because 2 6/7 per cent applied for each of the 7 days of the week equals
+    20 per cent of the weekly excess, the annual deduction equals 20 per cent
+    of the annual excess. Applicants whose capital exceeds the capital limit,
+    or who are subject to immigration control, get no reduction.
+rules:
+  - name: council_tax_reduction_capital_limit
+    kind: parameter
+    dtype: Money
+    unit: GBP
+    source: Council Tax Reduction Schemes (Prescribed Requirements) (England) Regulations 2012, Schedule 1 paragraph 37 (capital tariff upper bound)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/37
+              excerpt: "in excess of £10,000 but not exceeding £16,000"
+    versions:
+      - effective_from: '2013-04-01'
+        formula: |-
+          16000
+
+  - name: council_tax_reduction_per_cent_unit
+    kind: parameter
+    dtype: Rate
+    source: Council Tax Reduction Schemes (Prescribed Requirements) (England) Regulations 2012, Schedule 1 paragraph 7 (amounts are expressed per cent)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/7
+              excerpt: "100 per cent of the amount A/B"
+    versions:
+      - effective_from: '2013-04-01'
+        formula: |-
+          0.01
+
+  - name: council_tax_reduction_taper_whole_per_cent
+    kind: parameter
+    dtype: Count
+    source: Council Tax Reduction Schemes (Prescribed Requirements) (England) Regulations 2012, Schedule 1 paragraph 3(f)(ii) (the whole-number part of 2 6/7 per cent)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/3
+              excerpt: "amount B is 2 6/7 per cent of the difference"
+    versions:
+      - effective_from: '2013-04-01'
+        formula: |-
+          2
+
+  - name: council_tax_reduction_taper_fraction_numerator
+    kind: parameter
+    dtype: Count
+    source: Council Tax Reduction Schemes (Prescribed Requirements) (England) Regulations 2012, Schedule 1 paragraph 3(f)(ii) (the numerator of the 6/7 fractional part of 2 6/7 per cent, whose denominator is the 7 days of the week)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/3
+              excerpt: "amount B is 2 6/7 per cent of the difference"
+    versions:
+      - effective_from: '2013-04-01'
+        formula: |-
+          6
+
+  - name: council_tax_reduction_days_in_week
+    kind: parameter
+    dtype: Count
+    source: Council Tax Reduction Schemes (Prescribed Requirements) (England) Regulations 2012, Schedule 1 paragraph 3 (amount B applies for each day of the week against the weekly excess)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/3
+              excerpt: "amount B is 2 6/7 per cent of the difference"
+    versions:
+      - effective_from: '2013-04-01'
+        formula: |-
+          7
+
+  - name: council_tax_reduction_excess_income_taper_rate
+    kind: derived
+    entity: Household
+    dtype: Rate
+    period: Year
+    source: Council Tax Reduction Schemes (Prescribed Requirements) (England) Regulations 2012, Schedule 1 paragraph 3(f)(ii) (2 6/7 per cent of the weekly excess, applied for each of the 7 days of the week)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/3
+              excerpt: "amount B is 2 6/7 per cent of the difference"
+    versions:
+      - effective_from: '2013-04-01'
+        formula: |-
+          (council_tax_reduction_taper_whole_per_cent * council_tax_reduction_days_in_week + council_tax_reduction_taper_fraction_numerator) * council_tax_reduction_per_cent_unit
+
+  - name: council_tax_reduction_capital_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Year
+    source: Council Tax Reduction Schemes (Prescribed Requirements) (England) Regulations 2012, regulation 11(2)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/2
+              excerpt: "does not fall within a class of persons prescribed"
+    versions:
+      - effective_from: '2013-04-01'
+        formula: |-
+          household_capital <= council_tax_reduction_capital_limit
+
+  - name: council_tax_reduction_maximum_amount_for_year
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: Council Tax Reduction Schemes (Prescribed Requirements) (England) Regulations 2012, Schedule 1 paragraph 7
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/7
+              excerpt: "100 per cent of the amount A/B"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/7
+              excerpt: "less any deductions in respect of non-dependants"
+    versions:
+      - effective_from: '2013-04-01'
+        formula: |-
+          max(0, council_tax_liability_for_year - non_dependant_deductions_for_year)
+
+  - name: council_tax_reduction_excess_income_for_year
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: Council Tax Reduction Schemes (Prescribed Requirements) (England) Regulations 2012, Schedule 1 paragraph 3(e)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/3
+              excerpt: "whose income for the relevant week is greater than his applicable amount"
+    versions:
+      - effective_from: '2013-04-01'
+        formula: |-
+          max(0, income_for_year - applicable_amount_for_year)
+
+  - name: council_tax_reduction_annual_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: Council Tax Reduction Schemes (Prescribed Requirements) (England) Regulations 2012, Schedule 1 paragraphs 3(f) and 10(3)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/10
+              excerpt: "the amount found by deducting amount B from amount A"
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/3
+              excerpt: "amount B is 2 6/7 per cent of the difference"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/2
+              excerpt: "does not fall within a class of persons prescribed"
+    versions:
+      - effective_from: '2013-04-01'
+        formula: |-
+          if council_tax_reduction_capital_eligible and not liable_person_subject_to_immigration_control: max(0, council_tax_reduction_maximum_amount_for_year - council_tax_reduction_excess_income_taper_rate * council_tax_reduction_excess_income_for_year) else: 0

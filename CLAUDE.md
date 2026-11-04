@@ -40,9 +40,17 @@ The encoder emits RuleSpec YAML artifacts. Source documents are expected to live
 ## Checks
 
 ```bash
+uv sync --locked --extra dev  # the locked set CI tests on; plain `uv sync` omits pytest and ruff
 uv run ruff check pyproject.toml src/axiom_encode scripts tests
 python -m compileall -q src/axiom_encode scripts
 uv run pytest -q tests/test_cli.py tests/test_rulespec_validation.py tests/test_evals.py -k "rulespec or EncoderPrompt"
 ```
 
 Run the full test suite with `uv run pytest` before publishing broad migration changes.
+
+Tests that execute the real axiom-rules-engine take the `real_engine` fixture (`tests/real_engine.py`) and skip without an engine. CI's `real-engine` job builds the commit pinned in `.github/workflows/ci.yml` (`AXIOM_RULES_ENGINE_REF`) with `axiom-encode engine-bind`, which receipts the binary's bytes, and runs them with `AXIOM_REQUIRE_REAL_ENGINE=1`, which fails rather than skips them. To run them locally against that pin, from a checkout of it:
+
+```bash
+uv run axiom-encode engine-bind --axiom-rules-engine-path <engine checkout> --pin <pin>
+AXIOM_RULES_ENGINE_ROOT=<engine checkout> AXIOM_RULES_ENGINE_REF=<pin> AXIOM_REQUIRE_REAL_ENGINE=1 uv run pytest -m real_engine
+```

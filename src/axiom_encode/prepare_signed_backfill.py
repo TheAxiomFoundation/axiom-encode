@@ -17,6 +17,7 @@ import subprocess
 import tokenize
 from datetime import date
 from pathlib import Path, PurePosixPath
+from typing import NamedTuple
 
 COUNTRY_PATTERN = re.compile(r"[a-z]{2}")
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
@@ -36,6 +37,7 @@ LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4 = "axiom-encode/legacy-fresh-reencode-recei
 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5 = "axiom-encode/legacy-fresh-reencode-receipt/v5"
 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6 = "axiom-encode/legacy-fresh-reencode-receipt/v6"
 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7 = "axiom-encode/legacy-fresh-reencode-receipt/v7"
+LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8 = "axiom-encode/legacy-fresh-reencode-receipt/v8"
 LEGACY_EXACT_DEPENDENT_TOOL = (
     "axiom-encode encode --apply --legacy-exact-dependent-rulespec-path"
 )
@@ -43,6 +45,7 @@ LEGACY_RETAINED_SUCCESSOR_TOOL = (
     "axiom-encode encode --apply --legacy-retained-successor-rulespec-path"
 )
 MODEL_APPLY_TOOL = "axiom-encode encode --apply"
+REVIEWED_CANDIDATE_TOOL = "axiom-encode promote-reviewed-candidate"
 MODEL_APPLY_BACKENDS = frozenset({"claude", "codex", "openai"})
 LEGACY_REPLACEMENT_METADATA_PATHS = frozenset(
     {
@@ -68,111 +71,45 @@ MAX_REQUIRED_TEST_CASE_FIELDS = 64
 MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES = 64 * 1024
 DEFERRED_OUTPUT_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v1"
 STRUCTURED_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v2"
-REVIEWED_RULESPEC_REFS = frozenset(
+# Reviewed RuleSpec head admissions live in one record file per country and
+# commit under ``data/reviewed-rulespec-refs/<country>/<sha>.json`` in the
+# trusted axiom-encode checkout (code-owner reviewed; see .github/CODEOWNERS).
+# ``REVIEWED_RULESPEC_REFS`` and ``REVIEWED_RULESPEC_PR_BASES`` below are
+# derived from those records.
+REVIEWED_RULESPEC_RECORD_SCHEMA = "axiom-encode/reviewed-rulespec-admission/v1"
+REVIEWED_RULESPEC_RECORD_MAX_BYTES = 16 * 1024
+REVIEWED_RULESPEC_RECORD_FIELDS = frozenset(
     {
-        (
-            "dk",
-            "06489d04e7d4b8d424d1711d99df883c6411248a",
-        ),
-        (
-            "us",
-            "b61918da93fe8a1a29b35b9330aef2085291a5d0",
-        ),
-        (
-            "us",
-            "251d8d66dabdebcb763d9e7c9b8322a281440c36",
-        ),
-        (
-            "us",
-            "68cca4a6fa806b63f95277c129575d88d2ac07f1",
-        ),
-        (
-            "us",
-            "1e04e456ab404860050586c34eef51321eea95e9",
-        ),
-        (
-            "us",
-            "b1a6e07af093d62f613f83afe26fcb4dd87de491",
-        ),
-        (
-            "us",
-            "38ddc92d4160a0d39af13bfe232a446b554a15c5",
-        ),
-        (
-            "us",
-            "ef9dd5f72d529ebc70f539c42144361e536d7563",
-        ),
-        (
-            "us",
-            "f4fd3203db560c0d4661542388b6ae2f353e0bd3",
-        ),
-        (
-            "us",
-            "e942ce50546b1c3a1c0c8f3f0404a217eddbe071",
-        ),
-        (
-            "us",
-            "dc87ef6212accbc4ff67b81f97b6ddf0cf3b5a5c",
-        ),
-        (
-            "us",
-            "2a503a5c9a2227c363aceaece6c547429c3c0878",
-        ),
-        (
-            "us",
-            "6535019ce780d9e78f10509f2fe7a2607fb2bdc4",
-        ),
-        (
-            "us",
-            "c482ef6506c50b54236354926bbce1bcd6434132",
-        ),
-        (
-            "us",
-            "297aec1691edf7b3a21781c8a825690db1e7c988",
-        ),
-        (
-            "us",
-            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
-        ),
-        (
-            "us",
-            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
-        ),
-        (
-            "ca",
-            "f60f7a84c30e38c7d4961d70647eb0457e7d76c2",
-        ),
+        "base_sha",
+        "binding",
+        "country",
+        "declared",
+        "pr_base_branch",
+        "purpose",
+        "rulespec_pr",
+        "rulespec_ref",
+        "schema",
     }
 )
-REVIEWED_RULESPEC_PR_BASES = frozenset(
+REVIEWED_RULESPEC_BINDING_FIELDS = frozenset(
+    {"citation", "companion_sha256", "rulespec_path", "rulespec_sha256"}
+)
+# Contributor-declared generation metadata. It is recorded for review only and
+# never authorizes anything.
+REVIEWED_RULESPEC_DECLARED_FIELDS = frozenset(
     {
-        (
-            "dk",
-            "06489d04e7d4b8d424d1711d99df883c6411248a",
-            "pin/dk-rulespec-2026-08-07",
-        ),
-        (
-            "us",
-            "2a503a5c9a2227c363aceaece6c547429c3c0878",
-            "hard-cut/canonical-layout-us",
-        ),
-        (
-            "us",
-            "297aec1691edf7b3a21781c8a825690db1e7c988",
-            "axiom/signed-backfill-us-35001504609-1",
-        ),
-        (
-            "us",
-            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
-            "axiom/signed-backfill-us-35145159769-1",
-        ),
-        (
-            "us",
-            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
-            "axiom/signed-backfill-us-35160240952-1",
-        ),
+        "encoder_commit",
+        "encoder_version",
+        "failure_class",
+        "generator_cli",
+        "generator_model",
+        "outcome_sha256",
+        "pre_encode_gate",
     }
 )
+_REVIEWED_RULESPEC_BRANCH_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
+_REVIEWED_RULESPEC_RECORD_NAME_PATTERN = re.compile(r"([0-9a-f]{40})\.json")
+_REVIEWED_RULESPEC_TEXT_LIMITS = {"purpose": 400, "declared": 200, "binding": 512}
 
 
 def _load_unambiguous_json(raw: str, *, label: str) -> object:
@@ -187,6 +124,303 @@ def _load_unambiguous_json(raw: str, *, label: str) -> object:
         return decoded
 
     return json.loads(raw, object_pairs_hook=reject_duplicates)
+
+
+class ReviewedRulespecRecord(NamedTuple):
+    """One validated admission record."""
+
+    country: str
+    rulespec_ref: str
+    payload: dict[str, object]
+
+
+def _record_text_issue(value: object, *, limit: int, nullable: bool) -> bool:
+    if value is None:
+        return not nullable
+    return (
+        not isinstance(value, str)
+        or not value
+        or len(value) > limit
+        or value != value.strip()
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    )
+
+
+def _record_relative_path_issue(value: object) -> bool:
+    if _record_text_issue(
+        value, limit=_REVIEWED_RULESPEC_TEXT_LIMITS["binding"], nullable=False
+    ):
+        return True
+    assert isinstance(value, str)
+    if any(character.isspace() or character == "\\" for character in value):
+        return True
+    parts = value.split("/")
+    return value.startswith("/") or any(part in {"", ".", ".."} for part in parts)
+
+
+def _reviewed_rulespec_record_issue(
+    payload: object, *, country: str, rulespec_ref: str
+) -> str | None:
+    """Return why one decoded admission record is invalid, or None."""
+
+    if not isinstance(payload, dict):
+        return "record must be a JSON object"
+    if set(payload) != REVIEWED_RULESPEC_RECORD_FIELDS:
+        return "record fields are not exactly the v1 schema"
+    if payload["schema"] != REVIEWED_RULESPEC_RECORD_SCHEMA:
+        return "record schema is not supported"
+    if payload["country"] != country or payload["rulespec_ref"] != rulespec_ref:
+        return "record country or rulespec_ref does not match its path"
+    branch = payload["pr_base_branch"]
+    if branch is not None and (
+        not isinstance(branch, str)
+        or _REVIEWED_RULESPEC_BRANCH_PATTERN.fullmatch(branch) is None
+        or ".." in branch
+        or "//" in branch
+        or branch.endswith(("/", ".", ".lock"))
+    ):
+        return "record pr_base_branch is malformed"
+    base_sha = payload["base_sha"]
+    if base_sha is not None and (
+        not isinstance(base_sha, str) or COMMIT_PATTERN.fullmatch(base_sha) is None
+    ):
+        return "record base_sha must be null or a full lowercase commit SHA"
+    rulespec_pr = payload["rulespec_pr"]
+    if rulespec_pr is not None and (
+        type(rulespec_pr) is not int or not 0 < rulespec_pr < 10**9
+    ):
+        return "record rulespec_pr must be null or a positive integer"
+    if _record_text_issue(
+        payload["purpose"],
+        limit=_REVIEWED_RULESPEC_TEXT_LIMITS["purpose"],
+        nullable=False,
+    ):
+        return "record purpose must be short single-line text"
+    binding = payload["binding"]
+    if binding is not None:
+        if (
+            not isinstance(binding, dict)
+            or set(binding) != REVIEWED_RULESPEC_BINDING_FIELDS
+        ):
+            return "record binding fields are not exactly the v1 schema"
+        if _record_relative_path_issue(binding["citation"]):
+            return "record binding citation is malformed"
+        rulespec_path = binding["rulespec_path"]
+        if (
+            _record_relative_path_issue(rulespec_path)
+            or not str(rulespec_path).endswith(".yaml")
+            or str(rulespec_path).endswith(".test.yaml")
+        ):
+            return "record binding rulespec_path is malformed"
+        for field in ("rulespec_sha256", "companion_sha256"):
+            digest = binding[field]
+            if not isinstance(digest, str) or DIGEST_PATTERN.fullmatch(digest) is None:
+                return f"record binding {field} must be a lowercase SHA-256"
+    declared = payload["declared"]
+    if declared is not None:
+        if (
+            not isinstance(declared, dict)
+            or set(declared) != REVIEWED_RULESPEC_DECLARED_FIELDS
+        ):
+            return "record declared fields are not exactly the v1 schema"
+        for field in sorted(REVIEWED_RULESPEC_DECLARED_FIELDS):
+            value = declared[field]
+            if field == "encoder_commit":
+                if value is not None and (
+                    not isinstance(value, str)
+                    or COMMIT_PATTERN.fullmatch(value) is None
+                ):
+                    return "record declared encoder_commit is malformed"
+            elif field == "outcome_sha256":
+                if value is not None and (
+                    not isinstance(value, str)
+                    or DIGEST_PATTERN.fullmatch(value) is None
+                ):
+                    return "record declared outcome_sha256 is malformed"
+            elif _record_text_issue(
+                value,
+                limit=_REVIEWED_RULESPEC_TEXT_LIMITS["declared"],
+                nullable=True,
+            ):
+                return f"record declared {field} is malformed"
+    return None
+
+
+def _read_reviewed_rulespec_record_bytes(
+    root_descriptor: int, country: str, name: str, *, label: str
+) -> bytes:
+    """Read one regular 0644 record below an opened root without following links."""
+
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        raise ValueError("reviewed RuleSpec records need O_NOFOLLOW and O_DIRECTORY")
+    flags = os.O_RDONLY | nofollow | getattr(os, "O_CLOEXEC", 0)
+    country_descriptor = os.open(country, flags | directory, dir_fd=root_descriptor)
+    try:
+        descriptor = os.open(
+            name,
+            flags | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=country_descriptor,
+        )
+    finally:
+        os.close(country_descriptor)
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError(f"{label} is not a regular file")
+        if stat.S_IMODE(metadata.st_mode) != 0o644:
+            raise ValueError(f"{label} must have mode 0644")
+        if metadata.st_size > REVIEWED_RULESPEC_RECORD_MAX_BYTES:
+            raise ValueError(f"{label} is too large")
+        chunks: list[bytes] = []
+        remaining = REVIEWED_RULESPEC_RECORD_MAX_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(descriptor, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+    finally:
+        os.close(descriptor)
+    raw = b"".join(chunks)
+    if len(raw) > REVIEWED_RULESPEC_RECORD_MAX_BYTES:
+        raise ValueError(f"{label} is too large")
+    return raw
+
+
+def load_reviewed_rulespec_records(
+    root: Path,
+) -> tuple[ReviewedRulespecRecord, ...]:
+    """Strictly load every admission record below ``root``.
+
+    The layout is closed: ``root`` holds only two-letter country directories,
+    and each holds only ``<40-hex sha>.json`` regular 0644 files. Symlinks,
+    other entries, malformed or non-canonical JSON, duplicate keys, unknown
+    fields, and a record whose content disagrees with its path all raise.
+    """
+
+    root = Path(root)
+    try:
+        root_metadata = root.lstat()
+    except OSError as exc:
+        raise ValueError("reviewed RuleSpec record root is unavailable") from exc
+    if stat.S_ISLNK(root_metadata.st_mode) or not stat.S_ISDIR(root_metadata.st_mode):
+        raise ValueError("reviewed RuleSpec record root must be a real directory")
+    directory = getattr(os, "O_DIRECTORY", None)
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if directory is None or nofollow is None:
+        raise ValueError("reviewed RuleSpec records need O_NOFOLLOW and O_DIRECTORY")
+    try:
+        root_descriptor = os.open(
+            root, os.O_RDONLY | directory | nofollow | getattr(os, "O_CLOEXEC", 0)
+        )
+    except OSError as exc:
+        raise ValueError("reviewed RuleSpec record root cannot be opened") from exc
+    records: list[ReviewedRulespecRecord] = []
+    try:
+        for country in sorted(os.listdir(root_descriptor)):
+            country_metadata = os.stat(
+                country, dir_fd=root_descriptor, follow_symlinks=False
+            )
+            if COUNTRY_PATTERN.fullmatch(country) is None or not stat.S_ISDIR(
+                country_metadata.st_mode
+            ):
+                raise ValueError(
+                    f"reviewed RuleSpec record root has an unexpected entry: {country}"
+                )
+            country_descriptor = os.open(
+                country,
+                os.O_RDONLY | directory | nofollow | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=root_descriptor,
+            )
+            try:
+                names = sorted(os.listdir(country_descriptor))
+            finally:
+                os.close(country_descriptor)
+            for name in names:
+                label = f"reviewed RuleSpec record {country}/{name}"
+                match = _REVIEWED_RULESPEC_RECORD_NAME_PATTERN.fullmatch(name)
+                if match is None:
+                    raise ValueError(f"{label} is not named <full-sha>.json")
+                raw = _read_reviewed_rulespec_record_bytes(
+                    root_descriptor, country, name, label=label
+                )
+                try:
+                    payload = _load_unambiguous_json(raw.decode("utf-8"), label=label)
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    raise ValueError(f"{label} is not valid UTF-8 JSON") from exc
+                issue = _reviewed_rulespec_record_issue(
+                    payload, country=country, rulespec_ref=match.group(1)
+                )
+                if issue is not None:
+                    raise ValueError(f"{label}: {issue}")
+                canonical = (
+                    json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False)
+                    + "\n"
+                ).encode("utf-8")
+                if raw != canonical:
+                    raise ValueError(f"{label} is not canonical JSON")
+                assert isinstance(payload, dict)
+                records.append(ReviewedRulespecRecord(country, match.group(1), payload))
+    except OSError as exc:
+        # A symlink (O_NOFOLLOW), a vanished entry, or an unreadable file.
+        raise ValueError(
+            f"reviewed RuleSpec records cannot be read safely: {exc}"
+        ) from exc
+    finally:
+        os.close(root_descriptor)
+    return tuple(records)
+
+
+def reviewed_rulespec_refs_from_records(
+    records: tuple[ReviewedRulespecRecord, ...],
+) -> frozenset[tuple[str, str]]:
+    return frozenset((record.country, record.rulespec_ref) for record in records)
+
+
+def reviewed_rulespec_pr_bases_from_records(
+    records: tuple[ReviewedRulespecRecord, ...],
+) -> frozenset[tuple[str, str, str]]:
+    return frozenset(
+        (record.country, record.rulespec_ref, str(record.payload["pr_base_branch"]))
+        for record in records
+        if record.payload["pr_base_branch"] is not None
+    )
+
+
+def _checkout_reviewed_rulespec_record_root() -> Path | None:
+    """Return the record root of the source checkout this module runs from.
+
+    An installed package (a wheel, or the provisioned signing runtime) has no
+    checkout and therefore admits no reviewed head through these constants.
+    The protected promotion command receives its own provisioned record root.
+    """
+
+    module = Path(__file__).resolve()
+    if module.parent.name != "axiom_encode" or module.parents[1].name != "src":
+        return None
+    return module.parents[2] / "data" / "reviewed-rulespec-refs"
+
+
+def _load_checkout_reviewed_rulespec_records() -> tuple[ReviewedRulespecRecord, ...]:
+    root = _checkout_reviewed_rulespec_record_root()
+    if root is None:
+        return ()
+    try:
+        root.lstat()
+    except FileNotFoundError:
+        return ()
+    return load_reviewed_rulespec_records(root)
+
+
+_CHECKOUT_REVIEWED_RULESPEC_RECORDS = _load_checkout_reviewed_rulespec_records()
+REVIEWED_RULESPEC_REFS = reviewed_rulespec_refs_from_records(
+    _CHECKOUT_REVIEWED_RULESPEC_RECORDS
+)
+REVIEWED_RULESPEC_PR_BASES = reviewed_rulespec_pr_bases_from_records(
+    _CHECKOUT_REVIEWED_RULESPEC_RECORDS
+)
 
 
 def _read_bounded_regular(
@@ -362,6 +596,111 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     if len(atomic_source_json.encode("utf-8")) > MAX_SOURCE_BUNDLE_JSON_BYTES:
         raise ValueError("atomic source JSON exceeds the maximum input size")
     payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
+    if isinstance(payload, dict) and payload.get("schema") == (
+        "axiom-encode/corpus-artifact-transport/v1"
+    ):
+        required_keys = {"schema", "transaction", "corpus_artifact_run_id"}
+        if frozenset(payload) not in {
+            frozenset(required_keys),
+            frozenset(required_keys | {"provision_export_run_ids"}),
+        }:
+            raise ValueError(
+                "transport requires transaction, corpus_artifact_run_id, and optional provision_export_run_ids"
+            )
+        run_id = payload["corpus_artifact_run_id"]
+        if (
+            not isinstance(run_id, str)
+            or re.fullmatch(r"[1-9][0-9]{0,19}", run_id) is None
+        ):
+            raise ValueError("transport run must be a positive decimal run ID")
+        inner = payload["transaction"]
+        if (
+            not isinstance(inner, dict)
+            or inner.get("schema") != "axiom-encode/atomic-source-transaction/v3"
+        ):
+            raise ValueError("transport requires an exact v3 transaction")
+        normalized = split_atomic_source_input(json.dumps(inner, allow_nan=False))
+        if (
+            normalized["require_complete_source_unit"] is not True
+            or normalized["source_bundle"]
+            or normalized["canonical_refresh_bundle"]
+        ):
+            raise ValueError(
+                "transport requires a fresh complete-source primary without other modes"
+            )
+        result = {**normalized, "corpus_artifact_run_id": run_id}
+        if "provision_export_run_ids" in payload:
+            run_ids = payload["provision_export_run_ids"]
+            if (
+                not isinstance(run_ids, list)
+                or not 1 <= len(run_ids) <= 10
+                or any(
+                    not isinstance(extra_run_id, str)
+                    or re.fullmatch(r"[1-9][0-9]{0,19}", extra_run_id) is None
+                    for extra_run_id in run_ids
+                )
+                or len(set(run_ids)) != len(run_ids)
+                or run_id in run_ids
+            ):
+                raise ValueError(
+                    "transport prefetch needs 1-10 unique decimal run IDs distinct from its primary run"
+                )
+            result["provision_export_run_ids"] = run_ids
+        return result
+    if isinstance(payload, dict) and payload.get("schema") == (
+        "axiom-encode/corpus-provision-prefetch/v1"
+    ):
+        if set(payload) != {"schema", "transaction", "provision_export_run_ids"}:
+            raise ValueError(
+                "provision prefetch requires exactly transaction and run IDs"
+            )
+        run_ids = payload["provision_export_run_ids"]
+        if (
+            not isinstance(run_ids, list)
+            or not 1 <= len(run_ids) <= 11
+            or any(
+                not isinstance(run_id, str)
+                or re.fullmatch(r"[1-9][0-9]{0,19}", run_id) is None
+                for run_id in run_ids
+            )
+            or len(set(run_ids)) != len(run_ids)
+        ):
+            raise ValueError("provision prefetch needs 1-11 unique decimal run IDs")
+        inner = payload["transaction"]
+        if not isinstance(inner, dict) or inner.get("schema") not in {
+            "axiom-encode/atomic-source-transaction/v2",
+            "axiom-encode/atomic-source-transaction/v3",
+        }:
+            raise ValueError("provision prefetch requires an exact v2-v3 transaction")
+        normalized = split_atomic_source_input(json.dumps(inner, allow_nan=False))
+        return {**normalized, "provision_export_run_ids": run_ids}
+    if isinstance(payload, dict) and payload.get("schema") == (
+        "axiom-encode/atomic-source-transaction/v6"
+    ):
+        if set(payload) != {"schema", "transaction", "repair_mode"}:
+            raise ValueError("v6 requires exactly transaction and repair_mode")
+        mode = payload["repair_mode"]
+        if not isinstance(mode, str) or mode not in {"full_artifact", "tests_only"}:
+            raise ValueError("v6 repair_mode must be full_artifact or tests_only")
+        inner = payload["transaction"]
+        if not isinstance(inner, dict) or inner.get("schema") not in {
+            f"axiom-encode/atomic-source-transaction/v{version}"
+            for version in (2, 3, 4, 5)
+        }:
+            raise ValueError("v6 transaction must be an exact v2-v5 object")
+        normalized = split_atomic_source_input(json.dumps(inner, allow_nan=False))
+        if (
+            normalized["require_complete_source_unit"] is not True
+            or not normalized["primary_required_test_cases"]
+            or normalized["source_bundle"]
+            or normalized["canonical_refresh_bundle"]
+            or normalized.get("manifest_only_refresh", False)
+            or normalized.get("reviewed_candidate_promotion", False)
+        ):
+            raise ValueError(
+                "v6 requires full-source required cases without other modes"
+            )
+        return {**normalized, "repair_mode": mode}
     if isinstance(payload, list):
         return {
             "canonical_refresh_bundle": [],
@@ -387,6 +726,7 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     }
     require_complete_source_unit = True
     manifest_only_refresh = False
+    reviewed_candidate_promotion = False
     if (
         isinstance(payload, dict)
         and payload.get("schema") == "axiom-encode/atomic-source-transaction/v3"
@@ -402,6 +742,20 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         )
         require_complete_source_unit = payload.get("require_complete_source_unit")
         manifest_only_refresh = payload.get("manifest_only_refresh")
+    elif (
+        isinstance(payload, dict)
+        and payload.get("schema") == "axiom-encode/atomic-source-transaction/v5"
+    ):
+        transaction_fields.update(
+            {
+                "require_complete_source_unit",
+                "manifest_only_refresh",
+                "reviewed_candidate_promotion",
+            }
+        )
+        require_complete_source_unit = payload.get("require_complete_source_unit")
+        manifest_only_refresh = payload.get("manifest_only_refresh")
+        reviewed_candidate_promotion = payload.get("reviewed_candidate_promotion")
     if (
         not isinstance(payload, dict)
         or set(payload) != transaction_fields
@@ -410,16 +764,20 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
             "axiom-encode/atomic-source-transaction/v2",
             "axiom-encode/atomic-source-transaction/v3",
             "axiom-encode/atomic-source-transaction/v4",
+            "axiom-encode/atomic-source-transaction/v5",
         }
     ):
         raise ValueError(
             "atomic source JSON must be a source citation array or an exact "
-            "canonical_refresh_bundle or atomic-source-transaction/v2, v3, or v4 object"
+            "canonical_refresh_bundle or atomic-source-transaction/v2, v3, v4, "
+            "or v5 object"
         )
     if not isinstance(require_complete_source_unit, bool):
         raise ValueError("require_complete_source_unit must be a boolean")
     if not isinstance(manifest_only_refresh, bool):
         raise ValueError("manifest_only_refresh must be a boolean")
+    if not isinstance(reviewed_candidate_promotion, bool):
+        raise ValueError("reviewed_candidate_promotion must be a boolean")
     refresh_bundle = payload["canonical_refresh_bundle"]
     source_bundle = payload["source_bundle"]
     primary_required_test_cases = payload["primary_required_test_cases"]
@@ -439,15 +797,217 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
             "manifest-only refresh cannot include source, canonical refresh, or "
             "required-test bundles"
         )
+    if reviewed_candidate_promotion and (
+        manifest_only_refresh
+        or source_bundle
+        or refresh_bundle
+        or primary_required_test_cases
+        or require_complete_source_unit is not True
+    ):
+        raise ValueError(
+            "reviewed candidate promotion cannot mix with another source mode"
+        )
     normalized = {
         "canonical_refresh_bundle": refresh_bundle,
         "primary_required_test_cases": primary_required_test_cases,
         "require_complete_source_unit": require_complete_source_unit,
         "source_bundle": source_bundle,
     }
-    if payload["schema"] == "axiom-encode/atomic-source-transaction/v4":
+    if payload["schema"] in {
+        "axiom-encode/atomic-source-transaction/v4",
+        "axiom-encode/atomic-source-transaction/v5",
+    }:
         normalized["manifest_only_refresh"] = manifest_only_refresh
+    if payload["schema"] == "axiom-encode/atomic-source-transaction/v5":
+        normalized["reviewed_candidate_promotion"] = reviewed_candidate_promotion
     return normalized
+
+
+def immutable_atomic_source_contract(atomic_source_json: str) -> dict[str, object]:
+    """Project validated repair or transport envelopes onto their source transaction.
+
+    In particular, absent historical v4/v5 flags are not invented or discarded.
+    Unknown keys and nested wrappers fail before this projection is available.
+    """
+    normalized = split_atomic_source_input(atomic_source_json)
+    if not {
+        "repair_mode",
+        "corpus_artifact_run_id",
+        "provision_export_run_ids",
+    }.intersection(normalized):
+        return normalized
+    payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
+    return split_atomic_source_input(
+        json.dumps(payload["transaction"], allow_nan=False)
+    )
+
+
+def resolve_atomic_repair_mode(
+    atomic_source_json: str, dispatch: dict[str, str]
+) -> dict[str, object]:
+    """Select execution mode; old envelopes retain historical inference."""
+    normalized = split_atomic_source_input(atomic_source_json)
+    if "corpus_artifact_run_id" in normalized:
+        repair_run_id = dispatch.get("REPAIR_RUN_ID", "")
+        if repair_run_id and (
+            re.fullmatch(r"[1-9][0-9]{0,19}", repair_run_id) is None
+            or repair_run_id == dispatch.get("GITHUB_RUN_ID")
+            or not normalized["primary_required_test_cases"]
+            or not dispatch.get("REPLACE_LEGACY_RULESPEC_PATH", "")
+            or not dispatch.get("DEPENDENT_CITATION", "")
+        ):
+            raise ValueError(
+                "corpus transport repair requires a distinct prior run, one "
+                "legacy target, one dependent, and bound boundary tests"
+            )
+        if any(
+            dispatch.get(field, "")
+            for field in (
+                "QUEUE_ID",
+                "QUEUE_ITEM_ID",
+                "QUEUE_MANIFEST_SHA256",
+                "QUEUE_ITEM_GENERATION_SHA256",
+                "QUEUE_DISPATCHER_RUN_ID",
+                "SECOND_DEPENDENT_CITATION",
+                "SECOND_DEPENDENT_REVIEW_FINDING",
+                "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+                "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+            )
+        ):
+            raise ValueError("corpus transport supports only one fresh primary")
+        for field in (
+            "EXISTING_SIGNED_IMPORTS_JSON",
+            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON",
+        ):
+            if _load_unambiguous_json(dispatch.get(field) or "[]", label=field) != []:
+                raise ValueError(
+                    "corpus transport cannot include imports or retained successors"
+                )
+        target = dispatch.get("REPLACE_RULESPEC_PATH", "")
+        legacy_source = dispatch.get("REPLACE_LEGACY_RULESPEC_PATH", "")
+        dependent_citation = dispatch.get("DEPENDENT_CITATION", "")
+        if dependent_citation and (
+            not legacy_source
+            or target != legacy_source
+            or not dispatch.get("DEPENDENT_REVIEW_FINDING", "")
+        ):
+            raise ValueError(
+                "corpus transport dependent requires one reviewed in-place "
+                "legacy replacement"
+            )
+        if dispatch.get("DEPENDENT_REVIEW_FINDING", "") and not dependent_citation:
+            raise ValueError(
+                "corpus transport dependent review requires its source citation"
+            )
+        if not target or (
+            not legacy_source
+            and citation_rulespec_path(dispatch.get("CITATION", "")).as_posix()
+            != target
+        ):
+            raise ValueError(
+                "corpus transport requires an in-place legacy target or the exact "
+                "canonical ordinary citation/path"
+            )
+        if normalized["primary_required_test_cases"] and not legacy_source:
+            raise ValueError(
+                "corpus transport required cases need a single legacy replacement"
+            )
+        if legacy_source:
+            if not isinstance(legacy_source, str):
+                raise ValueError("corpus transport legacy source must be a path string")
+            legacy_path = PurePosixPath(legacy_source)
+            target_path = PurePosixPath(target)
+            citation_path = citation_rulespec_path(dispatch.get("CITATION", ""))
+            if (
+                legacy_path.as_posix() != legacy_source
+                or legacy_path.is_absolute()
+                or len(legacy_path.parts) < 3
+                or legacy_path.parts[0] != target_path.parts[0]
+                or legacy_path.parts[0] != citation_path.parts[0]
+                or legacy_path.parts[1] not in RULESPEC_ATOMIC_ROOTS
+                or legacy_path.suffix != ".yaml"
+                or legacy_path.name.endswith(".test.yaml")
+                or legacy_path != target_path
+                or ".." in legacy_path.parts
+                or "\\" in legacy_source
+            ):
+                raise ValueError(
+                    "corpus transport legacy source must be the in-place protected "
+                    "RuleSpec target in the requested jurisdiction"
+                )
+    explicit = normalized.get("repair_mode")
+    if "corpus_artifact_run_id" in normalized:
+        # Required cases on a fresh legacy migration are a signing contract,
+        # not a request to replay a failed candidate in tests-only mode.
+        mode = "full_artifact"
+    else:
+        mode = explicit or (
+            "tests_only"
+            if normalized["primary_required_test_cases"]
+            else "full_artifact"
+        )
+    if explicit is not None:
+        run_id = dispatch.get("REPAIR_RUN_ID", "")
+        if not re.fullmatch(r"[0-9]+", run_id) or run_id == dispatch.get(
+            "GITHUB_RUN_ID"
+        ):
+            raise ValueError("v6 requires a distinct authenticated prior repair run")
+        if run_id == "35160240952":
+            raise ValueError("v6 cannot select the signed-success tests-only pilot")
+        if any(
+            dispatch.get(field, "")
+            for field in (
+                "QUEUE_ID",
+                "DEPENDENT_CITATION",
+                "SECOND_DEPENDENT_CITATION",
+                "REPLACE_LEGACY_RULESPEC_PATH",
+                "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+                "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+            )
+        ):
+            raise ValueError("v6 supports only an ordinary single-target repair")
+        for field in (
+            "EXISTING_SIGNED_IMPORTS_JSON",
+            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON",
+        ):
+            if _load_unambiguous_json(dispatch.get(field) or "[]", label=field) != []:
+                raise ValueError("v6 cannot include imports or retained successors")
+        citation = dispatch.get("CITATION", "")
+        target = dispatch.get("REPLACE_RULESPEC_PATH", "")
+        if not target or citation_rulespec_path(citation).as_posix() != target:
+            raise ValueError("v6 requires the exact ordinary replacement citation/path")
+    return {"mode": mode, "tests_only": mode == "tests_only"}
+
+
+def repair_execution_metadata(
+    atomic_source_json: str,
+    repair_run_id: str,
+    mode: str,
+    tests_only: str,
+) -> dict[str, object] | None:
+    """Bind recorded execution selection to the request; never infer execution."""
+    if not repair_run_id:
+        if mode or tests_only:
+            raise ValueError("repair execution selection without a repair run")
+        return None
+    normalized = split_atomic_source_input(atomic_source_json)
+    requested = normalized.get("repair_mode")
+    expected = requested or (
+        "full_artifact"
+        if "corpus_artifact_run_id" in normalized
+        else "tests_only"
+        if normalized["primary_required_test_cases"]
+        else "full_artifact"
+    )
+    if mode != expected or tests_only != (
+        "true" if expected == "tests_only" else "false"
+    ):
+        raise ValueError("repair execution mode differs from the selected request")
+    return {
+        "requested_mode": requested or "legacy_inference",
+        "mode": mode,
+        "tests_only": expected == "tests_only",
+    }
 
 
 def parse_source_bundle(
@@ -801,6 +1361,97 @@ def _validate_wrapped_review_contract_size(
         raise ValueError(
             f"{label} wrapped review contract exceeds the maximum input size"
         )
+
+
+def validate_fresh_primary_test_target(
+    repo: Path,
+    citation: str,
+    rulespec_path: str,
+    requested_ref: str,
+    required_test_cases_json: str,
+) -> dict[str, object]:
+    """Bind a fresh ordinary replacement without claiming predecessor admission."""
+
+    from axiom_encode.corpus_resolver import require_canonical_corpus_citation_path
+
+    citation = require_canonical_corpus_citation_path(citation)
+    path = _safe_relative_path(rulespec_path, label="fresh primary RuleSpec")
+    if path != citation_rulespec_path(citation):
+        raise ValueError("fresh primary path must match its canonical citation")
+    repo = repo.resolve(strict=True)
+    if repo.name != f"rulespec-{path.parts[0].partition('-')[0]}":
+        raise ValueError("fresh primary repository must match citation country")
+    if (
+        COMMIT_PATTERN.fullmatch(requested_ref) is None
+        or _git(repo, "rev-parse", "HEAD").decode().strip() != requested_ref
+    ):
+        raise ValueError(
+            "fresh primary checkout must match the immutable requested ref"
+        )
+    if not isinstance(required_test_cases_json, str):
+        raise ValueError("fresh primary required tests must be JSON text")
+    if (
+        len(required_test_cases_json.encode())
+        > MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES
+    ):
+        raise ValueError("fresh primary required tests exceed maximum input size")
+    cases = _normalize_required_test_cases(
+        _load_unambiguous_json(
+            required_test_cases_json, label="fresh primary required tests"
+        ),
+        label="fresh primary required tests",
+    )
+    if not cases:
+        raise ValueError("fresh primary required tests must not be empty")
+    _validate_wrapped_review_contract_size(
+        citation=citation,
+        path=path,
+        deferred_output_contracts=(),
+        required_test_cases=cases,
+        label="fresh primary",
+    )
+    inventory: dict[str, str | None] = {}
+    companion = path.with_name(f"{path.stem}.test.yaml")
+    index_entries = _git(repo, "ls-files", "--stage", "-z").split(b"\0")
+    for target in (path, companion):
+        label = f"fresh primary file {target}"
+        stage = [
+            entry
+            for entry in index_entries
+            if entry.rpartition(b"\t")[2] == target.as_posix().encode()
+        ]
+        tree = _git(
+            repo, "ls-tree", "-z", "--full-tree", "HEAD", "--", target.as_posix()
+        )
+        absolute = repo.joinpath(*target.parts)
+        if target == companion and not stage and not tree:
+            if absolute.exists() or absolute.is_symlink():
+                raise ValueError(f"{label} is untracked")
+            inventory[target.as_posix()] = None
+            continue
+        tree_entry = re.fullmatch(
+            rb"100644 blob ([0-9a-f]{40})\t"
+            + re.escape(target.as_posix().encode())
+            + rb"\x00",
+            tree,
+        )
+        expected_blob = tree_entry.group(1).decode() if tree_entry else ""
+        if (
+            stage != [f"100644 {expected_blob} 0\t{target}".encode()]
+            or tree != f"100644 blob {expected_blob}\t{target}\0".encode()
+        ):
+            raise ValueError(f"{label} must be unchanged tracked 100644 at HEAD")
+        raw = _read_bounded_regular(
+            repo, target, label=label, max_bytes=10 * 1024 * 1024
+        )
+        if raw != _git(repo, "show", f"HEAD:{target}"):
+            raise ValueError(f"{label} differs from HEAD")
+        inventory[target.as_posix()] = hashlib.sha256(raw).hexdigest()
+    return {
+        "base": requested_ref,
+        "files": inventory,
+        "required_test_cases": list(cases),
+    }
 
 
 def parse_canonical_refresh_bundle(
@@ -1520,8 +2171,9 @@ def validate_dependent_cascade(
     *dependent_citations: str,
     target_rulespec_path: str | None = None,
     allow_proof_import_subset: bool = False,
+    allow_source_bound_dependent_alias: bool = False,
 ) -> tuple[PurePosixPath, ...]:
-    """Require all direct dependents, or the exact proof-pinned subset when allowed."""
+    """Require all direct dependents or an exact source-bound proof chain."""
 
     dependents, _mode = _classify_dependent_cascade(
         repo,
@@ -1529,6 +2181,7 @@ def validate_dependent_cascade(
         *dependent_citations,
         target_rulespec_path=target_rulespec_path,
         allow_proof_import_subset=allow_proof_import_subset,
+        allow_source_bound_dependent_alias=allow_source_bound_dependent_alias,
     )
     return dependents
 
@@ -1539,6 +2192,7 @@ def _classify_dependent_cascade(
     *dependent_citations: str,
     target_rulespec_path: str | None = None,
     allow_proof_import_subset: bool = False,
+    allow_source_bound_dependent_alias: bool = False,
 ) -> tuple[tuple[PurePosixPath, ...], str]:
     """Authenticate a complete cascade and identify its safe scheduling mode."""
 
@@ -1590,8 +2244,19 @@ def _classify_dependent_cascade(
     target_path = content_root / target_relative
     if not _is_regular_file_beneath(content_root, target_relative):
         raise ValueError("target citation has no regular baseline RuleSpec module")
-    for dependent_relative in dependent_relatives:
+    source_parent_second = (
+        allow_proof_import_subset
+        and len(dependent_relatives) == 2
+        and not (content_root / dependent_relatives[1]).exists()
+        and not (content_root / dependent_relatives[1]).is_symlink()
+        and not _is_regular_file_beneath(content_root, dependent_relatives[1])
+    )
+    for index, dependent_relative in enumerate(dependent_relatives):
+        if index == 1 and source_parent_second:
+            continue
         if not _is_regular_file_beneath(content_root, dependent_relative):
+            if allow_source_bound_dependent_alias and len(dependent_relatives) == 1:
+                continue
             raise ValueError(
                 "dependent citation has no regular baseline RuleSpec module"
             )
@@ -1600,6 +2265,12 @@ def _classify_dependent_cascade(
     canonical_target_import = f"{target_jurisdiction}:{target_import}"
     direct_dependents: set[PurePosixPath] = set()
     proof_import_dependents: set[PurePosixPath] = set()
+    first_dependent_proof: set[PurePosixPath] = set()
+    first_dependent_payloads: dict[PurePosixPath, dict[str, object]] = {}
+    proof_source_by_candidate: dict[PurePosixPath, str] = {}
+    first_relative = dependent_relatives[0]
+    first_import = first_relative.with_suffix("").as_posix()
+    canonical_first_import = f"{target_jurisdiction}:{first_import}"
     for atomic_root in sorted(RULESPEC_ATOMIC_ROOTS):
         root = content_root / atomic_root
         if not root.exists():
@@ -1638,12 +2309,99 @@ def _classify_dependent_cascade(
                     canonical_target_import=canonical_target_import,
                 ):
                     proof_import_dependents.add(relative_candidate)
+                    module = payload.get("module")
+                    verification = (
+                        module.get("source_verification")
+                        if isinstance(module, dict)
+                        else None
+                    )
+                    if isinstance(verification, dict) and isinstance(
+                        verification.get("corpus_citation_path"), str
+                    ):
+                        proof_source_by_candidate[relative_candidate] = verification[
+                            "corpus_citation_path"
+                        ]
+            if candidate != content_root / first_relative and any(
+                isinstance(raw_import, str)
+                and raw_import.split("#", 1)[0].strip().strip("/")
+                in {first_import, canonical_first_import}
+                for raw_import in imports
+            ):
+                relative_candidate = PurePosixPath(
+                    candidate.relative_to(content_root).as_posix()
+                )
+                if _payload_has_proof_import_for_target(
+                    payload,
+                    target_import=first_import,
+                    canonical_target_import=canonical_first_import,
+                ):
+                    first_dependent_proof.add(relative_candidate)
+                    first_dependent_payloads[relative_candidate] = payload
+
+    source_bound_alias = False
+    if (
+        allow_source_bound_dependent_alias
+        and len(dependent_relatives) == 1
+        and not _is_regular_file_beneath(content_root, dependent_relatives[0])
+    ):
+        matching = {
+            relative
+            for relative, citation in proof_source_by_candidate.items()
+            if citation == dependent_citations[0]
+        }
+        if len(matching) != 1:
+            raise ValueError(
+                "source-bound dependent alias must identify exactly one "
+                "proof-pinned direct importer"
+            )
+        dependent_relatives[0] = next(iter(matching))
+        source_bound_alias = True
+
+    if source_parent_second:
+        source_parent = dependent_relatives[1].with_suffix("")
+        source_citation = dependent_citations[1]
+        matching_children = [
+            relative
+            for relative, payload in first_dependent_payloads.items()
+            if relative.parts[: len(source_parent.parts)] == source_parent.parts
+            and _is_regular_file_beneath(content_root, relative)
+            and isinstance(payload.get("module"), dict)
+            and isinstance(payload["module"].get("source_verification"), dict)
+            and payload["module"]["source_verification"].get("corpus_citation_path")
+            == source_citation
+        ]
+        if len(matching_children) != 1:
+            raise ValueError(
+                "source-parent dependent must identify exactly one proof-pinned "
+                "child module with its own source verification"
+            )
+        dependent_relatives[1] = matching_children[0]
+        if len(set(dependent_relatives)) != len(dependent_relatives):
+            raise ValueError("dependent modules must be unique")
 
     expected = set(dependent_relatives)
     if direct_dependents == expected:
+        if source_bound_alias and proof_import_dependents == expected:
+            return tuple(dependent_relatives), "source-bound-proof-alias"
+        if len(dependent_relatives) == 2 and first_dependent_proof == {
+            dependent_relatives[1]
+        }:
+            return tuple(dependent_relatives), "all-direct-proof-chain"
         return tuple(dependent_relatives), "all-direct"
     if allow_proof_import_subset and proof_import_dependents == expected:
+        if len(dependent_relatives) == 2 and first_dependent_proof == {
+            dependent_relatives[1]
+        }:
+            return tuple(dependent_relatives), "proof-import-subset-chain"
         return tuple(dependent_relatives), "proof-import-subset"
+    if (
+        allow_proof_import_subset
+        and len(dependent_relatives) == 2
+        and proof_import_dependents == {first_relative}
+        and first_dependent_proof == {dependent_relatives[1]}
+        and dependent_relatives[1] not in direct_dependents
+    ):
+        return tuple(dependent_relatives), "proof-import-chain"
     rendered = ", ".join(map(str, sorted(direct_dependents))) or "<none>"
     raise ValueError(
         "target direct-dependent set does not exactly match supplied dependents: "
@@ -2431,7 +3189,10 @@ def _validate_legacy_exact_dependents(
         replacement_source_raw
     )
     retained_modules: list[tuple[Path, Path, bytes, bytes]] = []
-    if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7:
+    if receipt_schema in {
+        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
+    }:
         raw_successors = receipt_replacement.get("retained_successors")
         if not isinstance(raw_successors, list):
             raise ValueError("legacy replacement retained successors are malformed")
@@ -2470,9 +3231,13 @@ def _validate_legacy_exact_dependents(
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
         }:
             expected_dependent_fields.add("source_verification_migration")
-        if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7:
+        if receipt_schema in {
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
+        }:
             expected_dependent_fields.add("concept_replacements")
         if (
             not isinstance(raw_dependent, dict)
@@ -2486,6 +3251,7 @@ def _validate_legacy_exact_dependents(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }
             else None
         )
@@ -2607,6 +3373,7 @@ def _validate_legacy_exact_dependents(
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
         }:
             _unused_primary, source_verification_migration = (
                 migrate_legacy_exact_dependent_source_verification(
@@ -2648,7 +3415,10 @@ def _validate_legacy_exact_dependents(
             raise ValueError(f"{label}.rewrites is malformed")
         exact_authoritative_replacements = authoritative_replacements
         exact_concept_replacements: dict[str, str] = {}
-        if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7:
+        if receipt_schema in {
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
+        }:
             derived_concepts = derive_exact_dependent_parameter_replacements(
                 dependent_primary_raw=base_by_path[primary],
                 retained_modules=retained_modules,
@@ -2677,6 +3447,7 @@ def _validate_legacy_exact_dependents(
             if receipt_schema in {
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }:
                 expected_rewrite_fields.add("proof_excerpt_reanchors")
             if not isinstance(rewrite, dict) or set(rewrite) != expected_rewrite_fields:
@@ -2705,6 +3476,7 @@ def _validate_legacy_exact_dependents(
                     in {
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     and not isinstance(rewrite.get("proof_excerpt_reanchors"), list)
                 )
@@ -2744,6 +3516,7 @@ def _validate_legacy_exact_dependents(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }:
                         expected_live, observed_source_migration = (
                             migrate_legacy_exact_dependent_source_verification(
@@ -2761,6 +3534,7 @@ def _validate_legacy_exact_dependents(
                     if receipt_schema in {
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }:
                         if corpus_release is None:
                             raise ValueError(
@@ -2796,6 +3570,7 @@ def _validate_legacy_exact_dependents(
                     in {
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     and rewrite["proof_excerpt_reanchors"]
                 ):
@@ -2825,6 +3600,7 @@ def _validate_legacy_exact_dependents(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }
             and primary not in rewrite_paths
             and source_verification_migration is not None
@@ -2968,19 +3744,37 @@ def authorized_changed_paths(
     *,
     corpus_root: Path | None = None,
 ) -> set[PurePosixPath]:
+    from axiom_encode.legacy_replacement import source_bound_dependent_proof_imports
+
     corpus_release = None
     if corpus_root is not None:
         from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
         corpus_release = load_rulespec_local_corpus_release(repo, corpus_root)
     changed = _changed_paths(repo)
+    historical_deleted_manifests: set[PurePosixPath] = set()
+    for path in changed:
+        parts = path.parts
+        if (
+            len(parts) < 5
+            or parts[1:3] != (".axiom", "encoding-manifests")
+            or path.suffix != ".json"
+            or (repo / path).exists()
+        ):
+            continue
+        source = PurePosixPath(parts[0], *parts[3:]).with_suffix(".yaml")
+        try:
+            _validate_rulespec_path(repo, source, label="historical manifest owner")
+        except ValueError:
+            continue
+        historical_deleted_manifests.add(path)
     manifests = {
         path
         for path in changed
         if path.is_relative_to(MANIFEST_ROOT) and path.suffix == ".json"
     }
     live_manifests = {path for path in manifests if (repo / path).is_file()}
-    deleted_manifests = manifests - live_manifests
+    deleted_manifests = (manifests - live_manifests) | historical_deleted_manifests
     if not live_manifests:
         raise ValueError(
             "no changed signed apply manifest is available to authorize publication"
@@ -3031,7 +3825,19 @@ def authorized_changed_paths(
             raise ValueError(
                 f"model apply manifest has an unsupported backend: {relative}"
             )
-        is_model_apply = tool == MODEL_APPLY_TOOL
+        is_reviewed_candidate = tool == REVIEWED_CANDIDATE_TOOL
+        if is_reviewed_candidate:
+            reviewed_ref = payload.get("reviewed_rulespec_ref")
+            if (
+                backend is not None
+                or not isinstance(reviewed_ref, str)
+                or COMMIT_PATTERN.fullmatch(reviewed_ref) is None
+                or _git(repo, "rev-parse", "HEAD").decode().strip() != reviewed_ref
+            ):
+                raise ValueError(
+                    f"reviewed candidate manifest does not bind exact HEAD: {relative}"
+                )
+        is_exact_apply = tool == MODEL_APPLY_TOOL or is_reviewed_candidate
         replacement = payload.get("replacement")
         receipt_rewrites: set[PurePosixPath] = set()
         if tool == LEGACY_REPLACEMENT_TOOL:
@@ -3073,6 +3879,7 @@ def authorized_changed_paths(
                     LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                     LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                     LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                    LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                 }
                 or receipt.get("tool") != LEGACY_REPLACEMENT_TOOL
             ):
@@ -3094,8 +3901,19 @@ def authorized_changed_paths(
                 old_manifest.get("path"),
                 label=f"{relative} legacy.manifest.path",
             )
+            replaces_source_in_place = isinstance(
+                receipt_replacement.get("source"), str
+            ) and receipt_replacement.get("source") == receipt_replacement.get(
+                "destination"
+            )
+            replaces_manifest_in_place = (
+                replaces_source_in_place and old_manifest_path == relative
+            )
             if (
-                old_manifest_path not in deleted_manifests
+                (
+                    old_manifest_path not in deleted_manifests
+                    and not replaces_manifest_in_place
+                )
                 or replacement.get("legacy_manifest_path")
                 != old_manifest_path.as_posix()
                 or replacement.get("legacy_manifest_sha256")
@@ -3139,6 +3957,7 @@ def authorized_changed_paths(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }:
                 if not isinstance(retained_successors, list) or not isinstance(
                     metadata_reconciliations, list
@@ -3171,6 +3990,7 @@ def authorized_changed_paths(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }:
                 identity_deleted_files.extend(
                     {"path": item.get("path"), "deleted": True}
@@ -3219,6 +4039,7 @@ def authorized_changed_paths(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     else None
                 ),
@@ -3231,6 +4052,7 @@ def authorized_changed_paths(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     else None
                 ),
@@ -3243,6 +4065,7 @@ def authorized_changed_paths(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     else None
                 ),
@@ -3254,6 +4077,7 @@ def authorized_changed_paths(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     else None
                 ),
@@ -3265,6 +4089,7 @@ def authorized_changed_paths(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     else None
                 ),
@@ -3279,6 +4104,7 @@ def authorized_changed_paths(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             } and (
                 not isinstance(
                     receipt_replacement.get("destination_predecessor_class"), str
@@ -3310,6 +4136,7 @@ def authorized_changed_paths(
                 _legacy_metadata_reconciliation_bytes,
                 _legacy_replacement_authoritative_map,
                 _legacy_replacement_reference_inventory_issues,
+                _required_replacement_index_postimages,
                 _strict_legacy_replacement_map,
             )
 
@@ -3333,6 +4160,7 @@ def authorized_changed_paths(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }:
                 predecessor_issues = _legacy_destination_predecessor_issues(
                     repo,
@@ -3426,10 +4254,20 @@ def authorized_changed_paths(
                 for old, new in authoritative_replacements.items()
                 if old.endswith(".yaml") and not old.endswith(".test.yaml")
             ]
+            in_place_waiver_modules = (
+                frozenset({str(receipt_replacement["source"])})
+                if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8
+                and receipt_replacement.get("source")
+                == receipt_replacement.get("destination")
+                else frozenset()
+            )
             exact_metadata_manifest_paths: set[str] = set()
             exact_metadata_retired_schema_modules: set[str] = set()
             exact_metadata_reindexed_modules: dict[str, bytes] = {}
-            if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7:
+            if receipt_schema in {
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
+            }:
                 assert isinstance(exact_dependents, list)
                 for index, dependent in enumerate(exact_dependents):
                     label = f"{relative} exact_dependents[{index}]"
@@ -3485,6 +4323,7 @@ def authorized_changed_paths(
                         Path("known-validation-gaps.yaml"),
                         base_waiver_raw,
                         moves=primary_moves,
+                        in_place_waiver_modules=in_place_waiver_modules,
                     )
                 )
                 post_migration_waiver_sha256 = hashlib.sha256(
@@ -3493,7 +4332,10 @@ def authorized_changed_paths(
             except (subprocess.CalledProcessError, ValueError):
                 pass
             retired_schema_count_transition: tuple[int, int] | None = None
-            if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7:
+            if receipt_schema in {
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
+            }:
                 try:
                     base_retired_freeze_raw = _git_quiet(
                         repo,
@@ -3505,6 +4347,7 @@ def authorized_changed_paths(
                             Path(".axiom/retired-schema-freeze.json"),
                             base_retired_freeze_raw,
                             moves=primary_moves,
+                            in_place_waiver_modules=in_place_waiver_modules,
                             retired_schema_modules=frozenset(
                                 exact_metadata_retired_schema_modules
                             ),
@@ -3523,6 +4366,23 @@ def authorized_changed_paths(
                         )
                 except (subprocess.CalledProcessError, ValueError):
                     pass
+            new_destination_modules = _required_replacement_index_postimages(
+                repo,
+                base_commit=str(base_commit or ""),
+                replacement=receipt_replacement,
+                nested=nested_manifest,
+                moves=primary_moves,
+            )
+            allowed_metadata_paths = (
+                frozenset(
+                    {
+                        PurePosixPath("known-validation-gaps.yaml"),
+                        PurePosixPath(".axiom/toolchain.toml"),
+                    }
+                )
+                if in_place_waiver_modules and not primary_moves
+                else LEGACY_REPLACEMENT_METADATA_PATHS
+            )
             metadata_paths: set[PurePosixPath] = set()
             for index, reconciliation in enumerate(metadata_reconciliations):
                 if not isinstance(reconciliation, dict) or set(reconciliation) != {
@@ -3539,7 +4399,7 @@ def authorized_changed_paths(
                     label=f"{relative} metadata_reconciliations[{index}].path",
                 )
                 if (
-                    metadata_path not in LEGACY_REPLACEMENT_METADATA_PATHS
+                    metadata_path not in allowed_metadata_paths
                     or metadata_path in metadata_paths
                 ):
                     raise ValueError(
@@ -3558,6 +4418,7 @@ def authorized_changed_paths(
                             Path(metadata_path),
                             base_raw,
                             moves=primary_moves,
+                            in_place_waiver_modules=in_place_waiver_modules,
                             validation_waiver_set_sha256=(post_migration_waiver_sha256),
                             retired_manifest_paths=frozenset(
                                 exact_metadata_manifest_paths
@@ -3569,6 +4430,7 @@ def authorized_changed_paths(
                                 retired_schema_count_transition
                             ),
                             reindexed_modules=exact_metadata_reindexed_modules,
+                            new_destination_modules=new_destination_modules,
                         )
                     )
                 except ValueError as exc:
@@ -3588,7 +4450,7 @@ def authorized_changed_paths(
                     )
                 metadata_paths.add(metadata_path)
             expected_metadata_paths: set[PurePosixPath] = set()
-            for metadata_path in LEGACY_REPLACEMENT_METADATA_PATHS:
+            for metadata_path in allowed_metadata_paths:
                 try:
                     base_raw = _git_quiet(
                         repo,
@@ -3603,6 +4465,7 @@ def authorized_changed_paths(
                             Path(metadata_path),
                             base_raw,
                             moves=primary_moves,
+                            in_place_waiver_modules=in_place_waiver_modules,
                             validation_waiver_set_sha256=(post_migration_waiver_sha256),
                             retired_manifest_paths=frozenset(
                                 exact_metadata_manifest_paths
@@ -3614,6 +4477,7 @@ def authorized_changed_paths(
                                 retired_schema_count_transition
                             ),
                             reindexed_modules=exact_metadata_reindexed_modules,
+                            new_destination_modules=new_destination_modules,
                         )
                     )
                 except ValueError:
@@ -3764,7 +4628,7 @@ def authorized_changed_paths(
                 *[
                     {"path": item.get("path"), "deleted": True}
                     for item in legacy_files
-                    if isinstance(item, dict)
+                    if isinstance(item, dict) and item.get("path") not in live_paths
                 ],
                 *retained_deleted_files,
             ]
@@ -3801,6 +4665,14 @@ def authorized_changed_paths(
                     raise ValueError(
                         f"legacy replacement live file differs: {live_path}"
                     )
+                if replaces_source_in_place and live_path not in changed:
+                    base_raw = _git(repo, "show", f"HEAD:{live_path.as_posix()}")
+                    if hashlib.sha256(base_raw).hexdigest() != item["sha256"]:
+                        raise ValueError(
+                            f"legacy replacement unchanged live base differs: {live_path}"
+                        )
+                    authorized_unchanged.add(live_path)
+                    authenticated_unchanged_claims.add((relative, live_path))
             for index, item in enumerate(legacy_files):
                 if (
                     not isinstance(item, dict)
@@ -3815,7 +4687,9 @@ def authorized_changed_paths(
                     item.get("path"),
                     label=f"{relative} legacy.files[{index}].path",
                 )
-                if (repo / deleted_path).exists() or (repo / deleted_path).is_symlink():
+                if deleted_path.as_posix() not in live_paths and (
+                    (repo / deleted_path).exists() or (repo / deleted_path).is_symlink()
+                ):
                     raise ValueError(
                         f"legacy replacement deleted file still exists: {deleted_path}"
                     )
@@ -3825,11 +4699,32 @@ def authorized_changed_paths(
                         f"legacy replacement deleted file base differs: {deleted_path}"
                     )
             for index, dependent in enumerate(scheduled_dependents):
+                source_bound_citation = (
+                    dependent.get("source_citation")
+                    if isinstance(dependent, dict)
+                    else None
+                )
+                source_bound = source_bound_citation is not None
                 if (
                     not isinstance(dependent, dict)
-                    or set(dependent) != {"primary", "files"}
+                    or set(dependent)
+                    != (
+                        {"primary", "files", "source_citation"}
+                        if source_bound
+                        else {"primary", "files"}
+                    )
                     or not isinstance(dependent.get("files"), list)
                     or not dependent["files"]
+                    or (
+                        source_bound
+                        and (
+                            receipt_replacement.get("source")
+                            != receipt_replacement.get("destination")
+                            or not isinstance(source_bound_citation, str)
+                            or not source_bound_citation
+                            or len(dependent["files"]) != 1
+                        )
+                    )
                 ):
                     raise ValueError(
                         f"legacy scheduled dependent[{index}] is malformed"
@@ -3868,11 +4763,64 @@ def authorized_changed_paths(
                         f"legacy scheduled dependent lacks a fresh model manifest: "
                         f"{primary}"
                     )
+                if source_bound:
+                    attestation = dependent_payload.get("source_attestation")
+                    if (
+                        not isinstance(attestation, dict)
+                        or attestation.get("requested_corpus_citation_path")
+                        != source_bound_citation
+                    ):
+                        raise ValueError(
+                            "source-bound dependent lacks its own signed "
+                            f"source attestation: {primary}"
+                        )
+                    if corpus_release is not None:
+                        from axiom_encode.harness.evals import (
+                            resolve_corpus_source_unit,
+                        )
+
+                        signed_source = resolve_corpus_source_unit(
+                            source_bound_citation, corpus_release
+                        )
+                        expected_source = signed_source.source_attestation
+                        normalized_source = signed_source.body.replace(
+                            "\r\n", "\n"
+                        ).replace("\r", "\n")
+                        expected_generation_sha256 = hashlib.sha256(
+                            normalized_source.encode("utf-8")
+                        ).hexdigest()
+                        if (
+                            any(
+                                attestation.get(field) != value
+                                for field, value in expected_source.items()
+                            )
+                            or attestation.get("generation_input_sha256")
+                            != expected_generation_sha256
+                            or attestation.get("rulespec_root")
+                            != f"{repo.name}/{primary.parts[0]}"
+                            or set(attestation)
+                            != {
+                                *expected_source,
+                                "generation_input_sha256",
+                                "rulespec_root",
+                            }
+                        ):
+                            raise ValueError(
+                                "source-bound dependent source attestation "
+                                f"differs from signed corpus: {primary}"
+                            )
                 for file_index, evidence in enumerate(dependent["files"]):
                     if (
                         not isinstance(evidence, dict)
                         or set(evidence) != {"path", "before_sha256", "replacements"}
                         or not isinstance(evidence.get("replacements"), list)
+                        or (
+                            source_bound
+                            and (
+                                evidence.get("path") != primary.as_posix()
+                                or evidence["replacements"] != []
+                            )
+                        )
                     ):
                         raise ValueError(
                             f"legacy scheduled dependent file is malformed: {primary}"
@@ -3895,20 +4843,41 @@ def authorized_changed_paths(
                         raise ValueError(
                             f"legacy scheduled dependent base differs: {pending_path}"
                         )
-                    if _strict_legacy_replacement_map(evidence["replacements"]) is None:
+                    if (
+                        not source_bound
+                        and _strict_legacy_replacement_map(evidence["replacements"])
+                        is None
+                    ):
                         raise ValueError(
                             "legacy scheduled dependent replacement records "
                             f"are malformed: {primary} file {file_index}"
                         )
-                    try:
-                        _base_rewritten, observed_counts = rewrite_exact_references(
-                            base_raw,
-                            authoritative_replacements,
+                    if source_bound:
+                        primary_source = _safe_relative_path(
+                            receipt_replacement.get("source"),
+                            label="source-bound primary",
                         )
-                    except PathMigrationPlanError as exc:
-                        raise ValueError(
-                            f"legacy scheduled dependent is unreadable: {pending_path}"
-                        ) from exc
+                        old_primary_raw = _git(
+                            repo, "show", f"HEAD:{primary_source.as_posix()}"
+                        )
+                        source_bound_dependent_proof_imports(
+                            base_raw,
+                            primary=Path(primary_source.as_posix()),
+                            primary_sha256=hashlib.sha256(old_primary_raw).hexdigest(),
+                            source_citation=source_bound_citation,
+                        )
+                        observed_counts = []
+                    else:
+                        try:
+                            _base_rewritten, observed_counts = rewrite_exact_references(
+                                base_raw,
+                                authoritative_replacements,
+                            )
+                        except PathMigrationPlanError as exc:
+                            raise ValueError(
+                                "legacy scheduled dependent is unreadable: "
+                                f"{pending_path}"
+                            ) from exc
                     live_raw = _read_bounded_regular(
                         repo,
                         pending_path,
@@ -3923,15 +4892,31 @@ def authorized_changed_paths(
                             "legacy scheduled dependent model manifest does not "
                             f"bind live file: {pending_path}"
                         )
-                    try:
-                        _live_rewritten, remaining = rewrite_exact_references(
-                            live_raw,
-                            authoritative_replacements,
+                    if source_bound:
+                        new_primary_raw = _read_bounded_regular(
+                            repo,
+                            primary_source,
+                            label="source-bound primary",
+                            max_bytes=16 * 1024 * 1024,
                         )
-                    except PathMigrationPlanError as exc:
-                        raise ValueError(
-                            f"legacy scheduled dependent is unreadable: {pending_path}"
-                        ) from exc
+                        source_bound_dependent_proof_imports(
+                            live_raw,
+                            primary=Path(primary_source.as_posix()),
+                            primary_sha256=hashlib.sha256(new_primary_raw).hexdigest(),
+                            source_citation=source_bound_citation,
+                        )
+                        remaining = []
+                    else:
+                        try:
+                            _live_rewritten, remaining = rewrite_exact_references(
+                                live_raw,
+                                authoritative_replacements,
+                            )
+                        except PathMigrationPlanError as exc:
+                            raise ValueError(
+                                "legacy scheduled dependent is unreadable: "
+                                f"{pending_path}"
+                            ) from exc
                     if list(observed_counts) != evidence["replacements"]:
                         raise ValueError(
                             f"legacy scheduled dependent exact base proof differs: "
@@ -3949,6 +4934,7 @@ def authorized_changed_paths(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }:
                 exact_unchanged_claims = _validate_legacy_exact_dependents(
                     repo,
@@ -3996,7 +4982,7 @@ def authorized_changed_paths(
             if applied_path not in receipt_rewrites:
                 _validate_rulespec_path(repo, applied_path, label=label)
             authorized.add(applied_path)
-            if is_model_apply:
+            if is_exact_apply:
                 digest = entry.get("sha256")
                 if (
                     set(entry) != {"path", "sha256"}
@@ -4009,7 +4995,11 @@ def authorized_changed_paths(
                 live_raw = _read_bounded_regular(
                     repo,
                     applied_path,
-                    label="model-applied file",
+                    label=(
+                        "model-applied file"
+                        if tool == MODEL_APPLY_TOOL
+                        else "reviewed-candidate file"
+                    ),
                     max_bytes=16 * 1024 * 1024,
                 )
                 if hashlib.sha256(live_raw).hexdigest() != digest:
@@ -4177,6 +5167,12 @@ def main() -> None:
     base_parser.add_argument("requested_ref")
     base_parser.add_argument("open_pr", choices=("true", "false"))
     base_parser.add_argument("pr_base_branch", nargs="?", default="main")
+    fresh_parser = subparsers.add_parser("validate-fresh-primary-test-target")
+    fresh_parser.add_argument("repo", type=Path)
+    fresh_parser.add_argument("citation")
+    fresh_parser.add_argument("rulespec_path")
+    fresh_parser.add_argument("requested_ref")
+    fresh_parser.add_argument("required_test_cases_json")
     stage_parser = subparsers.add_parser("stage")
     stage_parser.add_argument("repo", type=Path)
     stage_parser.add_argument("--corpus-path", dest="corpus_root", type=Path)
@@ -4185,6 +5181,10 @@ def main() -> None:
     cascade_parser.add_argument("target_citation")
     cascade_parser.add_argument("--target-rulespec-path")
     cascade_parser.add_argument("--allow-proof-import-subset", action="store_true")
+    cascade_parser.add_argument(
+        "--allow-source-bound-dependent-alias", action="store_true"
+    )
+    cascade_parser.add_argument("--json", action="store_true")
     cascade_parser.add_argument("dependent_citations", nargs="+")
     citation_path_parser = subparsers.add_parser("citation-rulespec-path")
     citation_path_parser.add_argument("citation")
@@ -4236,10 +5236,17 @@ def main() -> None:
     atomic_source_parser.add_argument(
         "atomic_source_json",
         help=(
-            "legacy source citation array or exact "
-            '{"canonical_refresh_bundle":[...]} object'
+            "legacy source citation array, canonical refresh object, v2-v5 "
+            "transaction, or v6 {transaction: exact v2-v5, repair_mode: "
+            "full_artifact|tests_only} authenticated failed-repair wrapper"
         ),
     )
+    repair_mode_parser = subparsers.add_parser(
+        "resolve-atomic-repair-mode",
+        help="validate explicit failed-repair scope or retain legacy mode inference",
+    )
+    repair_mode_parser.add_argument("atomic_source_json")
+    repair_mode_parser.add_argument("--check-selected", action="store_true")
     canonical_refresh_parser = subparsers.add_parser(
         "parse-canonical-refresh-bundle",
         help=(
@@ -4321,15 +5328,45 @@ def main() -> None:
                     pr_base_branch=args.pr_base_branch,
                 )
             )
+        elif args.command == "validate-fresh-primary-test-target":
+            print(
+                json.dumps(
+                    validate_fresh_primary_test_target(
+                        args.repo,
+                        args.citation,
+                        args.rulespec_path,
+                        args.requested_ref,
+                        args.required_test_cases_json,
+                    )
+                )
+            )
         elif args.command == "validate-dependent-cascade":
-            _dependents, mode = _classify_dependent_cascade(
+            dependents, mode = _classify_dependent_cascade(
                 args.repo,
                 args.target_citation,
                 *args.dependent_citations,
                 target_rulespec_path=args.target_rulespec_path,
                 allow_proof_import_subset=args.allow_proof_import_subset,
+                allow_source_bound_dependent_alias=(
+                    args.allow_source_bound_dependent_alias
+                ),
             )
-            print(mode)
+            if args.json:
+                jurisdiction, _target = _citation_rulespec_path(args.target_citation)
+                print(
+                    json.dumps(
+                        {
+                            "mode": mode,
+                            "paths": [
+                                f"{jurisdiction}/{relative.as_posix()}"
+                                for relative in dependents
+                            ],
+                        },
+                        sort_keys=True,
+                    )
+                )
+            else:
+                print(mode)
         elif args.command == "citation-rulespec-path":
             print(citation_rulespec_path(args.citation))
         elif args.command == "authorize-legacy-index-manifest-shrink":
@@ -4369,6 +5406,25 @@ def main() -> None:
                     sort_keys=True,
                 )
             )
+        elif args.command == "resolve-atomic-repair-mode":
+            resolved = resolve_atomic_repair_mode(
+                args.atomic_source_json, dict(os.environ)
+            )
+            if args.check_selected and os.environ.get("REPAIR_RUN_ID"):
+                repair_execution_metadata(
+                    args.atomic_source_json,
+                    os.environ["REPAIR_RUN_ID"],
+                    os.environ.get("REPAIR_MODE", ""),
+                    os.environ.get("REPAIR_TESTS_ONLY", ""),
+                )
+            if os.environ.get("REPAIR_RUN_ID"):
+                resolved["execution"] = repair_execution_metadata(
+                    args.atomic_source_json,
+                    os.environ["REPAIR_RUN_ID"],
+                    str(resolved["mode"]),
+                    "true" if resolved["tests_only"] else "false",
+                )
+            print(json.dumps(resolved, separators=(",", ":"), sort_keys=True))
         elif args.command == "validate-source-add-targets":
             print(
                 json.dumps(
