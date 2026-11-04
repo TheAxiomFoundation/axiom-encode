@@ -24280,6 +24280,18 @@ def guard_generated_change_issues(
     )
     if waiver_transition_issues:
         return waiver_transition_issues
+    post_waiver_dependent_manifests = (
+        _in_place_replacement_post_waiver_dependent_manifests(
+            repo_path,
+            changed=set(changed),
+            protected=set(protected),
+            roots=roots,
+            base_waiver_sha256=expected_manifest_waiver_set_sha256,
+            current_waiver_sha256=current_waiver_set_sha256,
+        )
+        if expected_manifest_waiver_set_sha256 != current_waiver_set_sha256
+        else frozenset()
+    )
 
     manifest_paths = (
         sorted(
@@ -24360,6 +24372,7 @@ def guard_generated_change_issues(
         expected_encoder_identity=expected_encoder_identity,
         expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
         expected_legacy_replacement_waiver_set_sha256=(current_waiver_set_sha256),
+        post_waiver_dependent_manifests=post_waiver_dependent_manifests,
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
     )
     manifest_issues.extend(
@@ -24378,6 +24391,7 @@ def guard_generated_change_issues(
             expected_encoder_identity=expected_encoder_identity,
             expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
             expected_legacy_replacement_waiver_set_sha256=current_waiver_set_sha256,
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
     )
@@ -24395,6 +24409,7 @@ def guard_generated_change_issues(
             expected_encoder_identity=expected_encoder_identity,
             expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
             expected_legacy_replacement_waiver_set_sha256=current_waiver_set_sha256,
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
     )
@@ -24444,6 +24459,7 @@ def guard_generated_change_issues(
             expected_encoder_identity=expected_encoder_identity,
             expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
             expected_legacy_replacement_waiver_set_sha256=(current_waiver_set_sha256),
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=(path_migration_receipt_proof_cache),
         )
     )
@@ -24759,6 +24775,7 @@ def _guard_changed_manifest_coverage_issues(
     expected_waiver_set_sha256: str,
     expected_legacy_replacement_waiver_set_sha256: str,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]],
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Require verified head ownership for every changed base receipt claim."""
 
@@ -24852,6 +24869,7 @@ def _guard_changed_manifest_coverage_issues(
                     expected_encoder_identity=expected_encoder_identity,
                     expected_waiver_set_sha256=expected_waiver_set_sha256,
                     expected_legacy_replacement_waiver_set_sha256=expected_legacy_replacement_waiver_set_sha256,
+                    post_waiver_dependent_manifests=post_waiver_dependent_manifests,
                     path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
                 )
             )
@@ -24997,6 +25015,7 @@ def _guard_changed_manifest_coverage_issues(
                     expected_legacy_replacement_waiver_set_sha256=(
                         expected_legacy_replacement_waiver_set_sha256
                     ),
+                    post_waiver_dependent_manifests=post_waiver_dependent_manifests,
                     path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
                 )
             )
@@ -25023,6 +25042,7 @@ def _guard_changed_manifest_coverage_issues(
         expected_legacy_replacement_waiver_set_sha256=(
             expected_legacy_replacement_waiver_set_sha256
         ),
+        post_waiver_dependent_manifests=post_waiver_dependent_manifests,
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
     )
     issues.extend(verification_issues)
@@ -25059,6 +25079,7 @@ def _guard_changed_manifest_coverage_issues(
             expected_legacy_replacement_waiver_set_sha256=(
                 expected_legacy_replacement_waiver_set_sha256
             ),
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
     )
@@ -25463,6 +25484,7 @@ def _guard_auxiliary_provenance_issues(
     expected_waiver_set_sha256: str,
     expected_legacy_replacement_waiver_set_sha256: str,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]],
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Verify changed auxiliary evidence and all head manifests using it."""
 
@@ -25600,10 +25622,125 @@ def _guard_auxiliary_provenance_issues(
             expected_legacy_replacement_waiver_set_sha256=(
                 expected_legacy_replacement_waiver_set_sha256
             ),
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
         issues.extend(manifest_issues)
     return issues
+
+
+def _in_place_replacement_post_waiver_dependent_manifests(
+    repo_path: Path,
+    *,
+    changed: set[str],
+    protected: set[str],
+    roots: tuple[str, ...],
+    base_waiver_sha256: str,
+    current_waiver_sha256: str,
+) -> frozenset[str]:
+    """Recognize a sequential, source-bound replacement waiver transition.
+
+    The replacement retires its own waiver before the scheduled dependent is
+    generated. Both the replacement receipt and that later model manifest bind
+    the post-migration waiver set. This shape check only selects the expected
+    identity; the guard still authenticates every signed receipt and manifest.
+    """
+
+    try:
+        toolchain_sha256 = hashlib.sha256(
+            read_bounded_regular_file(
+                repo_path,
+                repo_path / ".axiom/toolchain.toml",
+                label="post-migration RuleSpec toolchain",
+                max_bytes=1024 * 1024,
+                required_mode=0o644,
+            )
+        ).hexdigest()
+    except (OSError, UnsafeCorpusPathError):
+        return frozenset()
+    matches: list[str] = []
+    for label in sorted(changed):
+        path = Path(label)
+        if (
+            path.parent != APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR
+            or path.suffix != ".json"
+        ):
+            continue
+        try:
+            raw = read_bounded_regular_file(
+                repo_path,
+                repo_path / path,
+                label="in-place replacement receipt",
+                max_bytes=1024 * 1024,
+                required_mode=0o644,
+            )
+            payload = json.loads(raw.decode("utf-8"))
+        except (
+            OSError,
+            UnsafeCorpusPathError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RecursionError,
+        ):
+            continue
+        if not isinstance(payload, dict) or payload.get("tool") != (
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
+        ):
+            continue
+        replacement = payload.get("replacement")
+        if not isinstance(replacement, dict):
+            continue
+        source = replacement.get("source")
+        if (
+            not isinstance(source, str)
+            or source != replacement.get("destination")
+            or source not in protected
+            or source not in changed
+            or not _is_protected_rulespec_yaml_path(Path(source), roots=roots)
+            or replacement.get("model_manifest_path")
+            != _applied_encoding_manifest_path(Path(source)).as_posix()
+            or replacement["model_manifest_path"] not in changed
+            or payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != current_waiver_sha256
+        ):
+            continue
+        scheduled = replacement.get("scheduled_dependents")
+        if not isinstance(scheduled, list) or len(scheduled) != 1:
+            continue
+        dependent = scheduled[0]
+        if not isinstance(dependent, dict):
+            continue
+        primary = dependent.get("primary")
+        if (
+            not isinstance(primary, str)
+            or primary not in protected
+            or primary not in changed
+            or _applied_encoding_manifest_path(Path(primary)).as_posix() not in changed
+            or not isinstance(dependent.get("source_citation"), str)
+            or not dependent["source_citation"]
+        ):
+            continue
+        reconciliations = replacement.get("metadata_reconciliations")
+        if not isinstance(reconciliations, list):
+            continue
+        by_path = {
+            item.get("path"): item
+            for item in reconciliations
+            if isinstance(item, dict) and isinstance(item.get("path"), str)
+        }
+        if len(by_path) != len(reconciliations):
+            continue
+        waiver = by_path.get("known-validation-gaps.yaml")
+        toolchain = by_path.get(".axiom/toolchain.toml")
+        if (
+            not isinstance(waiver, dict)
+            or waiver.get("before_sha256") != base_waiver_sha256
+            or waiver.get("after_sha256") != current_waiver_sha256
+            or not isinstance(toolchain, dict)
+            or toolchain.get("after_sha256") != toolchain_sha256
+        ):
+            continue
+        matches.append(_applied_encoding_manifest_path(Path(primary)).as_posix())
+    return frozenset(matches) if len(matches) == 1 else frozenset()
 
 
 def _guard_manifest_waiver_set_identity(
@@ -25796,6 +25933,7 @@ def _generated_provenance_gate_issues(
     expected_waiver_set_sha256: str,
     expected_legacy_replacement_waiver_set_sha256: str,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]],
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Reject protected files authorized only by manual attestations."""
 
@@ -25812,6 +25950,7 @@ def _generated_provenance_gate_issues(
         expected_legacy_replacement_waiver_set_sha256=(
             expected_legacy_replacement_waiver_set_sha256
         ),
+        post_waiver_dependent_manifests=post_waiver_dependent_manifests,
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
     )
     issues: list[str] = []
@@ -26155,6 +26294,7 @@ def _manifest_coverage_by_file(
     expected_legacy_replacement_waiver_set_sha256: str | None = None,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]]
     | None = None,
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> dict[str, list[dict[str, object]]]:
     """Map each non-deleted covered file to a list of covering-manifest records.
 
@@ -26186,6 +26326,7 @@ def _manifest_coverage_by_file(
                 expected_legacy_replacement_waiver_set_sha256=(
                     expected_legacy_replacement_waiver_set_sha256
                 ),
+                post_waiver_dependent_manifests=post_waiver_dependent_manifests,
                 path_migration_receipt_proof_cache=(path_migration_receipt_proof_cache),
             )
         )
@@ -30396,6 +30537,7 @@ def _load_verified_applied_encoding_manifest_payload(
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]]
     | None = None,
     base_commit: str | None = None,
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, object] | None, str | None, str | None, list[str]]:
     """Load one canonical v5 apply manifest and verify every binding."""
 
@@ -30432,6 +30574,15 @@ def _load_verified_applied_encoding_manifest_payload(
                 None,
                 [f"RuleSpec waiver-set binding is invalid: {exc}"],
             )
+    if manifest_label in post_waiver_dependent_manifests:
+        if expected_legacy_replacement_waiver_set_sha256 is None:
+            return (
+                None,
+                root_prefix,
+                None,
+                [f"{manifest_label} has no post-migration waiver identity"],
+            )
+        expected_waiver_set_sha256 = expected_legacy_replacement_waiver_set_sha256
 
     relative = Path(manifest_path)
     if relative.is_absolute() or any(
@@ -30804,6 +30955,7 @@ def _load_applied_encoding_manifest_entries(
     expected_legacy_replacement_waiver_set_sha256: str | None = None,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]]
     | None = None,
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, set[str]], list[str]]:
     entries: dict[str, set[str]] = defaultdict(set)
     issues: list[str] = []
@@ -30850,6 +31002,7 @@ def _load_applied_encoding_manifest_entries(
                 expected_legacy_replacement_waiver_set_sha256=(
                     expected_legacy_replacement_waiver_set_sha256
                 ),
+                post_waiver_dependent_manifests=post_waiver_dependent_manifests,
                 local_corpus_release=local_corpus_release,
                 expected_encoder_identity=expected_encoder_identity,
                 path_migration_receipt_proof_cache=(path_migration_receipt_proof_cache),
@@ -62595,12 +62748,36 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
 
     generated_content = output_file.read_text()
     if retired_source_admission is not None:
-        from .legacy_external_parameters import external_parameter_preservation_issues
+        from .legacy_external_parameters import (
+            carry_forward_external_proved_rules,
+            external_parameter_preservation_issues,
+        )
 
         try:
             generated_payload = _safe_load_unique_keys(generated_content)
         except (yaml.YAMLError, ValueError) as exc:
             return False, [f"Invalid replacement YAML: {exc}"], {}
+        if vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None:
+            try:
+                carried = carry_forward_external_proved_rules(
+                    generated_payload, retired_source_admission
+                )
+                if carried:
+                    generated_content = safe_dump_yaml(
+                        generated_payload, sort_keys=False, allow_unicode=True
+                    )
+                    output_file.write_text(generated_content)
+            except (yaml.YAMLError, ValueError) as exc:
+                return False, [f"Invalid external-rule carry-forward: {exc}"], {}
+            if carried:
+                artifact_issue = _generated_artifact_guard_issue(
+                    output_file, output_test, relative_output, generated_root
+                )
+                if artifact_issue is not None:
+                    return False, [artifact_issue], {}
+                print(
+                    "apply=carried_forward_external_proved_rules:" + ",".join(carried)
+                )
         preservation_issues = external_parameter_preservation_issues(
             generated_payload, retired_source_admission
         )
