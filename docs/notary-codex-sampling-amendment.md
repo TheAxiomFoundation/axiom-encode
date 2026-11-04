@@ -10,10 +10,12 @@ code alone does not waive the v33 §9 audit or enroll a runtime.
 V33 §2.1/§2.2 require `sampling.temperature` to be a canonical-decimal string;
 `seed` may already be null when the runtime does not expose it. The existing
 `CodexCLIBackend._run_codex_exec` in `harness/backends.py` does not pass a
-temperature or seed to Codex. The official [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
-checked on 20 September 2026 documents neither setting. We cannot truthfully
-record a numeric value from that interface. A configured guess such as `0` or
-`0.5` would misdescribe the emission.
+temperature or seed to Codex, and this supervised adapter does not observe
+either value in the returned record. This is an implementation-specific
+claim about the code reviewed in this PR, not a claim that every Codex CLI
+version lacks such settings. We cannot truthfully record a numeric value
+from this interface. A configured guess such as `0` or `0.5` would
+misdescribe the emission.
 
 ## Exact proposed change
 

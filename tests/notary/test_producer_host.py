@@ -217,3 +217,48 @@ def test_codex_sampling_records_unexposed_parameters_explicitly():
         "temperature": None,
         "seed": None,
     }
+
+
+@pytest.mark.parametrize(
+    ("sampling", "accepted"),
+    [
+        ({"temperature": None, "seed": None}, True),
+        ({"temperature": "0.5", "seed": None}, False),
+        ({"temperature": None, "seed": "42"}, False),
+    ],
+)
+def test_codex_host_configuration_enforces_unexposed_sampling(
+    submission, sampling, accepted
+):
+    epoch, _, _, _ = submission
+    config = {
+        "schema": "axiom/supervised-producer-host/v1",
+        "lane": epoch.anchor.lane,
+        "content_branch": "main",
+        "epoch_sha256": epoch.anchor.epoch_sha256,
+        "notary_spki_sha256": "a" * 64,
+        "producer_key_file": "/opt/axiom/producer.pem",
+        "actor_key_file": "/opt/axiom/actor.pem",
+        "state_directory": "/opt/axiom/state",
+        "socket_path": "/opt/axiom/service.sock",
+        "socket_gid": 1001,
+        "operators": [{"uid": 1002, "github_user_id": "123"}],
+        "encoder_identity": {},
+        "dependency_inventory": strict_parse(epoch.inventory),
+        "codex_binary": "/opt/axiom/codex",
+        "python": "/opt/axiom/runtime/bin/python3",
+        "worker_uid": 1003,
+        "worker_gid": 1003,
+        "corpus_path": "/opt/axiom/corpus",
+        "engine_path": "/opt/axiom/engine",
+        "dependency_roots": {},
+        "model": "gpt-6.1-sol",
+        "sampling": sampling,
+        "references": {"oracles": [], "reference_data": []},
+        "timeout_seconds": 60,
+    }
+    if accepted:
+        assert parse_config(jcs_dumps(config))["runtime_kind"] == "codex"
+    else:
+        with pytest.raises(IdentityRefusal, match="sampling_not_exposed"):
+            parse_config(jcs_dumps(config))
