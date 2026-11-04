@@ -10,8 +10,7 @@ import argparse
 import re
 from pathlib import Path
 
-import yaml
-
+from ..yaml_serialization import safe_dump_yaml
 from .canonical import strict_parse
 from .identity import IdentityRefusal
 from .runner import Configuration
@@ -186,8 +185,8 @@ mkdir -p "$RUNNER_TEMP/notary"
         },
     }
     return {
-        c.workflow_path: yaml.safe_dump(admission, sort_keys=False),
-        c.finalizer_workflow_path: yaml.safe_dump(finalize, sort_keys=False),
+        c.workflow_path: safe_dump_yaml(admission, sort_keys=False),
+        c.finalizer_workflow_path: safe_dump_yaml(finalize, sort_keys=False),
     }
 
 
