@@ -888,6 +888,12 @@ _CODEX_CLI_PINS = {
         "archive_sha256": "36034ef21c4fd7992e3ca4d041dff869dbf8c5d742b68e5c9fad0c3636cf61ce",
         "sha256": "e89718aa1969bfc4a471277bdc4679a3a3529293de0a309909822dfd67ddb77a",
     },
+    ("linux", "x64"): {
+        "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.0-linux-x64.tgz",
+        "member": "package/vendor/x86_64-unknown-linux-musl/bin/codex",
+        "archive_sha256": "27a80e1904c7337fe65d94f881779ba7700f42a8a87f3d06352b543b0115df98",
+        "sha256": "d2752c52353401f7f6efbfcea68796f4f7a3d3e4769f5d1da53fa49d4856b72f",
+    },
 }
 
 
