@@ -39,7 +39,7 @@ from .anthropic_messages import (
 from .encoding_db import TokenUsage
 from .eval_evidence import scrub_attestation_signing_keys
 from .observability import extract_reasoning_output_tokens
-from .pricing import anthropic_refusal_is_billed, estimate_usage_cost_usd
+from .pricing import estimate_anthropic_refusal_cost_usd, estimate_usage_cost_usd
 
 
 @dataclass
@@ -558,15 +558,14 @@ class AgentSDKBackend(EncoderBackend):
     Enables parallelization for batch encoding.
     Uses embedded prompts -- no external plugin needed.
 
-    Claude Opus 5.5, the default model, always thinks adaptively and
-    ``max_tokens`` caps thinking plus the RuleSpec together, so requests stream
-    (the SDK refuses
-    non-streaming requests above ~21k tokens) with a large budget. A refusal, a
-    response cut off at ``max_tokens`` or at the context window, or a response
-    with no RuleSpec text is a failed encode, never a partial RuleSpec.
+    Requests stream with a large ``max_tokens`` budget and an
+    ``output_config.effort`` value. They omit ``thinking`` and ``fallbacks``.
+    A refusal, a response cut off at ``max_tokens`` or at the context window,
+    or a response with no RuleSpec text is a failed encode, never a partial
+    RuleSpec.
     """
 
-    # Room for adaptive thinking plus a long RuleSpec module.
+    # Share the streaming output-token budget with the eval runner.
     MAX_TOKENS = ANTHROPIC_MESSAGES_MAX_TOKENS
     # The API's ``output_config.effort`` levels on current Claude models.
     EFFORTS = ANTHROPIC_API_EFFORTS
@@ -611,15 +610,12 @@ class AgentSDKBackend(EncoderBackend):
             if stop_reason == "refusal":
                 category = _refusal_category(refusal_details)
                 trace["refusal_category"] = category
-                output_tokens = tokens.output_tokens if tokens else 0
-                billed = anthropic_refusal_is_billed(category, output_tokens)
-                if billed is None or (output_tokens == 0 and refusal_details is None):
-                    # A refusal before any output is billed or free by its
-                    # category, which this response did not carry or which
-                    # Anthropic's billing table does not list.
-                    cost_usd = None
-                elif not billed:
-                    cost_usd = 0.0
+                cost_usd = estimate_anthropic_refusal_cost_usd(
+                    self.model,
+                    tokens,
+                    category=category,
+                    has_stop_details=refusal_details is not None,
+                )
             return EncoderResponse(
                 rulespec_content=rulespec_content,
                 success=error is None,

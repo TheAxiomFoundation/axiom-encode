@@ -36,9 +36,8 @@ GENERATION_INFRASTRUCTURE_FAILURES = (
     "context-overflow",
 )
 CLAUDE_API_ADMISSION_NOT_APPLICABLE_REASON = (
-    "claude-api admission is not applicable because signed apply does not stamp "
-    "this backend's resolver source attestation; signed encoding remains limited "
-    "to the existing backends."
+    "claude-api admission is not applicable because encode --apply rejects "
+    "--backend claude-api before stamping the resolver source attestation."
 )
 _CONTEXT_CATEGORIES = {
     "temporal-dependency-coverage",
@@ -400,7 +399,7 @@ def prerequisite_admission_result(
 
 
 def not_applicable_admission_result() -> AdmissionResult:
-    """Report an API backend whose unsigned output cannot take signed admission."""
+    """Report the backend rejected by direct signed apply."""
     result = prerequisite_admission_result(
         [CLAUDE_API_ADMISSION_NOT_APPLICABLE_REASON],
         categories=["backend-not-applicable"],

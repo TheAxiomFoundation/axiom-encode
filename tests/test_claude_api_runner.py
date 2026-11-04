@@ -13,7 +13,10 @@ from hypothesis import strategies as st
 
 from axiom_encode.harness import evals
 from axiom_encode.harness.encoding_db import TokenUsage
-from axiom_encode.harness.pricing import estimate_usage_cost_usd
+from axiom_encode.harness.pricing import (
+    anthropic_refusal_is_billed,
+    estimate_usage_cost_usd,
+)
 
 
 def _response(stop_reason="end_turn", text="module: synthetic", **kwargs):
@@ -287,6 +290,128 @@ def test_refusal_category_survives_streamed_delta():
     assert result.text == ""
     assert result.trace["refusal_category"] == "bio"
     assert "bio" in result.error
+
+
+@pytest.mark.parametrize(
+    "category",
+    [
+        "bio",
+        "frontier_llm",
+        "reasoning_extraction",
+        "cyber",
+        "general_harms",
+        None,
+        "a_future_category",
+    ],
+)
+@pytest.mark.parametrize("shape", ["dict", "object"])
+@pytest.mark.parametrize("delivery", ["final", "stream", "absent"])
+def test_pre_output_refusal_cost_matches_existing_billing_policy(
+    category, shape, delivery
+):
+    details = (
+        {"category": category}
+        if shape == "dict"
+        else SimpleNamespace(category=category)
+    )
+    response = _response(
+        "refusal", "", stop_details=details if delivery == "final" else None
+    )
+    response.usage = SimpleNamespace(input_tokens=100, output_tokens=0)
+    events = (
+        [
+            SimpleNamespace(
+                type="message_delta", delta=SimpleNamespace(stop_details=details)
+            )
+        ]
+        if delivery == "stream"
+        else ()
+    )
+    result, _ = _run(sdk=_mock_anthropic(response, events=events))
+
+    seen_category = category if delivery != "absent" else None
+    billed = anthropic_refusal_is_billed(seen_category, 0)
+    if delivery == "absent" or billed is None:
+        expected = None
+    elif billed:
+        expected = estimate_usage_cost_usd("claude-opus-5-5", result.tokens)
+    else:
+        expected = 0.0
+    assert result.text == ""
+    assert result.error is not None
+    assert result.tokens == TokenUsage(input_tokens=100, output_tokens=0)
+    assert result.trace["refusal_category"] == seen_category
+    assert result.estimated_cost_usd == expected
+
+
+@settings(max_examples=60, deadline=None)
+@given(
+    model=st.sampled_from(["claude-opus-5-5", "claude-sonnet-5-5"]),
+    category=st.one_of(
+        st.none(),
+        st.sampled_from(
+            [
+                "bio",
+                "frontier_llm",
+                "reasoning_extraction",
+                "cyber",
+                "general_harms",
+                "a_future_category",
+            ]
+        ),
+    ),
+    shape=st.sampled_from(["dict", "object"]),
+    delivery=st.sampled_from(["final", "stream", "absent"]),
+    input_counts=st.lists(st.integers(0, 10_000), min_size=3, max_size=3),
+    output_tokens=st.one_of(st.just(0), st.integers(1, 10_000)),
+)
+def test_refusal_cost_invariant_matches_existing_billing_policy(
+    model, category, shape, delivery, input_counts, output_tokens
+):
+    """Every refusal uses the existing policy across categories and usage."""
+    details = (
+        {"category": category}
+        if shape == "dict"
+        else SimpleNamespace(category=category)
+    )
+    response = _response(
+        "refusal", "", stop_details=details if delivery == "final" else None
+    )
+    uncached, read, create = input_counts
+    response.usage = SimpleNamespace(
+        input_tokens=uncached,
+        output_tokens=output_tokens,
+        cache_read_input_tokens=read,
+        cache_creation_input_tokens=create,
+    )
+    events = (
+        [
+            SimpleNamespace(
+                type="message_delta", delta=SimpleNamespace(stop_details=details)
+            )
+        ]
+        if delivery == "stream"
+        else ()
+    )
+    result, _ = _run(sdk=_mock_anthropic(response, events=events), model=model)
+
+    seen_category = category if delivery != "absent" else None
+    billed = anthropic_refusal_is_billed(seen_category, output_tokens)
+    expected = estimate_usage_cost_usd(model, result.tokens)
+    if billed is None or (output_tokens == 0 and delivery == "absent"):
+        expected = None
+    elif not billed:
+        expected = 0.0
+    assert result.text == ""
+    assert result.error is not None
+    assert result.tokens == TokenUsage(
+        input_tokens=sum(input_counts),
+        output_tokens=output_tokens,
+        cache_read_tokens=read,
+        cache_creation_tokens=create,
+    )
+    assert result.trace["refusal_category"] == seen_category
+    assert result.estimated_cost_usd == expected
 
 
 def test_sdk_exception_class_and_message_are_reported_without_text():

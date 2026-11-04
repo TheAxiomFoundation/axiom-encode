@@ -1,13 +1,25 @@
 """CLI policy and reviewer switches for the prompt-only Messages runner."""
 
 import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
+from hypothesis import HealthCheck, example, given, settings
+from hypothesis import strategies as st
 
 import axiom_encode.cli as cli
 from axiom_encode.constants import DEFAULT_MODEL, DEFAULT_OPENAI_ESCALATION_MODEL
+from axiom_encode.harness import evals
+from tests.eval_evidence_fixtures import install_test_eval_evidence_keys
+from tests.test_evals import (
+    _fake_eval_result,
+    _fake_source_runner,
+    _strict_eval_suite_manifest_payload,
+    _write_test_corpus_provision,
+)
 
 
 def _arguments(command, positional):
@@ -246,6 +258,82 @@ def test_suite_verification_rejects_nonboolean_reviewer_state(monkeypatch, tmp_p
             suite_retry_attempts=0,
             admission_score=False,
         )
+
+
+@settings(
+    max_examples=6,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@example(skip_reviewers=True, revalidation_count=1)
+@given(skip_reviewers=st.booleans(), revalidation_count=st.integers(1, 3))
+def test_revalidation_preserves_verified_reviewer_setting_in_signed_evidence(
+    monkeypatch, tmp_path, skip_reviewers, revalidation_count
+):
+    """Effective reviewers equal the verified identity through every revalidation."""
+    install_test_eval_evidence_keys(monkeypatch)
+    with TemporaryDirectory(dir=tmp_path) as directory:
+        root = Path(directory)
+        manifest_path = root / "suite.yaml"
+        manifest_path.write_text(json.dumps(_strict_eval_suite_manifest_payload()))
+        manifest = evals.load_eval_suite_manifest(manifest_path)
+        release = _write_test_corpus_provision(root)
+        engine = root / "engine"
+        engine.mkdir()
+        output = root / "out"
+        result = _fake_eval_result("openai-gpt-5.4", "fixture")
+        with patch.object(
+            evals, "run_source_eval", side_effect=_fake_source_runner([result])
+        ) as generate:
+            evals.run_eval_suite(
+                manifest=manifest,
+                output_root=output,
+                axiom_rules_path=engine,
+                policy_repo_path=root / "rulespec-us",
+                corpus_release=release,
+                skip_reviewers=skip_reviewers,
+            )
+        assert generate.call_args.kwargs["skip_reviewers"] is skip_reviewers
+        original_state = json.loads((output / "suite-run.json").read_text())
+        identity = original_state["execution_identity"]
+        assert identity.get("skip_reviewers", False) is skip_reviewers
+        args = SimpleNamespace(
+            source_output=output,
+            manifest=manifest_path,
+            axiom_rules_path=engine,
+            policy_repo_path=root / "rulespec-us",
+            corpus_path=release.root,
+            json=True,
+        )
+        effective_settings = []
+
+        def evaluate(*, skip_reviewers=False, **_kwargs):
+            effective_settings.append(skip_reviewers)
+            return result.metrics
+
+        with patch.object(cli, "evaluate_artifact", side_effect=evaluate):
+            for _ in range(revalidation_count):
+                with pytest.raises(SystemExit) as stopped:
+                    cli.cmd_eval_suite_revalidate(args)
+                assert stopped.value.code == 0
+                state = json.loads((output / "suite-run.json").read_text())
+                assert state["execution_identity"] == identity
+                assert (
+                    state["execution_identity_sha256"]
+                    == original_state["execution_identity_sha256"]
+                )
+                ledger = json.loads((output / "suite-results.jsonl").read_text())
+                signed_result = evals._eval_result_from_payload(ledger["result"])
+                verdict = json.loads(Path(signed_result.verdict_file).read_text())
+                evals._validate_signed_eval_result_verdict_evidence(
+                    verdict, signed_result, artifact_name="revalidated test result"
+                )
+                signed_identity = verdict["admission"]["execution"]["identity"]
+                assert signed_identity == identity
+                assert effective_settings[-1] is signed_identity.get(
+                    "skip_reviewers", False
+                )
+        assert effective_settings == [skip_reviewers] * revalidation_count
 
 
 def test_eval_suite_verification_receives_current_reviewer_state(monkeypatch, tmp_path):

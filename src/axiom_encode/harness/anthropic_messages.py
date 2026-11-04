@@ -5,7 +5,7 @@ from typing import Any
 
 from axiom_encode.constants import DEFAULT_API_ENCODER_EFFORT
 
-# Room for adaptive thinking plus a long RuleSpec module.
+# Shared output-token budget for streaming RuleSpec responses.
 ANTHROPIC_MESSAGES_MAX_TOKENS = 64_000
 ANTHROPIC_API_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 
@@ -39,7 +39,7 @@ def anthropic_messages_options(
     effort: str,
     max_tokens: int = ANTHROPIC_MESSAGES_MAX_TOKENS,
 ) -> dict[str, Any]:
-    """Build the shared streaming request without changing its user text."""
+    """Build the shared request, omitting ``thinking`` and ``fallbacks``."""
     return {
         "model": model,
         "max_tokens": max_tokens,

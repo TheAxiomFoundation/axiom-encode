@@ -3582,7 +3582,10 @@ def main():
     eval_suite_parser.add_argument(
         "--skip-reviewers",
         action="store_true",
-        help="Skip LLM reviewer checks after deterministic validation",
+        help=(
+            "Skip LLM reviewer checks after deterministic validation; "
+            "repeat this flag when resuming a suite created with it"
+        ),
     )
     eval_suite_parser.add_argument(
         "--admission-score",
@@ -69520,6 +69523,7 @@ def _cmd_eval_suite_revalidate_with_signer(args, evidence_signing_key):
             source_citation_path=source_citation_path,
             rulespec_dependency_roots=manifest.rulespec_dependency_roots,
             require_complete_source_unit=case.require_complete_source_unit,
+            skip_reviewers=run_state["execution_identity"].get("skip_reviewers", False),
             amendment_documents=_amendment_documents_visible_in_context_manifest(
                 source_unit.amendment_documents,
                 Path(result.context_manifest_file),

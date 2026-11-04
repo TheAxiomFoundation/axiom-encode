@@ -148,7 +148,7 @@ from .policyengine_runtime import (
     PolicyEngineRuntime,
     PolicyEngineRuntimeError,
 )
-from .pricing import estimate_usage_cost_usd
+from .pricing import estimate_anthropic_refusal_cost_usd, estimate_usage_cost_usd
 from .proof_validator import find_interpretation_yaml_issues
 from .source_completeness import (
     _rulespec_target_base,
@@ -17096,6 +17096,7 @@ def _run_claude_api_prompt_eval(
 
     start = time.time()
     tokens: TokenUsage | None = None
+    refusal_details: Any = None
     timeout_seconds, case_budget_limited = _timeout_bounded_by_eval_case_budget(
         _claude_encoder_timeout_seconds()
     )
@@ -17117,12 +17118,30 @@ def _run_claude_api_prompt_eval(
         "timeout_attempts": 0,
     }
 
+    def refusal_category() -> str | None:
+        category = (
+            refusal_details.get("category")
+            if isinstance(refusal_details, dict)
+            else getattr(refusal_details, "category", None)
+        )
+        return category if isinstance(category, str) else None
+
     def respond(text: str = "", *, error: str | None = None) -> EvalPromptResponse:
+        cost_usd = estimate_usage_cost_usd(runner.model, tokens)
+        if trace["stop_reason"] == "refusal":
+            category = refusal_category()
+            trace["refusal_category"] = category
+            cost_usd = estimate_anthropic_refusal_cost_usd(
+                runner.model,
+                tokens,
+                category=category,
+                has_stop_details=refusal_details is not None,
+            )
         return EvalPromptResponse(
             text=text,
             duration_ms=int((time.time() - start) * 1000),
             tokens=tokens,
-            estimated_cost_usd=estimate_usage_cost_usd(runner.model, tokens),
+            estimated_cost_usd=cost_usd,
             trace=trace,
             error=error,
             timed_out=trace["timed_out"],
@@ -17181,7 +17200,7 @@ def _run_claude_api_prompt_eval(
         trace["timeout_seconds"] = timeout_seconds
 
     async def request() -> tuple[str, Any]:
-        nonlocal tokens
+        nonlocal tokens, refusal_details
         # The explicit endpoint prevents environment overrides from forwarding
         # this key. Disable SDK retries so one wall budget bounds the request.
         async with asyncio.timeout(timeout_seconds):
@@ -17293,15 +17312,10 @@ def _run_claude_api_prompt_eval(
     if stop_reason == "model_context_window_exceeded":
         return context_overflow("model_context_window_exceeded")
     if stop_reason == "refusal":
-        category = (
-            refusal_details.get("category")
-            if isinstance(refusal_details, dict)
-            else getattr(refusal_details, "category", None)
-        )
-        trace["refusal_category"] = category if isinstance(category, str) else None
+        category = refusal_category()
         return respond(
             error="model declined the encode request"
-            + (f" (category: {category})" if trace["refusal_category"] else "")
+            + (f" (category: {category})" if category else "")
         )
     if stop_reason == "max_tokens":
         return respond(
