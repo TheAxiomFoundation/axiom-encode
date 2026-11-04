@@ -44,6 +44,7 @@ from axiom_encode.cli import (
     _REPLACEMENT_OVERLAY_SCOPE_ATTR,
     _REQUIRED_TEST_CASE_CONTRACTS_ATTR,
     _REVIEWED_CANDIDATE_PROMOTION_ATTR,
+    APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL,
     APPLIED_ENCODING_MANIFEST_SCHEMA,
     APPLIED_ENCODING_MODEL_TOOL,
     APPLIED_ENCODING_OFFICIAL_REPOSITORY,
@@ -101,11 +102,13 @@ from axiom_encode.cli import (
     _generated_test_period_for_rule,
     _git_changed_files,
     _grounded_formula_literal_for_scalar_expression,
+    _guard_manifest_waiver_set_identity,
     _has_zero_output_test,
     _historical_manifest_refresh_inputs,
     _hoist_nested_test_tables,
     _immutable_planned_rulespec_digest_issue,
     _import_base_to_repo_file,
+    _in_place_replacement_post_waiver_dependent_manifests,
     _infer_missing_input_default,
     _inline_medicaid_magi_income_helpers,
     _insert_false_input_default,
@@ -45929,6 +45932,102 @@ class TestGuardGenerated:
             repo,
             [(Path(relative), [rule])],
             corpus_path=self.corpus_path,
+        )
+
+    @pytest.mark.parametrize(
+        ("mutation", "expected_post_migration"),
+        [
+            (None, True),
+            ("missing_dependent_manifest", False),
+            ("wrong_waiver_transition", False),
+            ("wrong_toolchain_transition", False),
+            ("not_in_place", False),
+        ],
+    )
+    def test_in_place_replacement_scheduled_dependent_uses_post_waiver_identity(
+        self, tmp_path, mutation, expected_post_migration
+    ):
+        target = "us/regulations/example.yaml"
+        dependent = "us/regulations/dependent.yaml"
+        repo, base_ref = self._waiver_retirement_repo(
+            tmp_path,
+            base_waiver_text=("validate_failures:\n" + self._waiver_entry_text(target)),
+        )
+        base_waiver = _git(
+            repo, "show", f"{base_ref}:known-validation-gaps.yaml"
+        ).stdout.encode()
+        base_sha256 = hashlib.sha256(base_waiver).hexdigest()
+        current_sha256 = _sha256_file(repo / "known-validation-gaps.yaml")
+        toolchain_sha256 = _sha256_file(repo / ".axiom/toolchain.toml")
+        receipt = {
+            "tool": APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL,
+            "validation_waiver_set_sha256": current_sha256,
+            "replacement": {
+                "source": target,
+                "destination": target,
+                "scheduled_dependents": [
+                    {
+                        "primary": dependent,
+                        "source_citation": "us/manual/example/block-5",
+                    }
+                ],
+                "metadata_reconciliations": [
+                    {
+                        "path": "known-validation-gaps.yaml",
+                        "before_sha256": base_sha256,
+                        "after_sha256": current_sha256,
+                    },
+                    {
+                        "path": ".axiom/toolchain.toml",
+                        "after_sha256": toolchain_sha256,
+                    },
+                ],
+            },
+        }
+        if mutation == "wrong_waiver_transition":
+            receipt["replacement"]["metadata_reconciliations"][0]["after_sha256"] = (
+                "0" * 64
+            )
+        elif mutation == "wrong_toolchain_transition":
+            receipt["replacement"]["metadata_reconciliations"][1]["after_sha256"] = (
+                "0" * 64
+            )
+        elif mutation == "not_in_place":
+            receipt["replacement"]["destination"] = dependent
+        target_manifest = repo / ".axiom/encoding-manifests/us/regulations/example.json"
+        target_manifest.write_text(json.dumps(receipt) + "\n")
+        changed = [
+            target,
+            dependent,
+            "known-validation-gaps.yaml",
+            ".axiom/toolchain.toml",
+            target_manifest.relative_to(repo).as_posix(),
+        ]
+        if mutation != "missing_dependent_manifest":
+            changed.append(".axiom/encoding-manifests/us/regulations/dependent.json")
+        expected, issues = _guard_manifest_waiver_set_identity(
+            repo,
+            base_ref=base_ref,
+            head_ref="HEAD",
+            changed=changed,
+            protected=[target, dependent],
+            roots=("regulations",),
+            current_waiver_set_sha256=current_sha256,
+        )
+        assert issues == []
+        assert expected == base_sha256
+        post_waiver_manifests = _in_place_replacement_post_waiver_dependent_manifests(
+            repo,
+            changed=set(changed),
+            protected={target, dependent},
+            roots=("regulations",),
+            base_waiver_sha256=base_sha256,
+            current_waiver_sha256=current_sha256,
+        )
+        assert post_waiver_manifests == (
+            frozenset({".axiom/encoding-manifests/us/regulations/dependent.json"})
+            if expected_post_migration
+            else frozenset()
         )
 
     @pytest.mark.parametrize(
