@@ -45942,6 +45942,8 @@ class TestGuardGenerated:
             ("wrong_waiver_transition", False),
             ("wrong_toolchain_transition", False),
             ("not_in_place", False),
+            ("missing_target_manifest", False),
+            ("wrong_model_manifest_path", False),
         ],
     )
     def test_in_place_replacement_scheduled_dependent_uses_post_waiver_identity(
@@ -45965,6 +45967,9 @@ class TestGuardGenerated:
             "replacement": {
                 "source": target,
                 "destination": target,
+                "model_manifest_path": (
+                    ".axiom/encoding-manifests/us/regulations/example.json"
+                ),
                 "scheduled_dependents": [
                     {
                         "primary": dependent,
@@ -45994,15 +45999,27 @@ class TestGuardGenerated:
             )
         elif mutation == "not_in_place":
             receipt["replacement"]["destination"] = dependent
+        elif mutation == "wrong_model_manifest_path":
+            receipt["replacement"]["model_manifest_path"] = (
+                ".axiom/encoding-manifests/us/regulations/unrelated.json"
+            )
         target_manifest = repo / ".axiom/encoding-manifests/us/regulations/example.json"
-        target_manifest.write_text(json.dumps(receipt) + "\n")
+        target_manifest.parent.mkdir(parents=True, exist_ok=True)
+        target_manifest.write_text(
+            json.dumps({"tool": APPLIED_ENCODING_MODEL_TOOL}) + "\n"
+        )
+        receipt_path = repo / ".axiom/legacy-replacements/example.json"
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(json.dumps(receipt) + "\n")
         changed = [
             target,
             dependent,
             "known-validation-gaps.yaml",
             ".axiom/toolchain.toml",
-            target_manifest.relative_to(repo).as_posix(),
+            receipt_path.relative_to(repo).as_posix(),
         ]
+        if mutation != "missing_target_manifest":
+            changed.append(target_manifest.relative_to(repo).as_posix())
         if mutation != "missing_dependent_manifest":
             changed.append(".axiom/encoding-manifests/us/regulations/dependent.json")
         expected, issues = _guard_manifest_waiver_set_identity(

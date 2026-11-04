@@ -25661,13 +25661,16 @@ def _in_place_replacement_post_waiver_dependent_manifests(
     matches: list[str] = []
     for label in sorted(changed):
         path = Path(label)
-        if not _is_applied_encoding_manifest_path(path, roots=roots):
+        if (
+            path.parent != APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR
+            or path.suffix != ".json"
+        ):
             continue
         try:
             raw = read_bounded_regular_file(
                 repo_path,
                 repo_path / path,
-                label="in-place replacement manifest",
+                label="in-place replacement receipt",
                 max_bytes=1024 * 1024,
                 required_mode=0o644,
             )
@@ -25694,7 +25697,9 @@ def _in_place_replacement_post_waiver_dependent_manifests(
             or source not in protected
             or source not in changed
             or not _is_protected_rulespec_yaml_path(Path(source), roots=roots)
-            or path != _applied_encoding_manifest_path(Path(source))
+            or replacement.get("model_manifest_path")
+            != _applied_encoding_manifest_path(Path(source)).as_posix()
+            or replacement["model_manifest_path"] not in changed
             or payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != current_waiver_sha256
         ):
             continue
