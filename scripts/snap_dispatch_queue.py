@@ -1381,7 +1381,9 @@ def main(argv: list[str] | None = None) -> int:
             if not token or not repo:
                 raise ValueError("tick needs GH_TOKEN and GITHUB_REPOSITORY")
             github = ApiGitHub(token)
-            unversioned = unversioned_encoder_refusal(Path(__file__).resolve().parents[1])
+            unversioned = unversioned_encoder_refusal(
+                Path(__file__).resolve().parents[1]
+            )
             everything = {
                 path: load_state(path) for path in _queue_paths(args.state_dir, None)
             }

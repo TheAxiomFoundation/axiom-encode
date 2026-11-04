@@ -275,6 +275,7 @@ def test_changelog_uses_pull_request_titles_and_skips_bump_merges(repo: Path):
         _write_version(repo, "0.2.11")
 
     merge_pr(101, "automation/encoder-version-0.2.11-abc", "Bump", bump_files)
+
     def encoder_files(marker: int):
         return lambda: (repo / "src/axiom_encode/cli.py").write_text(
             f"MARKER = {marker}\n"
@@ -285,8 +286,12 @@ def test_changelog_uses_pull_request_titles_and_skips_bump_merges(repo: Path):
 
     version_provenance.bump(repo)
 
-    assert (repo / "CHANGELOG.md").read_text().startswith(
-        "## 0.2.12\n\n- Fix the corpus pin (#103)\n- Type the SNAP checks (#102)\n\n"
+    assert (
+        (repo / "CHANGELOG.md")
+        .read_text()
+        .startswith(
+            "## 0.2.12\n\n- Fix the corpus pin (#103)\n- Type the SNAP checks (#102)\n\n"
+        )
     )
 
 
