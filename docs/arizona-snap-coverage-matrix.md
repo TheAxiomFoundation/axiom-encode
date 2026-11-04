@@ -155,6 +155,33 @@ findings. The next source-bound run must use the signed March amendment,
 preserve `Household` unit scope, and generate executable February/March 2026
 boundary cases for the ECE rate and its dependent deeming behavior.
 
+As of 2026-11-04, protected [run 41769598961](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/41769598961)
+produced signed [RuleSpec PR #2022](https://github.com/TheAxiomFoundation/rulespec-us/pull/2022)
+for the ECE and dependent categorical-benefit modules; neither is merged.
+An [eight-case oracle diagnostic](https://github.com/TheAxiomFoundation/rulespec-us/pull/2022#issuecomment-6627863058)
+used the same supplied monthly gross income and one-person FPG in PolicyEngine
+US `84253b6afafbb1875c65f12e654c6535744728b7` and the signed ECE module
+compiled with engine `89571cc2a938707fd60a5489b951135345697296`.
+For incomes $2,412, $2,413, $2,608, and $2,609, both gross-limit judgments
+pass only $2,412 in February 2026 and pass the first three amounts in March.
+This is conditional gross-limit agreement, **not** full-household parity:
+RuleSpec gross income and FPG were supplied, other eligibility gates and
+household composition were not independently compared, and
+`not_comparable` is not a parity pass.
+
+The signed manifests in #2022 name encoder 0.2.2303 as producer. The proposed
+[RuleSpec pin PR #2023](https://github.com/TheAxiomFoundation/rulespec-us/pull/2023)
+uses newer encoder 0.2.2308; its
+[current-head independent review](https://github.com/TheAxiomFoundation/rulespec-us/pull/2023#pullrequestreview-5767754365)
+found that this pin rejects the older signed producer identity. That review
+also found the active Massachusetts corpus release lacks authenticated
+`reserved` metadata for bodyless 106 CMR 364.800, changing an existing
+waiver's validation error. The corrected Massachusetts scope has been
+extracted but not signed or released. Both issues require protected source
+release and/or regeneration, not manual manifest edits or waiver broadening;
+CI and independent review must be green on the eventual exact heads before
+either RuleSpec PR can merge.
+
 A **matched medical-deduction amount boundary**, not end-to-end household
 parity: for January 2026 in Arizona, PolicyEngine US
 `d89439134c1bac8add0c8261c8a075c33c39401a` with a 65-year-old member
