@@ -44,6 +44,7 @@ from tests.eval_evidence_fixtures import (
     TEST_EVAL_PUBLIC_KEY_B64,
     install_test_eval_evidence_keys,
 )
+from tests.process_limits import HANG_TIMEOUT_SECONDS, run_with_progress_timeout
 from tests.release_object_fixtures import (
     TEST_RELEASE_PUBLIC_KEY,
     bind_test_corpus_release,
@@ -82,10 +83,12 @@ def signing_supervisor(tmp_path_factory: pytest.TempPathFactory) -> Path:
         pytest.skip("Go is required to build the signing supervisor")
     build_dir = tmp_path_factory.mktemp("signing-supervisor-build").resolve()
     binary = build_dir / "axiom-encode-signing-supervisor-test-fixture"
-    subprocess.run(
+    # Completed packages on stderr renew the ceiling during a cold Go build.
+    completed = run_with_progress_timeout(
         [
             go,
             "build",
+            "-v",
             "-trimpath",
             "-buildvcs=false",
             "-ldflags=-buildid=",
@@ -96,11 +99,9 @@ def signing_supervisor(tmp_path_factory: pytest.TempPathFactory) -> Path:
         ],
         cwd=ROOT,
         env={**os.environ, "CGO_ENABLED": "0"},
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=120,
+        timeout=HANG_TIMEOUT_SECONDS,
     )
+    completed.check_returncode()
     return binary
 
 
@@ -844,14 +845,17 @@ def _invoke(
     environment: dict[str, str] | None = None,
     command_args: tuple[str, ...] = (),
     supervisor_args: tuple[str, ...] = (),
-    timeout: int = 30,
+    timeout: int = HANG_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
     signer_arguments: list[str] = []
     if descriptors:
         signer_arguments.extend(("--apply-signer-fd", str(descriptors[0])))
     if len(descriptors) > 1:
         signer_arguments.extend(("--eval-signer-fd", str(descriptors[1])))
-    return subprocess.run(
+    # The trusted entrypoint line-buffers stdout: progress lines flush on
+    # newline, while partial lines can stay buffered. Captured bytes renew
+    # the hang ceiling even when total validation takes longer.
+    return run_with_progress_timeout(
         [
             str(supervisor),
             *signer_arguments,
@@ -865,8 +869,6 @@ def _invoke(
         ],
         env={} if environment is None else environment,
         pass_fds=tuple(descriptors),
-        capture_output=True,
-        text=True,
         timeout=timeout,
     )
 
@@ -1505,7 +1507,7 @@ def test_protected_supervisor_stages_authenticated_v8_exact_dependent_transactio
         check=True,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=HANG_TIMEOUT_SECONDS,
         env={"HOME": str(runtime_root), "PATH": str(interpreter.parent)},
     )
     assert Path(warmed_git.stdout.strip()).resolve() == rulespec_root.resolve()
@@ -1528,7 +1530,7 @@ def test_protected_supervisor_stages_authenticated_v8_exact_dependent_transactio
             "--corpus-path",
             str(corpus_root),
         ),
-        timeout=90,
+        timeout=HANG_TIMEOUT_SECONDS,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -1853,10 +1855,12 @@ def apply_signer_binary(tmp_path_factory: pytest.TempPathFactory) -> Path:
         pytest.skip("Go is required to build the apply signer")
     build_dir = tmp_path_factory.mktemp("apply-signer-build").resolve()
     binary = build_dir / "axiom-encode-apply-signer"
-    subprocess.run(
+    # Completed packages on stderr renew the ceiling during a cold Go build.
+    completed = run_with_progress_timeout(
         [
             go,
             "build",
+            "-v",
             "-trimpath",
             "-buildvcs=false",
             "-ldflags=-buildid=",
@@ -1866,11 +1870,9 @@ def apply_signer_binary(tmp_path_factory: pytest.TempPathFactory) -> Path:
         ],
         cwd=ROOT,
         env={**os.environ, "CGO_ENABLED": "0"},
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=120,
+        timeout=HANG_TIMEOUT_SECONDS,
     )
+    completed.check_returncode()
     return binary
 
 
@@ -1926,10 +1928,10 @@ def _external_apply_signer(binary: Path, seed: bytes, audit_path: Path):
     finally:
         supervisor_connection.close()
         try:
-            process.wait(timeout=10)
+            process.wait(timeout=HANG_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
             process.kill()
-            process.wait(timeout=5)
+            process.wait(timeout=HANG_TIMEOUT_SECONDS)
 
 
 def test_production_apply_signer_binary_signs_through_real_broker(
@@ -2010,7 +2012,7 @@ def test_production_apply_signer_binary_rejects_wrong_ci_context(
             },
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=HANG_TIMEOUT_SECONDS,
         )
     finally:
         signer_connection.close()
@@ -2143,6 +2145,56 @@ def test_targeted_signed_reencode_reconciles_retired_inventory_before_commits() 
         'if [ "$source_bundle_enabled" = "true" ]; then',
         normal_reconciliation,
     )
+
+
+def test_provision_prefetch_is_authenticated_before_release_fetch() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = workflow["jobs"]["encode"]["steps"]
+    names = [step.get("name") for step in steps]
+    release = names.index("Fetch pinned signed corpus release object")
+    select = names.index("Select authenticated signed provision export runs")
+    metadata = names.index("Download authenticated provision export metadata")
+    validate = names.index("Validate authenticated provision export metadata")
+    archives = names.index("Download authenticated provision export archives")
+    prefetch = names.index("Prefetch authenticated signed provision members")
+    fetch = names.index("Fetch pinned corpus provision objects")
+    assert release < select < metadata < validate < archives < prefetch < fetch
+    assert "provision-run-ids" in steps[select]["run"]
+    assert "GH_TOKEN" not in steps[select].get("env", {})
+    assert "validate-export \\" in steps[validate]["run"]
+    assert '--provision-run-id "$export_run"' in steps[validate]["run"]
+    assert "GH_TOKEN" not in steps[validate].get("env", {})
+    assert steps[validate]["env"]["ATOMIC_SOURCE_JSON"] == (
+        "${{ inputs.source_bundle_json }}"
+    )
+    assert "materialize \\" in steps[prefetch]["run"]
+    assert "env -u GH_TOKEN" in steps[prefetch]["run"]
+    assert "GH_TOKEN" not in steps[prefetch].get("env", {})
+    assert steps[prefetch]["env"]["ATOMIC_SOURCE_JSON"] == (
+        "${{ inputs.source_bundle_json }}"
+    )
+    assert "GH_TOKEN" in steps[metadata]["env"]
+    assert "GH_TOKEN" in steps[archives]["env"]
+    assert steps[prefetch]["env"]["TRUST_CORPUS_RELEASE_ROOT"] == (
+        "${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}"
+    )
+
+
+def test_provision_prefetch_workflow_has_all_eleven_authenticated_slots() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = {step.get("name"): step for step in workflow["jobs"]["encode"]["steps"]}
+    metadata = steps["Download authenticated provision export metadata"]["run"]
+    archives = steps["Download authenticated provision export archives"]["run"]
+    for index in range(11):
+        assert f"corpus-provision-{index}-run.json" in metadata
+        assert f"corpus-provision-{index}-artifacts.json" in metadata
+        assert f"corpus-provision-{index}.zip" in archives
+    assert "corpus-provision-11-run.json" not in metadata
+    assert "corpus-provision-11.zip" not in archives
 
 
 def test_transport_legacy_required_cases_keep_all_three_protected_guards() -> None:
@@ -2309,8 +2361,10 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["pr_base_branch"]["default"] == "main"
     assert inputs["source_bundle_json"] == {
         "description": (
-            "Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3 "
-            "for an ordinary or in-place legacy replacement; "
+            "Atomic source input: corpus-artifact-transport/v1 wrapping v3 "
+            "with signed corpus/provision export run IDs (fresh, or exact authenticated "
+            "legacy-primary repair after dependent failure); "
+            "corpus-provision-prefetch/v1 wrapping exact v2-v3 with signed provision run IDs; "
             "legacy citation array/refresh object, v2-v5 contract, "
             "or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} "
             "for an authenticated failed ordinary single-target repair"
@@ -2600,7 +2654,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert '.path == ".github/workflows/targeted-signed-reencode.yml"' in repair_command
     assert "merge-base --is-ancestor" in repair_command
     assert '"$repair_encoder_commit" "$GITHUB_SHA"' in repair_command
-    assert "repair replay is limited to one non-legacy target" in repair_command
+    assert "legacy replay also requires its exact target path" in repair_command
     assert 'resolve-atomic-repair-mode "${ATOMIC_SOURCE_JSON:-[]}"' in repair_command
     assert "repair_tests_only=\"$(jq -r '.tests_only'" in repair_command
     assert 'echo "tests_only=$repair_tests_only" >> "$GITHUB_OUTPUT"' in (
@@ -3368,6 +3422,9 @@ def test_targeted_reencode_has_fail_closed_reviewed_candidate_promotion() -> Non
     assert "promote-reviewed-candidate" in command
     assert '--reviewed-rulespec-ref "$RULESPEC_REF"' in command
     assert '--rulespec-path "$REPLACE_RULESPEC_PATH"' in command
+    # Admission records come from the attested runtime prefix, never from a
+    # caller-controlled argument.
+    assert "--reviewed-rulespec-refs-root" not in command
     assert "cannot mix with other transaction modes" in command
     assert command.index("promote-reviewed-candidate") < command.index(
         'elif [ "$canonical_refresh_enabled" = "true" ]'
@@ -3711,6 +3768,78 @@ def test_repair_preflight_accepts_one_bound_dependent_lane(tmp_path: Path) -> No
         "requested_mode": "legacy_inference",
         "tests_only": False,
     }
+
+
+def test_repair_preflight_accepts_bound_legacy_transport(tmp_path: Path) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Resolve trusted prior-run repair candidate"
+    ).split('api_version="', 1)[0]
+    command = command.replace("axiom-encode/.venv/bin/python", sys.executable)
+    command = command.replace(
+        "axiom-encode/scripts/prepare_signed_backfill.py",
+        str(ROOT / "scripts/prepare_signed_backfill.py"),
+    )
+    legacy_path = "us-az/policies/des/faa5/expanded-categorical-eligibility.yaml"
+    atomic_source = json.dumps(
+        {
+            "schema": "axiom-encode/corpus-artifact-transport/v1",
+            "transaction": {
+                "schema": "axiom-encode/atomic-source-transaction/v3",
+                "source_bundle": [],
+                "canonical_refresh_bundle": [],
+                "require_complete_source_unit": True,
+                "primary_required_test_cases": [
+                    {
+                        "name": "March boundary",
+                        "period": {
+                            "period_kind": "month",
+                            "start": "2026-03-01",
+                            "end": "2026-03-31",
+                        },
+                        "input": {"us-az:test#input": 1000},
+                        "required_output": {"us-az:test#output": 2.0},
+                    }
+                ],
+            },
+            "corpus_artifact_run_id": "123",
+        }
+    )
+    completed = subprocess.run(
+        ["bash", "-c", command],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "ATOMIC_SOURCE_JSON": atomic_source,
+            "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+            "DEPENDENT_CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-5",
+            "DEPENDENT_REVIEW_FINDING": "Re-encode against the signed source boundary.",
+            "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+            "GITHUB_OUTPUT": str(tmp_path / "github-output"),
+            "GITHUB_RUN_ID": "200",
+            "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
+            "QUEUE_ID": "",
+            "REPAIR_RUN_ID": "100",
+            "REPLACE_LEGACY_RULESPEC_PATH": legacy_path,
+            "REPLACE_RULESPEC_PATH": legacy_path,
+            "SECOND_DEPENDENT_CITATION": "",
+            "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+        },
+    )
+    assert completed.returncode == 0, completed.stderr
+    outputs = dict(
+        line.split("=", 1)
+        for line in (tmp_path / "github-output").read_text().splitlines()
+    )
+    assert outputs["mode"] == "full_artifact"
+    assert outputs["tests_only"] == "false"
 
 
 @pytest.mark.parametrize("second_without_first", [False, True])
@@ -7620,6 +7749,161 @@ def test_targeted_artifact_preserves_pre_v4_replacement_receipts(
     )
 
     assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize(
+    ("mutation", "error"),
+    [
+        ("none", None),
+        ("wrong-owner-hash", "historical legacy replacement manifest binding differs"),
+        (
+            "wrong-receipt-and-owner-hash",
+            "historical legacy replacement manifest binding differs",
+        ),
+        ("wrong-owner-path", "historical legacy replacement manifest binding differs"),
+        ("moved-manifest", "in-place legacy replacement manifest path differs"),
+        ("owner-not-deleted", "deleted manifest inventory differs"),
+    ],
+)
+def test_targeted_artifact_packages_historical_in_place_owner(
+    tmp_path: Path, mutation: str, error: str | None
+) -> None:
+    rulespec = tmp_path / "rulespec-us"
+    rulespec.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=rulespec, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=rulespec,
+        check=True,
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=rulespec, check=True)
+    primary_path = "us-az/policies/des/faa5/expanded.yaml"
+    old_manifest_path = (
+        "us-az/.axiom/encoding-manifests/policies/des/faa5/expanded.json"
+    )
+    new_manifest_path = (
+        ".axiom/encoding-manifests/us-az/policies/des/faa5/expanded.json"
+    )
+    primary = rulespec / primary_path
+    primary.parent.mkdir(parents=True)
+    primary.write_bytes(b"old rule\n")
+    old_manifest = rulespec / old_manifest_path
+    old_manifest.parent.mkdir(parents=True)
+    old_manifest.write_bytes(b"old owner\n")
+    old_owner_sha = hashlib.sha256(old_manifest.read_bytes()).hexdigest()
+    subprocess.run(["git", "add", "."], cwd=rulespec, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=rulespec, check=True)
+    rulespec_ref = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=rulespec, text=True
+    ).strip()
+
+    primary.write_bytes(b"new rule\n")
+    if mutation != "owner-not-deleted":
+        old_manifest.unlink()
+    citation = "us-az/manual/des/faa5/block-4"
+    context = {"citation": citation, "review_findings_files": []}
+    context_bytes = json.dumps(context, sort_keys=True).encode()
+    context_path = tmp_path / "generated/target/context-manifest.json"
+    context_path.parent.mkdir(parents=True)
+    context_path.write_bytes(context_bytes)
+    nested_manifest = {
+        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+        "tool": "axiom-encode encode --apply",
+        "backend": "codex",
+        "citation": citation,
+        "context_manifest_file": str(context_path),
+        "context_manifest_sha256": hashlib.sha256(context_bytes).hexdigest(),
+        "applied_files": [
+            {
+                "path": primary_path,
+                "sha256": hashlib.sha256(primary.read_bytes()).hexdigest(),
+            }
+        ],
+    }
+    receipt_payload = {
+        "schema_version": "axiom-encode/legacy-fresh-reencode-receipt/v8",
+        "legacy": {
+            "manifest": {
+                "path": old_manifest_path,
+                "sha256": (
+                    "0" * 64
+                    if mutation == "wrong-receipt-and-owner-hash"
+                    else old_owner_sha
+                ),
+            }
+        },
+        "replacement": {
+            "source": primary_path,
+            "destination": primary_path,
+            "scheduled_dependents": [],
+            "exact_dependents": [],
+            "retained_successors": [],
+            "metadata_reconciliations": [],
+        },
+    }
+    receipt = rulespec / ".axiom/legacy-replacements" / f"{'a' * 64}.json"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text(json.dumps(receipt_payload) + "\n")
+    outer = {
+        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+        "tool": "axiom-encode encode --apply --replace-legacy-rulespec-path",
+        "replacement_manifest": nested_manifest,
+        "replacement": {
+            "receipt_path": receipt.relative_to(rulespec).as_posix(),
+            "receipt_sha256": hashlib.sha256(receipt.read_bytes()).hexdigest(),
+            "legacy_manifest_path": (
+                new_manifest_path
+                if mutation == "wrong-owner-path"
+                else old_manifest_path
+            ),
+            "legacy_manifest_sha256": (
+                "0" * 64
+                if mutation in {"wrong-owner-hash", "wrong-receipt-and-owner-hash"}
+                else old_owner_sha
+            ),
+        },
+    }
+    new_manifest = rulespec / (
+        new_manifest_path.replace("expanded.json", "moved.json")
+        if mutation == "moved-manifest"
+        else new_manifest_path
+    )
+    new_manifest.parent.mkdir(parents=True)
+    new_manifest.write_text(json.dumps(outer) + "\n")
+    (tmp_path / "source-bundle.json").write_text("[]\n")
+    (tmp_path / "canonical-refresh-bundle.json").write_text("[]\n")
+    artifact = tmp_path / "artifact"
+    artifact.mkdir()
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-",
+            str(artifact / "context-manifest.json"),
+            str(artifact / "apply-manifests.json"),
+        ],
+        cwd=tmp_path,
+        input=_targeted_package_script(),
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "CITATION": citation,
+            "PYTHONPATH": str(ROOT / "src"),
+            "REVIEW_FINDING": "",
+            "REVIEW_FINDING_PRESENT": "false",
+            "RUNNER_TEMP": str(tmp_path),
+            "RULESPEC_CHECKOUT": "rulespec-us",
+            "RULESPEC_REF": rulespec_ref,
+            "REPLACE_LEGACY_RULESPEC_PATH": primary_path,
+            "REPLACE_RULESPEC_PATH": primary_path,
+        },
+    )
+    if error:
+        assert completed.returncode != 0
+        assert error in completed.stderr
+    else:
+        assert completed.returncode == 0, completed.stderr
 
 
 @pytest.mark.parametrize(

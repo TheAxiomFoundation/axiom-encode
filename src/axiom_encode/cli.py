@@ -116,6 +116,15 @@ from axiom_encode.yaml_serialization import (
 )
 
 from . import validation_waivers as _validation_waivers
+from .checks import (
+    ISSUE_SCHEMA_VERSION as VALIDATION_ISSUE_SCHEMA_VERSION,
+)
+from .checks import (
+    issues_from_document,
+    registry_document,
+    retype,
+    typed_issue_document,
+)
 from .codex_cli import (
     DEFAULT_CODEX_REASONING_EFFORT,
     codex_auth_error,
@@ -245,9 +254,11 @@ from .harness.evals import (
     _validate_eval_suite_run_identity,
     _validate_signed_eval_result_verdict_evidence,
     evaluate_artifact,
+    is_rulemaking_source_identifier,
     load_eval_suite_manifest,
     parse_runner_spec,
     resolve_corpus_source_unit,
+    rulemaking_explicit_output_required_message,
     run_eval_suite,
     run_model_eval,
     run_source_eval,
@@ -278,6 +289,10 @@ from .harness.proof_validator import (
     proof_source_citation_paths,
     validate_rulespec_proofs,
 )
+from .harness.same_case_execution import (
+    bind_execution_overlay_origin,
+    capture_execution_git_origin,
+)
 from .harness.source_completeness import (
     _deferred_coverage,
     _rulespec_target_base,
@@ -298,6 +313,8 @@ from .harness.validator_pipeline import (
     _filing_status_rule_source_context,
     _has_malformed_profiled_numeric_envelope,
     _is_executable_rulespec_rule,
+    _is_structural_selector_result_literal,
+    _is_structural_selector_rule,
     _matching_delegated_setting_rule_names,
     _normalize_rulespec_dependency_roots,
     _normalize_validation_staging_text,
@@ -310,6 +327,8 @@ from .harness.validator_pipeline import (
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
     _rulespec_import_prefix_static,
+    _rulespec_index_selector_keys,
+    _rulespec_index_selectors,
     _rulespec_payload_from_file,
     _rulespec_public_item_keys,
     _rulespec_repo_prefix,
@@ -523,11 +542,14 @@ from .signing_broker import (
     reject_direct_private_signing_environment,
 )
 from .toolchain import (
+    VALIDATION_WAIVER_SET_PATH,
     VALIDATION_WAIVER_SET_SHA256_FIELD,
     load_rulespec_local_corpus_release,
     load_rulespec_toolchain,
+    local_corpus_release_verification,
     local_signing_public_key,
     local_verification_active,
+    protected_process_signal_active,
     verify_rulespec_validation_waiver_set,
 )
 from .validation_waiver_scope import select_validation_waiver_scope
@@ -1711,9 +1733,11 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     from .ci_parity import register_ci_parser
+    from .harness.admission_cli import register_admission_score_parser
     from .new_jurisdiction import register_new_jurisdiction_parser
 
     register_ci_parser(subparsers)
+    register_admission_score_parser(subparsers)
     register_new_jurisdiction_parser(subparsers)
 
     # validate command
@@ -2521,6 +2545,15 @@ def main():
     guard_generated_parser.add_argument(
         "--json", action="store_true", help="Output guard result as JSON"
     )
+    guard_generated_parser.add_argument(
+        "--candidate-status",
+        action="store_true",
+        help=(
+            "Also report, from Git metadata only, whether the change set is an "
+            "unadmitted reviewed candidate, admitted, or invalid; the guard's "
+            "checks and exit code do not change"
+        ),
+    )
 
     stage_signed_backfill_parser = subparsers.add_parser(
         "stage-signed-backfill",
@@ -2562,6 +2595,11 @@ def main():
         type=Path,
         required=True,
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
+    )
+    refresh_applied_manifest_parser.add_argument(
+        "--axiom-rules-engine-ref",
+        required=True,
+        help="Exact immutable engine commit used to validate the refresh",
     )
     refresh_applied_manifest_parser.add_argument(
         "--axiom-compose-path",
@@ -2644,6 +2682,25 @@ def main():
     _add_expected_encoder_checkout_argument(signed_import_parser)
     signed_import_parser.add_argument(
         "--json", action="store_true", help="Output inventory as JSON"
+    )
+
+    checks_parser = subparsers.add_parser(
+        "checks",
+        help=(
+            "List the declared validator checks (id, requirement, why, fix, "
+            "cause, code site) of this encoder version"
+        ),
+    )
+    checks_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the axiom-encode/check-registry/v1 document",
+    )
+    checks_parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Write the JSON document to this path instead of stdout",
     )
 
     manifest_census_parser = subparsers.add_parser(
@@ -3056,6 +3113,16 @@ def main():
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
     )
     encode_parser.add_argument(
+        "--axiom-rules-engine-ref",
+        dest="axiom_rules_engine_ref",
+        default=None,
+        help=(
+            "Full 40-hex engine revision for candidate and apply validation; "
+            "binding may build a matching clean engine checkout before generation "
+            "if no valid binary receipt exists"
+        ),
+    )
+    encode_parser.add_argument(
         "--axiom-compose-path",
         type=Path,
         help=(
@@ -3274,6 +3341,43 @@ def main():
             "replacement-receipt provenance."
         ),
     )
+    encode_parser.add_argument(
+        "--corpus-release-public-key",
+        default=None,
+        help=(
+            "Verification-only local run: verify the pinned corpus release "
+            "with this public root (AXIOM_CORPUS_RELEASE_PUBLIC_KEY) instead of "
+            "an attached signing broker, as axiom-encode ci does. It conveys no "
+            "signing capability, is refused with --apply, and is refused under "
+            "an attached signing broker, the trusted runtime or CI."
+        ),
+    )
+    encode_parser.add_argument(
+        "--corpus-release-retired-public-key",
+        action="append",
+        default=[],
+        help=(
+            "With --corpus-release-public-key, a retired corpus release public "
+            "key to accept beside the current key (repeatable)"
+        ),
+    )
+    encode_parser.add_argument(
+        "--apply-public-key",
+        default=None,
+        help=(
+            "With --corpus-release-public-key, the apply-manifest public root "
+            "(AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY) that verifies existing "
+            "signed apply manifests"
+        ),
+    )
+    encode_parser.add_argument(
+        "--eval-public-key",
+        default=None,
+        help=(
+            "With --corpus-release-public-key, the eval-evidence public root "
+            "(AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY)"
+        ),
+    )
     _add_complete_source_unit_argument(encode_parser)
     _add_rulespec_dependency_root_argument(encode_parser)
 
@@ -3458,6 +3562,16 @@ def main():
         "--json",
         action="store_true",
         help="Emit machine-readable JSON summary",
+    )
+    eval_suite_parser.add_argument(
+        "--admission-score",
+        action="store_true",
+        help="Record production admission beside the four readiness gates",
+    )
+    eval_suite_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for admission of compositions",
     )
     _add_policyengine_runtime_root_argument(eval_suite_parser)
 
@@ -3868,6 +3982,8 @@ def main():
         cmd_promote_reviewed_candidate(args)
     elif args.command == "signed-import-inventory":
         cmd_signed_import_inventory(args)
+    elif args.command == "checks":
+        cmd_checks(args)
     elif args.command == "manifest-census":
         cmd_manifest_census(args)
     elif args.command == "encode":
@@ -3878,6 +3994,10 @@ def main():
         cmd_eval_source(args)
     elif args.command == "eval-suite":
         cmd_eval_suite(args)
+    elif args.command == "admission-score":
+        from .harness.admission_cli import run_admission_score
+
+        sys.exit(run_admission_score(args))
     elif args.command == "eval-suite-revalidate":
         cmd_eval_suite_revalidate(args)
     elif args.command == "eval-suite-report":
@@ -4370,6 +4490,13 @@ def _fingerprint_validation_waiver_modules(
     `ValidatorPipeline.validate` opens its own fresh resolution scope, so
     every fingerprint equals the module's standalone value regardless of
     batch composition or worker fan-out.
+
+    The batch does share one `LocalCorpusRelease`, whose corpus resolution
+    cache persists across modules. Unlike the filesystem admissions above,
+    every value it retains is a pure function of release-verified bytes and
+    its lookup key, and nothing that failed to load is retained, so reuse
+    cannot change a message or a fingerprint
+    (tests/test_validator_corpus_cache.py).
     """
 
     with _rulespec_routing_cache_scope():
@@ -8117,6 +8244,26 @@ def cmd_guard_generated(args):
     )
     roots = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
     all_files = bool(getattr(args, "all", False))
+    candidate_status = None
+    if getattr(args, "candidate_status", False):
+        # Classify before any corpus, broker, or manifest work, and print it
+        # first in text mode so a later guard failure cannot hide it.
+        try:
+            candidate_status = guard_candidate_status_report(
+                repo_path,
+                base_ref=args.base_ref,
+                head_ref=args.head_ref,
+                roots=roots,
+            )
+        except Exception as exc:  # the report must never change the guard
+            candidate_status = _guard_candidate_status_skeleton(repo_path)
+            _guard_candidate_reason(
+                candidate_status["reasons"],
+                "report_failed",
+                f"candidate status failed: {type(exc).__name__}: {exc}",
+            )
+        if not args.json:
+            print(json.dumps(candidate_status, indent=2, sort_keys=True), flush=True)
     issues = guard_generated_change_issues(
         repo_path,
         corpus_path=Path(args.corpus_path),
@@ -8128,6 +8275,8 @@ def cmd_guard_generated(args):
         expected_encoder_checkout=getattr(args, "expected_encoder_checkout", None),
     )
     payload = {"repo": str(repo_path), "passed": not issues, "issues": issues}
+    if candidate_status is not None and args.json:
+        payload["candidate_status"] = candidate_status
     if args.json:
         print(json.dumps(payload, indent=2))
     elif issues:
@@ -8140,6 +8289,622 @@ def cmd_guard_generated(args):
         else:
             print("All changed RuleSpec files have encoder apply manifests.")
     sys.exit(0 if not issues else 1)
+
+
+GUARD_CANDIDATE_STATUS_SCHEMA = "axiom-encode/guard-candidate-status/v1"
+GUARD_CANDIDATE_STATUS_UNADMITTED = "unadmitted_reviewed_candidate"
+GUARD_CANDIDATE_STATUS_ADMITTED = "admitted"
+GUARD_CANDIDATE_STATUS_INVALID = "invalid"
+GUARD_CANDIDATE_STATUS_NO_RULESPEC_CHANGE = "no_rulespec_change"
+_GUARD_CANDIDATE_MAX_BLOB_BYTES = 10 * 1024 * 1024
+# Every reason has a stable ``code`` and one ``category``:
+# - ``rulespec``: the changed modules, companions, or manifests do not form an
+#   unadmitted candidate or an admitted change set;
+# - ``maintenance``: a non-RuleSpec file changed (waiver set, provenance
+#   metadata, any other file);
+# - ``environment``: the report could not trust the checkout or did not run.
+GUARD_CANDIDATE_REASON_CATEGORIES: dict[str, str] = {
+    "module_count": "rulespec",
+    "companion_missing": "rulespec",
+    "companion_of_other_module": "rulespec",
+    "module_not_regular": "rulespec",
+    "citation_missing": "rulespec",
+    "citation_noncanonical": "rulespec",
+    "citation_outside_jurisdiction": "rulespec",
+    "module_path_noncanonical": "rulespec",
+    "manifest_only": "rulespec",
+    "manifest_missing": "rulespec",
+    "manifest_unmatched": "rulespec",
+    "manifest_not_regular": "rulespec",
+    "noncanonical_yml_changed": "rulespec",
+    "waiver_changed": "maintenance",
+    "metadata_changed": "maintenance",
+    "other_file_changed": "maintenance",
+    "base_ref_missing": "environment",
+    "git_inspection_failed": "environment",
+    "checkout_dirty": "environment",
+    "report_failed": "environment",
+}
+# Repository or user Git configuration can make the stat cache vouch for a
+# modified file: fsmonitor answers, ``core.checkStat=minimal`` with
+# ``core.trustctime=false`` (mtime and size only), ``core.ignoreStat``, or a
+# stale untracked cache. Override them so Git compares content whenever the
+# full stat data cannot prove a file unchanged.
+_GUARD_CANDIDATE_WORKTREE_GIT_CONFIG = (
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.checkStat=default",
+    "-c",
+    "core.trustctime=true",
+    "-c",
+    "core.ignoreStat=false",
+    "-c",
+    "core.untrackedCache=false",
+)
+
+
+def _guard_candidate_reason(
+    reasons: list[dict[str, str]], code: str, message: str
+) -> None:
+    reasons.append(
+        {
+            "code": code,
+            "category": GUARD_CANDIDATE_REASON_CATEGORIES[code],
+            "message": message,
+        }
+    )
+
+
+def _guard_candidate_status_skeleton(repo_path: Path) -> dict[str, Any]:
+    """Return an ``invalid`` report that carries every schema key."""
+
+    try:
+        repo_path = Path(repo_path).resolve()
+    except (OSError, RuntimeError, TypeError):
+        repo_path = Path(str(repo_path))
+    country_match = re.fullmatch(r"rulespec-([a-z]{2}(?:-[a-z0-9_]+)*)", repo_path.name)
+    return {
+        "schema": GUARD_CANDIDATE_STATUS_SCHEMA,
+        "status": GUARD_CANDIDATE_STATUS_INVALID,
+        "reasons": [],
+        "repository": repo_path.name,
+        "country": country_match.group(1) if country_match else None,
+        "base_sha": None,
+        "head_sha": None,
+        "changed_files": [],
+        "candidate": None,
+    }
+
+
+def _guard_candidate_committed_changes(
+    repo_path: Path, base_sha: str, head_sha: str
+) -> list[tuple[str, str, str]]:
+    """Return ``(path, head mode, head object id)`` for each committed change.
+
+    One ``git diff --raw`` lists every changed path with its head mode and
+    object id, so the cost does not grow by a Git process per path.
+    """
+
+    listing = _rulespec_migration_git_bytes(
+        repo_path,
+        "diff",
+        "--raw",
+        "-z",
+        "--no-abbrev",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-relative",
+        "--ignore-submodules=none",
+        "--diff-filter=ACDMRT",
+        "--end-of-options",
+        base_sha,
+        head_sha,
+        "--",
+    )
+    fields = listing.split(b"\0")
+    if fields[-1] != b"" or len(fields) % 2 != 1:
+        raise RuntimeError("git diff --raw returned a malformed listing")
+    changes: dict[str, tuple[str, str]] = {}
+    for metadata, encoded_path in zip(fields[0:-1:2], fields[1:-1:2]):
+        parts = metadata.decode("ascii").split(" ")
+        if len(parts) != 5 or not parts[0].startswith(":") or not encoded_path:
+            raise RuntimeError("git diff --raw returned a malformed record")
+        path = os.fsdecode(encoded_path)
+        if path in changes:
+            raise RuntimeError(f"git diff --raw listed {path} twice")
+        changes[path] = (parts[1], parts[3])
+    return [(path, *changes[path]) for path in sorted(changes)]
+
+
+def _guard_candidate_git_input(
+    repo_path: Path, arguments: tuple[str, ...], request: bytes
+) -> bytes:
+    completed = subprocess.run(
+        ["git", "-C", str(repo_path), *arguments],
+        input=request,
+        capture_output=True,
+        env=_rulespec_migration_git_environment(),
+        check=False,
+    )
+    if completed.returncode != 0:
+        stderr = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            f"Cannot inspect RuleSpec Git objects ({' '.join(arguments)}): {stderr}"
+        )
+    return completed.stdout
+
+
+def _guard_candidate_blob_sizes(
+    repo_path: Path, object_ids: list[str]
+) -> dict[str, int]:
+    """Size every requested blob with one ``git cat-file --batch-check``."""
+
+    if not object_ids:
+        return {}
+    listing = _guard_candidate_git_input(
+        repo_path,
+        ("cat-file", "--batch-check"),
+        "".join(f"{object_id}\n" for object_id in object_ids).encode("ascii"),
+    )
+    lines = listing.decode("ascii").splitlines()
+    sizes: dict[str, int] = {}
+    for object_id, line in zip(object_ids, lines, strict=True):
+        fields = line.split(" ")
+        if len(fields) != 3 or fields[0] != object_id or fields[1] != "blob":
+            raise RuntimeError(f"Cannot size RuleSpec Git blob {object_id}: {line}")
+        sizes[object_id] = int(fields[2])
+    return sizes
+
+
+def _guard_candidate_hash_blobs(
+    repo_path: Path, object_ids: list[str], *, keep: set[str]
+) -> tuple[dict[str, str], dict[str, bytes]]:
+    """Stream blobs through one ``git cat-file --batch`` into sha256 digests.
+
+    Only blobs in ``keep`` stay in memory; every other blob is hashed in
+    bounded chunks and dropped.
+    """
+
+    digests: dict[str, str] = {}
+    kept: dict[str, bytes] = {}
+    if not object_ids:
+        return digests, kept
+    with tempfile.TemporaryFile() as request, tempfile.TemporaryFile() as errors:
+        request.write("".join(f"{object_id}\n" for object_id in object_ids).encode())
+        request.seek(0)
+        process = subprocess.Popen(
+            ["git", "-C", str(repo_path), "cat-file", "--batch"],
+            stdin=request,
+            stdout=subprocess.PIPE,
+            stderr=errors,
+            env=_rulespec_migration_git_environment(),
+        )
+        stream = process.stdout
+        assert stream is not None
+        read_all = False
+        try:
+            for object_id in object_ids:
+                header = stream.readline().decode("ascii").rstrip("\n").split(" ")
+                if len(header) != 3 or header[0] != object_id or header[1] != "blob":
+                    raise RuntimeError(f"Cannot read RuleSpec Git blob {object_id}")
+                remaining = int(header[2])
+                digest = hashlib.sha256()
+                chunks: list[bytes] | None = [] if object_id in keep else None
+                while remaining:
+                    chunk = stream.read(min(remaining, 1024 * 1024))
+                    if not chunk:
+                        raise RuntimeError(f"Truncated RuleSpec Git blob {object_id}")
+                    digest.update(chunk)
+                    if chunks is not None:
+                        chunks.append(chunk)
+                    remaining -= len(chunk)
+                if stream.read(1) != b"\n":
+                    raise RuntimeError(f"Malformed RuleSpec Git blob {object_id}")
+                digests[object_id] = digest.hexdigest()
+                if chunks is not None:
+                    kept[object_id] = b"".join(chunks)
+            # Git exits on its own at the end of the request file; wait for
+            # that end of output instead of racing its exit.
+            if stream.read(1):
+                raise RuntimeError("git cat-file --batch wrote unexpected output")
+            read_all = True
+        finally:
+            if not read_all:
+                process.kill()
+            returncode = process.wait()
+            stream.close()
+        if returncode != 0:
+            errors.seek(0)
+            stderr = errors.read().decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"Cannot read RuleSpec Git blobs: {stderr}")
+    return digests, kept
+
+
+def _guard_candidate_uncommitted_paths(repo_path: Path, head_sha: str) -> set[str]:
+    """Name every staged, unstaged, untracked, or flag-hidden checkout change."""
+
+    # Staged, unstaged, and untracked state all bind other bytes than the head
+    # commit, including staged edits undone in the worktree.
+    listing = _rulespec_migration_git_bytes(
+        repo_path,
+        *_GUARD_CANDIDATE_WORKTREE_GIT_CONFIG,
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-relative",
+        "--ignore-submodules=none",
+        "--diff-filter=ACDMRT",
+        "-z",
+        "--end-of-options",
+        head_sha,
+        "--",
+    )
+    uncommitted = {os.fsdecode(path) for path in listing.split(b"\0") if path}
+    status = _rulespec_migration_git_bytes(
+        repo_path,
+        *_GUARD_CANDIDATE_WORKTREE_GIT_CONFIG,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--no-renames",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+    )
+    from_status = {
+        os.fsdecode(record[3:])
+        for record in status.split(b"\0")
+        if len(record) > 3 and record[2:3] == b" "
+    }
+    uncommitted |= from_status
+    if status and not from_status:
+        uncommitted.add("<git status>")
+    # assume-unchanged (lowercase tag) and skip-worktree (S) entries hide
+    # worktree edits from diff and status, so refuse them.
+    flags = _rulespec_migration_git_bytes(repo_path, "ls-files", "-v", "-z")
+    uncommitted.update(
+        os.fsdecode(record[2:]) + " (index flag hides worktree changes)"
+        for record in flags.split(b"\0")
+        if len(record) > 2 and (record[:1].islower() or record[:1] in {b"S", b"s"})
+    )
+    return uncommitted
+
+
+def _guard_candidate_change_kind(path: str, *, roots: tuple[str, ...]) -> str:
+    relative = Path(path)
+    if _guard_provenance_path_case_issue(relative) is not None or any(
+        part.casefold() == ".axiom" and part != ".axiom" for part in relative.parts
+    ):
+        return "metadata"
+    if _is_applied_encoding_manifest_path(relative, roots=roots):
+        return "manifest"
+    if _is_protected_rulespec_yaml_path(relative, roots=roots):
+        return (
+            "companion"
+            if relative.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+            else "module"
+        )
+    if path == VALIDATION_WAIVER_SET_PATH:
+        return "waiver"
+    if ".axiom" in relative.parts:
+        return "metadata"
+    if _is_noncanonical_rulespec_yml_path(relative, roots=roots):
+        return "noncanonical_yml"
+    return "other"
+
+
+def _guard_candidate_module_path(path: str) -> str:
+    """Map a companion test path to its module path."""
+
+    relative = Path(path)
+    if relative.name.endswith(RULESPEC_TEST_FILE_SUFFIX):
+        stem = relative.name[: -len(RULESPEC_TEST_FILE_SUFFIX)]
+        return relative.with_name(f"{stem}{RULESPEC_FILE_SUFFIX}").as_posix()
+    return path
+
+
+def _guard_candidate_citation(blob: bytes, path: str) -> tuple[str | None, str]:
+    """Return the module's corpus citation, or why its YAML was rejected.
+
+    Size, token, depth, alias, and node budgets apply before any value is
+    constructed, and merge keys are refused before PyYAML can expand them
+    (RuleSpec refuses merge keys everywhere), so hostile YAML stays cheap.
+    """
+
+    from .source_hash import (
+        _MAX_RULESPEC_YAML_BYTES,
+        RuleSpecScanError,
+        _validate_yaml_node_graph,
+        _validate_yaml_tokens,
+    )
+
+    if len(blob) > _MAX_RULESPEC_YAML_BYTES:
+        return None, f"larger than the {_MAX_RULESPEC_YAML_BYTES}-byte RuleSpec limit"
+    try:
+        source = blob.decode("utf-8")
+        _validate_yaml_tokens(source, Path(path))
+        root_node = yaml.compose(source, Loader=yaml.SafeLoader)
+        _validate_yaml_node_graph(root_node, Path(path), reject_merges=True)
+        document = yaml.load(  # noqa: S506 - unique-key safe loader
+            source, Loader=_LegacyReplacementYamlLoader
+        )
+    except RuleSpecScanError as exc:
+        return None, exc.reason
+    except (
+        UnicodeDecodeError,
+        ValueError,
+        TypeError,
+        RecursionError,
+        yaml.YAMLError,
+    ) as exc:
+        return None, f"{type(exc).__name__}: {exc}".splitlines()[0]
+    module = document.get("module") if isinstance(document, dict) else None
+    verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    value = (
+        verification.get("corpus_citation_path")
+        if isinstance(verification, dict)
+        else None
+    )
+    if isinstance(value, str) and value.strip() == value and value:
+        return value, ""
+    return None, ""
+
+
+def guard_candidate_status_report(
+    repo_path: Path,
+    *,
+    base_ref: str | None,
+    head_ref: str = "HEAD",
+    roots: tuple[str, ...] = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+) -> dict[str, Any]:
+    """Classify a change set for local-contribution admission (#1628, B3).
+
+    This is a structural report from Git metadata and head blobs only: it
+    loads no corpus, runs no engine, attaches no signing broker, and verifies
+    no manifest. ``admitted`` means every changed module and companion is a
+    regular 0644 file carrying its manifest, and every changed manifest
+    belongs to a changed module or companion; ``guard_generated_change_issues``
+    stays the only authority on whether those manifests verify.
+    """
+
+    from .prepare_signed_backfill import citation_rulespec_path
+
+    report = _guard_candidate_status_skeleton(repo_path)
+    repo_path = Path(repo_path).resolve()
+    reasons: list[dict[str, str]] = report["reasons"]
+
+    def reason(code: str, message: str) -> None:
+        _guard_candidate_reason(reasons, code, message)
+
+    if base_ref is None:
+        reason("base_ref_missing", "candidate status requires --base-ref")
+        return report
+    try:
+        with _rulespec_migration_clean_ambient_git():
+            base_sha, head_sha = _resolve_guard_git_refs(
+                repo_path, base_ref=base_ref, head_ref=head_ref
+            )
+            if base_sha is None:
+                raise ValueError("candidate status requires a Git repository")
+            report["base_sha"], report["head_sha"] = base_sha, head_sha
+            committed = _guard_candidate_committed_changes(
+                repo_path, base_sha, head_sha
+            )
+            uncommitted = _guard_candidate_uncommitted_paths(repo_path, head_sha)
+            changed: list[dict[str, Any]] = [
+                {
+                    "path": path,
+                    "kind": _guard_candidate_change_kind(path, roots=roots),
+                    "sha256": None,
+                    "head_state": (
+                        "deleted"
+                        if set(mode) == {"0"}
+                        else "regular"
+                        if mode == "100644"
+                        else f"not a regular 0644 file (mode {mode})"
+                    ),
+                    "_object_id": object_id,
+                }
+                for path, mode, object_id in committed
+            ]
+            regular = list(
+                dict.fromkeys(
+                    entry["_object_id"]
+                    for entry in changed
+                    if entry["head_state"] == "regular"
+                )
+            )
+            sizes = _guard_candidate_blob_sizes(repo_path, regular)
+            for entry in changed:
+                if sizes.get(entry["_object_id"], 0) > _GUARD_CANDIDATE_MAX_BLOB_BYTES:
+                    entry["head_state"] = "larger than 10 MiB"
+            module_entries = [entry for entry in changed if entry["kind"] == "module"]
+            keep = (
+                {module_entries[0]["_object_id"]}
+                if len(module_entries) == 1
+                and module_entries[0]["head_state"] == "regular"
+                else set()
+            )
+            digests, blobs = _guard_candidate_hash_blobs(
+                repo_path,
+                [
+                    object_id
+                    for object_id in regular
+                    if sizes[object_id] <= _GUARD_CANDIDATE_MAX_BLOB_BYTES
+                ],
+                keep=keep,
+            )
+            for entry in changed:
+                if entry["head_state"] == "regular":
+                    entry["sha256"] = digests[entry["_object_id"]]
+    except (OSError, ValueError, RuntimeError, UnicodeDecodeError) as exc:
+        reason("git_inspection_failed", f"cannot inspect the change set: {exc}")
+        return report
+    report["changed_files"] = [
+        {key: value for key, value in entry.items() if key != "_object_id"}
+        for entry in changed
+    ]
+    if uncommitted:
+        reason(
+            "checkout_dirty",
+            "checkout has uncommitted or untracked changes: "
+            + ", ".join(sorted(uncommitted)),
+        )
+
+    by_kind: dict[str, list[dict[str, Any]]] = {}
+    for entry in changed:
+        by_kind.setdefault(entry["kind"], []).append(entry)
+    modules = by_kind.get("module", [])
+    companions = by_kind.get("companion", [])
+    manifests = by_kind.get("manifest", [])
+    if not modules and not companions and not manifests:
+        for kind, code, label in (
+            ("waiver", "waiver_changed", "validation waiver set changed"),
+            ("metadata", "metadata_changed", "provenance metadata changed"),
+            (
+                "noncanonical_yml",
+                "noncanonical_yml_changed",
+                "noncanonical .yml RuleSpec changed",
+            ),
+        ):
+            for entry in by_kind.get(kind, []):
+                reason(code, f"{label} without a RuleSpec change: {entry['path']}")
+        if not reasons:
+            report["status"] = GUARD_CANDIDATE_STATUS_NO_RULESPEC_CHANGE
+        return report
+
+    if manifests:
+        if not modules and not companions:
+            reason(
+                "manifest_only",
+                "manifest-only change set: manifests changed without any "
+                "RuleSpec change (#1531)",
+            )
+            return report
+        expected_manifests: dict[str, list[str]] = {}
+        for entry in modules + companions:
+            if entry["head_state"] != "regular":
+                reason(
+                    "module_not_regular",
+                    f"{entry['path']} is {entry['head_state']} at head",
+                )
+            module_path = _guard_candidate_module_path(entry["path"])
+            expected = _applied_encoding_manifest_path(Path(module_path)).as_posix()
+            expected_manifests.setdefault(expected, []).append(entry["path"])
+        regular_manifests = set()
+        for entry in manifests:
+            if entry["head_state"] == "regular":
+                regular_manifests.add(entry["path"])
+            else:
+                reason(
+                    "manifest_not_regular",
+                    f"manifest {entry['path']} is {entry['head_state']} at head",
+                )
+            if entry["path"] not in expected_manifests:
+                reason(
+                    "manifest_unmatched",
+                    f"manifest {entry['path']} changed without a change to its "
+                    "RuleSpec module or companion",
+                )
+        for expected, paths in expected_manifests.items():
+            if expected not in regular_manifests:
+                for path in paths:
+                    reason(
+                        "manifest_missing",
+                        f"{path} changed without its matching manifest {expected}",
+                    )
+        if not reasons:
+            report["status"] = GUARD_CANDIDATE_STATUS_ADMITTED
+        return report
+
+    for kind, code, label in (
+        ("waiver", "waiver_changed", "validation waiver set changed"),
+        ("metadata", "metadata_changed", "provenance metadata changed"),
+        (
+            "noncanonical_yml",
+            "noncanonical_yml_changed",
+            "noncanonical .yml RuleSpec changed",
+        ),
+        ("other", "other_file_changed", "non-RuleSpec file changed"),
+    ):
+        for entry in by_kind.get(kind, []):
+            reason(code, f"{label}: {entry['path']}")
+    if len(modules) != 1:
+        reason(
+            "module_count",
+            f"expected exactly one RuleSpec module, found {len(modules)}: "
+            + ", ".join(entry["path"] for entry in modules),
+        )
+        return report
+    module = modules[0]
+    companion_path = _rulespec_test_path(Path(module["path"])).as_posix()
+    companion = next(
+        (entry for entry in companions if entry["path"] == companion_path), None
+    )
+    for entry in companions:
+        if entry["path"] != companion_path:
+            reason(
+                "companion_of_other_module",
+                f"companion test of another module changed: {entry['path']}",
+            )
+    if companion is None:
+        reason("companion_missing", f"companion test {companion_path} did not change")
+    for entry in (module, companion):
+        if entry is not None and entry["head_state"] != "regular":
+            reason(
+                "module_not_regular",
+                f"{entry['path']} is {entry['head_state']} at head",
+            )
+    citation = None
+    module_blob = blobs.get(module["_object_id"])
+    if module_blob is not None:
+        citation, rejected = _guard_candidate_citation(module_blob, module["path"])
+        if citation is None:
+            reason(
+                "citation_missing",
+                f"{module['path']} declares no module.source_verification."
+                "corpus_citation_path"
+                + (f" (YAML rejected: {rejected})" if rejected else ""),
+            )
+    if citation is not None:
+        jurisdiction = citation.split("/", 1)[0]
+        country = report["country"]
+        try:
+            require_canonical_corpus_citation_path(citation)
+            canonical = citation_rulespec_path(citation).as_posix()
+        except (ValueError, CorpusResolutionError) as exc:
+            reason(
+                "citation_noncanonical",
+                f"citation {citation} has no canonical path: {exc}",
+            )
+        else:
+            if country is None or (
+                jurisdiction != country and not jurisdiction.startswith(f"{country}-")
+            ):
+                reason(
+                    "citation_outside_jurisdiction",
+                    f"citation {citation} is outside the {repo_path.name} jurisdiction",
+                )
+            if canonical != module["path"]:
+                reason(
+                    "module_path_noncanonical",
+                    f"{module['path']} is not at the canonical path {canonical} "
+                    f"of citation {citation}",
+                )
+    if reasons:
+        return report
+    report["status"] = GUARD_CANDIDATE_STATUS_UNADMITTED
+    report["candidate"] = {
+        "citation": citation,
+        "rulespec_path": module["path"],
+        "rulespec_sha256": module["sha256"],
+        "companion_path": companion["path"],
+        "companion_sha256": companion["sha256"],
+    }
+    return report
 
 
 def cmd_stage_signed_backfill(args):
@@ -8309,6 +9074,13 @@ def _historical_manifest_refresh_inputs(
 def cmd_refresh_applied_manifest(args):
     """Revalidate unchanged historical bytes and replace only their manifest."""
 
+    engine_ref = getattr(args, "axiom_rules_engine_ref", None)
+    if (
+        not isinstance(engine_ref, str)
+        or re.fullmatch(r"[0-9a-f]{40}", engine_ref) is None
+    ):
+        raise ValueError("manifest refresh requires a full lowercase engine commit SHA")
+
     repo_path = _resolve_canonical_rulespec_checkout(
         args.repo,
         label="RuleSpec checkout",
@@ -8438,6 +9210,7 @@ def cmd_refresh_applied_manifest(args):
                         output_root=output_root,
                         policy_repo_path=content_root,
                         axiom_rules_path=axiom_rules_path,
+                        axiom_rules_engine_ref=engine_ref,
                         axiom_compose_path=axiom_compose_path,
                         local_corpus_release=local_corpus_release,
                         rulespec_dependency_roots=dependency_roots,
@@ -8518,12 +9291,35 @@ def cmd_refresh_applied_manifest(args):
             print(f"refreshed {expected_manifest}")
 
 
+_REVIEWED_RULESPEC_RUNTIME_RECORD_DIR = "reviewed-rulespec-refs"
+
+
+def _promotion_reviewed_rulespec_record_root() -> Path | None:
+    """Locate the admission records this encoder itself was built from.
+
+    Never caller-supplied. Under the signing supervisor's trusted-runtime
+    marker, the records are the ones provisioning exported from the attested
+    encoder commit into the root-owned runtime prefix (next to the validated
+    runtime attestation). Otherwise only a source checkout has records, its own
+    ``data/reviewed-rulespec-refs``; an installed package has none, so
+    promotion refuses.
+    """
+
+    from .prepare_signed_backfill import _checkout_reviewed_rulespec_record_root
+
+    if os.environ.get(_TRUSTED_RUNTIME_ENV) == "1":
+        attestation = _load_trusted_runtime_attestation()
+        return Path(attestation["path"]).parent / _REVIEWED_RULESPEC_RUNTIME_RECORD_DIR
+    return _checkout_reviewed_rulespec_record_root()
+
+
 def cmd_promote_reviewed_candidate(args):
     """Validate and sign one exact allowlisted reviewed RuleSpec commit."""
 
     from .prepare_signed_backfill import (
-        REVIEWED_RULESPEC_REFS,
         citation_rulespec_path,
+        load_reviewed_rulespec_records,
+        reviewed_rulespec_refs_from_records,
     )
 
     repo_path = _resolve_canonical_rulespec_checkout(
@@ -8555,7 +9351,15 @@ def cmd_promote_reviewed_candidate(args):
     ).strip()
     if actual_ref != reviewed_ref:
         raise ValueError("reviewed candidate checkout does not match its exact ref")
-    if (country, reviewed_ref) not in REVIEWED_RULESPEC_REFS:
+    record_root = _promotion_reviewed_rulespec_record_root()
+    if record_root is None:
+        raise ValueError(
+            "reviewed candidate promotion has no trusted admission record root"
+        )
+    reviewed_records = load_reviewed_rulespec_records(record_root)
+    if (country, reviewed_ref) not in reviewed_rulespec_refs_from_records(
+        reviewed_records
+    ):
         raise ValueError("reviewed candidate ref is not explicitly allowlisted")
 
     rulespec_relative = Path(args.rulespec_path)
@@ -10896,6 +11700,24 @@ def _manifest_census_badge(census: dict[str, object]) -> dict[str, object]:
         "message": f"{pct}% ({census.get('encoder', 0)}/{total})",
         "color": color,
     }
+
+
+def cmd_checks(args):
+    """Print the declared validator checks of this encoder version."""
+    document = registry_document()
+    if args.json or args.out is not None:
+        text = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True)
+        if args.out is not None:
+            args.out.write_text(text + "\n", encoding="utf-8")
+        else:
+            print(text)
+        return
+    print(
+        f"{len(document['checks'])} checks, encoder {document['encoder_version']}, "
+        f"registry {document['registry_sha256'][:12]}"
+    )
+    for check in document["checks"]:
+        print(f"{check['id']}  [{check['cause']}]  {check['title']}")
 
 
 def cmd_manifest_census(args):
@@ -22092,6 +22914,46 @@ def _retired_source_metadata_manifest_issues(
     return []
 
 
+def _retired_source_metadata_receipt_is_settled(
+    repo_path: Path,
+    receipt_relative: Path,
+    *,
+    base_ref: str,
+    changed: set[str],
+) -> bool:
+    """True when a protected-base receipt is unchanged in Git and on disk.
+
+    Two overlapping checks, kept as defence in depth:
+
+    * the path is absent from ``changed``, the Git change set between the
+      protected base and the head plus uncommitted and untracked changes;
+    * the checkout's bytes, read through the bounded regular-file reader,
+      equal the receipt's blob at the protected base.
+
+    Either check alone refuses every committed edit, uncommitted edit and
+    removal the tests make. The second also refuses a receipt that is not a
+    readable regular file (a symlink, for example) and does not depend on how
+    the caller built ``changed``. A settled receipt is still replayed by the
+    caller; this only decides whether it is history or a new transaction.
+    """
+
+    if receipt_relative.as_posix() in changed:
+        return False
+    try:
+        base_bytes = _rulespec_migration_base_blob(
+            repo_path, base_ref, receipt_relative
+        )
+        live_bytes = read_bounded_regular_file(
+            repo_path,
+            repo_path / receipt_relative,
+            label="historical migration receipt",
+            max_bytes=16 * 1024 * 1024,
+        )
+    except (OSError, ValueError, RuntimeError, UnsafeCorpusPathError):
+        return False
+    return live_bytes == base_bytes
+
+
 def _retired_source_metadata_change_set_issues(
     repo_path: Path,
     changed: list[str],
@@ -22155,7 +23017,10 @@ def _retired_source_metadata_change_set_issues(
             issues.append(f"{path} has no retired source metadata receipt binding")
             continue
         receipts.add(receipt_path)
-        if not all_files and receipt_path not in changed_receipts:
+        # Diff modes list only changed manifests; --all lists every manifest,
+        # so only one that changed against the protected base must introduce
+        # its receipt.
+        if path in changed_set and receipt_path not in changed_receipts:
             issues.append(
                 f"{path} changed without introducing its retired source metadata receipt {receipt_path}"
             )
@@ -22175,6 +23040,16 @@ def _retired_source_metadata_change_set_issues(
                 base_ref,
                 path,
             ):
+                if all_files and _retired_source_metadata_receipt_is_settled(
+                    repo_path, Path(path), base_ref=base_ref, changed=changed_set
+                ):
+                    # A receipt already in the protected base, byte for byte
+                    # unchanged, is settled history (#1942). Its transaction
+                    # was admitted when it landed; replay the receipt to prove
+                    # it is still genuine, and leave every live manifest and
+                    # file to the ordinary guard rules that follow.
+                    _retired_source_metadata_replay(repo_path, Path(path))
+                    continue
                 raise RetiredSourceMetadataError(
                     "historical migration receipts cannot be edited or removed"
                 )
@@ -23409,6 +24284,18 @@ def guard_generated_change_issues(
     )
     if waiver_transition_issues:
         return waiver_transition_issues
+    post_waiver_dependent_manifests = (
+        _in_place_replacement_post_waiver_dependent_manifests(
+            repo_path,
+            changed=set(changed),
+            protected=set(protected),
+            roots=roots,
+            base_waiver_sha256=expected_manifest_waiver_set_sha256,
+            current_waiver_sha256=current_waiver_set_sha256,
+        )
+        if expected_manifest_waiver_set_sha256 != current_waiver_set_sha256
+        else frozenset()
+    )
 
     manifest_paths = (
         sorted(
@@ -23489,6 +24376,7 @@ def guard_generated_change_issues(
         expected_encoder_identity=expected_encoder_identity,
         expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
         expected_legacy_replacement_waiver_set_sha256=(current_waiver_set_sha256),
+        post_waiver_dependent_manifests=post_waiver_dependent_manifests,
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
     )
     manifest_issues.extend(
@@ -23507,6 +24395,7 @@ def guard_generated_change_issues(
             expected_encoder_identity=expected_encoder_identity,
             expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
             expected_legacy_replacement_waiver_set_sha256=current_waiver_set_sha256,
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
     )
@@ -23524,6 +24413,7 @@ def guard_generated_change_issues(
             expected_encoder_identity=expected_encoder_identity,
             expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
             expected_legacy_replacement_waiver_set_sha256=current_waiver_set_sha256,
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
     )
@@ -23573,6 +24463,7 @@ def guard_generated_change_issues(
             expected_encoder_identity=expected_encoder_identity,
             expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
             expected_legacy_replacement_waiver_set_sha256=(current_waiver_set_sha256),
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=(path_migration_receipt_proof_cache),
         )
     )
@@ -23772,6 +24663,105 @@ def _guard_base_manifest_claims(
     return claims, issues
 
 
+def _guard_unchanged_obsolete_manual_alias(
+    repo_path: Path,
+    *,
+    manifest_path: str,
+    raw: bytes,
+    payload: dict[str, Any],
+    base_ref: str,
+    roots: tuple[str, ...],
+    base_tree_cache: dict[str, _GuardBaseReceiptTree],
+    preserved_claims: Mapping[str, str],
+) -> bool:
+    """Classify preserved obsolete data, never grant it ownership or authority."""
+
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate obsolete receipt key")
+            result[key] = value
+        return result
+
+    try:
+        strict_payload = json.loads(raw, object_pairs_hook=unique_object)
+        live_raw = read_bounded_regular_file(
+            repo_path,
+            repo_path / manifest_path,
+            label="unchanged obsolete receipt",
+            max_bytes=1024 * 1024,
+            required_mode=0o644,
+        )
+    except (ValueError, UnicodeError, RecursionError, OSError, UnsafeCorpusPathError):
+        return False
+    if strict_payload != payload or live_raw != raw:
+        return False
+    allowed_fields = {
+        "applied_files",
+        "axiom_encode_git",
+        "axiom_encode_version",
+        "backend",
+        "citation",
+        "context_manifest_file",
+        "context_manifest_sha256",
+        "generated_at",
+        "generated_output_file",
+        "generated_output_root",
+        "generated_output_sha256",
+        "generation_prompt_sha256",
+        "manual_exception",
+        "model",
+        "run_id",
+        "runner",
+        "schema_version",
+        "signature",
+        "tool",
+        "trace_file",
+        "trace_sha256",
+    }
+    if (
+        payload.get("schema_version") != "axiom-encode/applied-rulespec/v1"
+        or payload.get("backend") != "manual"
+        or payload.get("tool") != "axiom-encode sign-applied-files"
+        or set(payload) - allowed_fields
+    ):
+        return False
+    # Explicit changed_files can omit a mutation: compare actual regular bytes
+    # with the immutable base instead of trusting that caller-supplied list.
+    base_raw, issues = _guard_base_receipt_bytes(
+        repo_path, base_ref, Path(manifest_path), base_tree_cache=base_tree_cache
+    )
+    if issues or base_raw != raw:
+        return False
+    prefix = _applied_encoding_manifest_root_prefix(Path(manifest_path), roots=roots)
+    entries = payload.get("applied_files")
+    if prefix is None or not isinstance(entries, list) or not entries:
+        return False
+    seen: set[str] = set()
+    for item in entries:
+        if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
+            return False
+        path, digest = item["path"], item["sha256"]
+        if not isinstance(path, str) or not isinstance(digest, str):
+            return False
+        relative = Path(path)
+        if (
+            relative.is_absolute()
+            or relative.as_posix() != path
+            or any(part in {"", ".", ".."} for part in relative.parts)
+            or _SHA256_HEX_PATTERN.fullmatch(digest) is None
+        ):
+            return False
+        canonical = _prefix_applied_manifest_path(path, prefix)
+        if canonical in seen or canonical not in preserved_claims:
+            return False
+        seen.add(canonical)
+        if digest == preserved_claims[canonical]:
+            return False
+    return True
+
+
 def _guard_changed_manifest_coverage_issues(
     repo_path: Path,
     *,
@@ -23789,6 +24779,7 @@ def _guard_changed_manifest_coverage_issues(
     expected_waiver_set_sha256: str,
     expected_legacy_replacement_waiver_set_sha256: str,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]],
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Require verified head ownership for every changed base receipt claim."""
 
@@ -23856,6 +24847,81 @@ def _guard_changed_manifest_coverage_issues(
     )
     if inventory_issues:
         return inventory_issues
+    preserved_claims: dict[str, str] | None = None
+
+    def verified_preserved_claims() -> dict[str, str]:
+        # Only independently verified canonical base and head receipts establish
+        # this set. Opaque alias claims never enter it or satisfy coverage.
+        result: dict[str, str] = {}
+        for owner, owner_raw in base_blobs.items():
+            if owner in replacement_bases:
+                continue
+            base_payload = json.loads(owner_raw)
+            base_entries = base_payload.get("applied_files")
+            if not isinstance(base_entries, list):
+                continue
+            head_payload, prefix, _, faults = (
+                _load_verified_applied_encoding_manifest_payload(
+                    repo_path,
+                    owner,
+                    historical_verification=historical_verification,
+                    historical_head_ref=historical_head_ref,
+                    retrospective=retrospective,
+                    roots=roots,
+                    signing_broker=signing_broker,
+                    local_corpus_release=local_corpus_release,
+                    expected_encoder_identity=expected_encoder_identity,
+                    expected_waiver_set_sha256=expected_waiver_set_sha256,
+                    expected_legacy_replacement_waiver_set_sha256=expected_legacy_replacement_waiver_set_sha256,
+                    post_waiver_dependent_manifests=post_waiver_dependent_manifests,
+                    path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
+                )
+            )
+            if faults or head_payload is None or prefix is None:
+                continue
+            if head_payload.get("applied_files") != base_entries:
+                continue
+            owner_claims: dict[str, str] = {}
+            canonical_primary = False
+            for item in base_entries:
+                if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
+                    break
+                canonical = _prefix_applied_manifest_path(item["path"], prefix)
+                relative = Path(canonical)
+                if not _is_protected_rulespec_yaml_path(relative, roots=roots):
+                    break
+                if not canonical.endswith(RULESPEC_TEST_FILE_SUFFIX):
+                    canonical_primary |= (
+                        _applied_encoding_manifest_path(relative).as_posix() == owner
+                    )
+                base_bytes, read_issues = _guard_base_receipt_bytes(
+                    repo_path,
+                    base_ref or head_ref,
+                    relative,
+                    base_tree_cache=base_tree_cache,
+                )
+                try:
+                    live = read_bounded_regular_file(
+                        repo_path,
+                        repo_path / relative,
+                        label="preserved canonical claim",
+                        max_bytes=4 * 1024 * 1024,
+                        required_mode=0o644,
+                    )
+                except (OSError, UnsafeCorpusPathError):
+                    break
+                if (
+                    read_issues
+                    or base_bytes != live
+                    or hashlib.sha256(live).hexdigest() != item["sha256"]
+                ):
+                    break
+                owner_claims[canonical] = item["sha256"]
+            else:
+                if canonical_primary:
+                    result.update(owner_claims)
+        return result
+
     claimants: list[str] = []
     replacement_claimants: dict[str, list[str]] = defaultdict(list)
     for manifest_path in head_paths:
@@ -23877,6 +24943,25 @@ def _guard_changed_manifest_coverage_issues(
             return [f"{manifest_path} cannot inspect head provenance claims safely"]
         if not isinstance(payload, dict):
             return [f"{manifest_path} cannot inspect head provenance claims safely"]
+        if (
+            not all_files
+            and manifest_path not in changed
+            and payload.get("schema_version") == "axiom-encode/applied-rulespec/v1"
+            and payload.get("backend") == "manual"
+        ):
+            if preserved_claims is None:
+                preserved_claims = verified_preserved_claims()
+            if _guard_unchanged_obsolete_manual_alias(
+                repo_path,
+                manifest_path=manifest_path,
+                raw=raw,
+                payload=payload,
+                base_ref=base_ref or head_ref,
+                roots=roots,
+                base_tree_cache=base_tree_cache,
+                preserved_claims=preserved_claims,
+            ):
+                continue
         for binding_name, allowed_tools in (
             ("replacement", {APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL}),
             (
@@ -23934,6 +25019,7 @@ def _guard_changed_manifest_coverage_issues(
                     expected_legacy_replacement_waiver_set_sha256=(
                         expected_legacy_replacement_waiver_set_sha256
                     ),
+                    post_waiver_dependent_manifests=post_waiver_dependent_manifests,
                     path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
                 )
             )
@@ -23960,6 +25046,7 @@ def _guard_changed_manifest_coverage_issues(
         expected_legacy_replacement_waiver_set_sha256=(
             expected_legacy_replacement_waiver_set_sha256
         ),
+        post_waiver_dependent_manifests=post_waiver_dependent_manifests,
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
     )
     issues.extend(verification_issues)
@@ -23996,6 +25083,7 @@ def _guard_changed_manifest_coverage_issues(
             expected_legacy_replacement_waiver_set_sha256=(
                 expected_legacy_replacement_waiver_set_sha256
             ),
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
     )
@@ -24400,6 +25488,7 @@ def _guard_auxiliary_provenance_issues(
     expected_waiver_set_sha256: str,
     expected_legacy_replacement_waiver_set_sha256: str,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]],
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Verify changed auxiliary evidence and all head manifests using it."""
 
@@ -24537,10 +25626,125 @@ def _guard_auxiliary_provenance_issues(
             expected_legacy_replacement_waiver_set_sha256=(
                 expected_legacy_replacement_waiver_set_sha256
             ),
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
         issues.extend(manifest_issues)
     return issues
+
+
+def _in_place_replacement_post_waiver_dependent_manifests(
+    repo_path: Path,
+    *,
+    changed: set[str],
+    protected: set[str],
+    roots: tuple[str, ...],
+    base_waiver_sha256: str,
+    current_waiver_sha256: str,
+) -> frozenset[str]:
+    """Recognize a sequential, source-bound replacement waiver transition.
+
+    The replacement retires its own waiver before the scheduled dependent is
+    generated. Both the replacement receipt and that later model manifest bind
+    the post-migration waiver set. This shape check only selects the expected
+    identity; the guard still authenticates every signed receipt and manifest.
+    """
+
+    try:
+        toolchain_sha256 = hashlib.sha256(
+            read_bounded_regular_file(
+                repo_path,
+                repo_path / ".axiom/toolchain.toml",
+                label="post-migration RuleSpec toolchain",
+                max_bytes=1024 * 1024,
+                required_mode=0o644,
+            )
+        ).hexdigest()
+    except (OSError, UnsafeCorpusPathError):
+        return frozenset()
+    matches: list[str] = []
+    for label in sorted(changed):
+        path = Path(label)
+        if (
+            path.parent != APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR
+            or path.suffix != ".json"
+        ):
+            continue
+        try:
+            raw = read_bounded_regular_file(
+                repo_path,
+                repo_path / path,
+                label="in-place replacement receipt",
+                max_bytes=1024 * 1024,
+                required_mode=0o644,
+            )
+            payload = json.loads(raw.decode("utf-8"))
+        except (
+            OSError,
+            UnsafeCorpusPathError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RecursionError,
+        ):
+            continue
+        if not isinstance(payload, dict) or payload.get("tool") != (
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
+        ):
+            continue
+        replacement = payload.get("replacement")
+        if not isinstance(replacement, dict):
+            continue
+        source = replacement.get("source")
+        if (
+            not isinstance(source, str)
+            or source != replacement.get("destination")
+            or source not in protected
+            or source not in changed
+            or not _is_protected_rulespec_yaml_path(Path(source), roots=roots)
+            or replacement.get("model_manifest_path")
+            != _applied_encoding_manifest_path(Path(source)).as_posix()
+            or replacement["model_manifest_path"] not in changed
+            or payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != current_waiver_sha256
+        ):
+            continue
+        scheduled = replacement.get("scheduled_dependents")
+        if not isinstance(scheduled, list) or len(scheduled) != 1:
+            continue
+        dependent = scheduled[0]
+        if not isinstance(dependent, dict):
+            continue
+        primary = dependent.get("primary")
+        if (
+            not isinstance(primary, str)
+            or primary not in protected
+            or primary not in changed
+            or _applied_encoding_manifest_path(Path(primary)).as_posix() not in changed
+            or not isinstance(dependent.get("source_citation"), str)
+            or not dependent["source_citation"]
+        ):
+            continue
+        reconciliations = replacement.get("metadata_reconciliations")
+        if not isinstance(reconciliations, list):
+            continue
+        by_path = {
+            item.get("path"): item
+            for item in reconciliations
+            if isinstance(item, dict) and isinstance(item.get("path"), str)
+        }
+        if len(by_path) != len(reconciliations):
+            continue
+        waiver = by_path.get("known-validation-gaps.yaml")
+        toolchain = by_path.get(".axiom/toolchain.toml")
+        if (
+            not isinstance(waiver, dict)
+            or waiver.get("before_sha256") != base_waiver_sha256
+            or waiver.get("after_sha256") != current_waiver_sha256
+            or not isinstance(toolchain, dict)
+            or toolchain.get("after_sha256") != toolchain_sha256
+        ):
+            continue
+        matches.append(_applied_encoding_manifest_path(Path(primary)).as_posix())
+    return frozenset(matches) if len(matches) == 1 else frozenset()
 
 
 def _guard_manifest_waiver_set_identity(
@@ -24733,6 +25937,7 @@ def _generated_provenance_gate_issues(
     expected_waiver_set_sha256: str,
     expected_legacy_replacement_waiver_set_sha256: str,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]],
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Reject protected files authorized only by manual attestations."""
 
@@ -24749,6 +25954,7 @@ def _generated_provenance_gate_issues(
         expected_legacy_replacement_waiver_set_sha256=(
             expected_legacy_replacement_waiver_set_sha256
         ),
+        post_waiver_dependent_manifests=post_waiver_dependent_manifests,
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
     )
     issues: list[str] = []
@@ -25092,6 +26298,7 @@ def _manifest_coverage_by_file(
     expected_legacy_replacement_waiver_set_sha256: str | None = None,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]]
     | None = None,
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> dict[str, list[dict[str, object]]]:
     """Map each non-deleted covered file to a list of covering-manifest records.
 
@@ -25123,6 +26330,7 @@ def _manifest_coverage_by_file(
                 expected_legacy_replacement_waiver_set_sha256=(
                     expected_legacy_replacement_waiver_set_sha256
                 ),
+                post_waiver_dependent_manifests=post_waiver_dependent_manifests,
                 path_migration_receipt_proof_cache=(path_migration_receipt_proof_cache),
             )
         )
@@ -29333,6 +30541,7 @@ def _load_verified_applied_encoding_manifest_payload(
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]]
     | None = None,
     base_commit: str | None = None,
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, object] | None, str | None, str | None, list[str]]:
     """Load one canonical v5 apply manifest and verify every binding."""
 
@@ -29369,6 +30578,15 @@ def _load_verified_applied_encoding_manifest_payload(
                 None,
                 [f"RuleSpec waiver-set binding is invalid: {exc}"],
             )
+    if manifest_label in post_waiver_dependent_manifests:
+        if expected_legacy_replacement_waiver_set_sha256 is None:
+            return (
+                None,
+                root_prefix,
+                None,
+                [f"{manifest_label} has no post-migration waiver identity"],
+            )
+        expected_waiver_set_sha256 = expected_legacy_replacement_waiver_set_sha256
 
     relative = Path(manifest_path)
     if relative.is_absolute() or any(
@@ -29741,6 +30959,7 @@ def _load_applied_encoding_manifest_entries(
     expected_legacy_replacement_waiver_set_sha256: str | None = None,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]]
     | None = None,
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, set[str]], list[str]]:
     entries: dict[str, set[str]] = defaultdict(set)
     issues: list[str] = []
@@ -29787,6 +31006,7 @@ def _load_applied_encoding_manifest_entries(
                 expected_legacy_replacement_waiver_set_sha256=(
                     expected_legacy_replacement_waiver_set_sha256
                 ),
+                post_waiver_dependent_manifests=post_waiver_dependent_manifests,
                 local_corpus_release=local_corpus_release,
                 expected_encoder_identity=expected_encoder_identity,
                 path_migration_receipt_proof_cache=(path_migration_receipt_proof_cache),
@@ -30763,8 +31983,75 @@ def _read_only_guard_encoder_execution_identity(
 # =========================================================================
 
 
+class _LocalVerificationRoots(NamedTuple):
+    corpus_release_public_key: str
+    retired_corpus_release_public_keys: tuple[str, ...]
+    apply_public_key: str | None
+    eval_public_key: str | None
+
+
+def _local_verification_encode_roots(args) -> _LocalVerificationRoots | None:
+    """Return the verification-only public roots an encode was given, if any.
+
+    Only explicit string arguments count; the roots are never read from the
+    environment. The run is refused with --apply and under any protected
+    signal (an attached signing broker, the trusted runtime, CI), so a
+    protected run always keeps its own trust roots.
+    """
+
+    def _string_or_none(name: str) -> str | None:
+        value = getattr(args, name, None)
+        return value if isinstance(value, str) else None
+
+    corpus_key = _string_or_none("corpus_release_public_key")
+    raw_retired = getattr(args, "corpus_release_retired_public_key", None)
+    retired = (
+        tuple(value for value in raw_retired if isinstance(value, str))
+        if isinstance(raw_retired, (list, tuple))
+        else ()
+    )
+    apply_key = _string_or_none("apply_public_key")
+    eval_key = _string_or_none("eval_public_key")
+    if corpus_key is None:
+        if retired or apply_key is not None or eval_key is not None:
+            raise ValueError(
+                "--corpus-release-retired-public-key, --apply-public-key and "
+                "--eval-public-key require --corpus-release-public-key"
+            )
+        return None
+    if getattr(args, "apply", False) is not False:
+        raise ValueError(
+            "encode --corpus-release-public-key is a verification-only local "
+            "run and cannot --apply; land changes through the protected workflow"
+        )
+    if protected_process_signal_active():
+        raise ValueError(
+            "encode --corpus-release-public-key is a verification-only local "
+            "run; it cannot run under an attached signing broker, the trusted "
+            "runtime or CI"
+        )
+    return _LocalVerificationRoots(corpus_key, retired, apply_key, eval_key)
+
+
 def cmd_encode(args):
+    """Encode, inside the verification-only local context when one is given."""
+    local_roots = _local_verification_encode_roots(args)
+    if local_roots is None:
+        return _cmd_encode_under_current_trust(args)
+    with local_corpus_release_verification(
+        local_roots.corpus_release_public_key,
+        retired_public_keys=local_roots.retired_corpus_release_public_keys,
+        apply_public_key=local_roots.apply_public_key,
+        eval_public_key=local_roots.eval_public_key,
+    ):
+        return _cmd_encode_under_current_trust(args)
+
+
+def _cmd_encode_under_current_trust(args):
     """Encode with the exact caller-authorized RuleSpec dependency roots."""
+    engine_ref = getattr(args, "axiom_rules_engine_ref", None)
+    if engine_ref is not None:
+        require_engine_ref_sha(engine_ref, description="axiom_rules_engine_ref")
     with _authoritative_rulespec_dependency_scope(
         _rulespec_dependency_roots_from_args(args)
     ):
@@ -30828,6 +32115,9 @@ _FAILED_ENCODE_CANDIDATE_METADATA_FIELDS = {
     "encoder_version",
     "attempt_count",
 }
+#: Optional ``issues.json`` field: the ``validation-issue/v2`` document of the
+#: typed issues (with their checks' definitions). Absent when no issue is typed.
+_FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD = "typed_issues"
 _FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES = FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES
 _FAILED_ENCODE_CANDIDATE_MAX_ISSUES = 4096
 _FAILED_ENCODE_CANDIDATE_EMPTY_TESTS = "[]\n"
@@ -31017,6 +32307,20 @@ def _emit_final_rejected_candidate(
     ).encode("utf-8")
     if len(metadata_raw) > _FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES:
         raise ValueError("Final rejected candidate issues.json exceeds its size limit")
+    typed_issues = _safe_typed_issue_document([(None, issues)])
+    if typed_issues is not None:
+        typed_raw = (
+            json.dumps(
+                {**metadata, _FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD: typed_issues},
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+        # The typed list is diagnostic; it never makes a valid bundle oversize.
+        if len(typed_raw) <= _FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES:
+            metadata_raw = typed_raw
 
     _secure_atomic_eval_write(
         resolved_destination,
@@ -31152,10 +32456,18 @@ def _load_initial_validation_retry_feedback(args: Any) -> tuple[str, ...]:
         ) from exc
     if (
         not isinstance(metadata, dict)
-        or set(metadata) != _FAILED_ENCODE_CANDIDATE_METADATA_FIELDS
+        or set(metadata) - {_FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD}
+        != _FAILED_ENCODE_CANDIDATE_METADATA_FIELDS
         or metadata.get("schema") != _FAILED_ENCODE_CANDIDATE_SCHEMA
     ):
         raise ValueError("preserved repair candidate issues.json has an invalid shape")
+    typed_issues = metadata.get(_FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD)
+    if typed_issues is not None and (
+        not isinstance(typed_issues, dict)
+        or typed_issues.get("schema") != VALIDATION_ISSUE_SCHEMA_VERSION
+        or not isinstance(typed_issues.get("issues"), list)
+    ):
+        raise ValueError("preserved repair candidate typed issues are invalid")
 
     expected_path = Path(getattr(args, "repair_candidate_path")).as_posix()
     expected_rulespec_sha256 = getattr(args, "repair_candidate_rulespec_sha256", None)
@@ -31189,7 +32501,9 @@ def _load_initial_validation_retry_feedback(args: Any) -> tuple[str, ...]:
         or any(not isinstance(issue, str) or not issue for issue in issues)
     ):
         raise ValueError("preserved repair candidate issues are invalid")
-    return _finite_validation_retry_issue_snapshot(issues)
+    return _finite_validation_retry_issue_snapshot(
+        issues_from_document(issues, typed_issues)
+    )
 
 
 def _validate_tests_only_repair_contract(
@@ -34907,6 +36221,7 @@ def _run_encode_attempts_with_retries(
                 prior_attempts=failed_attempts,
                 final_attempt_success=final_attempt_success,
                 final_attempt_error=final_attempt_error,
+                final_attempt_issues=execution.validation_issues,
             )
             print(f"  run_id={logged_run.id}")
         _stamp_encode_loop_timing(
@@ -34978,6 +36293,9 @@ def _run_encode_attempt(
         raise RuntimeError(
             "encode --apply requires its signing key to be isolated before generation"
         )
+    engine_ref = getattr(args, "axiom_rules_engine_ref", None)
+    if engine_ref is not None:
+        require_engine_ref_sha(engine_ref, description="axiom_rules_engine_ref")
     # Phases advance inside run_model_eval (model_call, stage_candidate,
     # candidate_validation, record_result) and below under --apply.
     mark_encode_phase(PHASE_PREPARE)
@@ -34999,6 +36317,9 @@ def _run_encode_attempt(
         args.axiom_rules_path,
         label="Axiom rules engine",
     )
+    if engine_ref is not None:
+        _pinned_apply_engine_binding(axiom_rules_path, engine_ref)
+
     policy_checkout_path = resolved_policy_checkout_path
     if policy_checkout_path is None:
         policy_checkout_path = _resolve_explicit_existing_directory(
@@ -35029,6 +36350,21 @@ def _run_encode_attempt(
         source_unit=source_unit,
         corpus_release=corpus_release,
     )
+    if replacement_target is None and is_rulemaking_source_identifier(
+        source_unit.requested
+    ):
+        singular_modules, other_citing_modules = _rulespec_modules_citing_source(
+            policy_repo_path,
+            source_unit.requested,
+            checkout_path=policy_checkout_path,
+        )
+        raise ValueError(
+            rulemaking_explicit_output_required_message(
+                source_unit.requested,
+                singular_modules,
+                other_citing_modules=other_citing_modules,
+            )
+        )
     if (
         replacement_target is not None
         and replacement_target.retired_source_admission is not None
@@ -35092,6 +36428,9 @@ def _run_encode_attempt(
             output_root=output_root,
             policy_repo_path=policy_repo_path,
             axiom_rules_path=axiom_rules_path,
+            **(
+                {"axiom_rules_engine_ref": engine_ref} if engine_ref is not None else {}
+            ),
             axiom_compose_path=axiom_compose_path,
             local_corpus_release=corpus_release,
             validate_dependents=validate_dependents,
@@ -35149,6 +36488,7 @@ def _run_encode_attempt(
         output_root=args.output,
         policy_path=policy_repo_path,
         runtime_axiom_rules_path=axiom_rules_path,
+        **({"axiom_rules_engine_ref": engine_ref} if engine_ref is not None else {}),
         axiom_compose_path=axiom_compose_path,
         corpus_release=corpus_release,
         mode=args.mode,
@@ -39049,6 +40389,10 @@ def _relative_output_to_child_corpus_citation_path(
     }.get(source_root)
     if corpus_source_root is None or not tail:
         return None
+    if source_root == "policies" and tail[0] == "rulemaking" and len(tail) >= 2:
+        # policies/rulemaking/ is the reserved output namespace for
+        # <jurisdiction>/rulemaking/... (Federal Register) sources.
+        return f"{jurisdiction}/rulemaking/{Path(*tail[1:]).as_posix()}"
     return f"{jurisdiction}/{corpus_source_root}/{Path(*tail).as_posix()}"
 
 
@@ -39395,6 +40739,43 @@ def _rule_mentions_assistance_group(rule: dict[str, Any]) -> bool:
     return "assistance_group" in haystack or "assistance group" in haystack
 
 
+def _embedded_scalar_record_is_selector_label(
+    rules: list[Any],
+    rule: dict[str, Any],
+    *,
+    literal: str,
+    expression: str,
+) -> bool:
+    """Whether the reported literal is, on that line, a selector's row label.
+
+    A selector's result labels a row of the tables it indexes. Lifted into a
+    named parameter it would claim a value the source never prints, and no
+    proof could ground it. The repair rewrites every occurrence of the literal
+    on the line, so one label occurrence is enough to leave the line alone; a
+    substantive twin of the label then stays reported instead of being lifted
+    together with it.
+    """
+    selector_table_keys = _rulespec_index_selector_keys(rules)
+    if not _is_structural_selector_rule(
+        rule,
+        index_selectors=_rulespec_index_selectors(rules, selector_table_keys),
+    ):
+        return False
+    selector_keys = selector_table_keys.get(str(rule.get("name") or "").strip())
+    return any(
+        _is_structural_selector_result_literal(
+            expression,
+            literal,
+            selector_keys,
+            span=match.span(),
+        )
+        for match in re.finditer(
+            rf"(?<![\w.]){re.escape(literal)}(?![\w.])",
+            expression,
+        )
+    )
+
+
 def _extract_embedded_scalar_literal_record(
     rules: list[Any],
     record: dict[str, str],
@@ -39412,6 +40793,10 @@ def _extract_embedded_scalar_literal_record(
             continue
         if str(rule.get("name") or "").strip() != rule_name:
             continue
+        if _embedded_scalar_record_is_selector_label(
+            rules, rule, literal=literal, expression=expression
+        ):
+            return None
         parameter_name = _embedded_scalar_parameter_name(
             rule_name,
             expression,
@@ -56590,6 +57975,74 @@ def _source_attestation_structure_issues(
     return issues
 
 
+def _rulespec_modules_citing_source(
+    policy_repo_path: Path,
+    citation: str,
+    *,
+    checkout_path: Path,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Checkout-relative primary modules under ``policies/`` that cite ``citation``.
+
+    Returns ``(singular, other)``. ``singular`` modules have this document as
+    their ``source_verification.corpus_citation_path``. ``other`` modules cite
+    the document in ``corpus_citation_paths``, or cite one of its pages (a
+    citation path under ``<document>/``), in either field. The lists make no
+    claim about which modules ``--replace-rulespec-path`` accepts; that flag
+    decides. Read-only and best effort: companions, unreadable and malformed
+    files are skipped, so the lists only help the operator pick the module to
+    re-encode.
+    """
+    try:
+        wanted = normalize_corpus_identifier(citation)
+    except CorpusResolutionError:
+        return (), ()
+    policies_root = policy_repo_path / "policies"
+    if not policies_root.is_dir():
+        return (), ()
+
+    def normalized(value: object) -> str | None:
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            return normalize_corpus_identifier(value)
+        except (CorpusResolutionError, ValueError):
+            return None
+
+    def names_document(cited: str | None) -> bool:
+        return cited is not None and (cited == wanted or cited.startswith(f"{wanted}/"))
+
+    singular_modules: list[str] = []
+    other: list[str] = []
+    for path in sorted(policies_root.rglob("*.yaml")):
+        if path.name.endswith(RULESPEC_TEST_FILE_SUFFIX) or not path.is_file():
+            continue
+        if path.stat().st_size > 10 * 1024 * 1024:
+            continue
+        try:
+            payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, yaml.YAMLError, RecursionError):
+            continue
+        module = payload.get("module") if isinstance(payload, dict) else None
+        verification = (
+            module.get("source_verification") if isinstance(module, dict) else None
+        )
+        if not isinstance(verification, dict):
+            continue
+        singular = normalized(verification.get("corpus_citation_path"))
+        plural_raw = verification.get("corpus_citation_paths")
+        plural = (
+            [normalized(item) for item in plural_raw]
+            if isinstance(plural_raw, list)
+            else []
+        )
+        relative = path.relative_to(checkout_path).as_posix()
+        if singular == wanted:
+            singular_modules.append(relative)
+        elif names_document(singular) or any(names_document(item) for item in plural):
+            other.append(relative)
+    return tuple(singular_modules), tuple(other)
+
+
 def _source_verification_citation_paths(
     source_verification: dict[str, object],
 ) -> tuple[str, ...]:
@@ -57118,12 +58571,37 @@ def _apply_policy_content_files(content_root: Path) -> dict[str, str]:
     return files
 
 
+def _pinned_apply_engine_binding(
+    axiom_rules_path: Path, engine_ref: str | None
+) -> dict[str, str] | None:
+    """Bind explicit apply validation to the verified engine's exact bytes."""
+    if engine_ref is None:
+        return None
+    pin = EnginePin(
+        sha=require_engine_ref_sha(engine_ref, description="axiom_rules_engine_ref"),
+        source=Path("<apply-validation>"),
+    )
+    checkout = _git_checkout_execution_identity(Path(axiom_rules_path))
+    if checkout.get("kind") != "git" or checkout.get("commit") != pin.sha:
+        raise EngineBindingError(
+            "Apply engine binding revision must match engine checkout HEAD: "
+            f"pin {pin.sha}, checkout {checkout.get('commit')!r}"
+        )
+    binary = resolve_pinned_engine_binary(Path(axiom_rules_path), pin)
+    return {
+        "ref": pin.sha,
+        "binary": str(binary.resolve()),
+        "sha256": _sha256_file(binary),
+    }
+
+
 def _apply_validation_execution_identity(
     *,
     axiom_rules_path: Path,
     policy_repo_path: Path,
     relative_output: Path,
     rulespec_dependency_roots: Sequence[Path],
+    axiom_rules_engine_ref: str | None = None,
 ) -> dict[str, object]:
     """Hash the engine and complete RuleSpec closure used by overlay validation."""
 
@@ -57131,7 +58609,9 @@ def _apply_validation_execution_identity(
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
     dependencies = _normalize_rulespec_dependency_roots(rulespec_dependency_roots)
     encoder = _apply_encoder_execution_identity()
+    binding = _pinned_apply_engine_binding(engine, axiom_rules_engine_ref)
     return {
+        **({"axiom_rules_engine_binding": binding} if binding is not None else {}),
         "axiom_encode_identity": encoder,
         "axiom_rules_path": str(engine),
         "axiom_rules_identity": _git_checkout_execution_identity(engine),
@@ -57563,6 +59043,12 @@ def _portable_apply_validation_execution_identity(
         label="Axiom rules engine",
         expected_repository="github.com/TheAxiomFoundation/axiom-rules-engine",
     )
+    binding_ref = _apply_snapshot_engine_ref(execution)
+    if binding_ref is not None and binding_ref != engine["commit"]:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: engine binding revision does not "
+            "match portable engine checkout commit"
+        )
 
     policy = execution.get("policy_root_identity")
     if not isinstance(policy, dict):
@@ -57947,10 +59433,23 @@ def _record_successful_apply_validation(
     supplemental_files: Mapping[Path, str],
     local_corpus_release: LocalCorpusRelease,
     axiom_rules_path: Path,
+    axiom_rules_engine_ref: str | None = None,
+    expected_engine_binding: Mapping[str, str] | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
 ) -> None:
     """Persist the exact successful overlay boundary on the in-memory result."""
 
+    execution = _apply_validation_execution_identity(
+        axiom_rules_path=axiom_rules_path,
+        policy_repo_path=policy_repo_path,
+        relative_output=relative_output,
+        rulespec_dependency_roots=rulespec_dependency_roots,
+        axiom_rules_engine_ref=axiom_rules_engine_ref,
+    )
+    if expected_engine_binding is not None and (
+        execution.get("axiom_rules_engine_binding") != expected_engine_binding
+    ):
+        raise RuntimeError("Engine binding changed during overlay validation")
     setattr(
         result,
         _APPLY_VALIDATION_SNAPSHOT_ATTR,
@@ -57961,14 +59460,28 @@ def _record_successful_apply_validation(
             relative_output=relative_output,
             supplemental_files=supplemental_files,
             local_corpus_release=local_corpus_release,
-            validation_execution_identity=_apply_validation_execution_identity(
-                axiom_rules_path=axiom_rules_path,
-                policy_repo_path=policy_repo_path,
-                relative_output=relative_output,
-                rulespec_dependency_roots=rulespec_dependency_roots,
-            ),
+            validation_execution_identity=execution,
         ),
     )
+
+
+def _apply_snapshot_engine_ref(execution: Mapping[str, object]) -> str | None:
+    """Read an optional explicit binding without accepting a malformed downgrade."""
+    if "axiom_rules_engine_binding" not in execution:
+        return None
+    binding = execution["axiom_rules_engine_binding"]
+    if (
+        not isinstance(binding, dict)
+        or set(binding) != {"ref", "binary", "sha256"}
+        or not isinstance(binding["ref"], str)
+        or re.fullmatch(r"[0-9a-f]{40}", binding["ref"]) is None
+        or not isinstance(binding["binary"], str)
+        or not Path(binding["binary"]).is_absolute()
+        or not isinstance(binding["sha256"], str)
+        or _SHA256_HEX_PATTERN.fullmatch(binding["sha256"]) is None
+    ):
+        raise RuntimeError("Apply validation snapshot has malformed engine binding")
+    return binding["ref"]
 
 
 def _require_unchanged_successful_apply_validation(
@@ -58008,6 +59521,7 @@ def _require_unchanged_successful_apply_validation(
         local_corpus_release=local_corpus_release,
         validation_execution_identity=_apply_validation_execution_identity(
             axiom_rules_path=Path(axiom_rules_path),
+            axiom_rules_engine_ref=_apply_snapshot_engine_ref(validation_execution),
             policy_repo_path=policy_repo_path,
             relative_output=relative_output,
             rulespec_dependency_roots=tuple(Path(path) for path in dependency_roots),
@@ -59875,6 +61389,7 @@ def _require_apply_post_install_closure(
 
     current_execution = _apply_validation_execution_identity(
         axiom_rules_path=Path(axiom_rules_path),
+        axiom_rules_engine_ref=_apply_snapshot_engine_ref(expected_execution),
         policy_repo_path=content_root,
         relative_output=relative_output,
         rulespec_dependency_roots=tuple(Path(path) for path in dependency_roots),
@@ -59883,6 +61398,7 @@ def _require_apply_post_install_closure(
         "axiom_encode_identity",
         "axiom_rules_path",
         "axiom_rules_identity",
+        "axiom_rules_engine_binding",
         "rulespec_dependency_roots",
         "rulespec_dependency_identities",
     ):
@@ -61062,6 +62578,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     output_root: Path,
     policy_repo_path: Path,
     axiom_rules_path: Path,
+    axiom_rules_engine_ref: str | None = None,
     axiom_compose_path: Path | None = None,
     local_corpus_release: LocalCorpusRelease,
     validate_dependents: bool = True,
@@ -61072,10 +62589,105 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     amendment_source_texts: Mapping[str, str] | None = None,
     amendment_documents: Sequence[object] = (),
     retired_source_admission: dict[str, Any] | None = None,
+    validation_observer: Callable[[Sequence[tuple[Path, object]]], None] | None = None,
 ) -> tuple[bool, list[str], dict[Path, str]]:
-    """Validate generated artifacts in a temporary policy-repo overlay."""
+    """Validate and bind the successful overlay for the signed apply transaction.
+
+    The candidate check is shared with the admission scorer; only this entry
+    point records the apply validation snapshot, at the point it always has.
+    """
+
+    return _validate_generated_encoding_candidate_in_policy_overlay_with_release(
+        result,
+        output_root=output_root,
+        policy_repo_path=policy_repo_path,
+        axiom_rules_path=axiom_rules_path,
+        axiom_rules_engine_ref=axiom_rules_engine_ref,
+        axiom_compose_path=axiom_compose_path,
+        local_corpus_release=local_corpus_release,
+        validate_dependents=validate_dependents,
+        scheduled_dependent_rulespec_paths=scheduled_dependent_rulespec_paths,
+        rulespec_dependency_roots=rulespec_dependency_roots,
+        require_complete_source_unit=require_complete_source_unit,
+        deferred_output_review_contract=deferred_output_review_contract,
+        amendment_source_texts=amendment_source_texts,
+        amendment_documents=amendment_documents,
+        retired_source_admission=retired_source_admission,
+        validation_observer=validation_observer,
+        record_apply_snapshot=True,
+    )
+
+
+def _generated_artifact_guard_issue(
+    output_file: Path,
+    output_test: Path,
+    relative_output: Path,
+    generated_root: Path,
+) -> str | None:
+    """Why an artifact this generation wrote cannot be rewritten safely, if so.
+
+    Each artifact that is present must be a regular file with one name, inside
+    the generation output root. The checks stat paths and never open them.
+    """
+
+    for artifact in (output_file, output_test):
+        if not artifact.is_symlink() and not artifact.exists():
+            continue
+        if artifact.is_symlink() or not artifact.is_file():
+            return (
+                f"{relative_output}: generated artifact must be a regular "
+                f"file, not a link: {artifact.name}"
+            )
+        if _generated_artifact_is_multiply_linked(artifact):
+            return (
+                f"{relative_output}: generated artifact shares its bytes "
+                f"with another name (hard link); refusing to rewrite it: "
+                f"{artifact.name}"
+            )
+        if not _generated_artifact_is_contained_in(artifact, generated_root):
+            return (
+                f"{relative_output}: generated artifact resolves outside "
+                f"the generation output root: {artifact.name}"
+            )
+    return None
+
+
+def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    axiom_rules_path: Path,
+    axiom_rules_engine_ref: str | None = None,
+    axiom_compose_path: Path | None = None,
+    local_corpus_release: LocalCorpusRelease,
+    validate_dependents: bool = True,
+    scheduled_dependent_rulespec_paths: Sequence[Path] = (),
+    rulespec_dependency_roots: Sequence[Path] = (),
+    require_complete_source_unit: bool = False,
+    deferred_output_review_contract: _DeferredOutputReviewContract | None = None,
+    amendment_source_texts: Mapping[str, str] | None = None,
+    amendment_documents: Sequence[object] = (),
+    retired_source_admission: dict[str, Any] | None = None,
+    validation_observer: Callable[[Sequence[tuple[Path, object]]], None] | None = None,
+    normalize_staging_paths: bool = False,
+    record_apply_snapshot: bool = False,
+) -> tuple[bool, list[str], dict[Path, str]]:
+    """Validate generated artifacts in a temporary policy-repo overlay.
+
+    ``normalize_staging_paths`` replaces the temporary overlay root in the
+    returned issues with a fixed placeholder. The signed apply path leaves it
+    off, so its diagnostics (which also feed retry feedback) are unchanged;
+    the admission scorer turns it on so that its output is deterministic.
+
+    ``record_apply_snapshot`` records the signed apply transaction's
+    validation snapshot on success. Only the apply entry point sets it.
+    """
     amendment_documents = copy.deepcopy(tuple(amendment_documents))
     setattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
+    expected_engine_binding = _pinned_apply_engine_binding(
+        axiom_rules_path, axiom_rules_engine_ref
+    )
     legacy_replacement = _result_legacy_replacement_contract(result)
     replacement_overlay_scope = _result_replacement_overlay_scope(result)
     if legacy_replacement is not None and not isinstance(
@@ -61122,37 +62734,11 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     # changed.
     generated_root = Path(output_root) / str(getattr(result, "runner", "") or "")
     output_test = _rulespec_test_path(output_file)
-    for artifact in (output_file, output_test):
-        if not artifact.is_symlink() and not artifact.exists():
-            continue
-        if artifact.is_symlink() or not artifact.is_file():
-            return (
-                False,
-                [
-                    f"{relative_output}: generated artifact must be a regular "
-                    f"file, not a link: {artifact.name}"
-                ],
-                {},
-            )
-        if _generated_artifact_is_multiply_linked(artifact):
-            return (
-                False,
-                [
-                    f"{relative_output}: generated artifact shares its bytes "
-                    f"with another name (hard link); refusing to rewrite it: "
-                    f"{artifact.name}"
-                ],
-                {},
-            )
-        if not _generated_artifact_is_contained_in(artifact, generated_root):
-            return (
-                False,
-                [
-                    f"{relative_output}: generated artifact resolves outside "
-                    f"the generation output root: {artifact.name}"
-                ],
-                {},
-            )
+    artifact_issue = _generated_artifact_guard_issue(
+        output_file, output_test, relative_output, generated_root
+    )
+    if artifact_issue is not None:
+        return False, [artifact_issue], {}
     if vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None:
         _rewrite_generated_yaml_without_non_ascii_escapes(
             output_file,
@@ -61166,12 +62752,36 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
 
     generated_content = output_file.read_text()
     if retired_source_admission is not None:
-        from .legacy_external_parameters import external_parameter_preservation_issues
+        from .legacy_external_parameters import (
+            carry_forward_external_proved_rules,
+            external_parameter_preservation_issues,
+        )
 
         try:
             generated_payload = _safe_load_unique_keys(generated_content)
         except (yaml.YAMLError, ValueError) as exc:
             return False, [f"Invalid replacement YAML: {exc}"], {}
+        if vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None:
+            try:
+                carried = carry_forward_external_proved_rules(
+                    generated_payload, retired_source_admission
+                )
+                if carried:
+                    generated_content = safe_dump_yaml(
+                        generated_payload, sort_keys=False, allow_unicode=True
+                    )
+                    output_file.write_text(generated_content)
+            except (yaml.YAMLError, ValueError) as exc:
+                return False, [f"Invalid external-rule carry-forward: {exc}"], {}
+            if carried:
+                artifact_issue = _generated_artifact_guard_issue(
+                    output_file, output_test, relative_output, generated_root
+                )
+                if artifact_issue is not None:
+                    return False, [artifact_issue], {}
+                print(
+                    "apply=carried_forward_external_proved_rules:" + ",".join(carried)
+                )
         preservation_issues = external_parameter_preservation_issues(
             generated_payload, retired_source_admission
         )
@@ -61273,6 +62883,14 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
         policy_checkout_path = _rulespec_apply_checkout_root(
             policy_repo_path,
             relative_output,
+        )
+        execution_git_origin = (
+            capture_execution_git_origin(policy_content_root)
+            if require_complete_source_unit
+            and legacy_replacement is None
+            and not replacement_overlay_scope
+            and not rulespec_dependency_roots
+            else None
         )
         overlay_repo_name = policy_checkout_path.name
         staged_dependency_roots = _stage_apply_overlay_dependency_roots(
@@ -61395,7 +63013,17 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
 
         pipeline = ValidatorPipeline(
             policy_repo_path=overlay_content_root,
+            execution_overlay_origin=(
+                bind_execution_overlay_origin(
+                    execution_git_origin, overlay_content_root
+                )
+                if legacy_replacement is None
+                and not replacement_overlay_scope
+                and not staged_dependency_roots
+                else None
+            ),
             axiom_rules_path=axiom_rules_path,
+            axiom_rules_engine_ref=axiom_rules_engine_ref,
             axiom_compose_path=axiom_compose_path,
             enable_oracles=False,
             require_policy_proofs=True,
@@ -61430,6 +63058,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 overlay_pipeline=ValidatorPipeline(
                     policy_repo_path=overlay_content_root,
                     axiom_rules_path=axiom_rules_path,
+                    axiom_rules_engine_ref=axiom_rules_engine_ref,
                     axiom_compose_path=axiom_compose_path,
                     enable_oracles=False,
                     enforce_repository_layout=False,
@@ -61439,6 +63068,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 baseline_pipeline=ValidatorPipeline(
                     policy_repo_path=policy_content_root,
                     axiom_rules_path=axiom_rules_path,
+                    axiom_rules_engine_ref=axiom_rules_engine_ref,
                     axiom_compose_path=axiom_compose_path,
                     enable_oracles=False,
                     enforce_repository_layout=False,
@@ -61465,6 +63095,8 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             dependents=dependents,
         )
         for _ in range(_APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT):
+            if validation_observer is not None:
+                validation_observer(validations)
             if all(validation.all_passed for _, validation in validations):
                 exact_relative_paths = {
                     Path(*item.path.parts[1:])
@@ -61609,16 +63241,21 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                                 final_timing_issues,
                                 {},
                             )
-                    _record_successful_apply_validation(
-                        result,
-                        output_root=output_root,
-                        policy_repo_path=policy_repo_path,
-                        relative_output=relative_output,
-                        supplemental_files=supplemental_files,
-                        local_corpus_release=local_corpus_release,
-                        axiom_rules_path=axiom_rules_path,
-                        rulespec_dependency_roots=rulespec_dependency_roots,
-                    )
+                    if validation_observer is not None:
+                        validation_observer(validations)
+                    if record_apply_snapshot:
+                        _record_successful_apply_validation(
+                            result,
+                            output_root=output_root,
+                            policy_repo_path=policy_repo_path,
+                            relative_output=relative_output,
+                            supplemental_files=supplemental_files,
+                            local_corpus_release=local_corpus_release,
+                            axiom_rules_path=axiom_rules_path,
+                            axiom_rules_engine_ref=axiom_rules_engine_ref,
+                            expected_engine_binding=expected_engine_binding,
+                            rulespec_dependency_roots=rulespec_dependency_roots,
+                        )
                     return True, [], supplemental_files
             target_validation = next(
                 (
@@ -61974,6 +63611,8 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 overlay_target=overlay_target,
                 dependents=dependents,
             )
+        if validation_observer is not None:
+            validation_observer(validations)
         issues: list[str] = []
         for validated_file, validation in validations:
             if getattr(validation, "all_passed", False):
@@ -62004,6 +63643,15 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 + relative_output.as_posix(),
             )
         )
+        if normalize_staging_paths:
+            from .harness.validator_pipeline import (
+                _normalize_validation_staging_text,
+            )
+
+            issues = [
+                _normalize_validation_staging_text(issue, overlay_parent)
+                for issue in issues
+            ]
         return False, issues, {}
 
 
@@ -62023,7 +63671,7 @@ def _full_overlay_validator_issues(
         else ()
     )
     issues = tuple(
-        f"{prefix}{raw_issue}"
+        retype(raw_issue, f"{prefix}{raw_issue}")
         for raw_issue in candidates
         if isinstance(raw_issue, str) and raw_issue
     )
@@ -62046,6 +63694,7 @@ def _run_generated_encoding_overlay_validation(
     output_root: Path,
     policy_repo_path: Path,
     axiom_rules_path: Path,
+    axiom_rules_engine_ref: str | None = None,
     axiom_compose_path: Path | None = None,
     local_corpus_release: LocalCorpusRelease,
     validate_dependents: bool = True,
@@ -62064,6 +63713,11 @@ def _run_generated_encoding_overlay_validation(
         output_root=output_root,
         policy_repo_path=policy_repo_path,
         axiom_rules_path=axiom_rules_path,
+        **(
+            {"axiom_rules_engine_ref": axiom_rules_engine_ref}
+            if axiom_rules_engine_ref is not None
+            else {}
+        ),
         axiom_compose_path=axiom_compose_path,
         local_corpus_release=local_corpus_release,
         validate_dependents=validate_dependents,
@@ -65900,8 +67554,15 @@ def _log_eval_result(
     prior_attempts: Sequence[_FailedEncodeAttempt] = (),
     final_attempt_success: bool | None = None,
     final_attempt_error: str | None = None,
+    final_attempt_issues: Sequence[str] = (),
 ) -> EncodingRun:
-    """Persist an eval-backed encode run in the local run history DB."""
+    """Persist an eval-backed encode run in the local run history DB.
+
+    ``final_attempt_issues`` are the final candidate's full validation issues
+    when the caller has them. When they hold issues the eval metrics miss (an
+    overlay rejection), they replace the metrics' issues in the final try, as
+    in the outcome telemetry; otherwise the metrics keep their gate labels.
+    """
     rulespec_content = _read_optional_text(getattr(result, "output_file", ""))
     source_text = _read_eval_source_text(getattr(result, "context_manifest_file", ""))
     iterations: list[Iteration] = []
@@ -65914,6 +67575,9 @@ def _log_eval_result(
                     IterationError(
                         error_type="validation",
                         message=failed_attempt.error,
+                        issue_document=_safe_typed_issue_document(
+                            [(None, failed_attempt.full_validation_issues)]
+                        ),
                     )
                 ],
                 success=False,
@@ -65928,10 +67592,26 @@ def _log_eval_result(
         final_error = final_attempt_error
     final_errors = []
     if isinstance(final_error, str) and final_error:
+        final_metrics = getattr(result, "metrics", None)
+        final_issue_groups: list[tuple[str | None, Sequence[str]]] = []
+        if not resolved_final_success:
+            if final_metrics is not None:
+                final_issue_groups = _eval_metric_issue_groups(final_metrics)
+            metric_messages = {
+                str(issue) for _gate, issues in final_issue_groups for issue in issues
+            }
+            if any(str(issue) not in metric_messages for issue in final_attempt_issues):
+                # An overlay rejection: its issues are the try's verdict.
+                final_issue_groups = [(None, final_attempt_issues)]
         final_errors.append(
             IterationError(
                 error_type="validation",
                 message=final_error,
+                issue_document=(
+                    _safe_typed_issue_document(final_issue_groups)
+                    if final_issue_groups
+                    else None
+                ),
             )
         )
     iterations.append(
@@ -66092,22 +67772,37 @@ def _initial_encode_outcome(result, *, apply_requested: bool) -> dict:
     metrics = getattr(result, "metrics", None)
     if metrics is not None and not standalone_success:
         try:
-            labeled_issues = [
-                (gate, issues)
-                for gate, attribute in (
-                    ("compile", "compile_issues"),
-                    ("ci", "ci_issues"),
-                    ("numeric_occurrence", "numeric_occurrence_issues"),
-                    ("generalist_review", "generalist_review_issues"),
-                    ("policyengine", "policyengine_issues"),
-                    ("taxsim", "taxsim_issues"),
-                )
-                if (issues := getattr(metrics, attribute, None))
-            ]
+            labeled_issues = _eval_metric_issue_groups(metrics)
             outcome.update(summarize_validation_failures(labeled_issues))
         except Exception:
             outcome["validation_failure_counts"] = {"telemetry:error": 1}
     return outcome
+
+
+def _safe_typed_issue_document(
+    labeled_issues: Sequence[tuple[str | None, Sequence[str]]],
+) -> dict[str, Any] | None:
+    """The typed issue document, or ``None``; telemetry never fails a run log."""
+    try:
+        return typed_issue_document(labeled_issues)
+    except Exception:
+        return None
+
+
+def _eval_metric_issue_groups(metrics: Any) -> list[tuple[str, Sequence[str]]]:
+    """The non-empty ``(gate, issues)`` lists of one attempt's metrics."""
+    return [
+        (gate, issues)
+        for gate, attribute in (
+            ("compile", "compile_issues"),
+            ("ci", "ci_issues"),
+            ("numeric_occurrence", "numeric_occurrence_issues"),
+            ("generalist_review", "generalist_review_issues"),
+            ("policyengine", "policyengine_issues"),
+            ("taxsim", "taxsim_issues"),
+        )
+        if (issues := getattr(metrics, attribute, None))
+    ]
 
 
 def _replace_overlay_validation_failures(outcome: dict, issues: Sequence[str]) -> None:
@@ -66120,6 +67815,7 @@ def _replace_overlay_validation_failures(outcome: dict, issues: Sequence[str]) -
         "validation_failures",
         "validation_failures_truncated",
         "validation_failure_counts",
+        "validation_issues",
     ):
         outcome.pop(key, None)
     try:
@@ -66326,6 +68022,19 @@ def _read_eval_source_text(context_manifest_file) -> str | None:
     return source_text or None
 
 
+def _generalist_reviewer_failed_without_score(metrics) -> bool:
+    """Return true when the generalist reviewer ran but produced no score.
+
+    A skipped reviewer records a pass with no score. A reviewer that could not
+    start, exited non-zero, or returned unparseable output records a failure
+    with no score; that must be reported, not dropped.
+    """
+    return (
+        getattr(metrics, "generalist_review_pass", None) is False
+        and getattr(metrics, "generalist_review_score", None) is None
+    )
+
+
 def _review_results_from_eval_metrics(metrics) -> ReviewResults | None:
     if metrics is None:
         return None
@@ -66369,6 +68078,17 @@ def _review_results_from_eval_metrics(metrics) -> ReviewResults | None:
                 important_issues=list(metrics.generalist_review_issues or []),
             )
         )
+    elif _generalist_reviewer_failed_without_score(metrics):
+        reviews.append(
+            ReviewResult(
+                reviewer="integration_reviewer",
+                passed=False,
+                items_checked=10,
+                items_passed=0,
+                critical_issues=list(metrics.generalist_review_issues or [])
+                or ["Reviewer error: generalist reviewer returned no score"],
+            )
+        )
 
     return ReviewResults(
         reviews=reviews,
@@ -66396,6 +68116,15 @@ def _print_eval_metrics(result) -> None:
     if result.metrics.generalist_review_score is not None:
         print(
             f"  generalist_review={'yes' if result.metrics.generalist_review_pass else 'no'} score={result.metrics.generalist_review_score:.1f}/10"
+        )
+    elif _generalist_reviewer_failed_without_score(result.metrics):
+        reviewer_issues = list(result.metrics.generalist_review_issues or [])
+        detail = reviewer_issues[0] if reviewer_issues else "no score returned"
+        print(f"  generalist_review=error {detail[:300]}")
+        print(
+            "WARNING: the generalist reviewer did not produce a review; "
+            "this candidate was not reviewed.",
+            file=sys.stderr,
         )
     if result.metrics.policyengine_score is not None:
         print(
@@ -66762,6 +68491,8 @@ def _load_verified_eval_suite_artifacts(
     policyengine_runtime: PolicyEngineRuntime | None = None,
     revalidate_persisted_results: bool = True,
     suite_retry_attempts: int | None = None,
+    admission_score: bool | None = None,
+    axiom_compose_path: Path | None = None,
 ) -> dict[str, object]:
     """Load one suite output only after the harness validates every identity."""
 
@@ -66786,14 +68517,17 @@ def _load_verified_eval_suite_artifacts(
         max_bytes=256 * 1024 * 1024,
         required=False,
     )
-    if suite_retry_attempts is None:
+    if suite_retry_attempts is None or admission_score is None:
         try:
             persisted_run_state = json.loads((state_raw_before or b"").decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("suite-run.json is malformed") from exc
         if not isinstance(persisted_run_state, dict):
             raise ValueError("suite-run.json must contain a JSON object")
-        if persisted_run_state.get("status") != "completed":
+        if (
+            suite_retry_attempts is None
+            and persisted_run_state.get("status") != "completed"
+        ):
             raise ValueError(
                 "Incomplete eval-suite verification requires the current "
                 "suite_retry_attempts"
@@ -66809,10 +68543,20 @@ def _load_verified_eval_suite_artifacts(
             raise ValueError(
                 "suite-run.json has an inconsistent execution identity digest"
             )
-        suite_retry_attempts = _suite_retry_attempts_from_execution_identity(
-            persisted_identity,
-            artifact_name="suite-run.json execution identity",
-        )
+        if suite_retry_attempts is None:
+            suite_retry_attempts = _suite_retry_attempts_from_execution_identity(
+                persisted_identity,
+                artifact_name="suite-run.json execution identity",
+            )
+        if admission_score is None:
+            scoring_options = persisted_identity.get("admission_score")
+            admission_score = isinstance(scoring_options, dict) and (
+                scoring_options.get("enabled") is True
+            )
+            if admission_score and axiom_compose_path is None:
+                compose_identity = scoring_options.get("axiom_compose")
+                if isinstance(compose_identity, dict):
+                    axiom_compose_path = Path(compose_identity["path"])
     manifest_identity = _build_eval_suite_manifest_identity(manifest)
     rulespec_roots = _eval_suite_rulespec_roots(manifest, policy_repo_path)
     policyengine_cases = [
@@ -66835,6 +68579,14 @@ def _load_verified_eval_suite_artifacts(
         rulespec_roots,
         policyengine_runtime=policyengine_runtime if policyengine_cases else None,
         suite_retry_attempts=suite_retry_attempts,
+        **(
+            {
+                "admission_score": True,
+                "axiom_compose_path": axiom_compose_path,
+            }
+            if admission_score
+            else {}
+        ),
     )
     _run_id, _started_at, results, completed_case_indexes = (
         _load_eval_suite_resume_state(
@@ -67405,6 +69157,14 @@ def cmd_eval_suite(args):
                 corpus_release=corpus_release,
                 policyengine_runtime=policyengine_runtime,
                 resume_existing=resume_existing,
+                **(
+                    {
+                        "admission_score": True,
+                        "axiom_compose_path": getattr(args, "axiom_compose_path", None),
+                    }
+                    if getattr(args, "admission_score", False)
+                    else {}
+                ),
             )
         except KeyboardInterrupt:
             raise
@@ -67453,6 +69213,14 @@ def cmd_eval_suite(args):
             policyengine_runtime=policyengine_runtime,
             require_complete=False,
             suite_retry_attempts=_DEFAULT_SUITE_RETRY_ATTEMPTS,
+            admission_score=getattr(args, "admission_score", False),
+            **(
+                {
+                    "axiom_compose_path": getattr(args, "axiom_compose_path", None),
+                }
+                if getattr(args, "admission_score", False)
+                else {}
+            ),
         )
     except ValueError as exc:
         print(str(exc))
