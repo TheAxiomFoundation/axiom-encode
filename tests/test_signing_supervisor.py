@@ -5068,6 +5068,15 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     assert "commits/$HEAD_SHA/check-runs?per_page=100" in command
     assert "commits/$rulespec_ref/check-runs?per_page=100" in command
     assert '--previous-queue "$RUNNER_TEMP/previous-snap-queue.json"' in command
+    # A merge queue on main merges later, so the step waits for the merge and
+    # fails when the queue drops the pull request (axiom-encode#2048).
+    assert merge["jobs"]["merge"]["timeout-minutes"] >= 100
+    assert "--delete-branch" not in command
+    assert "isInMergeQueue" in command
+    assert "the merge queue removed the activation pull request" in command
+    assert command.index("merged_at != null") < command.index(
+        '.merged_by.login == "github-actions[bot]"'
+    )
     assert '--expected-base-sha "$BASE_SHA"' in command
     assert "git/ref/heads/$pr_base_branch" in command
     assert '--match-head-commit "$HEAD_SHA"' in command

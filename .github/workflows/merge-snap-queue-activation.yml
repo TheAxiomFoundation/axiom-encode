@@ -36,7 +36,9 @@ jobs:
         && github.run_attempt == 1
       }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Long enough for the merge queue's CI run (about 20 minutes) behind a
+    # few queued pull requests.
+    timeout-minutes: 120
     steps:
       - name: Resolve exact reviewed pull request head
         id: pull
@@ -65,6 +67,8 @@ jobs:
             >> "$GITHUB_OUTPUT"
           echo "base_sha=$(jq -r '.base.sha' "$RUNNER_TEMP/activation-pr.json")" \
             >> "$GITHUB_OUTPUT"
+          echo "head_ref=$(jq -r '.head.ref' "$RUNNER_TEMP/activation-pr.json")" \
+            >> "$GITHUB_OUTPUT"
 
       - name: Checkout trusted pull request base
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -78,6 +82,7 @@ jobs:
         env:
           BASE_SHA: ${{ steps.pull.outputs.base_sha }}
           GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ steps.pull.outputs.head_ref }}
           HEAD_SHA: ${{ steps.pull.outputs.head_sha }}
           PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
           QUEUE_ID: ${{ inputs.queue_id }}
@@ -196,16 +201,64 @@ jobs:
             --header "X-GitHub-Api-Version: $api_version" \
             "repos/TheAxiomFoundation/rulespec-us/git/ref/heads/$pr_base_branch" \
             --jq '.object.sha')" = "$rulespec_ref"
+          # With a merge queue on main, this adds the pull request to the
+          # queue (still bound to HEAD_SHA) and GitHub merges it after the
+          # queue's CI passes; without one it merges at once. Either way the
+          # merger is recorded as this workflow's token, which the check
+          # below and verify-merge-authorization require.
           gh pr merge "$PULL_REQUEST_NUMBER" \
             --repo "$GITHUB_REPOSITORY" \
             --merge \
-            --match-head-commit "$HEAD_SHA" \
-            --delete-branch
-          gh api \
-            --header "Accept: application/vnd.github+json" \
-            --header "X-GitHub-Api-Version: $api_version" \
-            "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST_NUMBER" \
-            > "$RUNNER_TEMP/merged-activation-pr.json"
+            --match-head-commit "$HEAD_SHA"
+          merged=false
+          for _ in $(seq 1 180); do
+            gh api \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: $api_version" \
+              "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST_NUMBER" \
+              > "$RUNNER_TEMP/merged-activation-pr.json"
+            if jq -e '.merged_at != null' \
+              "$RUNNER_TEMP/merged-activation-pr.json" > /dev/null; then
+              merged=true
+              break
+            fi
+            if ! jq -e '.state == "open"' \
+              "$RUNNER_TEMP/merged-activation-pr.json" > /dev/null; then
+              echo "activation pull request closed without a merge" >&2
+              exit 1
+            fi
+            in_queue="$(gh api graphql \
+              -F owner="${GITHUB_REPOSITORY%/*}" \
+              -F name="${GITHUB_REPOSITORY#*/}" \
+              -F number="$PULL_REQUEST_NUMBER" \
+              -f query='query($owner: String!, $name: String!, $number: Int!) {
+                repository(owner: $owner, name: $name) {
+                  pullRequest(number: $number) { isInMergeQueue }
+                }
+              }' \
+              --jq '.data.repository.pullRequest.isInMergeQueue')"
+            if [ "$in_queue" != "true" ]; then
+              # The queue may have merged it just after the read above.
+              sleep 10
+              gh api \
+                --header "Accept: application/vnd.github+json" \
+                --header "X-GitHub-Api-Version: $api_version" \
+                "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST_NUMBER" \
+                > "$RUNNER_TEMP/merged-activation-pr.json"
+              if jq -e '.merged_at != null' \
+                "$RUNNER_TEMP/merged-activation-pr.json" > /dev/null; then
+                merged=true
+                break
+              fi
+              echo "the merge queue removed the activation pull request" >&2
+              exit 1
+            fi
+            sleep 30
+          done
+          if [ "$merged" != "true" ]; then
+            echo "activation pull request did not merge within 90 minutes" >&2
+            exit 1
+          fi
           merge_commit="$(jq -er '
             select(
               .state == "closed"
@@ -219,6 +272,13 @@ jobs:
             echo "trusted activation merge commit is unavailable" >&2
             exit 1
           fi
+          # gh cannot delete the branch of a queued pull request, so delete
+          # it here. A failed delete leaves a stale branch, not a bad merge.
+          gh api -X DELETE \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            "repos/$GITHUB_REPOSITORY/git/refs/heads/$HEAD_REF" \
+            || echo "::warning::could not delete branch $HEAD_REF"
           git fetch --no-tags origin main
           git merge-base --is-ancestor "$merge_commit" refs/remotes/origin/main
           queue_change_sha="$(git log --first-parent -1 --format=%H \
