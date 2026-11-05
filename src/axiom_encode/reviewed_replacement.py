@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path, PurePosixPath
 
@@ -43,8 +44,11 @@ def _git(repo: Path, *args: str) -> bytes:
         GIT_LITERAL_PATHSPECS="1",
         GIT_OPTIONAL_LOCKS="0",
     )
+    executable = shutil.which("git", path=environment.get("PATH") or None)
+    if executable is None:
+        raise ValueError("replacement inventory requires Git")
     return subprocess.run(
-        ["git", "-C", str(repo), *args],
+        [executable, "-C", str(repo), *args],
         check=True,
         capture_output=True,
         timeout=60,
