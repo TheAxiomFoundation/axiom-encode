@@ -48,6 +48,10 @@ from axiom_encode.bound_form_structure import (
     printed_form_header_condition_span,
     recognize_bound_form_structure,
 )
+from axiom_encode.bound_schedule_structure import (
+    BoundScheduleStructure,
+    recognize_bound_schedule_structure,
+)
 from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check
 from axiom_encode.form_numeric_structure import form_numeric_locator_spans
 from axiom_encode.form_source_structure import mask_form_display
@@ -56,6 +60,8 @@ from axiom_encode.harness.bound_form_operands import (
     bind_ordered_form,
     observed_form_frame,
 )
+from axiom_encode.harness.bound_schedule_execution import observe_schedule
+from axiom_encode.harness.bound_schedule_operands import ScheduleBinding, bind_schedule
 from axiom_encode.harness.imported_export_evidence import ResolvedImportedExport
 from axiom_encode.harness.manual_locator_metadata import (
     MANUAL_CONTENTS_HEADINGS,
@@ -5858,6 +5864,7 @@ def _analyze_rulespec_payload(
         for rule in payload.get("rules", [])
         if isinstance(rule, dict) and str(rule.get("name") or "").strip()
     }
+    execution_test_cases = test_cases
     test_cases = _typed_numeric_expected_cases(test_cases, named_rules)
     test_cases = _typed_date_cases(test_cases, payload)
     deferred_clauses: list[SourceStructureBranch] = []
@@ -5950,6 +5957,9 @@ def _analyze_rulespec_payload(
         certified_country=certified_country,
         repayment_alternatives=repayment_alternatives,
         test_cases=test_cases,
+        execution_evidence=execution_evidence,
+        source_context=source_context,
+        execution_test_cases=execution_test_cases,
     )
     issues.extend(source_condition_issues)
     from axiom_encode.harness.worksheet_operation_evidence import (
@@ -6211,7 +6221,11 @@ def _analyze_rulespec_payload(
 
     bound_form = _unconflicted_bound_form(source_text, branches, corpus_citation_path)
     represented_form_spans = (
-        {bound_form.table.column_count_span, bound_form.table.entry_count_span}
+        (
+            {bound_form.column_count_span, bound_form.entry_count_span}
+            if isinstance(bound_form, BoundScheduleStructure)
+            else {bound_form.table.column_count_span, bound_form.table.entry_count_span}
+        )
         if bound_form is not None
         else set()
     )
@@ -6249,6 +6263,7 @@ def _analyze_rulespec_payload(
         companion_issues.extend(
             _companion_test_issues(
                 principal_rules,
+                execution_test_cases=execution_test_cases,
                 execution_evidence=execution_evidence,
                 referral_context=referral_context,
                 floor_imported_exports=imported_export_bindings,
@@ -6314,15 +6329,36 @@ def _analyze_rulespec_payload(
             getattr(issue, "check", None) == CHECK_TESTS_FORMULA_BRANCH_UNWITNESSED.id
             for issue in companion_issues
         )
-        and observed_form_frame(
-            printed_operations.ordered_binding, execution_evidence, content, test_cases
+        and (
+            observe_schedule(
+                printed_operations.ordered_binding,
+                execution_evidence,
+                content,
+                execution_test_cases,
+            )
+            is not None
+            if isinstance(printed_operations.ordered_binding, ScheduleBinding)
+            else observed_form_frame(
+                printed_operations.ordered_binding,
+                execution_evidence,
+                content,
+                test_cases,
+            )
         )
     ):
         # Header ownership is numeric only, after ordinary row witnesses and
         # one actual complete selected-frame observation. Conditions stay raw.
         represented_form_spans.add(
-            printed_operations.ordered_binding.form.header.year_span
+            printed_operations.ordered_binding.form.header_year_span
+            if isinstance(printed_operations.ordered_binding, ScheduleBinding)
+            else printed_operations.ordered_binding.form.header.year_span
         )
+        if isinstance(printed_operations.ordered_binding, ScheduleBinding):
+            wrapper_year = printed_operations.ordered_binding.form.wrapper_year_span
+            if wrapper_year is not None:
+                # The exact title wrapper repeats the physical header year;
+                # source re-binding and complete observed frame prove both.
+                represented_form_spans.add(wrapper_year)
 
     numeric_recall_text = authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path
@@ -19592,10 +19628,42 @@ def _opaque_same_source_condition_input_issues(
     certified_country: Any = None,
     repayment_alternatives: RepaymentAlternativeCoverage | None = None,
     test_cases: Sequence[object] | None = None,
+    execution_evidence: SameCaseEvidence | None = None,
+    source_context: Mapping[str, str | None] | None = None,
+    execution_test_cases: Sequence[object] | None = None,
 ) -> list[str]:
     """Reject terminal selectors that collapse explicit same-source fact gates."""
 
     inputs = payload.get("inputs")
+    schedule_binding = None
+    raw_schedule = (source_context or {}).get(corpus_citation_path)
+    if (
+        consumer_content is not None
+        and execution_evidence is not None
+        and isinstance(raw_schedule, str)
+        and raw_schedule.rstrip() == source_text
+    ):
+        schedule = recognize_bound_schedule_structure(
+            raw_schedule, corpus_citation_path
+        )
+        candidate = (
+            bind_schedule(
+                schedule,
+                consumer_content,
+                source_context or {},
+                root_relative=execution_evidence.root_relative,
+            )
+            if schedule is not None
+            else None
+        )
+        if (
+            candidate is not None
+            and observe_schedule(
+                candidate, execution_evidence, consumer_content, execution_test_cases
+            )
+            is not None
+        ):
+            schedule_binding = candidate
     declared_inputs = {
         str(item.get("name") or "").strip()
         for item in inputs or ()
@@ -19676,10 +19744,34 @@ def _opaque_same_source_condition_input_issues(
     ) -> tuple[frozenset[str], ...]:
         key = (formula, include_result_leaves)
         if key not in selector_cache:
-            selector_cache[key] = _formula_control_selector_name_groups(
+            groups = _formula_control_selector_name_groups(
                 formula,
                 include_result_leaves=include_result_leaves,
             )
+            # Exact reserved names in scalar comparison operands are engine
+            # context, never caller facts. Bare Judgment names have different
+            # lowering semantics; mixed/unsupported positions remain closed.
+            expression = _parse_formula_expression(formula)
+            context_names: set[str] = set()
+            if expression is not None:
+                scalar_nodes = {
+                    id(operand)
+                    for node in ast.walk(expression)
+                    if isinstance(node, ast.Compare)
+                    for operand in (node.left, *node.comparators)
+                    if isinstance(operand, ast.Name)
+                }
+                for name in ("period_start", "period_end"):
+                    occurrences = [
+                        node
+                        for node in ast.walk(expression)
+                        if isinstance(node, ast.Name) and node.id == name
+                    ]
+                    if occurrences and all(
+                        id(node) in scalar_nodes for node in occurrences
+                    ):
+                        context_names.add(name)
+            selector_cache[key] = tuple(group - context_names for group in groups)
         return selector_cache[key]
 
     def source_clause_gates(
@@ -19993,6 +20085,9 @@ def _opaque_same_source_condition_input_issues(
                 tuple[tuple[frozenset[str], frozenset[str]], ...],
             ] = {}
             reversed_negative_gate_keys: set[tuple[tuple[str, ...], int, int]] = set()
+            schedule_role_sets: dict[
+                tuple[tuple[str, ...], int, int], frozenset[str]
+            ] = {}
             ambiguous_ownership = False
             for excerpt in excerpts:
                 owned_clauses, ambiguous = _source_condition_clauses_owned_by_excerpt(
@@ -20003,6 +20098,29 @@ def _opaque_same_source_condition_input_issues(
                     corpus_citation_path=corpus_citation_path,
                     narrow_conjunctive_excerpt=len(excerpts) == 1,
                 )
+                if (
+                    schedule_binding is not None
+                    and not ambiguous
+                    and version_index == 0
+                ):
+                    medical = schedule_binding.conditions.medical
+                    roles = dict(schedule_binding.roles)
+                    if (
+                        rule_name in {roles["medical"], roles["spouse_address"]}
+                        and excerpt == raw_schedule[slice(*medical.span)]
+                    ):
+                        # The complete raw reporting paragraph, exact typed AST
+                        # and actual role blockers establish its own antecedent.
+                        # Neighbouring captions/residence duties are not gates
+                        # of this permission and remain in ordinary discovery.
+                        owned_clauses = (
+                            _SourceConditionClause((), *medical.span, excerpt),
+                        )
+                        inputs_by_role = dict(schedule_binding.input_roles)
+                        schedule_role_sets[((), *medical.span)] = frozenset(
+                            inputs_by_role[r]
+                            for r in ("relationship", "separate", "medical", "date")
+                        )
                 factual_parent = _source_owned_residence_parent_clause(
                     excerpt,
                     rule=rule,
@@ -20088,6 +20206,16 @@ def _opaque_same_source_condition_input_issues(
                     ):
                         continue
                     gates = source_clause_gates(clause)
+                    schedule_roles = schedule_role_sets.get(
+                        (clause.branch_path, clause.start, clause.end)
+                    )
+                    if schedule_roles is not None:
+                        # Preserve one factual gate per independently bound
+                        # role; period_end supplies no additional fact credit.
+                        gates = tuple(
+                            (frozenset(), frozenset({name}))
+                            for name in sorted(schedule_roles)
+                        )
                     if len(gates) < 2:
                         continue
                     excerpt_has_gates = True
@@ -20163,7 +20291,7 @@ def _opaque_same_source_condition_input_issues(
                     _TerminalGateAlternative(frozenset(), start, end, False),
                 )
             ordinary_gate_sets = tuple(
-                gates
+                (key, gates)
                 for key, gates in gate_sets.items()
                 if key not in reversed_negative_gate_keys
             )
@@ -20172,13 +20300,15 @@ def _opaque_same_source_condition_input_issues(
                 for choice in terminal_choices
                 if not choice.resolved
                 or any(
-                    not _terminal_names_corroborate_source_gates(
+                    (choice.names != schedule_role_sets[key])
+                    if key in schedule_role_sets
+                    else not _terminal_names_corroborate_source_gates(
                         choice.names,
                         gates,
                         terminal_evidence=terminal_evidence,
                         neutral_polarity_imports=frozenset(imported_names),
                     )
-                    for gates in ordinary_gate_sets
+                    for key, gates in ordinary_gate_sets
                 )
             ]
             # A negative output implementing ``No ... eligible unless A and B``
@@ -21201,6 +21331,7 @@ def _companion_test_issues(
     partnership_content: str | None = None,
     printed_operations: _PrintedOperationContext | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    execution_test_cases: Sequence[object] | None = None,
     floor_imported_exports: Sequence[ResolvedImportedExport] = (),
     floor_source_context: Mapping[str, str | None] | None = None,
     referral_context: Any = None,
@@ -21605,13 +21736,20 @@ def _companion_test_issues(
             and printed_operations.ordered_binding is not None
         ):
             from .bound_form_operands import observed_form_condition_witnesses
+            from .bound_schedule_execution import observed_schedule_condition_witnesses
 
             missing_exception_branches = _unmatched_evidence_obligations(
-                observed_form_condition_witnesses(
+                (
+                    observed_schedule_condition_witnesses
+                    if isinstance(printed_operations.ordered_binding, ScheduleBinding)
+                    else observed_form_condition_witnesses
+                )(
                     printed_operations.ordered_binding,
                     execution_evidence,
                     partnership_content,
-                    cases,
+                    execution_test_cases
+                    if isinstance(printed_operations.ordered_binding, ScheduleBinding)
+                    else cases,
                     missing_exception_branches,
                     source_text=source_text,
                     corpus_citation_path=corpus_citation_path,
@@ -22043,8 +22181,8 @@ class _PrintedOperationContext:
     source_branches: tuple[SourceStructureBranch, ...] = ()
     consumer_content: str = ""
     proof_sources: tuple[tuple[str, str | None], ...] = ()
-    bound_form: BoundFormStructure | None = None
-    ordered_binding: OrderedFormBinding | None = None
+    bound_form: BoundFormStructure | BoundScheduleStructure | None = None
+    ordered_binding: OrderedFormBinding | ScheduleBinding | None = None
 
     def local_operands_bind(
         self,
@@ -22349,9 +22487,11 @@ def _printed_operation_context(
         citation_path,
     )
     binding = (
-        bind_ordered_form(
-            form, consumer_content, proof_sources or {}, root_relative=root_relative
-        )
+        (
+            bind_schedule
+            if isinstance(form, BoundScheduleStructure)
+            else bind_ordered_form
+        )(form, consumer_content, proof_sources or {}, root_relative=root_relative)
         if form is not None
         else None
     )
@@ -22387,6 +22527,8 @@ def _printed_operation_proof(
 def _unconflicted_bound_form(source_text, branches, citation):
     structure = recognize_bound_form_structure(source_text, citation)
     if structure is None:
+        structure = recognize_bound_schedule_structure(source_text, citation)
+    if structure is None:
         return None
     labels = bare_outline(source_text, corpus_citation_path=citation) or ()
     points = {
@@ -22395,10 +22537,18 @@ def _unconflicted_bound_form(source_text, branches, citation):
         *(start for start, _term in bare_definition_headers(source_text, labels)),
     }
     owned = (
-        structure.header.span,
-        structure.table.note_span,
-        *structure.table.field_spans,
-        *(row.span for row in structure.rows),
+        (
+            structure.header_span,
+            structure.note_span,
+            *(row.span for row in structure.rows),
+        )
+        if isinstance(structure, BoundScheduleStructure)
+        else (
+            structure.header.span,
+            structure.table.note_span,
+            *structure.table.field_spans,
+            *(row.span for row in structure.rows),
+        )
     )
     if any(a < point < b for a, b in owned for point in points):
         return None
@@ -22511,6 +22661,17 @@ def _source_formula_branches(
         ),
         start=1,
     ):
+        schedule = (
+            printed_operations.bound_form if printed_operations is not None else None
+        )
+        if isinstance(schedule, BoundScheduleStructure) and schedule.bound(
+            source_text, corpus_citation_path
+        ):
+            caption_span = schedule.entered_table_caption_span()
+            if caption_span == (start, end):
+                # This classifies only exact field headings as non-computational;
+                # applicability and document obligations still see the raw text.
+                continue
         if _span_is_deferred(
             start,
             end,
@@ -23208,7 +23369,12 @@ def _source_clause_spans(
         # separated prose remain ordinary clauses and condition obligations.
         split_points.update(
             point
-            for span in (*bound_rows, bound_form.table.note_span)
+            for span in (
+                *bound_rows,
+                bound_form.note_span
+                if isinstance(bound_form, BoundScheduleStructure)
+                else bound_form.table.note_span,
+            )
             for point in span
         )
     for start, end in zip(sorted(split_points), sorted(split_points)[1:]):

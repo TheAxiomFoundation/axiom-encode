@@ -532,6 +532,19 @@ def bind_local_form_snapshot(
     if not isinstance(body, str):
         return False
     form = recognize_bound_form_structure(body, citation)
+    if form is None:
+        from axiom_encode.bound_schedule_structure import (
+            recognize_bound_schedule_structure,
+        )
+
+        from .bound_schedule_operands import bind_schedule
+
+        schedule = recognize_bound_schedule_structure(body, citation)
+        return (
+            schedule is not None
+            and bind_schedule(schedule, content, sources, root_relative=root_relative)
+            is not None
+        )
     return (
         form is not None
         and bind_ordered_form(form, content, sources, root_relative=root_relative)
