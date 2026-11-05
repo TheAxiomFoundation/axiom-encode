@@ -100,9 +100,11 @@ def test_old_route_has_no_network_preflight(script, monkeypatch, tmp_path, raw):
     monkeypatch.setattr(
         script,
         "load",
-        lambda name: SimpleNamespace(verify_reviewed_pr=forbidden)
-        if name == "reviewed_pr_admission"
-        else helper,
+        lambda name: (
+            SimpleNamespace(verify_reviewed_pr=forbidden)
+            if name == "reviewed_pr_admission"
+            else helper
+        ),
     )
     monkeypatch.setenv("DISPATCH_JSON", json.dumps({"source_bundle_json": raw}))
     script.main()
