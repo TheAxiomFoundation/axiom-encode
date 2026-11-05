@@ -847,7 +847,8 @@ def test_retry_candidate_formatter_explicitly_handles_missing_tests():
     )
 
     assert "No companion test file was present" in section
-    assert "you may omit unchanged named inputs, named rules" in section
+    assert "you may omit unchanged named units, named inputs, named rules" in section
+    assert "obsolete named unit, input, rule, or companion case" in section
     assert "input removal is accepted only after no repaired rule" in section
     assert "`repair_remove: true`" in section
 
