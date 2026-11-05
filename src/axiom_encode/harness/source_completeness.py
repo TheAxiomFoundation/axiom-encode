@@ -584,7 +584,7 @@ _SYMBOLIC_ARITHMETIC_OPERAND = (
 )
 _WORDED_ARITHMETIC_EXPRESSION = re.compile(
     rf"{_SYMBOLIC_ARITHMETIC_OPERAND}\s+"
-    r"(?:plus|minus|mal|less(?!\s+than\b))\s+(?:the\s+)?"
+    r"(?:plus|minus|mal|less(?!\s+(?:than|often\s+than)\b))\s+(?:the\s+)?"
     r"(?!(?:beträgt|gilt|ist|sind|wird|werden|equals?|applies?)\b)"
     rf"{_SYMBOLIC_ARITHMETIC_OPERAND}",
     flags=re.IGNORECASE,
@@ -17996,6 +17996,35 @@ def _shared_membership_list_body(body: str) -> str:
     )
 
 
+def _is_pure_physical_alternative_condition(body: str) -> bool:
+    """Recognize a closed OR-list, never a conjunctive or qualified list.
+
+    This gate counts simultaneous facts, not alternative triggers. Decline
+    any shared prerequisite, nested condition, or unbulleted continuation;
+    their existing conservative gate analysis must remain in force.
+    """
+
+    header, separator, tail = body.strip().partition(":")
+    if not separator or not re.fullmatch(
+        r"one\s+or\s+more\s+of\s+the\s+following\s+occurs\s+regarding\s+"
+        r"the\s+child\s+support\s+payment",
+        header,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    lines = [line.strip() for line in tail.splitlines() if line.strip()]
+    if len(lines) < 2 or any(not re.match(r"^[●•]\s+\S", line) for line in lines):
+        return False
+    return not any(
+        re.search(
+            r"\b(?:and|nor|but|if|when|unless|provided|except|only)\b|[;:]",
+            line,
+            flags=re.IGNORECASE,
+        )
+        for line in lines
+    )
+
+
 def _source_conjunctive_fact_gates(
     text: str,
     *,
@@ -18023,6 +18052,8 @@ def _source_conjunctive_fact_gates(
     if conditional is None:
         return ()
     body = _without_ceteris_paribus_clause(text, conditional)
+    if _is_pure_physical_alternative_condition(body):
+        return ()
     if conditional.group("cue").strip().casefold() != "unless":
         trailing_exception = re.search(
             r"\b(?:unless|except(?:\s+(?:if|when))?)\b",
@@ -18305,11 +18336,46 @@ def _printed_page_header_boundaries(text: str) -> tuple[int, ...]:
     )
 
 
+def _post_list_verification_heading_starts(text: str) -> tuple[int, ...]:
+    """Locate independent verification lists after physical bullet material.
+
+    A blank line is not a boundary by itself: it can introduce a proviso or
+    continue a bullet. Require the finite, unindented verification-list heading
+    and its following physical bullet. Preserve the entire heading and list;
+    this changes ownership offsets only, never source text or factual gates.
+    """
+
+    first_bullet = re.search(r"(?m)^[●•][ \t]+", text)
+    if first_bullet is None:
+        return ()
+    # Do not infer independent sections under an unresolved conditional
+    # chapeau. In that shape the original enclosing ownership must stand.
+    # This deliberately declines the whole container, including later lists.
+    if re.search(
+        r"(?im)^[ \t]*(?:[●•][ \t]+)?(?:only\s+)?"
+        r"(?:if|when|unless|provided\s+that)\b"
+        r"(?:(?!\r?\n[ \t]*\r?\n)[^:.!?])*:[ \t]*\r?$",
+        text,
+    ):
+        return ()
+    heading = re.compile(
+        r"(?:\r?\n[ \t]*\r?\n)(?P<heading>Verification of )"
+        r"[^\r\n:]+\bincludes\b[^\r\n:]*"
+        r"\bthe following:[ \t]*\r?\n(?:[ \t]*\r?\n)*[●•][ \t]+"
+    )
+    return tuple(
+        match.start("heading")
+        for match in heading.finditer(text)
+        if match.start("heading") > first_bullet.start()
+    )
+
+
 def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     boundaries = [0, len(text)]
     boundaries.extend(_work_chart_heading_starts(text))
     boundaries.extend(_printed_chart_arithmetic_starts(text))
     boundaries.extend(_printed_page_header_boundaries(text))
+    boundaries.extend(_post_list_verification_heading_starts(text))
     # DES manual notes following a physical bullet list are separate
     # propositions, not another conjunctive eligibility condition.
     boundaries.extend(
@@ -22936,6 +23002,7 @@ def _source_clause_spans(
     split_points = {
         0,
         len(source_text),
+        *_post_list_verification_heading_starts(source_text),
         *_work_chart_heading_starts(source_text),
         *_printed_chart_arithmetic_starts(source_text),
         *_printed_page_header_boundaries(source_text),
