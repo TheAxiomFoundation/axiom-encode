@@ -155,7 +155,8 @@ jobs:
           HAS_CORPUS_READ: ${{ secrets.R2_CORPUS_READ_ACCESS_KEY_ID != '' && secrets.R2_CORPUS_READ_SECRET_ACCESS_KEY != '' }}
         run: |
           if [ "$HAS_CORPUS_READ" != true ]; then
-            echo "::error::R2 corpus read credentials are not available to axiom-encode, so the signed re-encode could not fetch R2-stored corpus scopes after approval. Grant this repository access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials, then re-dispatch." >&2
+            echo "R2 corpus read credentials are not available to axiom-encode, so the signed re-encode could not fetch R2-stored corpus scopes after approval. Grant this repository access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials, then re-dispatch." >&2
+            python axiom-encode/scripts/infra_issue.py record infra:require-corpus-read-credentials "R2 corpus read credentials are not available to axiom-encode, so the signed re-encode could not fetch R2-stored corpus scopes after approval. Grant this repository access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials, then re-dispatch." || true
             exit 1
           fi
 
@@ -1441,7 +1442,8 @@ jobs:
             # Only a lock-pinned corpus fetches from R2; a lockless (git-history)
             # pin reads its provisions from the checkout and needs no credential.
             if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
-              echo "::error::R2 corpus read credentials are not available to this workflow; locked corpus scopes stored only in R2 cannot be fetched. Grant axiom-encode access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials." >&2
+              echo "R2 corpus read credentials are not available to this workflow; locked corpus scopes stored only in R2 cannot be fetched. Grant axiom-encode access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials." >&2
+              python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-corpus-provision-objects "R2 corpus read credentials are not available to this workflow; locked corpus scopes stored only in R2 cannot be fetched. Grant axiom-encode access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials." || true
               exit 1
             fi
             provision_paths_json="$(jq -e \
