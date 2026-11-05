@@ -1,3 +1,74 @@
+## 0.2.2299
+
+- Preserve the original checkout identity when validating staged eval and apply overlays, so same-case source witnesses execute against the candidate closure while retaining exact Git, file, and engine binding checks.
+
+## 0.2.2298
+
+- Type validator issues from declared checks. Each converted issue is a `ValidationIssue` (a `str` whose value is the unchanged message) that names its check id, subject (citation, branch or clause with the branch's source span, module and line, rule, test case or field), expected and found values, a short evidence excerpt and a stable fingerprint. Checks declare `title`, `requires`, `why`, `fix`, `cause` and their code site next to the code that runs them. Converted: complete-source-unit `structure`, `formula-output`, `numeric-recall`, `deferral`, `source-explicit-conditions` and `tests` (split into ten checks), proof source evidence (not found, out of scope) and the rules-engine compile failure.
+- Add each failed check's declared fix, with expected versus found per subject, to the model's retry feedback after the unchanged validator messages. Feedback with no typed issue is byte-identical.
+- Record the bounded `axiom-encode/validation-issue/v2` list (it has every v1 field name proposed in #1660, but a typed issue's `kind`, `value`, `clause` and `locator` values differ from v1; it carries the definitions of the checks it names) per try in its own key `iterations[].errors[].issue_document`, apart from the v1 `issues` list, in the outcome as `validation_issues`, and in the failure bundle as the optional `issues.json` field `typed_issues`; the bundle verifier, the repair extractor and the repair-feedback reader accept it. The 128 KiB bound covers the whole serialized document. A record whose message is cut to 2,000 characters keeps `message_sha256` of the full message, so a `--repair-candidate-root` replay re-types it with its check and fix. The workflow's repair extractor writes only the candidate pair, as before, so a workflow repair replay has no prior issues to re-type. Compile issues name the module by its repo-relative path, with the jurisdiction first when the policy repo is a jurisdiction content root, so `us` and `us-ky` modules at one relative path stay distinct. Branch subjects carry the branch's source span, so two computations in one paragraph get distinct fingerprints. A missing-boundary issue's fingerprint names only its own boundary. On the deferred-apply path, the final try of an overlay rejection records the overlay's typed issues; the legacy non-deferred path still logs the run before apply validation, so its final try has no overlay issues. `validation_failure_counts` now counts a typed issue under `<gate>:<check id>` instead of its message class, so trends over the old classes break at this version for those issues. Run-log `gate.compile` and `gate.ci` findings use the check id as their code.
+- Publish the registry with `axiom-encode checks [--json]` and `src/axiom_encode/data/check_registry.json`. Record `infra:<step>` issues (annotation, step summary, `$RUNNER_TEMP/axiom-infra-issues.jsonl`) for the refusals of the six targeted re-encode steps before the signing supervisor, without changing their messages or exit codes. `tests/test_checks.py` fails when untyped `issues.append` sites or unrecorded workflow refusals increase, or when a check lacks `fix` or `why`.
+
+## 0.2.2270
+
+- Integrate current source-completeness updates with the reviewed explicit engine-pin and portable provenance checks.
+
+## 0.2.2266
+
+- Integrate current source-bound amendment relation guidance with the reviewed explicit engine-pin and portable provenance checks.
+
+## 0.2.2265
+
+- Integrate current authenticated source-transport support with the reviewed explicit apply-engine revision and portable provenance checks.
+
+## 0.2.2264
+
+- Support eleven authenticated signed provision exports for the current pinned corpus release, including the atomic transport's distinct primary run and all bounded workflow metadata and archive slots. Keep exact source-contract and export-byte verification.
+
+## 0.2.2263
+
+- Prefetch authenticated signed corpus provision exports for protected runs whose release provisions are R2-only, with exact exporter, archive, release, and provision-byte checks. Admit the reviewed PyMuPDF exporter dependency-file pair.
+- Allow one authenticated Arizona corpus export and up to seven distinct signed provision exports in the same fresh protected transaction, without altering the source contract or the reviewed Canadian repair-head admission.
+- Bind historical Arizona SNAP manifest-owner replacement to the signed receipt and original Git bytes throughout protected packaging and publication; retain the canonical in-place manifest path and existing retired-source-metadata migration dispatches.
+- Refresh the encoder version after merging current main's engine-binding changes into the authenticated Arizona provision-export branch.
+
+## 0.2.2262
+
+- Reject explicit apply engine pins that disagree with checkout HEAD before binary resolution and independently reject mismatched captured bindings when constructing portable signed provenance. Preserve the signed schema and legacy unpinned behavior.
+
+## 0.2.2261
+
+- Cover fresh and retained candidate engine-pin forwarding through actual validation entrypoints, and clarify that local pre-generation binding can build a clean matching engine checkout.
+
+## 0.2.2260
+
+- Forward the declared engine revision through native generation, retained-candidate and repair reevaluation, and apply validation so source witnesses use the verified runtime binding. Preserve optional unpinned callers.
+
+## 0.2.2259
+
+- Bind manifest refresh validation to the declared engine revision and verified binary through apply checks, creating the engine receipt before the protected runtime. Preserve byte-identical obsolete manual aliases only when independently verified canonical base and head receipts cover unchanged live files; retain changed-receipt and full-census verification.
+
+## 0.2.2258
+
+- Forward the reviewed dependent finding through all Arizona corpus-transport preflights, admit canonical shallow historical-owner deletions, and refresh the encoder version after current main.
+
+## 0.2.2257
+
+- Refresh the encoder version after merging the reviewed Canadian repair-head admission into the Arizona ECE transport branch.
+
+## 0.2.2254
+
+- Recognize completed signed in-place source-bound dependents in the legacy replacement census, retaining source-citation, primary-proof, and fresh-manifest checks.
+
+## 0.2.2253
+
+- Regenerate Arizona ECE's proof-pinned dependent from its own signed FAA5 source in the same protected legacy replacement transaction, and verify both source bindings and the updated proof hash before publication.
+
+## 0.2.2252
+
+- Admit authenticated in-place legacy Arizona ECE replacement from a signed corpus artifact while preserving the existing RuleSpec identity and dependent references; keep distinct-path moves and unsupported transport modes rejected.
+- Admit the exact reviewed Canadian repair head for all protected artifact-only modes, including manifest refresh and reviewed-candidate promotion. Preserve publication restrictions and every signing and validation gate; link the admission evidence.
+
 ## 0.2.2248
 
 - Add reviewed `repealed_tombstone` coverage exemptions for the exact repealed leaf scopes 26 USC 3121(a)(3), 3121(a)(17) and 3306(b)(3), bound to the signed corpus bytes, with their review evidence. The operative parent paragraphs and every other scope keep their coverage demands.
