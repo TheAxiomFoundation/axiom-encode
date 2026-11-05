@@ -5572,7 +5572,10 @@ def analyze_complete_source_unit(
 ) -> CompleteSourceUnitAnalysis:
     """Analyze one artifact against its authoritative, resolver-owned body."""
 
-    with _us_manual_prose_scope(corpus_citation_path):
+    with (
+        _us_manual_prose_scope(corpus_citation_path),
+        _case_dependency_environment_memo_scope(),
+    ):
         source_text = authoritative_source_text.strip()
         if not source_text:
             issue = (
@@ -27097,6 +27100,43 @@ def _case_asserted_dependency_environment(
     )
 
 
+# One analysis asks for the same case's dependency environment from several
+# checks, each time with the same rule, case and constant mappings.
+# `_case_dependency_environment_memo_scope` holds a memo for one analysis so a
+# repeat reuses the first result. A hit needs the same objects and a matching
+# digest of their current contents, so a mapping changed between calls is
+# evaluated again.
+_CASE_DEPENDENCY_ENVIRONMENT_MEMO: contextvars.ContextVar[
+    dict[tuple[Any, ...], tuple[tuple[Any, ...], bytes, dict[str, Any]]] | None
+] = contextvars.ContextVar("_CASE_DEPENDENCY_ENVIRONMENT_MEMO", default=None)
+
+
+@contextlib.contextmanager
+def _case_dependency_environment_memo_scope() -> Iterator[None]:
+    """Reuse case dependency environments within one analysis only."""
+
+    scope = _CASE_DEPENDENCY_ENVIRONMENT_MEMO.set({})
+    try:
+        yield
+    finally:
+        _CASE_DEPENDENCY_ENVIRONMENT_MEMO.reset(scope)
+
+
+def _case_dependency_environment_inputs_digest(
+    principal_rules: dict[str, dict[str, Any]],
+    case: dict[str, Any],
+    formula_environment: dict[str, Any],
+) -> bytes:
+    """Fingerprint the inputs' current contents, including rule subclasses."""
+
+    rounding = tuple(
+        (type(rule).__qualname__, getattr(rule, "resolved_currency_rounding", None))
+        for rule in principal_rules.values()
+    )
+    text = repr((principal_rules, rounding, case, formula_environment))
+    return hashlib.blake2b(text.encode("utf-8", "surrogatepass")).digest()
+
+
 def _case_dependency_environment(
     principal_rules: dict[str, dict[str, Any]],
     case: dict[str, Any],
@@ -27108,6 +27148,59 @@ def _case_dependency_environment(
 ) -> dict[str, Any]:
     """Evaluate an acyclic reached subset of local principal outputs."""
 
+    memo = _CASE_DEPENDENCY_ENVIRONMENT_MEMO.get()
+    if memo is None:
+        return _evaluate_case_dependency_environment(
+            principal_rules,
+            case,
+            formula_environment=formula_environment,
+            require_asserted_value=require_asserted_value,
+            allowed_names=allowed_names,
+            allow_bound_row_assertions=allow_bound_row_assertions,
+        )
+    key = (
+        id(principal_rules),
+        id(case),
+        id(formula_environment),
+        require_asserted_value,
+        None if allowed_names is None else frozenset(allowed_names),
+        allow_bound_row_assertions,
+        _US_MANUAL_PROSE_SCOPE.get(),
+    )
+    digest = _case_dependency_environment_inputs_digest(
+        principal_rules, case, formula_environment
+    )
+    entry = memo.get(key)
+    if (
+        entry is not None
+        and entry[0][0] is principal_rules
+        and entry[0][1] is case
+        and entry[0][2] is formula_environment
+        and entry[1] == digest
+    ):
+        return dict(entry[2])
+    resolved = _evaluate_case_dependency_environment(
+        principal_rules,
+        case,
+        formula_environment=formula_environment,
+        require_asserted_value=require_asserted_value,
+        allowed_names=allowed_names,
+        allow_bound_row_assertions=allow_bound_row_assertions,
+    )
+    # The entry holds the input objects, so their ids stay unique while it lives.
+    memo[key] = ((principal_rules, case, formula_environment), digest, dict(resolved))
+    return resolved
+
+
+def _evaluate_case_dependency_environment(
+    principal_rules: dict[str, dict[str, Any]],
+    case: dict[str, Any],
+    *,
+    formula_environment: dict[str, Any],
+    require_asserted_value: bool,
+    allowed_names: set[str] | None = None,
+    allow_bound_row_assertions: bool = False,
+) -> dict[str, Any]:
     constants = _formula_environment_for_case(formula_environment, case)
     inputs = _case_input_formula_environment(case)
     if inputs is None:
@@ -28798,6 +28891,24 @@ def _rulespec_formula_tokens(
 ) -> tuple[tuple[str, str, int, int], ...] | None:
     """Tokenize the pinned RuleSpec formula language while preserving offsets."""
 
+    # Tokens depend only on the text, and the result is an immutable tuple, so
+    # one analysis may reuse them across its many case environments. Bound both
+    # the entry count and the retained text size.
+    if len(text) > 16_384:
+        return _tokenize_rulespec_formula(text)
+    return _cached_rulespec_formula_tokens(text)
+
+
+@functools.lru_cache(maxsize=4096)
+def _cached_rulespec_formula_tokens(
+    text: str,
+) -> tuple[tuple[str, str, int, int], ...] | None:
+    return _tokenize_rulespec_formula(text)
+
+
+def _tokenize_rulespec_formula(
+    text: str,
+) -> tuple[tuple[str, str, int, int], ...] | None:
     keywords = {
         "entity": "ENTITY",
         "amend": "AMEND",
@@ -29082,6 +29193,17 @@ def _mask_formula_strings(text: str) -> str:
 def _mask_formula_strings_and_comments(text: str) -> str:
     """Blank quoted content and comments while preserving source offsets."""
 
+    if len(text) > 16_384:
+        return _blank_formula_strings_and_comments(text)
+    return _cached_mask_formula_strings_and_comments(text)
+
+
+@functools.lru_cache(maxsize=4096)
+def _cached_mask_formula_strings_and_comments(text: str) -> str:
+    return _blank_formula_strings_and_comments(text)
+
+
+def _blank_formula_strings_and_comments(text: str) -> str:
     masked = list(_mask_formula_strings(text))
     in_comment = False
     for index, character in enumerate(masked):
