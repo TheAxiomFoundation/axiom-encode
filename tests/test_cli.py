@@ -2057,9 +2057,12 @@ def test_promote_reviewed_candidate_changes_only_manifest(
             "live-encoder",
             "live-invalid-static",
         }:
-            live_check.side_effect = ValueError("live authority invalid")
+            if admission == "live-invalid-static":
+                live_check.side_effect = ValueError("live authority invalid")
             with pytest.raises(ValueError):
                 cmd_promote_reviewed_candidate(args)
+            if admission != "live-invalid-static":
+                live_check.assert_not_called()
             signer_context.assert_not_called()
             overlay_mock.assert_not_called()
             assert not (

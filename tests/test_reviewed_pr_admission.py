@@ -340,6 +340,10 @@ def test_promotion_wrapper_preserves_contract():
     assert immutable_atomic_source_contract(
         json.dumps(wrapper)
     ) == split_atomic_source_input(json.dumps(transaction))
+    for injected in ("selector", "approvals", "record", "workflow_commit"):
+        forged = {**wrapper, injected: {"approved": True}}
+        with pytest.raises(ValueError):
+            split_atomic_source_input(json.dumps(forged))
     for invalid in [False, 0, -1, "42", None]:
         wrapper["rulespec_pr"] = invalid
         with pytest.raises(ValueError):

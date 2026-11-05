@@ -346,8 +346,8 @@ def verify_reviewed_pr(
         digests[path] = hashlib.sha256(raw).hexdigest()
 
     # Refuse changes during the API sequence rather than carrying an old
-    # approval across a new head/base. The protected command repeats this full
-    # verification immediately before signing, and publication repeats it too.
+    # approval across a new head/base. Before signing and publication, recheck
+    # mutable authorization; the signer rehashes local immutable source bytes.
     after = _object(fetch(pr_path), "PR recheck")
     if _pr_identity(after, selector) != (base, author_id):
         raise AdmissionError("candidate PR moved during admission")
