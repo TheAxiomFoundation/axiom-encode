@@ -15,7 +15,7 @@ from dataclasses import dataclass
 Span = tuple[int, int]
 _HEADER = re.compile(
     r"\A\ufeff?(?P<code>\d{4,5}-[A-Z]{1,4})\r?\n\r?\n"
-    r"Protected [A-Z] when completed\r?\n\r?\n"
+    r"Protected [A-Z] (?P<confidentiality_cue>when) completed\r?\n\r?\n"
     r"(?P<year>(?:19|20)\d{2})\r?\n\r?\n"
     r"Form (?P<form>[A-Z]{1,4}\d{1,4})\r?\n\r?\n"
     r"(?P<title>[A-Z][A-Za-z ,'-]{3,120})(?=\r?\n\r?\n)"
@@ -31,6 +31,18 @@ _ROW = re.compile(
 )
 _FIELD = re.compile(r"(?m)^(?P<label>[A-Za-z][A-Za-z ()'/-]{1,160}) \^\r?$")
 _CITATION = re.compile(r"[a-z0-9][a-z0-9-]*(?:/[a-z0-9][a-z0-9-]*)+")
+
+
+def printed_form_header_condition_span(source: str) -> Span | None:
+    """Own only the confidentiality cue in a complete physical header.
+
+    This is a source-text classification, not a citation or completeness proof.
+    Operative cues elsewhere in the header or its following prose stay unowned.
+    """
+    if not isinstance(source, str) or len(source) > 100_000:
+        return None
+    header = _HEADER.match(source)
+    return header.span("confidentiality_cue") if header is not None else None
 
 
 @dataclass(frozen=True)

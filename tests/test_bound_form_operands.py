@@ -171,7 +171,7 @@ def test_analyzer_accepts_ordered_rows_but_preserves_conditions_and_header():
     result = issues()
     assert len(result) == 2, result
     assert "2025" in result[0]
-    assert result[-1].count("[change]:") == 4
+    assert result[-1].count("[change]:") == 3
     assert not any("formula branch" in item for item in result)
     assert any("formula branch" in item for item in issues(proof=False))
 

@@ -45,6 +45,7 @@ from axiom_encode.bare_structure import (
 )
 from axiom_encode.bound_form_structure import (
     BoundFormStructure,
+    printed_form_header_condition_span,
     recognize_bound_form_structure,
 )
 from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check
@@ -32107,13 +32108,24 @@ def _source_exception_or_applicability_matches(
 ) -> tuple[re.Match[str], ...]:
     """Return ordered, de-duplicated negative and positive condition cues."""
 
+    raw_source = source_text if raw_source_text is None else raw_source_text
+    header_cue = None
+    if raw_source == source_text:
+        header_cue = printed_form_header_condition_span(raw_source)
+    elif raw_source.strip() == source_text:
+        raw_cue = printed_form_header_condition_span(raw_source)
+        if raw_cue is not None:
+            offset = len(raw_source) - len(raw_source.lstrip())
+            header_cue = (raw_cue[0] - offset, raw_cue[1] - offset)
+
     matches = tuple(
         match
         for match in (
             *_EXCEPTION_LANGUAGE.finditer(source_text),
             *_APPLICABILITY_LANGUAGE.finditer(source_text),
         )
-        if not _is_concessive_condition_cue(source_text, match)
+        if match.span() != header_cue
+        and not _is_concessive_condition_cue(source_text, match)
         and not _is_coordinated_parenthetical_if_any_cue(
             source_text, match, raw_source_text=raw_source_text
         )
