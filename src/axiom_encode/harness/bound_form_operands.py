@@ -17,10 +17,16 @@ from typing import Any, Mapping
 
 from axiom_encode.bound_form_structure import BoundFormStructure
 
+from .bound_credit_excess import (
+    CreditExcessRequirement,
+    bind_credit_excess,
+    compiled_credit_excess,
+    parse_credit_excess,
+)
 from .bound_form_obligations import (
     DocumentRequirement,
+    _observed_document_pair_keys,
     bind_document_requirements,
-    observed_document_pairs,
 )
 from .imported_export_evidence import _atoms, _named, _payload
 
@@ -112,6 +118,7 @@ class OrderedFormBinding:
     unit: str
     consumer_namespace: str | None
     document_requirements: tuple[DocumentRequirement, ...] = ()
+    credit_excess: CreditExcessRequirement | None = None
 
     def matches(
         self,
@@ -277,6 +284,27 @@ def bind_ordered_form(
         return None
     rules = {n: r for n, r in rules.items() if n not in document_rules}
     inputs = {n: r for n, r in inputs.items() if n not in document_inputs}
+    excess_candidates = {}
+    for name, rule in rules.items():
+        versions = rule.get("versions")
+        if (
+            isinstance(versions, list)
+            and len(versions) == 1
+            and isinstance(versions[0], dict)
+        ):
+            parsed = parse_credit_excess(versions[0].get("formula"))
+            if parsed is not None:
+                excess_candidates[name] = (rule, parsed)
+    if len(excess_candidates) > 1:
+        return None
+    excess_rule, excess_fact = None, None
+    if excess_candidates:
+        name, (excess_rule, parsed) = next(iter(excess_candidates.items()))
+        if parsed.taxes not in inputs:
+            return None
+        excess_fact = inputs[parsed.taxes]
+        rules = {n: r for n, r in rules.items() if n != name}
+        inputs = {n: r for n, r in inputs.items() if n != parsed.taxes}
     row_text = {row.number: form.source[slice(*row.span)] for row in form.rows}
     specs = {}
     for row in form.rows:
@@ -441,6 +469,35 @@ def bind_ordered_form(
             )
         if formulas[owners[n]] != ast.dump(expected):
             return None
+    excess = None
+    if excess_rule is not None:
+        terminal = max(specs)
+        kind, source = specs[terminal]
+        terminal_caption = " ".join(
+            form.source[slice(*form.rows[-1].caption_span)].split()
+        )
+        field = re.search(
+            r"Enter this amount on\s*line ([1-9]\d*)\s*of your return\.",
+            terminal_caption,
+        )
+        if (
+            kind != "add"
+            or not source["label"].lower().endswith(" credits")
+            or field is None
+            or field[1] != "47900"
+        ):
+            return None
+        excess = bind_credit_excess(
+            form,
+            excess_rule,
+            excess_fact,
+            credit_owner=owners[terminal],
+            return_field=field[1],
+            entity=entity,
+            unit=unit,
+        )
+        if excess is None:
+            return None
     return OrderedFormBinding(
         form,
         hashlib.sha256(content.encode()).hexdigest(),
@@ -451,6 +508,7 @@ def bind_ordered_form(
         unit,
         namespace,
         documents,
+        excess,
     )
 
 
@@ -538,6 +596,18 @@ def _compiled_expression(node: ast.expr, rules: Mapping[str, Any], inputs: set[s
 def observed_form_frame(
     binding: OrderedFormBinding, evidence: Any, content: str, cases: Any
 ) -> bool:
+    return _observe_complete_form(binding, evidence, content, cases) is not None
+
+
+@dataclass(frozen=True)
+class _ObservedFormConditions:
+    document_pairs: tuple[tuple[str, tuple[str, str]], ...]
+    excess_cases: tuple[str, ...]
+
+
+def _observe_complete_form(
+    binding: OrderedFormBinding, evidence: Any, content: str, cases: Any
+) -> _ObservedFormConditions | None:
     """Observe this graph's declared frame, without changing Person evidence.
 
     Requires one complete, strictly explained case of this source-owned graph.
@@ -550,7 +620,7 @@ def observed_form_frame(
 
     try:
         if binding.consumer_namespace is None or not evidence.bound(content, ()):
-            return False
+            return None
         if (
             bind_ordered_form(
                 binding.form,
@@ -560,18 +630,24 @@ def observed_form_frame(
             )
             != binding
         ):
-            return False
+            return None
         payload = _payload(content)
         rules = _named(payload, "rules")
         inputs = _named(payload, "inputs")
         derived = {n: r for n, r in rules.items() if r["kind"] == "derived"}
         parameters = {n: r for n, r in rules.items() if r["kind"] == "parameter"}
         documents = {d.rule_name: d for d in binding.document_requirements}
-        row_derived = {n: r for n, r in derived.items() if n not in documents}
+        excess = binding.credit_excess
+        row_derived = {
+            n: r
+            for n, r in derived.items()
+            if n not in documents and (excess is None or n != excess.rule_name)
+        }
         row_inputs = {
             n: r
             for n, r in inputs.items()
             if n not in {d.input_name for d in documents.values()}
+            and (excess is None or n != excess.input_name)
         }
         program = json.loads(evidence.artifact_bytes)["program"]
         declarations = {item["name"]: item for item in program["derived"]}
@@ -583,7 +659,7 @@ def observed_form_frame(
             or set(constants) != set(parameters)
             or len(constants) != len(program["parameters"])
         ):
-            return False
+            return None
         prefix = binding.consumer_namespace + "#"
         frame = {
             "effective_from": f"{binding.form.header.year}-01-01",
@@ -597,7 +673,7 @@ def observed_form_frame(
         for name, rule in rules.items():
             declaration = (declarations if name in derived else constants)[name]
             if declaration["id"] != prefix + name:
-                return False
+                return None
             if name in documents:
                 document = documents[name]
                 expression = {
@@ -630,13 +706,18 @@ def observed_form_frame(
                         sort_keys=True,
                     )
                 ):
-                    return False
+                    return None
             elif name in derived:
-                expression = _compiled_expression(
-                    _tree(rule["versions"][0]["formula"]), rules, set(inputs)
+                expression = (
+                    compiled_credit_excess(excess)
+                    if excess is not None and name == excess.rule_name
+                    else _compiled_expression(
+                        _tree(rule["versions"][0]["formula"]), rules, set(inputs)
+                    )
                 )
                 if any(
-                    declaration.get(k) != v
+                    json.dumps(declaration.get(k), sort_keys=True)
+                    != json.dumps(v, sort_keys=True)
                     for k, v in {
                         "entity": binding.entity,
                         "dtype": "decimal",
@@ -645,10 +726,11 @@ def observed_form_frame(
                         "semantics": "scalar",
                         "expr": expression,
                     }.items()
-                ) or declaration["versions"] != [
-                    {**frame, "semantics": "scalar", "expr": expression}
-                ]:
-                    return False
+                ) or json.dumps(declaration["versions"], sort_keys=True) != json.dumps(
+                    [{**frame, "semantics": "scalar", "expr": expression}],
+                    sort_keys=True,
+                ):
+                    return None
             else:
                 versions = declaration["versions"]
                 if (
@@ -660,12 +742,15 @@ def observed_form_frame(
                     or _wire_number(versions[0]["values"]["0"])
                     != _number(rule["versions"][0]["formula"])
                 ):
-                    return False
-        if not observed_document_pairs(
+                    return None
+        document_pairs = _observed_document_pair_keys(
             binding.document_requirements, evidence, cases, prefix, expected_period
-        ):
-            return False
+        )
+        if document_pairs is None:
+            return None
         pipeline = object.__new__(ValidatorPipeline)
+        row_witness = False
+        excess_witnesses: dict[str, dict[int, str]] = {}
         for case in cases or ():
             if not isinstance(case, dict) or case.get("period") != expected_period:
                 continue
@@ -718,6 +803,11 @@ def observed_form_frame(
             ):
                 continue
             outputs = {prefix + n for n in row_derived}
+            has_excess = excess is not None and prefix + excess.rule_name in case.get(
+                "output", {}
+            )
+            if has_excess:
+                outputs.add(prefix + excess.rule_name)
             if (
                 set(query["outputs"]) != outputs
                 or len(query["outputs"]) != len(outputs)
@@ -727,17 +817,22 @@ def observed_form_frame(
             ):
                 continue
             facts = request["dataset"]["inputs"]
+            expected_inputs = set(row_inputs) | (
+                {excess.input_name} if has_excess else set()
+            )
             if (
-                len(facts) != len(row_inputs)
+                len(facts) != len(expected_inputs)
                 or request["dataset"].get("relations") != []
                 or {f["name"] for f in facts}
-                != {prefix + "input." + n for n in row_inputs}
+                != {prefix + "input." + n for n in expected_inputs}
             ):
                 continue
             case_inputs = {
                 k.rsplit("#", 1)[-1].removeprefix("input."): v
                 for k, v in case["input"].items()
             }
+            if set(case_inputs) != expected_inputs:
+                continue
             if any(
                 f.get("entity") != binding.entity
                 or f.get("entity_id") != entity_id
@@ -799,8 +894,73 @@ def observed_form_frame(
                 ):
                     valid = False
             if valid:
-                return True
-        return False
+                row_witness = True
+                if has_excess:
+                    ref = prefix + excess.rule_name
+                    credit_ref = prefix + excess.credit_owner
+                    taxes = _number(case_inputs.get(excess.input_name))
+                    credit = _wire_number(result["outputs"][credit_ref].get("value"))
+                    if taxes is None or taxes < 0 or credit is None or credit < 0:
+                        continue
+                    expected_value = max(credit - taxes, Decimal(0))
+                    node, output = result["trace"][ref], result["outputs"][ref]
+                    if (
+                        any(
+                            any(
+                                observed.get(k) != v
+                                for k, v in {
+                                    "id": ref,
+                                    "name": excess.rule_name,
+                                    "kind": "scalar",
+                                    "dtype": "decimal",
+                                    "unit": excess.unit,
+                                }.items()
+                            )
+                            or _wire_number(observed.get("value")) != expected_value
+                            for observed in (node, output)
+                        )
+                        or _number(case["output"][ref]) != expected_value
+                    ):
+                        continue
+                    expression = f'(if ({credit_ref} > input("{excess.input_name}")) then ({credit_ref} - input("{excess.input_name}")) else 0)'
+                    if (
+                        node.get("entity_id") != entity_id
+                        or node.get("source") != excess.source_excerpt
+                        or node.get("executed_expression") != expression
+                        or node.get("dependencies") != [credit_ref]
+                    ):
+                        continue
+                    # A three-way witness varies only the explicit tax amount.
+                    signature = json.dumps(
+                        {
+                            "entity_id": entity_id,
+                            "period": expected_period,
+                            "facts": sorted(
+                                (
+                                    f
+                                    for f in facts
+                                    if f["name"]
+                                    != prefix + "input." + excess.input_name
+                                ),
+                                key=lambda f: f["name"],
+                            ),
+                            "row_outputs": {
+                                k: result["outputs"][k] for k in sorted(outputs - {ref})
+                            },
+                        },
+                        sort_keys=True,
+                    )
+                    excess_witnesses.setdefault(signature, {})[
+                        (taxes > credit) - (taxes < credit)
+                    ] = case_key(case)
+        triples = [
+            tuple(v[k] for k in (-1, 0, 1))
+            for v in excess_witnesses.values()
+            if set(v) == {-1, 0, 1}
+        ]
+        if not row_witness or (excess is not None and not triples):
+            return None
+        return _ObservedFormConditions(document_pairs, min(triples) if triples else ())
     except (
         ValueError,
         TypeError,
@@ -809,4 +969,87 @@ def observed_form_frame(
         IndexError,
         RecursionError,
     ):
-        return False
+        return None
+
+
+def observed_form_condition_witnesses(
+    binding: OrderedFormBinding,
+    evidence: Any,
+    content: str,
+    cases: Any,
+    branches: Any,
+    *,
+    source_text: str,
+    corpus_citation_path: str,
+    principal_rules: Mapping[str, Any],
+) -> dict[Any, set[tuple]]:
+    """Allocate only source-owned conditions after complete actual observation.
+
+    No caller-supplied certificate is accepted. The observation is minted here,
+    and its source/content/closure binding is checked again before consumption.
+    Generic condition discovery and matching remain the caller's first route.
+    """
+    result = {branch: set() for branch in branches}
+    observed = _observe_complete_form(binding, evidence, content, cases)
+    if observed is None:
+        return result
+    raw = binding.form.source
+    payload = _payload(content)
+    rules = _named(payload, "rules") if payload is not None else None
+    if (
+        rules is None
+        or {n: r for n, r in rules.items() if r.get("kind") == "derived"}
+        != principal_rules
+        or source_text not in (raw, raw.rstrip())
+        or corpus_citation_path != binding.form.citation
+        or not binding.form.bound(raw, corpus_citation_path)
+        or not evidence.bound(content, ())
+    ):
+        return result
+    owners = []
+    pairs = dict(observed.document_pairs)
+    for requirement in binding.document_requirements:
+        # This extension owns the table instruction, not the already-supported
+        # sheet condition or any other document/eligibility statement.
+        if not requirement.source_excerpt.startswith(
+            "If applicable, complete the following table"
+        ):
+            continue
+        start, end = requirement.source_span
+        heading = (
+            "Physical activity tax credit\r\n\r\n"
+            if "\r\n" in requirement.source_excerpt
+            else "Physical activity tax credit\n\n"
+        )
+        spans = [(start, end)]
+        if start >= len(heading) and raw[start - len(heading) : start] == heading:
+            spans.append((start - len(heading), end))
+        owners.append((requirement.rule_name, spans, pairs[requirement.rule_name]))
+    excess = binding.credit_excess
+    if excess is not None:
+        owners.append((excess.rule_name, [excess.source_span], observed.excess_cases))
+    for branch in branches:
+        if (
+            branch.kind != "exception-clause"
+            or branch.path
+            or not 0 <= branch.start < branch.end <= len(source_text)
+            or source_text[branch.start : branch.end] != branch.text
+        ):
+            continue
+        for name, spans, keys in owners:
+            if (
+                (branch.start, branch.end) in spans
+                and branch.required_principal_output in (None, name)
+                and len(set(keys)) == len(keys)
+                and keys
+            ):
+                # One owner token cannot be reused by duplicate branch objects.
+                result[branch].add(
+                    (
+                        binding.content_sha256,
+                        binding.form.source_sha256,
+                        name,
+                        *sorted(keys),
+                    )
+                )
+    return result

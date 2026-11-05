@@ -21531,6 +21531,27 @@ def _companion_test_issues(
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
+        if (
+            missing_exception_branches
+            and execution_evidence is not None
+            and partnership_content is not None
+            and printed_operations is not None
+            and printed_operations.ordered_binding is not None
+        ):
+            from .bound_form_operands import observed_form_condition_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                observed_form_condition_witnesses(
+                    printed_operations.ordered_binding,
+                    execution_evidence,
+                    partnership_content,
+                    cases,
+                    missing_exception_branches,
+                    source_text=source_text,
+                    corpus_citation_path=corpus_citation_path,
+                    principal_rules=principal_rules,
+                )
+            )
         if execution_evidence is not None and partnership_content is not None:
             from .floor_retained_referral_evidence import (
                 witnesses as referral_witnesses,

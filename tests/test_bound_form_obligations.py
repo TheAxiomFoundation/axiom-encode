@@ -258,3 +258,95 @@ def test_metadata_extras_not_silently_dropped():
     r, i = fixture()
     next(iter(r.values()))["metadata"]["unknown"] = True
     assert bind(r, i) is None
+
+
+def table_fixture():
+    rules, inputs = fixture()
+    rule = next(iter(rules.values()))
+    fact = next(iter(inputs.values()))
+    name = "is_claiming_physical_activity_tax_credit"
+    fact.update(
+        name=name,
+        description=(
+            "The filer is using the physical activity tax credit section of this form; "
+            "this does not assert eligibility or that the table is completed."
+        ),
+    )
+    rule["name"] = "table_requirement"
+    rule["versions"][0]["formula"] = name
+    rule["metadata"]["proof"]["atoms"][0]["source"]["excerpt"] = (
+        "If applicable, complete the following table and include all of your family's\n"
+        "eligible physical activity expenses."
+    )
+    return {rule["name"]: rule}, {name: fact}
+
+
+def test_sheet_and_table_have_disjoint_complete_ownership():
+    sheet_rules, sheet_inputs = fixture()
+    table_rules, table_inputs = table_fixture()
+    result = bind(sheet_rules | table_rules, sheet_inputs | table_inputs)
+    assert result is not None and len(result) == 2
+    assert len({item.source_span for item in result}) == 2
+    assert len({item.input_name for item in result}) == 2
+
+
+@pytest.mark.parametrize(
+    "defect", ["eligibility", "negated", "sheet_fact", "proof", "default"]
+)
+def test_table_premise_cannot_be_relabelled_by_description(defect):
+    rules, inputs = table_fixture()
+    fact = next(iter(inputs.values()))
+    rule = next(iter(rules.values()))
+    if defect in {"eligibility", "negated", "sheet_fact"}:
+        name = {
+            "eligibility": "is_eligible_for_credit",
+            "negated": "is_not_claiming_physical_activity_tax_credit",
+            "sheet_fact": "needs_additional_space",
+        }[defect]
+        fact["name"] = name
+        inputs = {name: fact}
+        rule["versions"][0]["formula"] = name
+    elif defect == "proof":
+        rule["metadata"]["proof"]["atoms"][0]["source"]["excerpt"] = "Complete a table."
+    else:
+        fact["default"] = False
+    assert bind(rules, inputs) is None
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize(
+    "prefix,suffix",
+    [
+        ("Do not: ", ""),
+        ("Do not:\n", ""),
+        ("Do not:\n\n", ""),
+        ("", " unless another instruction applies."),
+        ("", "\nunless another instruction applies."),
+        ("", "\n\nunless another instruction applies."),
+        ("", "\n\nExcept where otherwise stated."),
+        ("", "\n\nProvided that the family is eligible."),
+        ("", "\n\nSubject to other instructions."),
+        ("", "\n\nBut only for eligible claimants."),
+        ("", "\n\nHowever, eligibility is required."),
+    ],
+)
+def test_table_enclosing_negation_or_qualification_refuses_ownership(
+    newline, prefix, suffix
+):
+    rules, inputs = table_fixture()
+    atom = next(iter(rules.values()))["metadata"]["proof"]["atoms"][0]
+    clause = atom["source"]["excerpt"]
+    source = SOURCE.replace(clause, prefix + clause + suffix).replace("\n", newline)
+    atom["source"]["excerpt"] = clause.replace("\n", newline)
+    assert bind(rules, inputs, source) is None
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_table_whole_paragraph_preserves_exact_raw_span(newline):
+    rules, inputs = table_fixture()
+    atom = next(iter(rules.values()))["metadata"]["proof"]["atoms"][0]
+    atom["source"]["excerpt"] = atom["source"]["excerpt"].replace("\n", newline)
+    source = SOURCE.replace("\n", newline)
+    result = bind(rules, inputs, source)
+    assert result is not None and len(result) == 1
+    assert source[slice(*result[0].source_span)] == atom["source"]["excerpt"]

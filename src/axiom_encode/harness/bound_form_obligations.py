@@ -23,6 +23,15 @@ _PREMISE = re.compile(
     r"(?:more|additional) space for its entries\."
 )
 _PREMISE_NAME = re.compile(r"(?:(?:filer|individual)_)?needs_(?:more|additional)_space")
+_TABLE = re.compile(
+    r"(?m)^If applicable, complete the following table and include all of your family's\r?\n"
+    r"eligible physical activity expenses\.(?=\r?$)"
+)
+_TABLE_PREMISE = re.compile(
+    r"The filer is using the physical activity tax credit section of this form; "
+    r"this does not assert eligibility or that the table is completed\."
+)
+_TABLE_PREMISE_NAME = re.compile(r"(?:filer_)?is_claiming_physical_activity_tax_credit")
 _NAME = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*")
 
 
@@ -107,18 +116,46 @@ def bind_document_requirements(
             return None
     if not rules:
         return () if not inputs else None
-    clauses = tuple(_SHEET.finditer(form.source))
-    if len(clauses) != 1:
-        return None
-    clause = clauses[0]
-    span = clause.span()
-    if not any(a <= span[0] and span[1] <= b for a, b in form.unowned_spans):
-        return None
+    clauses = []
+    for pattern, premise_name, premise in (
+        (_SHEET, _PREMISE_NAME, _PREMISE),
+        (_TABLE, _TABLE_PREMISE_NAME, _TABLE_PREMISE),
+    ):
+        matches = tuple(pattern.finditer(form.source))
+        if len(matches) > 1:
+            return None
+        for match in matches:
+            if pattern is _TABLE:
+                before, after = form.source[: match.start()], form.source[match.end() :]
+                # A newline does not detach an enclosing instruction or qualifier.
+                if (
+                    (before and not before.endswith(("\n\n", "\r\n\r\n")))
+                    or (after and not after.startswith(("\n\n", "\r\n\r\n")))
+                    or before.rstrip().endswith(":")
+                    or re.match(
+                        r"(?:unless|except|provided|subject\s+to|but|however)\b",
+                        after.lstrip(),
+                        flags=re.IGNORECASE,
+                    )
+                ):
+                    continue
+            clauses.append((match, premise_name, premise))
     frame = (f"{form.header.year}-01-01", f"{form.header.year}-12-31")
     result = []
     used_inputs: set[str] = set()
     used_spans: set[tuple[int, int]] = set()
     for name, rule in rules.items():
+        owned = [
+            (clause, premise_name, premise)
+            for clause, premise_name, premise in clauses
+            if _proofs(rule, form, clause.group())
+        ]
+        if len(owned) != 1:
+            return None
+        clause, premise_name, premise = owned[0]
+        span = clause.span()
+        if not any(a <= span[0] and span[1] <= b for a, b in form.unowned_spans):
+            return None
         if (
             set(rule)
             - {
@@ -159,13 +196,13 @@ def bind_document_requirements(
         fact_name = expression.id
         fact = inputs[fact_name]
         if (
-            not _PREMISE_NAME.fullmatch(fact_name)
+            not premise_name.fullmatch(fact_name)
             or fact.get("dtype") != "Boolean"
             or fact.get("entity") != "Person"
             or fact.get("period") != "Year"
             or set(fact) != {"name", "dtype", "entity", "period", "description"}
             or not isinstance(fact["description"], str)
-            or not _PREMISE.fullmatch(fact["description"])
+            or not premise.fullmatch(fact["description"])
             or fact_name in used_inputs
             or span in used_spans
             or not _proofs(rule, form, clause.group())
@@ -194,6 +231,19 @@ def observed_document_pairs(
     prefix: str,
     period: Mapping[str, Any],
 ) -> bool:
+    return (
+        _observed_document_pair_keys(requirements, evidence, cases, prefix, period)
+        is not None
+    )
+
+
+def _observed_document_pair_keys(
+    requirements: tuple[DocumentRequirement, ...],
+    evidence: Any,
+    cases: Any,
+    prefix: str,
+    period: Mapping[str, Any],
+) -> tuple[tuple[str, tuple[str, str]], ...] | None:
     """Require separate, strictly typed Person witnesses for every owned clause.
 
     The caller authenticates full content, compiled inventory and capture freshness.
@@ -204,8 +254,9 @@ def observed_document_pairs(
     from .same_case_execution import case_key, strict_explain_metadata
 
     try:
+        pairs = []
         for requirement in requirements:
-            witnessed: dict[bool, str] = {}
+            witnessed: dict[bool, tuple[str, str]] = {}
             ref = prefix + requirement.rule_name
             fact_ref = prefix + "input." + requirement.input_name
             for case in cases or ():
@@ -294,10 +345,16 @@ def observed_document_pairs(
                     )
                 ):
                     continue
-                witnessed[value] = entity_id
-            if set(witnessed) != {False, True} or witnessed[False] != witnessed[True]:
-                return False
-        return True
+                witnessed[value] = (entity_id, case_key(case))
+            if (
+                set(witnessed) != {False, True}
+                or witnessed[False][0] != witnessed[True][0]
+            ):
+                return None
+            pairs.append(
+                (requirement.rule_name, (witnessed[False][1], witnessed[True][1]))
+            )
+        return tuple(pairs)
     except (
         ValueError,
         TypeError,
@@ -307,4 +364,4 @@ def observed_document_pairs(
         SyntaxError,
         RecursionError,
     ):
-        return False
+        return None
