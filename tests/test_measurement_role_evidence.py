@@ -92,7 +92,9 @@ def scoped_evidence(doc, cases, source):
             principal_rules=rules,
             rule_names=set(rules),
             asserted_by_rule={
-                name: [case for case in cases if name in s._test_case_output_names(case)]
+                name: [
+                    case for case in cases if name in s._test_case_output_names(case)
+                ]
                 for name in rules
             },
             extract_numeric_occurrences=functools.partial(
