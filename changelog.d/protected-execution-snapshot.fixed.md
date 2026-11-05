@@ -1,0 +1,1 @@
+Allow protected source-validation snapshots through a closed local Git operation using sanitized object and reference metadata, while refusing external configuration, unsafe paths, and unsupported repository shapes.
