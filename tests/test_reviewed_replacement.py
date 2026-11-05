@@ -115,6 +115,46 @@ def test_inventory_refuses_nonancestor(candidate):
         inventory(repo, head, base)
 
 
+def test_inventory_cannot_hide_changes_with_relative_diff(candidate):
+    repo, base, _, _ = candidate
+    (repo / "README.md").write_text("unrelated")
+    git(repo, "add", "README.md")
+    git(repo, "commit", "-qm", "unrelated root change")
+    head = git(repo, "rev-parse", "HEAD")
+    git(repo, "config", "diff.relative", "true")
+    with pytest.raises(ValueError, match="README.md"):
+        inventory(repo / "us-az", base, head)
+
+
+def test_inventory_cannot_hide_gitlink_changes(candidate):
+    repo, base, head, _ = candidate
+    git(repo, "update-index", "--add", "--cacheinfo", f"160000,{base},vendor")
+    git(repo, "commit", "-qm", "base with gitlink")
+    link_base = git(repo, "rev-parse", "HEAD")
+    (repo / PRIMARY).write_text("replacement with unrelated gitlink change")
+    git(repo, "add", PRIMARY)
+    git(repo, "update-index", "--cacheinfo", f"160000,{head},vendor")
+    git(repo, "commit", "-qm", "changed gitlink")
+    link_head = git(repo, "rev-parse", "HEAD")
+    git(repo, "config", "diff.ignoreSubmodules", "all")
+    with pytest.raises(ValueError, match="vendor"):
+        inventory(repo, link_base, link_head)
+
+
+@pytest.mark.parametrize("ambient", [True, False])
+def test_inventory_ignores_grafts(candidate, monkeypatch, ambient):
+    repo, base, head, _ = candidate
+    tree = git(repo, "rev-parse", f"{base}^{{tree}}")
+    sibling = git(repo, "commit-tree", tree, "-p", base, "-m", "sibling")
+    graft = repo / ("forged-grafts" if ambient else ".git/info/grafts")
+    graft.parent.mkdir(parents=True, exist_ok=True)
+    graft.write_text(f"{head} {sibling}\n")
+    if ambient:
+        monkeypatch.setenv("GIT_GRAFT_FILE", str(graft))
+    with pytest.raises(subprocess.CalledProcessError):
+        inventory(repo, sibling, head)
+
+
 def test_inventory_rejects_ambiguous_owners_already_in_base(candidate):
     repo, _, _, owner = candidate
     other = (

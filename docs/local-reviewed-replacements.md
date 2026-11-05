@@ -1,6 +1,16 @@
 # Local subscription generation and central replacement signing
 
 Status: **replacement signing is not implemented or activated by this document**.
+Historical and Arizona-specific statements below are reported upstream context,
+not facts independently established by this inventory. Evidence records:
+[NZ candidate PR](https://github.com/TheAxiomFoundation/rulespec-nz/pull/133),
+[admission PR](https://github.com/TheAxiomFoundation/axiom-encode/pull/1910),
+[protected signing run](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/38678166960),
+[binding PR](https://github.com/TheAxiomFoundation/axiom-encode/pull/2008).
+The Arizona counterexample and provenance discussion are recorded in the
+[Arizona PR discussion](https://github.com/TheAxiomFoundation/rulespec-us/pull/2022);
+source/pin work is tracked by [US #2023](https://github.com/TheAxiomFoundation/rulespec-us/pull/2023)
+and [corpus #972](https://github.com/TheAxiomFoundation/axiom-corpus/issues/972).
 The existing new-module precedent is rulespec-nz #133, admitted through encoder
 #1910 and signed by protected run 38678166960. Do not use that precedent to
 delete an existing manifest or bypass a replacement receipt.
@@ -98,5 +108,5 @@ receipt. A test that only signs an isolated new module is insufficient.
 
 This is a proposal for extending the established NZ handoff, not an assertion
 that its existing authorization covers Arizona. Route confirmation is requested
-on rulespec-us #2022, comment 6635900144. The read-only inventory can be reviewed
+on [rulespec-us #2022](https://github.com/TheAxiomFoundation/rulespec-us/pull/2022#issuecomment-6635900144). The read-only inventory can be reviewed
 and tested before that decision; no production signer consumes it.

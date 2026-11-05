@@ -1,6 +1,7 @@
 """Public NZ law excerpts preserve detached structure and operative numbers.
 
-Excerpts: Social Security Act 2018 (2018/32); amending Act 2026/54, section 15.
+Excerpts: Social Security Act 2018 (2018/32), from release nz-rulespec-2026-07-25;
+amending Act 2026/54, section 15, from release nz-rulespec-2026-10-20.
 Source: New Zealand Legislation (legislation.govt.nz), Crown copyright, CC BY 4.0
 """
 
@@ -104,12 +105,12 @@ def test_parenthesized_s73_markers_keep_authenticated_subsection_ownership():
 
 
 def test_s220_outline_retains_base_obligations_after_authentication_reversion():
-    # Recognizing a legal subject also authenticated operative count keys.
-    # Full s220 ownership is LOST until independent legal identity is proved.
+    # Recognizing a legal subject also authenticated operative count keys, so
+    # text alone still proves nothing and base's obligations stay.
     assert bare_outline(S220) is None
     assert mask_bare_labels(S220) == S220
     cleaned = sc.authoritative_numeric_recall_text(
-        S220, corpus_citation_path="nz/statute/act/public/2018/0032/section/220"
+        S220, corpus_citation_path="nz/statute/example/section/220/2"
     )
     assert vp.extract_numeric_occurrences_from_text(cleaned) == [
         1,
@@ -119,6 +120,15 @@ def test_s220_outline_retains_base_obligations_after_authentication_reversion():
         1,
         3,
     ]
+    # Read as the complete section, s220 cites its own subsection (2), which
+    # proves the bare roots are subsections (tests/test_nz_s220_self_cited_outline.py).
+    # Only labels 1 and 2 leave the recall. Nothing proves root 3, so its label
+    # stays, as do both operative `1`s, 28, and every legal-subject control
+    # above that cites no subsection.
+    cleaned = sc.authoritative_numeric_recall_text(
+        S220, corpus_citation_path="nz/statute/act/public/2018/0032/section/220"
+    )
+    assert vp.extract_numeric_occurrences_from_text(cleaned) == [1, 28, 1, 3]
 
 
 @settings(max_examples=20, deadline=None)

@@ -22,17 +22,33 @@ _MAX_BLOB = 10 * 1024 * 1024
 
 
 def _git(repo: Path, *args: str) -> bytes:
+    from .signing_broker import scrub_private_signing_environment
+
+    environment = {
+        key: value
+        for key, value in scrub_private_signing_environment().items()
+        if not key.startswith("GIT_")
+    }
+    environment.update(
+        GIT_GRAFT_FILE=os.devnull,
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_NO_LAZY_FETCH="1",
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_COUNT="1",
+        GIT_CONFIG_KEY_0="core.commitGraph",
+        GIT_CONFIG_VALUE_0="false",
+        GIT_TERMINAL_PROMPT="0",
+        GIT_LITERAL_PATHSPECS="1",
+        GIT_OPTIONAL_LOCKS="0",
+    )
     return subprocess.run(
         ["git", "-C", str(repo), *args],
         check=True,
         capture_output=True,
         timeout=60,
-        env={
-            **os.environ,
-            "GIT_NO_REPLACE_OBJECTS": "1",
-            "GIT_LITERAL_PATHSPECS": "1",
-            "GIT_OPTIONAL_LOCKS": "0",
-        },
+        env=environment,
     ).stdout
 
 
@@ -60,13 +76,24 @@ def inventory(repo: Path, base: str, candidate: str) -> dict[str, object]:
     candidate must preserve historical ownership evidence verbatim. Path-moving
     migrations and new modules need a different explicit contract.
     """
+    repo = Path(_git(repo, "rev-parse", "--show-toplevel").decode().strip())
     for ref in (base, candidate):
         if _SHA.fullmatch(ref) is None:
             raise ValueError("base and candidate must be full lowercase commit SHAs")
         if _git(repo, "cat-file", "-t", ref).strip() != b"commit":
             raise ValueError("base and candidate must identify commits")
     _git(repo, "merge-base", "--is-ancestor", base, candidate)
-    raw = _git(repo, "diff", "--no-renames", "--name-status", "-z", base, candidate)
+    raw = _git(
+        repo,
+        "diff",
+        "--no-renames",
+        "--ignore-submodules=none",
+        "--no-relative",
+        "--name-status",
+        "-z",
+        base,
+        candidate,
+    )
     fields = raw.split(b"\0")[:-1]
     changed: set[str] = set()
     for index in range(0, len(fields), 2):
