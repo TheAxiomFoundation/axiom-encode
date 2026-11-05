@@ -17,6 +17,11 @@ from typing import Any, Mapping
 
 from axiom_encode.bound_form_structure import BoundFormStructure
 
+from .bound_form_obligations import (
+    DocumentRequirement,
+    bind_document_requirements,
+    observed_document_pairs,
+)
 from .imported_export_evidence import _atoms, _named, _payload
 
 _LABEL = r"[A-Za-z][A-Za-z ,'-]*"
@@ -93,6 +98,7 @@ class OrderedFormBinding:
     entity: str
     unit: str
     consumer_namespace: str | None
+    document_requirements: tuple[DocumentRequirement, ...] = ()
 
     def matches(
         self,
@@ -235,6 +241,29 @@ def bind_ordered_form(
         or verification.get("source_sha256") != form.source_sha256
     ):
         return None
+    # Classify every original declaration; unknown kinds still hit the closed
+    # row grammar or the closed document grammar, never an ignored-extra path.
+    document_rules = {n: r for n, r in rules.items() if r.get("dtype") == "Judgment"}
+    document_inputs = set()
+    for rule in document_rules.values():
+        versions = rule.get("versions")
+        if (
+            not isinstance(versions, list)
+            or len(versions) != 1
+            or not isinstance(versions[0], dict)
+        ):
+            return None
+        expression = _tree(versions[0].get("formula"))
+        if not isinstance(expression, ast.Name) or expression.id not in inputs:
+            return None
+        document_inputs.add(expression.id)
+    documents = bind_document_requirements(
+        form, document_rules, {n: inputs[n] for n in document_inputs}
+    )
+    if documents is None or payload.get("relations", []) != []:
+        return None
+    rules = {n: r for n, r in rules.items() if n not in document_rules}
+    inputs = {n: r for n, r in inputs.items() if n not in document_inputs}
     row_text = {row.number: form.source[slice(*row.span)] for row in form.rows}
     specs = {}
     for row in form.rows:
@@ -408,6 +437,7 @@ def bind_ordered_form(
         entity,
         unit,
         namespace,
+        documents,
     )
 
 
@@ -523,11 +553,19 @@ def observed_form_frame(
         inputs = _named(payload, "inputs")
         derived = {n: r for n, r in rules.items() if r["kind"] == "derived"}
         parameters = {n: r for n, r in rules.items() if r["kind"] == "parameter"}
+        documents = {d.rule_name: d for d in binding.document_requirements}
+        row_derived = {n: r for n, r in derived.items() if n not in documents}
+        row_inputs = {
+            n: r
+            for n, r in inputs.items()
+            if n not in {d.input_name for d in documents.values()}
+        }
         program = json.loads(evidence.artifact_bytes)["program"]
         declarations = {item["name"]: item for item in program["derived"]}
         constants = {item["name"]: item for item in program["parameters"]}
         if (
-            set(declarations) != set(derived)
+            program.get("relations") != []
+            or set(declarations) != set(derived)
             or len(declarations) != len(program["derived"])
             or set(constants) != set(parameters)
             or len(constants) != len(program["parameters"])
@@ -547,7 +585,40 @@ def observed_form_frame(
             declaration = (declarations if name in derived else constants)[name]
             if declaration["id"] != prefix + name:
                 return False
-            if name in derived:
+            if name in documents:
+                document = documents[name]
+                expression = {
+                    "kind": "comparison",
+                    "left": {"kind": "input", "name": document.input_name},
+                    "op": "eq",
+                    "right": {
+                        "kind": "literal",
+                        "value": {"kind": "bool", "value": True},
+                    },
+                }
+                if (
+                    any(
+                        declaration.get(k) != v
+                        for k, v in {
+                            "entity": document.entity,
+                            "dtype": "judgment",
+                            "unit": None,
+                            "period": "Year",
+                            "semantics": "judgment",
+                            "source": rule.get("source"),
+                            "corpus_citation_path": binding.form.citation,
+                        }.items()
+                    )
+                    or json.dumps(declaration.get("expr"), sort_keys=True)
+                    != json.dumps(expression, sort_keys=True)
+                    or json.dumps(declaration["versions"], sort_keys=True)
+                    != json.dumps(
+                        [{**frame, "semantics": "judgment", "expr": expression}],
+                        sort_keys=True,
+                    )
+                ):
+                    return False
+            elif name in derived:
                 expression = _compiled_expression(
                     _tree(rule["versions"][0]["formula"]), rules, set(inputs)
                 )
@@ -577,6 +648,10 @@ def observed_form_frame(
                     != _number(rule["versions"][0]["formula"])
                 ):
                     return False
+        if not observed_document_pairs(
+            binding.document_requirements, evidence, cases, prefix, expected_period
+        ):
+            return False
         pipeline = object.__new__(ValidatorPipeline)
         for case in cases or ():
             if not isinstance(case, dict) or case.get("period") != expected_period:
@@ -629,7 +704,7 @@ def observed_form_frame(
                 )
             ):
                 continue
-            outputs = {prefix + n for n in derived}
+            outputs = {prefix + n for n in row_derived}
             if (
                 set(query["outputs"]) != outputs
                 or len(query["outputs"]) != len(outputs)
@@ -640,9 +715,10 @@ def observed_form_frame(
                 continue
             facts = request["dataset"]["inputs"]
             if (
-                len(facts) != len(inputs)
+                len(facts) != len(row_inputs)
                 or request["dataset"].get("relations") != []
-                or {f["name"] for f in facts} != {prefix + "input." + n for n in inputs}
+                or {f["name"] for f in facts}
+                != {prefix + "input." + n for n in row_inputs}
             ):
                 continue
             case_inputs = {
@@ -660,7 +736,7 @@ def observed_form_frame(
             ):
                 continue
             valid = True
-            for name, rule in derived.items():
+            for name, rule in row_derived.items():
                 ref = prefix + name
                 node = result["trace"][ref]
                 output = result["outputs"][ref]
