@@ -78,7 +78,19 @@ def test_counterfactual_rate_retains_base_gates_pending_positive_evidence():
         "The rate is the rate in clauses 1 to 6AA that would apply to them "
         "if they were single (and their other circumstances were unchanged)."
     )
-    assert len(sc._source_conjunctive_fact_gates(source)) == 2
+    # `that would apply to them` directly governs the subjunctive `if they
+    # were single`, so the terminal parenthesis holds the hypothetical fixed and
+    # states no fact (tests/test_nz_counterfactual_ceteris_paribus.py). Base's
+    # second gate was that clause; the actual two-gate inputs below keep theirs.
+    assert sc._source_conjunctive_fact_gates(source) == ()
+    assert (
+        len(
+            sc._source_conjunctive_fact_gates(
+                source.replace("were single", "are single")
+            )
+        )
+        == 2
+    )
     assert (
         len(
             sc._source_conjunctive_fact_gates(
