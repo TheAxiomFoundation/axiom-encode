@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 Span = tuple[int, int]
 _HEADER = re.compile(
-    r"\A\ufeff?(?P<code>\d{4,5}-[A-Z]{1,4})\r?\n\r?\n"
+    r"\ufeff?(?P<code>\d{4,5}-[A-Z]{1,4})\r?\n\r?\n"
     r"Protected [A-Z] (?P<confidentiality_cue>when) completed\r?\n\r?\n"
     r"(?P<year>(?:19|20)\d{2})\r?\n\r?\n"
     r"Form (?P<form>[A-Z]{1,4}\d{1,4})\r?\n\r?\n"
@@ -33,6 +33,32 @@ _FIELD = re.compile(r"(?m)^(?P<label>[A-Za-z][A-Za-z ()'/-]{1,160}) \^\r?$")
 _CITATION = re.compile(r"[a-z0-9][a-z0-9-]*(?:/[a-z0-9][a-z0-9-]*)+")
 
 
+_WRAPPER = re.compile(
+    r"\ACRA Form (?P<form>[A-Z]{1,4}\d{1,4}) (?P<year>(?:19|20)\d{2}) "
+    r"(?P<title>[A-Z][A-Za-z ,'-]{3,120})\r?\n\r?\n"
+)
+_OPERATIVE_TITLE = re.compile(
+    r"\b(?:if|unless|except|provided|otherwise|when|plus|minus|less|subtract|add|multiply|divide|maximum|minimum|deduct)\b",
+    re.IGNORECASE,
+)
+
+
+def _physical_header(source: str) -> re.Match[str] | None:
+    """Match one physical header, optionally after its exact CRA display title."""
+    bare = _HEADER.match(source)
+    if bare is not None:
+        return bare
+    wrapper = _WRAPPER.match(source)
+    if wrapper is None or _OPERATIVE_TITLE.search(wrapper["title"]):
+        return None
+    header = _HEADER.match(source, wrapper.end())
+    if header is None or any(
+        wrapper[key] != header[key] for key in ("form", "year", "title")
+    ):
+        return None
+    return header
+
+
 def printed_form_header_condition_span(source: str) -> Span | None:
     """Own only the confidentiality cue in a complete physical header.
 
@@ -41,7 +67,7 @@ def printed_form_header_condition_span(source: str) -> Span | None:
     """
     if not isinstance(source, str) or len(source) > 100_000:
         return None
-    header = _HEADER.match(source)
+    header = _physical_header(source)
     return header.span("confidentiality_cue") if header is not None else None
 
 
@@ -53,6 +79,7 @@ class PrintedFormHeader:
     code: str
     form: str
     title: str
+    wrapper_year_span: Span | None = None
 
 
 @dataclass(frozen=True)
@@ -107,7 +134,7 @@ def recognize_bound_form_structure(
         or any(mark in source for mark in ('"', "“", "”"))
     ):
         return None
-    header = _HEADER.match(source)
+    header = _physical_header(source)
     notes = tuple(_NOTE.finditer(source))
     starts = tuple(_ROW.finditer(source))
     if (
@@ -184,6 +211,7 @@ def recognize_bound_form_structure(
             header["code"],
             header["form"],
             header["title"],
+            _WRAPPER.match(source).span("year") if header.start() else None,
         ),
         TranscribedEntryTable(
             note.span(),

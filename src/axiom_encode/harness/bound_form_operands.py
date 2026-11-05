@@ -80,11 +80,24 @@ def _proof(
     atoms = _atoms(rule, path, kind)
     if len(atoms) != 1:
         return False
+    # Only the closed, matching display title may repeat the physical year.
+    unique = form.source.count(text) == 1
+    if (
+        not unique
+        and kind == "effective_period"
+        and path in {"versions[0].effective_from", "versions[0].effective_to"}
+        and text == str(form.header.year)
+        and form.header.wrapper_year_span is not None
+    ):
+        unique = tuple(m.span() for m in re.finditer(re.escape(text), form.source)) == (
+            form.header.wrapper_year_span,
+            form.header.year_span,
+        )
     # Optional unverified span/hash fields are not accepted by this certificate.
     return (
         atoms[0].get("source")
         == {"corpus_citation_path": form.citation, "excerpt": text}
-        and form.source.count(text) == 1
+        and unique
     )
 
 
