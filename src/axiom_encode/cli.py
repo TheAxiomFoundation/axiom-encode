@@ -9348,6 +9348,8 @@ def cmd_promote_reviewed_candidate(args):
 
     from .prepare_signed_backfill import (
         UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS,
+        ReviewedRulespecRecord,
+        _reviewed_rulespec_record_issue,
         citation_rulespec_path,
         load_reviewed_rulespec_records,
     )
@@ -9395,6 +9397,35 @@ def cmd_promote_reviewed_candidate(args):
         ),
         None,
     )
+    live_admission = None
+    if os.environ.get(_TRUSTED_RUNTIME_ENV) == "1":
+        runtime = _load_trusted_runtime_attestation()
+        live_admission = json.loads(Path(runtime["path"]).read_text()).get(
+            "reviewed_pr_admission"
+        )
+    if live_admission is not None:
+        from .reviewed_pr_admission import revalidate_admission, selector_from_payload
+
+        selector = selector_from_payload(live_admission.get("selector"))
+        if (
+            live_admission.get("workflow_commit") != runtime["commit"]
+            or selector.country != country
+            or selector.head != reviewed_ref
+            or selector.citation != str(args.citation)
+            or selector.rulespec_path != str(args.rulespec_path)
+            or selector.run_id != str(args.run_id)
+        ):
+            raise ValueError(
+                "run-scoped reviewed PR admission does not match this operation"
+            )
+        revalidate_admission(live_admission)
+        record = live_admission["record"]
+        issue = _reviewed_rulespec_record_issue(
+            record, country=country, rulespec_ref=reviewed_ref
+        )
+        if issue:
+            raise ValueError(issue)
+        admission = ReviewedRulespecRecord(country, reviewed_ref, record)
     if admission is None:
         raise ValueError("reviewed candidate ref is not explicitly allowlisted")
     # A record's binding names the one module, and the exact primary and
@@ -9649,6 +9680,10 @@ def cmd_promote_reviewed_candidate(args):
                 "source_attestation": source_attestation,
                 "validation_execution": validation_execution,
             }
+            if live_admission is not None:
+                # Validation may take time. A dismissed approval, moved head,
+                # or changed main base must fail before any signature request.
+                revalidate_admission(live_admission)
             _sign_applied_encoding_manifest(payload, signing_broker)
             manifest_bytes = (
                 json.dumps(payload, indent=2, sort_keys=True) + "\n"

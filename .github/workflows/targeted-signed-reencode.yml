@@ -361,6 +361,18 @@ jobs:
           token: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           persist-credentials: false
 
+      - name: Preflight live reviewed PR promotion
+        id: reviewed_pr_admission
+        env:
+          DISPATCH_JSON: ${{ toJSON(inputs) }}
+          DISPATCH_ACTOR: ${{ github.triggering_actor }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          python axiom-encode/scripts/prepare_reviewed_pr_promotion.py prepare \
+            --repo "$RULESPEC_CHECKOUT" \
+            --selector "$RUNNER_TEMP/reviewed-pr-selector.json"
+
       - name: Verify immutable checkout identities
         env:
           COUNTRY: ${{ inputs.country }}
@@ -370,6 +382,7 @@ jobs:
           PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
           CORPUS_REF: ${{ inputs.corpus_ref }}
           RULES_ENGINE_REF: ${{ inputs.rules_engine_ref }}
+          LIVE_PR_ADMISSION: ${{ steps.reviewed_pr_admission.outputs.enabled }}
         run: |
           set -euo pipefail
           sha_pattern='^[0-9a-f]{40}$'
@@ -400,9 +413,11 @@ jobs:
           verify_checkout axiom-rules-engine "$RULES_ENGINE_REF" axiom-rules-engine
           test "$(git -C "$RULESPEC_CHECKOUT" remote get-url origin)" = \
             "https://github.com/TheAxiomFoundation/rulespec-$COUNTRY"
-          python axiom-encode/scripts/prepare_signed_backfill.py \
-            validate-rulespec-base "$RULESPEC_CHECKOUT" "$COUNTRY" \
-            "$RULESPEC_REF" "$OPEN_PR" "$PR_BASE_BRANCH"
+          if [ "$LIVE_PR_ADMISSION" != "true" ]; then
+            python axiom-encode/scripts/prepare_signed_backfill.py \
+              validate-rulespec-base "$RULESPEC_CHECKOUT" "$COUNTRY" \
+              "$RULESPEC_REF" "$OPEN_PR" "$PR_BASE_BRANCH"
+          fi
           git -C axiom-corpus merge-base --is-ancestor HEAD refs/remotes/origin/main
           git -C axiom-rules-engine merge-base --is-ancestor HEAD refs/remotes/origin/main
 
@@ -1453,6 +1468,7 @@ jobs:
           TRUST_EVAL_ROOT: ${{ vars.AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY }}
           TRUST_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
           TRUST_RETIRED_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_RETIRED_PUBLIC_KEY }}
+          LIVE_PR_ADMISSION: ${{ steps.reviewed_pr_admission.outputs.enabled }}
         run: |
           CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
             -o "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
@@ -1465,6 +1481,10 @@ jobs:
           test "$(stat -c '%u' /opt)" = "0"
           test -z "$(find /opt -maxdepth 0 -perm /022)"
           sudo rm -rf /opt/axiom-verification
+          reviewed_pr_args=()
+          if [ "$LIVE_PR_ADMISSION" = "true" ]; then
+            reviewed_pr_args+=(--reviewed-pr-selector "$RUNNER_TEMP/reviewed-pr-selector.json")
+          fi
           sudo .venv/bin/python scripts/provision_verification_supervisor.py \
             --destination /opt/axiom-verification \
             --supervisor "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
@@ -1476,7 +1496,8 @@ jobs:
             --git /usr/bin/git \
             --encoder-git-root "$GITHUB_WORKSPACE/axiom-encode" \
             --encoder-commit "$GITHUB_SHA" \
-            --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode
+            --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode \
+            "${reviewed_pr_args[@]}"
           sudo install -o root -g root -m 0755 \
             "$RUNNER_TEMP/axiom-encode-apply-signer" \
             /opt/axiom-verification/axiom-encode-apply-signer
@@ -3462,6 +3483,8 @@ jobs:
           )
           replacement_path = os.environ.get("REPLACE_RULESPEC_PATH") or ""
           atomic_source_raw = json.loads(os.environ.get("ATOMIC_SOURCE_JSON") or "[]")
+          if isinstance(atomic_source_raw, dict) and atomic_source_raw.get("schema") == "axiom-encode/reviewed-pr-promotion/v1":
+              atomic_source_raw = atomic_source_raw["transaction"]
           atomic_source = immutable_atomic_source_contract(
               os.environ.get("ATOMIC_SOURCE_JSON") or "[]"
           )
@@ -4838,7 +4861,7 @@ jobs:
             'if type == "object" then .manifest_only_refresh // false else false end' \
             <<<"$ATOMIC_SOURCE_JSON")"
           reviewed_candidate_promotion="$(jq -r \
-            'if type == "object" then .reviewed_candidate_promotion // false else false end' \
+            'if type == "object" then (if .schema == "axiom-encode/reviewed-pr-promotion/v1" then .transaction else . end) | .reviewed_candidate_promotion // false else false end' \
             <<<"$ATOMIC_SOURCE_JSON")"
           if [ "$manifest_only_refresh" = "true" ] || \
              [ "$reviewed_candidate_promotion" = "true" ] || \
@@ -4871,9 +4894,14 @@ jobs:
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
           PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+          LIVE_PR_ADMISSION: ${{ steps.reviewed_pr_admission.outputs.enabled }}
         run: |
           set -euo pipefail
           test -n "$GH_TOKEN"
+          if [ "$LIVE_PR_ADMISSION" = "true" ]; then
+            python axiom-encode/scripts/prepare_reviewed_pr_promotion.py verify-publication \
+              --attestation /opt/axiom-verification/python/runtime-attestation.json
+          fi
           git -C "$RULESPEC_CHECKOUT" fetch --no-tags origin \
             "+refs/heads/${PR_BASE_BRANCH}:refs/remotes/origin/${PR_BASE_BRANCH}"
           test "$(git -C "$RULESPEC_CHECKOUT" rev-parse \
@@ -5126,9 +5154,17 @@ jobs:
 
       - name: Finalize signed re-encode artifact checksums
         id: finalize_signed_reencode_artifact
+        env:
+          LIVE_REVIEWED_PR: ${{ steps.reviewed_pr_admission.outputs.enabled }}
         run: |
           set -euo pipefail
           artifact="$RUNNER_TEMP/targeted-reencode"
+          if test "${LIVE_REVIEWED_PR:-false}" = true; then
+            # Public review/run identities only; preserve the root-provisioned
+            # evidence in the checksummed run artifact for later audit.
+            cp /opt/axiom-verification/python/runtime-attestation.json \
+              "$artifact/reviewed-pr-runtime-attestation.json"
+          fi
           (
             cd "$artifact"
             if [ -n "$(find . -type l -print -quit)" ]; then
