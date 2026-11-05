@@ -1327,6 +1327,109 @@ def test_any_string_receipt_owner_refuses_without_mutation(
     assert any("already covered" in issue for issue in issues), issues
 
 
+def _other_receipt_issues(claimed, receipt):
+    return cli._unreceipted_retirement_ownership_issues(
+        {"applied_files": [{"path": claimed}]},
+        manifest_label="retiring.json",
+        inventory={
+            Path(".axiom/encoding-manifests/other.json"): json.dumps(receipt).encode()
+        },
+        location="at HEAD",
+    )
+
+
+_RETIREMENT_SHAPES = {
+    "receipted": cli._RETIRE_APPLY_MANIFEST_FIELDS,
+    "unreceipted": cli._UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS,
+}
+
+
+def _retirement_shaped(shape, **values):
+    return {field: values.get(field, "") for field in _RETIREMENT_SHAPES[shape]}
+
+
+def test_reason_naming_another_pair_leaves_that_pair_retirable(tmp_path):
+    checkout = _repo(tmp_path)
+    second = "us/policies/council/second.yaml"
+    second_companion = "us/policies/council/second.test.yaml"
+    for path, raw in zip((second, second_companion), checkout.originals.values()):
+        (checkout.repo / path).write_bytes(raw)
+    checkout.base = checkout.commit("second unreceipted pair")
+
+    checkout.retire(reason=second)
+    checkout.commit("retire the first pair under a reason that names the second")
+    checkout.retire(paths=[second])
+
+    assert not (checkout.repo / second).exists()
+    assert not (checkout.repo / second_companion).exists()
+
+
+@pytest.mark.parametrize("shape", sorted(_RETIREMENT_SHAPES))
+def test_retirement_receipt_reason_owns_nothing(shape):
+    claimed = "us/policies/council/second.yaml"
+    assert (
+        _other_receipt_issues(claimed, _retirement_shaped(shape, reason=claimed)) == []
+    )
+
+
+@pytest.mark.parametrize("shape", sorted(_RETIREMENT_SHAPES))
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"applied_files": [{"path": "us/policies/council/second.yaml"}]},
+        {"tool": "us/policies/council/second.yaml"},
+        {"reason": ["us/policies/council/second.yaml"]},
+        {"reason": {"covered": "us/policies/council/second.yaml"}},
+    ],
+    ids=["applied-files", "other-string-field", "reason-list", "reason-object"],
+)
+def test_retirement_shape_still_owns_outside_a_text_reason(shape, values):
+    issues = _other_receipt_issues(
+        "us/policies/council/second.yaml", _retirement_shaped(shape, **values)
+    )
+    assert any("already covered" in issue for issue in issues), issues
+
+
+@pytest.mark.parametrize(
+    "receipt",
+    [
+        {"reason": "us/policies/council/second.yaml"},
+        {
+            **_retirement_shaped(
+                "unreceipted", reason="us/policies/council/second.yaml"
+            ),
+            "unknown": "",
+        },
+    ],
+    ids=["reason-only", "retirement-shape-plus-a-field"],
+)
+def test_reason_in_an_unknown_shape_still_owns(receipt):
+    issues = _other_receipt_issues("us/policies/council/second.yaml", receipt)
+    assert any("already covered" in issue for issue in issues), issues
+
+
+@settings(
+    max_examples=50,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(
+    shape=st.sampled_from(sorted(_RETIREMENT_SHAPES)),
+    reason=st.text(max_size=60),
+    owned=st.booleans(),
+)
+@example(shape="unreceipted", reason="us/policies/council/second.yaml", owned=False)
+@example(shape="receipted", reason="us/policies/council/second.yaml", owned=True)
+def test_invariant_retirement_reason_never_changes_ownership(shape, reason, owned):
+    claimed = "us/policies/council/second.yaml"
+    entries = [{"path": claimed}] if owned else []
+    assert _other_receipt_issues(
+        claimed, _retirement_shaped(shape, applied_files=entries, reason=reason)
+    ) == _other_receipt_issues(
+        claimed, _retirement_shaped(shape, applied_files=entries, reason="unrelated")
+    )
+
+
 def test_no_base_all_snapshot_does_not_replay_settled_deletion(tmp_path):
     checkout = _repo(tmp_path)
     checkout.retire()

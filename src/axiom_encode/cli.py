@@ -24929,7 +24929,17 @@ def _unreceipted_retirement_ownership_issues(
             )
             continue
         prefix = owner.parts[0] if owner.parts[0] != ".axiom" else ""
-        pending: list[object] = [prior]
+        # A retirement receipt's reason holds an operator's free text and owns
+        # nothing. Every other string, in every other shape, still counts.
+        retirement_reason = isinstance(prior.get("reason"), str) and set(prior) in (
+            _RETIRE_APPLY_MANIFEST_FIELDS,
+            _UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS,
+        )
+        pending: list[object] = [
+            {key: value for key, value in prior.items() if key != "reason"}
+            if retirement_reason
+            else prior
+        ]
         covered: set[str] = set()
         while pending:
             item = pending.pop()
