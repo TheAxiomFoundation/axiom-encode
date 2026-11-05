@@ -162,6 +162,9 @@ attestation. Verification replays that base's bytes and receipt inventory, so
 the verification checkout must retain its Git history. The diff guard also
 checks the pull request's protected base. It uses the same preflight and atomic
 transaction checks as receipted retirement.
+`guard-generated --all` without a base audits settled receipts as a snapshot and
+cannot detect a settled receipt reused for a deletion that already merged; pass
+`--all --base-ref <parent>` to audit that deletion.
 
 The Python client marks the broker descriptor non-inheritable immediately and
 closes it in fork children. It authenticates the actual peer using kernel socket

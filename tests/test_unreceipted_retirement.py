@@ -434,6 +434,72 @@ def test_signed_receipt_must_match_immutable_base(tmp_path, mutation):
     assert any(expected in issue for issue in checkout.guard())
 
 
+def test_signed_retirement_wrong_historical_waiver_hash_is_refused(tmp_path):
+    """A settled receipt must bind the waiver bytes at its recorded base."""
+
+    checkout = _repo(tmp_path)
+    payload = checkout.receipt()
+    payload["validation_waiver_set_sha256"] = "f" * 64
+    cli._sign_applied_encoding_manifest(payload, fixtures.TEST_APPLY_SIGNING_BROKER)
+    checkout.write_deleted(payload)
+    checkout.commit("signed retirement with an incorrect historical waiver hash")
+    expected = (
+        "validation_waiver_set_sha256 does not match the RuleSpec toolchain-bound "
+        "waiver set"
+    )
+    assert any(expected in issue for issue in checkout.guard())
+    # With no changed receipt or deleted path, --all reaches historical waiver
+    # verification without the gate's fresh-receipt waiver check masking it.
+    all_issues = checkout.guard(all_files=True, base="HEAD")
+    assert any(expected in issue for issue in all_issues), all_issues
+    loader_issues = checkout.load()[3]
+    assert any(expected in issue for issue in loader_issues), loader_issues
+
+
+@pytest.mark.parametrize("recorded_fault", ["owner", "bytes"])
+def test_retirement_replays_recorded_base_distinct_from_pr_base(
+    tmp_path, recorded_fault
+):
+    """A clean PR base cannot hide ownership or different recorded-base bytes."""
+
+    checkout = _repo(tmp_path)
+    owner = checkout.repo / ".axiom/legacy-replacements/recorded-owner.json"
+    if recorded_fault == "owner":
+        owner.parent.mkdir(parents=True)
+        owner.write_text(
+            json.dumps({"replacement": {"source": checkout.primary}}) + "\n"
+        )
+        expected = "already covered"
+    else:
+        (checkout.repo / checkout.primary).write_bytes(
+            checkout.originals[checkout.primary] + b"# different recorded bytes\n"
+        )
+        expected = "base sha256 does not match"
+    recorded_base = checkout.commit("recorded base cannot authorize retirement")
+    if recorded_fault == "owner":
+        owner.unlink()
+    else:
+        (checkout.repo / checkout.primary).write_bytes(
+            checkout.originals[checkout.primary]
+        )
+    checkout.base = checkout.commit("unowned exact bytes at the PR base")
+    payload = checkout.receipt()
+    assert checkout.base_issues(payload) == []
+    payload["base_commit"] = recorded_base
+    cli._sign_applied_encoding_manifest(payload, fixtures.TEST_APPLY_SIGNING_BROKER)
+    proof_issues = checkout.base_issues(payload)
+    assert any(
+        expected in issue and "at the recorded retirement base" in issue
+        for issue in proof_issues
+    ), proof_issues
+    assert all("at the immutable base" not in issue for issue in proof_issues)
+    checkout.write_deleted(payload)
+    checkout.commit("retirement incorrectly records the earlier disallowed base")
+    for all_files in (False, True):
+        issues = checkout.guard(all_files=all_files)
+        assert any(expected in issue for issue in issues), issues
+
+
 @pytest.mark.parametrize("field", ["tool", "backend", "identity_source"])
 @settings(
     max_examples=4,
@@ -639,6 +705,48 @@ def test_uncommitted_receipt_owner_refuses_without_mutation(tmp_path):
     with pytest.raises(SystemExit, match="already covered in the working tree"):
         checkout.retire()
     assert _snapshot(checkout.repo) == before
+
+
+@pytest.mark.parametrize("owner_state", ["committed", "working-tree"])
+def test_pre_install_recheck_refuses_owner_added_during_signing(
+    tmp_path, monkeypatch, owner_state
+):
+    """Signing may not leave a stale planning proof in control of installation."""
+
+    checkout = _repo(tmp_path)
+    before = _snapshot(checkout.repo)
+    owner_label = ".axiom/legacy-replacements/concurrent-owner.json"
+    owner = checkout.repo / owner_label
+    owner_bytes = (
+        json.dumps({"replacement": {"source": checkout.primary}}) + "\n"
+    ).encode()
+    broker = cli._require_applied_encoding_manifest_signer()
+    original_sign = broker.apply_ed25519_sign
+    sign_calls = []
+
+    def sign_and_add_owner(message):
+        signature = original_sign(message)
+        sign_calls.append(message)
+        owner.parent.mkdir(parents=True)
+        owner.write_bytes(owner_bytes)
+        if owner_state == "committed":
+            checkout.commit("owner added after retirement planning")
+            # Only the refreshed HEAD proof can see this owner; the checkout
+            # inventory has already lost it again before installation starts.
+            owner.unlink()
+        return signature
+
+    monkeypatch.setattr(broker, "apply_ed25519_sign", sign_and_add_owner)
+    with pytest.raises(
+        RuntimeError, match="Retirement ownership changed:.*already covered"
+    ):
+        checkout.retire()
+    assert len(sign_calls) == 1
+    expected = (
+        before if owner_state == "committed" else before | {owner_label: owner_bytes}
+    )
+    assert _snapshot(checkout.repo) == expected
+    assert not checkout.manifest.exists()
 
 
 @pytest.mark.parametrize("member", ["primary", "companion"])
@@ -1083,3 +1191,157 @@ def test_immutable_proof_cache_preserves_cold_refusals(
     assert prove(payload, proof_cache, reference="HEAD") == []
     assert prove(payload, proof_cache, reference="HEAD") == []
     assert len(blob_reads) >= before_mutable + 2 * len(originals)
+
+
+@pytest.mark.parametrize("all_files", [False, True])
+def test_changed_retirement_requires_guard_base_waiver_identity(tmp_path, all_files):
+    """A historical waiver match cannot admit a new stale-waiver retirement."""
+
+    checkout = _repo(tmp_path)
+    payload = checkout.receipt()
+    recorded_waiver_hash = payload["validation_waiver_set_sha256"]
+    waiver = checkout.repo / "known-validation-gaps.yaml"
+    waiver.write_text(waiver.read_text() + "# later protected waiver identity\n")
+    fixtures._write_test_rulespec_toolchain(
+        checkout.repo,
+        release_content_sha256=checkout.release.content_sha256,
+    )
+    current_waiver_hash = _sha256(waiver.read_bytes())
+    assert current_waiver_hash != recorded_waiver_hash
+    sentinel_manifest = (
+        checkout.repo / ".axiom/encoding-manifests/us/statutes/26/1.json"
+    )
+    sentinel = json.loads(sentinel_manifest.read_text())
+    sentinel["validation_waiver_set_sha256"] = current_waiver_hash
+    sentinel["validation_execution"]["policy_pre_apply"][
+        "validation_waiver_set_sha256"
+    ] = current_waiver_hash
+    cli._sign_applied_encoding_manifest(sentinel, fixtures.TEST_APPLY_SIGNING_BROKER)
+    sentinel_manifest.write_text(json.dumps(sentinel) + "\n")
+    guard_base = checkout.commit("change protected waiver identity before retirement")
+
+    # The recorded and guard bases both contain the exact, unowned pair.
+    assert checkout.base_issues(payload) == []
+    assert (
+        cli._unreceipted_retirement_base_issues(
+            payload,
+            repo_path=checkout.repo,
+            manifest_label=checkout.manifest_relative,
+            base_ref=guard_base,
+            roots=tuple(sorted(cli.RULESPEC_ATOMIC_MODULE_ROOTS)),
+        )
+        == []
+    )
+    checkout.write_deleted(payload)
+    checkout.commit("introduce fixture-signed stale-waiver retirement")
+    assert checkout.load()[3] == []
+    issues = checkout.guard(all_files=all_files, base=guard_base)
+    assert any("validation_waiver_set_sha256" in issue for issue in issues), issues
+
+
+@pytest.mark.parametrize("member", ["primary", "companion"])
+def test_protected_base_audit_refuses_present_deleted_member(tmp_path, member):
+    """Base receipt obligations independently reject a false deletion claim."""
+
+    checkout = _repo(tmp_path)
+    checkout.retire()
+    checkout.commit("retire original pair")
+    raw = checkout.manifest.read_bytes()
+    path = getattr(checkout, member)
+    (checkout.repo / path).write_bytes(checkout.originals[path])
+    recreated_base = checkout.commit("recreate one deleted member")
+    claims, issues = cli._guard_base_manifest_claims(
+        raw,
+        repo_path=checkout.repo,
+        manifest_path=checkout.manifest_relative,
+        historical_head_ref="HEAD",
+        retrospective=False,
+        roots=tuple(sorted(cli.RULESPEC_ATOMIC_MODULE_ROOTS)),
+        signing_broker=fixtures.TEST_APPLY_SIGNING_BROKER,
+        snapshot_commit=recreated_base,
+    )
+    assert claims == {checkout.primary, checkout.companion}
+    assert any(f"lists {path} as deleted but it exists" in issue for issue in issues), (
+        issues
+    )
+
+
+@pytest.mark.parametrize("all_files", [False, True])
+def test_guard_refuses_replacing_false_base_deletion_with_live_model(
+    tmp_path, all_files
+):
+    """A valid head model cannot hide a base receipt's false deletion claim."""
+
+    checkout = _repo(tmp_path)
+    checkout.retire()
+    checkout.commit("retire original pair")
+    for path, raw in checkout.originals.items():
+        (checkout.repo / path).write_bytes(raw)
+    recreated_base = checkout.commit("restore pair under unchanged deletion receipt")
+    model_path = checkout.repo / ".axiom/encoding-manifests/us/statutes/26/1.json"
+    model = json.loads(model_path.read_text())
+    model["applied_files"] = [
+        {"path": path, "sha256": _sha256(raw)}
+        for path, raw in checkout.originals.items()
+    ]
+    fixtures._signed_manifest_payload(model)
+    checkout.manifest.write_text(json.dumps(model) + "\n")
+    checkout.commit("replace false deletion receipt with fixture model coverage")
+    assert checkout.load()[3] == []
+    issues = checkout.guard(base=recreated_base, all_files=all_files)
+    assert any("as deleted but it exists" in issue for issue in issues), issues
+
+
+@pytest.mark.parametrize("committed", [False, True], ids=["working-tree", "HEAD"])
+@pytest.mark.parametrize("member", ["primary", "companion"])
+@pytest.mark.parametrize("shape", ["list", "nested-value", "local-list"])
+def test_any_string_receipt_owner_refuses_without_mutation(
+    tmp_path, committed, member, shape
+):
+    checkout = _repo(tmp_path)
+    claimed = getattr(checkout, member)
+    receipt = checkout.repo / ".axiom/encoding-manifests/owner.json"
+    if shape == "local-list":
+        receipt = checkout.repo / "us/.axiom/encoding-manifests/owner.json"
+        payload = {"covered": [claimed.removeprefix("us/")]}
+    elif shape == "nested-value":
+        payload = {"unknown": [{"metadata": {"reference": claimed}}]}
+    else:
+        payload = {"covered": [claimed]}
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text(json.dumps(payload) + "\n")
+    if committed:
+        checkout.base = checkout.commit("plain-string prior receipt owner")
+        issues = checkout.base_issues(checkout.receipt())
+    else:
+        issues = cli._unreceipted_retirement_current_ownership_issues(
+            checkout.receipt(),
+            repo_path=checkout.repo,
+            manifest_label=checkout.manifest_relative,
+            roots=tuple(sorted(cli.RULESPEC_ATOMIC_MODULE_ROOTS)),
+        )
+    before = _snapshot(checkout.repo)
+    with pytest.raises(SystemExit, match="already covered"):
+        checkout.retire()
+    assert _snapshot(checkout.repo) == before
+    assert any("already covered" in issue for issue in issues), issues
+
+
+def test_no_base_all_snapshot_does_not_replay_settled_deletion(tmp_path):
+    checkout = _repo(tmp_path)
+    checkout.retire()
+    checkout.commit()
+    for path, raw in checkout.originals.items():
+        (checkout.repo / path).write_bytes(raw + b"# recreated after retirement\n")
+    recreated_base = checkout.commit("restore retired pair")
+    for path in checkout.originals:
+        (checkout.repo / path).unlink()
+    checkout.commit("settled second deletion under unchanged receipt")
+    assert (
+        cli.guard_generated_change_issues(
+            checkout.repo, corpus_path=checkout.corpus_path, all_files=True
+        )
+        == []
+    )
+    issues = checkout.guard(all_files=True, base=recreated_base)
+    assert any("base sha256 does not match" in issue for issue in issues), issues

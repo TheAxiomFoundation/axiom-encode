@@ -24897,7 +24897,6 @@ def _unreceipted_retirement_ownership_issues(
                     / Path(*path.parts[1:])
                 ).with_suffix(".json")
             )
-    claim_keys = {"path", "source", "destination", "from", "to", "primary"}
 
     def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
         result: dict[str, object] = {}
@@ -24936,15 +24935,7 @@ def _unreceipted_retirement_ownership_issues(
             item = pending.pop()
             if isinstance(item, dict):
                 for key, value in item.items():
-                    if key in claim_keys and isinstance(value, str):
-                        normalized = Path(value).as_posix()
-                        for candidate in (
-                            normalized,
-                            _prefix_applied_manifest_path(normalized, prefix),
-                        ):
-                            if candidate in paths:
-                                covered.add(candidate)
-                    elif key == "applied_files" and isinstance(value, dict):
+                    if key == "applied_files" and isinstance(value, dict):
                         # Preserve fail-closed handling of historical mapping layouts.
                         for raw_path in value:
                             normalized = Path(raw_path).as_posix()
@@ -24961,6 +24952,17 @@ def _unreceipted_retirement_ownership_issues(
                     pending.append(value)
             elif isinstance(item, list):
                 pending.extend(item)
+            elif isinstance(item, str):
+                # Unknown receipt shapes still own any path they reference.
+                normalized = Path(item).as_posix()
+                covered.update(
+                    paths.intersection(
+                        (
+                            normalized,
+                            _prefix_applied_manifest_path(normalized, prefix),
+                        )
+                    )
+                )
             elif isinstance(item, float) and not math.isfinite(item):
                 issues.append(
                     f"{manifest_label} cannot establish unreceipted ownership: "
