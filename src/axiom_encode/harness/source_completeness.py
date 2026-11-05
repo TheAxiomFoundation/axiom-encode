@@ -43,9 +43,19 @@ from axiom_encode.bare_structure import (
     bare_outline,
     mask_bare_labels,
 )
+from axiom_encode.bound_form_structure import (
+    BoundFormStructure,
+    printed_form_header_condition_span,
+    recognize_bound_form_structure,
+)
 from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check
 from axiom_encode.form_numeric_structure import form_numeric_locator_spans
 from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.harness.bound_form_operands import (
+    OrderedFormBinding,
+    bind_ordered_form,
+    observed_form_frame,
+)
 from axiom_encode.harness.imported_export_evidence import ResolvedImportedExport
 from axiom_encode.harness.manual_locator_metadata import (
     MANUAL_CONTENTS_HEADINGS,
@@ -5080,10 +5090,44 @@ def _source_imperative_arithmetic_operations(
     return tuple(operations)
 
 
+def _is_informational_url_referral(source_text: str) -> bool:
+    """Recognize a complete information-only sentence, never mask a URL fragment.
+
+    The closed prose grammar cannot own an arithmetic or conditional suffix.
+    URL punctuation is inert only within this whole referral; numeric recall
+    and the raw source text/offsets remain unchanged.
+    """
+
+    if len(source_text) > 1024:
+        return False
+    domain_label = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+    url = (
+        r"(?:https?://)?"
+        + domain_label
+        + r"(?:\."
+        + domain_label
+        + r")*\.[a-z]{2,63}"
+        + r"(?:/[a-z0-9_~](?:[a-z0-9_~-]*[a-z0-9_~])?)*"
+    )
+    return (
+        re.fullmatch(
+            r"\s*For more information"
+            r"(?: about these credits(?:, including credit eligibility requirements)?)?"
+            r", go to " + url + r"\.\s*",
+            re.sub(r"[ \t\r\n]+", " ", source_text),
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
+
+
 def source_states_explicit_computation(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> bool:
     """Return whether text states a computation rather than only a scalar."""
+
+    if _is_informational_url_referral(source_text):
+        return False
 
     # A parenthesized cross-reference can contain title punctuation that looks
     # arithmetic to the generic expression recognizer (for example
@@ -6038,6 +6082,9 @@ def _analyze_rulespec_payload(
         corpus_citation_path,
         consumer_content=content,
         proof_sources=source_context,
+        root_relative=execution_evidence.root_relative
+        if execution_evidence is not None
+        else None,
     )
     all_formula_branches = _source_formula_branches(
         source_text,
@@ -6162,6 +6209,12 @@ def _analyze_rulespec_payload(
             )
         )
 
+    bound_form = _unconflicted_bound_form(source_text, branches, corpus_citation_path)
+    represented_form_spans = (
+        {bound_form.table.column_count_span, bound_form.table.entry_count_span}
+        if bound_form is not None
+        else set()
+    )
     represented_annual_spans: set[tuple[int, int]] = set(
         certified_operations.annual_spans
     )
@@ -6253,6 +6306,24 @@ def _analyze_rulespec_payload(
             )
         )
 
+    if (
+        printed_operations is not None
+        and printed_operations.ordered_binding is not None
+        and execution_evidence is not None
+        and not any(
+            getattr(issue, "check", None) == CHECK_TESTS_FORMULA_BRANCH_UNWITNESSED.id
+            for issue in companion_issues
+        )
+        and observed_form_frame(
+            printed_operations.ordered_binding, execution_evidence, content, test_cases
+        )
+    ):
+        # Header ownership is numeric only, after ordinary row witnesses and
+        # one actual complete selected-frame observation. Conditions stay raw.
+        represented_form_spans.add(
+            printed_operations.ordered_binding.form.header.year_span
+        )
+
     numeric_recall_text = authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path
     )
@@ -6265,10 +6336,17 @@ def _analyze_rulespec_payload(
         )
     )
     unrepresented_occurrences = source_occurrences
-    if represented_annual_spans or represented_measurement_spans:
+    if (
+        represented_annual_spans
+        or represented_measurement_spans
+        or represented_form_spans
+    ):
         unrepresented_recall_text = authoritative_numeric_recall_text(
             _mask_numeric_spans(
-                source_text, represented_annual_spans | represented_measurement_spans
+                source_text,
+                represented_annual_spans
+                | represented_measurement_spans
+                | represented_form_spans,
             ),
             corpus_citation_path=corpus_citation_path,
         )
@@ -21874,10 +21952,12 @@ class _PrintedArithmeticProjection:
 class _PrintedOperationContext:
     source_text: str
     citation_path: str
-    structure: PrintedRowStructure
+    structure: PrintedRowStructure | None
     source_branches: tuple[SourceStructureBranch, ...] = ()
     consumer_content: str = ""
     proof_sources: tuple[tuple[str, str | None], ...] = ()
+    bound_form: BoundFormStructure | None = None
+    ordered_binding: OrderedFormBinding | None = None
 
     def local_operands_bind(
         self,
@@ -21897,7 +21977,12 @@ class _PrintedOperationContext:
             _source,
         )
 
-        if rule is None or principal_rules is None or case is None:
+        if (
+            self.structure is None
+            or rule is None
+            or principal_rules is None
+            or case is None
+        ):
             return False
         payload = _payload(self.consumer_content)
         if payload is None:
@@ -22131,6 +22216,8 @@ class _PrintedOperationContext:
         return _PrintedArithmeticProjection("".join(projected), spans)
 
     def operation_kinds(self, clause: SourceStructureBranch) -> frozenset[str] | None:
+        if self.structure is None:
+            return None
         if self.source_text[clause.start : clause.end] != clause.text:
             return None
         if any(
@@ -22140,6 +22227,8 @@ class _PrintedOperationContext:
         return None
 
     def covers(self, clause: SourceStructureBranch, excerpt: str) -> bool:
+        if self.structure is None:
+            return False
         if not excerpt or self.source_text.count(excerpt) != 1:
             return False
         start = self.source_text.index(excerpt)
@@ -22159,9 +22248,25 @@ def _printed_operation_context(
     *,
     consumer_content: str = "",
     proof_sources: Mapping[str, str | None] | None = None,
+    root_relative: str | None = None,
 ) -> _PrintedOperationContext | None:
     structure = _unconflicted_printed_rows(
         source_text, branches, corpus_citation_path=citation_path
+    )
+    raw_form_source = (proof_sources or {}).get(citation_path)
+    form = _unconflicted_bound_form(
+        raw_form_source
+        if isinstance(raw_form_source, str) and raw_form_source.rstrip() == source_text
+        else source_text,
+        branches,
+        citation_path,
+    )
+    binding = (
+        bind_ordered_form(
+            form, consumer_content, proof_sources or {}, root_relative=root_relative
+        )
+        if form is not None
+        else None
     )
     return (
         _PrintedOperationContext(
@@ -22171,8 +22276,10 @@ def _printed_operation_context(
             tuple(branches),
             consumer_content,
             tuple(proof_sources.items()) if proof_sources is not None else (),
+            form,
+            binding,
         )
-        if structure is not None
+        if structure is not None or form is not None
         else None
     )
 
@@ -22188,6 +22295,27 @@ def _printed_operation_proof(
         and context.citation_path == citation_path.strip("/").casefold()
         and context.covers(clause, excerpt)
     )
+
+
+def _unconflicted_bound_form(source_text, branches, citation):
+    structure = recognize_bound_form_structure(source_text, citation)
+    if structure is None:
+        return None
+    labels = bare_outline(source_text, corpus_citation_path=citation) or ()
+    points = {
+        *(point for branch in branches for point in (branch.start, branch.end)),
+        *(point for label in labels for point in (label.start, label.marker_end)),
+        *(start for start, _term in bare_definition_headers(source_text, labels)),
+    }
+    owned = (
+        structure.header.span,
+        structure.table.note_span,
+        *structure.table.field_spans,
+        *(row.span for row in structure.rows),
+    )
+    if any(a < point < b for a, b in owned for point in points):
+        return None
+    return structure
 
 
 def _unconflicted_printed_rows(
@@ -22901,6 +23029,8 @@ def _source_clause_spans(
     printed_rows = _unconflicted_printed_rows(
         source_text, branches, corpus_citation_path=corpus_citation_path
     )
+    bound_form = _unconflicted_bound_form(source_text, branches, corpus_citation_path)
+    bound_rows = tuple(row.span for row in bound_form.rows) if bound_form else ()
     bare_labels = (
         bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
     )
@@ -22916,6 +23046,7 @@ def _source_clause_spans(
         match
         for match in boundary.finditer(boundary_text)
         if not _source_clause_boundary_splits_state_code_citation(source_text, match)
+        and not any(a < match.end() < b for a, b in bound_rows)
         and not (
             match.group() == "."
             and re.search(r"(?<!\w)\d+\.$", source_text[: match.end()])
@@ -22983,6 +23114,14 @@ def _source_clause_spans(
             point
             for point in printed_rows.boundaries
             if not any(a < point < b for a, b in printed_rows.atomic_spans)
+        )
+    if bound_form is not None:
+        # Only rows and the transcriber note gain boundaries; preamble and all
+        # separated prose remain ordinary clauses and condition obligations.
+        split_points.update(
+            point
+            for span in (*bound_rows, bound_form.table.note_span)
+            for point in span
         )
     for start, end in zip(sorted(split_points), sorted(split_points)[1:]):
         raw = boundary_text[start:end]
@@ -26006,6 +26145,25 @@ def _formula_execution_matches_source_branch(
 ) -> bool:
     """Bind a reached leaf to numeric evidence in its exact source formula."""
 
+    # Row segmentation is not an operand certificate. A recognized form row
+    # must satisfy the ordered source/AST gate before any generic witness path.
+    if printed_operations is not None and printed_operations.bound_form is not None:
+        form = printed_operations.bound_form
+        if any(
+            a < branch.end and branch.start < b
+            for a, b in (row.span for row in form.rows)
+        ):
+            binding = printed_operations.ordered_binding
+            if binding is None or not binding.matches(
+                content=printed_operations.consumer_content,
+                branch=branch,
+                rule=source_rule,
+                principal_rules=principal_rules,
+                case=case,
+                leaf=execution.leaf,
+                trace=execution.trace,
+            ):
+                return False
     projection = (
         printed_operations.operation_projection(
             branch, source_text=source_text, citation_path=corpus_citation_path
@@ -32061,13 +32219,24 @@ def _source_exception_or_applicability_matches(
 ) -> tuple[re.Match[str], ...]:
     """Return ordered, de-duplicated negative and positive condition cues."""
 
+    raw_source = source_text if raw_source_text is None else raw_source_text
+    header_cue = None
+    if raw_source == source_text:
+        header_cue = printed_form_header_condition_span(raw_source)
+    elif raw_source.strip() == source_text:
+        raw_cue = printed_form_header_condition_span(raw_source)
+        if raw_cue is not None:
+            offset = len(raw_source) - len(raw_source.lstrip())
+            header_cue = (raw_cue[0] - offset, raw_cue[1] - offset)
+
     matches = tuple(
         match
         for match in (
             *_EXCEPTION_LANGUAGE.finditer(source_text),
             *_APPLICABILITY_LANGUAGE.finditer(source_text),
         )
-        if not _is_concessive_condition_cue(source_text, match)
+        if match.span() != header_cue
+        and not _is_concessive_condition_cue(source_text, match)
         and not _is_coordinated_parenthetical_if_any_cue(
             source_text, match, raw_source_text=raw_source_text
         )
