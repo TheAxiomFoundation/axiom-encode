@@ -140,6 +140,7 @@ from .concepts import (
 )
 from .concepts.jurisdiction import jurisdiction_prefix as _repo_jurisdiction_prefix
 from .constants import (
+    DEFAULT_MODEL,
     DEFAULT_OPENAI_ESCALATE_AFTER,
     DEFAULT_OPENAI_ESCALATION_MODEL,
     DEFAULT_OPENAI_MODEL,
@@ -3046,14 +3047,18 @@ def main():
     encode_parser.add_argument(
         "--model",
         default=None,
-        help=f"Model to use for encoding (default: {DEFAULT_OPENAI_MODEL})",
+        help=(
+            f"Model to use for encoding (default: {DEFAULT_OPENAI_MODEL}; "
+            f"claude-api: {DEFAULT_MODEL})"
+        ),
     )
     encode_parser.add_argument(
         "--escalation-model",
-        default=DEFAULT_OPENAI_ESCALATION_MODEL,
+        default=None,
         help=(
             "Model for the final validator-failure retry "
-            f"(default: {DEFAULT_OPENAI_ESCALATION_MODEL})"
+            f"(default: {DEFAULT_OPENAI_ESCALATION_MODEL}; "
+            f"claude-api: {DEFAULT_MODEL})"
         ),
     )
     encode_parser.add_argument(
@@ -3075,7 +3080,7 @@ def main():
     )
     encode_parser.add_argument(
         "--backend",
-        choices=["codex", "openai", "claude"],
+        choices=["codex", "openai", "claude", "claude-api"],
         default="codex",
         help=(
             "Backend (default: codex): 'codex' uses the Codex CLI with "
@@ -3083,6 +3088,7 @@ def main():
             "OPENAI_API_KEY; use --model/--escalation-model to override, "
             "including gpt-6.1-sol), "
             "'openai' uses OpenAI Responses API, "
+            "'claude-api' uses the Anthropic Messages API, "
             "'claude' uses Claude CLI. Claude tiers are reserved for "
             "orchestration and review; net-new statutory encoding runs "
             "through codex."
@@ -3436,6 +3442,11 @@ def main():
         action="store_true",
         help="Emit machine-readable JSON summary",
     )
+    eval_parser.add_argument(
+        "--skip-reviewers",
+        action="store_true",
+        help="Skip LLM reviewer checks after deterministic validation",
+    )
     _add_complete_source_unit_argument(eval_parser)
     _add_rulespec_dependency_root_argument(eval_parser)
 
@@ -3496,6 +3507,11 @@ def main():
         "--json",
         action="store_true",
         help="Emit machine-readable JSON summary",
+    )
+    eval_source_parser.add_argument(
+        "--skip-reviewers",
+        action="store_true",
+        help="Skip LLM reviewer checks after deterministic validation",
     )
     eval_source_parser.add_argument(
         "--policyengine-rule-hint",
@@ -3562,6 +3578,14 @@ def main():
         "--json",
         action="store_true",
         help="Emit machine-readable JSON summary",
+    )
+    eval_suite_parser.add_argument(
+        "--skip-reviewers",
+        action="store_true",
+        help=(
+            "Skip LLM reviewer checks after deterministic validation; "
+            "repeat this flag when resuming a suite created with it"
+        ),
     )
     eval_suite_parser.add_argument(
         "--admission-score",
@@ -3888,6 +3912,12 @@ def main():
     _judge_cli.register_judge_subparsers(subparsers)
 
     args = parser.parse_args()
+    if args.command == "encode" and args.escalation_model is None:
+        args.escalation_model = (
+            DEFAULT_MODEL
+            if args.backend == "claude-api"
+            else DEFAULT_OPENAI_ESCALATION_MODEL
+        )
 
     if args.command == "ci":
         from .ci_parity import run_ci
@@ -32054,6 +32084,11 @@ def _local_verification_encode_roots(args) -> _LocalVerificationRoots | None:
 
 def cmd_encode(args):
     """Encode, inside the verification-only local context when one is given."""
+    if getattr(args, "backend", None) == "claude-api" and getattr(args, "apply", False):
+        raise ValueError(
+            "encode --apply --backend claude-api is unavailable for signed "
+            "encoding until the encoding rule changes"
+        )
     local_roots = _local_verification_encode_roots(args)
     if local_roots is None:
         return _cmd_encode_under_current_trust(args)
@@ -35864,11 +35899,14 @@ def _resolve_encode_replacement_target(
 
 def _resolve_encode_escalation_config(args) -> _EncodeEscalationConfig:
     """Resolve and validate the per-section validator retry policy."""
-    initial_model = getattr(args, "model", None) or DEFAULT_OPENAI_MODEL
+    uses_claude_api = getattr(args, "backend", None) == "claude-api"
+    initial_model = getattr(args, "model", None) or (
+        DEFAULT_MODEL if uses_claude_api else DEFAULT_OPENAI_MODEL
+    )
     escalation_model = getattr(
         args,
         "escalation_model",
-        DEFAULT_OPENAI_ESCALATION_MODEL,
+        DEFAULT_MODEL if uses_claude_api else DEFAULT_OPENAI_ESCALATION_MODEL,
     )
     if (
         not isinstance(escalation_model, str)
@@ -35940,9 +35978,9 @@ def _next_encode_attempt_model(
 
 def _require_compatible_encode_retry_model(*, backend: str, model: str) -> None:
     """Reject a known cross-provider retry before invoking the wrong CLI."""
-    if backend == "claude" and model.startswith("gpt-"):
+    if backend in {"claude", "claude-api"} and model.startswith("gpt-"):
         raise ValueError(
-            "encode cannot use a GPT escalation model with --backend claude; "
+            f"encode cannot use a GPT escalation model with --backend {backend}; "
             "pass a Claude-compatible --escalation-model or --no-escalation"
         )
 
@@ -68217,6 +68255,7 @@ def cmd_eval(args):
         require_complete_source_unit=(
             getattr(args, "require_complete_source_unit", False) is True
         ),
+        skip_reviewers=bool(getattr(args, "skip_reviewers", False)),
     )
 
     if args.json:
@@ -68299,6 +68338,7 @@ def cmd_eval_source(args):
         require_complete_source_unit=(
             getattr(args, "require_complete_source_unit", False) is True
         ),
+        skip_reviewers=bool(getattr(args, "skip_reviewers", False)),
     )
 
     if args.json:
@@ -68512,6 +68552,7 @@ def _load_verified_eval_suite_artifacts(
     suite_retry_attempts: int | None = None,
     admission_score: bool | None = None,
     axiom_compose_path: Path | None = None,
+    skip_reviewers: bool | None = None,
 ) -> dict[str, object]:
     """Load one suite output only after the harness validates every identity."""
 
@@ -68536,7 +68577,11 @@ def _load_verified_eval_suite_artifacts(
         max_bytes=256 * 1024 * 1024,
         required=False,
     )
-    if suite_retry_attempts is None or admission_score is None:
+    if (
+        suite_retry_attempts is None
+        or admission_score is None
+        or skip_reviewers is None
+    ):
         try:
             persisted_run_state = json.loads((state_raw_before or b"").decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -68576,6 +68621,12 @@ def _load_verified_eval_suite_artifacts(
                 compose_identity = scoring_options.get("axiom_compose")
                 if isinstance(compose_identity, dict):
                     axiom_compose_path = Path(compose_identity["path"])
+        if skip_reviewers is None:
+            skip_reviewers = persisted_identity.get("skip_reviewers", False)
+    if not isinstance(skip_reviewers, bool):
+        raise ValueError(
+            "suite-run.json execution identity skip_reviewers must be boolean"
+        )
     manifest_identity = _build_eval_suite_manifest_identity(manifest)
     rulespec_roots = _eval_suite_rulespec_roots(manifest, policy_repo_path)
     policyengine_cases = [
@@ -68598,6 +68649,7 @@ def _load_verified_eval_suite_artifacts(
         rulespec_roots,
         policyengine_runtime=policyengine_runtime if policyengine_cases else None,
         suite_retry_attempts=suite_retry_attempts,
+        **({"skip_reviewers": True} if skip_reviewers else {}),
         **(
             {
                 "admission_score": True,
@@ -69177,6 +69229,11 @@ def cmd_eval_suite(args):
                 policyengine_runtime=policyengine_runtime,
                 resume_existing=resume_existing,
                 **(
+                    {"skip_reviewers": True}
+                    if getattr(args, "skip_reviewers", False)
+                    else {}
+                ),
+                **(
                     {
                         "admission_score": True,
                         "axiom_compose_path": getattr(args, "axiom_compose_path", None),
@@ -69233,6 +69290,7 @@ def cmd_eval_suite(args):
             require_complete=False,
             suite_retry_attempts=_DEFAULT_SUITE_RETRY_ATTEMPTS,
             admission_score=getattr(args, "admission_score", False),
+            skip_reviewers=bool(getattr(args, "skip_reviewers", False)),
             **(
                 {
                     "axiom_compose_path": getattr(args, "axiom_compose_path", None),
@@ -69304,6 +69362,12 @@ def cmd_eval_suite(args):
             "generalist_review="
             f"{_format_percent(summary.generalist_review_pass_rate)}"
         )
+        infrastructure_errors = getattr(summary, "infrastructure_error_count", 0)
+        if isinstance(infrastructure_errors, int) and infrastructure_errors > 0:
+            print(
+                f"  infrastructure_errors={infrastructure_errors} "
+                "(context overflow; excluded from model scores)"
+            )
         if summary.mean_generalist_review_score is not None:
             print(
                 f"  mean_generalist_review_score={summary.mean_generalist_review_score:.2f}/10"
@@ -69478,6 +69542,7 @@ def _cmd_eval_suite_revalidate_with_signer(args, evidence_signing_key):
             source_citation_path=source_citation_path,
             rulespec_dependency_roots=manifest.rulespec_dependency_roots,
             require_complete_source_unit=case.require_complete_source_unit,
+            skip_reviewers=run_state["execution_identity"].get("skip_reviewers", False),
             amendment_documents=_amendment_documents_visible_in_context_manifest(
                 source_unit.amendment_documents,
                 Path(result.context_manifest_file),
@@ -70729,7 +70794,7 @@ def _validated_eval_suite_report_payload(
             not isinstance(runner, dict)
             or not isinstance(runner.get("name"), str)
             or not runner.get("name")
-            or runner.get("backend") not in {"claude", "codex", "openai"}
+            or runner.get("backend") not in {"claude", "claude-api", "codex", "openai"}
             or not isinstance(runner.get("model"), str)
             or not runner.get("model")
             or runner["name"] in runners_by_name

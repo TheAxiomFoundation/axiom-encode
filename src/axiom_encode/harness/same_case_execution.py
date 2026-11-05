@@ -155,7 +155,7 @@ def _has_consumer(
                 continue
             if s.source_states_explicit_computation(excerpt):
                 return True
-            rows = s._unconflicted_printed_rows(body, ())
+            rows = s._unconflicted_printed_rows(body, (), corpus_citation_path=citation)
             start = body.index(excerpt)
             if rows and any(
                 start <= a < b <= start + len(excerpt) for a, b in rows.additions

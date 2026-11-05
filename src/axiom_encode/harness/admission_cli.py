@@ -25,10 +25,11 @@ def register_admission_score_parser(subparsers) -> None:
     parser.add_argument(
         "--backend",
         required=True,
-        choices=MODEL_BACKENDS,
+        choices=(*MODEL_BACKENDS, "claude-api"),
         help=(
             "Backend that generated the candidate; signed apply stamps the "
-            "resolver's source attestation into model output before validating"
+            "resolver's source attestation into model output before validating; "
+            "claude-api admission is not applicable"
         ),
     )
     parser.add_argument(
@@ -87,6 +88,7 @@ def run_admission_score(args: argparse.Namespace) -> int:
     from axiom_encode.harness import evals
     from axiom_encode.harness.admission import (
         admission_identity,
+        not_applicable_admission_result,
         original_artifact_refusal,
         prerequisite_admission_result,
         score_admission,
@@ -95,6 +97,9 @@ def run_admission_score(args: argparse.Namespace) -> int:
         load_rulespec_local_corpus_release,
         local_corpus_release_verification,
     )
+
+    if args.backend == "claude-api":
+        return _emit(not_applicable_admission_result())
 
     # Signed apply reads the companion beside the module; a test file elsewhere
     # would be scored as an artifact outside the generation root.

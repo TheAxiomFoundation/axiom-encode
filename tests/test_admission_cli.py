@@ -333,6 +333,49 @@ def test_admission_cli_backends_are_the_ones_apply_stamps_for():
     assert frozenset(MODEL_BACKENDS) == cli.APPLIED_ENCODING_ENCODER_BACKENDS
 
 
+def test_admission_cli_accepts_claude_api_as_not_applicable():
+    parser = argparse.ArgumentParser()
+    register_admission_score_parser(parser.add_subparsers(dest="command"))
+    args = parser.parse_args(
+        [
+            "admission-score",
+            "candidate.yaml",
+            "--citation",
+            "us/statute/1/1",
+            "--backend",
+            "claude-api",
+            "--policy-repo",
+            "rulespec-us",
+            "--corpus-path",
+            "axiom-corpus",
+            "--corpus-release-public-key",
+            "synthetic-public-verification-key",
+            "--axiom-rules-engine-path",
+            "axiom-rules-engine",
+        ]
+    )
+    assert args.backend == "claude-api"
+
+
+def test_admission_cli_claude_api_emits_reason_without_loading_context(
+    tmp_path, monkeypatch, capsys
+):
+    import axiom_encode.toolchain as toolchain
+
+    args = _args(tmp_path)
+    args.backend = "claude-api"
+
+    def unexpected(*_args, **_kwargs):
+        raise AssertionError("N/A admission must not load corpus context")
+
+    monkeypatch.setattr(toolchain, "load_rulespec_local_corpus_release", unexpected)
+    assert run_admission_score(args) == 2
+    score = json.loads(capsys.readouterr().out)
+    assert score["applicable"] is False
+    assert "source attestation" in score["not_applicable_reason"].lower()
+    assert score["prerequisite_categories"] == ["backend-not-applicable"]
+
+
 def test_admission_cli_requires_the_generating_backend():
     """Apply stamps model output; a backend-less score would skip that."""
 
