@@ -66,16 +66,23 @@ def test_token_and_mask_caches_are_reused_bounded_and_skip_large_texts():
     assert sc._rulespec_formula_tokens('"open') is None
     assert sc._rulespec_formula_tokens('"open') is None
 
-    for number in range(4_097):
+    for number in range(1_025):
         sc._rulespec_formula_tokens(f"input_{number}")
         sc._mask_formula_strings_and_comments(f"input_{number}")
-    assert tokens.cache_info().currsize == 4_096
-    assert masks.cache_info().currsize == 4_096
+    assert tokens.cache_info().currsize == 1_024
+    assert masks.cache_info().currsize == 1_024
 
     tokens.cache_clear()
     masks.cache_clear()
-    large = "income + " * 2_000 + "1"
-    assert len(large) > 16_384
+    largest = "x" * sc._FORMULA_TEXT_CACHE_CHARACTERS
+    sc._rulespec_formula_tokens(largest)
+    sc._mask_formula_strings_and_comments(largest)
+    assert tokens.cache_info().currsize == 1
+    assert masks.cache_info().currsize == 1
+    tokens.cache_clear()
+    masks.cache_clear()
+    large = "income + " * 500 + "1"
+    assert len(large) > sc._FORMULA_TEXT_CACHE_CHARACTERS
     assert sc._rulespec_formula_tokens(large) == sc._tokenize_rulespec_formula(large)
     assert sc._mask_formula_strings_and_comments(large) == large
     assert tokens.cache_info().currsize == 0
@@ -165,6 +172,34 @@ def test_memo_reuses_a_fresh_copy_only_inside_one_analysis_scope(monkeypatch):
 
 def _typed(environment):
     return [(name, type(value), value) for name, value in environment.items()]
+
+
+def test_memo_never_shares_a_value_a_caller_can_change(monkeypatch):
+    calls = _count_evaluations(monkeypatch)
+    rules = {"out": _rule("out", "items")}
+    case = {"name": "case", "input": {"items": [1, 2]}, "output": {}}
+    environment = {}
+    with sc._case_dependency_environment_memo_scope():
+        first = _environment(rules, case, environment)
+        assert first == {"out": [1, 2]}
+        first["out"].append(99)
+        second = _environment(rules, case, environment)
+    assert len(calls) == 2
+    assert second == {"out": [1, 2]}
+    assert second["out"] is not first["out"]
+
+
+def test_memo_evaluates_inputs_too_deep_to_fingerprint(monkeypatch):
+    calls = _count_evaluations(monkeypatch)
+    rules, case, environment = _rules(), _case(), {}
+    nested: list = []
+    for _ in range(100_000):
+        nested = [nested]
+    case["output"]["deep"] = nested
+    with sc._case_dependency_environment_memo_scope():
+        assert _environment(rules, case, environment) == {"helper": 100, "result": 100}
+        assert _environment(rules, case, environment) == {"helper": 100, "result": 100}
+    assert len(calls) == 2
 
 
 def _plain(rules):

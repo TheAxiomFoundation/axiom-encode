@@ -27126,15 +27126,30 @@ def _case_dependency_environment_inputs_digest(
     principal_rules: dict[str, dict[str, Any]],
     case: dict[str, Any],
     formula_environment: dict[str, Any],
-) -> bytes:
+) -> bytes | None:
     """Fingerprint the inputs' current contents, including rule subclasses."""
 
     rounding = tuple(
         (type(rule).__qualname__, getattr(rule, "resolved_currency_rounding", None))
         for rule in principal_rules.values()
     )
-    text = repr((principal_rules, rounding, case, formula_environment))
+    try:
+        text = repr((principal_rules, rounding, case, formula_environment))
+    except RecursionError:
+        return None
     return hashlib.blake2b(text.encode("utf-8", "surrogatepass")).digest()
+
+
+# Values a memo may hand to several callers: none can be changed in place.
+_SHAREABLE_RUNTIME_VALUE_TYPES = (
+    type(None),
+    bool,
+    int,
+    float,
+    str,
+    Decimal,
+    date,
+)
 
 
 def _case_dependency_environment(
@@ -27170,6 +27185,15 @@ def _case_dependency_environment(
     digest = _case_dependency_environment_inputs_digest(
         principal_rules, case, formula_environment
     )
+    if digest is None:
+        return _evaluate_case_dependency_environment(
+            principal_rules,
+            case,
+            formula_environment=formula_environment,
+            require_asserted_value=require_asserted_value,
+            allowed_names=allowed_names,
+            allow_bound_row_assertions=allow_bound_row_assertions,
+        )
     entry = memo.get(key)
     if (
         entry is not None
@@ -27187,8 +27211,19 @@ def _case_dependency_environment(
         allowed_names=allowed_names,
         allow_bound_row_assertions=allow_bound_row_assertions,
     )
-    # The entry holds the input objects, so their ids stay unique while it lives.
-    memo[key] = ((principal_rules, case, formula_environment), digest, dict(resolved))
+    # A fresh evaluation builds new values, so share only values no caller can
+    # change in place. The entry holds the input objects, so their ids stay
+    # unique while it lives.
+    if all(
+        type(value) in _SHAREABLE_RUNTIME_VALUE_TYPES for value in resolved.values()
+    ):
+        memo[key] = (
+            (principal_rules, case, formula_environment),
+            digest,
+            dict(resolved),
+        )
+    else:
+        memo.pop(key, None)
     return resolved
 
 
@@ -28893,13 +28928,17 @@ def _rulespec_formula_tokens(
 
     # Tokens depend only on the text, and the result is an immutable tuple, so
     # one analysis may reuse them across its many case environments. Bound both
-    # the entry count and the retained text size.
-    if len(text) > 16_384:
+    # the entry count and the retained text and token size.
+    if len(text) > _FORMULA_TEXT_CACHE_CHARACTERS:
         return _tokenize_rulespec_formula(text)
     return _cached_rulespec_formula_tokens(text)
 
 
-@functools.lru_cache(maxsize=4096)
+# Formula texts the token and mask caches keep; a longer text is scanned afresh.
+_FORMULA_TEXT_CACHE_CHARACTERS = 4_096
+
+
+@functools.lru_cache(maxsize=1024)
 def _cached_rulespec_formula_tokens(
     text: str,
 ) -> tuple[tuple[str, str, int, int], ...] | None:
@@ -29193,12 +29232,12 @@ def _mask_formula_strings(text: str) -> str:
 def _mask_formula_strings_and_comments(text: str) -> str:
     """Blank quoted content and comments while preserving source offsets."""
 
-    if len(text) > 16_384:
+    if len(text) > _FORMULA_TEXT_CACHE_CHARACTERS:
         return _blank_formula_strings_and_comments(text)
     return _cached_mask_formula_strings_and_comments(text)
 
 
-@functools.lru_cache(maxsize=4096)
+@functools.lru_cache(maxsize=1024)
 def _cached_mask_formula_strings_and_comments(text: str) -> str:
     return _blank_formula_strings_and_comments(text)
 
