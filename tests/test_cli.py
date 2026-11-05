@@ -858,15 +858,18 @@ def _test_eval_suite_report_payload(
     *,
     corpus_citation_path: str = "us/statute/7/2017",
     oracle: str = "none",
+    backend: str = "codex",
+    model: str = "gpt",
 ) -> dict:
     """Build one complete report payload whose nested evidence can be attacked."""
 
     manifest_path = tmp_path / "suite.yaml"
+    runner_spec = f"codex-gpt={backend}:{model}"
     oracle_line = f"    oracle: {oracle}\n" if oracle != "none" else ""
     manifest_path.write_text(
         "name: CLI admission parity\n"
         "runners:\n"
-        "  - codex-gpt=codex:gpt\n"
+        f"  - {runner_spec}\n"
         "gates:\n"
         "  min_cases: 1\n"
         "  min_success_rate: 1.0\n"
@@ -907,8 +910,8 @@ def _test_eval_suite_report_payload(
         {
             "citation": corpus_citation_path,
             "runner": "codex-gpt",
-            "backend": "codex",
-            "model": "gpt",
+            "backend": backend,
+            "model": model,
             "mode": manifest.mode,
             "success": True,
             "duration_ms": 1000,
@@ -921,7 +924,7 @@ def _test_eval_suite_report_payload(
     )
     verified = _fake_verified_eval_suite_artifacts(
         manifest=manifest,
-        effective_runners=["codex-gpt=codex:gpt"],
+        effective_runners=[runner_spec],
         results=[result],
     )
     verified["run_state"]["manifest"].update(
@@ -930,7 +933,7 @@ def _test_eval_suite_report_payload(
     verified_result = _eval_result_from_payload(_bind_eval_result_payload(result))
     return _build_eval_suite_payload(
         manifest=manifest,
-        effective_runners=["codex-gpt=codex:gpt"],
+        effective_runners=[runner_spec],
         results=[verified_result],
         readiness={"codex-gpt": summarize_readiness([verified_result], manifest.gates)},
         run_state=verified["run_state"],
@@ -1038,6 +1041,14 @@ def test_cli_eval_suite_payload_is_admitted_by_eval_board(tmp_path, oracle):
 @pytest.mark.parametrize("oracle", ["none", "policyengine"])
 def test_cli_report_validator_admits_cli_eval_suite_payload(tmp_path, oracle):
     payload = _test_eval_suite_report_payload(tmp_path, oracle=oracle)
+
+    assert _validated_eval_suite_report_payload(payload) == payload
+
+
+def test_cli_report_validator_admits_claude_api_runner_payload(tmp_path):
+    payload = _test_eval_suite_report_payload(
+        tmp_path, backend="claude-api", model="claude-opus-5-5"
+    )
 
     assert _validated_eval_suite_report_payload(payload) == payload
 

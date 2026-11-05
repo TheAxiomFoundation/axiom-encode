@@ -66,6 +66,65 @@ def _score(*, admitted=False, prerequisite=False, identity=None):
     }
 
 
+def test_claude_api_admission_is_not_applicable_before_staging(monkeypatch, tmp_path):
+    from axiom_encode.harness import admission
+
+    def unexpected(*_args, **_kwargs):
+        raise AssertionError("N/A admission must not inspect or validate a candidate")
+
+    monkeypatch.setattr(admission, "admission_identity", unexpected)
+    monkeypatch.setattr(admission, "_original_artifact_layout", unexpected)
+    monkeypatch.setattr(
+        cli,
+        "_validate_generated_encoding_candidate_in_policy_overlay_with_release",
+        unexpected,
+    )
+
+    score = score_admission(
+        SimpleNamespace(backend="claude-api"),
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        local_corpus_release=None,
+    ).to_dict()
+
+    assert score["applicable"] is False
+    assert "source attestation" in score["not_applicable_reason"].lower()
+    assert score["prerequisite_failure"] is True
+    assert score["prerequisite_categories"] == ["backend-not-applicable"]
+    assert score["refusal_categories"] == []
+    assert score["compile_pass"] is score["ci_pass"] is None
+    assert "claude-api" not in cli.APPLIED_ENCODING_ENCODER_BACKENDS
+
+
+def test_claude_api_suite_admission_preserves_four_gates_and_records_reason(tmp_path):
+    row = SimpleNamespace(
+        backend="claude-api",
+        success=True,
+        output_file="synthetic.yaml",
+        failure_kind=None,
+    )
+    evals._score_eval_suite_case_admission(
+        SimpleNamespace(corpus_citation_path="us/statute/1/1", citation=None),
+        [row],
+        output_root=tmp_path / "output",
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        axiom_compose_path=None,
+        corpus_release=None,
+    )
+
+    assert row.success is True
+    assert row.failure_kind is None
+    assert row.admission_score["applicable"] is False
+    assert "source attestation" in row.admission_score["not_applicable_reason"].lower()
+
+
+def test_context_overflow_is_supported_admission_infrastructure():
+    from axiom_encode.harness.admission import GENERATION_INFRASTRUCTURE_FAILURES
+
+    assert "context-overflow" in GENERATION_INFRASTRUCTURE_FAILURES
+
+
 def _bound_identity(encoder_digit):
     return {
         "encoder": {"commit": encoder_digit * 40, "version": "test"},
