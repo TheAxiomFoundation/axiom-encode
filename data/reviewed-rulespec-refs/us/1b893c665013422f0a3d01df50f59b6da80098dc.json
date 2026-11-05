@@ -1,0 +1,24 @@
+{
+  "base_sha": "fe62a527af2315170d653c413345e27834a5d221",
+  "binding": {
+    "citation": "us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-13",
+    "companion_sha256": "ced257564ba91f3a9d190041ce84b2f9011cb4904dc86be8d3cb81cc96f68b24",
+    "rulespec_path": "us-az/policies/des/faa5/na-utility-expenses-and-allowances/block-13.yaml",
+    "rulespec_sha256": "fdc77ab91cf52ea7e0ac9fab8f72bfff5116dc84a41cd8b6bad3eced05486580"
+  },
+  "country": "us",
+  "declared": {
+    "encoder_commit": "5750e611b2dc530259c94156c8bad17b12387216",
+    "encoder_version": "0.2.2324",
+    "failure_class": "none; successful protected generation after independent test-coverage and naming repairs",
+    "generator_cli": "codex-cli 0.159.0 via production signing supervisor",
+    "generator_model": "gpt-6.1-sol",
+    "outcome_sha256": null,
+    "pre_encode_gate": "Run98b9f487; current guard streak0/budget3/enforced=true/blocked=false. Prior local runs0bbe608d and f10c3921 failed,82c0fbd0 succeeded. All history preserved; no override or budget-exempt replay."
+  },
+  "pr_base_branch": "codex/az-utility-installation-reviewed",
+  "purpose": "Promote byte-identical protected-generated Arizona utility installation component candidate from rulespec-us PR2045 after current complete-source overlay validation; no regeneration or budget reset.",
+  "rulespec_pr": 2045,
+  "rulespec_ref": "1b893c665013422f0a3d01df50f59b6da80098dc",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}
