@@ -619,8 +619,23 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
         payload = _payload(content.encode())
         imports = payload.get("imports", [])
         companion = pipe._rulespec_test_path(rules_file)
-        if not imports or pipe.rulespec_dependency_roots or not companion.is_file():
+        if pipe.rulespec_dependency_roots or not companion.is_file():
             return None
+        local_form = False
+        if imports == []:
+            from .bound_form_operands import bind_local_form_snapshot
+
+            local_form = bind_local_form_snapshot(
+                content,
+                pipe._proof_source_texts_for_rulespec_content(
+                    content,
+                    source_texts=pipe._source_texts_for_rulespec_content(content),
+                )
+                or {},
+                rules_file.relative_to(root).as_posix(),
+            )
+            if not local_form:
+                return None
         exports = pipe._complete_source_unit_import_bindings(rules_file)
         derived = set()
         for export in exports:
@@ -632,7 +647,9 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
                 for r in provider.get("rules", [])
             ):
                 derived.add(export.export_name)
-        if not derived or not _has_consumer(pipe, content, payload, derived):
+        if not local_form and (
+            not derived or not _has_consumer(pipe, content, payload, derived)
+        ):
             return None
         pending = [rules_file]
         files: dict[Path, ClosureFile] = {}
