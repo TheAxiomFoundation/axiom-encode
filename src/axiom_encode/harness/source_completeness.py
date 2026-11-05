@@ -6220,6 +6220,15 @@ def _analyze_rulespec_payload(
         )
 
     bound_form = _unconflicted_bound_form(source_text, branches, corpus_citation_path)
+    from .student_loan_schedule_evidence import _student_loan_context
+
+    student_loan = _student_loan_context(
+        source_text,
+        corpus_citation_path,
+        content,
+        execution_evidence,
+        execution_test_cases,
+    )
     represented_form_spans = (
         (
             {bound_form.column_count_span, bound_form.entry_count_span}
@@ -6359,6 +6368,9 @@ def _analyze_rulespec_payload(
                 # The exact title wrapper repeats the physical header year;
                 # source re-binding and complete observed frame prove both.
                 represented_form_spans.add(wrapper_year)
+
+    if student_loan is not None:
+        represented_form_spans.update(student_loan.numeric_spans())
 
     numeric_recall_text = authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path
@@ -21336,6 +21348,15 @@ def _companion_test_issues(
     floor_source_context: Mapping[str, str | None] | None = None,
     referral_context: Any = None,
 ) -> list[str]:
+    from .student_loan_schedule_evidence import _student_loan_context
+
+    student_loan = _student_loan_context(
+        source_text,
+        corpus_citation_path,
+        partnership_content,
+        execution_evidence,
+        execution_test_cases,
+    )
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
     if not cases:
@@ -21426,8 +21447,17 @@ def _companion_test_issues(
         for branch in branches
         if not _path_is_deferred(branch.path, deferred_paths)
     ]
+    student_formula_branches = tuple(
+        branch
+        for branch in formula_branches
+        if student_loan is not None and student_loan.formula_owned(branch)
+    )
     missing_formula_branches = _unwitnessed_formula_branches(
-        formula_branches,
+        tuple(
+            branch
+            for branch in formula_branches
+            if branch not in student_formula_branches
+        ),
         execution_evidence=execution_evidence,
         execution_content=partnership_content,
         printed_operations=printed_operations,
@@ -21452,6 +21482,16 @@ def _companion_test_issues(
         dependency_cache=formula_dependency_cache,
         execution_cache=formula_execution_cache,
     )
+    if student_loan is not None:
+        missing_formula_branches = (
+            *missing_formula_branches,
+            *_unmatched_evidence_obligations(
+                {
+                    branch: student_loan.witnesses(branch)
+                    for branch in student_formula_branches
+                }
+            ),
+        )
     if measurement_roles is not None:
         # These exact source operations are not necessarily formula branches in
         # the generic inventory. Validate them with the same ordinary witness;
@@ -21683,6 +21723,23 @@ def _companion_test_issues(
         numeric_limits_only=_is_us_manual_citation_path(corpus_citation_path),
         corpus_citation_path=corpus_citation_path,
     )
+    if student_loan is not None:
+        # These source-owned duties stay explicit even if generic discovery
+        # regards a guide referral or an enclosure command as non-conditional.
+        for role in ("enclosure", "guide_referral"):
+            start, end = student_loan.span(role)
+            if not any((b.start, b.end) == (start, end) for b in exception_branches):
+                exception_branches = (
+                    *exception_branches,
+                    SourceStructureBranch(
+                        (),
+                        "exception-clause",
+                        "source unit",
+                        source_text[start:end],
+                        start,
+                        end,
+                    ),
+                )
     if exception_branches:
         independently_covered_paths = {
             path
@@ -21693,7 +21750,11 @@ def _companion_test_issues(
         paired_exception_branches = tuple(
             branch
             for branch in exception_branches
-            if _source_exception_requires_paired_witness(
+            if (
+                student_loan is not None
+                and student_loan.branch_role(branch) is not None
+            )
+            or _source_exception_requires_paired_witness(
                 branch.text,
                 branch_path=branch.path,
                 independently_covered_paths=independently_covered_paths,
@@ -21710,8 +21771,17 @@ def _companion_test_issues(
             formula_environment=formula_environment,
             calendar_date_declarations=calendar_date_declarations,
         )
+        student_exception_branches = tuple(
+            branch
+            for branch in paired_exception_branches
+            if student_loan is not None and student_loan.branch_role(branch) is not None
+        )
         missing_exception_branches = _unwitnessed_exception_branches(
-            paired_exception_branches,
+            tuple(
+                branch
+                for branch in paired_exception_branches
+                if branch not in student_exception_branches
+            ),
             certified_composition=certified_composition,
             certified_replacement=certified_replacement,
             certified_paths=certified_paths,
@@ -21930,6 +22000,19 @@ def _companion_test_issues(
         if partnership is not None:
             missing_exception_branches = partnership.unmatched(
                 missing_exception_branches
+            )
+        if student_loan is not None:
+            # Owned obligations never enter generic candidate allocation or its
+            # fallback chains. Missing/stale observation cannot borrow a guide
+            # or enclosure token to erase a historical-provider obligation.
+            missing_exception_branches = (
+                *missing_exception_branches,
+                *_unmatched_evidence_obligations(
+                    {
+                        branch: student_loan.witnesses(branch)
+                        for branch in student_exception_branches
+                    }
+                ),
             )
         if missing_exception_branches:
             unsupported_row_outputs = [

@@ -540,6 +540,18 @@ def bind_local_form_snapshot(
         from .bound_schedule_operands import bind_schedule
 
         schedule = recognize_bound_schedule_structure(body, citation)
+        if schedule is None:
+            from axiom_encode.student_loan_schedule_source import (
+                recognize_student_loan_schedule,
+            )
+
+            from .student_loan_schedule_binding import bind_student_loan_schedule
+
+            student_loan = recognize_student_loan_schedule(body, citation)
+            return (
+                student_loan is not None
+                and bind_student_loan_schedule(student_loan, content) is not None
+            )
         return (
             schedule is not None
             and bind_schedule(schedule, content, sources, root_relative=root_relative)
