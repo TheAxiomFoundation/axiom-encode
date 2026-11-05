@@ -9,6 +9,7 @@ while their contents are unchanged.
 from __future__ import annotations
 
 import copy
+import decimal
 import functools
 from pathlib import Path
 
@@ -269,9 +270,87 @@ def test_memo_evaluates_again_after_any_input_changes_in_place(
     assert _typed(after) != _typed(before)
 
 
+@pytest.mark.parametrize("require_asserted_value", (False, True))
+def test_memo_evaluates_again_when_the_decimal_precision_changes(
+    monkeypatch, require_asserted_value
+):
+    calls = _count_evaluations(monkeypatch)
+    rules = {"out": _rule("out", "-x")}
+    case = {"name": "case", "input": {"x": 12345}, "output": {"out": -12345}}
+    environment = {}
+    with sc._case_dependency_environment_memo_scope():
+        with decimal.localcontext(prec=5):
+            before = _environment(
+                rules,
+                case,
+                environment,
+                require_asserted_value=require_asserted_value,
+            )
+        with decimal.localcontext(prec=3):
+            after = _environment(
+                rules,
+                case,
+                environment,
+                require_asserted_value=require_asserted_value,
+            )
+            direct = sc._evaluate_case_dependency_environment(
+                rules,
+                case,
+                formula_environment=environment,
+                require_asserted_value=require_asserted_value,
+            )
+    assert len(calls) == 3  # both memoized calls evaluated, plus the direct one
+    assert before == {"out": decimal.Decimal("-12345")}
+    assert _typed(after) == _typed(direct)
+    assert after == (
+        {} if require_asserted_value else {"out": decimal.Decimal("-1.23E+4")}
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    (
+        lambda context: setattr(context, "prec", 7),
+        lambda context: setattr(context, "rounding", decimal.ROUND_DOWN),
+        lambda context: setattr(context, "Emin", -99),
+        lambda context: setattr(context, "Emax", 99),
+        lambda context: setattr(context, "capitals", 0),
+        lambda context: setattr(context, "clamp", 1),
+        lambda context: context.traps.__setitem__(decimal.Inexact, True),
+    ),
+    ids=("prec", "rounding", "Emin", "Emax", "capitals", "clamp", "traps"),
+)
+def test_memo_keeps_a_separate_entry_for_each_decimal_setting(monkeypatch, change):
+    calls = _count_evaluations(monkeypatch)
+    rules, case, environment = _rules(), _case(), {}
+    with sc._case_dependency_environment_memo_scope():
+        _environment(rules, case, environment)
+        with decimal.localcontext() as context:
+            change(context)
+            _environment(rules, case, environment)
+            assert len(calls) == 2  # the changed setting misses
+            _environment(rules, case, environment)
+            assert len(calls) == 2  # and the same setting hits
+        _environment(rules, case, environment)
+        assert len(calls) == 2  # the original setting still hits
+
+
+def test_memo_still_hits_after_a_decimal_flag_changes(monkeypatch):
+    calls = _count_evaluations(monkeypatch)
+    rules, case, environment = _rules(), _case(), {}
+    with sc._case_dependency_environment_memo_scope():
+        with decimal.localcontext() as context:
+            context.clear_flags()
+            _environment(rules, case, environment)
+            context.flags[decimal.Inexact] = True
+            _environment(rules, case, environment)
+    assert len(calls) == 1
+
+
 _NAMES = ("a", "b", "c", "d")
 _EXPRESSIONS = st.one_of(
     st.sampled_from(_NAMES),
+    st.sampled_from(_NAMES).map(lambda name: f"-{name}"),
     st.integers(min_value=-3, max_value=3).map(str),
     st.tuples(
         st.sampled_from(_NAMES), st.sampled_from("+-*"), st.sampled_from(_NAMES)
@@ -280,7 +359,9 @@ _EXPRESSIONS = st.one_of(
         st.sampled_from(_NAMES), st.sampled_from(_NAMES), st.sampled_from(_NAMES)
     ).map(lambda parts: f"if {parts[0]} > 0: {parts[1]} else: {parts[2]}"),
 )
-_VALUES = st.one_of(st.integers(min_value=-2, max_value=2), st.booleans())
+_VALUES = st.one_of(
+    st.integers(min_value=-2, max_value=2), st.booleans(), st.just(12345)
+)
 _STEPS = st.lists(
     st.one_of(
         st.tuples(
@@ -289,6 +370,7 @@ _STEPS = st.lists(
             st.one_of(st.none(), st.sets(st.sampled_from(_NAMES))),
             st.integers(min_value=0, max_value=1),
         ),
+        st.tuples(st.just("precision"), st.sampled_from((1, 2, 28))),
         st.tuples(st.just("input"), st.sampled_from(_NAMES), _VALUES),
         st.tuples(st.just("output"), st.sampled_from(_NAMES), _VALUES),
         st.tuples(st.just("formula"), st.sampled_from(_NAMES[:3]), _EXPRESSIONS),
@@ -314,10 +396,15 @@ def test_memoized_environment_matches_direct_evaluation_at_every_step(
         {"name": "second", "input": dict(inputs), "output": {}},
     ]
     environment: dict[str, object] = {}
-    with sc._case_dependency_environment_memo_scope():
+    with (
+        sc._case_dependency_environment_memo_scope(),
+        decimal.localcontext() as context,
+    ):
         for step in steps:
             kind = step[0]
-            if kind == "call":
+            if kind == "precision":
+                context.prec = step[1]
+            elif kind == "call":
                 _, require_asserted_value, allowed_names, case_index = step
                 memoized = _environment(
                     rules,
@@ -346,6 +433,36 @@ def test_memoized_environment_matches_direct_evaluation_at_every_step(
                 rules[step[1]]["versions"][0]["formula"] = step[2]
             else:
                 environment[step[1]] = step[2]
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    value=st.integers(min_value=-(10**7), max_value=10**7),
+    precisions=st.lists(st.sampled_from((1, 2, 3, 5, 28)), min_size=2, max_size=6),
+    require_asserted_value=st.booleans(),
+)
+def test_memoized_environment_matches_direct_evaluation_at_every_precision(
+    value, precisions, require_asserted_value
+):
+    rules = {"out": _rule("out", "-x")}
+    case = {"name": "case", "input": {"x": value}, "output": {"out": -value}}
+    environment: dict[str, object] = {}
+    with sc._case_dependency_environment_memo_scope():
+        for precision in precisions:
+            with decimal.localcontext(prec=precision):
+                memoized = _environment(
+                    rules,
+                    case,
+                    environment,
+                    require_asserted_value=require_asserted_value,
+                )
+                direct = sc._evaluate_case_dependency_environment(
+                    rules,
+                    case,
+                    formula_environment=environment,
+                    require_asserted_value=require_asserted_value,
+                )
+            assert _typed(memoized) == _typed(direct)
 
 
 _FIXTURE = Path(__file__).parent / "fixtures/source_path_shadow"

@@ -32,6 +32,7 @@ from decimal import (
     ROUND_HALF_UP,
     Decimal,
     InvalidOperation,
+    getcontext,
     localcontext,
 )
 from typing import TYPE_CHECKING, Any, Mapping, Protocol
@@ -27103,9 +27104,9 @@ def _case_asserted_dependency_environment(
 # One analysis asks for the same case's dependency environment from several
 # checks, each time with the same rule, case and constant mappings.
 # `_case_dependency_environment_memo_scope` holds a memo for one analysis so a
-# repeat reuses the first result. A hit needs the same objects and a matching
-# digest of their current contents, so a mapping changed between calls is
-# evaluated again.
+# repeat reuses the first result. A hit needs the same objects, the same ambient
+# Decimal settings and a matching digest of their current contents, so a mapping
+# or a setting changed between calls is evaluated again.
 _CASE_DEPENDENCY_ENVIRONMENT_MEMO: contextvars.ContextVar[
     dict[tuple[Any, ...], tuple[tuple[Any, ...], bytes, dict[str, Any]]] | None
 ] = contextvars.ContextVar("_CASE_DEPENDENCY_ENVIRONMENT_MEMO", default=None)
@@ -27138,6 +27139,25 @@ def _case_dependency_environment_inputs_digest(
     except RecursionError:
         return None
     return hashlib.blake2b(text.encode("utf-8", "surrogatepass")).digest()
+
+
+def _decimal_context_settings() -> tuple[Any, ...]:
+    """The ambient Decimal settings a formula's arithmetic reads.
+
+    Unary minus, for one, rounds to the ambient precision. Evaluation sets the
+    context's flags and never reads them, so they stay out of the key.
+    """
+
+    context = getcontext()
+    return (
+        context.prec,
+        context.rounding,
+        context.Emin,
+        context.Emax,
+        context.capitals,
+        context.clamp,
+        frozenset(signal for signal, trapped in context.traps.items() if trapped),
+    )
 
 
 # Values a memo may hand to several callers: none can be changed in place.
@@ -27181,6 +27201,7 @@ def _case_dependency_environment(
         None if allowed_names is None else frozenset(allowed_names),
         allow_bound_row_assertions,
         _US_MANUAL_PROSE_SCOPE.get(),
+        _decimal_context_settings(),
     )
     digest = _case_dependency_environment_inputs_digest(
         principal_rules, case, formula_environment
