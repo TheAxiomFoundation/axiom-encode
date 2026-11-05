@@ -141,7 +141,9 @@ jobs:
           status=0
           git ls-remote --exit-code --heads origin "$STATE_BRANCH" > /dev/null || status=$?
           if [ "$status" = 0 ]; then
-            git fetch --no-tags --depth 1 origin "$STATE_BRANCH"
+            # Full depth: a shallow fetch would mark the encoder clone shallow,
+            # and the tick's version check refuses a shallow clone.
+            git fetch --no-tags origin "$STATE_BRANCH"
             git worktree add --detach "$GITHUB_WORKSPACE/state" FETCH_HEAD
           elif [ "$status" != 2 ]; then
             echo "could not read the $STATE_BRANCH branch (git exit $status)" >&2

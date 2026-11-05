@@ -21,6 +21,7 @@ bare ``python3`` before any dependency is installed.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -45,12 +46,24 @@ _BUMP_BRANCH = "automation/encoder-version-"
 _PR_MERGE = re.compile(r"^Merge pull request #(\d+) from \S+?/(\S+)$")
 
 
+def _git_environment() -> dict[str, str]:
+    """The ambient environment minus GIT_* values, as in ``ci_parity``.
+
+    A GIT_DIR, GIT_CONFIG_* or similar value would read another repository or
+    another history than the one at ``repo``.
+    """
+    return {
+        name: value for name, value in os.environ.items() if not name.startswith("GIT_")
+    }
+
+
 def _git(repo: Path, *args: str) -> str:
     return subprocess.run(
         ["git", "-C", str(repo), *args],
         capture_output=True,
         check=True,
         text=True,
+        env=_git_environment(),
     ).stdout
 
 

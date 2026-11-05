@@ -183,6 +183,20 @@ def test_ci_parity_refuses_a_pin_newer_than_its_version(repo: Path):
         encoder_version_at_pin(repo, unversioned)
 
 
+def test_ambient_git_dir_does_not_hide_an_unversioned_pin(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    unversioned = _change_encoder(repo, 1)
+    # In the copy the pin is grafted into a root commit, which reads as a bump.
+    copy = tmp_path / "copy"
+    shutil.copytree(repo, copy)
+    _git(copy, "replace", "--graft", unversioned)
+    monkeypatch.setenv("GIT_DIR", str(copy / ".git"))
+
+    with pytest.raises(ValueError, match="after its version bump"):
+        encoder_version_at_pin(repo, unversioned)
+
+
 _PROVISIONER_SPEC = importlib.util.spec_from_file_location(
     "provision_verification_supervisor_for_provenance",
     Path(__file__).parents[1] / "scripts" / "provision_verification_supervisor.py",
@@ -336,8 +350,13 @@ def test_the_three_copies_of_the_rule_agree_on_random_histories(
                 (repo / f"src/axiom_encode/f{step}.py").write_text("F = 1\n")
                 _commit(repo, f"feature {step}")
                 _git(repo, "checkout", "-q", "main")
+                # Main moves on while the feature branch is open.
+                if rng.random() < 0.5:
+                    (repo / f"src/axiom_encode/main{step}.py").write_text("M = 1\n")
+                else:
+                    (repo / f"docs-main-{step}.md").write_text("docs\n")
+                _commit(repo, f"main {step}")
                 _git(repo, "merge", "-q", "--no-ff", f"feature-{step}", "-m", "merge")
-                continue
             else:
                 (repo / f"docs-{step}.md").write_text("docs\n")
             if _git(repo, "status", "--porcelain"):
