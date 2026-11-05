@@ -18053,11 +18053,14 @@ rules:
         ],
     )
     @pytest.mark.parametrize("has_target_waiver", [False, True])
+    @pytest.mark.parametrize("owner_layout", ["canonical", "nested", "historical-root"])
     def test_apply_freshly_replaces_untrusted_v1_at_same_canonical_path(
         self,
         tmp_path,
         publication_mutation,
         has_target_waiver,
+        owner_layout,
+        owner_defect=None,
     ):
         from axiom_encode.cli import _resolve_legacy_replacement_contract
         from axiom_encode.toolchain import load_rulespec_local_corpus_release
@@ -18088,10 +18091,19 @@ rules:
             path.relative_to(checkout).as_posix(): _sha256_file(path)
             for path in (target, target_test)
         }
-        manifest = (
-            checkout / ".axiom/encoding-manifests/us-me/policies/income_tax/"
-            "pilot_liability_pipeline.json"
+        canonical_manifest = (
+            checkout / ".axiom/encoding-manifests/us-me" / relative.with_suffix(".json")
         )
+        manifest = {
+            "canonical": canonical_manifest,
+            "nested": content_root
+            / ".axiom/encoding-manifests"
+            / relative.with_suffix(".json"),
+            "historical-root": checkout
+            / ".axiom/encoding-manifests"
+            / relative.with_suffix(".json"),
+        }[owner_layout]
+        historical_manifest = manifest
         manifest.parent.mkdir(parents=True)
         legacy_manifest = {
             "schema_version": "axiom-encode/applied-rulespec/v1",
@@ -18108,7 +18120,23 @@ rules:
                 "value": "untrusted-historical-evidence",
             },
         }
+        if owner_defect == "wrong-jurisdiction":
+            legacy_manifest["applied_files"][0]["path"] = legacy_manifest[
+                "applied_files"
+            ][0]["path"].replace("us-me/", "us-az/", 1)
+        elif owner_defect == "stale-hash":
+            legacy_manifest["applied_files"][0]["sha256"] = "0" * 64
+        elif owner_defect == "extra-file":
+            legacy_manifest["applied_files"].append(
+                {"path": "us-me/policies/extra.yaml", "sha256": "0" * 64}
+            )
         manifest.write_text(json.dumps(legacy_manifest) + "\n")
+        if owner_defect == "executable":
+            manifest.chmod(0o755)
+        elif owner_defect == "symlink":
+            backing = manifest.with_suffix(".backing")
+            manifest.rename(backing)
+            manifest.symlink_to(backing.name)
         old_target = target.read_bytes()
         old_manifest = manifest.read_bytes()
 
@@ -18166,6 +18194,19 @@ rules:
             "us-me/guidance/revenue/rate-schedule",
             release,
         )
+        if owner_defect is not None:
+            with pytest.raises(ValueError):
+                _resolve_legacy_replacement_contract(
+                    source_raw=checkout_relative,
+                    destination_raw=checkout_relative,
+                    policy_checkout_path=checkout,
+                    policy_repo_path=content_root,
+                    source_unit=source_unit,
+                    corpus_release=release,
+                )
+            assert target.read_bytes() == old_target
+            assert manifest.read_bytes() == old_manifest
+            return
         contract = _resolve_legacy_replacement_contract(
             source_raw=checkout_relative,
             destination_raw=checkout_relative,
@@ -18293,6 +18334,9 @@ rules:
 
         assert target.read_bytes() != old_target
         assert target_test.read_bytes() == generated_test.read_bytes()
+        if historical_manifest != canonical_manifest:
+            assert not historical_manifest.exists()
+        manifest = canonical_manifest
         assert manifest.read_bytes() != old_manifest
         assert applied[:3] == [target, target_test, manifest]
         assert len(applied) == 4
@@ -18320,6 +18364,10 @@ rules:
         )
         assert replacement_execution["rulespec_scope"] == (
             "active_jurisdiction_and_country_ancestors"
+        )
+        assert (
+            receipt["legacy"]["manifest"]["path"]
+            == historical_manifest.relative_to(checkout).as_posix()
         )
         assert receipt["legacy"]["owner_class"] == "v1-hmac-untrusted"
         assert receipt["replacement"]["source"] == checkout_relative.as_posix()
@@ -18481,6 +18529,19 @@ rules:
             {"known-validation-gaps.yaml", ".axiom/toolchain.toml"}
             if has_target_waiver
             else set()
+        ) | (
+            {historical_manifest.relative_to(checkout).as_posix()}
+            if historical_manifest != canonical_manifest
+            else set()
+        )
+
+    @pytest.mark.parametrize(
+        "defect",
+        ["wrong-jurisdiction", "stale-hash", "extra-file", "executable", "symlink"],
+    )
+    def test_historical_root_owner_rejected_before_replacement(self, tmp_path, defect):
+        self.test_apply_freshly_replaces_untrusted_v1_at_same_canonical_path(
+            tmp_path, None, False, "historical-root", owner_defect=defect
         )
 
     def test_in_place_source_bound_dependent_completes_signed_transaction(
