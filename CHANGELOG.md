@@ -1,3 +1,7 @@
+## 0.2.2327
+
+- Format the merged same-case consumer call without changing its syntax tree; preserve round 25 Hebrew behavior and keep the version bump after all encoder-affecting files.
+
 ## 0.2.2326
 
 - Keep only closed preposition and filing-construct noun contexts for Hebrew `דוחות`, after measuring unchanged dependency entries and instrument senses. Read verb-first subjects without a word-count limit, restrict indefinite-object and filing lookaheads to clause starts, and stop scans at prefixed heads to preserve linear growth. Label and measure stricter noun refusals; reject the R20 Hebrew gate escape and reproduce the audited negator fixture from its generator.
