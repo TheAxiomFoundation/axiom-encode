@@ -587,6 +587,10 @@ def file_waiver_binding_issues(
     The bindings must name exactly the covered files, in path order, and each
     file's bound active record must equal the record in ``waivers``. Records
     of files outside ``covered_paths`` are never read.
+
+    These are manifest-admission messages for the generated guard, which
+    reports plain strings; they are not validator check issues, so they are
+    collected as ``problems`` rather than ``ValidationIssue`` records.
     """
     if not isinstance(bindings, Mapping) or frozenset(bindings) != (
         FILE_WAIVER_BINDINGS_KEYS
@@ -597,7 +601,7 @@ def file_waiver_binding_issues(
     files = bindings.get("files")
     if not isinstance(files, list) or not files or len(files) > MAX_WAIVER_ENTRIES:
         return [f"{label}.files is malformed"]
-    issues: list[str] = []
+    problems: list[str] = []
     bound: dict[str, Mapping[str, object]] = {}
     previous: str | None = None
     for index, item in enumerate(files):
@@ -605,16 +609,16 @@ def file_waiver_binding_issues(
         if not isinstance(item, Mapping) or frozenset(item) != (
             FILE_WAIVER_BINDING_KEYS
         ):
-            issues.append(f"{field} is malformed")
+            problems.append(f"{field} is malformed")
             continue
         path = item.get("path")
         fingerprint = item.get("fingerprint")
         record = item.get("record_sha256")
         if not isinstance(path, str) or not path:
-            issues.append(f"{field}.path is invalid")
+            problems.append(f"{field}.path is invalid")
             continue
         if previous is not None and path <= previous:
-            issues.append(f"{field}.path is duplicated or out of order")
+            problems.append(f"{field}.path is duplicated or out of order")
             continue
         previous = path
         if fingerprint is None and record is None:
@@ -625,23 +629,23 @@ def file_waiver_binding_issues(
             or not isinstance(record, str)
             or _RECORD_SHA256_RE.fullmatch(record) is None
         ):
-            issues.append(f"{field} waiver record identity is invalid")
+            problems.append(f"{field} waiver record identity is invalid")
             continue
         bound[path] = item
-    if issues:
-        return issues
+    if problems:
+        return problems
     covered = frozenset(covered_paths)
     missing = sorted(covered - set(bound))
     extra = sorted(set(bound) - covered)
     if missing:
-        issues.append(f"{label} does not bind covered files: " + ", ".join(missing))
+        problems.append(f"{label} does not bind covered files: " + ", ".join(missing))
     if extra:
-        issues.append(f"{label} binds files it does not cover: " + ", ".join(extra))
+        problems.append(f"{label} binds files it does not cover: " + ", ".join(extra))
     for path in sorted(covered & set(bound)):
         expected = file_waiver_binding(waivers, path)
         if dict(bound[path]) != expected:
-            issues.append(f"{label} waiver identity for {path} is not current")
-    return issues
+            problems.append(f"{label} waiver identity for {path} is not current")
+    return problems
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
