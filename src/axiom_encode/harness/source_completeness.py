@@ -27426,21 +27426,6 @@ def _floating_point_behavior() -> bytes | None:
         return None
 
 
-def _available_stack_frames() -> int:
-    """Count the Python frames a recursive parser can still open from here.
-
-    `_formula_leaf_has_executable_syntax` turns RecursionError into an ordinary
-    False, so a deeply nested formula's result can depend on the remaining stack.
-    """
-
-    depth = 0
-    frame: Any = sys._getframe()
-    while frame is not None:
-        depth += 1
-        frame = frame.f_back
-    return sys.getrecursionlimit() - depth
-
-
 # Values a memo may hand to several callers: none can be changed in place.
 _SHAREABLE_RUNTIME_VALUE_TYPES = (
     type(None),
@@ -27462,7 +27447,7 @@ def _case_dependency_environment(
     allowed_names: set[str] | None = None,
     allow_bound_row_assertions: bool = False,
 ) -> dict[str, Any]:
-    """Evaluate reached outputs, reusing only matching inputs, numbers and stack."""
+    """Evaluate reached outputs, reusing only matching inputs and numbers."""
 
     memo = _CASE_DEPENDENCY_ENVIRONMENT_MEMO.get()
     float_behavior = _floating_point_behavior() if memo is not None else None
@@ -27486,7 +27471,6 @@ def _case_dependency_environment(
         _US_MANUAL_PROSE_SCOPE.get(),
         _decimal_context_settings(),
         float_behavior,
-        _available_stack_frames(),
     )
     digest = _case_dependency_environment_inputs_digest(
         principal_rules, case, formula_environment
@@ -28593,13 +28577,24 @@ def _formula_text_has_executable_branch_tree(formula_text: str) -> bool:
     return validate(formula_text, depth=0)
 
 
+# Parentheses, brackets, call argument lists and unary operators a leaf may nest.
+# A parenthesis costs each parser nine frames, so a leaf at this limit needs about
+# 590 of the default 1,000.
+_FORMULA_EXPRESSION_NESTING_LIMIT = 64
+
+
 def _formula_leaf_has_executable_syntax(text: str) -> bool:
-    """Parse a reduced leaf with the pinned RuleSpec expression grammar."""
+    """Parse a reduced leaf with the pinned RuleSpec expression grammar.
+
+    The answer depends only on the text. With too little stack left to parse it,
+    the call raises RecursionError, so a cache of these answers stays valid.
+    """
 
     tokens = _rulespec_formula_tokens(text)
     if tokens is None:
         return False
     position = 0
+    nesting = 0
 
     def peek() -> str:
         return tokens[position][0]
@@ -28612,7 +28607,13 @@ def _formula_leaf_has_executable_syntax(text: str) -> bool:
         return True
 
     def parse_expression() -> bool:
-        return parse_or()
+        nonlocal nesting
+        if nesting > _FORMULA_EXPRESSION_NESTING_LIMIT:
+            return False
+        nesting += 1
+        parsed = parse_or()
+        nesting -= 1
+        return parsed
 
     def parse_or() -> bool:
         if not parse_and():
@@ -28663,10 +28664,16 @@ def _formula_leaf_has_executable_syntax(text: str) -> bool:
         return True
 
     def parse_unary() -> bool:
+        nonlocal nesting
         if peek() in {"MINUS", "NOT"}:
+            if nesting > _FORMULA_EXPRESSION_NESTING_LIMIT:
+                return False
             operator = peek()
             consume(operator)
-            return parse_unary()
+            nesting += 1
+            parsed = parse_unary()
+            nesting -= 1
+            return parsed
         return parse_postfix()
 
     def parse_postfix() -> bool:
@@ -28736,10 +28743,7 @@ def _formula_leaf_has_executable_syntax(text: str) -> bool:
             return True
         return False
 
-    try:
-        return parse_expression() and peek() == "EOF"
-    except RecursionError:
-        return False
+    return parse_expression() and peek() == "EOF"
 
 
 def _evaluate_rulespec_formula(

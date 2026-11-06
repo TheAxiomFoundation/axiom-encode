@@ -8,6 +8,7 @@ when their contents, Decimal settings and observed native float behavior match.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import copy
 import ctypes
@@ -555,93 +556,140 @@ def _direct_at(extra, rules, case, environment):
     )
 
 
-def _nested_rules(levels):
-    return {"out": _rule("out", "(" * levels + "1" + ")" * levels)}
+def _available_stack_frames():
+    """Count the Python frames a call can still open from here."""
+
+    depth = 0
+    frame = sys._getframe()
+    while frame is not None:
+        depth += 1
+        frame = frame.f_back
+    return sys.getrecursionlimit() - depth
 
 
-def _deepest_nesting_that_evaluates():
-    """Search for the nesting at this stack depth where parsing starts to fail."""
+_NESTING_LIMIT = sc._FORMULA_EXPRESSION_NESTING_LIMIT
 
-    case, environment = {"input": {}, "output": {}}, {}
-    evaluates, fails = 1, 2_000
-    while fails - evaluates > 1:
-        levels = (evaluates + fails) // 2
-        if _direct_at(0, _nested_rules(levels), case, environment) == {"out": 1}:
-            evaluates = levels
-        else:
-            fails = levels
-    return evaluates
+
+def _nested(levels):
+    return "(" * levels + "1" + ")" * levels
+
+
+def _mixed_nesting(levels):
+    openers = ("(", "- ", "f(", "not ", "x[")
+    closers = {"(": ")", "f(": ")", "x[": "]"}
+    opened = [openers[level % len(openers)] for level in range(levels)]
+    closed = (closers.get(opener, "") for opener in reversed(opened))
+    return "".join(opened) + "1" + "".join(closed)
+
+
+_NESTING_SHAPES = {
+    "parentheses": _nested,
+    "calls": lambda levels: "f(" * levels + "1" + ")" * levels,
+    "brackets": lambda levels: "x[" * levels + "1" + "]" * levels,
+    "minus": lambda levels: "- " * levels + "1",
+    "not": lambda levels: "not " * levels + "x",
+    "mixed": _mixed_nesting,
+}
+
+
+@pytest.mark.parametrize("shape", _NESTING_SHAPES.values(), ids=_NESTING_SHAPES)
+def test_leaf_parser_accepts_nesting_up_to_the_limit_and_no_further(shape):
+    parser = sc._formula_leaf_has_executable_syntax
+
+    assert parser(shape(_NESTING_LIMIT)) is True
+    assert parser(shape(_NESTING_LIMIT + 1)) is False
+
+
+def test_nesting_limit_clears_the_deepest_tracked_formula():
+    """Generated tariff compositions in rulespec-us nest 52 levels."""
+
+    assert _NESTING_LIMIT == 64
+    assert sc._formula_leaf_has_executable_syntax(_nested(52)) is True
+
+
+_SIBLING_RUNS = {
+    "parentheses": lambda count: " + ".join(["(1)"] * count),
+    "call_arguments": lambda count: "f(" + ", ".join(["1"] * count) + ")",
+    "brackets": lambda count: " + ".join(["x[1]"] * count),
+    "minus": lambda count: " + ".join(["- 1"] * count),
+    "not": lambda count: " and ".join(["not x"] * count),
+}
+
+
+@pytest.mark.parametrize("run", _SIBLING_RUNS.values(), ids=_SIBLING_RUNS)
+def test_leaf_parser_counts_only_the_levels_still_open(run):
+    assert sc._formula_leaf_has_executable_syntax(run(3 * _NESTING_LIMIT)) is True
+
+
+@pytest.mark.parametrize("shape", _NESTING_SHAPES.values(), ids=_NESTING_SHAPES)
+def test_leaf_parser_gives_back_every_level_a_closed_group_opened(shape):
+    parser = sc._formula_leaf_has_executable_syntax
+    at_limit = f"({shape(_NESTING_LIMIT - 1)})"
+    over_limit = f"({shape(_NESTING_LIMIT)})"
+
+    assert parser(f"{at_limit} + {at_limit} + {at_limit}") is True
+    assert parser(f"{at_limit} + {at_limit} + {over_limit}") is False
 
 
 @pytest.mark.parametrize(
-    "extras", [(0, 60, 0), (60, 0, 60)], ids=["shallow_first", "deep_first"]
+    "template",
+    ("if x: {} else: 0", "if x: 0 else: {}", "if {} > 0: 1 else: 0"),
+    ids=("first_branch", "last_branch", "selector"),
 )
-def test_memo_keeps_results_apart_across_stack_depths(extras):
-    rules = _nested_rules(_deepest_nesting_that_evaluates())
-    case, environment = {"input": {}, "output": {}}, {}
-    expected = {0: {"out": 1}, 60: {}}
+def test_branch_tree_applies_the_limit_in_every_part_of_a_branch(template):
+    check = sc._formula_text_has_executable_branch_tree
 
-    with sc._case_dependency_environment_memo_scope():
-        for extra in extras:
-            assert _memoized_at(extra, rules, case, environment) == expected[extra]
+    assert check(template.format(_nested(_NESTING_LIMIT))) is True
+    assert check(template.format(_nested(_NESTING_LIMIT + 1))) is False
 
 
-def test_memo_reuses_a_result_only_at_the_same_stack_depth(monkeypatch):
-    calls = _count_evaluations(monkeypatch)
-    rules, case, environment = _rules(), _case(), {}
-
-    with sc._case_dependency_environment_memo_scope():
-        first = _memoized_at(0, rules, case, environment)
-        assert _memoized_at(0, rules, case, environment) == first
-        assert len(calls) == 1
-        assert _memoized_at(5, rules, case, environment) == first
-        assert len(calls) == 2
-        assert _memoized_at(0, rules, case, environment) == first
-        assert _memoized_at(5, rules, case, environment) == first
-        assert len(calls) == 2
-
-
-def test_memo_keeps_results_apart_across_recursion_limits():
-    rules = _nested_rules(_deepest_nesting_that_evaluates() + 3)
-    case, environment = {"input": {}, "output": {}}, {}
+def test_leaf_parser_answer_ignores_a_higher_recursion_limit():
+    parser = sc._formula_leaf_has_executable_syntax
     limit = sys.getrecursionlimit()
 
-    with sc._case_dependency_environment_memo_scope():
-        assert _memoized_at(0, rules, case, environment) == {}
-        sys.setrecursionlimit(limit + 200)
-        try:
-            assert _memoized_at(0, rules, case, environment) == {"out": 1}
-        finally:
-            sys.setrecursionlimit(limit)
-        assert _memoized_at(0, rules, case, environment) == {}
-
-
-def test_available_stack_frames_follows_depth_and_limit():
-    here = sc._available_stack_frames()
-    limit = sys.getrecursionlimit()
-
-    assert _at_extra_depth(3, sc._available_stack_frames) == here - 4
-    sys.setrecursionlimit(limit + 10)
+    sys.setrecursionlimit(limit + 2_000)
     try:
-        assert sc._available_stack_frames() == here + 10
+        assert parser(_nested(_NESTING_LIMIT)) is True
+        assert parser(_nested(_NESTING_LIMIT + 1)) is False
     finally:
         sys.setrecursionlimit(limit)
 
 
-@settings(max_examples=50, deadline=None)
-@given(
-    extras=st.lists(st.sampled_from((0, 1, 5, 10, 30, 60)), min_size=2, max_size=8),
-    margin=st.integers(min_value=-2, max_value=8),
+@pytest.mark.parametrize(
+    "levels", (_NESTING_LIMIT, _NESTING_LIMIT + 1), ids=("at_limit", "over_limit")
 )
-def test_memo_matches_direct_evaluation_at_every_stack_depth(extras, margin):
-    rules = _nested_rules(max(1, _deepest_nesting_that_evaluates() - margin))
-    case, environment = {"input": {}, "output": {}}, {}
+@pytest.mark.parametrize("shape", _NESTING_SHAPES.values(), ids=_NESTING_SHAPES)
+def test_leaf_parser_answers_from_the_text_or_raises_at_every_stack_depth(
+    shape, levels
+):
+    text = shape(levels)
+    outcomes = []
 
-    with sc._case_dependency_environment_memo_scope():
-        for extra in extras:
-            memoized = _memoized_at(extra, rules, case, environment)
-            direct = _direct_at(extra, rules, case, environment)
-            assert _typed(memoized) == _typed(direct)
+    for extra in range(0, _available_stack_frames() + 3, 13):
+        try:
+            outcomes.append(
+                _at_extra_depth(
+                    extra, lambda: sc._formula_leaf_has_executable_syntax(text)
+                )
+            )
+        except RecursionError as error:
+            outcomes.append(type(error))
+
+    first_raise = outcomes.index(RecursionError)
+    assert set(outcomes[:first_raise]) == {levels <= _NESTING_LIMIT}
+    assert set(outcomes[first_raise:]) == {RecursionError}
+
+
+def test_branch_cache_keeps_nothing_when_the_stack_runs_out():
+    check = sc._formula_text_has_executable_branch_tree
+    formula = f"if x: {_nested(_NESTING_LIMIT)} else: 0"
+    check.cache_clear()
+
+    with pytest.raises(RecursionError):
+        _at_extra_depth(_available_stack_frames() - 100, lambda: check(formula))
+
+    assert check.cache_info().currsize == 0
+    assert check(formula) is True
 
 
 def _outcome(call, extra, rules, case, environment):
@@ -651,9 +699,80 @@ def _outcome(call, extra, rules, case, environment):
         return type(error)
 
 
+@pytest.mark.parametrize("memo_on", (True, False), ids=("memo_on", "memo_off"))
+def test_evicting_the_branch_cache_cannot_change_a_later_evaluation(memo_on):
+    # With the memo on, the repeat below returns a hit and leaves the evicted entry
+    # empty, so the low-stack evaluation runs the parser with nothing cached.
+    check = sc._formula_text_has_executable_branch_tree
+    rules = {"out": _rule("out", f"if x: {_nested(_NESTING_LIMIT)} else: 0")}
+    case, environment = {"input": {"x": True}, "output": {}}, {}
+    low_stack = _available_stack_frames() - 100
+    check.cache_clear()
+
+    with (
+        sc._case_dependency_environment_memo_scope()
+        if memo_on
+        else contextlib.nullcontext()
+    ):
+        assert _memoized_at(0, rules, case, environment) == {"out": 1}
+        check.cache_clear()
+        assert _memoized_at(0, rules, case, environment) == {"out": 1}
+        assert _outcome(_direct_at, low_stack, rules, case, environment) is (
+            RecursionError
+        )
+        assert _direct_at(0, rules, case, environment) == {"out": 1}
+        assert _memoized_at(1, rules, case, environment) == {"out": 1}
+
+
+def test_memo_reuses_a_result_at_any_stack_depth(monkeypatch):
+    calls = _count_evaluations(monkeypatch)
+    rules, case, environment = _rules(), _case(), {}
+
+    with sc._case_dependency_environment_memo_scope():
+        first = _memoized_at(0, rules, case, environment)
+        for extra in (0, 5, 60, 0):
+            assert _memoized_at(extra, rules, case, environment) == first
+
+    assert len(calls) == 1
+
+
+def test_memo_hit_returns_where_direct_evaluation_runs_out_of_stack():
+    # The memo's one intended difference from direct evaluation: a hit opens no
+    # frames for the formula, so it can return where evaluating would raise.
+    rules = {"out": _rule("out", _nested(_NESTING_LIMIT))}
+    case, environment = {"input": {}, "output": {}}, {}
+    low_stack = _available_stack_frames() - 100
+
+    with sc._case_dependency_environment_memo_scope():
+        assert _memoized_at(0, rules, case, environment) == {"out": 1}
+        assert _memoized_at(low_stack, rules, case, environment) == {"out": 1}
+
+    assert _outcome(_direct_at, low_stack, rules, case, environment) is RecursionError
+
+
+@settings(max_examples=50, deadline=None)
+@given(
+    extras=st.lists(st.sampled_from((0, 1, 5, 10, 30, 60)), min_size=2, max_size=8),
+    levels=st.integers(min_value=0, max_value=_NESTING_LIMIT + 8),
+    branching=st.booleans(),
+)
+def test_memo_matches_direct_evaluation_at_every_stack_depth(extras, levels, branching):
+    leaf = _nested(levels)
+    rules = {"out": _rule("out", f"if x: {leaf} else: 0" if branching else leaf)}
+    case, environment = {"input": {"x": True}, "output": {}}, {}
+    expected = {"out": 1} if levels <= _NESTING_LIMIT else {}
+
+    with sc._case_dependency_environment_memo_scope():
+        for extra in extras:
+            memoized = _memoized_at(extra, rules, case, environment)
+            direct = _direct_at(extra, rules, case, environment)
+            assert memoized == expected
+            assert _typed(memoized) == _typed(direct)
+
+
 def test_memo_matches_direct_evaluation_down_to_the_last_stack_frame():
     rules, case, environment = _rules(), _case(), {}
-    available = sc._available_stack_frames()
+    available = _available_stack_frames()
     outcomes = []
 
     for extra in range(available - 60, available + 3):
@@ -665,6 +784,71 @@ def test_memo_matches_direct_evaluation_down_to_the_last_stack_frame():
 
     assert outcomes[0] is not RecursionError
     assert outcomes[-1] is RecursionError
+
+
+def _names_recursion_error(kind):
+    """Say whether an exception type expression would catch RecursionError."""
+
+    if isinstance(kind, ast.Tuple):
+        return any(_names_recursion_error(item) for item in kind.elts)
+    return isinstance(kind, ast.Name) and kind.id in {
+        "BaseException",
+        "Exception",
+        "RecursionError",
+        "RuntimeError",
+    }
+
+
+def test_nothing_evaluation_reaches_can_turn_recursion_error_into_a_result():
+    # The memo and the branch cache hold answers the text determines. A stack
+    # shortage surfaces only as RecursionError, so if nothing evaluation reaches
+    # catches it, a shortage can't become an answer they store.
+    tree = ast.parse(Path(sc.__file__).read_text(encoding="utf-8"))
+    definitions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef | ast.ClassDef)
+    }
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    definitions.setdefault(target.id, node)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            definitions.setdefault(node.target.id, node)
+
+    reached, pending = set(), ["_evaluate_case_dependency_environment"]
+    while pending:
+        name = pending.pop()
+        if name not in reached:
+            reached.add(name)
+            pending.extend(
+                node.id
+                for node in ast.walk(definitions[name])
+                if isinstance(node, ast.Name) and node.id in definitions
+            )
+
+    catching = []
+    for name in reached:
+        for node in ast.walk(definitions[name]):
+            if isinstance(node, ast.ExceptHandler) and (
+                node.type is None or _names_recursion_error(node.type)
+            ):
+                catching.append((name, node.lineno))
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "suppress"
+                and any(_names_recursion_error(arg) for arg in node.args)
+            ):
+                catching.append((name, node.lineno))
+
+    assert {
+        "_evaluate_rulespec_formula",
+        "_formula_leaf_has_executable_syntax",
+        "_formula_text_has_executable_branch_tree",
+    } <= reached
+    assert sorted(catching) == []
 
 
 @pytest.mark.parametrize("error", (ValueError, RuntimeError))
