@@ -20,6 +20,48 @@ URI = "ca:policies/test/provider#reported"
 ROOT = "ca:policies/test/consumer"
 
 
+def restage_witness_records(evidence, cases, tmp_path, strict_echo):
+    """Send synthetic witness fixtures through real capture before consumption.
+
+    The executable is fixture bytes, not a real-engine/signature claim. Closure,
+    artifact and record checks are the actual ExecutionCapture implementation.
+    """
+    binary = tmp_path / "witness-binary"
+    binary.write_bytes(b"fixture executable")
+    artifact = tmp_path / "witness-artifact.json"
+    artifact.write_bytes(evidence.artifact_bytes)
+    capture = e.ExecutionCapture(
+        tmp_path,
+        evidence.snapshot_root,
+        evidence.root_relative,
+        evidence.files,
+        binary,
+        e.digest(binary.read_bytes()),
+        evidence.engine_pin,
+        0.0,
+        evidence.git_head,
+    )
+    capture.compiled(artifact)
+    by_key = {e.case_key(case): case for case in cases}
+    for record in evidence.records:
+        request = json.loads(record.request_json)
+        response = json.loads(record.response_json)
+        if strict_echo:
+            response["metadata"]["relation_binding"] = "strict"
+        capture.stage(
+            by_key[record.case_sha256],
+            request,
+            response,
+            binary,
+            artifact,
+            case_index=record.case_index,
+        )
+    assert len(capture.records) == len(evidence.records)
+    result = capture.evidence()
+    assert result is not None
+    return result
+
+
 @pytest.fixture
 def world(tmp_path):
     formula = "reported + local_amount"
@@ -586,6 +628,67 @@ def test_capture_requires_pinned_same_artifact_explain_and_matching_query(
     binary.write_bytes(b"changed")
     capture.stage(world.case, world.request, world.response, binary, artifact)
     assert capture.evidence() is None
+
+
+@pytest.mark.parametrize(
+    "request_binding,response_binding,accepted",
+    [
+        ("absent", "absent", True),
+        ("absent", "strict", True),
+        ("strict", "strict", True),
+        ("strict", "absent", False),
+        ("lenient", "strict", False),
+        ("lenient", "lenient", False),
+        ("absent", "lenient", False),
+        (None, "strict", False),
+        ("absent", None, False),
+        ("unknown", "strict", False),
+        ("absent", "unknown", False),
+    ],
+)
+@pytest.mark.parametrize(
+    "invalid_metadata",
+    [None, "extra", "fallback", "fast", "missing", "null", "integer"],
+)
+def test_capture_accepts_only_closed_strict_binding_metadata(
+    world, tmp_path, request_binding, response_binding, accepted, invalid_metadata
+):
+    binary = tmp_path / "binary"
+    binary.write_bytes(b"pinned executable")
+    artifact = tmp_path / "compiled.json"
+    artifact.write_bytes(world.evidence.artifact_bytes)
+    capture = e.ExecutionCapture(
+        tmp_path,
+        world.evidence.snapshot_root,
+        world.evidence.root_relative,
+        world.evidence.files,
+        binary,
+        e.digest(binary.read_bytes()),
+        "c" * 40,
+        0.0,
+        "a" * 40,
+    )
+    capture.compiled(artifact)
+    request = copy.deepcopy(world.request)
+    response = copy.deepcopy(world.response)
+    if request_binding != "absent":
+        request["relation_binding"] = request_binding
+    if response_binding != "absent":
+        response["metadata"]["relation_binding"] = response_binding
+    if invalid_metadata == "extra":
+        response["metadata"]["unknown"] = True
+    elif invalid_metadata == "fallback":
+        response["metadata"]["fallback_reason"] = "unsupported"
+    elif invalid_metadata == "fast":
+        response["metadata"]["actual_mode"] = "fast"
+    elif invalid_metadata == "missing":
+        response.pop("metadata")
+    elif invalid_metadata == "null":
+        response["metadata"] = None
+    elif invalid_metadata == "integer":
+        response["metadata"] = 7
+    capture.stage(world.case, request, response, binary, artifact)
+    assert (capture.evidence() is not None) == (accepted and invalid_metadata is None)
 
 
 def test_any_companion_failure_clears_invocation_evidence(world, tmp_path):

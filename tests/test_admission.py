@@ -380,12 +380,26 @@ def test_admission_seeded_differential_agrees_with_signed_apply(context, seed):
 
 
 def test_admission_constructs_the_same_pipeline(context, monkeypatch):
+    from axiom_encode.harness.same_case_execution import ExecutionOverlayOrigin
+
+    overlay_paths = []
     result, options = context()
     observed = []
 
     class CapturingPipeline(ValidatorPipeline):
         def __init__(self, **kwargs):
+            origin = kwargs["execution_overlay_origin"]
+            assert isinstance(origin, ExecutionOverlayOrigin)
+            assert origin.overlay_content_root == Path(kwargs["policy_repo_path"])
+            assert origin.fresh(Path(kwargs["policy_repo_path"]).parent)
+            overlay_paths.append(origin.overlay_content_root)
             normalized = dict(kwargs)
+            # The source capability must agree; each invocation owns a fresh overlay.
+            normalized["execution_overlay_origin"] = (
+                origin.source_content_root,
+                origin.git_head,
+                origin.directory_identities[:2],
+            )
             normalized["policy_repo_path"] = Path(kwargs["policy_repo_path"]).name
             normalized["rulespec_dependency_roots"] = tuple(
                 Path(root).name for root in kwargs["rulespec_dependency_roots"]
@@ -398,6 +412,7 @@ def test_admission_constructs_the_same_pipeline(context, monkeypatch):
     cli._validate_generated_encoding_in_policy_overlay_with_release(
         copy.deepcopy(result), **options
     )
+    assert len(overlay_paths) == 2 and overlay_paths[0] != overlay_paths[1]
     assert len(observed) == 2
     assert observed[0] == observed[1]
     assert observed[0]["enable_oracles"] is False
@@ -1956,7 +1971,9 @@ def test_admission_passes_apply_its_visible_amendment_documents(context, monkeyp
     """
 
     from axiom_encode.harness import evals
+    from axiom_encode.harness.same_case_execution import ExecutionOverlayOrigin
 
+    overlay_paths = []
     result, options = context()
     document = evals.CorpusAmendmentDocument(
         citation_path="us/statute/26/1-amendment",
@@ -1992,7 +2009,18 @@ def test_admission_passes_apply_its_visible_amendment_documents(context, monkeyp
 
     class CapturingPipeline(ValidatorPipeline):
         def __init__(self, **kwargs):
+            origin = kwargs["execution_overlay_origin"]
+            assert isinstance(origin, ExecutionOverlayOrigin)
+            assert origin.overlay_content_root == Path(kwargs["policy_repo_path"])
+            assert origin.fresh(Path(kwargs["policy_repo_path"]).parent)
+            overlay_paths.append(origin.overlay_content_root)
             normalized = dict(kwargs)
+            # The source capability must agree; each invocation owns a fresh overlay.
+            normalized["execution_overlay_origin"] = (
+                origin.source_content_root,
+                origin.git_head,
+                origin.directory_identities[:2],
+            )
             normalized["policy_repo_path"] = Path(kwargs["policy_repo_path"]).name
             normalized["rulespec_dependency_roots"] = tuple(
                 Path(root).name for root in kwargs["rulespec_dependency_roots"]
@@ -2016,6 +2044,7 @@ def test_admission_passes_apply_its_visible_amendment_documents(context, monkeyp
         amendment_documents=(document,),
     )
 
+    assert len(overlay_paths) == 2 and overlay_paths[0] != overlay_paths[1]
     assert len(observed) == 2 and observed[0] == observed[1]
     assert observed[0]["amendment_documents"] == (document,)
     assert observed[0]["amendment_source_texts"] == {

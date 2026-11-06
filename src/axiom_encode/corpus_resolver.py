@@ -2030,6 +2030,16 @@ def _read_descendant_records(
                 f"{path}:{line_number}"
             )
         _validate_release_row_metadata(record, path=path, line_number=line_number)
+        raw_body = record.get("body")
+        if (
+            _record_status(record) == "reserved"
+            and raw_body is not None
+            and not isinstance(raw_body, str)
+        ):
+            raise CorpusDescendantStructureError(
+                f"Active corpus source {citation_path!r} has malformed reserved "
+                f"descendant {record_path!r}: body must be null or a string"
+            )
         body = _record_body(record, path=path, line_number=line_number)
         if relative_file is None:
             artifact_root = _repository_root_for_provisions(provisions_root)
@@ -2112,6 +2122,19 @@ def _is_part_heading_row(record: _StoredRecord) -> bool:
     )
 
 
+def _is_explicit_reserved_leaf(record: _StoredRecord) -> bool:
+    """Recognize an attested, non-operative regulation section by exact identity."""
+
+    section = record.row.citation_path.rsplit("/", 1)[-1]
+    return (
+        record.row.document_class == "regulation"
+        and record.metadata.get("section_label") == section
+        and record.heading is not None
+        and record.heading.strip() == f"{section} Reserved"
+        and record.body is None
+    )
+
+
 def _part_heading_refusal(citation_path: str, row_path: str) -> str:
     return (
         f"Active corpus source {citation_path!r} has heading-only descendant "
@@ -2165,7 +2188,7 @@ def _compose_descendant_text(
             (
                 record
                 for record in records
-                if record.status != "repealed"
+                if record.status not in {"repealed", "reserved"}
                 and record.row.citation_path not in paths_with_descendants
                 and _is_part_heading_row(record)
             ),
@@ -2209,6 +2232,15 @@ def _compose_descendant_text(
             parent = child
 
     for record in records:
+        if record.status == "reserved":
+            if _is_explicit_reserved_leaf(record) and not children.get(
+                record.row.citation_path
+            ):
+                continue
+            raise CorpusDescendantStructureError(
+                f"Active corpus source {citation_path!r} has malformed "
+                f"reserved descendant {record.row.citation_path!r}"
+            )
         if record.status != "repealed":
             continue
         if record.body is not None or children.get(record.row.citation_path):
@@ -2225,7 +2257,7 @@ def _compose_descendant_text(
         if cached is not None:
             return cached
         record = unique_by_path.get(path)
-        if record is not None and record.status == "repealed":
+        if record is not None and record.status in {"repealed", "reserved"}:
             contributes_cache[path] = False
             return False
         if record is not None and record.body is not None:
@@ -2242,9 +2274,8 @@ def _compose_descendant_text(
 
     def visit(path: str) -> None:
         record = unique_by_path.get(path)
-        if record is not None and record.status == "repealed":
-            # A repealed bodyless leaf is an explicit current-law tombstone,
-            # not a missing branch of the parent source. It contributes no text.
+        if record is not None and record.status in {"repealed", "reserved"}:
+            # An explicitly non-operative bodyless leaf contributes no text.
             return
         if record is not None and record.body is not None:
             # A body-bearing provision is the shallowest complete source for
@@ -2464,7 +2495,7 @@ def _slice_parent_body(text: str, *, requested_path: str, resolved_path: str) ->
         )
     # Choose by authenticated source layout, never by jurisdiction. Leave
     # the existing parenthetical walker untouched for all other bodies.
-    outline = bare_outline(text)
+    outline = bare_outline(text, corpus_citation_path=resolved_path)
     if outline is not None:
         sliced = slice_bare_path(text, fragments, outline=outline)
     else:
@@ -4858,7 +4889,11 @@ def _record_status(record: dict[str, Any]) -> str | None:
     if not isinstance(metadata, Mapping):
         return None
     status = metadata.get("status")
-    return status if status == "repealed" else None
+    return (
+        status
+        if isinstance(status, str) and status in {"repealed", "reserved"}
+        else None
+    )
 
 
 def _record_source_history(record: dict[str, Any]) -> tuple[str, ...]:

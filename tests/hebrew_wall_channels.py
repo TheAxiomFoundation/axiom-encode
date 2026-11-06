@@ -96,7 +96,9 @@ def mutants(payload: dict, test_cases: list) -> Iterator[tuple[str, dict, list]]
 
     Each string field takes the kind its position selects; a proof excerpt
     or its citation path takes every kind; each test-case key is renamed;
-    and five mutants put one kind into every field at once.
+    and five mutants put one kind into every field but ``format`` at once.
+    Keeping the format valid lets those combined mutants reach the analyzer;
+    each individual format mutant still exercises the shape refusal.
     """
 
     fields = [("payload", path) for path in string_paths(payload)]
@@ -127,6 +129,8 @@ def mutants(payload: dict, test_cases: list) -> Iterator[tuple[str, dict, list]]
         new_payload = copy.deepcopy(payload)
         new_tests = copy.deepcopy(test_cases)
         for path in string_paths(new_payload):
+            if path == ("format",):
+                continue
             _set(new_payload, path, mutate_text(_get(new_payload, path), kind))
         for path in string_paths(new_tests):
             _set(new_tests, path, mutate_text(_get(new_tests, path), kind))

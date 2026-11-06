@@ -116,6 +116,15 @@ from axiom_encode.yaml_serialization import (
 )
 
 from . import validation_waivers as _validation_waivers
+from .checks import (
+    ISSUE_SCHEMA_VERSION as VALIDATION_ISSUE_SCHEMA_VERSION,
+)
+from .checks import (
+    issues_from_document,
+    registry_document,
+    retype,
+    typed_issue_document,
+)
 from .codex_cli import (
     DEFAULT_CODEX_REASONING_EFFORT,
     codex_auth_error,
@@ -131,6 +140,7 @@ from .concepts import (
 )
 from .concepts.jurisdiction import jurisdiction_prefix as _repo_jurisdiction_prefix
 from .constants import (
+    DEFAULT_MODEL,
     DEFAULT_OPENAI_ESCALATE_AFTER,
     DEFAULT_OPENAI_ESCALATION_MODEL,
     DEFAULT_OPENAI_MODEL,
@@ -279,6 +289,10 @@ from .harness.proof_validator import (
     load_money_atom_ratchet,
     proof_source_citation_paths,
     validate_rulespec_proofs,
+)
+from .harness.same_case_execution import (
+    bind_execution_overlay_origin,
+    capture_execution_git_origin,
 )
 from .harness.source_completeness import (
     _deferred_coverage,
@@ -2672,6 +2686,25 @@ def main():
         "--json", action="store_true", help="Output inventory as JSON"
     )
 
+    checks_parser = subparsers.add_parser(
+        "checks",
+        help=(
+            "List the declared validator checks (id, requirement, why, fix, "
+            "cause, code site) of this encoder version"
+        ),
+    )
+    checks_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the axiom-encode/check-registry/v1 document",
+    )
+    checks_parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Write the JSON document to this path instead of stdout",
+    )
+
     manifest_census_parser = subparsers.add_parser(
         "manifest-census",
         help=(
@@ -3015,14 +3048,18 @@ def main():
     encode_parser.add_argument(
         "--model",
         default=None,
-        help=f"Model to use for encoding (default: {DEFAULT_OPENAI_MODEL})",
+        help=(
+            f"Model to use for encoding (default: {DEFAULT_OPENAI_MODEL}; "
+            f"claude-api: {DEFAULT_MODEL})"
+        ),
     )
     encode_parser.add_argument(
         "--escalation-model",
-        default=DEFAULT_OPENAI_ESCALATION_MODEL,
+        default=None,
         help=(
             "Model for the final validator-failure retry "
-            f"(default: {DEFAULT_OPENAI_ESCALATION_MODEL})"
+            f"(default: {DEFAULT_OPENAI_ESCALATION_MODEL}; "
+            f"claude-api: {DEFAULT_MODEL})"
         ),
     )
     encode_parser.add_argument(
@@ -3044,7 +3081,7 @@ def main():
     )
     encode_parser.add_argument(
         "--backend",
-        choices=["codex", "openai", "claude"],
+        choices=["codex", "openai", "claude", "claude-api"],
         default="codex",
         help=(
             "Backend (default: codex): 'codex' uses the Codex CLI with "
@@ -3052,6 +3089,7 @@ def main():
             "OPENAI_API_KEY; use --model/--escalation-model to override, "
             "including gpt-6.1-sol), "
             "'openai' uses OpenAI Responses API, "
+            "'claude-api' uses the Anthropic Messages API, "
             "'claude' uses Claude CLI. Claude tiers are reserved for "
             "orchestration and review; net-new statutory encoding runs "
             "through codex."
@@ -3405,6 +3443,11 @@ def main():
         action="store_true",
         help="Emit machine-readable JSON summary",
     )
+    eval_parser.add_argument(
+        "--skip-reviewers",
+        action="store_true",
+        help="Skip LLM reviewer checks after deterministic validation",
+    )
     _add_complete_source_unit_argument(eval_parser)
     _add_rulespec_dependency_root_argument(eval_parser)
 
@@ -3465,6 +3508,11 @@ def main():
         "--json",
         action="store_true",
         help="Emit machine-readable JSON summary",
+    )
+    eval_source_parser.add_argument(
+        "--skip-reviewers",
+        action="store_true",
+        help="Skip LLM reviewer checks after deterministic validation",
     )
     eval_source_parser.add_argument(
         "--policyengine-rule-hint",
@@ -3531,6 +3579,14 @@ def main():
         "--json",
         action="store_true",
         help="Emit machine-readable JSON summary",
+    )
+    eval_suite_parser.add_argument(
+        "--skip-reviewers",
+        action="store_true",
+        help=(
+            "Skip LLM reviewer checks after deterministic validation; "
+            "repeat this flag when resuming a suite created with it"
+        ),
     )
     eval_suite_parser.add_argument(
         "--admission-score",
@@ -3857,6 +3913,12 @@ def main():
     _judge_cli.register_judge_subparsers(subparsers)
 
     args = parser.parse_args()
+    if args.command == "encode" and args.escalation_model is None:
+        args.escalation_model = (
+            DEFAULT_MODEL
+            if args.backend == "claude-api"
+            else DEFAULT_OPENAI_ESCALATION_MODEL
+        )
 
     if args.command == "ci":
         from .ci_parity import run_ci
@@ -3951,6 +4013,8 @@ def main():
         cmd_promote_reviewed_candidate(args)
     elif args.command == "signed-import-inventory":
         cmd_signed_import_inventory(args)
+    elif args.command == "checks":
+        cmd_checks(args)
     elif args.command == "manifest-census":
         cmd_manifest_census(args)
     elif args.command == "encode":
@@ -9284,9 +9348,9 @@ def cmd_promote_reviewed_candidate(args):
     """Validate and sign one exact allowlisted reviewed RuleSpec commit."""
 
     from .prepare_signed_backfill import (
+        UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS,
         citation_rulespec_path,
         load_reviewed_rulespec_records,
-        reviewed_rulespec_refs_from_records,
     )
 
     repo_path = _resolve_canonical_rulespec_checkout(
@@ -9324,10 +9388,33 @@ def cmd_promote_reviewed_candidate(args):
             "reviewed candidate promotion has no trusted admission record root"
         )
     reviewed_records = load_reviewed_rulespec_records(record_root)
-    if (country, reviewed_ref) not in reviewed_rulespec_refs_from_records(
-        reviewed_records
-    ):
+    admission = next(
+        (
+            record
+            for record in reviewed_records
+            if (record.country, record.rulespec_ref) == (country, reviewed_ref)
+        ),
+        None,
+    )
+    if admission is None:
         raise ValueError("reviewed candidate ref is not explicitly allowlisted")
+    # A record's binding names the one module, and the exact primary and
+    # companion bytes, that its code-owner review admitted. Only the frozen
+    # pre-record admissions, which never recorded a module, may promote unbound
+    # (their behaviour is unchanged: any eligible module at that commit).
+    binding = admission.payload["binding"]
+    if binding is None:
+        if (country, reviewed_ref) not in UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS:
+            raise ValueError(
+                "reviewed candidate admission record has no promotion binding"
+            )
+    elif not isinstance(binding, dict) or (
+        str(args.citation) != binding["citation"]
+        or str(args.rulespec_path) != binding["rulespec_path"]
+    ):
+        raise ValueError(
+            "reviewed candidate citation or path differs from its admission record"
+        )
 
     rulespec_relative = Path(args.rulespec_path)
     expected_relative = Path(citation_rulespec_path(str(args.citation)))
@@ -9346,6 +9433,11 @@ def cmd_promote_reviewed_candidate(args):
     ):
         raise ValueError("reviewed candidate path is not a protected RuleSpec module")
 
+    # GIT_OPTIONAL_LOCKS=0 keeps this preflight read-only: a plain status may
+    # refresh stat data and rewrite .git/index before a binding refusal. It is
+    # an environment variable, not --no-optional-locks, because the protected
+    # runtime's trusted git wrapper admits only `-C <repo> <command>` (and
+    # itself forces GIT_OPTIONAL_LOCKS=0).
     status = subprocess.check_output(
         [
             "git",
@@ -9356,7 +9448,8 @@ def cmd_promote_reviewed_candidate(args):
             "-z",
             "--untracked-files=all",
             "--ignored=matching",
-        ]
+        ],
+        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
     )
     if status:
         raise ValueError("reviewed candidate promotion requires a clean checkout")
@@ -9394,6 +9487,15 @@ def cmd_promote_reviewed_candidate(args):
             label="reviewed candidate companion",
         ),
     }
+    if binding is not None and (
+        hashlib.sha256(before[rulespec_relative]).hexdigest()
+        != binding["rulespec_sha256"]
+        or hashlib.sha256(before[companion_relative]).hexdigest()
+        != binding["companion_sha256"]
+    ):
+        raise ValueError(
+            "reviewed candidate bytes differ from its admission record binding"
+        )
     _recover_apply_transaction(repo_path)
     with _authoritative_rulespec_dependency_scope(dependency_roots):
         with _isolated_apply_manifest_signer(preflight=True) as signing_broker:
@@ -11667,6 +11769,24 @@ def _manifest_census_badge(census: dict[str, object]) -> dict[str, object]:
         "message": f"{pct}% ({census.get('encoder', 0)}/{total})",
         "color": color,
     }
+
+
+def cmd_checks(args):
+    """Print the declared validator checks of this encoder version."""
+    document = registry_document()
+    if args.json or args.out is not None:
+        text = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True)
+        if args.out is not None:
+            args.out.write_text(text + "\n", encoding="utf-8")
+        else:
+            print(text)
+        return
+    print(
+        f"{len(document['checks'])} checks, encoder {document['encoder_version']}, "
+        f"registry {document['registry_sha256'][:12]}"
+    )
+    for check in document["checks"]:
+        print(f"{check['id']}  [{check['cause']}]  {check['title']}")
 
 
 def cmd_manifest_census(args):
@@ -24233,6 +24353,18 @@ def guard_generated_change_issues(
     )
     if waiver_transition_issues:
         return waiver_transition_issues
+    post_waiver_dependent_manifests = (
+        _in_place_replacement_post_waiver_dependent_manifests(
+            repo_path,
+            changed=set(changed),
+            protected=set(protected),
+            roots=roots,
+            base_waiver_sha256=expected_manifest_waiver_set_sha256,
+            current_waiver_sha256=current_waiver_set_sha256,
+        )
+        if expected_manifest_waiver_set_sha256 != current_waiver_set_sha256
+        else frozenset()
+    )
 
     manifest_paths = (
         sorted(
@@ -24313,6 +24445,7 @@ def guard_generated_change_issues(
         expected_encoder_identity=expected_encoder_identity,
         expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
         expected_legacy_replacement_waiver_set_sha256=(current_waiver_set_sha256),
+        post_waiver_dependent_manifests=post_waiver_dependent_manifests,
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
     )
     manifest_issues.extend(
@@ -24331,6 +24464,7 @@ def guard_generated_change_issues(
             expected_encoder_identity=expected_encoder_identity,
             expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
             expected_legacy_replacement_waiver_set_sha256=current_waiver_set_sha256,
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
     )
@@ -24348,6 +24482,7 @@ def guard_generated_change_issues(
             expected_encoder_identity=expected_encoder_identity,
             expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
             expected_legacy_replacement_waiver_set_sha256=current_waiver_set_sha256,
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
     )
@@ -24397,6 +24532,7 @@ def guard_generated_change_issues(
             expected_encoder_identity=expected_encoder_identity,
             expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
             expected_legacy_replacement_waiver_set_sha256=(current_waiver_set_sha256),
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=(path_migration_receipt_proof_cache),
         )
     )
@@ -24712,6 +24848,7 @@ def _guard_changed_manifest_coverage_issues(
     expected_waiver_set_sha256: str,
     expected_legacy_replacement_waiver_set_sha256: str,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]],
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Require verified head ownership for every changed base receipt claim."""
 
@@ -24805,6 +24942,7 @@ def _guard_changed_manifest_coverage_issues(
                     expected_encoder_identity=expected_encoder_identity,
                     expected_waiver_set_sha256=expected_waiver_set_sha256,
                     expected_legacy_replacement_waiver_set_sha256=expected_legacy_replacement_waiver_set_sha256,
+                    post_waiver_dependent_manifests=post_waiver_dependent_manifests,
                     path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
                 )
             )
@@ -24950,6 +25088,7 @@ def _guard_changed_manifest_coverage_issues(
                     expected_legacy_replacement_waiver_set_sha256=(
                         expected_legacy_replacement_waiver_set_sha256
                     ),
+                    post_waiver_dependent_manifests=post_waiver_dependent_manifests,
                     path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
                 )
             )
@@ -24976,6 +25115,7 @@ def _guard_changed_manifest_coverage_issues(
         expected_legacy_replacement_waiver_set_sha256=(
             expected_legacy_replacement_waiver_set_sha256
         ),
+        post_waiver_dependent_manifests=post_waiver_dependent_manifests,
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
     )
     issues.extend(verification_issues)
@@ -25012,6 +25152,7 @@ def _guard_changed_manifest_coverage_issues(
             expected_legacy_replacement_waiver_set_sha256=(
                 expected_legacy_replacement_waiver_set_sha256
             ),
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
     )
@@ -25416,6 +25557,7 @@ def _guard_auxiliary_provenance_issues(
     expected_waiver_set_sha256: str,
     expected_legacy_replacement_waiver_set_sha256: str,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]],
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Verify changed auxiliary evidence and all head manifests using it."""
 
@@ -25553,10 +25695,125 @@ def _guard_auxiliary_provenance_issues(
             expected_legacy_replacement_waiver_set_sha256=(
                 expected_legacy_replacement_waiver_set_sha256
             ),
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
         issues.extend(manifest_issues)
     return issues
+
+
+def _in_place_replacement_post_waiver_dependent_manifests(
+    repo_path: Path,
+    *,
+    changed: set[str],
+    protected: set[str],
+    roots: tuple[str, ...],
+    base_waiver_sha256: str,
+    current_waiver_sha256: str,
+) -> frozenset[str]:
+    """Recognize a sequential, source-bound replacement waiver transition.
+
+    The replacement retires its own waiver before the scheduled dependent is
+    generated. Both the replacement receipt and that later model manifest bind
+    the post-migration waiver set. This shape check only selects the expected
+    identity; the guard still authenticates every signed receipt and manifest.
+    """
+
+    try:
+        toolchain_sha256 = hashlib.sha256(
+            read_bounded_regular_file(
+                repo_path,
+                repo_path / ".axiom/toolchain.toml",
+                label="post-migration RuleSpec toolchain",
+                max_bytes=1024 * 1024,
+                required_mode=0o644,
+            )
+        ).hexdigest()
+    except (OSError, UnsafeCorpusPathError):
+        return frozenset()
+    matches: list[str] = []
+    for label in sorted(changed):
+        path = Path(label)
+        if (
+            path.parent != APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR
+            or path.suffix != ".json"
+        ):
+            continue
+        try:
+            raw = read_bounded_regular_file(
+                repo_path,
+                repo_path / path,
+                label="in-place replacement receipt",
+                max_bytes=1024 * 1024,
+                required_mode=0o644,
+            )
+            payload = json.loads(raw.decode("utf-8"))
+        except (
+            OSError,
+            UnsafeCorpusPathError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RecursionError,
+        ):
+            continue
+        if not isinstance(payload, dict) or payload.get("tool") != (
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
+        ):
+            continue
+        replacement = payload.get("replacement")
+        if not isinstance(replacement, dict):
+            continue
+        source = replacement.get("source")
+        if (
+            not isinstance(source, str)
+            or source != replacement.get("destination")
+            or source not in protected
+            or source not in changed
+            or not _is_protected_rulespec_yaml_path(Path(source), roots=roots)
+            or replacement.get("model_manifest_path")
+            != _applied_encoding_manifest_path(Path(source)).as_posix()
+            or replacement["model_manifest_path"] not in changed
+            or payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != current_waiver_sha256
+        ):
+            continue
+        scheduled = replacement.get("scheduled_dependents")
+        if not isinstance(scheduled, list) or len(scheduled) != 1:
+            continue
+        dependent = scheduled[0]
+        if not isinstance(dependent, dict):
+            continue
+        primary = dependent.get("primary")
+        if (
+            not isinstance(primary, str)
+            or primary not in protected
+            or primary not in changed
+            or _applied_encoding_manifest_path(Path(primary)).as_posix() not in changed
+            or not isinstance(dependent.get("source_citation"), str)
+            or not dependent["source_citation"]
+        ):
+            continue
+        reconciliations = replacement.get("metadata_reconciliations")
+        if not isinstance(reconciliations, list):
+            continue
+        by_path = {
+            item.get("path"): item
+            for item in reconciliations
+            if isinstance(item, dict) and isinstance(item.get("path"), str)
+        }
+        if len(by_path) != len(reconciliations):
+            continue
+        waiver = by_path.get("known-validation-gaps.yaml")
+        toolchain = by_path.get(".axiom/toolchain.toml")
+        if (
+            not isinstance(waiver, dict)
+            or waiver.get("before_sha256") != base_waiver_sha256
+            or waiver.get("after_sha256") != current_waiver_sha256
+            or not isinstance(toolchain, dict)
+            or toolchain.get("after_sha256") != toolchain_sha256
+        ):
+            continue
+        matches.append(_applied_encoding_manifest_path(Path(primary)).as_posix())
+    return frozenset(matches) if len(matches) == 1 else frozenset()
 
 
 def _guard_manifest_waiver_set_identity(
@@ -25749,6 +26006,7 @@ def _generated_provenance_gate_issues(
     expected_waiver_set_sha256: str,
     expected_legacy_replacement_waiver_set_sha256: str,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]],
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Reject protected files authorized only by manual attestations."""
 
@@ -25765,6 +26023,7 @@ def _generated_provenance_gate_issues(
         expected_legacy_replacement_waiver_set_sha256=(
             expected_legacy_replacement_waiver_set_sha256
         ),
+        post_waiver_dependent_manifests=post_waiver_dependent_manifests,
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
     )
     issues: list[str] = []
@@ -26108,6 +26367,7 @@ def _manifest_coverage_by_file(
     expected_legacy_replacement_waiver_set_sha256: str | None = None,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]]
     | None = None,
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> dict[str, list[dict[str, object]]]:
     """Map each non-deleted covered file to a list of covering-manifest records.
 
@@ -26139,6 +26399,7 @@ def _manifest_coverage_by_file(
                 expected_legacy_replacement_waiver_set_sha256=(
                     expected_legacy_replacement_waiver_set_sha256
                 ),
+                post_waiver_dependent_manifests=post_waiver_dependent_manifests,
                 path_migration_receipt_proof_cache=(path_migration_receipt_proof_cache),
             )
         )
@@ -30349,6 +30610,7 @@ def _load_verified_applied_encoding_manifest_payload(
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]]
     | None = None,
     base_commit: str | None = None,
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, object] | None, str | None, str | None, list[str]]:
     """Load one canonical v5 apply manifest and verify every binding."""
 
@@ -30385,6 +30647,15 @@ def _load_verified_applied_encoding_manifest_payload(
                 None,
                 [f"RuleSpec waiver-set binding is invalid: {exc}"],
             )
+    if manifest_label in post_waiver_dependent_manifests:
+        if expected_legacy_replacement_waiver_set_sha256 is None:
+            return (
+                None,
+                root_prefix,
+                None,
+                [f"{manifest_label} has no post-migration waiver identity"],
+            )
+        expected_waiver_set_sha256 = expected_legacy_replacement_waiver_set_sha256
 
     relative = Path(manifest_path)
     if relative.is_absolute() or any(
@@ -30757,6 +31028,7 @@ def _load_applied_encoding_manifest_entries(
     expected_legacy_replacement_waiver_set_sha256: str | None = None,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]]
     | None = None,
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, set[str]], list[str]]:
     entries: dict[str, set[str]] = defaultdict(set)
     issues: list[str] = []
@@ -30803,6 +31075,7 @@ def _load_applied_encoding_manifest_entries(
                 expected_legacy_replacement_waiver_set_sha256=(
                     expected_legacy_replacement_waiver_set_sha256
                 ),
+                post_waiver_dependent_manifests=post_waiver_dependent_manifests,
                 local_corpus_release=local_corpus_release,
                 expected_encoder_identity=expected_encoder_identity,
                 path_migration_receipt_proof_cache=(path_migration_receipt_proof_cache),
@@ -31831,6 +32104,11 @@ def _local_verification_encode_roots(args) -> _LocalVerificationRoots | None:
 
 def cmd_encode(args):
     """Encode, inside the verification-only local context when one is given."""
+    if getattr(args, "backend", None) == "claude-api" and getattr(args, "apply", False):
+        raise ValueError(
+            "encode --apply --backend claude-api is unavailable for signed "
+            "encoding until the encoding rule changes"
+        )
     local_roots = _local_verification_encode_roots(args)
     if local_roots is None:
         return _cmd_encode_under_current_trust(args)
@@ -31911,6 +32189,9 @@ _FAILED_ENCODE_CANDIDATE_METADATA_FIELDS = {
     "encoder_version",
     "attempt_count",
 }
+#: Optional ``issues.json`` field: the ``validation-issue/v2`` document of the
+#: typed issues (with their checks' definitions). Absent when no issue is typed.
+_FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD = "typed_issues"
 _FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES = FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES
 _FAILED_ENCODE_CANDIDATE_MAX_ISSUES = 4096
 _FAILED_ENCODE_CANDIDATE_EMPTY_TESTS = "[]\n"
@@ -32100,6 +32381,20 @@ def _emit_final_rejected_candidate(
     ).encode("utf-8")
     if len(metadata_raw) > _FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES:
         raise ValueError("Final rejected candidate issues.json exceeds its size limit")
+    typed_issues = _safe_typed_issue_document([(None, issues)])
+    if typed_issues is not None:
+        typed_raw = (
+            json.dumps(
+                {**metadata, _FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD: typed_issues},
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+        # The typed list is diagnostic; it never makes a valid bundle oversize.
+        if len(typed_raw) <= _FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES:
+            metadata_raw = typed_raw
 
     _secure_atomic_eval_write(
         resolved_destination,
@@ -32235,10 +32530,18 @@ def _load_initial_validation_retry_feedback(args: Any) -> tuple[str, ...]:
         ) from exc
     if (
         not isinstance(metadata, dict)
-        or set(metadata) != _FAILED_ENCODE_CANDIDATE_METADATA_FIELDS
+        or set(metadata) - {_FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD}
+        != _FAILED_ENCODE_CANDIDATE_METADATA_FIELDS
         or metadata.get("schema") != _FAILED_ENCODE_CANDIDATE_SCHEMA
     ):
         raise ValueError("preserved repair candidate issues.json has an invalid shape")
+    typed_issues = metadata.get(_FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD)
+    if typed_issues is not None and (
+        not isinstance(typed_issues, dict)
+        or typed_issues.get("schema") != VALIDATION_ISSUE_SCHEMA_VERSION
+        or not isinstance(typed_issues.get("issues"), list)
+    ):
+        raise ValueError("preserved repair candidate typed issues are invalid")
 
     expected_path = Path(getattr(args, "repair_candidate_path")).as_posix()
     expected_rulespec_sha256 = getattr(args, "repair_candidate_rulespec_sha256", None)
@@ -32272,7 +32575,9 @@ def _load_initial_validation_retry_feedback(args: Any) -> tuple[str, ...]:
         or any(not isinstance(issue, str) or not issue for issue in issues)
     ):
         raise ValueError("preserved repair candidate issues are invalid")
-    return _finite_validation_retry_issue_snapshot(issues)
+    return _finite_validation_retry_issue_snapshot(
+        issues_from_document(issues, typed_issues)
+    )
 
 
 def _validate_tests_only_repair_contract(
@@ -35614,11 +35919,14 @@ def _resolve_encode_replacement_target(
 
 def _resolve_encode_escalation_config(args) -> _EncodeEscalationConfig:
     """Resolve and validate the per-section validator retry policy."""
-    initial_model = getattr(args, "model", None) or DEFAULT_OPENAI_MODEL
+    uses_claude_api = getattr(args, "backend", None) == "claude-api"
+    initial_model = getattr(args, "model", None) or (
+        DEFAULT_MODEL if uses_claude_api else DEFAULT_OPENAI_MODEL
+    )
     escalation_model = getattr(
         args,
         "escalation_model",
-        DEFAULT_OPENAI_ESCALATION_MODEL,
+        DEFAULT_MODEL if uses_claude_api else DEFAULT_OPENAI_ESCALATION_MODEL,
     )
     if (
         not isinstance(escalation_model, str)
@@ -35690,9 +35998,9 @@ def _next_encode_attempt_model(
 
 def _require_compatible_encode_retry_model(*, backend: str, model: str) -> None:
     """Reject a known cross-provider retry before invoking the wrong CLI."""
-    if backend == "claude" and model.startswith("gpt-"):
+    if backend in {"claude", "claude-api"} and model.startswith("gpt-"):
         raise ValueError(
-            "encode cannot use a GPT escalation model with --backend claude; "
+            f"encode cannot use a GPT escalation model with --backend {backend}; "
             "pass a Claude-compatible --escalation-model or --no-escalation"
         )
 
@@ -35990,6 +36298,7 @@ def _run_encode_attempts_with_retries(
                 prior_attempts=failed_attempts,
                 final_attempt_success=final_attempt_success,
                 final_attempt_error=final_attempt_error,
+                final_attempt_issues=execution.validation_issues,
             )
             print(f"  run_id={logged_run.id}")
         _stamp_encode_loop_timing(
@@ -62525,12 +62834,36 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
 
     generated_content = output_file.read_text()
     if retired_source_admission is not None:
-        from .legacy_external_parameters import external_parameter_preservation_issues
+        from .legacy_external_parameters import (
+            carry_forward_external_proved_rules,
+            external_parameter_preservation_issues,
+        )
 
         try:
             generated_payload = _safe_load_unique_keys(generated_content)
         except (yaml.YAMLError, ValueError) as exc:
             return False, [f"Invalid replacement YAML: {exc}"], {}
+        if vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None:
+            try:
+                carried = carry_forward_external_proved_rules(
+                    generated_payload, retired_source_admission
+                )
+                if carried:
+                    generated_content = safe_dump_yaml(
+                        generated_payload, sort_keys=False, allow_unicode=True
+                    )
+                    output_file.write_text(generated_content)
+            except (yaml.YAMLError, ValueError) as exc:
+                return False, [f"Invalid external-rule carry-forward: {exc}"], {}
+            if carried:
+                artifact_issue = _generated_artifact_guard_issue(
+                    output_file, output_test, relative_output, generated_root
+                )
+                if artifact_issue is not None:
+                    return False, [artifact_issue], {}
+                print(
+                    "apply=carried_forward_external_proved_rules:" + ",".join(carried)
+                )
         preservation_issues = external_parameter_preservation_issues(
             generated_payload, retired_source_admission
         )
@@ -62632,6 +62965,14 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
         policy_checkout_path = _rulespec_apply_checkout_root(
             policy_repo_path,
             relative_output,
+        )
+        execution_git_origin = (
+            capture_execution_git_origin(policy_content_root)
+            if require_complete_source_unit
+            and legacy_replacement is None
+            and not replacement_overlay_scope
+            and not rulespec_dependency_roots
+            else None
         )
         overlay_repo_name = policy_checkout_path.name
         staged_dependency_roots = _stage_apply_overlay_dependency_roots(
@@ -62754,6 +63095,15 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
 
         pipeline = ValidatorPipeline(
             policy_repo_path=overlay_content_root,
+            execution_overlay_origin=(
+                bind_execution_overlay_origin(
+                    execution_git_origin, overlay_content_root
+                )
+                if legacy_replacement is None
+                and not replacement_overlay_scope
+                and not staged_dependency_roots
+                else None
+            ),
             axiom_rules_path=axiom_rules_path,
             axiom_rules_engine_ref=axiom_rules_engine_ref,
             axiom_compose_path=axiom_compose_path,
@@ -63403,7 +63753,7 @@ def _full_overlay_validator_issues(
         else ()
     )
     issues = tuple(
-        f"{prefix}{raw_issue}"
+        retype(raw_issue, f"{prefix}{raw_issue}")
         for raw_issue in candidates
         if isinstance(raw_issue, str) and raw_issue
     )
@@ -67286,8 +67636,15 @@ def _log_eval_result(
     prior_attempts: Sequence[_FailedEncodeAttempt] = (),
     final_attempt_success: bool | None = None,
     final_attempt_error: str | None = None,
+    final_attempt_issues: Sequence[str] = (),
 ) -> EncodingRun:
-    """Persist an eval-backed encode run in the local run history DB."""
+    """Persist an eval-backed encode run in the local run history DB.
+
+    ``final_attempt_issues`` are the final candidate's full validation issues
+    when the caller has them. When they hold issues the eval metrics miss (an
+    overlay rejection), they replace the metrics' issues in the final try, as
+    in the outcome telemetry; otherwise the metrics keep their gate labels.
+    """
     rulespec_content = _read_optional_text(getattr(result, "output_file", ""))
     source_text = _read_eval_source_text(getattr(result, "context_manifest_file", ""))
     iterations: list[Iteration] = []
@@ -67300,6 +67657,9 @@ def _log_eval_result(
                     IterationError(
                         error_type="validation",
                         message=failed_attempt.error,
+                        issue_document=_safe_typed_issue_document(
+                            [(None, failed_attempt.full_validation_issues)]
+                        ),
                     )
                 ],
                 success=False,
@@ -67314,10 +67674,26 @@ def _log_eval_result(
         final_error = final_attempt_error
     final_errors = []
     if isinstance(final_error, str) and final_error:
+        final_metrics = getattr(result, "metrics", None)
+        final_issue_groups: list[tuple[str | None, Sequence[str]]] = []
+        if not resolved_final_success:
+            if final_metrics is not None:
+                final_issue_groups = _eval_metric_issue_groups(final_metrics)
+            metric_messages = {
+                str(issue) for _gate, issues in final_issue_groups for issue in issues
+            }
+            if any(str(issue) not in metric_messages for issue in final_attempt_issues):
+                # An overlay rejection: its issues are the try's verdict.
+                final_issue_groups = [(None, final_attempt_issues)]
         final_errors.append(
             IterationError(
                 error_type="validation",
                 message=final_error,
+                issue_document=(
+                    _safe_typed_issue_document(final_issue_groups)
+                    if final_issue_groups
+                    else None
+                ),
             )
         )
     iterations.append(
@@ -67478,22 +67854,37 @@ def _initial_encode_outcome(result, *, apply_requested: bool) -> dict:
     metrics = getattr(result, "metrics", None)
     if metrics is not None and not standalone_success:
         try:
-            labeled_issues = [
-                (gate, issues)
-                for gate, attribute in (
-                    ("compile", "compile_issues"),
-                    ("ci", "ci_issues"),
-                    ("numeric_occurrence", "numeric_occurrence_issues"),
-                    ("generalist_review", "generalist_review_issues"),
-                    ("policyengine", "policyengine_issues"),
-                    ("taxsim", "taxsim_issues"),
-                )
-                if (issues := getattr(metrics, attribute, None))
-            ]
+            labeled_issues = _eval_metric_issue_groups(metrics)
             outcome.update(summarize_validation_failures(labeled_issues))
         except Exception:
             outcome["validation_failure_counts"] = {"telemetry:error": 1}
     return outcome
+
+
+def _safe_typed_issue_document(
+    labeled_issues: Sequence[tuple[str | None, Sequence[str]]],
+) -> dict[str, Any] | None:
+    """The typed issue document, or ``None``; telemetry never fails a run log."""
+    try:
+        return typed_issue_document(labeled_issues)
+    except Exception:
+        return None
+
+
+def _eval_metric_issue_groups(metrics: Any) -> list[tuple[str, Sequence[str]]]:
+    """The non-empty ``(gate, issues)`` lists of one attempt's metrics."""
+    return [
+        (gate, issues)
+        for gate, attribute in (
+            ("compile", "compile_issues"),
+            ("ci", "ci_issues"),
+            ("numeric_occurrence", "numeric_occurrence_issues"),
+            ("generalist_review", "generalist_review_issues"),
+            ("policyengine", "policyengine_issues"),
+            ("taxsim", "taxsim_issues"),
+        )
+        if (issues := getattr(metrics, attribute, None))
+    ]
 
 
 def _replace_overlay_validation_failures(outcome: dict, issues: Sequence[str]) -> None:
@@ -67506,6 +67897,7 @@ def _replace_overlay_validation_failures(outcome: dict, issues: Sequence[str]) -
         "validation_failures",
         "validation_failures_truncated",
         "validation_failure_counts",
+        "validation_issues",
     ):
         outcome.pop(key, None)
     try:
@@ -67888,6 +68280,7 @@ def cmd_eval(args):
         require_complete_source_unit=(
             getattr(args, "require_complete_source_unit", False) is True
         ),
+        skip_reviewers=bool(getattr(args, "skip_reviewers", False)),
     )
 
     if args.json:
@@ -67970,6 +68363,7 @@ def cmd_eval_source(args):
         require_complete_source_unit=(
             getattr(args, "require_complete_source_unit", False) is True
         ),
+        skip_reviewers=bool(getattr(args, "skip_reviewers", False)),
     )
 
     if args.json:
@@ -68183,6 +68577,7 @@ def _load_verified_eval_suite_artifacts(
     suite_retry_attempts: int | None = None,
     admission_score: bool | None = None,
     axiom_compose_path: Path | None = None,
+    skip_reviewers: bool | None = None,
 ) -> dict[str, object]:
     """Load one suite output only after the harness validates every identity."""
 
@@ -68207,7 +68602,11 @@ def _load_verified_eval_suite_artifacts(
         max_bytes=256 * 1024 * 1024,
         required=False,
     )
-    if suite_retry_attempts is None or admission_score is None:
+    if (
+        suite_retry_attempts is None
+        or admission_score is None
+        or skip_reviewers is None
+    ):
         try:
             persisted_run_state = json.loads((state_raw_before or b"").decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -68247,6 +68646,12 @@ def _load_verified_eval_suite_artifacts(
                 compose_identity = scoring_options.get("axiom_compose")
                 if isinstance(compose_identity, dict):
                     axiom_compose_path = Path(compose_identity["path"])
+        if skip_reviewers is None:
+            skip_reviewers = persisted_identity.get("skip_reviewers", False)
+    if not isinstance(skip_reviewers, bool):
+        raise ValueError(
+            "suite-run.json execution identity skip_reviewers must be boolean"
+        )
     manifest_identity = _build_eval_suite_manifest_identity(manifest)
     rulespec_roots = _eval_suite_rulespec_roots(manifest, policy_repo_path)
     policyengine_cases = [
@@ -68269,6 +68674,7 @@ def _load_verified_eval_suite_artifacts(
         rulespec_roots,
         policyengine_runtime=policyengine_runtime if policyengine_cases else None,
         suite_retry_attempts=suite_retry_attempts,
+        **({"skip_reviewers": True} if skip_reviewers else {}),
         **(
             {
                 "admission_score": True,
@@ -68848,6 +69254,11 @@ def cmd_eval_suite(args):
                 policyengine_runtime=policyengine_runtime,
                 resume_existing=resume_existing,
                 **(
+                    {"skip_reviewers": True}
+                    if getattr(args, "skip_reviewers", False)
+                    else {}
+                ),
+                **(
                     {
                         "admission_score": True,
                         "axiom_compose_path": getattr(args, "axiom_compose_path", None),
@@ -68904,6 +69315,7 @@ def cmd_eval_suite(args):
             require_complete=False,
             suite_retry_attempts=_DEFAULT_SUITE_RETRY_ATTEMPTS,
             admission_score=getattr(args, "admission_score", False),
+            skip_reviewers=bool(getattr(args, "skip_reviewers", False)),
             **(
                 {
                     "axiom_compose_path": getattr(args, "axiom_compose_path", None),
@@ -68975,6 +69387,12 @@ def cmd_eval_suite(args):
             "generalist_review="
             f"{_format_percent(summary.generalist_review_pass_rate)}"
         )
+        infrastructure_errors = getattr(summary, "infrastructure_error_count", 0)
+        if isinstance(infrastructure_errors, int) and infrastructure_errors > 0:
+            print(
+                f"  infrastructure_errors={infrastructure_errors} "
+                "(context overflow; excluded from model scores)"
+            )
         if summary.mean_generalist_review_score is not None:
             print(
                 f"  mean_generalist_review_score={summary.mean_generalist_review_score:.2f}/10"
@@ -69149,6 +69567,7 @@ def _cmd_eval_suite_revalidate_with_signer(args, evidence_signing_key):
             source_citation_path=source_citation_path,
             rulespec_dependency_roots=manifest.rulespec_dependency_roots,
             require_complete_source_unit=case.require_complete_source_unit,
+            skip_reviewers=run_state["execution_identity"].get("skip_reviewers", False),
             amendment_documents=_amendment_documents_visible_in_context_manifest(
                 source_unit.amendment_documents,
                 Path(result.context_manifest_file),
@@ -70400,7 +70819,7 @@ def _validated_eval_suite_report_payload(
             not isinstance(runner, dict)
             or not isinstance(runner.get("name"), str)
             or not runner.get("name")
-            or runner.get("backend") not in {"claude", "codex", "openai"}
+            or runner.get("backend") not in {"claude", "claude-api", "codex", "openai"}
             or not isinstance(runner.get("model"), str)
             or not runner.get("model")
             or runner["name"] in runners_by_name
