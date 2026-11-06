@@ -160,6 +160,22 @@ def _write(
     return path
 
 
+def test_income_standards_admission_preserves_exact_base_only_scope() -> None:
+    head = "8eff74e39ca3ed50de3439b27de7c438a7b7bcda"
+    branch = "axiom/signed-backfill-us-38802732779-1"
+    assert ("us", head) in REVIEWED_RULESPEC_REFS
+    assert ("us", head, branch) in REVIEWED_RULESPEC_PR_BASES
+    assert ("us", head, "main") not in REVIEWED_RULESPEC_PR_BASES
+    assert ("us", head) not in UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS
+    assert (
+        "us",
+        "949b31dc3a7c105519eafdc2cb6117d82d4c3578",
+    ) not in REVIEWED_RULESPEC_REFS
+    record = json.loads((RECORD_ROOT / "us" / f"{head}.json").read_text())
+    assert record["binding"] is None
+    assert record["rulespec_pr"] == 1790
+
+
 def test_records_preserve_every_pre_record_admission() -> None:
     assert PRE_RECORD_REVIEWED_RULESPEC_REFS <= REVIEWED_RULESPEC_REFS
     assert {
