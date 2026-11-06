@@ -9,16 +9,19 @@ name: Encoder version bump
 # the provisioner and the re-encode workflow's early check refuse the
 # unversioned head.
 #
-# The pull request is opened with ENCODER_VERSION_BUMP_TOKEN, not GITHUB_TOKEN:
-# GitHub does not run workflows for pull requests that GITHUB_TOKEN opens, so
-# the required checks would never report. Repository auto-merge must be on.
+# The pull request is opened with a token of the axiom-encoder-version-bump
+# GitHub App, not GITHUB_TOKEN: GitHub does not run workflows for pull
+# requests that GITHUB_TOKEN opens, so the required checks would never report.
+# Repository auto-merge must be on.
 #
-# Keep the token narrow. A workflow on any pushed branch can read repository
-# secrets, so store it as a secret of the encoder-version-bump environment,
-# whose deployment branch rule allows only main. Issue it to a GitHub App or a
-# machine user outside CODEOWNERS with only contents and pull-requests write on
-# this repository: pull-requests write can also submit reviews, and a code
-# owner's approval would count for the signing paths.
+# The App owns no seat and is not in CODEOWNERS, so its approval of a pull
+# request would never count as a code owner's. It holds only contents and
+# pull-requests write and merge-queues read, and is installed on this
+# repository only. Its client ID (a variable) and private key (a secret) live
+# in the encoder-version-bump environment, whose deployment branch rule allows
+# only main: a workflow on any pushed branch can read repository secrets. Each
+# run mints a token that lasts one hour, is limited to this repository and
+# those permissions, and is revoked when the job ends.
 
 on:
   push:
@@ -38,7 +41,7 @@ jobs:
     if: github.repository == 'TheAxiomFoundation/axiom-encode'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Holds ENCODER_VERSION_BUMP_TOKEN; its branch rule allows only main.
+    # Holds the App's client ID and private key; its branch rule allows only main.
     environment: encoder-version-bump
     steps:
       - name: Checkout axiom-encode
@@ -54,15 +57,28 @@ jobs:
           python3 -I src/axiom_encode/version_provenance.py \
             check --repo . --ref HEAD --github-output "$GITHUB_OUTPUT"
 
-      - name: Require the bump token
+      - name: Require the bump App
         if: steps.check.outputs.needs_bump == 'true'
         env:
-          BUMP_TOKEN: ${{ secrets.ENCODER_VERSION_BUMP_TOKEN }}
+          APP_CLIENT_ID: ${{ vars.ENCODER_VERSION_BUMP_APP_CLIENT_ID }}
+          APP_KEY_SET: ${{ secrets.ENCODER_VERSION_BUMP_APP_KEY != '' }}
         run: |
-          if [ -z "$BUMP_TOKEN" ]; then
-            echo "::error::ENCODER_VERSION_BUMP_TOKEN is not set; main has encoder changes that no version bump covers, and re-encodes refuse it until a bump merges."
+          if [ -z "$APP_CLIENT_ID" ] || [ "$APP_KEY_SET" != "true" ]; then
+            echo "::error::ENCODER_VERSION_BUMP_APP_CLIENT_ID or ENCODER_VERSION_BUMP_APP_KEY is not set in the encoder-version-bump environment; main has encoder changes that no version bump covers, and re-encodes refuse it until a bump merges."
             exit 1
           fi
+
+      - name: Create the bump token
+        id: app-token
+        if: steps.check.outputs.needs_bump == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.ENCODER_VERSION_BUMP_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ENCODER_VERSION_BUMP_APP_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-merge-queues: read
 
       - name: Write the next version and changelog
         id: bump
@@ -87,7 +103,7 @@ jobs:
       - name: Open the bump pull request with auto-merge
         if: steps.check.outputs.needs_bump == 'true'
         env:
-          GH_TOKEN: ${{ secrets.ENCODER_VERSION_BUMP_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           VERSION: ${{ steps.bump.outputs.version }}
           BASE_SHA: ${{ steps.bump.outputs.base_sha }}
           BRANCH: ${{ steps.bump.outputs.branch }}
