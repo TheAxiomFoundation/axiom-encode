@@ -13,8 +13,8 @@
     "failure_class": "none; successful protected generation after independent test-coverage and naming repairs",
     "generator_cli": "codex-cli 0.159.0 via production signing supervisor",
     "generator_model": "gpt-6.1-sol",
-    "outcome_sha256": null,
-    "pre_encode_gate": "Run98b9f487; current guard streak0/budget3/enforced=true/blocked=false. Prior local runs0bbe608d and f10c3921 failed,82c0fbd0 succeeded. All history preserved; no override or budget-exempt replay."
+    "outcome_sha256": "0e16b707f13da1b0678d876039a6571698f8fb0aef52e993e1ed0548487aba95",
+    "pre_encode_gate": "Run98b9f487: digest is retained DB outcome_json UTF8, not an authenticated receipt. Original budget artifact missing; budget/provenance review blocking. Retain all run history; no override or reset."
   },
   "pr_base_branch": "codex/az-utility-installation-reviewed",
   "purpose": "Promote byte-identical protected-generated Arizona utility installation component candidate from rulespec-us PR2045 after current complete-source overlay validation; no regeneration or budget reset.",
