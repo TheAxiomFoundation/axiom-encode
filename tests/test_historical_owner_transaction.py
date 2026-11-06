@@ -14,6 +14,7 @@ def owner(tmp_path):
     target = checkout / ".axiom/encoding-manifests/policies/example.json"
     target.parent.mkdir(parents=True)
     target.write_bytes(b"historical untrusted owner\n")
+    target.chmod(0o644)
     return checkout, target, hashlib.sha256(target.read_bytes()).hexdigest()
 
 
