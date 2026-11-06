@@ -69,6 +69,6 @@ def test_qualified_negated_or_different_instruction_is_not_masked(text):
 
 def test_original_source_remains_immutable():
     text = CLAUSE
-    v._classify_source_scope(text)
-    v._classify_source_unit_entity(text)
+    assert v._classify_source_scope(text) is None
+    assert v._classify_source_unit_entity(text) is None
     assert text == CLAUSE

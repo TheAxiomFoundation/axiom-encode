@@ -256,7 +256,7 @@ def _observed_document_pair_keys(
     try:
         pairs = []
         for requirement in requirements:
-            witnessed: dict[bool, tuple[str, str]] = {}
+            witnessed: dict[str, dict[bool, set[str]]] = {}
             ref = prefix + requirement.rule_name
             fact_ref = prefix + "input." + requirement.input_name
             for case in cases or ():
@@ -274,9 +274,10 @@ def _observed_document_pair_keys(
                 outcome = "holds" if value else "not_holds"
                 if case.get("output") != {ref: outcome}:
                     continue
-                records = [
-                    r for r in evidence.records if r.case_sha256 == case_key(case)
-                ]
+                key = case_key(case)
+                if key is None:
+                    continue
+                records = [r for r in evidence.records if r.case_sha256 == key]
                 if len(records) != 1:
                     continue
                 request = json.loads(records[0].request_json)
@@ -345,15 +346,18 @@ def _observed_document_pair_keys(
                     )
                 ):
                     continue
-                witnessed[value] = (entity_id, case_key(case))
-            if (
-                set(witnessed) != {False, True}
-                or witnessed[False][0] != witnessed[True][0]
-            ):
+                witnessed.setdefault(entity_id, {}).setdefault(value, set()).add(key)
+            complete_pairs = [
+                (entity_id, min(directions[False]), min(directions[True]))
+                for entity_id, directions in witnessed.items()
+                if set(directions) == {False, True}
+            ]
+            if not complete_pairs:
                 return None
-            pairs.append(
-                (requirement.rule_name, (witnessed[False][1], witnessed[True][1]))
-            )
+            # Extra valid cases must not erase an existing same-claimant pair.
+            # Stable selection also keeps the condition-owner token order independent.
+            _, false_key, true_key = min(complete_pairs)
+            pairs.append((requirement.rule_name, (false_key, true_key)))
         return tuple(pairs)
     except (
         ValueError,
