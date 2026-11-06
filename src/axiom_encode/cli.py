@@ -675,6 +675,23 @@ _REVIEWED_CANDIDATE_MANIFEST_FIELDS = frozenset(
         "signature",
     }
 )
+# Per-file waiver bindings (#2092): the same model and reviewed-candidate
+# contracts, with the repository waiver-set digest replaced by the waiver
+# identity of each covered file. Admission accepts both shapes.
+VALIDATION_WAIVER_BINDINGS_FIELD = "validation_waiver_bindings"
+_PER_FILE_WAIVER_FIELD_SWAP = (
+    frozenset({VALIDATION_WAIVER_SET_SHA256_FIELD}),
+    frozenset({VALIDATION_WAIVER_BINDINGS_FIELD}),
+)
+_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS = (
+    _MODEL_APPLY_MANIFEST_FIELDS - _PER_FILE_WAIVER_FIELD_SWAP[0]
+) | _PER_FILE_WAIVER_FIELD_SWAP[1]
+_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS = (
+    _MODEL_CODEX_APPLY_MANIFEST_FIELDS - _PER_FILE_WAIVER_FIELD_SWAP[0]
+) | _PER_FILE_WAIVER_FIELD_SWAP[1]
+_REVIEWED_CANDIDATE_PER_FILE_WAIVER_MANIFEST_FIELDS = (
+    _REVIEWED_CANDIDATE_MANIFEST_FIELDS - _PER_FILE_WAIVER_FIELD_SWAP[0]
+) | _PER_FILE_WAIVER_FIELD_SWAP[1]
 _RETIRE_APPLY_MANIFEST_FIELDS = frozenset(
     {
         "schema_version",
@@ -795,9 +812,20 @@ _LEGACY_REPLACEMENT_RECEIPT_FIELDS = frozenset(
 # Admission and ownership recognition use these exact, named variants. Codex
 # also admits the base model shape for historical receipts without CLI metadata.
 _APPLIED_MANIFEST_SCHEMA_VARIANTS = {
-    "model": (_MODEL_APPLY_MANIFEST_FIELDS,),
-    "codex model": (_MODEL_APPLY_MANIFEST_FIELDS, _MODEL_CODEX_APPLY_MANIFEST_FIELDS),
-    "reviewed candidate promotion": (_REVIEWED_CANDIDATE_MANIFEST_FIELDS,),
+    "model": (
+        _MODEL_APPLY_MANIFEST_FIELDS,
+        _MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
+    ),
+    "codex model": (
+        _MODEL_APPLY_MANIFEST_FIELDS,
+        _MODEL_CODEX_APPLY_MANIFEST_FIELDS,
+        _MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
+        _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
+    ),
+    "reviewed candidate promotion": (
+        _REVIEWED_CANDIDATE_MANIFEST_FIELDS,
+        _REVIEWED_CANDIDATE_PER_FILE_WAIVER_MANIFEST_FIELDS,
+    ),
     "retirement": (_RETIRE_APPLY_MANIFEST_FIELDS,),
     "unreceipted retirement": (_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS,),
     "path migration": (_PATH_MIGRATION_APPLY_MANIFEST_FIELDS,),
@@ -924,6 +952,24 @@ _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES = {
         },
     ),
 }
+for _old_fields, _per_file_fields in (
+    (_MODEL_APPLY_MANIFEST_FIELDS, _MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS),
+    (
+        _MODEL_CODEX_APPLY_MANIFEST_FIELDS,
+        _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
+    ),
+    (
+        _REVIEWED_CANDIDATE_MANIFEST_FIELDS,
+        _REVIEWED_CANDIDATE_PER_FILE_WAIVER_MANIFEST_FIELDS,
+    ),
+):
+    # The binding paths name only covered files, so they scan like the rest.
+    _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES[_per_file_fields] = (
+        _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES[_old_fields][0],
+        _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES[_old_fields][1]
+        | _PER_FILE_WAIVER_FIELD_SWAP[1],
+    )
+del _old_fields, _per_file_fields
 _UNRECEIPTED_RETIREMENT_NESTED_RECEIPT_FIELDS = frozenset(
     {
         "retired_manifest",
@@ -9813,9 +9859,6 @@ def cmd_promote_reviewed_candidate(args):
                 "run_id": args.run_id,
                 "citation": str(args.citation),
                 "reviewed_rulespec_ref": reviewed_ref,
-                VALIDATION_WAIVER_SET_SHA256_FIELD: (
-                    verify_rulespec_validation_waiver_set(repo_path)
-                ),
                 "applied_files": [
                     {
                         "path": relative.as_posix(),
@@ -9826,6 +9869,19 @@ def cmd_promote_reviewed_candidate(args):
                 "source_attestation": source_attestation,
                 "validation_execution": validation_execution,
             }
+            validated_policy = validation_execution.get("policy_pre_apply")
+            validated_waiver_set_sha256 = (
+                validated_policy.get("validation_waiver_set_sha256")
+                if isinstance(validated_policy, dict)
+                else None
+            )
+            payload[VALIDATION_WAIVER_BINDINGS_FIELD] = (
+                _build_applied_manifest_file_waiver_bindings(
+                    repo_path,
+                    covered_paths={relative.as_posix() for relative in before},
+                    validated_waiver_set_sha256=validated_waiver_set_sha256,
+                )
+            )
             _sign_applied_encoding_manifest(payload, signing_broker)
             manifest_bytes = (
                 json.dumps(payload, indent=2, sort_keys=True) + "\n"
@@ -9849,9 +9905,7 @@ def cmd_promote_reviewed_candidate(args):
                         manifest_path.relative_to(repo_path).as_posix(),
                         roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
                         signing_broker=signing_broker,
-                        expected_waiver_set_sha256=payload[
-                            VALIDATION_WAIVER_SET_SHA256_FIELD
-                        ],
+                        expected_waiver_set_sha256=validated_waiver_set_sha256,
                         local_corpus_release=local_corpus_release,
                         expected_encoder_identity=(
                             _current_guard_encoder_execution_identity()
@@ -26775,6 +26829,8 @@ def _guard_manifest_waiver_set_identity(
             prefix + "pending state may be removed only with its deleted protected "
             "RuleSpec module: " + ", ".join(invalid_states)
         ]
+    # Per-file manifests compare covered records with this protected base.
+    _remember_validation_waiver_ledger(base_bytes)
     return base_sha256, []
 
 
@@ -27522,6 +27578,165 @@ def _signed_release_source_attestation_issues(
     return issues
 
 
+_MAX_REMEMBERED_VALIDATION_WAIVER_LEDGERS = 4
+# Content-addressed: a digest names exactly one byte string, so these caches
+# cannot confuse two ledgers. They hold protected-base ledgers that the guard
+# read, and parsed ledgers, so per-file checks do not reparse each manifest.
+_VALIDATION_WAIVER_LEDGER_BYTES_BY_SHA256: dict[str, bytes] = {}
+_VALIDATION_WAIVER_SETS_BY_SHA256: dict[
+    str, _validation_waivers.ValidationWaiverSet
+] = {}
+
+
+def _remember_bounded(cache: dict, key: str, value: object) -> None:
+    if key not in cache and len(cache) >= _MAX_REMEMBERED_VALIDATION_WAIVER_LEDGERS:
+        cache.pop(next(iter(cache)))
+    cache[key] = value
+
+
+def _remember_validation_waiver_ledger(raw: bytes) -> str:
+    """Make exact ledger bytes available to per-file checks by their digest."""
+
+    digest = hashlib.sha256(raw).hexdigest()
+    _remember_bounded(_VALIDATION_WAIVER_LEDGER_BYTES_BY_SHA256, digest, bytes(raw))
+    return digest
+
+
+def _validation_waiver_set_for_sha256(
+    repo_path: Path,
+    expected_sha256: str,
+    *,
+    base_commit: str | None = None,
+) -> _validation_waivers.ValidationWaiverSet:
+    """Return the parsed waiver ledger whose bytes have ``expected_sha256``.
+
+    Per-file bindings compare against the same ledger that old-format
+    manifests compare their set digest with. Raise when that ledger is not
+    available or not valid, so a per-file manifest fails closed.
+    """
+
+    if (
+        not isinstance(expected_sha256, str)
+        or _SHA256_HEX_PATTERN.fullmatch(expected_sha256) is None
+    ):
+        raise ValueError("the expected waiver ledger digest is invalid")
+    cached = _VALIDATION_WAIVER_SETS_BY_SHA256.get(expected_sha256)
+    if cached is not None:
+        return cached
+    waiver_relative = Path(_validation_waivers.DEFAULT_WAIVER_PATH)
+    raw = _VALIDATION_WAIVER_LEDGER_BYTES_BY_SHA256.get(expected_sha256)
+    repo_root = Path(repo_path).resolve()
+    if raw is None and base_commit is not None:
+        try:
+            candidate: bytes | None = _rulespec_migration_base_blob(
+                repo_root, base_commit, waiver_relative
+            )
+        except (OSError, RuntimeError, ValueError):
+            candidate = None
+        if candidate is not None and (
+            hashlib.sha256(candidate).hexdigest() == expected_sha256
+        ):
+            raw = candidate
+    if raw is None:
+        try:
+            raw = read_bounded_regular_file(
+                repo_root,
+                repo_root / waiver_relative,
+                label="RuleSpec validation waiver set",
+                max_bytes=_validation_waivers.MAX_WAIVER_FILE_BYTES,
+            )
+        except (OSError, UnsafeCorpusPathError) as exc:
+            raise ValueError(f"cannot read the waiver ledger: {exc}") from exc
+    if hashlib.sha256(raw).hexdigest() != expected_sha256:
+        raise ValueError(
+            f"no waiver ledger with the expected digest {expected_sha256} is available"
+        )
+    waivers = _validation_waivers.load_validation_waivers_bytes(
+        raw,
+        source=waiver_relative,
+        allow_expired=True,
+        require_paths=False,
+    )
+    _remember_bounded(_VALIDATION_WAIVER_SETS_BY_SHA256, expected_sha256, waivers)
+    return waivers
+
+
+def _applied_manifest_covered_live_paths(
+    payload: Mapping[str, object],
+    *,
+    root_prefix: str,
+) -> set[str] | None:
+    """Return the repository-relative live files that a manifest covers."""
+
+    applied_files = payload.get("applied_files")
+    if not isinstance(applied_files, list):
+        return None
+    covered: set[str] = set()
+    for item in applied_files:
+        if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+            return None
+        if item.get("deleted") is True:
+            continue
+        covered.add(_prefix_applied_manifest_path(item["path"], root_prefix))
+    return covered
+
+
+def _applied_manifest_file_waiver_binding_issues(
+    payload: Mapping[str, object],
+    *,
+    repo_path: Path,
+    root_prefix: str,
+    manifest_label: str,
+    expected_waiver_set_sha256: str,
+    base_commit: str | None = None,
+) -> list[str]:
+    """Check per-file waiver bindings against the expected waiver ledger.
+
+    Only the records of the files this manifest covers are compared, so a
+    waiver change for any other file leaves the manifest admissible (#2092).
+    """
+
+    label = f"{manifest_label} {VALIDATION_WAIVER_BINDINGS_FIELD}"
+    covered = _applied_manifest_covered_live_paths(payload, root_prefix=root_prefix)
+    if covered is None:
+        return [f"{label} cannot resolve the covered files"]
+    if not covered:
+        return [f"{label} covers no live RuleSpec file"]
+    try:
+        waivers = _validation_waiver_set_for_sha256(
+            repo_path, expected_waiver_set_sha256, base_commit=base_commit
+        )
+    except ValueError as exc:
+        return [f"{label} cannot be checked: {exc}"]
+    return _validation_waivers.file_waiver_binding_issues(
+        payload.get(VALIDATION_WAIVER_BINDINGS_FIELD),
+        covered_paths=frozenset(covered),
+        waivers=waivers,
+        label=label,
+    )
+
+
+def _build_applied_manifest_file_waiver_bindings(
+    policy_repo_path: Path,
+    *,
+    covered_paths: set[str],
+    validated_waiver_set_sha256: object,
+) -> dict[str, object]:
+    """Bind the waiver record of each covered file for a new manifest.
+
+    The ledger must be the one the signed validation read; otherwise the
+    bindings would describe a waiver state that the validator did not use.
+    """
+
+    current = verify_rulespec_validation_waiver_set(policy_repo_path)
+    if current != validated_waiver_set_sha256:
+        raise RuntimeError(
+            "Cannot sign RuleSpec: the waiver ledger changed after validation"
+        )
+    waivers = _validation_waiver_set_for_sha256(policy_repo_path, current)
+    return _validation_waivers.build_file_waiver_bindings(waivers, covered_paths)
+
+
 def _model_apply_validation_execution_issues(
     payload: Mapping[str, object],
     *,
@@ -27665,7 +27880,13 @@ def _model_apply_validation_execution_issues(
             issues.append(
                 f"{prefix}.policy_pre_apply.rulespec_root disagrees with source"
             )
-        if policy.get("validation_waiver_set_sha256") != expected_waiver_set_sha256:
+        # A per-file manifest keeps this digest as signed provenance of the
+        # ledger the validator read; currency is checked per covered file by
+        # _applied_manifest_file_waiver_binding_issues instead (#2092).
+        if (
+            VALIDATION_WAIVER_BINDINGS_FIELD not in payload
+            and policy.get("validation_waiver_set_sha256") != expected_waiver_set_sha256
+        ):
             issues.append(f"{prefix}.policy_pre_apply waiver identity is not current")
     dependencies = execution.get("rulespec_dependencies")
     if not isinstance(dependencies, list):
@@ -28059,8 +28280,23 @@ def _applied_manifest_exact_schema_issues(
     ]
     admitted_fields = frozenset().union(*variants)
     if frozenset(payload) not in variants:
+        if VALIDATION_WAIVER_BINDINGS_FIELD in payload and contract in {
+            "model",
+            "reviewed candidate promotion",
+        }:
+            expected_fields = (
+                expected_fields - _PER_FILE_WAIVER_FIELD_SWAP[0]
+            ) | _PER_FILE_WAIVER_FIELD_SWAP[1]
         missing = sorted(expected_fields - set(payload))
         extra = sorted(set(payload) - admitted_fields)
+        if (
+            VALIDATION_WAIVER_SET_SHA256_FIELD in payload
+            and VALIDATION_WAIVER_BINDINGS_FIELD in payload
+        ):
+            extra.append(
+                f"both {VALIDATION_WAIVER_SET_SHA256_FIELD} and "
+                f"{VALIDATION_WAIVER_BINDINGS_FIELD}"
+            )
         detail: list[str] = []
         if missing:
             detail.append("missing " + ", ".join(missing))
@@ -28230,7 +28466,17 @@ def _retired_model_manifest_issues(
             expected_encoder_identity=expected_nested_encoder,
         )
     )
-    if retired.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != expected_waiver_set_sha256:
+    if VALIDATION_WAIVER_BINDINGS_FIELD in retired:
+        issues.extend(
+            _applied_manifest_file_waiver_binding_issues(
+                retired,
+                repo_path=repo_path,
+                root_prefix=root_prefix,
+                manifest_label=retired_label,
+                expected_waiver_set_sha256=expected_waiver_set_sha256,
+            )
+        )
+    elif retired.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != expected_waiver_set_sha256:
         issues.append(
             f"{retired_label} {VALIDATION_WAIVER_SET_SHA256_FIELD} does not "
             "match the RuleSpec toolchain-bound waiver set"
@@ -31699,7 +31945,18 @@ def _load_verified_applied_encoding_manifest_payload(
                 expected_encoder_identity=expected_encoder_identity,
             )
         )
-    if payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != expected_waiver_set_sha256:
+    if VALIDATION_WAIVER_BINDINGS_FIELD in payload:
+        issues.extend(
+            _applied_manifest_file_waiver_binding_issues(
+                payload,
+                repo_path=repo_path,
+                root_prefix=root_prefix,
+                manifest_label=manifest_label,
+                expected_waiver_set_sha256=expected_waiver_set_sha256,
+                base_commit=base_commit,
+            )
+        )
+    elif payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != expected_waiver_set_sha256:
         historical_retirement_waiver_matches = False
         recorded_base = payload.get("base_commit")
         if (
@@ -63332,9 +63589,6 @@ def _write_applied_encoding_manifest(
         "runner": str(getattr(result, "runner", "") or ""),
         "backend": backend,
         "model": str(getattr(result, "model", "") or ""),
-        VALIDATION_WAIVER_SET_SHA256_FIELD: verify_rulespec_validation_waiver_set(
-            policy_repo_path
-        ),
         "generated_output_root": str(output_root),
         "generated_output_file": str(output_file) if output_file is not None else None,
         "generated_output_sha256": _sha256_file(output_file)
@@ -63392,6 +63646,18 @@ def _write_applied_encoding_manifest(
             "Cannot sign model validation from a different encoder commit or version"
         )
     payload["validation_execution"] = copy.deepcopy(validation_execution)
+    validated_policy = validation_execution.get("policy_pre_apply")
+    payload[VALIDATION_WAIVER_BINDINGS_FIELD] = (
+        _build_applied_manifest_file_waiver_bindings(
+            policy_repo_path,
+            covered_paths={str(item["path"]) for item in payload["applied_files"]},
+            validated_waiver_set_sha256=(
+                validated_policy.get("validation_waiver_set_sha256")
+                if isinstance(validated_policy, dict)
+                else None
+            ),
+        )
+    )
     _sign_applied_encoding_manifest(payload, signing_broker)
     manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return manifest_path

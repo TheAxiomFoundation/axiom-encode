@@ -190,11 +190,15 @@ def _load_strict_yaml(path: Path) -> object:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as error:
         raise WaiverSchemaError(f"cannot read {path}: {error}") from error
-    _scan_bounded_yaml(text, source=path)
+    return _load_strict_yaml_text(text, source=path)
+
+
+def _load_strict_yaml_text(text: str, *, source: Path) -> object:
+    _scan_bounded_yaml(text, source=source)
     try:
         return yaml.load(text, Loader=_UniqueKeyLoader)
     except yaml.YAMLError as error:
-        raise WaiverSchemaError(f"cannot parse {path}: {error}") from error
+        raise WaiverSchemaError(f"cannot parse {source}: {error}") from error
 
 
 def _contains_control_or_format(value: str) -> bool:
@@ -336,7 +340,54 @@ def load_validation_waivers(
     source = Path(path)
     if not source.exists():
         raise WaiverSchemaError(f"required validation waiver file is missing: {source}")
-    payload = _load_strict_yaml(source)
+    return _validation_waiver_set_from_payload(
+        _load_strict_yaml(source),
+        source=source,
+        repo_root=repo_root,
+        today=today,
+        allow_expired=allow_expired,
+        require_paths=require_paths,
+    )
+
+
+def load_validation_waivers_bytes(
+    raw: bytes,
+    *,
+    source: str | Path = DEFAULT_WAIVER_PATH,
+    repo_root: str | Path | None = None,
+    today: date | None = None,
+    allow_expired: bool = False,
+    require_paths: bool = True,
+) -> ValidationWaiverSet:
+    """Load exact waiver-file bytes with the same strict schema as the file."""
+    label = Path(source)
+    if not isinstance(raw, bytes):
+        raise WaiverSchemaError(f"{label}: waiver bytes are required")
+    if len(raw) > MAX_WAIVER_FILE_BYTES:
+        raise WaiverSchemaError(f"{label}: file exceeds {MAX_WAIVER_FILE_BYTES} bytes")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeError as error:
+        raise WaiverSchemaError(f"cannot read {label}: {error}") from error
+    return _validation_waiver_set_from_payload(
+        _load_strict_yaml_text(text, source=label),
+        source=label,
+        repo_root=repo_root,
+        today=today,
+        allow_expired=allow_expired,
+        require_paths=require_paths,
+    )
+
+
+def _validation_waiver_set_from_payload(
+    payload: object,
+    *,
+    source: Path,
+    repo_root: str | Path | None,
+    today: date | None,
+    allow_expired: bool,
+    require_paths: bool,
+) -> ValidationWaiverSet:
     if not isinstance(payload, Mapping):
         raise WaiverSchemaError(f"{source}: document root must be a mapping")
     root_keys = frozenset(payload)
@@ -466,6 +517,131 @@ def validate_protected_base_transition(
     )
     if issues:
         raise WaiverTransitionError("; ".join(issues))
+
+
+# Per-file waiver bindings (#2092). A signed manifest binds only the waiver
+# state of the files it covers, so a waiver change for another file does not
+# make the manifest stale. Only the active record is bound: a pending record
+# never waives a failure, so it cannot change what the signer validated.
+FILE_WAIVER_BINDINGS_SCHEMA = "axiom-encode/validation-waiver-bindings/v1"
+FILE_WAIVER_BINDINGS_KEYS = frozenset({"schema", "files"})
+FILE_WAIVER_BINDING_KEYS = frozenset({"path", "fingerprint", "record_sha256"})
+_RECORD_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def active_waiver_record_sha256(metadata: WaiverMetadata) -> str:
+    """Return the digest of one active record: fingerprint, owner, issue, expiry."""
+    canonical = json.dumps(
+        {
+            "fingerprint": metadata.fingerprint,
+            "owner": metadata.owner,
+            "issue": metadata.issue,
+            "expires": metadata.expires,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def file_waiver_binding(waivers: ValidationWaiverSet, path: str) -> dict[str, object]:
+    """Return the canonical waiver binding of one repository-relative file."""
+    entry = waivers.entries.get(path)
+    active = entry.active if entry is not None else None
+    return {
+        "path": path,
+        "fingerprint": active.fingerprint if active is not None else None,
+        "record_sha256": (
+            active_waiver_record_sha256(active) if active is not None else None
+        ),
+    }
+
+
+def build_file_waiver_bindings(
+    waivers: ValidationWaiverSet,
+    covered_paths: set[str] | frozenset[str] | list[str] | tuple[str, ...],
+) -> dict[str, object]:
+    """Bind the active waiver state of exactly the covered files."""
+    paths = sorted(set(covered_paths))
+    if not paths:
+        raise ValidationWaiverError("per-file waiver bindings need a covered file")
+    for path in paths:
+        if not isinstance(path, str) or not path:
+            raise ValidationWaiverError("covered waiver paths must be strings")
+    return {
+        "schema": FILE_WAIVER_BINDINGS_SCHEMA,
+        "files": [file_waiver_binding(waivers, path) for path in paths],
+    }
+
+
+def file_waiver_binding_issues(
+    bindings: object,
+    *,
+    covered_paths: set[str] | frozenset[str],
+    waivers: ValidationWaiverSet,
+    label: str,
+) -> list[str]:
+    """Return why per-file bindings are malformed or not current.
+
+    The bindings must name exactly the covered files, in path order, and each
+    file's bound active record must equal the record in ``waivers``. Records
+    of files outside ``covered_paths`` are never read.
+    """
+    if not isinstance(bindings, Mapping) or frozenset(bindings) != (
+        FILE_WAIVER_BINDINGS_KEYS
+    ):
+        return [f"{label} is malformed"]
+    if bindings.get("schema") != FILE_WAIVER_BINDINGS_SCHEMA:
+        return [f"{label}.schema is not supported"]
+    files = bindings.get("files")
+    if not isinstance(files, list) or not files or len(files) > MAX_WAIVER_ENTRIES:
+        return [f"{label}.files is malformed"]
+    issues: list[str] = []
+    bound: dict[str, Mapping[str, object]] = {}
+    previous: str | None = None
+    for index, item in enumerate(files):
+        field = f"{label}.files[{index}]"
+        if not isinstance(item, Mapping) or frozenset(item) != (
+            FILE_WAIVER_BINDING_KEYS
+        ):
+            issues.append(f"{field} is malformed")
+            continue
+        path = item.get("path")
+        fingerprint = item.get("fingerprint")
+        record = item.get("record_sha256")
+        if not isinstance(path, str) or not path:
+            issues.append(f"{field}.path is invalid")
+            continue
+        if previous is not None and path <= previous:
+            issues.append(f"{field}.path is duplicated or out of order")
+            continue
+        previous = path
+        if fingerprint is None and record is None:
+            pass
+        elif (
+            not isinstance(fingerprint, str)
+            or FINGERPRINT_RE.fullmatch(fingerprint) is None
+            or not isinstance(record, str)
+            or _RECORD_SHA256_RE.fullmatch(record) is None
+        ):
+            issues.append(f"{field} waiver record identity is invalid")
+            continue
+        bound[path] = item
+    if issues:
+        return issues
+    covered = frozenset(covered_paths)
+    missing = sorted(covered - set(bound))
+    extra = sorted(set(bound) - covered)
+    if missing:
+        issues.append(f"{label} does not bind covered files: " + ", ".join(missing))
+    if extra:
+        issues.append(f"{label} binds files it does not cover: " + ", ".join(extra))
+    for path in sorted(covered & set(bound)):
+        expected = file_waiver_binding(waivers, path)
+        if dict(bound[path]) != expected:
+            issues.append(f"{label} waiver identity for {path} is not current")
+    return issues
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
