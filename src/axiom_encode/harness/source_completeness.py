@@ -301,6 +301,7 @@ class _TerminalGateEvidence:
     polarity_conflict: bool
     explicit_name_polarities: frozenset[tuple[str, bool]] = frozenset()
     numeric_income_amount: bool = False
+    affirmative_reason_evidence: bool = False
 
 
 @dataclass(frozen=True)
@@ -18027,6 +18028,93 @@ def _is_pure_physical_alternative_condition(body: str) -> bool:
     )
 
 
+_SOURCE_ANY_REASON_PREFIX = "source_any_reason:"
+
+
+def _closed_nested_reason_list(body: str) -> tuple[str, tuple[str, ...]] | None:
+    """Separate a closed nested reason list, retaining its concrete alternatives.
+
+    This is a physical-list grammar, not a general English parser. Unknown
+    continuations, qualifiers, or navigation prose retain conservative analysis.
+    """
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if not lines or not re.fullmatch(
+        r"all\s+of\s+the\s+following\s+apply:", lines[0], re.IGNORECASE
+    ):
+        return None
+    headers = [
+        i
+        for i, line in enumerate(lines)
+        if re.fullmatch(
+            r"[●•]\s+[^:;!?]+\s+for\s+any\s+of\s+the\s+following\s+reasons:",
+            line,
+            re.IGNORECASE,
+        )
+    ]
+    if len(headers) != 1 or headers[0] < 2:
+        return None
+    index = headers[0]
+    if any(not re.fullmatch(r"[●•]\s+[^:;!?]+\.", line) for line in lines[1:index]):
+        return None
+    reasons = lines[index + 1 :]
+    navigation = [
+        i
+        for i, line in enumerate(reasons)
+        if re.fullmatch(
+            r"Quick access to (?:the )?types of [A-Za-z ]+:", line, re.IGNORECASE
+        )
+    ]
+    if navigation:
+        if len(navigation) != 1:
+            return None
+        boundary = navigation[0]
+        links = reasons[boundary + 1 :]
+        if len(links) < 2 or any(
+            not re.fullmatch(r"[●•]\s+[A-Z][A-Za-z'-]*(?:\s+[A-Z][A-Za-z'-]*)*", line)
+            or re.search(
+                r"\b(?:if|when|unless|must|shall|only|not|is|are|requires?)\b",
+                line,
+                re.IGNORECASE,
+            )
+            for line in links
+        ):
+            return None
+        reasons = reasons[:boundary]
+    if not 2 <= len(reasons) <= _SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT:
+        return None
+    alternatives = []
+    for reason in reasons:
+        # A final glossary marker is metadata, not an operative qualifier.
+        reason = re.sub(r"\([a-z]\)$", "", reason).strip()
+        if not re.fullmatch(r"[A-Za-z][A-Za-z '-]*", reason) or re.search(
+            r"\b(?:and|nor|but|if|when|unless|provided|except|only|not|without|must|shall|is|are|requires?)\b",
+            reason,
+            re.IGNORECASE,
+        ):
+            return None
+        if re.search(r"\bor\b", reason, re.IGNORECASE):
+            away = re.fullmatch(
+                r"([A-Za-z-]+)\s+or\s+([A-Za-z-]+)(\s+away\s+from\s+[A-Za-z '-]+)",
+                reason,
+                re.IGNORECASE,
+            )
+            causal = re.fullmatch(
+                r"(.+\s+caused\s+by\s+)([^:]+?)\s+or\s+([^:]+)", reason, re.IGNORECASE
+            )
+            if away:
+                options = [away[1] + away[3], away[2] + away[3]]
+            elif causal and len(re.findall(r"\bor\b", reason, re.IGNORECASE)) == 1:
+                options = [causal[1] + causal[2], causal[1] + causal[3]]
+            else:
+                return None
+        else:
+            options = [reason]
+        alternatives.extend(options)
+        if len(alternatives) > _SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT:
+            return None
+    return "\n".join(lines[:index]), tuple(alternatives)
+
+
 def _source_conjunctive_fact_gates(
     text: str,
     *,
@@ -18054,6 +18142,19 @@ def _source_conjunctive_fact_gates(
     if conditional is None:
         return ()
     body = _without_ceteris_paribus_clause(text, conditional)
+    # Preserve a complete physical nested list before exception preprocessing.
+    # Exact proof-context fragments may end at its heading; those keep their
+    # existing analysis, while the complete source list owns the reason gate.
+    nested_reason_body = (
+        body
+        if re.search(
+            r"[●•]\s+[^\n:]+\s+for\s+any\s+of\s+the\s+following\s+reasons:\s*\S",
+            body,
+            re.IGNORECASE,
+        )
+        and re.match(r"\s*all\s+of\s+the\s+following\s+apply:", body, re.IGNORECASE)
+        else None
+    )
     if _is_pure_physical_alternative_condition(body):
         return ()
     if conditional.group("cue").strip().casefold() != "unless":
@@ -18098,6 +18199,25 @@ def _source_conjunctive_fact_gates(
             if "budgetary" in body.split(":", 1)[0].lower()
             else "shared_membership:household"
         )
+    nested_reasons = _closed_nested_reason_list(nested_reason_body or membership_body)
+    # An identified but unparsed continuation must not silently lose its gate.
+    # The empty marker is deliberately unmatchable (including by empty tokens).
+    reason_gates = (
+        frozenset({_SOURCE_ANY_REASON_PREFIX}) if nested_reason_body else frozenset()
+    )
+    if nested_reasons is not None:
+        outer_body, reasons = nested_reasons
+        signatures = [
+            _source_gate_semantic_tokens(reason, care_source_text=care_source_text)
+            - _SOURCE_GATE_SUBJECT_PRONOUNS
+            for reason in reasons
+        ]
+        if all(signatures):
+            membership_body = outer_body
+            reason_gates = frozenset(
+                _SOURCE_ANY_REASON_PREFIX + " ".join(sorted(tokens))
+                for tokens in signatures
+            )
     segments = _source_gate_split_conjunctive_conditions(membership_body)
     if len(segments) < 2:
         return ()
@@ -18159,6 +18279,8 @@ def _source_conjunctive_fact_gates(
         if membership_requirement is not None:
             predicates = predicates | {membership_requirement}
         gates.append((entities, predicates))
+    if reason_gates:
+        gates.append((frozenset(), reason_gates))
     return tuple(gates) if len(gates) >= 2 else ()
 
 
@@ -19147,6 +19269,15 @@ def _terminal_gate_evidence(
             and not _SOURCE_GATE_INCOME_NEGATION_MARKERS.intersection(
                 name_text.casefold().split() + description.casefold().split()
             ),
+            not polarity_conflict
+            and not any(
+                negative is not False for negative in effective_polarities.values()
+            )
+            and not re.search(
+                r"\b(?:not|no|never|without|neither|nor|unless|except|if|unqualified|ineligible)\b",
+                name_text + " " + description,
+                re.IGNORECASE,
+            ),
         )
 
     for item in payload.get("inputs", ()) or ():
@@ -19227,6 +19358,26 @@ def _terminal_names_corroborate_source_gates(
     ]
     candidates: list[tuple[str, ...]] = []
     for index, (entities, predicates) in enumerate(gates):
+        alternative_reasons = [
+            frozenset(predicate.removeprefix(_SOURCE_ANY_REASON_PREFIX).split())
+            for predicate in predicates
+            if predicate.startswith(_SOURCE_ANY_REASON_PREFIX)
+        ]
+        if alternative_reasons:
+            candidates.append(
+                tuple(
+                    name
+                    for name in sorted(names)
+                    if (evidence := terminal_evidence.get(name)) is not None
+                    and not evidence.polarity_conflict
+                    and evidence.affirmative_reason_evidence
+                    and any(
+                        tokens and tokens <= evidence.entities | evidence.predicates
+                        for tokens in alternative_reasons
+                    )
+                )
+            )
+            continue
         if predicates & _SOURCE_GATE_UNKNOWN_POLARITY_PREDICATES:
             candidates.append(())
             continue
