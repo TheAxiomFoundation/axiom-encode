@@ -21,6 +21,14 @@ from tests.test_encoder_manifest_ancestry import (
     identity_checkout,  # noqa: F401 - fixture
 )
 
+
+@pytest.fixture(autouse=True)
+def _running_code_is_the_verifier(monkeypatch):
+    """Graph fixtures are not the running package; one test checks this."""
+
+    monkeypatch.setattr(cli, "_encoder_floor_running_issue", lambda _commit: None)
+
+
 # graph: 0 base(main) <- 1 pin(main) <- 2 side; 3 merge(1, 2)(main) <- 4 head(main)
 # <- 5 feature. Index 4 plays the encoder-main verifier below.
 VERIFIER = 4
@@ -186,3 +194,49 @@ def test_verifier_identity_cli_writes_the_record(
     assert json.loads(output.read_text())["verifier"]["commit"] == pin
     args.encoder_producer_floor = "not-a-commit"
     assert cli.cmd_verifier_identity(args) == 1
+
+
+def test_floored_admission_requires_the_running_code_to_be_the_verifier(
+    graph, monkeypatch
+):
+    monkeypatch.undo()
+    monkeypatch.setattr(
+        cli,
+        "_current_guard_encoder_execution_identity",
+        lambda: _identity(graph.commits[3]),
+    )
+    verifier = _verifier(graph, FLOOR)
+    issue = cli._encoder_producer_admission_issue(
+        _identity(graph.commits[FLOOR]), verifier
+    )
+    assert issue and "running encoder commit" in issue
+    monkeypatch.setattr(
+        cli,
+        "_current_guard_encoder_execution_identity",
+        lambda: _identity(graph.commits[VERIFIER]),
+    )
+    assert (
+        cli._encoder_producer_admission_issue(
+            _identity(graph.commits[FLOOR]), _verifier(graph, FLOOR)
+        )
+        is None
+    )
+
+
+def test_a_floor_without_history_fails_closed(graph):
+    identity = cli._GuardEncoderIdentity(
+        _identity(graph.commits[VERIFIER]),
+        history_checkout=None,
+        producer_floor=graph.commits[FLOOR],
+    )
+    issue = cli._encoder_producer_admission_issue(
+        _identity(graph.commits[FLOOR]), identity
+    )
+    assert issue and "--expected-encoder-checkout" in issue
+
+
+def test_malformed_floor_flag_is_an_argument_error():
+    parser = argparse.ArgumentParser()
+    cli._add_encoder_producer_floor_argument(parser)
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--encoder-producer-floor", "main"])

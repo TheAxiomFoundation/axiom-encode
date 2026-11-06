@@ -115,6 +115,13 @@ def export_registry(
     if resolved.strip() != commit:
         raise AdmissionRegistryError("the registry commit is not a direct commit")
     if require_protected:
+        if (
+            _git(repo, "rev-parse", "--is-shallow-repository").decode().strip()
+            != "false"
+        ):
+            raise AdmissionRegistryError(
+                "the RuleSpec checkout is shallow; fetch complete origin/main history"
+            )
         # Only reviewed records on the protected default branch count. The
         # protected workflow fetches origin/main before it exports.
         main = _git(repo, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")

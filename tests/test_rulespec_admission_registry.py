@@ -225,3 +225,26 @@ def test_export_ignores_git_environment_overrides(tmp_path, monkeypatch):
     exported = registry.export_registry(repo, commit, tmp_path / "out")
     assert len(exported.coverage_exemptions) == 1
     assert len(exported.digest) == 64
+
+
+def test_export_refuses_a_shallow_checkout(tmp_path):
+    source = _repo(tmp_path / "source")
+    _commit_registry(source, [_new_us_entry()])
+    clone = tmp_path / "rulespec-us"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "1", f"file://{source}", str(clone)],
+        check=True,
+        env=ENV,
+    )
+    _git(
+        clone,
+        "remote",
+        "set-url",
+        "origin",
+        "https://github.com/TheAxiomFoundation/rulespec-us.git",
+    )
+    _git(clone, "update-ref", "refs/remotes/origin/main", "HEAD")
+    with pytest.raises(registry.AdmissionRegistryError, match="shallow"):
+        registry.export_registry(
+            clone, _git(clone, "rev-parse", "HEAD"), tmp_path / "o"
+        )

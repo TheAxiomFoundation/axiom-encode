@@ -1244,6 +1244,7 @@ def _add_encoder_producer_floor_argument(
 ) -> None:
     parser.add_argument(
         "--encoder-producer-floor",
+        type=_validated_encoder_producer_floor,
         default=None,
         required=required,
         help=(
@@ -33184,15 +33185,37 @@ def _encoder_floor_verifier_issue(identity: Mapping[str, str]) -> str | None:
     checkout = getattr(identity, "history_checkout", None)
     commit = identity.get("commit")
     if checkout is None or not isinstance(commit, str):
-        return "encoder history is unavailable to prove the verifier"
+        return (
+            "encoder history is unavailable to prove the verifier "
+            "(a producer floor needs --expected-encoder-checkout)"
+        )
     cache = getattr(identity, "producer_admission_cache", {})
     key = ("verifier", floor, commit)
     if key not in cache:
-        issue = _encoder_git_history_admission_issue(
-            checkout, pin=floor, producer=commit, allow_equal=True
+        issue = _encoder_floor_running_issue(commit) or (
+            _encoder_git_history_admission_issue(
+                checkout, pin=floor, producer=commit, allow_equal=True
+            )
         )
         cache[key] = f"the running verifier: {issue}" if issue else None
     return cache[key]
+
+
+def _encoder_floor_running_issue(commit: str) -> str | None:
+    """Require that the running code is the verifier commit it reports.
+
+    A floor loosens admission below the pin, so the checkout's commit must
+    be the running package's commit (or its runtime attestation's), not
+    only a checkout with the same version string.
+    """
+
+    try:
+        running = _current_guard_encoder_execution_identity().get("commit")
+    except RuntimeError as exc:
+        return f"the running encoder identity is unavailable: {exc}"
+    if running != commit:
+        return "the running encoder commit does not match the verifier checkout"
+    return None
 
 
 def _encoder_producer_admission_issue(
@@ -33446,8 +33469,8 @@ def verifier_identity_record(
     """Return the record of an encoder-main changed-file verifier (#2093).
 
     The running encoder must be a clean checkout on official first-parent
-    main, and the producer floor must be that commit or its first-parent
-    ancestor. Raise when either is not proven.
+    main, and the producer floor must be that commit or an ancestor of it.
+    Raise when either is not proven.
     """
 
     floor = _validated_encoder_producer_floor(producer_floor)
@@ -33522,11 +33545,16 @@ def _current_guard_encoder_execution_identity() -> dict[str, str]:
             or re.fullmatch(r"[0-9a-f]{40}", commit) is None
         ):
             raise RuntimeError("running axiom-encode attestation identity is malformed")
-        return {
-            "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
-            "commit": commit,
-            "version": __version__,
-        }
+        # No Git history here; the identity still carries a producer floor so
+        # that a floored admission fails closed with a clear message.
+        return _GuardEncoderIdentity(
+            {
+                "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+                "commit": commit,
+                "version": __version__,
+            },
+            history_checkout=None,
+        )
     if (
         checkout_identity.get("kind") != "git"
         or checkout_identity.get("dirty") is not False

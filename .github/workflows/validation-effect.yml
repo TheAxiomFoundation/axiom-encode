@@ -30,4 +30,10 @@ jobs:
         # the script source.
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
-        run: python3 -I scripts/check_validation_effect.py
+        run: |
+          # The pull request that adds the checker has no base copy of it.
+          if [ ! -f scripts/check_validation_effect.py ]; then
+            echo "::notice::the base branch has no validation-effect checker yet"
+            exit 0
+          fi
+          python3 -I scripts/check_validation_effect.py
