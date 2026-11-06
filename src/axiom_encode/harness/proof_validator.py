@@ -1213,64 +1213,6 @@ def _located_proof_evidence_occurrences(
 # End marks a model adds to a quotation that the source does not print there
 # ("... early retirement age." for "... early retirement age;").
 _PROOF_ADDED_END_MARKS = ".;,"
-# Spaces and at most one line wrap between two words: never a blank line, so a
-# located span never crosses a paragraph gap the matcher keeps.
-_PROOF_LOCATE_WORD_GAP = r"(?:[ \t\u00a0]*\r?\n[ \t\u00a0]*|[ \t\u00a0]+)"
-
-
-def _plain_source_occurrences(
-    source_text: str, excerpt: str
-) -> tuple[_LocatedProofText, ...]:
-    """Each printed occurrence of the excerpt's words, ignoring token boundaries.
-
-    Locating only: a caller stores a returned text only after the matcher
-    accepts it (or a version of it widened to its enclosing parentheses).
-    """
-    words = excerpt.split()
-    if not words:
-        return ()
-    pattern = re.compile(_PROOF_LOCATE_WORD_GAP.join(re.escape(word) for word in words))
-    found: list[_LocatedProofText] = []
-    base = 0
-    for segment in split_proof_evidence_text(source_text):
-        for match in pattern.finditer(segment):
-            start, end = match.span()
-            found.append((base + start, base + end, match.group()))
-            if (
-                0 < start
-                and end < len(segment)
-                and segment[start - 1] == "("
-                and segment[end] == ")"
-                and _PROOF_WIDENABLE_PARENTHETICAL.search(match.group())
-                and not _follows_numeric_sign(segment, start - 1)
-            ):
-                found.append(
-                    (base + start - 1, base + end + 1, "(" + match.group() + ")")
-                )
-        base += len(segment) + len(PROOF_EVIDENCE_SEGMENT_SEPARATOR)
-    return tuple(found)
-
-
-# Parentheses are restored only around words ("(165 Percent of Poverty
-# Level)"): a parenthesized bare number is an accounting negative, and a sign
-# before the parenthesis belongs to the number, so neither is widened.
-_PROOF_WIDENABLE_PARENTHETICAL = re.compile(r"[^\W\d_]{2,}")
-
-
-def _follows_numeric_sign(text: str, index: int) -> bool:
-    """Whether the last meaningful character before ``text[index]`` is a sign.
-
-    Whitespace and format characters (a zero-width space) are skipped however
-    many there are, so "-         (500 dollars)" keeps its sign.
-    """
-    position = index - 1
-    while position >= 0 and (
-        text[position].isspace() or unicodedata.category(text[position]) == "Cf"
-    ):
-        position -= 1
-    return position >= 0 and (
-        _is_numeric_sign_marker(text[position]) or text[position] == "\N{EN DASH}"
-    )
 
 
 def _distinct_printed_forms(
@@ -1307,13 +1249,10 @@ def align_proof_excerpt(*, source_text: str, excerpt: str) -> str | None:
 
     Locating is tolerant; the result is exact. The excerpt is located through
     the typographic view (quotation marks, dashes, ligatures, wraps, a
-    recased first letter), with an added end mark dropped. When that finds
-    nothing because a token-boundary rule rejects the bare span, the span
-    widened to its enclosing parentheses is tried ("(165 Percent of Poverty
-    Level)"). The result is returned only when every independent occurrence
-    prints one text and ``_source_contains_proof_evidence`` accepts that text,
-    so the stored excerpt is always the printed source text and no check gets
-    looser.
+    recased first letter), with an added end mark dropped. The result is
+    returned only when every independent occurrence prints one text and
+    ``_source_contains_proof_evidence`` accepts that text, so the stored
+    excerpt is always the printed source text and no check gets looser.
     """
     excerpt = excerpt.strip()
     if not excerpt:
@@ -1332,17 +1271,6 @@ def align_proof_excerpt(*, source_text: str, excerpt: str) -> str | None:
         )
         if occurrences:
             break
-    if not occurrences:
-        # A bare span the boundary rules reject and its widened form are one
-        # occurrence; keep only the accepted texts.
-        occurrences = tuple(
-            occurrence
-            for query in queries
-            for occurrence in _plain_source_occurrences(source_text, query)
-            if _source_contains_proof_evidence(
-                source_text=source_text, evidence_text=occurrence[2]
-            )
-        )
     distinct = _distinct_printed_forms(occurrences)
     if len(distinct) != 1:
         return None
@@ -1922,8 +1850,13 @@ def _span_omits_accounting_parentheses(
     carried_closing = evidence_text.rstrip().endswith(")")
     if carried_closing:
         return left.endswith("(")
-    if _is_numeric_date_label(evidence_text) or _is_substantive_numeric_prose(
-        evidence_text
+    if (
+        _is_numeric_date_label(evidence_text)
+        or _is_substantive_numeric_prose(evidence_text)
+    ) and not (
+        # A sign outside the parentheses ("-($500 in the case of ...)") makes
+        # the parenthetical a signed amount, not a clause.
+        left.endswith("(") and _left_context_omits_numeric_sign(left[:-1])
     ):
         return False
     omitted_closing = after.lstrip().startswith(")")
