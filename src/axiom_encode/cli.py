@@ -14,6 +14,7 @@ Self-contained -- no external plugin dependencies.
 import argparse
 import concurrent.futures
 import contextlib
+import contextvars
 import copy
 import csv
 import difflib
@@ -1233,6 +1234,23 @@ def _add_expected_encoder_checkout_argument(
         help=(
             "Clean pinned axiom-encode checkout matching the running package version; "
             "its complete main history proves admission of newer signed producers"
+        ),
+    )
+    _add_encoder_producer_floor_argument(parser)
+
+
+def _add_encoder_producer_floor_argument(
+    parser: argparse.ArgumentParser, *, required: bool = False
+) -> None:
+    parser.add_argument(
+        "--encoder-producer-floor",
+        default=None,
+        required=required,
+        help=(
+            "Full axiom-encode commit that is the oldest trusted producer (#2095). "
+            "With it, a signed producer is admitted when it is this commit or a "
+            "first-parent main descendant of it, also when it is older than the "
+            "running verifier. Without it, the running encoder is the floor."
         ),
     )
 
@@ -2729,6 +2747,27 @@ def main():
         help="Emit findings as JSON instead of human-readable text",
     )
 
+    verifier_identity_parser = subparsers.add_parser(
+        "verifier-identity",
+        help=(
+            "Prove that the running encoder is a changed-file verifier on official "
+            "first-parent main at or after the producer floor, and print its record"
+        ),
+    )
+    verifier_identity_parser.add_argument(
+        "--expected-encoder-checkout",
+        type=Path,
+        default=None,
+        help="Clean axiom-encode checkout with complete main history",
+    )
+    _add_encoder_producer_floor_argument(verifier_identity_parser, required=True)
+    verifier_identity_parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Also write the JSON record to this file",
+    )
+
     guard_generated_parser = subparsers.add_parser(
         "guard-generated",
         help="Reject RuleSpec changes that were not installed by axiom-encode --apply",
@@ -4138,6 +4177,7 @@ def main():
     _judge_cli.register_judge_subparsers(subparsers)
 
     args = parser.parse_args()
+    _apply_encoder_producer_floor_argument(args)
     if args.command == "encode" and args.escalation_model is None:
         args.escalation_model = (
             DEFAULT_MODEL
@@ -4230,6 +4270,8 @@ def main():
         cmd_migrate_retired_source_metadata(args)
     elif args.command == "guard-generated":
         cmd_guard_generated(args)
+    elif args.command == "verifier-identity":
+        sys.exit(cmd_verifier_identity(args))
     elif args.command == "stage-signed-backfill":
         cmd_stage_signed_backfill(args)
     elif args.command == "refresh-applied-manifest":
@@ -33044,10 +33086,37 @@ class _GuardEncoderIdentity(dict[str, str]):
         identity: Mapping[str, str],
         *,
         history_checkout: Path | None,
+        producer_floor: str | None = None,
     ) -> None:
         super().__init__(identity)
         self.history_checkout = history_checkout
+        # The oldest trusted producer commit (#2095). None keeps the running
+        # encoder as the floor, which is the pinned-verifier behavior.
+        self.producer_floor = (
+            producer_floor
+            if producer_floor is not None
+            else _ENCODER_PRODUCER_FLOOR.get()
+        )
         self.producer_admission_cache: dict[tuple[str, str], str | None] = {}
+
+
+_ENCODER_PRODUCER_FLOOR: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "axiom_encode_producer_floor", default=None
+)
+
+
+def _validated_encoder_producer_floor(value: object) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40}", value) is None:
+        raise ValueError("--encoder-producer-floor must be a full lowercase commit")
+    return value
+
+
+def _apply_encoder_producer_floor_argument(args: argparse.Namespace) -> None:
+    """Install the producer floor for this command's guard identities."""
+
+    floor = getattr(args, "encoder_producer_floor", None)
+    if floor is not None:
+        _ENCODER_PRODUCER_FLOOR.set(_validated_encoder_producer_floor(floor))
 
 
 def _encoder_producer_admission_issue(
@@ -33087,13 +33156,27 @@ def _encoder_producer_admission_issue(
     ):
         return f"{mismatch}: encoder history is unavailable to prove producer ancestry"
 
-    cache_key = (expected["commit"], core["commit"])
+    # Floor-only admission (#2095): with an explicit floor, the running
+    # verifier may be newer than the producer (encoder-main verifier mode).
+    # The producer must still be on official first-parent main, at or after
+    # the floor. Signature, digests and manifest format are checked by the
+    # running verifier as before.
+    floor = getattr(expected_encoder_identity, "producer_floor", None)
+    if floor is not None:
+        mismatch = "is not admitted by the encoder producer floor"
+        try:
+            floor = _validated_encoder_producer_floor(floor)
+        except ValueError as exc:
+            return f"{mismatch}: {exc}"
+    pin = floor if floor is not None else expected["commit"]
+    cache_key = (pin, core["commit"])
     cache = expected_encoder_identity.producer_admission_cache
     if cache_key not in cache:
         cache[cache_key] = _encoder_git_history_admission_issue(
             expected_encoder_identity.history_checkout,
-            pin=expected["commit"],
+            pin=pin,
             producer=core["commit"],
+            allow_equal=floor is not None,
         )
     history_issue = cache[cache_key]
     return f"{mismatch}: {history_issue}" if history_issue else None
@@ -33146,8 +33229,13 @@ def _encoder_git_history_admission_issue(
     *,
     pin: str,
     producer: str,
+    allow_equal: bool = False,
 ) -> str | None:
-    """Prove ancestry using complete, already fetched canonical main history."""
+    """Prove ancestry using complete, already fetched canonical main history.
+
+    ``allow_equal`` admits a producer that is the pin itself; it is used for
+    a floor, whose own commit is a trusted producer.
+    """
 
     def run(*args: str) -> subprocess.CompletedProcess[str]:
         return _guard_encoder_git_run(checkout, *args)
@@ -33228,6 +33316,8 @@ def _encoder_git_history_admission_issue(
         first_parent_main = require_success("rev-list", "--first-parent", main_commit)
         if producer not in first_parent_main.splitlines():
             return f"producer is not on the first-parent history of {main_ref}"
+        if allow_equal and producer == pin:
+            return None
         ancestry = run("merge-base", "--is-ancestor", pin, producer)
         if ancestry.returncode == 1:
             return "the pinned encoder commit is not an ancestor of the producer"
@@ -33239,6 +33329,61 @@ def _encoder_git_history_admission_issue(
     except (OSError, subprocess.SubprocessError, RuntimeError, UnicodeError) as exc:
         return f"cannot prove encoder producer ancestry: {exc}"
     return None
+
+
+VERIFIER_IDENTITY_SCHEMA = "axiom-encode/verifier-identity/v1"
+VERIFIER_MODE_ENCODER_MAIN = "encoder-main-changed-files"
+
+
+def verifier_identity_record(
+    expected_encoder_checkout: Path | None,
+    *,
+    producer_floor: str,
+) -> dict[str, object]:
+    """Return the record of an encoder-main changed-file verifier (#2093).
+
+    The running encoder must be a clean checkout on official first-parent
+    main, and the producer floor must be that commit or its first-parent
+    ancestor. Raise when either is not proven.
+    """
+
+    floor = _validated_encoder_producer_floor(producer_floor)
+    identity = _read_only_guard_encoder_execution_identity(expected_encoder_checkout)
+    checkout = getattr(identity, "history_checkout", None)
+    if checkout is None:
+        raise RuntimeError("the verifier needs a Git checkout with main history")
+    commit = identity["commit"]
+    issue = _encoder_git_history_admission_issue(
+        checkout, pin=floor, producer=commit, allow_equal=True
+    )
+    if issue:
+        raise RuntimeError(f"the running encoder is not an admitted verifier: {issue}")
+    return {
+        "schema": VERIFIER_IDENTITY_SCHEMA,
+        "mode": VERIFIER_MODE_ENCODER_MAIN,
+        "verifier": {
+            "repository": identity["repository"],
+            "commit": commit,
+            "version": identity["version"],
+        },
+        "producer_floor": floor,
+    }
+
+
+def cmd_verifier_identity(args) -> int:
+    try:
+        record = verifier_identity_record(
+            getattr(args, "expected_encoder_checkout", None),
+            producer_floor=args.encoder_producer_floor,
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"verifier-identity: {exc}", file=sys.stderr)
+        return 1
+    text = json.dumps(record, indent=2, sort_keys=True) + "\n"
+    if args.output is not None:
+        Path(args.output).write_text(text, encoding="utf-8")
+    sys.stdout.write(text)
+    return 0
 
 
 def _current_guard_encoder_execution_identity() -> dict[str, str]:
