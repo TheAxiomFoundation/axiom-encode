@@ -201,15 +201,6 @@ jobs:
             --header "X-GitHub-Api-Version: $api_version" \
             "repos/TheAxiomFoundation/rulespec-us/git/ref/heads/$pr_base_branch" \
             --jq '.object.sha')" = "$rulespec_ref"
-          # With a merge queue on main, this adds the pull request to the
-          # queue (still bound to HEAD_SHA) and GitHub merges it after the
-          # queue's CI passes; without one it merges at once. Either way the
-          # merger is recorded as this workflow's token, which the check
-          # below and verify-merge-authorization require.
-          gh pr merge "$PULL_REQUEST_NUMBER" \
-            --repo "$GITHUB_REPOSITORY" \
-            --merge \
-            --match-head-commit "$HEAD_SHA"
           # Retry a read three times, so one API error does not end the wait.
           read_pr() {
             for attempt in 1 2 3; do
@@ -241,6 +232,18 @@ jobs:
             done
             return 1
           }
+          # merge_group runs from an earlier enqueue of this pull request do not
+          # count; a minute of slack covers clock skew.
+          enqueued_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # With a merge queue on main, this adds the pull request to the
+          # queue (still bound to HEAD_SHA) and GitHub merges it after the
+          # queue's CI passes; without one it merges at once. Either way the
+          # merger is recorded as this workflow's token, which the check
+          # below and verify-merge-authorization require.
+          gh pr merge "$PULL_REQUEST_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --merge \
+            --match-head-commit "$HEAD_SHA"
           merged=false
           awaiting_since=""
           ci_started=false
@@ -263,7 +266,10 @@ jobs:
               '.data.repository.pullRequest.mergeQueueEntry.state // "NONE"' \
               "$RUNNER_TEMP/activation-queue-entry.json")"
             if [ "$entry_state" = "NONE" ]; then
-              # The queue may have merged it just after the read above.
+              # The queue may have merged it just after the read above. A pull
+              # request that gh put on auto-merge instead of into the queue
+              # also has no entry; that fails here on purpose, and the
+              # cleanup step turns auto-merge off.
               sleep 10
               read_pr
               if jq -e '.merged_at != null' \
@@ -281,14 +287,16 @@ jobs:
             # within 5 minutes. If none does, fail; the step after this one
             # takes the entry out, so it does not hold the queue for the
             # rule's 60-minute check timeout.
-            if [ "$entry_state" = "AWAITING_CHECKS" ] \
-              && [ "$ci_started" != "true" ]; then
+            if [ "$entry_state" != "AWAITING_CHECKS" ]; then
+              # Back in QUEUED after a group rebuild: start the wait again.
+              awaiting_since=""
+            elif [ "$ci_started" != "true" ]; then
               awaiting_since="${awaiting_since:-$SECONDS}"
               ci_runs="$(gh api \
                 --header "Accept: application/vnd.github+json" \
                 --header "X-GitHub-Api-Version: $api_version" \
                 "repos/$GITHUB_REPOSITORY/actions/runs?event=merge_group&per_page=100" \
-                --jq "[.workflow_runs[] | select(.head_branch | startswith(\"gh-readonly-queue/main/pr-$PULL_REQUEST_NUMBER-\"))] | length" \
+                --jq "[.workflow_runs[] | select((.head_branch | startswith(\"gh-readonly-queue/main/pr-$PULL_REQUEST_NUMBER-\")) and (.created_at | fromdateiso8601) >= (\"$enqueued_at\" | fromdateiso8601) - 60)] | length" \
                 || echo unknown)"
               if [[ "$ci_runs" =~ ^[1-9][0-9]*$ ]]; then
                 ci_started=true
@@ -359,9 +367,11 @@ jobs:
       # If the merge step fails or is cancelled after it queued the pull
       # request, the queue could still merge it later with no merge
       # authorization artifact. So take an unmerged activation pull request out
-      # of the queue and turn off any auto-merge. Only this workflow may merge
-      # an activation pull request (merged_by must be github-actions[bot]), so
-      # this never removes a merge that a person started.
+      # of the queue and turn off any auto-merge. This also removes an entry
+      # that a person queued; that is harmless, because verify-merge-authorization
+      # rejects any activation merge that this workflow did not make. A LOCKED
+      # entry can not be taken out; the queue then merges it with no artifact,
+      # and the activation stays unauthorized, not unsafe.
       - name: Take an unmerged activation out of the merge queue
         if: ${{ (failure() || cancelled()) && steps.pull.outputs.head_sha != '' }}
         env:

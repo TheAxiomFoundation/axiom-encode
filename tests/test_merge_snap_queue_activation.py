@@ -32,7 +32,7 @@ pytestmark = pytest.mark.skipif(
 FAKE_GH = textwrap.dedent(
     """\
     #!/usr/bin/env python3
-    import hashlib, json, os, sys
+    import hashlib, json, os, subprocess, sys
     args = sys.argv[1:]
     joined = " ".join(args)
     with open(os.environ["FAKE_GH_LOG"], "a") as log:
@@ -47,7 +47,14 @@ FAKE_GH = textwrap.dedent(
                 answer = answer[min(n, len(answer) - 1)]
             if answer is None:
                 sys.exit(1)
-            sys.stdout.write(answer if isinstance(answer, str) else json.dumps(answer))
+            text = answer if isinstance(answer, str) else json.dumps(answer)
+            if "--jq" in args:
+                expr = args[args.index("--jq") + 1]
+                text = subprocess.run(
+                    ["jq", "-r", expr], input=text, text=True,
+                    capture_output=True, check=True,
+                ).stdout.strip()
+            sys.stdout.write(text)
             sys.exit(0)
     sys.exit(1)
     """
@@ -62,6 +69,10 @@ def _steps() -> dict[str, dict]:
 def _wait_loop() -> str:
     command = _steps()["Revalidate evidence and merge against live RuleSpec tip"]["run"]
     start = command.index("# Retry a read three times")
+    merge_start = command.index("# With a merge queue on main")
+    merge_end = command.index("merged=false\n")
+    # Leave out the enqueue itself; the wait starts as if it just ran.
+    command = command[:merge_start] + command[merge_end:]
     end = command.index("did not merge within 90 minutes")
     end = command.index("fi\n", end) + len("fi\n")
     # Each 30-second wait counts as 30 seconds without sleeping.
@@ -159,13 +170,27 @@ def _entry(state: str) -> dict:
 
 
 QUEUE_RUNS = "actions/runs?event=merge_group"
+NOW = "2999-01-01T00:00:00Z"
+OLD = "2000-01-01T00:00:00Z"
+
+
+def _runs(*runs: tuple[str, str]) -> dict:
+    return {
+        "workflow_runs": [
+            {"head_branch": f"gh-readonly-queue/main/{name}", "created_at": created}
+            for name, created in runs
+        ]
+    }
+
+
+NO_RUNS = _runs(("pr-170-" + "c" * 40, NOW), ("pr-17-" + "d" * 40, OLD))
 
 
 def test_wait_fails_when_queue_ci_never_starts(tmp_path):
     scenario = {
         "answers": [
             ["mergeQueueEntry", _entry("AWAITING_CHECKS")],
-            [QUEUE_RUNS, "0"],
+            [QUEUE_RUNS, NO_RUNS],
             ["pulls/17", _open_pr()],
         ]
     }
@@ -173,7 +198,8 @@ def test_wait_fails_when_queue_ci_never_starts(tmp_path):
     assert result.returncode == 1
     assert "started no merge_group CI run" in result.stderr
     run_checks = [call for call in calls if QUEUE_RUNS in " ".join(call)]
-    # Runs are matched on the queue branch of this pull request, not a SHA.
+    # Runs are matched on the queue branch of this pull request, not a SHA:
+    # pr-170's run and pr-17's run from an earlier enqueue do not count.
     assert "gh-readonly-queue/main/pr-17-" in " ".join(run_checks[0])
     # 300 seconds at 30 per poll: it gave the CI about five minutes.
     assert 10 <= len(run_checks) <= 12
@@ -184,7 +210,7 @@ def test_wait_keeps_waiting_while_queue_ci_runs_then_sees_the_merge(tmp_path):
     scenario = {
         "answers": [
             ["mergeQueueEntry", _entry("AWAITING_CHECKS")],
-            [QUEUE_RUNS, "1"],
+            [QUEUE_RUNS, _runs(("pr-17-" + "e" * 40, NOW))],
             ["pulls/17", [_open_pr()] * 40 + [merged]],
         ]
     }
@@ -196,6 +222,24 @@ def test_wait_keeps_waiting_while_queue_ci_runs_then_sees_the_merge(tmp_path):
     assert sum(QUEUE_RUNS in " ".join(call) for call in calls) == 1
 
 
+def test_wait_restarts_the_five_minutes_after_a_group_rebuild(tmp_path):
+    merged = {"state": "closed", "merged_at": "2026-11-06T00:00:00Z"}
+    entries = (
+        [_entry("AWAITING_CHECKS")] * 8
+        + [_entry("QUEUED")] * 4
+        + [_entry("AWAITING_CHECKS")] * 8
+    )
+    scenario = {
+        "answers": [
+            ["mergeQueueEntry", entries],
+            [QUEUE_RUNS, NO_RUNS],
+            ["pulls/17", [_open_pr()] * 20 + [merged]],
+        ]
+    }
+    result, _ = _run(tmp_path, _wait_loop() + 'test "$merged" = true\n', scenario, {})
+    assert result.returncode == 0, result.stderr
+
+
 def test_wait_does_not_count_time_spent_queued_behind_other_entries(tmp_path):
     merged = {"state": "closed", "merged_at": "2026-11-06T00:00:00Z"}
     scenario = {
@@ -204,7 +248,7 @@ def test_wait_does_not_count_time_spent_queued_behind_other_entries(tmp_path):
                 "mergeQueueEntry",
                 [_entry("QUEUED")] * 20 + [_entry("AWAITING_CHECKS")],
             ],
-            [QUEUE_RUNS, "0"],
+            [QUEUE_RUNS, NO_RUNS],
             ["pulls/17", [_open_pr()] * 24 + [merged]],
         ]
     }
