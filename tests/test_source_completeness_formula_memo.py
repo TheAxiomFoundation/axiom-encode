@@ -3,7 +3,7 @@
 The tokenizer and string masking are pure functions of their text, so a bounded
 cache returns what a fresh call would. The memo reuses a case's dependency
 environment only inside one analysis, only for the same input objects, and only
-when their contents and ambient numeric settings match.
+when their contents, Decimal settings and observed native float behavior match.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import copy
 import ctypes
 import decimal
 import functools
+import sys
 from pathlib import Path
 
 import pytest
@@ -30,13 +31,13 @@ _FORMULA_TEXTS = st.lists(_FORMULA_ALPHABET, max_size=40).map("".join)
 
 
 @pytest.fixture(autouse=True)
-def stable_rounding_reader(monkeypatch, request):
-    """Ordinary memo tests need a known mode even without a native host API."""
+def stable_exception_mask_reader(monkeypatch, request):
+    """Ordinary memo tests can run even without a verified native fenv layout."""
 
-    original = getattr(sc, "_floating_point_rounding_reader", None)
+    original = sc._floating_point_exception_mask_reader
     if "hardware_rounding" not in request.fixturenames:
         monkeypatch.setattr(
-            sc, "_floating_point_rounding_reader", lambda: lambda: 0, raising=False
+            sc, "_floating_point_exception_mask_reader", lambda: lambda: True
         )
     return original
 
@@ -217,6 +218,57 @@ def test_memo_evaluates_inputs_too_deep_to_fingerprint(monkeypatch):
     assert len(calls) == 2
 
 
+@contextlib.contextmanager
+def _integer_string_limit():
+    original = sys.get_int_max_str_digits()
+    try:
+        sys.set_int_max_str_digits(4_300)
+        yield
+    finally:
+        sys.set_int_max_str_digits(original)
+
+
+@settings(max_examples=20, deadline=None)
+@example(exponent=5_000)
+@given(exponent=st.integers(min_value=4_301, max_value=5_500))
+def test_memo_matches_fresh_with_an_ignored_integer_too_large_to_fingerprint(exponent):
+    rules = {"out": _rule("out", "1")}
+    case = {"input": {}, "output": {"deep": 10**exponent}}
+    environment = {}
+    with _integer_string_limit():
+        direct = sc._evaluate_case_dependency_environment(
+            rules, case, formula_environment=environment, require_asserted_value=False
+        )
+        assert direct == {"out": 1}
+        with sc._case_dependency_environment_memo_scope():
+            assert _environment(rules, case, environment) == direct
+            assert _environment(rules, case, environment) == direct
+
+
+@pytest.mark.parametrize(
+    "error", (ValueError, TypeError, RuntimeError, OSError, MemoryError, RecursionError)
+)
+def test_memo_evaluates_fresh_when_an_ignored_value_cannot_be_fingerprinted(
+    monkeypatch, error
+):
+    class Unprintable:
+        def __repr__(self):
+            raise error("unused value cannot be fingerprinted")
+
+    rules = {"out": _rule("out", "1")}
+    case = {"input": {}, "output": {"ignored": Unprintable()}}
+    environment = {}
+    direct = sc._evaluate_case_dependency_environment(
+        rules, case, formula_environment=environment, require_asserted_value=False
+    )
+    assert direct == {"out": 1}
+    calls = _count_evaluations(monkeypatch)
+    with sc._case_dependency_environment_memo_scope():
+        assert _environment(rules, case, environment) == direct
+        assert _environment(rules, case, environment) == direct
+    assert len(calls) == 2
+
+
 def _plain(rules):
     return rules
 
@@ -369,7 +421,7 @@ def hardware_rounding():
         library = ctypes.CDLL(None)
         get_rounding = library.fegetround
         set_rounding = library.fesetround
-    except (AttributeError, OSError):
+    except (AttributeError, OSError, TypeError, RuntimeError):
         pytest.skip("C floating-point rounding API unavailable")
     get_rounding.argtypes = ()
     get_rounding.restype = ctypes.c_int
@@ -389,6 +441,18 @@ def hardware_rounding():
     if len(modes) < 2:
         pytest.skip("Host does not expose multiple floating-point rounding modes")
     return library, modes
+
+
+@pytest.mark.parametrize("error", (AttributeError, OSError, TypeError, RuntimeError))
+def test_hardware_rounding_fixture_skips_when_the_host_api_is_unavailable(
+    monkeypatch, error
+):
+    def unavailable(_name):
+        raise error("rounding query unavailable")
+
+    monkeypatch.setattr(ctypes, "CDLL", unavailable)
+    with pytest.raises(pytest.skip.Exception, match="rounding API unavailable"):
+        hardware_rounding.__wrapped__()
 
 
 @contextlib.contextmanager
@@ -460,9 +524,12 @@ def test_memo_matches_fresh_evaluation_across_hardware_rounding_sequences(
             assert _typed(memoized) == _typed(direct)
 
 
-@pytest.mark.parametrize("reader", (None, lambda: -1))
-def test_memo_evaluates_fresh_when_hardware_rounding_is_unknown(monkeypatch, reader):
-    monkeypatch.setattr(sc, "_floating_point_rounding_reader", lambda: reader)
+@pytest.mark.parametrize("error", (ValueError, RuntimeError))
+def test_memo_evaluates_fresh_when_float_behavior_is_unknown(monkeypatch, error):
+    def unavailable(*args):
+        raise error("float behavior cannot be packed")
+
+    monkeypatch.setattr(sc.struct, "pack", unavailable)
     calls = _count_evaluations(monkeypatch)
     rules, case, environment = _rules(), _case(), {}
     with sc._case_dependency_environment_memo_scope():
@@ -473,15 +540,58 @@ def test_memo_evaluates_fresh_when_hardware_rounding_is_unknown(monkeypatch, rea
     assert first == {"helper": 100, "result": 100}
 
 
-@pytest.mark.parametrize("error", (AttributeError, OSError, TypeError))
-def test_hardware_rounding_reader_handles_an_unavailable_host_api(
-    monkeypatch, stable_rounding_reader, error
+@pytest.mark.parametrize("error", (AttributeError, OSError, TypeError, RuntimeError))
+def test_memo_evaluates_fresh_without_a_host_api(
+    monkeypatch, stable_exception_mask_reader, error
 ):
     def unavailable(_name):
         raise error("rounding query unavailable")
 
-    monkeypatch.setattr(sc.ctypes, "CDLL", unavailable)
-    assert stable_rounding_reader.__wrapped__() is None
+    monkeypatch.setattr(ctypes, "CDLL", unavailable)
+    monkeypatch.setattr(
+        sc,
+        "_floating_point_exception_mask_reader",
+        stable_exception_mask_reader.__wrapped__,
+    )
+    assert sc._floating_point_behavior() is None
+    calls = _count_evaluations(monkeypatch)
+    rules, case, environment = _rules(), _case(), {}
+    with sc._case_dependency_environment_memo_scope():
+        assert _environment(rules, case, environment) == {"helper": 100, "result": 100}
+        assert _environment(rules, case, environment) == {"helper": 100, "result": 100}
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("reader", (None, lambda: False))
+def test_memo_evaluates_fresh_when_native_traps_cannot_be_ruled_out(
+    monkeypatch, reader
+):
+    monkeypatch.setattr(sc, "_floating_point_exception_mask_reader", lambda: reader)
+
+    def unsafe_operands():
+        pytest.fail("Unsafe float probe must not execute")
+        yield
+
+    monkeypatch.setattr(sc, "_FLOAT_BEHAVIOR_OPERANDS", unsafe_operands())
+    calls = _count_evaluations(monkeypatch)
+    rules, case, environment = _rules(), _case(), {}
+    with sc._case_dependency_environment_memo_scope():
+        assert _environment(rules, case, environment) == {"helper": 100, "result": 100}
+        assert _environment(rules, case, environment) == {"helper": 100, "result": 100}
+    assert len(calls) == 2
+
+
+def test_memo_evaluates_fresh_when_reading_native_masks_raises(monkeypatch):
+    def unreadable():
+        raise RuntimeError("native mask read denied")
+
+    monkeypatch.setattr(sc, "_floating_point_exception_mask_reader", lambda: unreadable)
+    calls = _count_evaluations(monkeypatch)
+    rules, case, environment = _rules(), _case(), {}
+    with sc._case_dependency_environment_memo_scope():
+        assert _environment(rules, case, environment) == {"helper": 100, "result": 100}
+        assert _environment(rules, case, environment) == {"helper": 100, "result": 100}
+    assert len(calls) == 2
 
 
 def test_decimal_partitions_can_retain_hits_after_inputs_and_settings_return(

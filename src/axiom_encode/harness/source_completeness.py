@@ -21,7 +21,10 @@ import hashlib
 import heapq
 import itertools
 import math
+import platform
 import re
+import struct
+import sys
 import textwrap
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
@@ -27106,8 +27109,10 @@ def _case_asserted_dependency_environment(
 # checks, each time with the same rule, case and constant mappings.
 # `_case_dependency_environment_memo_scope` holds a memo for one analysis so a
 # repeat can reuse an earlier result. The memo partitions entries by the
-# ambient Decimal settings and the hardware rounding mode, and every hit still
-# needs the same input objects and a matching digest of their contents.
+# ambient Decimal settings and observed native float behavior (signed rounding,
+# subnormal results and subnormal inputs). Native traps must be masked before
+# probing. Every hit still needs the same input objects and a matching digest of
+# their contents; fingerprint failures or an unsafe/unreadable probe run fresh.
 _CASE_DEPENDENCY_ENVIRONMENT_MEMO: contextvars.ContextVar[
     dict[tuple[Any, ...], tuple[tuple[Any, ...], bytes, dict[str, Any]]] | None
 ] = contextvars.ContextVar("_CASE_DEPENDENCY_ENVIRONMENT_MEMO", default=None)
@@ -27129,17 +27134,20 @@ def _case_dependency_environment_inputs_digest(
     case: dict[str, Any],
     formula_environment: dict[str, Any],
 ) -> bytes | None:
-    """Fingerprint the inputs' current contents, including rule subclasses."""
+    """Fingerprint current contents, or decline reuse if fingerprinting fails."""
 
-    rounding = tuple(
-        (type(rule).__qualname__, getattr(rule, "resolved_currency_rounding", None))
-        for rule in principal_rules.values()
-    )
     try:
+        rounding = tuple(
+            (type(rule).__qualname__, getattr(rule, "resolved_currency_rounding", None))
+            for rule in principal_rules.values()
+        )
         text = repr((principal_rules, rounding, case, formula_environment))
-    except RecursionError:
+        return hashlib.blake2b(text.encode("utf-8", "surrogatepass")).digest()
+    except Exception:
+        # Fingerprinting is optional: even ignored values may have an oversized
+        # integer repr or a failing user-defined repr/attribute. Preserve fresh
+        # evaluation's behavior, while letting process-control exceptions escape.
         return None
-    return hashlib.blake2b(text.encode("utf-8", "surrogatepass")).digest()
 
 
 def _decimal_context_settings() -> tuple[Any, ...]:
@@ -27161,28 +27169,82 @@ def _decimal_context_settings() -> tuple[Any, ...]:
     )
 
 
+# Construct exact binary64 operands without arithmetic or compiler folding:
+# 1, 3*2**-54 (three quarters of an ulp at 1), smallest normal, 3,
+# smallest subnormal, and 2**1023.
+_FLOAT_BEHAVIOR_OPERANDS = struct.unpack(
+    "!6d",
+    bytes.fromhex(
+        "3ff0000000000000 3ca8000000000000 0010000000000000 "
+        "4008000000000000 0000000000000001 7fe0000000000000"
+    ),
+)
+
+
 @functools.lru_cache(maxsize=1)
-def _floating_point_rounding_reader() -> Callable[[], int] | None:
-    """Bind the host's rounding query once; never cache its thread-local value."""
+def _floating_point_exception_mask_reader() -> Callable[[], bool] | None:
+    """Bind a non-arithmetic safety check for the behavior probe, when known.
+
+    fegetenv is read-only. Use verified x86_64 fenv_t layouts: Darwin's fenv.h
+    has control/status, MXCSR, then eight reserved bytes (16 bytes); glibc's
+    sysdeps/x86/fpu/bits/fenv.h has 28 x87 bytes followed by MXCSR (32 bytes).
+    Unknown layouts decline reuse rather than risk a trapping sentinel operation.
+    """
 
     try:
-        # On Windows, CDLL(None) hands None to LoadLibrary, which takes a path.
-        reader = ctypes.CDLL(None).fegetround
-    except (AttributeError, OSError, TypeError):
+        if platform.machine().lower() not in {"x86_64", "amd64"}:
+            return None
+        if sys.platform == "darwin":
+            words, mxcsr_index = 4, 1
+        elif sys.platform.startswith("linux") and platform.libc_ver()[0] == "glibc":
+            words, mxcsr_index = 8, 7
+        else:
+            return None
+        environment_type = ctypes.c_uint32 * words
+        reader = ctypes.CDLL(None).fegetenv
+        reader.argtypes = (ctypes.POINTER(environment_type),)
+        reader.restype = ctypes.c_int
+    except Exception:
         return None
-    reader.argtypes = ()
-    reader.restype = ctypes.c_int
-    return reader
+
+    def masked() -> bool:
+        environment = environment_type()
+        if reader(ctypes.byref(environment)) != 0:
+            return False
+        # Check x87 and SSE independently: native code can unmask either unit.
+        return (
+            environment[0] & 0x3F == 0x3F
+            and environment[mxcsr_index] & 0x1F80 == 0x1F80
+        )
+
+    return masked
 
 
-def _floating_point_rounding_mode() -> int | None:
-    """Float arithmetic and Decimal-to-float conversion read hardware rounding."""
+def _floating_point_behavior() -> bytes | None:
+    """Observe signed rounding, subnormal output and subnormal input behavior.
 
-    reader = _floating_point_rounding_reader()
-    if reader is None:
+    Probe arithmetic at each call, rather than enumerating host registers. The
+    signed additions distinguish nearest, down, up and toward-zero rounding.
+    Normal operands produce an inexact subnormal to detect flush-to-zero; a
+    subnormal scaled to a normal detects denormals-are-zero independently.
+    Packed bits avoid float equality/hashing that can itself read those controls.
+    Unmasked traps or unreadable masks decline reuse before doing arithmetic.
+    """
+
+    try:
+        masked = _floating_point_exception_mask_reader()
+        if masked is None or not masked():
+            return None
+        one, delta, normal, three, subnormal, large = _FLOAT_BEHAVIOR_OPERANDS
+        return struct.pack(
+            "!dddd",
+            one + delta,
+            -one - delta,
+            normal / three,
+            subnormal * large,
+        )
+    except Exception:
         return None
-    mode = reader()
-    return mode if mode >= 0 else None
 
 
 # Values a memo may hand to several callers: none can be changed in place.
@@ -27206,13 +27268,12 @@ def _case_dependency_environment(
     allowed_names: set[str] | None = None,
     allow_bound_row_assertions: bool = False,
 ) -> dict[str, Any]:
-    """Evaluate an acyclic reached subset of local principal outputs."""
+    """Evaluate reached outputs, reusing only matching inputs and numeric behavior."""
 
     memo = _CASE_DEPENDENCY_ENVIRONMENT_MEMO.get()
-    float_rounding = _floating_point_rounding_mode() if memo is not None else None
-    # Without a readable rounding mode, the key can't tell modes apart, so
-    # evaluate fresh.
-    if memo is None or float_rounding is None:
+    float_behavior = _floating_point_behavior() if memo is not None else None
+    # An unavailable behavior signature cannot justify reuse; evaluate fresh.
+    if memo is None or float_behavior is None:
         return _evaluate_case_dependency_environment(
             principal_rules,
             case,
@@ -27230,7 +27291,7 @@ def _case_dependency_environment(
         allow_bound_row_assertions,
         _US_MANUAL_PROSE_SCOPE.get(),
         _decimal_context_settings(),
-        float_rounding,
+        float_behavior,
     )
     digest = _case_dependency_environment_inputs_digest(
         principal_rules, case, formula_environment
