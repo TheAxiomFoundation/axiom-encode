@@ -93,16 +93,53 @@ jobs:
           BRANCH: ${{ steps.bump.outputs.branch }}
         run: |
           set -euo pipefail
-          # A newer main supersedes any bump pull request still open: this one
-          # covers every commit since the last bump, so close the older ones.
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # A bump pull request already in the merge queue stays there: closing
+          # it would restart its wait each time main moves. Its merge pushes to
+          # main and runs this workflow again, which bumps the commits after it.
+          # If the queue drops it instead, the next push to main or a manual run
+          # of this workflow opens a new one.
+          queued="$(gh api graphql \
+            -f owner="${GITHUB_REPOSITORY%%/*}" -f name="${GITHUB_REPOSITORY#*/}" \
+            -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { mergeQueue(branch: "main") { entries(first: 100) { nodes { pullRequest { headRefName } } } } } }' \
+            --jq '[.data.repository.mergeQueue.entries.nodes[]?.pullRequest.headRefName | select(startswith("automation/encoder-version-"))] | length')"
+          if [ "$queued" != "0" ]; then
+            echo "::notice::An encoder version bump pull request is in the merge queue; its merge runs this workflow again."
+            exit 0
+          fi
+          # A newer main supersedes any other bump pull request still open: this
+          # one covers every commit since the last bump, so close the older ones.
           gh pr list --repo "$GITHUB_REPOSITORY" --state open --json number,headRefName \
-            --jq '.[] | select(.headRefName | startswith("automation/encoder-version-")) | .number' |
-            while read -r number; do
-              gh pr close "$number" --repo "$GITHUB_REPOSITORY" --delete-branch \
-                --comment "Superseded by the encoder version bump for main at ${BASE_SHA}."
+            --jq '.[] | select(.headRefName | startswith("automation/encoder-version-")) | "\(.number) \(.headRefName)"' |
+            while read -r number head; do
+              if [ "$head" != "$BRANCH" ]; then
+                gh pr close "$number" --repo "$GITHUB_REPOSITORY" --delete-branch \
+                  --comment "Superseded by the encoder version bump for main at ${BASE_SHA}."
+              fi
             done
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${BRANCH}"
-          url="$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
-            --title "Bump encoder version to ${VERSION}" \
-            --body "Automated encoder version bump for main at ${BASE_SHA} (axiom-encode#2048). It changes only the version files and CHANGELOG.md. Re-encodes refuse main until this merges.")"
-          gh pr merge "$url" --auto --merge
+          # A rerun for the same main commit finds the branch that an earlier
+          # run pushed (for example when that run then failed to open the pull
+          # request). Reuse it only when it is exactly this bump: one commit on
+          # main with the same tree. Anything else stops here, unchanged.
+          existing="$(git ls-remote --heads "$remote" "refs/heads/${BRANCH}" | cut -f1)"
+          if [ -z "$existing" ]; then
+            git push "$remote" "HEAD:refs/heads/${BRANCH}"
+          else
+            git fetch --no-tags -q "$remote" "refs/heads/${BRANCH}"
+            if [ "$(git rev-parse "${existing}^@")" != "$BASE_SHA" ] ||
+              [ "$(git rev-parse "${existing}^{tree}")" != "$(git rev-parse 'HEAD^{tree}')" ]; then
+              echo "::error::${BRANCH} already exists and is not this bump; inspect it before a rerun."
+              exit 1
+            fi
+            echo "Reusing ${BRANCH} at ${existing}."
+          fi
+          url="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --head "$BRANCH" \
+            --json url --jq '.[0].url // empty')"
+          if [ -z "$url" ]; then
+            url="$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+              --title "Bump encoder version to ${VERSION}" \
+              --body "Automated encoder version bump for main at ${BASE_SHA} (axiom-encode#2048). It changes only the version files and CHANGELOG.md. Re-encodes refuse main until this merges.")"
+          fi
+          if [ "$(gh pr view "$url" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '.autoMergeRequest == null')" = "true" ]; then
+            gh pr merge "$url" --repo "$GITHUB_REPOSITORY" --auto --merge
+          fi
