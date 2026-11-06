@@ -37850,6 +37850,66 @@ source: changes at age: 65 # source: note
             "source": "changes at age: 65",
         }
 
+    def test_generated_yaml_source_evidence_repair_quotes_trailing_colon(
+        self, tmp_path
+    ):
+        # Local supervised Codex attempt ec5b1785 (Arizona FAA5 service
+        # animals, 2026-11-06) lost an attempt to this unquoted excerpt.
+        generated = tmp_path / "generated.yaml"
+        original = """rules:
+  - metadata:
+      proof:
+        atoms:
+          - source:
+              excerpt: A service animal is one of the following:
+          - source:
+              excerpt: changes at age: 65
+"""
+        generated.write_text(original)
+        with pytest.raises(yaml.scanner.ScannerError):
+            yaml.safe_load(original)
+
+        repaired = _quote_unquoted_source_scalars(rules_file=generated)
+
+        assert repaired == ["excerpt:6", "excerpt:8"]
+        atoms = yaml.safe_load(generated.read_text())["rules"][0]["metadata"]["proof"][
+            "atoms"
+        ]
+        assert [atom["source"]["excerpt"] for atom in atoms] == [
+            "A service animal is one of the following:",
+            "changes at age: 65",
+        ]
+        assert (
+            "              excerpt: 'A service animal is one of the following:'\n"
+            in generated.read_text()
+        )
+
+    @pytest.mark.parametrize(
+        "original",
+        [
+            # Already quoted or valid: nothing to repair.
+            "excerpt: 'A service animal is one of the following:'\n",
+            'source: "one of the following:"\n',
+            # A colon at the end of a non-source key stays a refusal.
+            "rules:\n  - description: one of the following:\n",
+            "rules:\n  - formula: x if a: 1\n",
+            # The trailing-colon excerpt is quotable, but the next parse error
+            # is unrelated, so the whole document is left unchanged.
+            "excerpt: one of the following:\nbad: [unclosed\n",
+            "excerpt: one of the following:\nother: one of the following:\n",
+        ],
+    )
+    def test_generated_yaml_source_evidence_repair_trailing_colon_guards(
+        self, tmp_path, original
+    ):
+        generated = tmp_path / "generated.yaml"
+        generated.write_text(original)
+
+        repaired = _quote_unquoted_source_scalars(rules_file=generated)
+
+        assert repaired == []
+        assert generated.read_text() == original
+
     def test_encode_apply_blocks_non_validation_generation_failure(
         self, capsys, tmp_path
     ):
