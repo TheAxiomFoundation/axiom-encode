@@ -252,7 +252,7 @@ def test_a_pin_with_neither_locks_nor_provisions_fails(tmp_path):
 def _stub_python(directory: Path, record: Path) -> None:
     """A stub `python` that appends each argument it receives to `record`, NUL-terminated."""
     script = directory / "python"
-    script.write_text(f"#!/bin/sh\nprintf '%s\\0' \"$@\" >> \"{record}\"\n")
+    script.write_text(f'#!/bin/sh\nprintf \'%s\\0\' "$@" >> "{record}"\n')
     script.chmod(0o755)
 
 
@@ -267,7 +267,9 @@ def test_the_preflight_records_the_message_it_prints(tmp_path):
     stub.mkdir()
     record = tmp_path / "python-args"
     _stub_python(stub, record)
-    result = _run(step["run"], {"PATH": f"{stub}:/usr/bin:/bin", "HAS_CORPUS_READ": "false"})
+    result = _run(
+        step["run"], {"PATH": f"{stub}:/usr/bin:/bin", "HAS_CORPUS_READ": "false"}
+    )
     assert result.returncode == 1
     args = _recorded_args(record)
     assert args[:3] == [
