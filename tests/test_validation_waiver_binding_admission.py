@@ -1,3 +1,4 @@
+# ruff: noqa: F811 - tests take the imported frozen_repo fixture
 """Signed-manifest admission with per-file waiver bindings (#2092).
 
 These tests run the real manifest verifier. They show that a waiver change
@@ -19,10 +20,10 @@ import pytest
 from axiom_encode import cli
 from axiom_encode import validation_waivers as waivers_module
 from tests.test_cli import TEST_PINNED_ENCODER_IDENTITY
-from tests.test_retired_apply_paths import (  # noqa: F401 - pytest fixture
+from tests.test_retired_apply_paths import (
     _commit,
     _set_producer_identity,
-    frozen_repo,
+    frozen_repo,  # noqa: F401 - fixture
 )
 
 OTHER = "us-ma/regulations/106-cmr/1.yaml"
