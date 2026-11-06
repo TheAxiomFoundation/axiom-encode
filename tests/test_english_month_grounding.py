@@ -444,6 +444,13 @@ def test_may_the_modal_verb_grounds_nothing(text):
         "FROM MAY THROUGH DECEMBER 1990 THE BOARD SHALL",
         "1 May in each year\nThe Board shall publish",
         "1 May in each year the Board shall publish",
+        # A proper noun after the date, where a lowercase word before "May" says
+        # the text runs in sentence case.
+        "not later than 1 May in each year Parliament shall receive the report",
+        "the period May through September of each year Congress appropriates",
+        # A capital row that opens its line and fills it, with text on the next line.
+        "MAY THROUGH DECEMBER 1940\nPERSONS BORN LATER APPLY",
+        "1 MAY IN EACH YEAR\nTHE BOARD SHALL PUBLISH",
         "(a) 1 May in each year\n(b) 1 June in each year",
         # At the end of a list.
         "from September through May in each year",
