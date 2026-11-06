@@ -247,3 +247,51 @@ def test_a_pin_with_neither_locks_nor_provisions_fails(tmp_path):
     assert result.returncode == 1
     assert "neither locks nor provisions" in result.stderr
     assert not marker.exists()
+
+
+def _stub_python(directory: Path, record: Path) -> None:
+    """A stub `python` that appends each argument it receives to `record`, NUL-terminated."""
+    script = directory / "python"
+    script.write_text(f"#!/bin/sh\nprintf '%s\\0' \"$@\" >> \"{record}\"\n")
+    script.chmod(0o755)
+
+
+def _recorded_args(record: Path) -> list[str]:
+    return record.read_text().split("\0")[:-1]
+
+
+def test_the_preflight_records_the_message_it_prints(tmp_path):
+    # One variable feeds both the log line and the typed issue, so they can't drift.
+    _, _, step = _step(_workflow(), PREFLIGHT_STEP)
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    record = tmp_path / "python-args"
+    _stub_python(stub, record)
+    result = _run(step["run"], {"PATH": f"{stub}:/usr/bin:/bin", "HAS_CORPUS_READ": "false"})
+    assert result.returncode == 1
+    args = _recorded_args(record)
+    assert args[:3] == [
+        "axiom-encode/scripts/infra_issue.py",
+        "record",
+        "infra:require-corpus-read-credentials",
+    ]
+    assert len(args) == 4
+    assert result.stderr == args[3] + "\n"
+
+
+def test_the_fetch_refusal_records_the_message_it_prints(tmp_path):
+    _, _, step = _step(_workflow(), FETCH_STEP)
+    release, marker, path = _fetch_sandbox(tmp_path, locks=True, provisions=False)
+    record = tmp_path / "python-args"
+    _stub_python(tmp_path / "bin", record)
+    result = _run_fetch(step, tmp_path, release, path, {})
+    assert result.returncode == 1
+    args = _recorded_args(record)
+    assert args[:3] == [
+        "axiom-encode/scripts/infra_issue.py",
+        "record",
+        "infra:fetch-pinned-corpus-provision-objects",
+    ]
+    assert len(args) == 4
+    assert result.stderr == args[3] + "\n"
+    assert not marker.exists()
