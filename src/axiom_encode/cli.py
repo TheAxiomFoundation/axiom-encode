@@ -63761,7 +63761,12 @@ def _write_applied_encoding_manifest(
     payload[VALIDATION_WAIVER_BINDINGS_FIELD] = (
         _build_applied_manifest_file_waiver_bindings(
             policy_repo_path,
-            covered_paths={str(item["path"]) for item in payload["applied_files"]},
+            # Admission checks live files only; deleted entries carry no waiver.
+            covered_paths={
+                str(item["path"])
+                for item in payload["applied_files"]
+                if item.get("deleted") is not True
+            },
             validated_waiver_set_sha256=(
                 validated_policy.get("validation_waiver_set_sha256")
                 if isinstance(validated_policy, dict)
