@@ -27287,10 +27287,11 @@ def _case_asserted_dependency_environment(
 # checks, each time with the same rule, case and constant mappings.
 # `_case_dependency_environment_memo_scope` holds a memo for one analysis so a
 # repeat can reuse an earlier result. The memo partitions entries by the
-# ambient Decimal settings and observed native float behavior (signed rounding,
-# subnormal results and subnormal inputs). Native traps must be masked before
-# probing. Every hit still needs the same input objects and a matching digest of
-# their contents; fingerprint failures or an unsafe/unreadable probe run fresh.
+# ambient Decimal settings, observed native float behavior (signed rounding,
+# subnormal results and subnormal inputs) and the Python frames still available.
+# Native traps must be masked before probing. Every hit still needs the same
+# input objects and a matching digest of their contents; fingerprint failures or
+# an unsafe/unreadable probe run fresh.
 _CASE_DEPENDENCY_ENVIRONMENT_MEMO: contextvars.ContextVar[
     dict[tuple[Any, ...], tuple[tuple[Any, ...], bytes, dict[str, Any]]] | None
 ] = contextvars.ContextVar("_CASE_DEPENDENCY_ENVIRONMENT_MEMO", default=None)
@@ -27357,6 +27358,7 @@ _FLOAT_BEHAVIOR_OPERANDS = struct.unpack(
         "4008000000000000 0000000000000001 7fe0000000000000"
     ),
 )
+_FLOAT_BEHAVIOR_PACK = struct.Struct("!dddd").pack
 
 
 @functools.lru_cache(maxsize=1)
@@ -27414,8 +27416,7 @@ def _floating_point_behavior() -> bytes | None:
         if masked is None or not masked():
             return None
         one, delta, normal, three, subnormal, large = _FLOAT_BEHAVIOR_OPERANDS
-        return struct.pack(
-            "!dddd",
+        return _FLOAT_BEHAVIOR_PACK(
             one + delta,
             -one - delta,
             normal / three,
@@ -27423,6 +27424,21 @@ def _floating_point_behavior() -> bytes | None:
         )
     except Exception:
         return None
+
+
+def _available_stack_frames() -> int:
+    """Count the Python frames a recursive parser can still open from here.
+
+    `_formula_leaf_has_executable_syntax` turns RecursionError into an ordinary
+    False, so a deeply nested formula's result can depend on the remaining stack.
+    """
+
+    depth = 0
+    frame: Any = sys._getframe()
+    while frame is not None:
+        depth += 1
+        frame = frame.f_back
+    return sys.getrecursionlimit() - depth
 
 
 # Values a memo may hand to several callers: none can be changed in place.
@@ -27446,7 +27462,7 @@ def _case_dependency_environment(
     allowed_names: set[str] | None = None,
     allow_bound_row_assertions: bool = False,
 ) -> dict[str, Any]:
-    """Evaluate reached outputs, reusing only matching inputs and numeric behavior."""
+    """Evaluate reached outputs, reusing only matching inputs, numbers and stack."""
 
     memo = _CASE_DEPENDENCY_ENVIRONMENT_MEMO.get()
     float_behavior = _floating_point_behavior() if memo is not None else None
@@ -27470,6 +27486,7 @@ def _case_dependency_environment(
         _US_MANUAL_PROSE_SCOPE.get(),
         _decimal_context_settings(),
         float_behavior,
+        _available_stack_frames(),
     )
     digest = _case_dependency_environment_inputs_digest(
         principal_rules, case, formula_environment

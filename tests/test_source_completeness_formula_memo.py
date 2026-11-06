@@ -529,12 +529,127 @@ def test_memo_matches_fresh_evaluation_across_hardware_rounding_sequences(
             assert _typed(memoized) == _typed(direct)
 
 
+def _at_extra_depth(extra, function):
+    """Call `function` with `extra` more Python frames on the stack."""
+
+    return _at_extra_depth(extra - 1, function) if extra else function()
+
+
+def _memoized_at(extra, rules, case, environment):
+    return _at_extra_depth(
+        extra,
+        lambda: sc._case_dependency_environment(
+            rules, case, formula_environment=environment, require_asserted_value=False
+        ),
+    )
+
+
+def _direct_at(extra, rules, case, environment):
+    # The extra frame stands in for `_case_dependency_environment`, so both paths
+    # start the evaluation with the same frames available.
+    return _at_extra_depth(
+        extra + 1,
+        lambda: sc._evaluate_case_dependency_environment(
+            rules, case, formula_environment=environment, require_asserted_value=False
+        ),
+    )
+
+
+def _nested_rules(levels):
+    return {"out": _rule("out", "(" * levels + "1" + ")" * levels)}
+
+
+def _deepest_nesting_that_evaluates():
+    """Search for the nesting at this stack depth where parsing starts to fail."""
+
+    case, environment = {"input": {}, "output": {}}, {}
+    evaluates, fails = 1, 2_000
+    while fails - evaluates > 1:
+        levels = (evaluates + fails) // 2
+        if _direct_at(0, _nested_rules(levels), case, environment) == {"out": 1}:
+            evaluates = levels
+        else:
+            fails = levels
+    return evaluates
+
+
+@pytest.mark.parametrize(
+    "extras", [(0, 60, 0), (60, 0, 60)], ids=["shallow_first", "deep_first"]
+)
+def test_memo_keeps_results_apart_across_stack_depths(extras):
+    rules = _nested_rules(_deepest_nesting_that_evaluates())
+    case, environment = {"input": {}, "output": {}}, {}
+    expected = {0: {"out": 1}, 60: {}}
+
+    with sc._case_dependency_environment_memo_scope():
+        for extra in extras:
+            assert _memoized_at(extra, rules, case, environment) == expected[extra]
+
+
+def test_memo_reuses_a_result_only_at_the_same_stack_depth(monkeypatch):
+    calls = _count_evaluations(monkeypatch)
+    rules, case, environment = _rules(), _case(), {}
+
+    with sc._case_dependency_environment_memo_scope():
+        first = _memoized_at(0, rules, case, environment)
+        assert _memoized_at(0, rules, case, environment) == first
+        assert len(calls) == 1
+        assert _memoized_at(5, rules, case, environment) == first
+        assert len(calls) == 2
+        assert _memoized_at(0, rules, case, environment) == first
+        assert _memoized_at(5, rules, case, environment) == first
+        assert len(calls) == 2
+
+
+def test_memo_keeps_results_apart_across_recursion_limits():
+    rules = _nested_rules(_deepest_nesting_that_evaluates() + 3)
+    case, environment = {"input": {}, "output": {}}, {}
+    limit = sys.getrecursionlimit()
+
+    with sc._case_dependency_environment_memo_scope():
+        assert _memoized_at(0, rules, case, environment) == {}
+        sys.setrecursionlimit(limit + 200)
+        try:
+            assert _memoized_at(0, rules, case, environment) == {"out": 1}
+        finally:
+            sys.setrecursionlimit(limit)
+        assert _memoized_at(0, rules, case, environment) == {}
+
+
+def test_available_stack_frames_follows_depth_and_limit():
+    here = sc._available_stack_frames()
+    limit = sys.getrecursionlimit()
+
+    assert _at_extra_depth(3, sc._available_stack_frames) == here - 4
+    sys.setrecursionlimit(limit + 10)
+    try:
+        assert sc._available_stack_frames() == here + 10
+    finally:
+        sys.setrecursionlimit(limit)
+
+
+@settings(max_examples=50, deadline=None)
+@given(
+    extras=st.lists(st.sampled_from((0, 1, 5, 10, 30, 60)), min_size=2, max_size=8),
+    margin=st.integers(min_value=-2, max_value=8),
+)
+def test_memo_matches_direct_evaluation_at_every_stack_depth(extras, margin):
+    rules = _nested_rules(max(1, _deepest_nesting_that_evaluates() - margin))
+    case, environment = {"input": {}, "output": {}}, {}
+
+    with sc._case_dependency_environment_memo_scope():
+        for extra in extras:
+            memoized = _memoized_at(extra, rules, case, environment)
+            direct = _direct_at(extra, rules, case, environment)
+            assert _typed(memoized) == _typed(direct)
+
+
 @pytest.mark.parametrize("error", (ValueError, RuntimeError))
 def test_memo_evaluates_fresh_when_float_behavior_is_unknown(monkeypatch, error):
     def unavailable(*args):
         raise error("float behavior cannot be packed")
 
-    monkeypatch.setattr(sc.struct, "pack", unavailable)
+    monkeypatch.setattr(sc, "_FLOAT_BEHAVIOR_PACK", unavailable)
     calls = _count_evaluations(monkeypatch)
     rules, case, environment = _rules(), _case(), {}
     with sc._case_dependency_environment_memo_scope():
