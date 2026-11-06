@@ -138,6 +138,16 @@ def _source_reading(token: str, after: str, negator: bool) -> bool:
 
 AUDITED_WORDS = UNCONDITIONAL_NEGATORS | EXCLUSIONS.keys() | CONTEXT_DEPENDENT
 
+# This statutory noun remains an intended-stricter source reading. It begins
+# a labelled clause and precedes a filing relative, but has no guarded link.
+# Keep the manual semantic audit in the generator as well as its fixture.
+REPORTS_FILING_RELATIVE = "דוחות שיגישו החברה השקופה ובעלי מניותיה"
+REPORTS_FILING_RELATIVE_EXPLANATION = (
+    "Intended stricter in Round 24: clause-initial reports before a filing relative "
+    "reads as rejection. One snapshot occurrence, zero before a guarded link; "
+    "no dependency entry or instrument sense moves."
+)
+
 
 def statutory_text(text: str) -> str:
     """Remove vocalization independently, before splitting the statute's words.
@@ -287,8 +297,13 @@ def generate(snapshot: Path) -> dict:
     if digest != SNAPSHOT_SHA256:
         raise ValueError(f"Unexpected snapshot SHA256: {digest}")
     rows = [json.loads(line) for line in data.splitlines()]
+    reports_filing_relative_count = sum(
+        statutory_text(row.get("body") or "").count(REPORTS_FILING_RELATIVE)
+        for row in rows
+    )
     counts: Counter[str] = Counter()
     contexts: dict[str, list[dict]] = defaultdict(list)
+    explanation_counts: dict[str, Counter[str]] = defaultdict(Counter)
     for row in rows:
         text = statutory_text(row.get("body") or "")
         for match in WORD.finditer(text):
@@ -315,24 +330,34 @@ def generate(snapshot: Path) -> dict:
                 )
             if before and before[-1].isdigit():
                 source_negative = negative
-            if (
-                sum(
-                    context["explanation"] == explanation for context in contexts[token]
-                )
-                >= 3
-            ):
+            # Select the original three examples before applying any audited
+            # label; changing a label must not select an extra statutory row.
+            if explanation_counts[token][explanation] >= 3:
                 continue
-            contexts[token].append(
-                {
-                    "citation": row["citation_path"],
-                    "text": text[low:high],
-                    "start": match.start() - low,
-                    "end": match.end() - low,
-                    "negator": negative,
-                    "source_negator": source_negative,
-                    "explanation": explanation,
-                }
-            )
+            explanation_counts[token][explanation] += 1
+            context = {
+                "citation": row["citation_path"],
+                "text": text[low:high],
+                "start": match.start() - low,
+                "end": match.end() - low,
+                "negator": negative,
+                "source_negator": source_negative,
+                "explanation": explanation,
+            }
+            if (
+                token == "דוחות"
+                and row["citation_path"]
+                == "il/statute/income-tax-ordinance/section-64a1"
+                and after.startswith(REPORTS_FILING_RELATIVE.removeprefix(token))
+            ):
+                context.update(
+                    source_negator=True,
+                    explanation=REPORTS_FILING_RELATIVE_EXPLANATION,
+                    intended_stricter=True,
+                    snapshot_occurrence_count=reports_filing_relative_count,
+                    guarded_snapshot_count=0,
+                )
+            contexts[token].append(context)
     return {
         "snapshot": {
             "filename": snapshot.name,

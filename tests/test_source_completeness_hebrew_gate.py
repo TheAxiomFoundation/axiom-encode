@@ -16,8 +16,13 @@ module checks over the AST of `source_completeness.py` that
 - the gate's context variable is set only in `_hebrew_reading`, and only the
   listed doors open it;
 - a cached function whose result depends on the gate keys its cache on it.
-- dynamic namespace access, escaped Hebrew helpers, delayed reads and aliased
-  ContextVar setters cannot hide a read from those checks.
+- the named dynamic namespace routes, direct imported-reader escapes and
+  delayed calls below are rejected; imported Hebrew module dunder access and
+  module-level bindings of Hebrew-call results are rejected too.
+
+This is a syntactic regression guard, not a general Python data-flow proof.
+Other reflection, package indirection, alias, door and cache routes identified
+by r13 N2 remain outside it; Round 25's static audit records their absence.
 
 A new unconditioned read fails here; so does each mutant below, which removes
 one gate from the real module.
@@ -391,7 +396,7 @@ class GateChecker:
         return isinstance(self.parents.get(attribute), (ast.BinOp, ast.FormattedValue))
 
     def restricted_access_violations(self) -> list[str]:
-        """Reject reflection, escaped imported readers and ContextVar aliases."""
+        """Reject the listed namespace routes and direct imported-reader escapes."""
 
         found = []
         forbidden = {"globals", "vars", "locals", "__import__"}
@@ -449,6 +454,20 @@ class GateChecker:
                 ):
                     expression = self._attribute_chain(node)
                     is_module = node.id in self.imported_hebrew_modules
+                    attribute = expression
+                    while isinstance(attribute, ast.Attribute):
+                        if (
+                            is_module
+                            and attribute.attr.startswith("__")
+                            and attribute.attr.endswith("__")
+                        ):
+                            found.append(
+                                self._violation(
+                                    attribute,
+                                    "Hebrew module dunder access is forbidden",
+                                )
+                            )
+                        attribute = attribute.value
                     if not (
                         (expression is not node or not is_module)
                         and self._called_directly(expression)
@@ -521,6 +540,33 @@ class GateChecker:
             return expression.id
         return None
 
+    def module_bound_call_violations(self) -> list[str]:
+        """A module-level call result must not retain an imported Hebrew reader."""
+
+        found = []
+        for call in ast.walk(self.tree):
+            if not isinstance(call, ast.Call):
+                continue
+            name = self._hebrew_call_name(call)
+            if name is None or self._enclosing_function(call) is not None:
+                continue
+            expression = call.func
+            while isinstance(expression, ast.Attribute):
+                expression = expression.value
+            if isinstance(expression, ast.Name) and self._pattern_construction(
+                expression
+            ):
+                continue
+            statement: ast.AST = call
+            while statement in self.parents:
+                statement = self.parents[statement]
+                if isinstance(statement, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+                    found.append(
+                        self._violation(call, f"module-level bound Hebrew call: {name}")
+                    )
+                    break
+        return found
+
     def _allowed_delayed_call(self, node: ast.AST, call: ast.Call, name: str) -> bool:
         function = self._enclosing_function(node)
         key = (function.name if function else "", type(node).__name__, name)
@@ -569,7 +615,11 @@ class GateChecker:
         return found
 
     def violations(self) -> list[str]:
-        found = self.restricted_access_violations() + self.delayed_read_violations()
+        found = (
+            self.restricted_access_violations()
+            + self.module_bound_call_violations()
+            + self.delayed_read_violations()
+        )
         for node, name in self.hebrew_reads():
             function = self._enclosing_function(node)
             if function is None:
@@ -876,6 +926,32 @@ def test_removing_a_gate_fails_the_check(function):
     assert any(v.startswith(f"{owner} ") for v in violations), violations
 
 
+def test_r20_module_level_dunder_tuple_binding_fails_the_check():
+    source = SOURCE.read_text()
+    imported = "from axiom_encode.harness import hebrew_source_text\n"
+    assert source.count(imported) == 1
+    source = source.replace(
+        imported,
+        imported
+        + '_REVIEW_STRIP, _REVIEW_UNUSED = hebrew_source_text.__getattribute__("strip_leading_outline_chain"), None\n',
+        1,
+    )
+    anchor = (
+        '    """\n\n    hebrew_body = (\n'
+        "        hebrew_source_text.strip_leading_outline_chain(text)\n"
+    )
+    assert source.count(anchor) == 1
+    source = source.replace(
+        anchor,
+        '    """\n\n    _REVIEW_STRIP(text)\n    hebrew_body = (\n'
+        "        hebrew_source_text.strip_leading_outline_chain(text)\n",
+        1,
+    )
+    violations = GateChecker(source).violations()
+    assert any("Hebrew module dunder access" in issue for issue in violations)
+    assert any("module-level bound Hebrew call" in issue for issue in violations)
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -938,10 +1014,31 @@ def test_a_lexical_gate_does_not_authorize_escaped_or_delayed_reads(body):
         "READER = hebrew_source_text.fold_marks\n",
         "class Reader:\n    module = hebrew_source_text\n",
         "def f(text, reader=hebrew_source_text.fold_marks):\n    return reader(text)\n",
+        'VALUE = hebrew_source_text.fold_marks("text")\n',
+        'VALUE: str = hebrew_source_text.fold_marks("text")\n',
+        'VALUE, UNUSED = hebrew_source_text.fold_marks("text"), None\n',
+        'VALUE = [hebrew_source_text.fold_marks("text")]\n',
+        'VALUE = (BOUND := hebrew_source_text.fold_marks("text"))\n',
+        "from axiom_encode.harness import hebrew_source_text as reader\n"
+        'VALUE = reader.fold_marks("text")\n',
+        "from axiom_encode.harness.hebrew_source_text import fold_marks as fold\n"
+        'VALUE = fold("text")\n',
     ],
 )
 def test_module_construction_cannot_hide_a_reader_or_dynamic_namespace(source):
     assert GateChecker(source).violations()
+
+
+@pytest.mark.parametrize("attribute", ["__getattribute__", "__dict__", "__class__"])
+def test_a_lexical_gate_does_not_authorize_hebrew_module_dunder_access(attribute):
+    source = (
+        "def f(text):\n    if _hebrew_script():\n"
+        f"        return hebrew_source_text.{attribute}(text)\n"
+    )
+    assert any(
+        "Hebrew module dunder access" in issue
+        for issue in GateChecker(source).violations()
+    )
 
 
 def test_a_named_eager_generator_exception_cannot_cover_a_delayed_element():
