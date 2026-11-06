@@ -13,6 +13,7 @@ from axiom_encode.prepare_signed_backfill import (
     split_atomic_source_input,
     validate_fresh_primary_test_target,
 )
+from tests.environment_assertions import Names
 
 ROOT = Path(__file__).resolve().parents[1]
 CITATION = "ca/policy/example/benefit"
@@ -252,7 +253,7 @@ def test_actual_three_stage_routing_preserves_contract_and_modes(
     env["atomic_source_payload"] = json.dumps(payload)
     command += '\nprintf "%s\\n%s\\n" "$canonical_refresh_primary_required_test_cases_json" "$primary_required_test_cases_json"\n'
     result = subprocess.run(
-        ["bash", "-eu", "-c", command], env=env, text=True, capture_output=True
+        ["bash", "-eu", "-c", command], env=Names(env), text=True, capture_output=True
     )
     prior_modes = {
         "canonical_refresh_bundle",

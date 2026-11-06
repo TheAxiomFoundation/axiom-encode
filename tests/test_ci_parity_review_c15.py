@@ -16,6 +16,7 @@ from hypothesis import strategies as st
 
 from axiom_encode import ci_parity
 from axiom_encode.engine_binding import engine_binding_receipt_path
+from tests.environment_assertions import Names, hides_environment
 
 _REAL_RUN = subprocess.run
 _REAL_WHICH = shutil.which
@@ -30,21 +31,24 @@ _FILES = {
 }
 
 
+@hides_environment
 def _git(repo: Path, *arguments: str, **kwargs: Any) -> subprocess.CompletedProcess:
     return _REAL_RUN(
         ["git", "-C", str(repo), *arguments],
-        env={
-            **{
-                name: value
-                for name, value in os.environ.items()
-                if not name.startswith("GIT_")
-            },
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_NO_REPLACE_OBJECTS": "1",
-            "LC_ALL": "C",
-            "TZ": "UTC",
-        },
+        env=Names(
+            {
+                **{
+                    name: value
+                    for name, value in os.environ.items()
+                    if not name.startswith("GIT_")
+                },
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_NO_REPLACE_OBJECTS": "1",
+                "LC_ALL": "C",
+                "TZ": "UTC",
+            }
+        ),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=True,
@@ -167,6 +171,7 @@ class _Build:
                 return None if rustup is None else "/mock/rustup"
             return _REAL_WHICH(name, *args, **kwargs)
 
+        @hides_environment
         def child(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
             name = Path(command[0]).name
             if name == "git":

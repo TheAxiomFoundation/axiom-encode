@@ -45,6 +45,7 @@ from axiom_encode.harness.validator_pipeline import (
     numeric_value_is_grounded,
 )
 from axiom_encode.retry_feedback import bounded_validation_retry_feedback_item
+from tests.environment_assertions import Names
 
 REPO = Path(__file__).parents[1]
 SRC = REPO / "src" / "axiom_encode"
@@ -663,7 +664,7 @@ def test_infra_issue_script_emits_the_envelope(tmp_path):
         ],
         capture_output=True,
         text=True,
-        env=env,
+        env=Names(env),
     )
     assert completed.returncode == 0
     assert completed.stderr == ""

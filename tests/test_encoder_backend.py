@@ -30,6 +30,11 @@ from axiom_encode.prompts.encoder import (
     _TESTS_PROTOCOL,
     _assemble,
 )
+from tests.environment_assertions import (
+    environment_variable,
+    hides_environment,
+    raising,
+)
 
 
 def test_assembled_prompt_has_no_duplicated_or_glued_blocks():
@@ -320,8 +325,7 @@ class TestAgentSDKBackend:
             # Remove API key from env
             import os
 
-            if "ANTHROPIC_API_KEY" in os.environ:
-                del os.environ["ANTHROPIC_API_KEY"]
+            os.environ.pop("ANTHROPIC_API_KEY", None)
 
             with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
                 AgentSDKBackend(api_key=None)
@@ -366,6 +370,7 @@ class TestAgentSDKBackend:
                 self.messages.stream = self._stream
                 clients.append(self)
 
+            @hides_environment
             def _stream(self, **kwargs):
                 calls.append(kwargs)
                 if stream_error is not None:
@@ -1036,7 +1041,7 @@ class TestClaudeCodeBackendAdditional:
         backend = ClaudeCodeBackend()
 
         with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = Exception("unexpected error")
+            mock_run.side_effect = raising(Exception("unexpected error"))
 
             scores = backend.predict("26 USC 1", "Statute text")
             assert scores.confidence == 0.3
@@ -1064,7 +1069,9 @@ class TestClaudeCodeBackendAdditional:
         backend = ClaudeCodeBackend()
 
         with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = subprocess.TimeoutExpired(cmd="claude", timeout=300)
+            mock_run.side_effect = raising(
+                subprocess.TimeoutExpired(cmd="claude", timeout=300)
+            )
 
             output, code = backend._run_claude_code("test", timeout=300)
             assert "Timeout" in output
@@ -1075,7 +1082,7 @@ class TestClaudeCodeBackendAdditional:
         backend = ClaudeCodeBackend()
 
         with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = FileNotFoundError()
+            mock_run.side_effect = raising(FileNotFoundError())
 
             output, code = backend._run_claude_code("test")
             assert "not found" in output
@@ -1086,7 +1093,7 @@ class TestClaudeCodeBackendAdditional:
         backend = ClaudeCodeBackend()
 
         with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = OSError("Permission denied")
+            mock_run.side_effect = raising(OSError("Permission denied"))
 
             output, code = backend._run_claude_code("test")
             assert "Error" in output
@@ -1349,7 +1356,9 @@ class TestCodexCLIBackend:
         monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_RUNTIME", "1")
         monkeypatch.setenv("CODEX_HOME", str(tmp_path / "runtime-home"))
         monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_CODEX_BIN", str(trusted))
-        monkeypatch.setenv("PATH", f"{decoy_dir}{os.pathsep}{os.environ['PATH']}")
+        monkeypatch.setenv(
+            "PATH", f"{decoy_dir}{os.pathsep}{environment_variable('PATH')}"
+        )
 
         output, returncode = CodexCLIBackend()._run_codex_exec(
             "prompt", "gpt-test", 10, tmp_path

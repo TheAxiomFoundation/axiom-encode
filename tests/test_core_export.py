@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from axiom_encode import core_export, entrypoint, signing_broker
+from tests.environment_assertions import hides_environment
 from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 ROOT = "zz:policies/synthetic-candidate"
@@ -53,6 +54,7 @@ def _rejected(capsys, candidate: Path, output: Path, *modules, extra=()) -> dict
     return error
 
 
+@hides_environment
 def _isolated_python(tmp_path: Path, script: str, *args: str, env=None):
     source = Path(__file__).resolve().parents[1] / "src"
     return subprocess.run(

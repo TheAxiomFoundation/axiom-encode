@@ -23,6 +23,7 @@ from axiom_encode.toolchain import (
     local_corpus_release_verification,
     local_verification_active,
 )
+from tests.environment_assertions import Names, hides_environment
 from tests.release_object_fixtures import TEST_RELEASE_PUBLIC_KEY
 from tests.test_cli import _bind_test_corpus_release
 
@@ -106,9 +107,28 @@ def _child_environment(output: str) -> dict[str, str]:
     return environment
 
 
+def _without_values(output: str) -> str:
+    """What a child printed, with the environment it printed cut to names.
+
+    From the first ``NAME=value`` line on, each such line keeps its name and
+    each other line, which may continue a value, its length alone.
+    """
+    kept = []
+    printing = False
+    for line in output.splitlines():
+        name, separator, _ = line.partition("=")
+        if separator and name.isidentifier():
+            printing = True
+            kept.append(name)
+        else:
+            kept.append(f"<{len(line)} characters>" if printing else line)
+    return "\n".join(kept)
+
+
 def _capture_runs(monkeypatch):
     calls = []
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
         calls.append((cmd, kwargs))
         return validator_pipeline._SubprocessRunResult(
@@ -138,6 +158,7 @@ def _set_protected_signal(monkeypatch, protect):
         monkeypatch.setenv("CI", "true")
 
 
+@hides_environment
 def _assert_local_environment_allowlist(env):
     account = pwd.getpwuid(os.getuid())
     assert env["HOME"] == account.pw_dir
@@ -249,14 +270,14 @@ def test_local_reviewer_child_process_keeps_only_the_allowlist(
 
     output, returncode = validator_pipeline.run_claude_code("review", cwd=tmp_path)
 
-    assert returncode == 0, output
+    assert returncode == 0, _without_values(output)
     child = _child_environment(output)
     _assert_local_environment_allowlist(child)
     child_path = child["PATH"].split(os.pathsep)
     assert str(interpreter.parent) in child_path
     assert str(launcher.parent) in child_path
-    for value in _AMBIENT_SECRETS.values():
-        assert value not in output
+    leaked = [value for value in _AMBIENT_SECRETS.values() if value in output]
+    assert leaked == []
 
 
 def _marked_interpreters(tmp_path):
@@ -273,6 +294,11 @@ def _marked_interpreters(tmp_path):
     return first, second
 
 
+def _markers(output: str) -> list[str]:
+    """The ``MARKER=`` lines in what a marked interpreter printed."""
+    return [line for line in output.splitlines() if line.startswith("MARKER=")]
+
+
 def test_relative_caller_path_entry_keeps_its_place(
     tmp_path, monkeypatch, local_context
 ):
@@ -287,8 +313,9 @@ def test_relative_caller_path_entry_keeps_its_place(
 
     output, returncode = validator_pipeline.run_claude_code("review", cwd=tmp_path)
 
-    assert returncode == 0, output
-    assert "MARKER=first" in output
+    assert returncode == 0, _without_values(output)
+    markers = _markers(output)
+    assert "MARKER=first" in markers
     child_path = _child_environment(output)["PATH"].split(os.pathsep)
     assert all(os.path.isabs(entry) for entry in child_path)
     assert child_path.index(os.path.join(os.getcwd(), first.name)) < (
@@ -316,8 +343,9 @@ def test_dot_dot_after_symlink_keeps_its_filesystem_meaning(
 
     output, returncode = validator_pipeline.run_claude_code("review", cwd=tmp_path)
 
-    assert returncode == 0, output
-    assert "MARKER=first" in output
+    assert returncode == 0, _without_values(output)
+    markers = _markers(output)
+    assert "MARKER=first" in markers
     assert entry in _child_environment(output)["PATH"].split(os.pathsep)
 
 
@@ -336,8 +364,9 @@ def test_shebang_option_operand_keeps_the_caller_interpreter(
 
     output, returncode = validator_pipeline.run_claude_code("review", cwd=tmp_path)
 
-    assert returncode == 0, output
-    assert "MARKER=first" in output
+    assert returncode == 0, _without_values(output)
+    markers = _markers(output)
+    assert "MARKER=first" in markers
 
 
 @pytest.mark.parametrize(
@@ -363,7 +392,7 @@ def test_no_verification_context_keeps_the_protected_environment(
     """Fail closed: without the verification-only context nothing changes."""
     claude = _fake_bin(tmp_path, "claude")
     monkeypatch.setenv("PATH", str(claude.parent))
-    expected_env = scrub_attestation_signing_keys()
+    expected_env = Names(scrub_attestation_signing_keys())
     calls = _capture_runs(monkeypatch)
 
     validator_pipeline.run_claude_code("review", cwd=tmp_path)
@@ -381,7 +410,7 @@ def test_protected_reviewer_environment_is_unchanged(
     claude = _fake_bin(tmp_path, "claude")
     monkeypatch.setenv("PATH", str(claude.parent))
     _set_protected_signal(monkeypatch, protect)
-    expected_env = scrub_attestation_signing_keys()
+    expected_env = Names(scrub_attestation_signing_keys())
     calls = _capture_runs(monkeypatch)
 
     validator_pipeline.run_claude_code("review", cwd=tmp_path)
@@ -491,7 +520,7 @@ def test_local_encode_entry_reaches_local_reviewer_environment(
     assert seen["local_verification_active"] is True
     assert tuple(seen["corpus_release"].public_key) == (TEST_RELEASE_PUBLIC_KEY,)
     output, returncode = seen["reviewer"]
-    assert returncode == 0, output
+    assert returncode == 0, _without_values(output)
     _assert_local_environment_allowlist(_child_environment(output))
     # The context ends with the command.
     assert local_verification_active() is False
@@ -522,7 +551,7 @@ def test_encode_under_broker_keeps_the_protected_reviewer_environment(
     claude = _fake_bin(tmp_path, "claude")
     monkeypatch.setenv("PATH", os.pathsep.join([str(claude.parent), "/usr/bin"]))
     calls = _capture_runs(monkeypatch)
-    expected_env = scrub_attestation_signing_keys()
+    expected_env = Names(scrub_attestation_signing_keys())
 
     seen = _run_encode_to_reviewer_probe(monkeypatch, _encode_argv(tmp_path), tmp_path)
 

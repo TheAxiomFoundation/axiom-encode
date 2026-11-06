@@ -13,6 +13,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from tests import process_limits
+from tests.environment_assertions import hides_environment
 
 
 @pytest.fixture
@@ -55,7 +56,9 @@ def make_child(monkeypatch):
             return "", ""
 
     child = Child()
-    monkeypatch.setattr(process_limits.subprocess, "Popen", lambda *_, **__: child)
+    monkeypatch.setattr(
+        process_limits.subprocess, "Popen", hides_environment(lambda *_, **__: child)
+    )
     return child
 
 
@@ -180,6 +183,7 @@ def test_timeout_does_not_drain_pipes_inherited_by_a_descendant(monkeypatch):
     original_popen = subprocess.Popen
 
     class ObservedChild(original_popen):
+        @hides_environment
         def __init__(self, *args, **kwargs):
             nonlocal child
             super().__init__(*args, **kwargs)

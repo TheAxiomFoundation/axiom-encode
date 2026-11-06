@@ -12,6 +12,7 @@ from axiom_encode.companion_entities import (
     declared_input_entities,
     flat_input_entity_id,
 )
+from tests.environment_assertions import hides_environment
 
 
 def _module(path: Path, *, inputs=(), imports=()) -> Path:
@@ -292,6 +293,7 @@ def test_transitive_bare_import_uses_declaring_jurisdiction(
     requests = []
     original_run = subprocess.run
 
+    @hides_environment
     def capture_run(command, **kwargs):
         if "run-compiled" not in command:
             return original_run(command, **kwargs)

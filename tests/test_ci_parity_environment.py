@@ -24,6 +24,12 @@ from axiom_encode import ci_parity
 from axiom_encode.ci_parity import GateSpec
 from axiom_encode.engine_binding import EnginePin, resolve_pinned_engine_binary
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+from tests.environment_assertions import (
+    Names,
+    changed_names,
+    environment_variable,
+    hides_environment,
+)
 
 PIN = "6f11be2655f79dd0a3b582db46525f58332ca120"
 ENGINE_PIN = "a" * 40
@@ -40,11 +46,13 @@ def _run(tmp_path: Path, *, mode: str = "changed", offline: bool = True):
         path.mkdir(exist_ok=True)
     subprocess.run(
         ["git", "init", "--quiet", "--template=", str(repo)],
-        env={
-            **os.environ,
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_NOSYSTEM": "1",
-        },
+        env=Names(
+            {
+                **os.environ,
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            }
+        ),
         check=True,
     )
     (paths["encode"] / "pyproject.toml").write_text(
@@ -109,6 +117,7 @@ def _committed_engine_fixture(monkeypatch: pytest.MonkeyPatch, engine: Path) -> 
 def _mock_engine_commands(monkeypatch: pytest.MonkeyPatch, cargo) -> None:
     actual_run = subprocess.run
 
+    @hides_environment
     def child(command, **kwargs):
         executable = Path(command[0]).name
         if executable == "git":
@@ -211,6 +220,7 @@ def test_pinned_classifier_reports_and_verifies_the_child_oracles_module(
     run_process = subprocess.run
     archive = _classifier_archive(shadow)
 
+    @hides_environment
     def run(arguments: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         if arguments[0] == "git":
             return subprocess.CompletedProcess(arguments, 0, archive)
@@ -352,6 +362,7 @@ def test_changed_classifier_reports_origin_without_contaminating_json(
         lambda *_, **__: (0, '{"items": []}\n', diagnostic),
     )
 
+    @hides_environment
     def filter_json(script, *, argv, **kwargs):
         assert json.loads(Path(argv[0]).read_text()) == {"items": []}
         return 0, "Changed PolicyEngine oracle coverage passed for 0 output(s).\n", ""
@@ -381,6 +392,7 @@ def test_engine_build_binds_fresh_debug_despite_stale_release(
     monkeypatch.setenv("GIT_DIR", "/foreign/.git")
     calls = []
 
+    @hides_environment
     def cargo(command, **kwargs):
         calls.append((command, kwargs))
         snapshot = Path(kwargs["cwd"])
@@ -440,6 +452,7 @@ def test_engine_build_fails_closed(
     run = _run(tmp_path)
     pin = _committed_engine_fixture(monkeypatch, run.paths["engine"])
 
+    @hides_environment
     def cargo(command, **kwargs):
         if failure == "unavailable":
             raise FileNotFoundError("cargo missing")
@@ -493,6 +506,7 @@ def test_debug_binding_is_independent_of_every_shadow_candidate(
             candidate.parent.mkdir(exist_ok=True, parents=True)
             candidate.write_bytes(payload)
 
+        @hides_environment
         def cargo(command, **kwargs):
             binary = _binary(
                 Path(kwargs["cwd"]) / "target" / "debug" / "axiom-rules-engine"
@@ -532,6 +546,7 @@ def test_engine_view_and_sibling_agree_with_shell_discovery(
     binary = _binary(run.paths["engine"] / "target" / "debug" / "axiom-rules-engine")
     _committed_engine_fixture(monkeypatch, run.paths["engine"])
 
+    @hides_environment
     def cargo(command, **kwargs):
         artifact = _binary(Path(kwargs["cwd"]) / "target" / "debug" / binary.name)
         return subprocess.CompletedProcess(
@@ -557,7 +572,7 @@ def test_engine_view_and_sibling_agree_with_shell_discovery(
     result = subprocess.run(
         [shell, "-c", "command -v axiom-rules-engine; axiom-rules-engine"],
         cwd=run.repo,
-        env=environment,
+        env=Names(environment),
         text=True,
         capture_output=True,
         check=True,
@@ -598,7 +613,7 @@ def test_run_ci_builds_debug_engine_once_before_gates(
         assert (
             run.paths["engine"] / "target" / "debug" / "axiom-rules-engine"
         ).is_file()
-        assert os.environ["PATH"].split(os.pathsep)[0] == str(
+        assert environment_variable("PATH").split(os.pathsep)[0] == str(
             run.paths["engine"] / "target" / "debug"
         )
         return harness.results
@@ -625,6 +640,7 @@ def _mock_uv(run, monkeypatch: pytest.MonkeyPatch, *, failure_at: int | None = N
     calls = []
     actual_run = subprocess.run
 
+    @hides_environment
     def uv(command, **kwargs):
         if command[0] == "git":
             return actual_run(command, **kwargs)
@@ -643,7 +659,9 @@ def _mock_uv(run, monkeypatch: pytest.MonkeyPatch, *, failure_at: int | None = N
     monkeypatch.setattr(
         ci_parity,
         "_python_build_of",
-        lambda python, environment: str(run.caller.inputs["python-version"]),
+        hides_environment(
+            lambda python, environment: str(run.caller.inputs["python-version"])
+        ),
     )
     return calls
 
@@ -670,6 +688,7 @@ def test_repository_venv_probe_failure_is_a_recorded_mismatch(
     run = _run(tmp_path, mode="changed", offline=False)
     _mock_uv(run, monkeypatch)
 
+    @hides_environment
     def unidentifiable(python, environment):
         raise ValueError(f"cannot identify interpreter {python}: garbage")
 
@@ -696,6 +715,7 @@ def test_python_build_probe_rejects_unparseable_output(
 def test_python_build_probe_timeout_is_a_value_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    @hides_environment
     def hang(command, **kwargs):
         assert kwargs["timeout"] == 60
         raise subprocess.TimeoutExpired(command, 60)
@@ -864,6 +884,7 @@ def test_repository_pytest_gate_uses_venv_and_ci_step_environment(
     calls = _mock_uv(run, monkeypatch)
     seen = {}
 
+    @hides_environment
     def pytest_process(command, cwd, *, environment):
         seen.update(command=command, cwd=cwd, env=environment)
         return 0, "1 passed\n"
@@ -949,10 +970,11 @@ def test_repository_environment_never_inherits_ambient_overrides(
         os.environ.update(ambient)
         if fetch_disabled(ambient):
             expected = {**expected, NO_FETCH_ENV: "1"}
-        assert (
-            ci_parity._repository_test_environment(run, interpreter="/venv/bin/python")
-            == expected
+        changed = changed_names(
+            expected,
+            ci_parity._repository_test_environment(run, interpreter="/venv/bin/python"),
         )
+        assert changed == []
 
 
 @given(
@@ -973,6 +995,7 @@ def test_explicit_audit_workers_are_invariant_under_local_cpu_and_jobs(
         supervised=True,
     )
 
+    @hides_environment
     def worker(command, **kwargs):
         seen.update(json.loads(kwargs["input"]))
         return subprocess.CompletedProcess(command, 0, b"", b"")
@@ -1002,7 +1025,7 @@ def test_waiver_gate_uses_ci_workers_in_process(
     result = ci_parity._gate_validation_waivers(run, _spec("validation_waivers"))
     assert result.status == "PASS", result.output
     assert seen == [4] * len(run.plan.matrix)
-    assert os.environ[ci_parity.WAIVER_AUDIT_WORKERS_ENV] == "1"
+    assert environment_variable(ci_parity.WAIVER_AUDIT_WORKERS_ENV) == "1"
 
 
 @pytest.mark.parametrize("zone,hour", [("Etc/GMT+12", 1), ("Etc/GMT-14", 23)])
@@ -1062,7 +1085,7 @@ def test_waiver_expiry_and_horizon_follow_utc_under_extreme_zones(
     monkeypatch.setattr(ci_parity, "execute_workflow_gates", gates)
     try:
         assert ci_parity.run_ci(harness.args()) == expected
-        assert os.environ["TZ"] == zone
+        assert environment_variable("TZ") == zone
         assert date.today() != instant.date()
         capsys.readouterr()
     finally:
@@ -1105,8 +1128,11 @@ def test_runner_locale_and_timezone_reach_every_execution_path(
     seen = []
 
     def probe():
-        seen.append({name: os.environ[name] for name in ("TZ", "LANG", "LC_ALL")})
+        seen.append(
+            {name: environment_variable(name) for name in ("TZ", "LANG", "LC_ALL")}
+        )
 
+    @hides_environment
     def child(command, **kwargs):
         seen.append({name: kwargs["env"][name] for name in ("TZ", "LANG", "LC_ALL")})
         return subprocess.CompletedProcess(command, 0, b"", b"")
@@ -1120,6 +1146,7 @@ def test_runner_locale_and_timezone_reach_every_execution_path(
                 ci_parity.CliInvocation(("validate",), cwd=run.repo), (), 1
             )
 
+        @hides_environment
         def pinned_child(command, **kwargs):
             if command[0] == "git":
                 return subprocess.CompletedProcess(
@@ -1156,8 +1183,8 @@ def test_runner_locale_and_timezone_reach_every_execution_path(
     try:
         assert ci_parity.run_ci(harness.args()) == 0
         assert seen == [{"TZ": "UTC", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}] * 6
-        assert os.environ["TZ"] == "Etc/GMT-14"
-        assert os.environ["LANG"] == os.environ["LC_ALL"] == "C"
+        assert environment_variable("TZ") == "Etc/GMT-14"
+        assert environment_variable("LANG") == environment_variable("LC_ALL") == "C"
         capsys.readouterr()
     finally:
         monkeypatch.undo()
@@ -1188,7 +1215,9 @@ def test_runner_clock_and_locale_are_invariant_and_restored(
     locale_module.setlocale(locale_module.LC_CTYPE, "C")
 
     def resolve(*_):
-        seen.update({name: os.environ[name] for name in ("TZ", "LANG", "LC_ALL")})
+        seen.update(
+            {name: environment_variable(name) for name in ("TZ", "LANG", "LC_ALL")}
+        )
         # In-process gates decode files as CI's C.UTF-8 runner does.
         seen["encoding"] = locale_module.getencoding().replace("-", "").upper()
         assert time.localtime(1797814800).tm_gmtoff == 0
@@ -1215,7 +1244,8 @@ def test_runner_clock_and_locale_are_invariant_and_restored(
                 "LC_ALL": "C.UTF-8",
                 "encoding": "UTF8",
             }
-            assert dict(os.environ) == ambient
+            changed = changed_names(ambient, os.environ)
+            assert changed == []
             assert locale_module.setlocale(locale_module.LC_CTYPE) == "C"
     finally:
         time.tzset()

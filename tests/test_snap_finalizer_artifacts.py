@@ -9,6 +9,10 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.environment_assertions import (
+    Names,
+    environment_variable,
+)
 from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 ROOT = Path(__file__).parents[1]
@@ -83,15 +87,17 @@ def _lookup(
     return subprocess.run(
         ["bash", "-c", "set -euo pipefail\n" + lookup + 'printf "%s" "$archive_url"'],
         cwd=ROOT,
-        env={
-            **os.environ,
-            "FIXTURE_ROOT": str(fixtures),
-            "GITHUB_REPOSITORY": "TheAxiomFoundation/axiom-encode",
-            "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
-            "RUNNER_TEMP": str(root),
-            "api_version": "2026-03-10",
-            "target": json.dumps(target),
-        },
+        env=Names(
+            {
+                **os.environ,
+                "FIXTURE_ROOT": str(fixtures),
+                "GITHUB_REPOSITORY": "TheAxiomFoundation/axiom-encode",
+                "PATH": str(binaries) + os.pathsep + environment_variable("PATH"),
+                "RUNNER_TEMP": str(root),
+                "api_version": "2026-03-10",
+                "target": json.dumps(target),
+            }
+        ),
         capture_output=True,
         text=True,
         timeout=HANG_TIMEOUT_SECONDS,
