@@ -1244,7 +1244,7 @@ def _add_encoder_producer_floor_argument(
 ) -> None:
     parser.add_argument(
         "--encoder-producer-floor",
-        type=_validated_encoder_producer_floor,
+        type=_encoder_producer_floor_argument_type,
         default=None,
         required=required,
         help=(
@@ -33162,6 +33162,13 @@ def _validated_encoder_producer_floor(value: object) -> str:
     if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40}", value) is None:
         raise ValueError("--encoder-producer-floor must be a full lowercase commit")
     return value
+
+
+def _encoder_producer_floor_argument_type(value: str) -> str:
+    try:
+        return _validated_encoder_producer_floor(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def _apply_encoder_producer_floor_argument(args: argparse.Namespace) -> None:

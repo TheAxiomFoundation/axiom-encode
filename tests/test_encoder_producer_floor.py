@@ -235,8 +235,9 @@ def test_a_floor_without_history_fails_closed(graph):
     assert issue and "--expected-encoder-checkout" in issue
 
 
-def test_malformed_floor_flag_is_an_argument_error():
+def test_malformed_floor_flag_is_an_argument_error(capsys):
     parser = argparse.ArgumentParser()
     cli._add_encoder_producer_floor_argument(parser)
     with pytest.raises(SystemExit):
         parser.parse_args(["--encoder-producer-floor", "main"])
+    assert "full lowercase commit" in capsys.readouterr().err
