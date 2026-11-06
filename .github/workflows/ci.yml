@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [main]
-  # Validate stacked PRs before their dependency branches merge into main.
   pull_request:
     branches: [main]
     # A draft pull request runs only lint and the quick-tests job, and its
@@ -15,6 +14,13 @@ on:
   # key their concurrency groups on the run id, so it neither cancels a pull
   # request's run nor is cancelled by one.
   workflow_dispatch:
+  # The merge queue (axiom-encode#2048) tests each queued pull request on top of
+  # main and the pull requests ahead of it, so a pull request is never updated
+  # from main and keeps its approval. Branch protection's required checks must
+  # report on the queue's temporary branch. A merge_group run takes the same
+  # path as a push to main: the full suite, no cancelling, no draft gate.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read

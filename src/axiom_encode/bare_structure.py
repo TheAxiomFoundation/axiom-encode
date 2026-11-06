@@ -19,6 +19,10 @@ class BareLabel:
     start: int
     marker_end: int
     end: int
+    # False for a root that only the ordered walk, not the text, places: a
+    # root after the highest subsection the section cites. Its outline
+    # position stands, but its number stays a source obligation.
+    proven: bool = True
 
 
 _NUMBER = re.compile(r"([1-9]\d*)([A-Z]?)\Z")
@@ -69,6 +73,165 @@ _NUMERIC_NAMED_MAIN_CLAUSE = re.compile(
 _NUMERIC_RELATIVE_SUBJECT = re.compile(
     r"\b(?:which|that|who|whom|whose|where|when)\b", re.IGNORECASE
 )
+# A follower headed by cited legal units, such as `Sections 219 and 436 do not
+# apply ...`. It is admitted only inside a self-cited complete section.
+_NUMERIC_LEGAL_SUBJECT = re.compile(
+    r"^(?:sections?|subsections?|paragraphs?|clauses?|subclauses?|parts?|"
+    r"schedules?|chapters?|regulations?|articles?)\s+"
+    r"[1-9]\d*[A-Z]*(?:\([A-Za-z0-9]+\))*"
+    r"(?:\s*(?:,\s*(?:(?:and|or)\s+)?|(?:and|or|to)\s+)"
+    r"[1-9]\d*[A-Z]*(?:\([A-Za-z0-9]+\))*)*\s+",
+    re.IGNORECASE,
+)
+# The statutory body of exactly one section: `<jurisdiction>/statute/.../
+# section/<id>`, with an ordinary section number (`220`, `32a`, `dg-18`), no
+# subsection fragment or anchor, and no schedule, appendix, annex, table,
+# form, repealed or nested-section segment. Only such a body must contain
+# every subsection it cites.
+_COMPLETE_SECTION_PATH = re.compile(
+    r"[a-z]{2}(?:-[a-z]{2})?/statute/"
+    r"(?:(?![a-z0-9-]*(?:sch|appendix|annex|table|form|repeal|section))"
+    r"[a-z0-9-]+/)*"
+    r"section/(?:[a-z]{1,3}-)?[0-9]+[A-Za-z]{0,3}"
+)
+_SUBSECTION_REFERENCE = re.compile(
+    r"\bsubsections?\s+(?P<labels>\([1-9]\d*[A-Z]?\)"
+    r"(?:\s*(?:,\s*(?:(?:and|or)\s+)?|(?:and|or|to)\s+)\([1-9]\d*[A-Z]?\))*)",
+    re.IGNORECASE,
+)
+_REFERENCE_LABEL = re.compile(r"\((?P<label>[1-9]\d*[A-Z]?)\)")
+# A reference qualified by another unit (`subsection (2) of section 71`) does
+# not name a unit of this section.
+_QUALIFIED_REFERENCE_SUFFIX = re.compile(r"\s*(?:of|in)\b", re.IGNORECASE)
+# Words that could make a citation address another unit, quote or amend text,
+# or describe the numbers as values. Each form is listed, so each is tested.
+# Table words are absent: main's walk already rejects any text naming them.
+_FOREIGN_REFERENCE_WORDS = (
+    # Other units and instruments.
+    "s", "ss", "sch", "section", "sections", "act", "acts", "code", "codes",
+    "title", "titles", "statute", "statutes", "law", "laws", "ordinance",
+    "ordinances", "order", "orders", "decree", "decrees", "instrument",
+    "instruments", "provision", "provisions", "schedule", "schedules", "part",
+    "parts", "subpart", "subparts", "division", "divisions", "subdivision",
+    "subdivisions", "chapter", "chapters", "article", "articles", "paragraph",
+    "paragraphs", "subparagraph", "subparagraphs", "clause", "clauses",
+    "subclause", "subclauses", "item", "items", "rule", "rules", "regulation",
+    "regulations",
+    # Amendment verbs.
+    "replace", "replaces", "replaced", "insert", "inserts", "inserted",
+    "repeal", "repeals", "repealed", "omit", "omits", "omitted", "substitute",
+    "substitutes", "substituted", "amend", "amends", "amended", "amendment",
+    "amendments", "following",
+    # Value words.
+    "size", "sizes", "figure", "figures", "number", "numbers", "numeral",
+    "numerals", "count", "counts", "persons", "people",
+)  # fmt: skip
+_FOREIGN_REFERENCE_SYMBOLS = '"“”‘’«»§¶'
+_FOREIGN_REFERENCE_CONTEXT = re.compile(
+    r"\b(?:"
+    + "|".join(_FOREIGN_REFERENCE_WORDS)
+    + r")\b|["
+    + re.escape(_FOREIGN_REFERENCE_SYMBOLS)
+    + "]",
+    re.IGNORECASE,
+)
+# Any other parenthesized spelling of a root, glued, spaced or full-width.
+_ROOT_MARKER = r"[(（]\s*({})\s*[)）]"
+
+
+def _own_subsection_references(
+    text: str, root_spans: list[tuple[int, int]]
+) -> tuple[set[str], bool]:
+    """Labels this text cites as its own subsections, and whether all are clean.
+
+    The second value is false when any unqualified subsection reference sits in
+    a root unit, children included, whose text could address another unit,
+    amend or quote text, or call the numbers values; such text proves nothing.
+    """
+    labels: set[str] = set()
+    root_starts = [start for start, _end in root_spans]
+    clean_units: set[int] = set()
+    for reference in _SUBSECTION_REFERENCE.finditer(text):
+        if _QUALIFIED_REFERENCE_SUFFIX.match(text, reference.end()):
+            continue
+        index = bisect_right(root_starts, reference.start()) - 1
+        if index < 0:
+            return set(), False
+        if index not in clean_units:
+            # A reference holds none of these words itself, so one search of
+            # the whole unit covers every reference inside it.
+            if _FOREIGN_REFERENCE_CONTEXT.search(text, *root_spans[index]):
+                return set(), False
+            clean_units.add(index)
+        labels.update(
+            label["label"]
+            for label in _REFERENCE_LABEL.finditer(reference.group("labels"))
+        )
+    return labels, True
+
+
+def _self_cited_numeric_roots(
+    text: str, labels: list[BareLabel], *, first_line_is_label: bool
+) -> set[str] | None:
+    """The bare roots a complete section's text cites as its own subsections.
+
+    A complete section that cites its own `subsection (N)` contains that
+    subsection. When no other `(N)` marker exists and the walk is a single
+    ordered outline from the first line, the bare root `N` is the only unit
+    that can be subsection N, and the roots before it are subsections 1 to
+    N - 1. Nothing proves the roots after the highest cited one, so callers
+    keep their numbers. Returns ``None`` when the text proves nothing.
+
+    Repealed subsections: the NZ corpus drops a repealed subsection from its
+    section's text entirely, with no label line and no tombstone. A repeal
+    before a live subsection therefore leaves a gap in the bare roots
+    (`1`, `3`, `4`), and the ordered walk rejects the gap before this proof
+    runs, so it proves nothing and callers keep main's numbers. The proof can
+    go wrong only if a stray bare number fills the gap exactly. Bodies the
+    corpus resolver composes from descendant rows also drop repealed rows,
+    but they join chunks with blank lines, which the walk rejects too.
+    """
+    if not first_line_is_label:
+        return None
+    roots = [label for label in labels if len(label.path) == 1]
+    root_spans = [
+        (
+            root.marker_end,
+            roots[index + 1].start if index + 1 < len(roots) else len(text),
+        )
+        for index, root in enumerate(roots)
+    ]
+    cited, clean = _own_subsection_references(text, root_spans)
+    tokens = {root.token for root in roots}
+    if not clean or not cited or not cited <= tokens:
+        return None
+    # Positions of the label parentheses inside subsection references; any
+    # other spelling of a root marker could be the cited subsection itself.
+    cited_markers = {
+        reference.start("labels") + label.start()
+        for reference in _SUBSECTION_REFERENCE.finditer(text)
+        for label in _REFERENCE_LABEL.finditer(reference.group("labels"))
+    }
+    # One pass for every root token keeps the scan linear in the text.
+    root_marker = re.compile(
+        _ROOT_MARKER.format("|".join(map(re.escape, sorted(tokens, key=len)[::-1])))
+    )
+    if not all(
+        marker.start() in cited_markers for marker in root_marker.finditer(text)
+    ):
+        return None
+    return cited
+
+
+def _legal_subject_follower(text: str) -> bool:
+    subject = _NUMERIC_LEGAL_SUBJECT.match(text)
+    return bool(subject and _NUMERIC_LOCAL_PREDICATE.match(text, subject.end()))
+
+
+def is_complete_section_path(corpus_citation_path: str) -> bool:
+    return bool(_COMPLETE_SECTION_PATH.fullmatch(corpus_citation_path or ""))
+
+
 _DEFINITION = re.compile(
     r"^[ \t]*(?P<term>[^\W\d_](?:[^\W_]|[ \t'’()/-])*?)"
     r"(?:[ \t]*,[^\n|]*?)?[ \t]+means\b",
@@ -240,7 +403,9 @@ def _numeric_follower_is_independent_prose(text: str) -> bool:
     return False
 
 
-def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
+def bare_outline(
+    text: str, *, corpus_citation_path: str = ""
+) -> tuple[BareLabel, ...] | None:
     """Return one positively ordered outline, otherwise retain all obligations.
 
     All token-shaped lines participate in the walk, including lines whose
@@ -248,7 +413,19 @@ def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
     table evidence, mixed parenthetical layouts, gaps, and duplicate labels
     reject the entire interpretation. Numeric-only prose lists lack evidence
     distinguishing subsection labels from count/table entries and are retained.
+
+    One exception needs positive evidence from the text itself. When
+    ``corpus_citation_path`` names one complete section and the section cites
+    its own ``subsection (N)`` for a bare root N (see
+    ``_self_cited_numeric_roots``), a root follower may be headed by cited
+    legal units. Every other check holds, including the nested-label one.
+    The citation proves only the cited roots and the roots before them: a
+    later root, and everything under it, is returned with ``proven=False``,
+    so ``mask_bare_labels`` keeps its number and ``slice_bare_path`` refuses
+    it.
     """
+    section_scope = is_complete_section_path(corpus_citation_path)
+    legal_subject_roots = False
     lines = text.splitlines(keepends=True)
     starts: list[int] = []
     offset = 0
@@ -335,6 +512,12 @@ def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
             return None
         depth = options[0]
         if depth == 0 and root_kind == "number":
+            independent = _numeric_follower_is_independent_prose(following)
+            # Provisional: the self-citation proof below must still hold.
+            cited_unit_subject = (
+                not independent and section_scope and _legal_subject_follower(following)
+            )
+            legal_subject_roots = legal_subject_roots or cited_unit_subject
             # Numeric labels must head complete prose rather than table/list
             # captions; a number embedded in a sentence cannot start a sibling.
             # Intervening unlabelled lines could introduce a count or table, so
@@ -346,7 +529,7 @@ def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
                 # A noun-headed follower can complete an operative count,
                 # even with a predicate and a child list of its own. Require
                 # positive independent prose, rather than enumerating nouns.
-                or not _numeric_follower_is_independent_prose(following)
+                or not (independent or cited_unit_subject)
                 or _ROW_CAPTION.match(following)
                 # A unit/count follower can complete an operative quantity,
                 # even when the remainder is a full predicate sentence.
@@ -392,7 +575,23 @@ def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
     if len(labels) < 2:
         return None
     if root_kind == "number" and not any(len(label.path) > 1 for label in labels):
+        # Ordered numbers and complete prose do not establish legal identity,
+        # and neither does a self-citation alone: a numeric-only list keeps
+        # base's obligations.
         return None
+    cited: set[str] | None = None
+    if legal_subject_roots:
+        cited = (
+            _self_cited_numeric_roots(
+                text, labels, first_line_is_label=candidates[0] == 0
+            )
+            if section_scope
+            else None
+        )
+        if cited is None:
+            # Only the complete section's own subsection citation proves that
+            # a legal-unit-headed follower opens a subsection.
+            return None
     labelled_text_lines = {index + 1 for index in candidates}
     for index, line in enumerate(lines):
         header = _DEFINITION_HEADER.match(line)
@@ -458,6 +657,20 @@ def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
                 # A detached definition cannot break an ancestor's list and
                 # then leave subsequent tokens attached to that ancestor.
                 return None
+    if cited is not None:
+        # The citation proves the cited roots and the ones before them. A root
+        # after the highest cited one may still be a count key, so it and its
+        # children keep their numbers: only positive evidence discharges one.
+        highest = max(_ordinal(token, "number") for token in cited)
+        unproven = {
+            label.path
+            for label in ordered
+            if len(label.path) == 1 and _ordinal(label.token, "number") > highest
+        }
+        ordered = tuple(
+            replace(label, proven=False) if label.path[:1] in unproven else label
+            for label in ordered
+        )
     return ordered
 
 
@@ -485,14 +698,25 @@ def bare_definition_headers(
     return tuple(definitions)
 
 
-def mask_bare_labels(text: str, outline: tuple[BareLabel, ...] | None = None) -> str:
+def mask_bare_labels(
+    text: str,
+    outline: tuple[BareLabel, ...] | None = None,
+    *,
+    corpus_citation_path: str = "",
+) -> str:
     """Hide only authenticated marker characters, preserving source offsets."""
-    outline = bare_outline(text) if outline is None else outline
+    outline = (
+        bare_outline(text, corpus_citation_path=corpus_citation_path)
+        if outline is None
+        else outline
+    )
     if outline is None:
         return text
     pieces: list[str] = []
     offset = 0
     for label in outline:
+        if not label.proven:
+            continue
         pieces.extend(
             (text[offset : label.start], " " * (label.marker_end - label.start))
         )
@@ -506,14 +730,23 @@ def slice_bare_path(
     fragments: tuple[str, ...],
     *,
     outline: tuple[BareLabel, ...] | None = None,
+    corpus_citation_path: str = "",
 ) -> str | None:
-    outline = bare_outline(text) if outline is None else outline
+    outline = (
+        bare_outline(text, corpus_citation_path=corpus_citation_path)
+        if outline is None
+        else outline
+    )
     if outline is None:
         return None
     matches = [label for label in outline if label.path == fragments]
     if len(matches) != 1:
         return None
     label = matches[0]
+    if not label.proven:
+        # Nothing in the text proves this unit is the subsection it is asked
+        # for, so it cannot be sliced out as one.
+        return None
     # The selected marker names the source unit itself. Leaving it in a leaf
     # would let downstream unstructured excerpts glue it onto operative text;
     # a selected numeric marker would also look like an operative number.
