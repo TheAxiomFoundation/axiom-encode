@@ -1,4 +1,4 @@
-## 0.2.2336
+## 0.2.2337
 
 - Assign the encoder version after merge, not in each pull request (#2048). The new `Encoder version bump` workflow runs on every push to `main`. When encoder-affecting files changed after the latest bump, it writes the next version into `pyproject.toml`, `src/axiom_encode/__init__.py` and `uv.lock`, adds a `CHANGELOG.md` header that lists the pull requests merged since the previous bump by title (it leaves out bump pull requests), and opens a bump pull request with auto-merge on. It leaves the towncrier fragments in `changelog.d/` alone. The workflow opens the pull request with a token of the `axiom-encoder-version-bump` GitHub App, made on each run from the `ENCODER_VERSION_BUMP_APP_CLIENT_ID` variable and the `ENCODER_VERSION_BUMP_APP_KEY` secret of the `encoder-version-bump` environment, whose branch rule allows only `main`.
 - Add `axiom_encode.version_provenance`, a standard-library check of the version rule at any git ref. It applies the same rule as the `--apply` guard: no encoder-affecting file may change after the latest version bump. It refuses a shallow clone, whose boundary commit would read as a bump.
