@@ -197,6 +197,27 @@ def test_ambient_git_dir_does_not_hide_an_unversioned_pin(
         encoder_version_at_pin(repo, unversioned)
 
 
+@pytest.mark.parametrize("rewrite", ["replace-graft", "replace-object", "grafts-file"])
+def test_history_rewrites_in_the_same_repo_do_not_hide_an_unversioned_pin(
+    repo: Path, rewrite: str
+):
+    bump = _git(repo, "rev-parse", "HEAD")
+    unversioned = _change_encoder(repo, 1)
+    if rewrite == "replace-graft":
+        # The pin loses its parents, so it reads as its own initial bump.
+        _git(repo, "replace", "--graft", unversioned)
+    elif rewrite == "replace-object":
+        # The pin's object is swapped for the versioned bump commit.
+        _git(repo, "replace", unversioned, bump)
+    else:
+        (repo / ".git/info").mkdir(exist_ok=True)
+        (repo / ".git/info/grafts").write_text(f"{unversioned}\n")
+
+    with pytest.raises(ValueError, match="after its version bump"):
+        encoder_version_at_pin(repo, unversioned)
+    assert version_provenance.unversioned_changes(repo, unversioned)
+
+
 _PROVISIONER_SPEC = importlib.util.spec_from_file_location(
     "provision_verification_supervisor_for_provenance",
     Path(__file__).parents[1] / "scripts" / "provision_verification_supervisor.py",

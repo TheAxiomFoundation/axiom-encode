@@ -47,14 +47,30 @@ _PR_MERGE = re.compile(r"^Merge pull request #(\d+) from \S+?/(\S+)$")
 
 
 def _git_environment() -> dict[str, str]:
-    """The ambient environment minus GIT_* values, as in ``ci_parity``.
+    """The ambient environment minus GIT_* values, with history rewrites off.
 
     A GIT_DIR, GIT_CONFIG_* or similar value would read another repository or
-    another history than the one at ``repo``.
+    another history than the one at ``repo``. Replacement refs and grafts in
+    ``repo`` itself would do the same: ``git replace --graft`` can drop a
+    commit's parents, so an unversioned commit looks like its own bump. Every
+    read here therefore sees the stored objects only, as ``reviewed_replacement``
+    and ``retired_apply`` do.
     """
-    return {
+    environment = {
         name: value for name, value in os.environ.items() if not name.startswith("GIT_")
     }
+    environment.update(
+        GIT_GRAFT_FILE=os.devnull,
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_NO_LAZY_FETCH="1",
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_COUNT="1",
+        GIT_CONFIG_KEY_0="core.commitGraph",
+        GIT_CONFIG_VALUE_0="false",
+        GIT_TERMINAL_PROMPT="0",
+    )
+    return environment
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -65,6 +81,11 @@ def _git(repo: Path, *args: str) -> str:
         text=True,
         env=_git_environment(),
     ).stdout
+
+
+def show_file(repo: Path, ref: str, path: str) -> str | None:
+    """``path`` at ``ref`` as stored, or None when it is missing."""
+    return _show(repo, ref, path)
 
 
 def _show(repo: Path, ref: str, path: str) -> str | None:

@@ -1730,10 +1730,12 @@ def encoder_version_at_pin(path: Path, pin: str) -> str:
     """Require consistent encoder version metadata at the caller's exact pin."""
 
     def show(name: str) -> str:
-        result = _git(path, "show", f"{pin}:{name}", check=False)
-        if result.returncode:
+        # The same reads as the provenance check below: no replacement refs
+        # or grafts, so a rewritten pin cannot show other version files.
+        text = version_provenance.show_file(path, pin, name)
+        if text is None:
             raise ValueError(f"Pinned encoder {pin} has no {name}")
-        return result.stdout
+        return text
 
     pyproject = tomllib.loads(show("pyproject.toml"))["project"]["version"]
     package_match = re.search(
