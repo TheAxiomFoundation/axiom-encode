@@ -30,10 +30,10 @@ English Part D must change, and each guard must leave its verdicts alone (an
 annualising 12, a count of months, the modal "May", people's names listed like
 months, a month beside "percent", the Hebrew rendering).
 
-The numeric tokenizer is cached, so the cache is cleared before each side.
+The numeric tokenizer caches its results, so each side starts on a clear cache.
 
 Invariant, as for #1745: the reading may only *ground*; it never adds a recall
-obligation. So with it on, every source numeric inventory is unchanged, and
+obligation. So with it on, every source numeric inventory stays as it was, and
 every changed verdict removes issues rather than adding any.
 """
 
@@ -89,10 +89,19 @@ CONTROL_CASES: dict[str, tuple[str, str]] = {
         _month_module("birth_month >= 5"),
         "THE BOARD MAY IN ANY YEAR ADOPT RULES",
     ),
+    "english-modal-may-wrapped": (
+        _month_module("birth_month >= 5"),
+        "THE ADMINISTRATIVE BOARD\nMAY IN EACH YEAR SET THE BENEFIT RATE.",
+    ),
     # People's names listed like months date nothing (review round 2).
     "english-personal-names": (
         _month_module("birth_month == 6"),
         "Persons named April and June may apply.",
+    ),
+    # Nor do they after a count of months (review round 3).
+    "english-months-count-names": (
+        _month_module("birth_month == 6"),
+        "Within three months April and June shall each receive a distribution.",
     ),
     # A month beside "percent" grounds no rate scaled from its number.
     "english-rate-neighbour": (
@@ -209,7 +218,9 @@ def test_english_part_d_grounds_like_hebrew_with_english_on(control_pair):
             ("english-month-count", "6"),
             ("english-modal-may", "5"),
             ("english-modal-may-in-any-year", "5"),
+            ("english-modal-may-wrapped", "5"),
             ("english-personal-names", "6"),
+            ("english-months-count-names", "6"),
             ("english-rate-neighbour", "0.12"),
         ):
             assert any(

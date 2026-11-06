@@ -8,9 +8,9 @@ faithful English rendering of the same schedule ("September 1939 to April
 axiom-encode#1951 review): the reading existed only in Hebrew, so the same
 schedule passed in one language and failed in the other.
 
-English month names now ground behind the same guards. The name must be dated
-on its own line and table cell, by a year, the year it recurs in, a day or the
-word month; a list or range of names adds no evidence of its own, in either
+English month names now ground behind the same guards. A year, the year it
+recurs in, a day or the word month must date the name on its own line and table
+cell; a list or range of names adds no evidence of its own, in either
 language, since sources list people's names the same way. A month number
 grounds only a literal that forms one whole side of a comparison with a
 calendar-month operand, and only when every literal of that value in the
@@ -206,7 +206,7 @@ def test_each_month_english_part_d_names_grounds_its_number(month, value):
 
 
 def test_a_month_english_part_d_does_not_name_stays_ungrounded():
-    # October and November are named in no Part D row, in either language.
+    # No Part D row names October or November, in either language.
     content = _part_d_birth_month_module().replace(
         "birth_month >= 9: 8", "birth_month >= 10: 8"
     )
@@ -289,6 +289,15 @@ ENGLISH_UNDATED_CONTEXTS = (
     "Persons named {m} and July may apply",
     # A count of months is a length of time, not the months it names.
     "within 3 months of {m} and July",
+    "within 3 months {m} and July",
+    "within three months {m} and July",
+    "6 months {m} and July",
+    "within one month of {m} and July",
+    "within a calendar month of {m} and July",
+    "within the next 3 months {m} and July",
+    "within 3 months, {m} and July",
+    # With no article the plural may start a sentence about people.
+    "for months {m} and July",
     # "Each year" with no "of" or "in" needs a day beside the name.
     "{m} and July each year receive a grant",
     "in {m} each year",
@@ -325,7 +334,7 @@ def test_no_english_month_grounds_a_number_undated(context):
 @pytest.mark.parametrize(
     "text",
     [
-        # Title-case headings, where the modal verb is capitalised.
+        # Title-case headings, where the modal verb takes a capital.
         "Section 4 May Be Waived",
         "Persons Aged 18 May Apply",
         "Benefits Under Paragraph 2 May Be Reduced",
@@ -349,6 +358,34 @@ def test_no_english_month_grounds_a_number_undated(context):
         "SECTION 4 MAY EACH YEAR BE AMENDED",
         "Persons Aged 18 May Each Year Apply",
         "THE BOARD MAY AND SHALL ADOPT RULES",
+        "THE SECRETARY MAY TO DECEMBER 31 EXTEND THE PERIOD",
+        # Review round 3: capitals wrap like any text, so the verb can open a line
+        # or end it.
+        "SUBJECT TO THE TERMS OF THIS SECTION, THE ADMINISTRATIVE BOARD\n"
+        "MAY IN EACH YEAR SET THE BENEFIT RATE.",
+        "THE ADMINISTRATIVE BOARD MAY IN EACH YEAR\nSET THE BENEFIT RATE.",
+        "THE BOARD MAY, IN EACH YEAR,\nSET THE BENEFIT RATE.",
+        "(1) MAY IN EACH YEAR\nADOPT RULES",
+        "The Administrative Board\nMay in Each Year Set the Benefit Rate",
+        # A count or a section's number before the verb, which a day could be.
+        "NOT MORE THAN 4 MAY IN ANY YEAR BE APPOINTED",
+        "Not More Than 4 May in Any Year Be Appointed",
+        "A MAXIMUM OF 4 MAY IN ANY YEAR BE APPOINTED",
+        "SECTIONS 1 THROUGH 4 MAY IN EACH YEAR BE AMENDED",
+        "Sections 1 Through 4 May in Each Year Be Amended",
+        # The emphatic verb in sentence case; a possessive year dates nothing.
+        "the Board MAY in each year adopt rules",
+        "THE BOARD MAY IN EACH YEAR'S BUDGET ADOPT RULES",
+        "Participants May March in each year's parade.",
+        # A provision that opens with the verb, under a chapeau.
+        "(2) May in each taxable year elect to apply this section",
+        "(2) May, in each taxable year, elect to apply",
+        "A trustee:\nMay in each year elect to apply",
+        "2. May in each year elect to apply",
+        "(iv) May in each year elect to apply",
+        # At the end of a list, where the verb takes the date with it.
+        "PERSONS NAMED APRIL AND JUNE MAY IN ANY YEAR APPLY",
+        "Persons Named April and June May in Any Year Apply",
     ],
 )
 def test_may_the_modal_verb_grounds_nothing(text):
@@ -387,6 +424,30 @@ def test_may_the_modal_verb_grounds_nothing(text):
         "from May through December 1990",
         "May through December 1990",
         "April, May in each year",
+        # Review round 3: real deadlines and ranges, in sentence case, in a row or
+        # after a word or a label that takes a month.
+        "Month of birth | May in each year",
+        "Not later than 1 May in each year.",
+        "No later than 1 May every year.",
+        "NOT LATER THAN 1 MAY IN EACH YEAR.",
+        "Birth months: May through December 1940 | 66",
+        "Birth months: May to December 1940 | 66",
+        "BIRTH MONTHS: MAY THROUGH DECEMBER 1940 | 66",
+        "May through December 1940\nPersons born later apply",
+        "the cooling season, May through September of each year, runs",
+        "the period May through September of each year is the cooling season",
+        "(May through September of each year)",
+        "Persons born May through December 1940 are eligible",
+        "PERSONS BORN MAY THROUGH DECEMBER 1940 ARE ELIGIBLE",
+        "(a) May through December 1990\n(b) January through April 1991",
+        "FROM MAY THROUGH DECEMBER 1990 THE BOARD SHALL",
+        "1 May in each year\nThe Board shall publish",
+        "1 May in each year the Board shall publish",
+        "(a) 1 May in each year\n(b) 1 June in each year",
+        # At the end of a list.
+        "from September through May in each year",
+        "FROM SEPTEMBER THROUGH MAY IN EACH YEAR THE BOARD SHALL",
+        "April and May in each year",
     ],
 )
 def test_may_the_month_grounds_five(text):
@@ -453,9 +514,18 @@ UNDATED_LIST_TEXTS = (
     "יוני ומאי רשאים להגיש",
     # 7 CFR 273.10, the one fixture source a bare list dated before this.
     "the bill may be averaged over February, March, and April",
-    # A count of months is a length of time.
+    # A count of months is a length of time. Review round 3 found the second and
+    # third reading months where their Hebrew rendering does not.
     "within 3 months of April and June",
+    "Within three months April and June shall each receive a distribution.",
+    "Within 3 months April and June must apply.",
+    "בתוך 3 חודשים אפריל ויוני חייבות להגיש בקשה.",
+    "Within one month of April and June",
+    "Within one calendar month of April and June",
+    "Within the next 3 months April and June shall each apply.",
     "בתוך 2 חודשים יולי ואוגוסט",
+    # The verb at the end of a list takes the date with it.
+    "PERSONS NAMED APRIL AND JUNE MAY IN ANY YEAR APPLY",
 )
 
 
@@ -470,6 +540,14 @@ def test_a_list_or_range_of_names_dates_nothing_by_itself(text):
         ("Persons named April and June may apply.", "6"),
         ("אנשים בשם אפריל ויוני רשאים להגיש", "6"),
         ("April and June each year receive a grant", "4"),
+        (
+            "Beneficiaries: April and June.\n"
+            "Within three months April and June shall each receive a distribution.",
+            "6",
+        ),
+        ("Within 3 months April and June must apply.", "6"),
+        ("בתוך 3 חודשים אפריל ויוני חייבות להגיש בקשה.", "6"),
+        ("PERSONS NAMED APRIL AND JUNE MAY IN ANY YEAR APPLY", "6"),
     ),
 )
 def test_personal_names_ground_no_month_comparison(text, value):
@@ -485,6 +563,10 @@ def test_personal_names_ground_no_month_comparison(text, value):
         "the months April and June",
         "בחודשים אפריל ויוני",
         "on 4 April and June",
+        # Review round 3: words between "the" and "months" keep it definite.
+        "during the calendar months of April and June",
+        "בחודשי אפריל ויוני",
+        "the payment months of April through June",
     ),
 )
 def test_a_list_with_a_date_grounds_its_months(text):
@@ -540,20 +622,74 @@ def test_each_year_without_of_or_in_dates_a_name_beside_a_day(text, dated):
     assert _reported(content, text) == (set() if dated else {value})
 
 
-def test_may_before_a_word_the_verb_shares_needs_a_word_for_a_month():
-    # "in", "each", "every", "through", "until" and "till" follow the verb as
-    # well as the month. There "May" is the month only after a word that takes
-    # a month, or opening its line or cell.
+def test_the_verb_may_needs_its_main_verb_after_the_date():
+    # "in", "each", "every", "through", "to", "until" and "till" follow the verb
+    # as well as the month, and a date can follow them. The verb needs its main
+    # verb after the date, and the month does not.
     assert _month_values("THE BOARD MAY IN ANY YEAR ADOPT RULES") == set()
-    assert _month_values("payable from May through December 1990") == {5.0, 12.0}
-    assert _month_values("payable on 1 May in each year") == {5.0}
+    assert _month_values("The Board May in Any Year Adopt Rules") == set()
+    assert _month_values("(2) May in each taxable year elect to apply") == set()
+    # With nothing after the date on its line, it is a schedule's row.
+    assert _month_values("May through December 1990\nThe Board shall") == {5.0, 12.0}
     assert _month_values("| May in the year 2011 |") == {5.0}
+    # A word or a label that takes a month, or a lowercase word that puts the
+    # text in sentence case, leaves no verb to read.
+    assert _month_values("payable from May through December 1990") == {5.0, 12.0}
+    assert _month_values("Birth months: May to December 1990") == {5.0, 12.0}
+    assert _month_values("payable on 1 May in each year") == {5.0}
+    assert _month_values("the period May in each year is cool") == {5.0}
     # December keeps the date its own day gives it when the verb leaves.
     assert _month_values("THE SECRETARY MAY THROUGH DECEMBER 31 EXTEND") == {12.0}
     # Hebrew has no such verb; the faithful rendering carries the
     # preposition, and both languages date it.
     assert _month_values("in May in each year") == {5.0}
     assert _month_values("במאי בכל שנה") == {5.0}
+
+
+# Lines from the corpus, as axiom-corpus printed them on 2026-11-06, with the
+# months they date. "(2) May" opens a provision of the District of Columbia and
+# Louisiana codes; the rest name real months.
+CORPUS_LINES = (
+    ("(2) May, in the discretion of the grantor or of any person", set()),
+    ("(2) May in the discretion of the grantor or of any person", set()),
+    ("(3) May, to the extent determined by the State and specified", set()),
+    ("no later than 31 May in the following year, in the form approved", {5.0}),
+    ("not later than 31 May in the tax year in which the summary", {5.0}),
+    ("Wages will be disregarded May through April of the next year.", {4.0, 5.0}),
+    ("The deferral months of January through June will not count", {1.0, 6.0}),
+    ("exists for the payment months of October through January.", {1.0, 10.0}),
+    ("During the program months of November through March,", {3.0, 11.0}),
+    ("and not eligible for the calendar months of May and June.", {5.0, 6.0}),
+    ("during the period of May through August 1998;", {5.0, 8.0}),
+)
+
+
+@pytest.mark.parametrize(("text", "months"), CORPUS_LINES)
+def test_lines_from_the_corpus_read_as_they_mean(text, months):
+    assert _month_values(text) == months
+
+
+# What the guard leaves wrong, kept here so a change to any of them is on purpose.
+# It reads one line, or two for capitals, and only a few words back.
+KNOWN_FALSE_READINGS = (
+    # The verb, read as the month.
+    ("THE BOARD\nMAY IN EACH YEAR\nSET THE RATE", {5.0}),
+    ("The Board May in Any Year\nAdopt Rules", {5.0}),
+    ("THE PERSON HE WORKS FOR MAY IN EACH YEAR APPLY", {5.0}),
+    # A person, read as the month.
+    ("Mr. August in each year", {8.0}),
+    # The month, dropped: the check reports the literal, the safe direction.
+    ("May through December 1990 the rate is 66", {12.0}),
+    ("the period\nMay through September of each year is the cooling season", {9.0}),
+    ("APRIL AND MAY IN EACH YEAR ARE THE FILING MONTHS", set()),
+    ("was approved for months March and May", set()),
+    ("from May 1 through September 30", {9.0}),
+)
+
+
+@pytest.mark.parametrize(("text", "months"), KNOWN_FALSE_READINGS)
+def test_the_known_false_readings_stay_as_documented(text, months):
+    assert _month_values(text) == months
 
 
 def test_an_english_month_and_its_dating_words_share_a_line_and_cell():
@@ -934,8 +1070,10 @@ DAYS = st.integers(min_value=13, max_value=28)
 YEARS = st.integers(min_value=1900, max_value=2099)
 MONTHS = st.integers(min_value=1, max_value=12)
 
-# English snippets, each with the months it dates by construction. A snippet
-# is one line, so no two snippets can date each other.
+# English snippets, each with the months it dates by construction. Lines join
+# the snippets, and no snippet's words reach across a line to another's: only a
+# capital "MAY" looks at the next line, and every such snippet here is the verb
+# whatever follows it, or fills its row.
 #   kind -> (template, dates the first month, dates the second month)
 # where "dated" may depend on whether a month is May (the homograph).
 
@@ -976,6 +1114,36 @@ def _english_snippet(kind: str, m: int, m2: int, day: int, year: int):
             f"THE BOARD {name.upper()} IN ANY YEAR ADOPTS RULES",
             set() if may else {m},
         ),
+        # Wrapped away from its subject or its main verb.
+        "modal-wrap-before": (
+            f"THE BOARD\n{name.upper()} IN EACH YEAR SET THE RATE",
+            set() if may else {m},
+        ),
+        "modal-wrap-after": (
+            f"THE BOARD {name.upper()} IN EACH YEAR\nSET THE RATE",
+            set() if may else {m},
+        ),
+        # Opening a provision under a chapeau.
+        "item-modal": (
+            f"(2) {name} in each taxable year elect to apply",
+            set() if may else {m},
+        ),
+        # Ending a list, where it takes the date with it.
+        "persons-modal": (
+            f"PERSONS NAMED {name.upper()} AND {name2.upper()} MAY IN ANY YEAR APPLY",
+            set(),
+        ),
+        # "May" as the month in a row, a label or a deadline.
+        "item-row": (f"(a) {name} through {name2} {year}", {m, m2}),
+        "upper-row": (f"{name.upper()} THROUGH {name2.upper()} {year}", {m, m2}),
+        "label-range": (f"Birth months: {name} through {name2} {year} | 66", {m, m2}),
+        "deadline": (f"Not later than {day} {name} in each year", {m}),
+        # A count of months is a length of time; words after "the" keep it definite.
+        "count-names": (f"within 3 months {name} and {name2} must apply", set()),
+        "calendar-months": (
+            f"during the calendar months of {name} and {name2}",
+            set() if may and may2 else {m, m2},
+        ),
         "bare": (name, set()),
         "in": (f"in {name}", set()),
         "header": (f"{name}\n{year}", set()),
@@ -1008,6 +1176,16 @@ ENGLISH_SNIPPET_KINDS = (
     "day-each",
     "each-no-day",
     "modal-in",
+    "modal-wrap-before",
+    "modal-wrap-after",
+    "item-modal",
+    "persons-modal",
+    "item-row",
+    "upper-row",
+    "label-range",
+    "deadline",
+    "count-names",
+    "calendar-months",
     "bare",
     "in",
     "header",
@@ -1081,6 +1259,18 @@ def _bilingual_snippet(kind: str, m: int, m2: int, day: int, year: int, age: int
         ),
         "recurs-in-each": (f"ב{he} בכל שנה", f"in {en} in each year"),
         "day-recurs-each": (f"ביום {day} ב{he} כל שנה", f"on {en} {day} each year"),
+        "label-range": (
+            f"חודשי לידה: {he} עד {he2} {year} | {age}",
+            f"Birth months: {en} through {en2} {year} | {age}",
+        ),
+        "deadline-each": (
+            f"לא יאוחר מ־{day} ב{he} של כל שנה",
+            f"not later than {day} {en} in each year",
+        ),
+        "calendar-months": (
+            f"בחודשי {he} ו{he2}",
+            f"during the calendar months of {en} and {en2}",
+        ),
         # Undated.
         "bare": (he, en),
         "in": (f"ב{he}", f"in {en}"),
@@ -1089,6 +1279,10 @@ def _bilingual_snippet(kind: str, m: int, m2: int, day: int, year: int, age: int
         "count-months": (
             f"בתוך 3 חודשים מ{he} ו{he2}",
             f"within 3 months of {en} and {en2}",
+        ),
+        "count-names": (
+            f"בתוך 3 חודשים {he} ו{he2} חייבות להגיש",
+            f"within 3 months {en} and {en2} must apply",
         ),
         "each-no-day": (f"ב{he} כל שנה", f"in {en} each year"),
     }
@@ -1109,11 +1303,15 @@ BILINGUAL_KINDS = (
     "months-of-list",
     "recurs-in-each",
     "day-recurs-each",
+    "label-range",
+    "deadline-each",
+    "calendar-months",
     "bare",
     "in",
     "pair-bare",
     "span-bare",
     "count-months",
+    "count-names",
     "each-no-day",
 )
 
@@ -1343,12 +1541,11 @@ def test_property_english_month_names_only_ground_their_month(tokens):
 # first lists every reference to the month stream and its accessors; the
 # second requires every tokenizer call to name the one stream it reads, so no
 # reader can hold a whole tokenization. Together they catch a reader that
-# names the stream, imports an accessor under another name, reads it with a
-# literal ``getattr``, or reaches it through a fresh tokenization by any
-# means. A reader that computes both the tokenizer's name and the stream's
-# name at run time evades both
-# (test_the_reader_guards_catch_what_they_claim). The behavioural tests below
-# pin each reader the audit found.
+# names the stream, imports an accessor or the tokenizer under another name,
+# reads either with a literal ``getattr``, or keeps a whole tokenization. A
+# reader that computes both the tokenizer's name and the stream's name at run
+# time evades both (test_the_reader_guards_catch_what_they_claim). The
+# behavioural tests below pin each reader the audit found.
 
 PACKAGE_ROOT = Path(vp.__file__).resolve().parents[1]
 MONTH_EVIDENCE_NAMES = frozenset(
@@ -1359,7 +1556,7 @@ MONTH_EVIDENCE_NAMES = frozenset(
     }
 )
 # (module, enclosing class or function, name) for every reference to the
-# month stream in the package. A new reader must be added here on purpose.
+# month stream in the package. A new reader must join this list on purpose.
 EXPECTED_MONTH_EVIDENCE_REFERENCES = {
     ("harness/validator_pipeline.py", "_NumericTokenization", "month_grounding"),
     (
@@ -1437,6 +1634,7 @@ def test_only_the_grounding_decisions_read_the_month_stream():
 TOKENIZATION_READS = frozenset(
     {"grounding", "inventory", "month_grounding", "_grounding_decision_occurrences"}
 )
+TOKENIZER_NAME = "_tokenize_numeric_occurrences_from_text"
 
 
 def _node_name(node: ast.AST) -> str | None:
@@ -1468,7 +1666,15 @@ def _tokenization_reads(
             return "<module>"
 
         for node in ast.walk(tree):
-            if _node_name(node) != "_tokenize_numeric_occurrences_from_text":
+            # An import or a string can rename the tokenizer, and then no call
+            # below would carry its name, so each counts as a read of its own.
+            if isinstance(node, ast.alias) and node.name == TOKENIZER_NAME:
+                reads.append((module, scope_of(node), "<import>"))
+                continue
+            if isinstance(node, ast.Constant) and node.value == TOKENIZER_NAME:
+                reads.append((module, scope_of(node), "<string>"))
+                continue
+            if _node_name(node) != TOKENIZER_NAME:
                 continue
             call = parents.get(node)
             reader = parents.get(call)
@@ -1521,6 +1727,20 @@ GUARD_PROBES = {
         "def f(text):\n"
         "    tokens = _tokenize_numeric_occurrences_from_text(text)\n"
         "    return tokens.grounding\n",
+        True,
+    ),
+    "imports the tokenizer under another name": (
+        "from axiom_encode.harness.validator_pipeline import (\n"
+        "    _tokenize_numeric_occurrences_from_text as tokenize,\n"
+        ")\n"
+        "def f(text):\n"
+        "    return getattr(tokenize(text), 'month_' + 'grounding')\n",
+        True,
+    ),
+    "reads the tokenizer with a literal getattr": (
+        "def f(text):\n"
+        "    tokenize = getattr(vp, '_tokenize_numeric_occurrences_from_text')\n"
+        "    return getattr(tokenize(text), 'month_' + 'grounding')\n",
         True,
     ),
     "computes both names": (
