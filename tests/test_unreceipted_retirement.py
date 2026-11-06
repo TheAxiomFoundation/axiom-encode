@@ -6,8 +6,11 @@ exercises the named check instead of merely failing signature verification.
 
 from __future__ import annotations
 
+import ast
 import copy
 import hashlib
+import inspect
+import itertools
 import json
 import os
 import tempfile
@@ -1365,8 +1368,9 @@ def test_reason_naming_another_pair_leaves_that_pair_retirable(tmp_path):
 
 
 @pytest.mark.parametrize("retire_owner", [False, True], ids=["live", "retired"])
+@pytest.mark.parametrize("backend", sorted(cli.APPLIED_ENCODING_ENCODER_BACKENDS))
 def test_model_run_id_naming_independent_pair_does_not_create_ownership(
-    tmp_path, retire_owner
+    tmp_path, retire_owner, backend
 ):
     """Production refresh and retirement writers preserve descriptive run IDs."""
 
@@ -1429,8 +1433,8 @@ def test_model_run_id_naming_independent_pair_does_not_create_ownership(
     )
     result = SimpleNamespace(
         output_file=str(generated),
-        runner="openai",
-        backend="openai",
+        runner=backend,
+        backend=backend,
         model="fixture-refresh-model",
         tool=cli.APPLIED_ENCODING_MODEL_TOOL,
         citation="us/statute/26/1",
@@ -1439,6 +1443,9 @@ def test_model_run_id_naming_independent_pair_does_not_create_ownership(
         context_manifest_file=str(context_manifest),
         source_attestation=historical["source_attestation"],
     )
+    if backend == "codex":
+        result.codex_cli_version = "codex-cli fixture"
+        result.codex_cli_sha256 = "c" * 64
     setattr(result, cli._MANIFEST_ONLY_REFRESH_ATTR, True)
     setattr(
         result,
@@ -1457,9 +1464,10 @@ def test_model_run_id_naming_independent_pair_does_not_create_ownership(
         axiom_encode_git=_encoder_provenance(),
     )
     assert refreshed_manifest == owner_manifest
-    assert (
-        set(json.loads(owner_manifest.read_text())) == cli._MODEL_APPLY_MANIFEST_FIELDS
-    )
+    expected_fields = cli._MODEL_APPLY_MANIFEST_FIELDS
+    if backend == "codex":
+        expected_fields |= {"codex_cli_version", "codex_cli_sha256"}
+    assert set(json.loads(owner_manifest.read_text())) == expected_fields
     assert checkout.guard() == []
     assert (
         cli._load_verified_applied_encoding_manifest_payload(
@@ -1616,6 +1624,7 @@ def test_no_base_all_snapshot_does_not_replay_settled_deletion(tmp_path):
 # classification mutation must change behavior, rather than its own test cases.
 _SCAN_SCHEMA_NAMES = (
     "_MODEL_APPLY_MANIFEST_FIELDS",
+    "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
     "_REVIEWED_CANDIDATE_MANIFEST_FIELDS",
     "_RETIRE_APPLY_MANIFEST_FIELDS",
     "_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS",
@@ -1626,7 +1635,6 @@ _SCAN_SCHEMA_NAMES = (
     "_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS",
     "_LEGACY_REPLACEMENT_RECEIPT_FIELDS",
 )
-_SCAN_SCHEMA_EXCLUSIONS = frozenset()
 # Independent audited sets: adding a field requires an explicit classification.
 _EXPECTED_COMMON_SCANNED = frozenset(
     {
@@ -1721,6 +1729,11 @@ _EXPECTED_MANIFEST_CLASSES = {
         },
     ),
 }
+_EXPECTED_MANIFEST_CLASSES["_MODEL_CODEX_APPLY_MANIFEST_FIELDS"] = (
+    _EXPECTED_MANIFEST_CLASSES["_MODEL_APPLY_MANIFEST_FIELDS"][0],
+    _EXPECTED_MANIFEST_CLASSES["_MODEL_APPLY_MANIFEST_FIELDS"][1]
+    | {"codex_cli_version", "codex_cli_sha256"},
+)
 _EXPECTED_DESCRIPTIVE_FIELDS = frozenset({"reason", "run_id", "runner", "model"})
 _SCAN_SCHEMAS = {name: getattr(cli, name) for name in _SCAN_SCHEMA_NAMES}
 _SCAN_PATH = "us/policies/council/second.yaml"
@@ -1771,10 +1784,11 @@ def test_manifest_scan_classes_cover_each_schema_and_all_schema_constants():
         if name.endswith("_MANIFEST_FIELDS") and isinstance(value, frozenset)
     }
     recognized = set(_SCAN_SCHEMA_NAMES)
-    assert discovered == (recognized & discovered) | _SCAN_SCHEMA_EXCLUSIONS
-    assert not recognized & _SCAN_SCHEMA_EXCLUSIONS
+    assert discovered <= recognized
     classes = cli._UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES
     assert set(classes) == set(_SCAN_SCHEMAS.values())
+    admitted = set().union(*map(set, cli._APPLIED_MANIFEST_SCHEMA_VARIANTS.values()))
+    assert set(classes) == admitted | {cli._LEGACY_REPLACEMENT_RECEIPT_FIELDS}
     for name, schema in _SCAN_SCHEMAS.items():
         descriptive, scanned = classes[schema]
         assert not descriptive & scanned, name
@@ -1783,6 +1797,150 @@ def test_manifest_scan_classes_cover_each_schema_and_all_schema_constants():
         assert expected_descriptive | expected_scanned == schema, name
         assert descriptive == expected_descriptive, name
         assert scanned == expected_scanned, name
+
+
+_SCAN_ADMISSION_TOOLS = {
+    "_REVIEWED_CANDIDATE_MANIFEST_FIELDS": cli.APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+    "_RETIRE_APPLY_MANIFEST_FIELDS": cli.APPLIED_ENCODING_RETIRE_TOOL,
+    "_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS": cli.APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL,
+    "_PATH_MIGRATION_APPLY_MANIFEST_FIELDS": cli.APPLIED_ENCODING_PATH_MIGRATION_TOOL,
+    "_LEGACY_REPLACEMENT_APPLY_MANIFEST_FIELDS": cli.APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL,
+    "_LEGACY_EXACT_DEPENDENT_APPLY_MANIFEST_FIELDS": cli.APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
+    "_LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS": cli.APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
+    "_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS": cli.RETIRED_SOURCE_METADATA_TOOL,
+}
+
+
+def _admission_shape_issues(keys, schema_name, backend=None):
+    """Invoke real admission, separating field-set errors from value errors."""
+    payload = dict.fromkeys(keys, "")
+    if "backend" in keys:
+        payload["backend"] = backend
+    if schema_name == "_LEGACY_REPLACEMENT_RECEIPT_FIELDS":
+        payload["tool"] = cli.APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
+        payload["schema_version"] = (
+            cli.APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA
+        )
+        issues = cli._guard_auxiliary_receipt_authentication_issues(
+            payload,
+            receipt_path=(
+                cli.APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR / "test.json"
+            ).as_posix(),
+            signing_broker=fixtures.TEST_APPLY_SIGNING_BROKER,
+        )
+    else:
+        if "backend" in keys:
+            payload["tool"] = cli.APPLIED_ENCODING_MODEL_TOOL
+        else:
+            payload["tool"] = _SCAN_ADMISSION_TOOLS[schema_name]
+        issues = cli._applied_manifest_exact_schema_issues(
+            payload, manifest_label="shape-probe.json"
+        )
+    return [issue for issue in issues if "does not match the exact" in issue]
+
+
+def _admission_field_probes():
+    """Include admission-local extensions, not just module schema constants.
+
+    Literal extension sets are probed together and separately, so a newly
+    admitted optional pair is detected even when neither singleton is admitted.
+    """
+    fields = set().union(*_SCAN_SCHEMAS.values()) | {"unclassified_optional_field"}
+    groups = []
+    for function in (
+        cli._applied_manifest_exact_schema_issues,
+        cli._guard_auxiliary_receipt_authentication_issues,
+    ):
+        tree = ast.parse(inspect.getsource(function))
+        fields.update(
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value.isidentifier()
+        )
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Set):
+                literal = {
+                    item.value
+                    for item in node.elts
+                    if isinstance(item, ast.Constant) and isinstance(item.value, str)
+                }
+                if literal:
+                    groups.append(literal)
+            elif isinstance(node, ast.Name):
+                value = vars(cli).get(node.id)
+                if isinstance(value, (set, frozenset)) and all(
+                    isinstance(item, str) for item in value
+                ):
+                    fields.update(value)
+                    groups.append(value)
+    probes = {frozenset({field}) for field in fields}
+    for group in groups:
+        probes.add(frozenset(group))
+        if len(group) <= 8:
+            for size in range(2, len(group) + 1):
+                probes.update(
+                    map(frozenset, itertools.combinations(sorted(group), size))
+                )
+    return probes
+
+
+@pytest.mark.parametrize("schema_name", _SCAN_SCHEMA_NAMES)
+def test_manifest_scan_recognition_matches_direct_schema_admission(schema_name):
+    schema = _SCAN_SCHEMAS[schema_name]
+    backends = (
+        sorted(cli.APPLIED_ENCODING_ENCODER_BACKENDS) if "backend" in schema else [None]
+    )
+    probes = {schema}
+    probes.update(schema | extension for extension in _admission_field_probes())
+    probes.update(
+        schema - {field} for field in schema - {"backend", "tool", "schema_version"}
+    )
+    recognized = cli._UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES
+    for keys in probes:
+        # Recognition concerns keys alone. A candidate can be admitted under a
+        # different contract: e.g. removing retained_successor_manifest produces
+        # the exact-dependent schema. Exercise admission for every selector.
+        admitted = any(
+            not _admission_shape_issues(keys, name, backend)
+            for name, fields in _SCAN_SCHEMAS.items()
+            if ("backend" in fields) == ("backend" in keys)
+            for backend in (
+                sorted(cli.APPLIED_ENCODING_ENCODER_BACKENDS)
+                if "backend" in fields
+                else [None]
+            )
+        )
+        assert admitted == (keys in recognized), (schema_name, sorted(keys))
+    for backend in backends:
+        assert not _admission_shape_issues(schema, schema_name, backend) or (
+            schema_name == "_MODEL_CODEX_APPLY_MANIFEST_FIELDS" and backend != "codex"
+        )
+
+
+def test_manifest_scan_covers_guard_receipt_directories():
+    # Discover named directories independently, including new receipt families.
+    directories = {
+        Path(value)
+        for name, value in vars(cli).items()
+        if name.endswith(("_RECEIPT_DIR", "_MANIFEST_DIR"))
+        and isinstance(value, (str, Path))
+        and Path(value).parts[:1] == (".axiom",)
+    }
+    assert directories
+    for directory in directories:
+        assert cli._provenance_inventory_prefix(
+            directory / "probe.json"
+        ) == directory.parts or directory == Path(
+            cli.RETIRED_SOURCE_METADATA_RECEIPT_DIR
+        ), directory
+        for prefix in (Path(), Path("us")):
+            receipt = prefix / directory / "new-family" / "probe.json"
+            assert (
+                cli._unreceipted_retirement_inventory_prefix(receipt)
+                == (prefix / directory).parts
+            ), receipt
 
 
 @pytest.mark.parametrize(
@@ -1870,8 +2028,12 @@ def test_manifest_scan_nested_model_requires_exact_keys(key_change):
 
 
 @pytest.mark.parametrize("envelope", ["source-attestation", "unknown-top", "list"])
-def test_manifest_scan_schema_keys_at_other_positions_still_own(envelope):
-    nested = _scan_shaped("_MODEL_APPLY_MANIFEST_FIELDS", run_id=_SCAN_PATH)
+@pytest.mark.parametrize(
+    "schema_name",
+    ["_MODEL_APPLY_MANIFEST_FIELDS", "_MODEL_CODEX_APPLY_MANIFEST_FIELDS"],
+)
+def test_manifest_scan_schema_keys_at_other_positions_still_own(envelope, schema_name):
+    nested = _scan_shaped(schema_name, run_id=_SCAN_PATH)
     receipt = {
         "source-attestation": _scan_shaped(
             "_MODEL_APPLY_MANIFEST_FIELDS", source_attestation=nested
@@ -2023,6 +2185,7 @@ def _manifest_scan_examples(draw):
 @settings(max_examples=70, deadline=None)
 @given(receipt=_manifest_scan_examples())
 @example(receipt=_scan_shaped("_MODEL_APPLY_MANIFEST_FIELDS", run_id=_SCAN_PATH))
+@example(receipt=_scan_shaped("_MODEL_CODEX_APPLY_MANIFEST_FIELDS", run_id=_SCAN_PATH))
 @example(
     receipt=_scan_nested(
         _scan_shaped("_RETIRE_APPLY_MANIFEST_FIELDS", reason=_SCAN_PATH),

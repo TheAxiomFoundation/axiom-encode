@@ -579,6 +579,15 @@ APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL = "axiom-encode retire-unreceipted"
 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR = Path(
     _LEGACY_REPLACEMENT_RECEIPT_DIR_TEXT
 )
+_GUARD_PROVENANCE_RECEIPT_DIRS = (
+    APPLIED_ENCODING_MANIFEST_DIR,
+    APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
+    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
+)
+_UNRECEIPTED_RETIREMENT_RECEIPT_DIRS = (
+    *_GUARD_PROVENANCE_RECEIPT_DIRS,
+    Path(RETIRED_SOURCE_METADATA_RECEIPT_DIR),
+)
 APPLIED_ENCODING_OFFICIAL_REPOSITORY = "github.com/TheAxiomFoundation/axiom-encode"
 # Trusted-runtime attestation (encode#1147): the git-free, root-provisioned
 # cross-repo apply-identity source that EXTENDS main's checkout binding. When the
@@ -645,6 +654,10 @@ _MODEL_APPLY_MANIFEST_FIELDS = frozenset(
         "signature",
     }
 )
+_MODEL_CODEX_APPLY_MANIFEST_FIELDS = _MODEL_APPLY_MANIFEST_FIELDS | {
+    "codex_cli_version",
+    "codex_cli_sha256",
+}
 _REVIEWED_CANDIDATE_MANIFEST_FIELDS = frozenset(
     {
         "schema_version",
@@ -779,9 +792,22 @@ _LEGACY_REPLACEMENT_RECEIPT_FIELDS = frozenset(
         "signature",
     }
 )
-# Explicit classifications keep new schema fields subject to audit. Descriptive
-# strings are caller-selected text unused by ownership/provenance readers; every
-# other value is scanned, including containers in descriptive fields.
+# Admission and ownership recognition use these exact, named variants. Codex
+# also admits the base model shape for historical receipts without CLI metadata.
+_APPLIED_MANIFEST_SCHEMA_VARIANTS = {
+    "model": (_MODEL_APPLY_MANIFEST_FIELDS,),
+    "codex model": (_MODEL_APPLY_MANIFEST_FIELDS, _MODEL_CODEX_APPLY_MANIFEST_FIELDS),
+    "reviewed candidate promotion": (_REVIEWED_CANDIDATE_MANIFEST_FIELDS,),
+    "retirement": (_RETIRE_APPLY_MANIFEST_FIELDS,),
+    "unreceipted retirement": (_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS,),
+    "path migration": (_PATH_MIGRATION_APPLY_MANIFEST_FIELDS,),
+    "legacy replacement": (_LEGACY_REPLACEMENT_APPLY_MANIFEST_FIELDS,),
+    "legacy exact dependent": (_LEGACY_EXACT_DEPENDENT_APPLY_MANIFEST_FIELDS,),
+    "legacy retained successor": (_LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS,),
+    "retired source metadata migration": (_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS,),
+}
+# Descriptive strings do not establish file coverage; snapshot integrity checks
+# may still read them. Every other value, including descriptive containers, scans.
 _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS = frozenset(
     {
         "schema_version",
@@ -811,6 +837,27 @@ _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES = {
             "applied_files",
             "source_attestation",
             "validation_execution",
+        },
+    ),
+    _MODEL_CODEX_APPLY_MANIFEST_FIELDS: (
+        frozenset({"run_id", "runner", "model"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "generation_prompt_sha256",
+            "citation",
+            "backend",
+            "generated_output_root",
+            "generated_output_file",
+            "generated_output_sha256",
+            "trace_file",
+            "trace_sha256",
+            "context_manifest_file",
+            "context_manifest_sha256",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+            "codex_cli_version",
+            "codex_cli_sha256",
         },
     ),
     _REVIEWED_CANDIDATE_MANIFEST_FIELDS: (
@@ -24996,12 +25043,7 @@ def _unreceipted_retirement_inventory_prefix(path: Path) -> tuple[str, ...] | No
             or re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", path.parts[0]) is None
         ):
             continue
-        for directory in (
-            APPLIED_ENCODING_MANIFEST_DIR,
-            APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
-            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
-            Path(RETIRED_SOURCE_METADATA_RECEIPT_DIR),
-        ):
+        for directory in _UNRECEIPTED_RETIREMENT_RECEIPT_DIRS:
             prefix = path.parts[:offset] + directory.parts
             shared = min(len(path.parts), len(prefix))
             if path.parts[:shared] == prefix[:shared]:
@@ -25336,12 +25378,7 @@ def _unreceipted_retirement_current_ownership_issues(
     except OSError as exc:
         return [f"{manifest_label} cannot establish unreceipted ownership: {exc}"]
     for parent in parents:
-        for directory in (
-            APPLIED_ENCODING_MANIFEST_DIR,
-            APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
-            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
-            Path(RETIRED_SOURCE_METADATA_RECEIPT_DIR),
-        ):
+        for directory in _UNRECEIPTED_RETIREMENT_RECEIPT_DIRS:
             cursor = repo_path
             relative = (parent / directory).relative_to(repo_path)
             for part in relative.parts:
@@ -25998,11 +26035,7 @@ def _provenance_inventory_prefix(path: Path) -> tuple[str, ...] | None:
     """Classify inventory ancestors and descendants by folded components."""
 
     folded = tuple(part.casefold() for part in path.parts)
-    for inventory in (
-        APPLIED_ENCODING_MANIFEST_DIR,
-        APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
-        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
-    ):
+    for inventory in _GUARD_PROVENANCE_RECEIPT_DIRS:
         prefix = inventory.parts
         shared = min(len(folded), len(prefix))
         if folded[:shared] == tuple(part.casefold() for part in prefix[:shared]):
@@ -28019,14 +28052,13 @@ def _applied_manifest_exact_schema_issues(
         return []
 
     issues: list[str] = []
-    codex_fields = {"codex_cli_version", "codex_cli_sha256"}
+    codex_fields = _MODEL_CODEX_APPLY_MANIFEST_FIELDS - _MODEL_APPLY_MANIFEST_FIELDS
     present_codex_fields = set(payload) & codex_fields
-    admitted_fields = expected_fields | (codex_fields if backend == "codex" else set())
-    if (
-        set(payload) - codex_fields != expected_fields
-        or (backend == "codex" and present_codex_fields not in (set(), codex_fields))
-        or (backend != "codex" and present_codex_fields)
-    ):
+    variants = _APPLIED_MANIFEST_SCHEMA_VARIANTS[
+        "codex model" if backend == "codex" else contract
+    ]
+    admitted_fields = frozenset().union(*variants)
+    if frozenset(payload) not in variants:
         missing = sorted(expected_fields - set(payload))
         extra = sorted(set(payload) - admitted_fields)
         detail: list[str] = []
