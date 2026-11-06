@@ -27,6 +27,19 @@ from tests.test_retired_apply_paths import (
 )
 
 OTHER = "us-ma/regulations/106-cmr/1.yaml"
+
+
+@pytest.fixture(autouse=True)
+def _clear_waiver_ledger_caches():
+    """The ledger caches are process-global; keep tests order-independent."""
+
+    cli._VALIDATION_WAIVER_SETS_BY_SHA256.clear()
+    cli._VALIDATION_WAIVER_LEDGER_BYTES_BY_SHA256.clear()
+    yield
+    cli._VALIDATION_WAIVER_SETS_BY_SHA256.clear()
+    cli._VALIDATION_WAIVER_LEDGER_BYTES_BY_SHA256.clear()
+
+
 EXPIRES = "2026-12-21"
 
 
@@ -296,3 +309,60 @@ def test_validated_waiver_digest_of_each_manifest_shape():
     ] = "not-a-digest"
     assert cli._manifest_validated_waiver_set_sha256(malformed) is None
     assert cli._manifest_validated_waiver_set_sha256({}) is None
+
+
+def test_nested_bindings_read_the_ledger_at_the_snapshot_commit(frozen_repo):
+    """A nested manifest's ledger may exist only at the protected base."""
+
+    digest = _write_ledger(frozen_repo, covered="a", other="b")
+    payload = _per_file_payload(frozen_repo, digest)
+    snapshot = _commit(frozen_repo.repo, "ledger at the protected base")
+    _write_ledger(frozen_repo, covered="c", other="d")
+    _commit(frozen_repo.repo, "the working ledger moved on")
+    cli._VALIDATION_WAIVER_SETS_BY_SHA256.clear()
+    cli._VALIDATION_WAIVER_LEDGER_BYTES_BY_SHA256.clear()
+    assert (
+        cli._nested_file_waiver_binding_issues(
+            payload,
+            repo_path=frozen_repo.repo,
+            manifest_label="nested",
+            expected_waiver_set_sha256=digest,
+            base_commit=snapshot,
+        )
+        == []
+    )
+    cli._VALIDATION_WAIVER_SETS_BY_SHA256.clear()
+    cli._VALIDATION_WAIVER_LEDGER_BYTES_BY_SHA256.clear()
+    # Without the snapshot commit, only the moved-on working ledger exists.
+    assert cli._nested_file_waiver_binding_issues(
+        payload,
+        repo_path=frozen_repo.repo,
+        manifest_label="nested",
+        expected_waiver_set_sha256=digest,
+    )
+
+
+def test_nested_bindings_reject_covered_drift(frozen_repo):
+    digest = _write_ledger(frozen_repo, covered="a", other="b")
+    payload = _per_file_payload(frozen_repo, digest)
+    drifted = _write_ledger(frozen_repo, covered="c", other="b")
+    issues = cli._nested_file_waiver_binding_issues(
+        payload,
+        repo_path=frozen_repo.repo,
+        manifest_label="nested",
+        expected_waiver_set_sha256=drifted,
+    )
+    assert any("is not current" in issue for issue in issues), issues
+
+
+def test_nested_set_digest_manifests_need_no_bindings_check(frozen_repo):
+    digest = _write_ledger(frozen_repo, covered="a", other="b")
+    assert (
+        cli._nested_file_waiver_binding_issues(
+            _set_digest_payload(frozen_repo, digest),
+            repo_path=frozen_repo.repo,
+            manifest_label="nested",
+            expected_waiver_set_sha256=digest,
+        )
+        == []
+    )
