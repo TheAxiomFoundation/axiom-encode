@@ -71,7 +71,7 @@ EXPECTED_CONSUMERS = {
     ("source_completeness", "_annual_source_evidence"): 1,
     ("source_completeness", "_formula_execution_is_source_branch_witness"): 2,
     ("source_completeness", "_unasserted_reached_formula_dependency_names"): 1,
-    ("source_completeness", "_case_dependency_environment"): 2,
+    ("source_completeness", "_evaluate_case_dependency_environment"): 2,
     ("source_completeness", "_unconditional_nonapplicability_witnesses"): 1,
     ("source_completeness", "_source_owned_residence_text_intervention"): 2,
     ("source_completeness", "_source_qualified_cardinality_evidence"): 1,

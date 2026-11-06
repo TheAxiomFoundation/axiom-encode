@@ -1,0 +1,1 @@
+The formula parser now accepts at most 64 nested parentheses, brackets, call argument lists and unary operators, so its answer depends only on the formula's text. Before, a deeply nested formula could pass with stack to spare and fail with less, and the failure could stay in the branch cache. With too little stack to parse, the call now raises `RecursionError` and caches nothing.

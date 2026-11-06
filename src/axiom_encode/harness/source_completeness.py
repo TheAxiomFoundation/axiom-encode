@@ -14,13 +14,17 @@ import calendar
 import contextlib
 import contextvars
 import copy
+import ctypes
 import difflib
 import functools
 import hashlib
 import heapq
 import itertools
 import math
+import platform
 import re
+import struct
+import sys
 import textwrap
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
@@ -32,6 +36,7 @@ from decimal import (
     ROUND_HALF_UP,
     Decimal,
     InvalidOperation,
+    getcontext,
     localcontext,
 )
 from typing import TYPE_CHECKING, Any, Mapping, Protocol
@@ -5572,7 +5577,10 @@ def analyze_complete_source_unit(
 ) -> CompleteSourceUnitAnalysis:
     """Analyze one artifact against its authoritative, resolver-owned body."""
 
-    with _us_manual_prose_scope(corpus_citation_path):
+    with (
+        _us_manual_prose_scope(corpus_citation_path),
+        _case_dependency_environment_memo_scope(),
+    ):
         source_text = authoritative_source_text.strip()
         if not source_text:
             issue = (
@@ -27275,6 +27283,161 @@ def _case_asserted_dependency_environment(
     )
 
 
+# One analysis asks for the same case's dependency environment from several
+# checks, each time with the same rule, case and constant mappings.
+# `_case_dependency_environment_memo_scope` holds a memo for one analysis so a
+# repeat can reuse an earlier result. The memo partitions entries by the
+# ambient Decimal settings, observed native float behavior (signed rounding,
+# subnormal results and subnormal inputs) and the Python frames still available.
+# Native traps must be masked before probing. Every hit still needs the same
+# input objects and a matching digest of their contents; fingerprint failures or
+# an unsafe/unreadable probe run fresh.
+_CASE_DEPENDENCY_ENVIRONMENT_MEMO: contextvars.ContextVar[
+    dict[tuple[Any, ...], tuple[tuple[Any, ...], bytes, dict[str, Any]]] | None
+] = contextvars.ContextVar("_CASE_DEPENDENCY_ENVIRONMENT_MEMO", default=None)
+
+
+@contextlib.contextmanager
+def _case_dependency_environment_memo_scope() -> Iterator[None]:
+    """Reuse case dependency environments within one analysis only."""
+
+    scope = _CASE_DEPENDENCY_ENVIRONMENT_MEMO.set({})
+    try:
+        yield
+    finally:
+        _CASE_DEPENDENCY_ENVIRONMENT_MEMO.reset(scope)
+
+
+def _case_dependency_environment_inputs_digest(
+    principal_rules: dict[str, dict[str, Any]],
+    case: dict[str, Any],
+    formula_environment: dict[str, Any],
+) -> bytes | None:
+    """Fingerprint current contents, or decline reuse if fingerprinting fails."""
+
+    try:
+        rounding = tuple(
+            (type(rule).__qualname__, getattr(rule, "resolved_currency_rounding", None))
+            for rule in principal_rules.values()
+        )
+        text = repr((principal_rules, rounding, case, formula_environment))
+        return hashlib.blake2b(text.encode("utf-8", "surrogatepass")).digest()
+    except Exception:
+        # Fingerprinting is optional: even ignored values may have an oversized
+        # integer repr or a failing user-defined repr/attribute. Preserve fresh
+        # evaluation's behavior, while letting process-control exceptions escape.
+        return None
+
+
+def _decimal_context_settings() -> tuple[Any, ...]:
+    """The ambient Decimal settings a formula's arithmetic reads.
+
+    Unary minus, for one, rounds to the ambient precision. Evaluation sets the
+    context's flags and never reads them, so they stay out of the key.
+    """
+
+    context = getcontext()
+    return (
+        context.prec,
+        context.rounding,
+        context.Emin,
+        context.Emax,
+        context.capitals,
+        context.clamp,
+        frozenset(signal for signal, trapped in context.traps.items() if trapped),
+    )
+
+
+# Construct exact binary64 operands without arithmetic or compiler folding:
+# 1, 3*2**-54 (three quarters of an ulp at 1), smallest normal, 3,
+# smallest subnormal, and 2**1023.
+_FLOAT_BEHAVIOR_OPERANDS = struct.unpack(
+    "!6d",
+    bytes.fromhex(
+        "3ff0000000000000 3ca8000000000000 0010000000000000 "
+        "4008000000000000 0000000000000001 7fe0000000000000"
+    ),
+)
+_FLOAT_BEHAVIOR_PACK = struct.Struct("!dddd").pack
+
+
+@functools.lru_cache(maxsize=1)
+def _floating_point_exception_mask_reader() -> Callable[[], bool] | None:
+    """Bind a non-arithmetic safety check for the behavior probe, when known.
+
+    fegetenv is read-only. Use verified x86_64 fenv_t layouts: Darwin's fenv.h
+    has control/status, MXCSR, then eight reserved bytes (16 bytes); glibc's
+    sysdeps/x86/fpu/bits/fenv.h has 28 x87 bytes followed by MXCSR (32 bytes).
+    Unknown layouts decline reuse rather than risk a trapping sentinel operation.
+    """
+
+    try:
+        if platform.machine().lower() not in {"x86_64", "amd64"}:
+            return None
+        if sys.platform == "darwin":
+            words, mxcsr_index = 4, 1
+        elif sys.platform.startswith("linux") and platform.libc_ver()[0] == "glibc":
+            words, mxcsr_index = 8, 7
+        else:
+            return None
+        environment_type = ctypes.c_uint32 * words
+        reader = ctypes.CDLL(None).fegetenv
+        reader.argtypes = (ctypes.POINTER(environment_type),)
+        reader.restype = ctypes.c_int
+    except Exception:
+        return None
+
+    def masked() -> bool:
+        environment = environment_type()
+        if reader(ctypes.byref(environment)) != 0:
+            return False
+        # Check x87 and SSE independently: native code can unmask either unit.
+        return (
+            environment[0] & 0x3F == 0x3F
+            and environment[mxcsr_index] & 0x1F80 == 0x1F80
+        )
+
+    return masked
+
+
+def _floating_point_behavior() -> bytes | None:
+    """Observe signed rounding, subnormal output and subnormal input behavior.
+
+    Probe arithmetic at each call, rather than enumerating host registers. The
+    signed additions distinguish nearest, down, up and toward-zero rounding.
+    Normal operands produce an inexact subnormal to detect flush-to-zero; a
+    subnormal scaled to a normal detects denormals-are-zero independently.
+    Packed bits avoid float equality/hashing that can itself read those controls.
+    Unmasked traps or unreadable masks decline reuse before doing arithmetic.
+    """
+
+    try:
+        masked = _floating_point_exception_mask_reader()
+        if masked is None or not masked():
+            return None
+        one, delta, normal, three, subnormal, large = _FLOAT_BEHAVIOR_OPERANDS
+        return _FLOAT_BEHAVIOR_PACK(
+            one + delta,
+            -one - delta,
+            normal / three,
+            subnormal * large,
+        )
+    except Exception:
+        return None
+
+
+# Values a memo may hand to several callers: none can be changed in place.
+_SHAREABLE_RUNTIME_VALUE_TYPES = (
+    type(None),
+    bool,
+    int,
+    float,
+    str,
+    Decimal,
+    date,
+)
+
+
 def _case_dependency_environment(
     principal_rules: dict[str, dict[str, Any]],
     case: dict[str, Any],
@@ -27284,8 +27447,85 @@ def _case_dependency_environment(
     allowed_names: set[str] | None = None,
     allow_bound_row_assertions: bool = False,
 ) -> dict[str, Any]:
-    """Evaluate an acyclic reached subset of local principal outputs."""
+    """Evaluate reached outputs, reusing only matching inputs and numbers."""
 
+    memo = _CASE_DEPENDENCY_ENVIRONMENT_MEMO.get()
+    float_behavior = _floating_point_behavior() if memo is not None else None
+    # An unavailable behavior signature cannot justify reuse; evaluate fresh.
+    if memo is None or float_behavior is None:
+        return _evaluate_case_dependency_environment(
+            principal_rules,
+            case,
+            formula_environment=formula_environment,
+            require_asserted_value=require_asserted_value,
+            allowed_names=allowed_names,
+            allow_bound_row_assertions=allow_bound_row_assertions,
+        )
+    key = (
+        id(principal_rules),
+        id(case),
+        id(formula_environment),
+        require_asserted_value,
+        None if allowed_names is None else frozenset(allowed_names),
+        allow_bound_row_assertions,
+        _US_MANUAL_PROSE_SCOPE.get(),
+        _decimal_context_settings(),
+        float_behavior,
+    )
+    digest = _case_dependency_environment_inputs_digest(
+        principal_rules, case, formula_environment
+    )
+    if digest is None:
+        return _evaluate_case_dependency_environment(
+            principal_rules,
+            case,
+            formula_environment=formula_environment,
+            require_asserted_value=require_asserted_value,
+            allowed_names=allowed_names,
+            allow_bound_row_assertions=allow_bound_row_assertions,
+        )
+    entry = memo.get(key)
+    if (
+        entry is not None
+        and entry[0][0] is principal_rules
+        and entry[0][1] is case
+        and entry[0][2] is formula_environment
+        and entry[1] == digest
+    ):
+        return dict(entry[2])
+    resolved = _evaluate_case_dependency_environment(
+        principal_rules,
+        case,
+        formula_environment=formula_environment,
+        require_asserted_value=require_asserted_value,
+        allowed_names=allowed_names,
+        allow_bound_row_assertions=allow_bound_row_assertions,
+    )
+    # A fresh evaluation builds new values, so share only values no caller can
+    # change in place. The entry holds the input objects, so their ids stay
+    # unique while it lives.
+    if all(
+        type(value) in _SHAREABLE_RUNTIME_VALUE_TYPES for value in resolved.values()
+    ):
+        memo[key] = (
+            (principal_rules, case, formula_environment),
+            digest,
+            dict(resolved),
+        )
+    else:
+        memo.pop(key, None)
+    return resolved
+
+
+def _evaluate_case_dependency_environment(
+    principal_rules: dict[str, dict[str, Any]],
+    case: dict[str, Any],
+    *,
+    formula_environment: dict[str, Any],
+    require_asserted_value: bool,
+    allowed_names: set[str] | None = None,
+    allow_bound_row_assertions: bool = False,
+) -> dict[str, Any]:
     constants = _formula_environment_for_case(formula_environment, case)
     inputs = _case_input_formula_environment(case)
     if inputs is None:
@@ -28337,13 +28577,24 @@ def _formula_text_has_executable_branch_tree(formula_text: str) -> bool:
     return validate(formula_text, depth=0)
 
 
+# Parentheses, brackets, call argument lists and unary operators a leaf may nest.
+# A parenthesis costs each parser nine frames, so a leaf at this limit needs about
+# 590 of the default 1,000.
+_FORMULA_EXPRESSION_NESTING_LIMIT = 64
+
+
 def _formula_leaf_has_executable_syntax(text: str) -> bool:
-    """Parse a reduced leaf with the pinned RuleSpec expression grammar."""
+    """Parse a reduced leaf with the pinned RuleSpec expression grammar.
+
+    The answer depends only on the text. With too little stack left to parse it,
+    the call raises RecursionError, so a cache of these answers stays valid.
+    """
 
     tokens = _rulespec_formula_tokens(text)
     if tokens is None:
         return False
     position = 0
+    nesting = 0
 
     def peek() -> str:
         return tokens[position][0]
@@ -28356,7 +28607,13 @@ def _formula_leaf_has_executable_syntax(text: str) -> bool:
         return True
 
     def parse_expression() -> bool:
-        return parse_or()
+        nonlocal nesting
+        if nesting > _FORMULA_EXPRESSION_NESTING_LIMIT:
+            return False
+        nesting += 1
+        parsed = parse_or()
+        nesting -= 1
+        return parsed
 
     def parse_or() -> bool:
         if not parse_and():
@@ -28407,10 +28664,16 @@ def _formula_leaf_has_executable_syntax(text: str) -> bool:
         return True
 
     def parse_unary() -> bool:
+        nonlocal nesting
         if peek() in {"MINUS", "NOT"}:
+            if nesting > _FORMULA_EXPRESSION_NESTING_LIMIT:
+                return False
             operator = peek()
             consume(operator)
-            return parse_unary()
+            nesting += 1
+            parsed = parse_unary()
+            nesting -= 1
+            return parsed
         return parse_postfix()
 
     def parse_postfix() -> bool:
@@ -28480,10 +28743,7 @@ def _formula_leaf_has_executable_syntax(text: str) -> bool:
             return True
         return False
 
-    try:
-        return parse_expression() and peek() == "EOF"
-    except RecursionError:
-        return False
+    return parse_expression() and peek() == "EOF"
 
 
 def _evaluate_rulespec_formula(
@@ -28976,6 +29236,28 @@ def _rulespec_formula_tokens(
 ) -> tuple[tuple[str, str, int, int], ...] | None:
     """Tokenize the pinned RuleSpec formula language while preserving offsets."""
 
+    # Tokens depend only on the text, and the result is an immutable tuple, so
+    # one analysis may reuse them across its many case environments. Bound both
+    # the entry count and the retained text and token size.
+    if len(text) > _FORMULA_TEXT_CACHE_CHARACTERS:
+        return _tokenize_rulespec_formula(text)
+    return _cached_rulespec_formula_tokens(text)
+
+
+# Formula texts the token and mask caches keep; a longer text is scanned afresh.
+_FORMULA_TEXT_CACHE_CHARACTERS = 4_096
+
+
+@functools.lru_cache(maxsize=1024)
+def _cached_rulespec_formula_tokens(
+    text: str,
+) -> tuple[tuple[str, str, int, int], ...] | None:
+    return _tokenize_rulespec_formula(text)
+
+
+def _tokenize_rulespec_formula(
+    text: str,
+) -> tuple[tuple[str, str, int, int], ...] | None:
     keywords = {
         "entity": "ENTITY",
         "amend": "AMEND",
@@ -29260,6 +29542,17 @@ def _mask_formula_strings(text: str) -> str:
 def _mask_formula_strings_and_comments(text: str) -> str:
     """Blank quoted content and comments while preserving source offsets."""
 
+    if len(text) > _FORMULA_TEXT_CACHE_CHARACTERS:
+        return _blank_formula_strings_and_comments(text)
+    return _cached_mask_formula_strings_and_comments(text)
+
+
+@functools.lru_cache(maxsize=1024)
+def _cached_mask_formula_strings_and_comments(text: str) -> str:
+    return _blank_formula_strings_and_comments(text)
+
+
+def _blank_formula_strings_and_comments(text: str) -> str:
     masked = list(_mask_formula_strings(text))
     in_comment = False
     for index, character in enumerate(masked):
