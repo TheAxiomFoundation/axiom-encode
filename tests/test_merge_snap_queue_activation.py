@@ -240,6 +240,23 @@ def test_wait_restarts_the_five_minutes_after_a_group_rebuild(tmp_path):
     assert result.returncode == 0, result.stderr
 
 
+def test_wait_needs_a_new_ci_run_after_a_group_rebuild(tmp_path):
+    # The first build's CI started; after the rebuild no run starts again.
+    entries = [_entry("AWAITING_CHECKS")] * 2 + [_entry("QUEUED")] * 2
+    entries += [_entry("AWAITING_CHECKS")] * 20
+    started = _runs(("pr-17-" + "e" * 40, NOW))
+    scenario = {
+        "answers": [
+            ["mergeQueueEntry", entries],
+            [QUEUE_RUNS, [started, NO_RUNS]],
+            ["pulls/17", _open_pr()],
+        ]
+    }
+    result, _ = _run(tmp_path, _wait_loop(), scenario, {})
+    assert result.returncode == 1
+    assert "started no merge_group CI run" in result.stderr
+
+
 def test_wait_does_not_count_time_spent_queued_behind_other_entries(tmp_path):
     merged = {"state": "closed", "merged_at": "2026-11-06T00:00:00Z"}
     scenario = {

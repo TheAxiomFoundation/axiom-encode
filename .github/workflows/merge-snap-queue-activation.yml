@@ -288,8 +288,13 @@ jobs:
             # takes the entry out, so it does not hold the queue for the
             # rule's 60-minute check timeout.
             if [ "$entry_state" != "AWAITING_CHECKS" ]; then
-              # Back in QUEUED after a group rebuild: start the wait again.
-              awaiting_since=""
+              # Not (or no longer) built, for example back in QUEUED after a
+              # group rebuild: the next build must start its own CI run.
+              if [ -n "$awaiting_since" ]; then
+                awaiting_since=""
+                ci_started=false
+                enqueued_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              fi
             elif [ "$ci_started" != "true" ]; then
               awaiting_since="${awaiting_since:-$SECONDS}"
               ci_runs="$(gh api \
