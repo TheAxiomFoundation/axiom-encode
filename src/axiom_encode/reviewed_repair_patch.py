@@ -60,6 +60,19 @@ def sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _official_origin(actual: str, repository: str) -> bool:
+    """Accept only the two official HTTPS remote spellings."""
+    expected = f"https://github.com/TheAxiomFoundation/{repository}"
+    return actual in {expected, expected + ".git"}
+
+
+def _target_country(target: str) -> str:
+    country = target.split("/", 1)[0].split("-", 1)[0]
+    if re.fullmatch(r"[a-z]{2}", country) is None:
+        raise ValueError("reviewed repair target country invalid")
+    return country
+
+
 def canonical_json(value: object) -> bytes:
     return json.dumps(
         value,
@@ -343,7 +356,9 @@ def load_registered_patch(checkout: Path, patch_id: str) -> ReviewedRepairPackag
     def git(*args: str) -> bytes:
         return subprocess.check_output(["git", "-C", str(checkout), *args])
 
-    if git("remote", "get-url", "origin").decode().strip() != OFFICIAL_REPOSITORY:
+    if not _official_origin(
+        git("remote", "get-url", "origin").decode().strip(), "axiom-encode"
+    ):
         raise ValueError("reviewed patch checkout must have official origin")
     prefix = f"reviewed-repair-patches/{patch_id}"
     tree = git("ls-tree", "-r", "-z", registration.commit, "--", prefix)
@@ -504,8 +519,9 @@ def verify_predecessor(
         raise ValueError("reviewed repair checkout is not exact reviewed base")
     if git("status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"):
         raise ValueError("reviewed repair requires a strictly clean base")
-    if git("remote", "get-url", "origin").decode().strip() != (
-        f"https://github.com/TheAxiomFoundation/rulespec-{target.parts[0]}.git"
+    if not _official_origin(
+        git("remote", "get-url", "origin").decode().strip(),
+        f"rulespec-{_target_country(target.as_posix())}",
     ):
         raise ValueError("reviewed repair base origin invalid")
     snapshot = {}
@@ -717,10 +733,9 @@ def verify_manifest_reconstruction(
             ["git", "-C", str(checkout), *args], stderr=subprocess.PIPE
         )
 
-    country = target.split("/")[0]
-    if (
-        git("remote", "get-url", "origin").decode().strip()
-        != f"https://github.com/TheAxiomFoundation/rulespec-{country}.git"
+    country = _target_country(target)
+    if not _official_origin(
+        git("remote", "get-url", "origin").decode().strip(), f"rulespec-{country}"
     ):
         raise ValueError(
             "reviewed repair base must belong to official RuleSpec checkout"
@@ -778,7 +793,7 @@ def verify_manifest_reconstruction(
 
 def verify_archive_seed(
     raw: bytes, package: ReviewedRepairPackage, *, rulespec: bytes, tests: bytes
-) -> None:
+) -> dict:
     """Bind extracted bytes to the registered immutable target-lane archive."""
     import io
     import tarfile
@@ -793,16 +808,30 @@ def verify_archive_seed(
         prefix + target.removesuffix(".yaml") + ".test.yaml": tests,
     }
     issues_path = prefix + "issues.json"
+    metadata_path = "metadata.json"
+    metadata = None
     found = set()
     seen = set()
     with tarfile.open(fileobj=io.BytesIO(raw), mode="r:*") as archive:
         for index, member in enumerate(archive):
-            if index >= 10000 or member.name in seen:
+            # Match the workflow's `tar -C artifact .` spelling, and detect
+            # aliases before looking up any authority-bearing member.
+            name = member.name.removeprefix("./")
+            if name == "." and member.isdir():
+                name = "."
+            elif (
+                not name
+                or name.startswith("/")
+                or any(part in {"", ".", ".."} for part in name.rstrip("/").split("/"))
+            ):
+                raise ValueError("reviewed repair archive member path invalid")
+            name = name.rstrip("/")
+            if index >= 10000 or name in seen:
                 raise ValueError(
                     "reviewed repair archive has duplicate or excessive members"
                 )
-            seen.add(member.name)
-            if member.name not in {*expected, issues_path}:
+            seen.add(name)
+            if name not in {*expected, issues_path, metadata_path}:
                 continue
             if not member.isfile() or not 0 < member.size <= MAX_MEMBER_BYTES:
                 raise ValueError("reviewed repair seed archive member invalid")
@@ -813,14 +842,34 @@ def verify_archive_seed(
                 content = stream.read(MAX_MEMBER_BYTES + 1)
             if len(content) != member.size:
                 raise ValueError("reviewed repair seed archive size mismatch")
-            if member.name == issues_path:
+            if name == metadata_path:
+                metadata = strict_json(content)
+            elif name == issues_path:
                 if sha256(content) != declared["seed"]["issues_sha256"]:
                     raise ValueError("reviewed repair seed issue digest differs")
-            elif content != expected[member.name]:
+            elif content != expected[name]:
                 raise ValueError("reviewed repair extracted seed differs from archive")
-            found.add(member.name)
-    if found != {*expected, issues_path}:
+            found.add(name)
+    if found != {*expected, issues_path, metadata_path}:
         raise ValueError("reviewed repair archive lacks exact retained target seed")
+    seed = declared["seed"]
+    if (
+        metadata.get("schema") != "axiom-encode/failed-reencode-diagnostics/v1"
+        or metadata.get("encoder_commit") != seed["encoder_commit"]
+        or metadata.get("workflow_run_id") != seed["run_id"]
+        or type(metadata.get("workflow_run_attempt")) is not int
+        or metadata["workflow_run_attempt"] != 1
+        or str(metadata["workflow_run_attempt"]) != seed["run_attempt"]
+    ):
+        raise ValueError("reviewed repair seed metadata identity differs")
+    # The registry-bound archive and upstream authenticated extraction establish
+    # provenance; these comparisons do not independently authenticate GitHub.
+    return {
+        **seed,
+        "encoder_commit": metadata["encoder_commit"],
+        "run_id": metadata["workflow_run_id"],
+        "run_attempt": str(metadata["workflow_run_attempt"]),
+    }
 
 
 def apply_reviewed_repair(args) -> None:
@@ -916,7 +965,9 @@ def apply_reviewed_repair(args) -> None:
     )
     if sha256(archive) != seed["archive_sha256"]:
         raise ValueError("reviewed repair archive differs from registration")
-    verify_archive_seed(archive, package, rulespec=rule_seed, tests=test_seed)
+    verified_seed = verify_archive_seed(
+        archive, package, rulespec=rule_seed, tests=test_seed
+    )
     binding = build_repair_binding(package, rulespec=rule_seed, tests=test_seed)
     postimage = reconstruct_postimage(package, rulespec=rule_seed, tests=test_seed)
     release = c.load_rulespec_local_corpus_release(repo, corpus)
@@ -941,7 +992,7 @@ def apply_reviewed_repair(args) -> None:
             "rulespec_path": declared["rulespec_path"],
             "rulespec_base_commit": declared["rulespec_base_commit"],
             "predecessor": declared["predecessor"],
-            "seed": seed,
+            "seed": verified_seed,
             "source": source,
             "contract_sha256": contract_hash,
             "engine_ref": engine_ref,
@@ -1012,6 +1063,20 @@ def apply_reviewed_repair(args) -> None:
         # The ordinary resolver above has established exact replacement scope.
         setattr(result, c._REPLACEMENT_OVERLAY_SCOPE_ATTR, True)
         c._enforce_no_apply_collision(source_file=generated, target_file=repo / target)
+        # Ordinary apply may auto-repair companion references. Registered
+        # postimages are immutable: validate the same registry without repair.
+        registry_issues = c.validate_generated_against_registry(
+            [generated, generated_tests],
+            c.load_concept_registry(),
+            apply_anchor=c._relative_output_to_anchor(
+                relative, policy_repo_path=content_root
+            ),
+        )
+        if registry_issues:
+            raise RuntimeError(
+                "Canonical concept registry violations — refusing reviewed repair: "
+                + "; ".join(map(str, registry_issues))
+            )
         valid, issues, supplemental = c._run_generated_encoding_overlay_validation(
             result,
             output_root=output_root,
@@ -1212,7 +1277,7 @@ def resolve_request(raw: str, dispatch: dict[str, str], checkout: Path) -> dict:
         "CORPUS_REF": value["source"]["corpus_ref"],
         "RULES_ENGINE_REF": value["engine_ref"],
         "REPAIR_RUN_ID": value["seed"]["run_id"],
-        "COUNTRY": value["rulespec_path"].split("/")[0],
+        "COUNTRY": _target_country(value["rulespec_path"]),
     }
     if any(dispatch.get(k) != v for k, v in expected.items()):
         raise ValueError("reviewed repair dispatch differs from registered identities")

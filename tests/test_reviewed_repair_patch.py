@@ -386,13 +386,14 @@ def test_explicit_non_model_context_and_metadata_are_bound(tmp_path, monkeypatch
         _apply_result_metadata(result)
 
 
-def lineage_fixture(tmp_path, monkeypatch):
+def lineage_fixture(tmp_path, monkeypatch, jurisdiction="ca", origin_suffix=".git"):
     from dataclasses import replace
 
     workspace = tmp_path / "overlay"
     workspace.mkdir()
     package, seed, tests, expected = overlay_fixture(workspace)
-    repo = tmp_path / "rulespec-ca"
+    country = jurisdiction.split("-", 1)[0]
+    repo = tmp_path / f"rulespec-{country}"
     repo.mkdir()
 
     def git(*args):
@@ -405,9 +406,14 @@ def lineage_fixture(tmp_path, monkeypatch):
         "remote",
         "add",
         "origin",
-        "https://github.com/TheAxiomFoundation/rulespec-ca.git",
+        f"https://github.com/TheAxiomFoundation/rulespec-{country}{origin_suffix}",
     )
     value = package.manifest
+    if jurisdiction != "ca":
+        value["citation"] = jurisdiction + value["citation"][2:]
+        value["rulespec_path"] = jurisdiction + value["rulespec_path"][2:]
+        for key in ("requested_citation", "resolved_citation"):
+            value["source"][key] = jurisdiction + value["source"][key][2:]
     target = value["rulespec_path"]
     companion = target.removesuffix(".yaml") + ".test.yaml"
     predecessor = value["predecessor"]["path"]
@@ -514,7 +520,17 @@ def test_manifest_reconstruction_refuses_lineage_or_binding_drift(
 
 
 @pytest.mark.parametrize(
-    "failure", ["validation", "supplemental", "postimage", "closure", "shrink", "none"]
+    "failure",
+    [
+        "registry",
+        "registry-real",
+        "validation",
+        "supplemental",
+        "postimage",
+        "closure",
+        "shrink",
+        "none",
+    ],
 )
 def test_command_preserves_validation_and_transaction_boundaries(
     tmp_path, monkeypatch, failure
@@ -526,6 +542,47 @@ def test_command_preserves_validation_and_transaction_boundaries(
     from types import SimpleNamespace
 
     from axiom_encode import cli as c
+
+    if failure == "registry-real":
+        import yaml
+
+        original_overlay = overlay_fixture
+
+        def blocked_overlay(path):
+            package, seed, tests, expected = original_overlay(path)
+
+            def rename(raw):
+                return raw.replace(b"changed", b"snap_gross_monthly_income")
+
+            seed, tests = rename(seed), rename(tests)
+            expected = tuple(rename(raw) for raw in expected)
+            value = package.manifest
+            value["seed"].update(
+                rulespec_sha256=patch.sha256(seed), tests_sha256=patch.sha256(tests)
+            )
+            value["changes"]["rules"]["replaced"] = ["snap_gross_monthly_income"]
+            value["expected_postimage"] = {
+                "rulespec_sha256": patch.sha256(expected[0]),
+                "tests_sha256": patch.sha256(expected[1]),
+                "rulespec_object_sha256": patch.sha256(
+                    patch.canonical_json(yaml.safe_load(expected[0]))
+                ),
+                "tests_object_sha256": patch.sha256(
+                    patch.canonical_json(yaml.safe_load(expected[1]))
+                ),
+            }
+            return (
+                replace(
+                    package,
+                    manifest_bytes=patch.canonical_json(value),
+                    rules_bytes=rename(package.rules_bytes),
+                ),
+                seed,
+                tests,
+                expected,
+            )
+
+        monkeypatch.setitem(globals(), "overlay_fixture", blocked_overlay)
 
     repo, package, _payload, canonical = lineage_fixture(tmp_path, monkeypatch)
     value = package.manifest
@@ -612,6 +669,17 @@ def test_command_preserves_validation_and_transaction_boundaries(
     prefix = "generated/target/final-rejected-candidate/"
     with tarfile.open(fileobj=archive_buffer, mode="w") as archive:
         for name, raw in (
+            (
+                "metadata.json",
+                patch.canonical_json(
+                    {
+                        "schema": "axiom-encode/failed-reencode-diagnostics/v1",
+                        "encoder_commit": value["seed"]["encoder_commit"],
+                        "workflow_run_id": value["seed"]["run_id"],
+                        "workflow_run_attempt": int(value["seed"]["run_attempt"]),
+                    }
+                ),
+            ),
             (prefix + target.split("/", 1)[1], before[target]),
             (prefix + companion.split("/", 1)[1], before[companion]),
             (prefix + "issues.json", b"[]"),
@@ -639,6 +707,23 @@ def test_command_preserves_validation_and_transaction_boundaries(
     monkeypatch.setattr(patch, "REVIEWED_REPAIR_PATCHES", {"fixture": registration})
     monkeypatch.setattr(patch, "load_registered_patch", lambda *_: package)
     calls = []
+    real_registry_validation = c.validate_generated_against_registry
+
+    def registry_validation(files, registry, **kwargs):
+        calls.append("registry")
+        before_validation = [path.read_bytes() for path in files]
+        issues = real_registry_validation(files, registry, **kwargs)
+        assert [path.read_bytes() for path in files] == before_validation
+        if failure == "registry":
+            return ["fixture blocked canonical concept"]
+        return issues
+
+    monkeypatch.setattr(c, "validate_generated_against_registry", registry_validation)
+    monkeypatch.setattr(
+        c,
+        "auto_repair_test_yaml_canonical_violations",
+        lambda *a, **k: pytest.fail("Registered bytes must not be auto-repaired"),
+    )
     source = value["source"]
     attestation = {
         "requested_corpus_citation_path": source["requested_citation"],
@@ -767,7 +852,8 @@ def test_command_preserves_validation_and_transaction_boundaries(
     if failure == "none":
         patch.apply_reviewed_repair(args)
         assert (
-            calls.index("full-validation")
+            calls.index("registry")
+            < calls.index("full-validation")
             < calls.index("sign")
             < calls.index("full-post-install-closure")
         )
@@ -776,14 +862,17 @@ def test_command_preserves_validation_and_transaction_boundaries(
             value["predecessor"]["path"]
         ]
     else:
-        with pytest.raises(
-            RuntimeError, match="Refusing to shrink" if failure == "shrink" else None
-        ):
+        expected_error = "Refusing to shrink" if failure == "shrink" else None
+        if failure == "registry-real":
+            expected_error = r"\[blocked_synonym\] snap_gross_monthly_income"
+        with pytest.raises(RuntimeError, match=expected_error):
             patch.apply_reviewed_repair(args)
         assert (repo / canonical).exists() is (failure == "shrink")
         assert {p: (repo / p).read_bytes() for p in before} == before
         if failure != "closure":
             assert "signer" not in calls
+        if failure in {"registry", "registry-real"}:
+            assert "full-validation" not in calls
     assert calls[0] == "ordinary-replacement"
 
 
@@ -1233,3 +1322,191 @@ def test_workflow_queues_exact_reviewed_command_without_model_fallback(
         "--run-id": "456",
     }
     assert args[-2:] == ["copy-guard", str(tmp_path / "target-guard-generated.json")]
+
+
+@pytest.mark.parametrize("suffix", ["", ".git"])
+def test_official_package_origin_spellings(registered, suffix):
+    root, git, _ = registered
+    git(
+        "remote",
+        "set-url",
+        "origin",
+        "https://github.com/TheAxiomFoundation/axiom-encode" + suffix,
+    )
+    assert patch.load_registered_patch(root, "fixture").patch_id == "fixture"
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://github.com/Other/rulespec-us",
+        "https://example.test/TheAxiomFoundation/rulespec-us",
+        "https://github.com/TheAxiomFoundation/rulespec-us.git/extra",
+        "https://github.com/TheAxiomFoundation/rulespec-us?x=1",
+        "https://user@github.com/TheAxiomFoundation/rulespec-us",
+    ],
+)
+def test_official_origin_does_not_normalize_foreign_identity(origin):
+    assert not patch._official_origin(origin, "rulespec-us")
+
+
+def _archive_fixture(tmp_path, *, metadata_change=None, duplicate=None, shell=False):
+    import io
+    import tarfile
+    from types import SimpleNamespace
+
+    value = manifest()
+    prefix = "generated/target/final-rejected-candidate/"
+    target = value["rulespec_path"].split("/", 1)[1]
+    metadata = {
+        "schema": "axiom-encode/failed-reencode-diagnostics/v1",
+        "encoder_commit": value["seed"]["encoder_commit"],
+        "workflow_run_id": value["seed"]["run_id"],
+        "workflow_run_attempt": 1,
+    }
+    if metadata_change:
+        metadata_change(metadata)
+    members = {
+        prefix + target: b"rules",
+        prefix + target.removesuffix(".yaml") + ".test.yaml": b"tests",
+        prefix + "issues.json": b"[]",
+        "metadata.json": patch.canonical_json(metadata),
+    }
+    if shell:
+        folder = tmp_path / "artifact"
+        folder.mkdir()
+        for name, raw in members.items():
+            path = folder / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(raw)
+        path = tmp_path / "actual.tar"
+        subprocess.run(["tar", "-cf", str(path), "-C", str(folder), "."], check=True)
+        raw = path.read_bytes()
+    else:
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w") as archive:
+            for name, content in list(members.items()) + (
+                [(duplicate, b"rules")] if duplicate else []
+            ):
+                member = tarfile.TarInfo(name)
+                member.size = len(content)
+                archive.addfile(member, io.BytesIO(content))
+        raw = buffer.getvalue()
+    value["seed"]["archive_sha256"] = patch.sha256(raw)
+    value["seed"]["issues_sha256"] = patch.sha256(b"[]")
+    return raw, SimpleNamespace(manifest=value), prefix + target
+
+
+@pytest.mark.parametrize("shell", [False, True])
+def test_archive_actual_workflow_packaging_and_verified_identity(tmp_path, shell):
+    raw, package, _ = _archive_fixture(tmp_path, shell=shell)
+    assert (
+        patch.verify_archive_seed(raw, package, rulespec=b"rules", tests=b"tests")
+        == package.manifest["seed"]
+    )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("encoder_commit", "d" * 40),
+        ("workflow_run_id", "456"),
+        ("workflow_run_attempt", 2),
+        ("workflow_run_attempt", True),
+        ("workflow_run_attempt", "1"),
+        ("schema", "unknown"),
+    ],
+)
+def test_archive_independent_metadata_mismatch_refuses(tmp_path, field, value):
+    raw, package, _ = _archive_fixture(
+        tmp_path, metadata_change=lambda m: m.update({field: value})
+    )
+    with pytest.raises(ValueError, match="metadata identity"):
+        patch.verify_archive_seed(raw, package, rulespec=b"rules", tests=b"tests")
+
+
+def test_archive_canonical_duplicate_refuses(tmp_path):
+    _, _, target = _archive_fixture(tmp_path)
+    raw, package, _ = _archive_fixture(tmp_path, duplicate="./" + target)
+    with pytest.raises(ValueError, match="duplicate"):
+        patch.verify_archive_seed(raw, package, rulespec=b"rules", tests=b"tests")
+
+
+@pytest.mark.parametrize("path", ["/absolute", "../escape", "safe/../escape"])
+def test_archive_unsafe_unselected_member_refuses(tmp_path, path):
+    raw, package, _ = _archive_fixture(tmp_path, duplicate=path)
+    with pytest.raises(ValueError, match="path invalid"):
+        patch.verify_archive_seed(raw, package, rulespec=b"rules", tests=b"tests")
+
+
+@pytest.mark.parametrize(
+    "jurisdiction,country", [("ca", "ca"), ("us-ny", "us"), ("ca-ns", "ca")]
+)
+def test_target_country_keeps_jurisdiction_separate(jurisdiction, country):
+    assert patch._target_country(jurisdiction + "/policies/target.yaml") == country
+    for suffix in ("", ".git"):
+        assert patch._official_origin(
+            "https://github.com/TheAxiomFoundation/rulespec-" + country + suffix,
+            "rulespec-" + country,
+        )
+
+
+@pytest.mark.parametrize("jurisdiction", ["ca", "us-ny"])
+@pytest.mark.parametrize("origin_suffix", ["", ".git"])
+def test_lineage_official_country_remote_spellings(
+    tmp_path, monkeypatch, jurisdiction, origin_suffix
+):
+    repo, package, payload, canonical = lineage_fixture(
+        tmp_path, monkeypatch, jurisdiction, origin_suffix
+    )
+    before = patch.verify_predecessor(repo, package)
+    patch.verify_manifest_reconstruction(payload, repo, canonical)
+    assert patch.verify_predecessor(repo, package) == before
+    assert package.manifest["rulespec_path"].startswith(jurisdiction + "/")
+    assert not (repo / canonical).exists()
+
+
+def test_subnational_request_uses_country_not_jurisdiction(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    from tests.test_atomic_repair_mode import DISPATCH, envelope
+
+    transaction = envelope()
+    value = manifest()
+    value["citation"] = (
+        "us-ny/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit"
+    )
+    value["rulespec_path"] = (
+        "us-ny/policies/cra/t1-2025/provincial-territorial-foreign-tax-credit.yaml"
+    )
+    value["contract_sha256"] = patch.sha256(patch.canonical_json(transaction))
+    value["seed"]["run_id"] = DISPATCH["REPAIR_RUN_ID"]
+    monkeypatch.setattr(
+        patch,
+        "load_registered_patch",
+        lambda *_: SimpleNamespace(manifest=value, commit="f" * 40),
+    )
+    raw = json.dumps(
+        {
+            "schema": "axiom-encode/reviewed-repair-transaction/v1",
+            "patch_id": "fixture",
+            "transaction": transaction,
+        }
+    )
+    dispatch = {
+        **DISPATCH,
+        "OPEN_PR": "false",
+        "COUNTRY": "us",
+        "CITATION": value["citation"],
+        "REPLACE_RULESPEC_PATH": value["rulespec_path"],
+        "RULESPEC_REF": value["rulespec_base_commit"],
+        "CORPUS_REF": value["source"]["corpus_ref"],
+        "RULES_ENGINE_REF": value["engine_ref"],
+        "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+        "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
+    }
+    assert patch.resolve_request(raw, dispatch, tmp_path)["patch_id"] == "fixture"
+    for wrong in ("us-ny", "ca"):
+        with pytest.raises(ValueError, match="dispatch differs"):
+            patch.resolve_request(raw, {**dispatch, "COUNTRY": wrong}, tmp_path)

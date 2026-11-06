@@ -8,7 +8,7 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
-__version__ = 3
+__version__ = 4
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -262,6 +262,27 @@ Hard requirements:
   the fraction as `1 / benefit_cost_rate_compensation_lookback_years`, not
   `1 / 5`.
 """
+
+INTERPRETATIONS_PROTOCOL = """Interpretations:
+- When source provisions conflict, your reading departs from literal wording,
+  or any question has been put to the publisher, add one
+  `module.interpretations[]` entry per reading with `status: open`.
+- Include a unique kebab-case `id`, plain-word `question`, non-empty `texts`
+  (`corpus_citation_path` and verbatim `excerpt`), adopted `reading`, non-empty
+  `alternatives` (`id`, `reading`, optional `effect`), `basis`, and non-empty `affects`
+  naming local `rules[].name`; never name deferred outputs.
+- Every alternative requires a non-blank string `id` matching
+  `^[a-z0-9]+(-[a-z0-9]+)*$`, unique within its interpretation. Its only allowed
+  keys are `id`, `reading`, and `effect`; all strings must be non-blank.
+- Never invent `ruling` or `confirmation`. A repair may copy a recorded human
+  ruling supplied in mandatory review findings and set `status: ruled`; a
+  supplied publisher reply and recorded ruling permit `confirmed` or
+  `contradicted`. Attribute them to organisations, never people; use quoted real
+  YYYY-MM-DD dates and public https records. Keep private identifiers and local
+  paths out.
+- Interpretation texts document the reading; they do not count as proof atoms
+  or source coverage. A publisher-contradicted reading must be repaired: move
+  the old reading into `alternatives` and set the new reading's status."""
 
 _REPOSITORY_CONTEXT = """
 Repository context:
@@ -907,6 +928,13 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   `restates`, `sets`, `amends`, `implements`, `delegates`, `defines`, or
   `cites`. It must include `source_relation.type` and
   `source_relation.target`, and it must not include executable `versions`.
+- For `source_relation.type: amends`, the RuleSpec engine also requires a
+  nonempty `source_relation.amendment.operation` (for example, `replace`) and
+  `source_relation.amendment.effective` (for example, a mapping with `start`)
+  for the amendment's effective date. Ground both in the cited source; do not
+  invent an operation or date. If the source does not establish an amendment
+  and its effective date, use only a relation the source actually supports,
+  such as `cites`, rather than emitting an incomplete `amends` record.
 - If a source incorporates another authority by reference, encode that
   provenance edge as `source_relation.type: cites`; never invent an
   `incorporates` source relation type.
@@ -1167,6 +1195,30 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
 - When source text uses amendment markup like `[old] new`, treat the bracketed
   value as superseded text. Encode the current unbracketed value/effective date
   unless the task explicitly asks for historical text.
+- In Armenian ARLIS text, treat as editorial provenance only a parenthetical
+  that opens at the start of a line and closes at the end of a line (it may
+  wrap across lines) whose body begins with a single ordinal-numbered article label
+  such as `1-ին հոդվածը`, `147-րդ հոդվածը` or `293.1-ին հոդվածը`,
+  contains no nested parenthetical, includes at least one amendment-action
+  abbreviation (`փոփ`, `լրաց`, or `խմբ`, in any letter case, optionally followed
+  by one `.`), and after the article label consists solely of those
+  abbreviations plus one or more paired amendment citations. The label is a
+  number, optionally `N.N`, ending in `-ին` or `-րդ`. Each citation
+  must have a `DD.MM.YY` or
+  `DD.MM.YYYY` date in ASCII digits followed, after whitespace, by a
+  `Հ-N[-N]-Ն` or `ՀՕ-N[-N]-Ն` law identifier;
+  only whitespace, commas, or semicolons may separate these items, and at
+  least one of them must stand between each pair of items. Article, date and
+  law numbers use ASCII digits. Each `-` above may be the hyphen-minus, the
+  Armenian hyphen U+058A, U+2010 to U+2015, U+2212, U+FE58, U+FE63 or U+FF0D,
+  and no other dash; each `.` may be `.` or the one dot leader U+2024.
+  Whitespace must follow `հոդվածը`.
+  Do not encode the recognized ledger's article number, dates, or identifiers as
+  RuleSpec rules or parameters. Keep every inline, plural or unnumbered,
+  unpaired-date, nested, or otherwise unrecognized parenthetical as source
+  content; do not omit its numbers. This exclusion also does not cover a
+  parenthetical that states an operative amount, condition, effective date, or
+  transition rule.
 - If a source makes an allowance, deduction, exemption, or eligibility branch
   conditional on billed, paid, incurred, anticipated, or other cost/expense
   facts, encode a positive fact predicate for that source-stated condition.
@@ -1626,6 +1678,7 @@ Companion-test shape (relation rows under input; exceptions paired):
 
 _PROMPT_BLOCKS = (
     _CORE_CONTRACT,
+    INTERPRETATIONS_PROTOCOL,
     _REPOSITORY_CONTEXT,
     _TABLES_PROTOCOL,
     _STRUCTURE_PROTOCOL,

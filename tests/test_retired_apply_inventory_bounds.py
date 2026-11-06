@@ -10,11 +10,11 @@ from base64 import b64encode
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
-from statistics import median
-from time import perf_counter
 from unittest.mock import patch
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode import cli, retired_apply
 from axiom_encode.retired_apply import (
@@ -24,6 +24,7 @@ from axiom_encode.retired_apply import (
 )
 from tests import test_retired_apply as _frozen_fixtures
 from tests import test_retired_apply_paths as _reader_fixtures
+from tests.scaling import assert_linear_growth, lowest_work
 from tests.test_retired_apply import _git
 from tests.test_signing_broker import _base_protocol_status, _client_for_status
 
@@ -542,8 +543,8 @@ def test_inventory_cannot_be_subclassed():
             pass
 
 
-def _synthetic_admission_times(frozen, monkeypatch, counts=(1000, 5000)):
-    """Measure the hot admission path, with deterministic constant-cost Git IO.
+def _synthetic_admission_work(frozen, monkeypatch, counts=(1000, 5000)):
+    """Count hot mapping work, with deterministic constant-cost Git IO.
 
     Keep production inventory indexing, path binding and admission logic. Setup
     is O(N) once at attach; the last artifact exercises accidental linear scans.
@@ -560,6 +561,45 @@ def _synthetic_admission_times(frozen, monkeypatch, counts=(1000, 5000)):
         return actual_git(repo, *arguments, **kwargs)
 
     monkeypatch.setattr(retired_apply, "_git", synthetic_git)
+    operations = Counter()
+    measuring = False
+    original_getitem = retired_apply._FrozenMapping.__getitem__
+    original_iter = retired_apply._FrozenMapping.__iter__
+    original_view = retired_apply._frozen_value_view
+
+    class CountedKey(str):
+        __hash__ = str.__hash__
+
+        def __str__(self):
+            # Keep native scans counted after an ordinary str(key) conversion.
+            return self
+
+        def __eq__(self, other):
+            operations["key comparisons"] += 1
+            if measuring:
+                # Reject a restored linear lookup before millions of hot
+                # comparisons, with the same budget checked below.
+                assert operations["key comparisons"] < 200 * 100, operations
+            return str.__eq__(self, other)
+
+    def getitem(mapping, key):
+        return original_getitem(mapping, CountedKey(key))
+
+    def iterate(mapping):
+        for key in original_iter(mapping):
+            operations["keys iterated"] += 1
+            yield key
+
+    def view(value):
+        operations["values viewed"] += 1
+        return original_view(value)
+
+    # Count keys examined, including comparisons inside a native tuple scan,
+    # and values materialized by iteration/copying. A call count of __getitem__
+    # alone would miss a linear scan implemented inside that method.
+    monkeypatch.setattr(retired_apply._FrozenMapping, "__getitem__", getitem)
+    monkeypatch.setattr(retired_apply._FrozenMapping, "__iter__", iterate)
+    monkeypatch.setattr(retired_apply, "_frozen_value_view", view)
     measurements = {}
     for count in counts:
         inventory, payload = _synthetic_inventory(count, frozen.cutoff)
@@ -571,24 +611,73 @@ def _synthetic_admission_times(frozen, monkeypatch, counts=(1000, 5000)):
         )
         with retired_apply_operation():
             assert retired_apply_admission_issue(index, context) is None
-            samples = []
             # Remove filesystem scheduling noise after real canonical preflight,
             # just as blob/live/Git IO above is synthetic. Keep inventory and
-            # admission work intact so linear scans cannot hide behind IO.
+            # admission work intact so scans cannot hide behind IO.
             with monkeypatch.context() as hot_io:
                 hot_io.setattr(Path, "resolve", lambda self, **kwargs: self)
-                for _ in range(5):
-                    start = perf_counter()
+                operations.clear()
+                measuring = True
+                try:
                     for _ in range(200):
                         assert retired_apply_admission_issue(index, context) is None
-                    samples.append((perf_counter() - start) / 200)
-        measurements[count] = median(samples)
+                    measurements[count] = dict(operations)
+                finally:
+                    measuring = False
     return measurements
 
 
-def test_per_admission_timing_does_not_scale_with_inventory(frozen, monkeypatch):
-    times = _synthetic_admission_times(frozen, monkeypatch)
-    # Median batches tolerate scheduler noise. A 5x scan/validation/copy is
-    # rejected; the small absolute allowance covers microsecond timer noise.
-    assert times[5000] <= times[1000] * 2 + 0.00002, times
-    print("indexed hot admission seconds:", json.dumps(times, sort_keys=True))
+def _frozen_lookup_work(count):
+    values = {str(index): index for index in range(count)}
+    mapping = tuple.__new__(
+        retired_apply._FrozenMapping, retired_apply._frozen_mapping_data(values)
+    )
+    keys = tuple(values)
+    expected = list(range(count))
+
+    def check(batches):
+        for result in batches:
+            assert result == expected
+
+    # Each fresh batch performs N lookups in an N-entry mapping. Fixed batching
+    # makes the small sample measurable without a large quadratic fixture.
+    # Native reconstruction on each access is included in the whole operation.
+    return lowest_work(
+        lambda: [[mapping[key] for key in keys] for _ in range(1_536)], check
+    )
+
+
+@settings(max_examples=30, deadline=None)
+@given(values=st.dictionaries(st.text(max_size=24), st.integers(), max_size=50))
+def test_frozen_mapping_lookups_preserve_scalar_values(values):
+    mapping = tuple.__new__(
+        retired_apply._FrozenMapping, retired_apply._frozen_mapping_data(values)
+    )
+    assert len(mapping) == len(values)
+    assert tuple(mapping) == tuple(values)
+    for key, value in values.items():
+        assert mapping[key] == value
+    missing = "missing"
+    while missing in values:
+        missing += "!"
+    with pytest.raises(KeyError):
+        mapping[missing]
+
+
+def test_per_admission_work_does_not_scale_with_inventory(frozen, monkeypatch):
+    assert_linear_growth(
+        _frozen_lookup_work(16), _frozen_lookup_work(256), input_ratio=16
+    )
+    work = _synthetic_admission_work(frozen, monkeypatch)
+    # Five times the inventory must not change the number of values read or
+    # keys iterated. Hash collisions may add a few comparisons; allow 3x while
+    # rejecting a full 1,000/5,000-key scan for each admission.
+    for operation in ("values viewed", "keys iterated"):
+        assert work[5000].get(operation, 0) == work[1000].get(operation, 0), work
+    # A lookup that normalizes its key to an exact str (key[:], say) compares
+    # nothing this wrapper sees; the frozen-lookup growth check above bounds
+    # that lookup's cost instead.
+    comparisons = {count: work[count].get("key comparisons", 0) for count in work}
+    assert comparisons[5000] <= 3 * comparisons[1000], work
+    assert comparisons[5000] < 200 * 100, work
+    print("indexed hot admission work:", json.dumps(work, sort_keys=True))
