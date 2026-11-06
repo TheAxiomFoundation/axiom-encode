@@ -9366,10 +9366,11 @@ _ENGLISH_MONTH_DAY_BEFORE_PATTERN = re.compile(
 )
 # The singular word month before the name: "the month of July", "in the calendar
 # month of May". One month counted ("within one month of April and June", "a month
-# of June", "1 calendar month of June") is a length of time, and the names after it
-# may be people, so the pattern captures the count (_english_month_word_dates).
+# of June", "one (1) month of June", "1 calendar month of June") is a length of
+# time, and the names after it may be people, so the pattern captures the count
+# (_english_month_word_dates).
 _ENGLISH_MONTH_WORD_BEFORE_PATTERN = re.compile(
-    rf"(?<!\w)(?P<count>(?:\d+|one|a){_ENGLISH_MONTH_SPACE}+)?"
+    rf"(?<!\w)(?P<count>(?:\d+|\(\d+\)|one|a){_ENGLISH_MONTH_SPACE}+)?"
     rf"(?:calendar{_ENGLISH_MONTH_SPACE}+)?"
     rf"month{_ENGLISH_MONTH_SPACE}+of{_ENGLISH_MONTH_SPACE}*$",
     re.IGNORECASE,

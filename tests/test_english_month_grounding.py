@@ -294,6 +294,7 @@ ENGLISH_UNDATED_CONTEXTS = (
     "6 months {m} and July",
     "within one month of {m} and July",
     "within a calendar month of {m} and July",
+    "within one (1) month of {m} and July",
     "within the next 3 months {m} and July",
     "within 3 months, {m} and July",
     # With no article the plural may start a sentence about people.
