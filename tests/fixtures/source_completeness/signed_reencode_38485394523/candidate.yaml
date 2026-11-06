@@ -1,0 +1,290 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: il/statute/national-health-insurance-law-1994/section-14
+    source_sha256: 5579c87a26a281784c57599c5a851af7f0ca63133be849623739669c7ecfecac
+  summary: סעיף 14(א) מגדיר את סכום המינימום ואת המונחים המשמשים בסעיף. סעיפים קטנים
+    (ב) עד (ז2) קובעים את החייבים, שיעורי דמי ביטוח הבריאות, סכומי התשלום והפטורים;
+    סעיפים קטנים (ח) עד (י) מסמיכים לקבוע הוראות ומסדירים ניכוי והעברה.
+  deferred_outputs:
+  - output: il:statutes/national-health-insurance-law-1994/section-14#employee_contribution_when_employer_does_not_owe_national_insurance
+    reason: סעיף 14(ב)(2) מחייב עובד לשלם 5.17% מהכנסתו כאשר מעסיקו אינו חייב בדמי
+      ביטוח לאומי בעדו והעובד חייב בתשלומם בעד עצמו; חסרים בסיס הכנסתו של עובד זה
+      והעובדה אם העובד חייב בתשלום בעד עצמו.
+  - output: il:statutes/national-health-insurance-law-1994/section-14#employer_withholding_and_remittance
+    reason: סעיף 14(ב)(1) מחייב מעביד לנכות את דמי ביטוח הבריאות משכר העובד; חסרים
+      נתוני השכר והעברת הכספים בפועל כדי לייצג את פעולת הניכוי וההעברה למוסד.
+  - output: il:statutes/national-health-insurance-law-1994/section-14#benefit_source_health_insurance_contributions
+    reason: סעיף 14(ד)(1)–(4) מחייב תשלום על סוגי הגמלאות המנויים ומסדיר תשלום בידי
+      מעביד ותשלום המדינה בעד מקבלי דמי הסתגלות מיוחדים; חסרים סוג הגמלה, סכומה וזהות
+      המשלם לצורך חישוב התשלום.
+  - output: il:statutes/national-health-insurance-law-1994/section-14#early_pension_retirement_grant_and_adjustment_pension_contributions
+    reason: סעיף 14(ה1) מחייב תשלום לפי הוראות סעיף 345ב לחוק הביטוח הלאומי בשינויים
+      המחויבים; חסרה הוראת החישוב המדויקת שבסעיף 345ב.
+  - output: il:statutes/national-health-insurance-law-1994/section-14#minimum_contribution_when_no_contribution_paid_for_insured
+    reason: סעיף 14(ו) מחייב תשלום בסכום המינימום כאשר אין משתלמים בעד המבוטח דמי
+      ביטוח בריאות לפי סעיפים קטנים (ב) עד (ה1) או (ו1); חסרה הכרעה אם משתלמים בעד
+      המבוטח תשלומים לפי כל אחד מהמסלולים המנויים.
+  - output: il:statutes/national-health-insurance-law-1994/section-14#reduced_income_contribution_boundary_and_nonemployee_self_employed
+    reason: סעיף 14(ו1) קובע שיעור של 3.23% על החלק שאינו עולה על הסכום המופחת שנקבע
+      לפי סעיף 341 לחוק הביטוח הלאומי; חסר הסכום המופחת לפי סעיף 341 וכן סיווג ההכנסה
+      בכל מסלול.
+  - output: il:statutes/national-health-insurance-law-1994/section-14#donor_health_insurance_exemption
+    reason: סעיף 14(ז1) פוטר מבוטח תורם לתקופה שקבע שר הבריאות בהסכמת שר האוצר; חסרה
+      התקופה שקבע השר למבוטח המסוים.
+  - output: il:statutes/national-health-insurance-law-1994/section-14#temporary_income_inclusion_under_subsection_z2
+    reason: סעיף 14(ז2) מחייב לכלול בחישוב ההכנסה הכנסה הפטורה לפי סעיף 350א(א) לחוק
+      הביטוח הלאומי; חסרים סכום ההכנסה והכללים לקביעת ההכנסה הפטורה לפי סעיף 350א(א).
+  - output: il:statutes/national-health-insurance-law-1994/section-14#regulatory_authority_under_subsection_h
+    reason: סעיף 14(ח)(1)–(2) מסמיך לקבוע בתקנות שיעורים, סכומים, פטורים ושיעורים
+      מופחתים; חסרים ערכי התקנות שייקבעו.
+  - output: il:statutes/national-health-insurance-law-1994/section-14#regulatory_authority_under_subsection_t
+    reason: סעיף 14(ט)(1)–(2) מסמיך לקבוע בתקנות כללים, פטורים, שיעורים מופחתים ושיעורים
+      או סכומים שונים; חסרים ערכי התקנות שייקבעו.
+  - output: il:statutes/national-health-insurance-law-1994/section-14#deduction_and_remittance_under_subsection_y
+    reason: סעיף 14(י)(1)–(2) מאפשר ניכוי והעברת דמי ביטוח בריאות מתשלומים מסוימים
+      לפי כללים שייקבעו בתקנות; חסרים זהות החייב, סוג התגמול והכללים התקנותיים ליישום
+      הניכוי וההעברה.
+rules:
+- name: minimum_monthly_health_insurance_premium
+  kind: parameter
+  dtype: Money
+  period: Month
+  unit: ILS
+  source: סעיף 14(א), הגדרת "סכום המינימום"
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: il/statute/national-health-insurance-law-1994/section-14
+          excerpt: סכום של 47 שקלים חדשים לחודש
+  versions:
+  - effective_from: '1995-01-01'
+    formula: '47'
+- name: ordinary_health_insurance_rate
+  kind: parameter
+  dtype: Rate
+  source: סעיף 14(ב)(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: il/statute/national-health-insurance-law-1994/section-14
+          excerpt: בשיעור של 5.17%
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '0.0517'
+- name: reduced_income_health_insurance_rate
+  kind: parameter
+  dtype: Rate
+  source: סעיף 14(ו1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: il/statute/national-health-insurance-law-1994/section-14
+          excerpt: דמי ביטוח בריאות בשיעור של 3.23%
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '0.0323'
+- name: old_age_pension_health_insurance_amount
+  kind: parameter
+  dtype: Money
+  period: Month
+  unit: ILS
+  source: סעיף 14(ה)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: il/statute/national-health-insurance-law-1994/section-14
+          excerpt: בסכום של 88 שקלים חדשים לחודש
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '88'
+- name: partnered_old_age_pension_health_insurance_amount
+  kind: parameter
+  dtype: Money
+  period: Month
+  unit: ILS
+  source: סעיף 14(ה)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: il/statute/national-health-insurance-law-1994/section-14
+          excerpt: חייב לשלם דמי ביטוח בריאות בסכום של 128 שקלים חדשים לחודש
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '128'
+- name: employee_health_insurance_contribution
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: ILS
+  source: סעיף 14(ב)(1) ו־(ו1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: il/statute/national-health-insurance-law-1994/section-14
+          excerpt: המעביד ינכה את דמי ביטוח הבריאות משכרו של העובד
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: il/statute/national-health-insurance-law-1994/section-14
+          excerpt: בשיעור של 5.17% מהכנסת העובד
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'if insured_person_is_employee and employer_owes_national_insurance_for_employee
+      and not person_is_exempt_under_subsection_z: reduced_income_health_insurance_rate
+      * min(max(0, employee_health_insurance_income), max(0, reduced_income_amount))
+      + ordinary_health_insurance_rate * max(0, employee_health_insurance_income -
+      max(0, reduced_income_amount)) else: 0'
+- name: self_employed_health_insurance_contribution
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: ILS
+  source: סעיף 14(ג)(1) ו־(ו1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: il/statute/national-health-insurance-law-1994/section-14
+          excerpt: מבוטח שהוא עובד עצמאי החייב בתשלום דמי ביטוח לאומי בעד עצמו
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: il/statute/national-health-insurance-law-1994/section-14
+          excerpt: בשיעור של 5.17% מהכנסתו
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'if insured_person_is_self_employed and employee_owes_national_insurance_for_self
+      and not person_is_exempt_under_subsection_z: reduced_income_health_insurance_rate
+      * min(max(0, self_employment_health_insurance_income), max(0, reduced_income_amount))
+      + ordinary_health_insurance_rate * max(0, self_employment_health_insurance_income
+      - max(0, reduced_income_amount)) else: 0'
+- name: other_insured_person_health_insurance_contribution
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: ILS
+  source: סעיף 14(ג)(2) ו־(ו)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: il/statute/national-health-insurance-law-1994/section-14
+          excerpt: מבוטח שאינו עובד ואינו עובד עצמאי החייב בתשלום דמי ביטוח לאומי
+            בעד עצמו
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: il/statute/national-health-insurance-law-1994/section-14
+          excerpt: לא יפחת מסכום המינימום
+  versions:
+  - effective_from: '1995-01-01'
+    formula: 'if insured_person_is_other_contributor and not person_is_exempt_under_subsection_z:
+      max(minimum_monthly_health_insurance_premium, ordinary_health_insurance_rate
+      * max(0, nonreduced_income_amount)) else: 0'
+- name: old_age_pension_health_insurance_contribution
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: ILS
+  source: סעיף 14(ה)(1)–(4)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: il/statute/national-health-insurance-law-1994/section-14
+          excerpt: מבוטח שמשתלמת לו קצבת אזרח ותיק ללא השלמת הכנסה
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: il/statute/national-health-insurance-law-1994/section-14
+          excerpt: בסכום של 88 שקלים חדשים לחודש
+  versions:
+  - effective_from: '1995-01-01'
+    formula: 'if person_is_exempt_under_subsection_z: 0 else: if person_has_minimum_premium_category_under_subsection_e_1:
+      minimum_monthly_health_insurance_premium else: if person_has_old_age_pension_without_income_supplement:
+      if person_has_partner_addition_or_partner_pension: partnered_old_age_pension_health_insurance_amount
+      else: old_age_pension_health_insurance_amount else: 0'
+inputs:
+- name: employee_health_insurance_income
+  entity: Person
+  dtype: Money
+  period: Month
+- name: self_employment_health_insurance_income
+  entity: Person
+  dtype: Money
+  period: Month
+- name: reduced_income_amount
+  entity: Person
+  dtype: Money
+  period: Month
+- name: nonreduced_income_amount
+  entity: Person
+  dtype: Money
+  period: Month
+- name: insured_person_is_employee
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: insured_person_is_self_employed
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: insured_person_is_other_contributor
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: employer_owes_national_insurance_for_employee
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: employee_owes_national_insurance_for_self
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: person_is_exempt_under_subsection_z
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: person_has_minimum_premium_category_under_subsection_e_1
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: person_has_old_age_pension_without_income_supplement
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: person_has_partner_addition_or_partner_pension
+  entity: Person
+  dtype: Boolean
+  period: Month

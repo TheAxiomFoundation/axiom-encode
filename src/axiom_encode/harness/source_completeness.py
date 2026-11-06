@@ -46,6 +46,7 @@ from axiom_encode.bare_structure import (
 from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check
 from axiom_encode.form_numeric_structure import form_numeric_locator_spans
 from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.harness import hebrew_source_text
 from axiom_encode.harness.imported_export_evidence import ResolvedImportedExport
 from axiom_encode.harness.manual_locator_metadata import (
     MANUAL_CONTENTS_HEADINGS,
@@ -509,6 +510,20 @@ _EDITORIAL_OMISSION_ONLY = re.compile(
     r"(?:bis\s+\(\d+[a-z]?\)\s*)?"
     r"(?:\(\s*)?"
     r"(?:weggefallen|aufgehoben|omitted|\.{3,})"
+    r"(?:\s*\))?"
+    r"\s*[.;]?\s*$",
+    flags=re.IGNORECASE,
+)
+# The Hebrew variants of shared patterns are read only behind the wall's gate
+# (`_hebrew_script`, #1882); each unprefixed name is main's literal.
+_HEBREW_EDITORIAL_OMISSION_ONLY = re.compile(
+    r"^\s*"
+    r"(?:(?:\((?:\d+[a-z]?|[a-z])\)|\d+[a-z]?\.|[a-z]\))\s*)?"
+    rf"(?:\({hebrew_source_text.HEBREW_OUTLINE_LABEL}\)\s*)?"
+    r"(?:bis\s+\(\d+[a-z]?\)\s*)?"
+    r"(?:\(\s*)?"
+    r"(?:weggefallen|aufgehoben|omitted|\.{3,}|"
+    rf"{hebrew_source_text.EDITORIAL_OMISSION_WORDS})"
     r"(?:\s*\))?"
     r"\s*[.;]?\s*$",
     flags=re.IGNORECASE,
@@ -1548,11 +1563,127 @@ _MISSING_DEPENDENCY_LANGUAGE = re.compile(
     r")\b",
     flags=re.IGNORECASE,
 )
+_HEBREW_MISSING_DEPENDENCY_LANGUAGE = re.compile(
+    _MISSING_DEPENDENCY_LANGUAGE.pattern
+    + "|"
+    + hebrew_source_text.MISSING_DEPENDENCY_LANGUAGE,
+    flags=re.IGNORECASE,
+)
 _ADVERSATIVE_LANGUAGE = re.compile(
     r"\b(?:"
     r"although|but|despite|even\s+though|except|however|nevertheless|nonetheless|"
     r"notwithstanding|though|unless|whereas|while|yet|aber|jedoch|obwohl"
     r")\b",
+    flags=re.IGNORECASE,
+)
+_HEBREW_ADVERSATIVE_LANGUAGE = hebrew_source_text.AdversativePattern(
+    _ADVERSATIVE_LANGUAGE.pattern + "|" + hebrew_source_text.ADVERSATIVE_LANGUAGE,
+    flags=re.IGNORECASE,
+)
+# The English and German negators. The English words are the direct negators
+# of the English negation guards (``_source_link_scope_has_unreset_negation``,
+# ``_louisiana_assertion_is_negative`` and
+# ``_same_act_dependency_state_is_reversed``); the German words are those the
+# checker reads (``nicht``, ``kein`` with its forms, ``keinesfalls``) and the
+# German for each English one, but ``noch``, which also means "still".
+# ``without`` is not one: the deferral route reads it as a missing-dependency
+# signal. The Hebrew reader takes these as negating a Hebrew signal or link,
+# as the translation is read (``not חסר סעיף 2``, "section 2 is not
+# missing"); no English or German reason is read with them.
+_NEGATION_LANGUAGE = re.compile(
+    r"\b(?:"
+    r"not|no|never|neither|nor|nothing|nowhere|cannot|(?:false|untrue)\s+that|"
+    r"nicht|nichts|kein(?:e|en|em|er|es)?|keinesfalls|keineswegs|nie|niemals|"
+    r"weder|nirgends|(?:falsch|unwahr),?\s+dass"
+    r")\b|n['’]t\b",
+    flags=re.IGNORECASE,
+)
+# The English negations, prohibitions and exclusions that negate an ``in
+# accordance with`` link when they precede it in its clause: the English link
+# guard reads a raw scope with this pattern alone, byte for byte main's
+# (``test_english_link_negations_are_mains``), so every text outside the
+# Hebrew blocks keeps main's verdict.
+_ENGLISH_LINK_NEGATION_LANGUAGE = re.compile(
+    r"\b(?:not|never|neither|nor|cannot|nowhere|prohibit\w*|barred|"
+    r"forbidden|precluded|prevented|excluded|denied|except)\b|"
+    r"\b(?:denies?|rejects?|disclaims?)\b|"
+    r"\b(?:false|untrue|impossible)\s+that\b|"
+    r"(?:^|[,;:]\s*|\b(?:and|but|or|that|while|whereas)\s+)"
+    r"no\s+(?:amount|tax|liability|computation|calculation|"
+    r"determination|rate|base|statute|rule|provision|requirement)\b"
+    r"(?:\s+[A-Za-z-]+){0,3}\s+(?:is|are|was|were|shall|may|must|will|"
+    r"would|can|could|does|do|did|states?|provides?|requires?|"
+    r"determines?|calculates?|computes?|applies?|arises?)\b|"
+    r"\b(?:ca|do|does|did|is|are|was|were|"
+    r"shall|will|would|could|should|must|need)n['’]t\b|"
+    r"\b(?:fails?|refuses?|unable)\s+to\b|"
+    r"\bwithout\s+(?:being\s+)?(?:determin\w*|comput\w*|calculat\w*|"
+    r"appl\w*|impos\w*|aris\w*)\b|"
+    r"\b(?:in\s+no\s+(?:case|event)|under\s+no\s+circumstances|"
+    r"at\s+no\s+time|by\s+no\s+means|in\s+no\s+way|"
+    r"on\s+no\s+account|under\s+no\s+conditions?|"
+    r"in\s+no\s+(?:manner|respect))\b|"
+    r"\b(?:rather|other)\s+than\b",
+    flags=re.IGNORECASE,
+)
+# The negations, prohibitions and exclusions that negate a link in text that
+# holds Hebrew: the English link guard reads them only in the cross-language
+# copy (``hebrew_source_text.cross_language_text``), which exists only for a
+# scope inside the Hebrew folding gate, and the Hebrew reader takes them, with
+# ``_NEGATION_LANGUAGE``, as negating a Hebrew source link (``(א) prohibited
+# מחושב בהתאם לסעיף 2``), as the translation is read.
+#
+# The vocabulary is symmetric across English, German and Hebrew (#1882). The
+# English lines come first, unchanged. Then come the German words for each of
+# them: ``nicht`` for "not", ``ohne`` for "without", ``außer`` for "except",
+# ``verboten`` for "prohibited", ``anders als`` for "other than", and so on.
+# ``without`` and ``ohne`` exclude a computation word of English or German.
+# Before a Hebrew word they exclude whatever follows, as Hebrew ``בלי`` does
+# (``משולם without חישוב בהתאם לסעיף 2``, "paid without calculation in
+# accordance with section 2").
+#
+# The wall: a German word is also an English surname (``Tax is computed for
+# Nie in accordance with section 2``), so no text without a Hebrew-block code
+# point in its reason or source reaches this pattern. A raw scope is read
+# with ``_ENGLISH_LINK_NEGATION_LANGUAGE`` alone, and the reason reader takes
+# this pattern only once it has a Hebrew citation, so every English and German
+# verdict and issue string stays main's
+# (tests/test_source_completeness_non_hebrew_wall.py).
+_SOURCE_LINK_NEGATION_LANGUAGE = re.compile(
+    r"\b(?:not|never|neither|nor|cannot|nowhere|prohibit\w*|barred|"
+    r"forbidden|precluded|prevented|excluded|denied|except)\b|"
+    r"\b(?:denies?|rejects?|disclaims?)\b|"
+    r"\b(?:false|untrue|impossible)\s+that\b|"
+    r"(?:^|[,;:]\s*|\b(?:and|but|or|that|while|whereas)\s+)"
+    r"no\s+(?:amount|tax|liability|computation|calculation|"
+    r"determination|rate|base|statute|rule|provision|requirement)\b"
+    r"(?:\s+[A-Za-z-]+){0,3}\s+(?:is|are|was|were|shall|may|must|will|"
+    r"would|can|could|does|do|did|states?|provides?|requires?|"
+    r"determines?|calculates?|computes?|applies?|arises?)\b|"
+    r"\b(?:ca|do|does|did|is|are|was|were|"
+    r"shall|will|would|could|should|must|need)n['’]t\b|"
+    r"\b(?:fails?|refuses?|unable)\s+to\b|"
+    r"\bwithout\s+(?:being\s+)?(?:determin\w*|comput\w*|calculat\w*|"
+    r"appl\w*|impos\w*|aris\w*)\b|"
+    r"\b(?:in\s+no\s+(?:case|event)|under\s+no\s+circumstances|"
+    r"at\s+no\s+time|by\s+no\s+means|in\s+no\s+way|"
+    r"on\s+no\s+account|under\s+no\s+conditions?|"
+    r"in\s+no\s+(?:manner|respect))\b|"
+    r"\b(?:rather|other)\s+than\b|"
+    r"\b(?:nicht|nie|niemals|weder|nirgends|nirgendwo|kein(?:e|en|em|er|es)?|"
+    r"keinesfalls|keineswegs|au(?:ß|ss)er|ausgenommen|abgesehen\s+von|"
+    r"verbiet\w*|verboten\w*|untersag\w*|verwehrt\w*|ausgeschlossen\w*|"
+    r"verhindert\w*|verweigert\w*|abgelehnt\w*|bestreit\w*|verneint\w*|"
+    r"zurückgewiesen\w*|versäumt\w*|unterl(?:ä|a)sst|unterlassen\w*|weigert\w*|"
+    r"au(?:ß|ss)erstande|(?:an)?statt|anders\s+als|"
+    r"(?:falsch|unwahr|unmöglich),?\s+dass)\b|"
+    r"\b(?:without|ohne)\s+(?:being\s+|zu\s+)?(?:"
+    r"determin\w*|comput\w*|calculat\w*|appl\w*|impos\w*|aris\w*|"
+    r"bestimm\w*|ermitt?el\w*|ermittl\w*|festgesetzt\w*|festsetz\w*|"
+    r"festzusetzen|festgestellt\w*|feststell\w*|festzustellen|berechn\w*|"
+    r"errechn\w*|anwend\w*|angewendet\w*|angewandt\w*|anzuwenden|erheb\w*|"
+    r"erhoben\w*|auferleg\w*|aufzuerlegen|entsteh\w*|entstanden\w*)\b|"
+    r"\b(?:without|ohne)\s+(?:being\s+|zu\s+)?(?=[א-ת])",
     flags=re.IGNORECASE,
 )
 _CONTEXTUAL_AUTHORITY_LANGUAGE = re.compile(
@@ -1588,7 +1719,7 @@ def _has_adversative_language(text: str) -> bool:
         text,
         flags=re.IGNORECASE,
     )
-    return bool(_ADVERSATIVE_LANGUAGE.search(without_not_yet))
+    return bool(_adversative_language().search(without_not_yet))
 
 
 _DEPENDENCY_SUBJECT_TERMS = frozenset(
@@ -2074,6 +2205,12 @@ _SOURCE_BOUND_RUNTIME_GAP_LANGUAGE = re.compile(
     r")[a-z-]*\b",
     flags=re.IGNORECASE,
 )
+_HEBREW_SOURCE_BOUND_RUNTIME_GAP_LANGUAGE = re.compile(
+    _SOURCE_BOUND_RUNTIME_GAP_LANGUAGE.pattern
+    + "|"
+    + hebrew_source_text.RUNTIME_GAP_LANGUAGE,
+    flags=re.IGNORECASE,
+)
 _ADMINISTRATIVE_SOURCE_ARTIFACT_LANGUAGE = re.compile(
     r"\b(?:"
     r"amendment|approval|audit|certification|comment|complaint|consultation|"
@@ -2145,8 +2282,16 @@ def _imprecise_deferral_retry_shape(
     corpus_citation_path: str,
     path: tuple[str, ...],
     reason: str = "",
+    hebrew_script: bool,
 ) -> str:
-    """Render branch-specific retry guidance without inventing source facts."""
+    """Render branch-specific retry guidance without inventing source facts.
+
+    ``hebrew_script`` is the wall's gate (`_hebrew_script`) narrowed to a
+    deferral whose reason or source holds a Hebrew-block code point. Only then
+    does the guidance add a native citation or the Hebrew branch-letter
+    scheme, so a candidate outside the gate reads main's guidance byte for
+    byte, whatever its corpus path (#1882).
+    """
 
     branch_hint = ""
     if path and corpus_citation_path.startswith("us/statute/"):
@@ -2188,14 +2333,43 @@ def _imprecise_deferral_retry_shape(
             fragments = "".join(
                 f"({normalize_rulespec_path_segment(part)})" for part in path
             )
+            native_citation = (
+                hebrew_source_text.native_branch_citation(
+                    corpus_citation_path, tuple(path)
+                )
+                if _hebrew_script() and hebrew_script
+                else None
+            )
+            native_alternative = (
+                f" or the native citation `{native_citation}`"
+                if native_citation is not None
+                else ""
+            )
             branch_hint = (
                 "\nFor this rejected current-source branch, the literal canonical "
                 f"citation required in `reason` is "
-                f"`{corpus_citation_path.rstrip('/')}{fragments}` when the reason "
+                f"`{corpus_citation_path.rstrip('/')}{fragments}`"
+                f"{native_alternative} when the reason "
                 "cites this branch itself (a repeal, a runtime gap, or a "
                 "source-stated input); a reason naming an exact external missing "
                 "dependency need not cite it."
             )
+    if (
+        _hebrew_script()
+        and hebrew_script
+        and hebrew_source_text.is_hebrew_corpus_path(corpus_citation_path)
+    ):
+        branch_hint += (
+            "\nHebrew branch letters map to output-path segments by gematria "
+            "value, not sound: (א)→a, (ב)→b, (ג)→c, (ד)→d, (ה)→e, (ו)→f, (ז)→g, "
+            "(ח)→h, (ט)→i, (י)→j, (יא)→k; a numeric suffix is kept, so (ה1)→e1 "
+            "and `סעיף 14(ט)(1)` anchors at `…/section-14/i/1`. A Hebrew reason "
+            "names an external missing dependency as another section that the "
+            "deferred branch itself applies (`לפי סעיף <N>`), of the same law, "
+            "for example `חסרה הוראת החישוב שבסעיף <N>`; missing facts of the "
+            "branch's own computation are local inputs, not deferral grounds, "
+            "and a Hebrew reason cannot defer a branch as a runtime gap."
+        )
     return f"{_IMPRECISE_DEFERRAL_RETRY_SHAPE}{branch_hint}"
 
 
@@ -2936,6 +3110,17 @@ def recognize_source_structure(
 
     branches: list[SourceStructureBranch] = []
     paragraph_segments: list[tuple[tuple[str, ...], int, int, str]] = []
+    hebrew_script = _hebrew_script()
+    hebrew_markers = (
+        tuple(
+            _OutlineMarker(start, path, kind, label)
+            for start, path, kind, label in hebrew_source_text.hebrew_outline_markers(
+                source_text
+            )
+        )
+        if hebrew_script
+        else ()
+    )
     dotted_matches = _qualified_dotted_subsection_matches(source_text)
     dotted_candidates = _dotted_subsection_boundary_matches(source_text)
     outer_segments = [
@@ -2954,7 +3139,29 @@ def recognize_source_structure(
         for match in dotted_matches
     ]
 
-    if outer_segments:
+    if hebrew_script and hebrew_markers:
+        # Israeli statutes: (א) subsections, (1) paragraphs, (א) subparagraphs,
+        # with paths transliterated by gematria value ((ב)(2) -> b/2).
+        for marker, end in _nested_outline_marker_spans(
+            hebrew_markers,
+            outer_end=len(source_text),
+        ):
+            text = source_text[marker.start : end].strip()
+            # The label may carry points or direction marks (``(א‏) (בוטל)``).
+            if _is_editorial_omission(hebrew_source_text.fold_marks(text)):
+                continue
+            branches.append(
+                SourceStructureBranch(
+                    marker.path,
+                    marker.kind,
+                    marker.label,
+                    text,
+                    marker.start,
+                    end,
+                )
+            )
+            paragraph_segments.append((marker.path, marker.start, end, text))
+    elif outer_segments:
         prefix_end = outer_segments[0][1]
         prefix_matches = list(_PARAGRAPH_MARKER.finditer(source_text, 0, prefix_end))
         for index, match in enumerate(prefix_matches):
@@ -3869,7 +4076,7 @@ def _dotted_marker_is_ignorable(source_text: str, match: re.Match[str]) -> bool:
 
 
 def _is_editorial_omission(text: str) -> bool:
-    return bool(_EDITORIAL_OMISSION_ONLY.fullmatch(text))
+    return bool(_editorial_omission_only().fullmatch(text))
 
 
 def _normalize_formula_result_head(head: str) -> str:
@@ -5040,11 +5247,30 @@ def _imperative_arithmetic_operand_is_numeric(operand: str) -> bool:
     return _formula_operand_is_numeric(operand)
 
 
-@functools.lru_cache(maxsize=4096)
 def _source_imperative_arithmetic_operations(
     source_text: str,
 ) -> tuple[_SourceImperativeArithmeticOperation, ...]:
     """Recognize four complete binary imperatives without truncating context."""
+
+    return _cached_source_imperative_arithmetic_operations(
+        source_text, hebrew_script=_hebrew_script()
+    )
+
+
+@functools.lru_cache(maxsize=4096)
+def _cached_source_imperative_arithmetic_operations(
+    source_text: str,
+    *,
+    hebrew_script: bool,
+) -> tuple[_SourceImperativeArithmeticOperation, ...]:
+    """`_source_imperative_arithmetic_operations`, cached per wall gate.
+
+    The body reaches the Hebrew readers, which read the gate themselves;
+    ``hebrew_script`` keys the cache on it, so a result read behind an open
+    gate never answers a candidate outside it (#1882).
+    """
+
+    del hebrew_script
 
     quoted = _annual_source_quoted_spans(source_text)
     if quoted is None:
@@ -5596,30 +5822,32 @@ def analyze_complete_source_unit(
         if shape_problem is not None:
             return _unanalyzable_complete_source_unit(None, reason=shape_problem)
         try:
-            return _analyze_rulespec_payload(
-                payload,
-                content=content,
-                execution_evidence=execution_evidence,
-                referral_context=referral_context,
-                source_text=source_text,
-                raw_source_text=authoritative_source_text,
-                corpus_citation_path=corpus_citation_path,
-                test_cases=test_cases,
-                extract_numeric_occurrences=extract_numeric_occurrences,
-                extract_numeric_grounding_occurrences=(
-                    extract_numeric_grounding_occurrences or extract_numeric_occurrences
-                ),
-                extract_named_scalars=extract_named_scalars,
-                numeric_value_is_grounded=numeric_value_is_grounded,
-                artifact_numeric_values=artifact_numeric_values,
-                artifact_numeric_bindings=artifact_numeric_bindings,
-                authenticated_same_act_aliases=authenticated_same_act_aliases,
-                imported_symbol_contents=imported_symbol_contents,
-                imported_export_bindings=imported_export_bindings,
-                imported_proof_source_context=imported_proof_source_context,
-                resolved_dependency_outputs=resolved_dependency_outputs,
-                source_context=source_context,
-            )
+            with _hebrew_reading(payload, source_text):
+                return _analyze_rulespec_payload(
+                    payload,
+                    content=content,
+                    execution_evidence=execution_evidence,
+                    referral_context=referral_context,
+                    source_text=source_text,
+                    raw_source_text=authoritative_source_text,
+                    corpus_citation_path=corpus_citation_path,
+                    test_cases=test_cases,
+                    extract_numeric_occurrences=extract_numeric_occurrences,
+                    extract_numeric_grounding_occurrences=(
+                        extract_numeric_grounding_occurrences
+                        or extract_numeric_occurrences
+                    ),
+                    extract_named_scalars=extract_named_scalars,
+                    numeric_value_is_grounded=numeric_value_is_grounded,
+                    artifact_numeric_values=artifact_numeric_values,
+                    artifact_numeric_bindings=artifact_numeric_bindings,
+                    authenticated_same_act_aliases=authenticated_same_act_aliases,
+                    imported_symbol_contents=imported_symbol_contents,
+                    imported_export_bindings=imported_export_bindings,
+                    imported_proof_source_context=imported_proof_source_context,
+                    resolved_dependency_outputs=resolved_dependency_outputs,
+                    source_context=source_context,
+                )
         except (yaml.YAMLError, TypeError, ValueError) as exc:
             # A gate that cannot read its input must report it, never pass it.
             return _unanalyzable_complete_source_unit(exc)
@@ -6253,8 +6481,12 @@ def _analyze_rulespec_payload(
             )
         )
 
+    # Hebrew points and direction marks change no number: a marked outline
+    # label (``(1\u2063)``) or citation is read as its unmarked form, while
+    # a candidate outside the wall's gate is read as is.
     numeric_recall_text = authoritative_numeric_recall_text(
-        source_text, corpus_citation_path=corpus_citation_path
+        hebrew_source_text.fold_marks(source_text) if _hebrew_script() else source_text,
+        corpus_citation_path=corpus_citation_path,
     )
     source_occurrences = tuple(
         occurrence
@@ -6266,10 +6498,14 @@ def _analyze_rulespec_payload(
     )
     unrepresented_occurrences = source_occurrences
     if represented_annual_spans or represented_measurement_spans:
+        unrepresented_source_text = _mask_numeric_spans(
+            source_text,
+            represented_annual_spans | represented_measurement_spans,
+        )
         unrepresented_recall_text = authoritative_numeric_recall_text(
-            _mask_numeric_spans(
-                source_text, represented_annual_spans | represented_measurement_spans
-            ),
+            hebrew_source_text.fold_marks(unrepresented_source_text)
+            if _hebrew_script()
+            else unrepresented_source_text,
             corpus_citation_path=corpus_citation_path,
         )
         unrepresented_occurrences = tuple(
@@ -6323,6 +6559,87 @@ def _analyze_rulespec_payload(
     )
 
 
+def _candidate_holds_hebrew_script(
+    payload: Mapping[str, Any], source_text: str
+) -> bool:
+    """The wall's gate for a whole candidate (#1882).
+
+    True when the authoritative source or any deferral reason holds a
+    Hebrew-block code point, raw or NFKC-folded. One Hebrew reason opens the
+    gate for the whole candidate. No other field of the rule YAML is read.
+    """
+
+    module = payload.get("module")
+    records = module.get("deferred_outputs") if isinstance(module, Mapping) else None
+    reasons = (
+        [
+            str(record.get("reason") or "")
+            for record in records
+            if isinstance(record, Mapping)
+        ]
+        if isinstance(records, list)
+        else []
+    )
+    return hebrew_source_text.holds_hebrew_script(source_text, *reasons)
+
+
+# The wall's one gate (#1882). `_hebrew_reading` computes it once per
+# candidate, with `_candidate_holds_hebrew_script`, and opens it for the
+# analysis; `_hebrew_script` reads it. Every read of `hebrew_source_text` and
+# of the Hebrew variants of the shared patterns sits behind `_hebrew_script()`
+# (tests/test_source_completeness_hebrew_gate.py), so outside an open gate,
+# and for a candidate without Hebrew in its source or reasons, every path is
+# main's, whatever an excerpt, annotation, name or test holds.
+_HEBREW_SCRIPT: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_HEBREW_SCRIPT", default=False
+)
+
+
+@contextlib.contextmanager
+def _hebrew_reading(payload: Mapping[str, Any], source_text: str) -> Iterator[None]:
+    """Open the wall's gate for one candidate: its source and deferral reasons."""
+
+    gate = _HEBREW_SCRIPT.set(_candidate_holds_hebrew_script(payload, source_text))
+    try:
+        yield
+    finally:
+        _HEBREW_SCRIPT.reset(gate)
+
+
+def _hebrew_script() -> bool:
+    """Whether the current candidate's source or a deferral reason holds Hebrew."""
+
+    return _HEBREW_SCRIPT.get()
+
+
+def _editorial_omission_only() -> re.Pattern[str]:
+    return (
+        _HEBREW_EDITORIAL_OMISSION_ONLY
+        if _hebrew_script()
+        else _EDITORIAL_OMISSION_ONLY
+    )
+
+
+def _missing_dependency_language() -> re.Pattern[str]:
+    return (
+        _HEBREW_MISSING_DEPENDENCY_LANGUAGE
+        if _hebrew_script()
+        else _MISSING_DEPENDENCY_LANGUAGE
+    )
+
+
+def _adversative_language() -> Any:
+    return _HEBREW_ADVERSATIVE_LANGUAGE if _hebrew_script() else _ADVERSATIVE_LANGUAGE
+
+
+def _source_bound_runtime_gap_language() -> re.Pattern[str]:
+    return (
+        _HEBREW_SOURCE_BOUND_RUNTIME_GAP_LANGUAGE
+        if _hebrew_script()
+        else _SOURCE_BOUND_RUNTIME_GAP_LANGUAGE
+    )
+
+
 def _rule_coverage(
     payload: dict[str, Any],
     *,
@@ -6335,6 +6652,13 @@ def _rule_coverage(
     dict[str, dict[str, Any]],
     dict[str, set[tuple[str, ...]]],
 ]:
+    """Collect the source paths each rule's ``source:`` and excerpts cover.
+
+    A rule's ``source:`` is read for native citations only behind the wall's
+    gate (`_hebrew_script`, #1882): outside it, it is read as main reads it,
+    whatever script it holds.
+    """
+
     all_paths: set[tuple[str, ...]] = set()
     principal_paths: set[tuple[str, ...]] = set()
     principal_rules: dict[str, dict[str, Any]] = {}
@@ -6351,6 +6675,7 @@ def _rule_coverage(
         paths = _paths_from_source_reference(
             str(rule.get("source") or ""),
             corpus_citation_path=corpus_citation_path,
+            hebrew_script=_hebrew_script(),
         )
         for excerpt_citation_path, excerpt in _rule_source_excerpts(rule):
             if (
@@ -6665,8 +6990,20 @@ def _formula_source_excerpt_matches(
 
 
 def _strip_source_clause_marker(text: str) -> str:
-    """Remove a leading paragraph/list/Satz marker, including glued statutes."""
+    """Remove a leading paragraph/list/Satz marker, including glued statutes.
 
+    A Hebrew outline chain is stripped only behind the wall's gate (#1882): a
+    proof excerpt or branch text is not a gate input, so a candidate whose
+    source and reasons hold no Hebrew reads its excerpts as main does.
+    """
+
+    hebrew_body = (
+        hebrew_source_text.strip_leading_outline_chain(text)
+        if _hebrew_script()
+        else None
+    )
+    if hebrew_body is not None:
+        return hebrew_body
     compound = re.match(
         r"^\s*(?:(?-i:[A-Z])\.)?"
         r"(?P<chain>(?:\([A-Za-z0-9]+\))+)",
@@ -6744,11 +7081,13 @@ def _paths_from_source_reference(
     source: str,
     *,
     corpus_citation_path: str,
+    hebrew_script: bool,
 ) -> set[tuple[str, ...]]:
     value = source.strip()
     if not value or not _source_reference_targets_authoritative_unit(
         value,
         corpus_citation_path=corpus_citation_path,
+        hebrew_script=hebrew_script,
     ):
         return set()
     paths: set[tuple[str, ...]] = set()
@@ -6803,6 +7142,16 @@ def _paths_from_source_reference(
             paths.add(
                 (*base_components, *_keyword_path_components(trailing, base_components))
             )
+    # Native citations are read only behind the wall's gate (#1882): a
+    # Hebrew `source:` over an English source and reason is read as main
+    # reads it. ``hebrew_script`` narrows the gate for callers that read a
+    # `source:` without native citations; it never opens it.
+    if _hebrew_script() and hebrew_script:
+        paths.update(
+            hebrew_source_text.native_source_reference_paths(
+                value, corpus_citation_path
+            )
+        )
     if not paths:
         paths.add(())
     return paths
@@ -6848,8 +7197,13 @@ def _source_reference_targets_authoritative_unit(
     source: str,
     *,
     corpus_citation_path: str,
+    hebrew_script: bool,
 ) -> bool:
-    """Require branch claims to identify this unit, not merely a branch label."""
+    """Require branch claims to identify this unit, not merely a branch label.
+
+    The native citation is read behind the wall's gate, narrowed by
+    ``hebrew_script``, as `_paths_from_source_reference` reads it.
+    """
 
     candidates = _authoritative_source_unit_aliases(corpus_citation_path)
     if any(
@@ -6870,6 +7224,10 @@ def _source_reference_targets_authoritative_unit(
             source,
             flags=re.IGNORECASE,
         )
+    ) or (
+        _hebrew_script()
+        and hebrew_script
+        and hebrew_source_text.cites_current_section(source, corpus_citation_path)
     )
 
 
@@ -7022,6 +7380,13 @@ def _deferred_coverage(
     preferred_anchor = deferral_anchors[-1]
     covered: set[tuple[str, ...]] = set()
     issues: list[str] = []
+    # The wall (#1882): a candidate outside the gate takes main's diagnostics,
+    # byte for byte. Inside it, a deferral whose own reason and the source hold
+    # no Hebrew-block code point keeps main's guidance.
+    candidate_hebrew_script = _hebrew_script()
+    source_holds_hebrew = (
+        candidate_hebrew_script and hebrew_source_text.holds_hebrew_script(source_text)
+    )
     for index, record in enumerate(records):
         if not isinstance(record, dict):
             continue
@@ -7099,7 +7464,23 @@ def _deferred_coverage(
                     )
                 )
             continue
-        reason = str(record.get("reason") or "").strip()
+        # Hebrew points and direction marks hide no negation or adversative
+        # from the guards; a reason outside the gate is unchanged.
+        raw_reason = str(record.get("reason") or "").strip()
+        reason = (
+            hebrew_source_text.fold_marks(raw_reason)
+            if candidate_hebrew_script
+            else raw_reason
+        )
+        # The English-only routes also inspect raw Hebrew marks: folding can
+        # erase them before these routes receive their normal reading copy.
+        allow_english_only_routes = not (
+            candidate_hebrew_script
+            and hebrew_source_text.holds_hebrew_script(raw_reason)
+        )
+        hebrew_script = candidate_hebrew_script and (
+            source_holds_hebrew or not allow_english_only_routes
+        )
         blocked_by = record.get("blocked_by")
         normalized_anchors = tuple(anchor.lower() for anchor in deferral_anchors)
         blocker_targets = (
@@ -7132,14 +7513,41 @@ def _deferred_coverage(
             branches=branches,
         )
 
+        # A reason that mixes in Hebrew must also be precise as
+        # `english_reading_view` reads it: a Hebrew negation blanks the rest of
+        # its clause there, so `לא missing section 2` cites nothing, as the
+        # Hebrew reader refuses `not חסר סעיף 2` (#1882). Outside the gate
+        # there is no view, so no English or German verdict changes.
+        english_view = (
+            hebrew_source_text.english_reading_view(
+                reason, masked_citations=_clause_masked_dependencies
+            )
+            if candidate_hebrew_script
+            else None
+        )
+
         def reason_is_precise_for(
+            candidate_scope_text: str,
+            candidate_path: tuple[str, ...],
+        ) -> bool:
+            return reason_text_is_precise_for(
+                reason, candidate_scope_text, candidate_path
+            ) and (
+                english_view is None
+                or reason_text_is_precise_for(
+                    english_view, candidate_scope_text, candidate_path
+                )
+            )
+
+        def reason_text_is_precise_for(
+            reason: str,
             candidate_scope_text: str,
             candidate_path: tuple[str, ...],
         ) -> bool:
             if "blocked_by" in record:
                 return (
                     exact_blockers
-                    and bool(_MISSING_DEPENDENCY_LANGUAGE.search(reason))
+                    and bool(_missing_dependency_language().search(reason))
                     and all(
                         (
                             _reason_identifies_blocker(
@@ -7169,12 +7577,16 @@ def _deferred_coverage(
                     corpus_citation_path=corpus_citation_path,
                     path=candidate_path,
                     authenticated_same_act_aliases=authenticated_same_act_aliases,
+                    allow_english_only_routes=allow_english_only_routes,
                 )
-                or _reason_names_source_bound_runtime_gap(
-                    reason,
-                    candidate_scope_text,
-                    path=candidate_path,
-                    corpus_citation_path=corpus_citation_path,
+                or (
+                    allow_english_only_routes
+                    and _reason_names_source_bound_runtime_gap(
+                        reason,
+                        candidate_scope_text,
+                        path=candidate_path,
+                        corpus_citation_path=corpus_citation_path,
+                    )
                 )
                 or _reason_covers_source_authenticated_repeal(
                     reason,
@@ -7189,6 +7601,7 @@ def _deferred_coverage(
             and output.count("#") == 1
             and bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", output.partition("#")[2]))
         )
+        imprecise_cited_branch: tuple[str, ...] = ()
         if valid_root_symbol:
             cited_branches = {
                 branch.path
@@ -7218,8 +7631,8 @@ def _deferred_coverage(
                 for candidate in most_specific_cited_branches
             }
             attempted_runtime_gap = bool(
-                _MISSING_DEPENDENCY_LANGUAGE.search(reason)
-                and _SOURCE_BOUND_RUNTIME_GAP_LANGUAGE.search(reason)
+                _missing_dependency_language().search(reason)
+                and _source_bound_runtime_gap_language().search(reason)
             )
             common_cited_branches = {
                 candidate
@@ -7237,11 +7650,12 @@ def _deferred_coverage(
                     corpus_citation_path=corpus_citation_path,
                     path=candidate,
                     authenticated_same_act_aliases=authenticated_same_act_aliases,
+                    allow_english_only_routes=allow_english_only_routes,
                 )
                 for candidate, candidate_scope_text in most_specific_source_scopes.items()
             )
             cited_scope_states_explicit_computation = any(
-                source_states_explicit_computation(candidate_scope_text)
+                _deferral_scope_states_explicit_computation(candidate_scope_text)
                 for candidate_scope_text in most_specific_source_scopes.values()
             )
             if (
@@ -7301,6 +7715,7 @@ def _deferred_coverage(
                         corpus_citation_path=corpus_citation_path,
                         path=display_cited_branch,
                         reason=reason,
+                        hebrew_script=hebrew_script,
                     )
                     issues.append(
                         ValidationIssue(
@@ -7321,9 +7736,35 @@ def _deferred_coverage(
                         )
                     )
                     continue
+                if hebrew_script:
+                    # English keeps main's source-unit diagnostic; the
+                    # branch-naming one waits for its own change.
+                    imprecise_cited_branch = display_cited_branch
         precise = reason_is_precise_for(source_scope_text, path)
         if precise:
             covered.add(path)
+        elif imprecise_cited_branch:
+            # Name the branch the reason cites rather than the bare source
+            # unit, so a retry corrects the reason for that exact branch.
+            rendered_branch = "/".join(imprecise_cited_branch)
+            corrected_output = (
+                f"{output_anchor}/{rendered_branch}#{output.partition('#')[2]}"
+            )
+            retry_shape = _imprecise_deferral_retry_shape(
+                corpus_citation_path=corpus_citation_path,
+                path=imprecise_cited_branch,
+                reason=reason,
+                hebrew_script=hebrew_script,
+            )
+            issues.append(
+                "[complete-source-unit:deferral] "
+                f"`module.deferred_outputs[{index}]` is rooted at the source unit "
+                f"and its reason cites exact source branch (`{rendered_branch}`), "
+                "but its deferral does not name an exact missing dependency, "
+                "input, or runtime capability. Once the reason is precise, anchor "
+                f"the output at that branch, for example `{corrected_output}`.\n"
+                f"{retry_shape}"
+            )
         else:
             branch_label = path[0] if path else "source unit"
             rendered_path = "/".join(path) or "<source-unit>"
@@ -7331,6 +7772,7 @@ def _deferred_coverage(
                 corpus_citation_path=corpus_citation_path,
                 path=display_path or path,
                 reason=reason,
+                hebrew_script=hebrew_script,
             )
             issues.append(
                 ValidationIssue(
@@ -7801,6 +8243,12 @@ def _source_clause_links_dependency(
 
     before = clause[:reference_start]
     after = clause[reference_end:]
+    # A Hebrew predicate after the citation can deny the claim that holds the
+    # link (``הטענה שהתשלום is calculated in accordance with section 2 היא
+    # שקר``), as ``It is false that ...`` does before it (#1882). A clause
+    # outside the wall's gate denies nothing here.
+    if _hebrew_script() and hebrew_source_text.denies_linked_claim(before, after):
+        return False
     dependency_link = re.search(
         r"\b(?:"
         r"nach|gemäß|laut|entsprechend|under|according\s+to|pursuant\s+to|"
@@ -7830,8 +8278,17 @@ def _source_clause_links_dependency(
                 dependency_link.group(0).strip(),
                 flags=re.IGNORECASE,
             )
-            and re.search(
-                r"\b(?:nicht|keinesfalls)\s*$", preceding_link, flags=re.IGNORECASE
+            and (
+                re.search(
+                    r"\b(?:nicht|keinesfalls)\s*$",
+                    preceding_link,
+                    flags=re.IGNORECASE,
+                )
+                # ``לא abweichend von`` is ``nicht abweichend von`` (#1882).
+                or (
+                    _hebrew_script()
+                    and hebrew_source_text.ends_with_negation(preceding_link)
+                )
             )
         )
         if not negated_in_accordance_link and not negated_german_deviation:
@@ -9321,34 +9778,48 @@ def _louisiana_predicate_is_in_negative_complement(
 
 
 def _source_link_scope_has_unreset_negation(governing_scope: str) -> bool:
-    """Bind negation to a linker unless a later finite predicate resets it."""
+    """Bind negation to a linker unless a later finite predicate resets it.
 
-    negative_markers = tuple(
-        re.finditer(
-            r"\b(?:not|never|neither|nor|cannot|nowhere|prohibit\w*|barred|"
-            r"forbidden|precluded|prevented|excluded|denied|except)\b|"
-            r"\b(?:denies?|rejects?|disclaims?)\b|"
-            r"\b(?:false|untrue|impossible)\s+that\b|"
-            r"(?:^|[,;:]\s*|\b(?:and|but|or|that|while|whereas)\s+)"
-            r"no\s+(?:amount|tax|liability|computation|calculation|"
-            r"determination|rate|base|statute|rule|provision|requirement)\b"
-            r"(?:\s+[A-Za-z-]+){0,3}\s+(?:is|are|was|were|shall|may|must|will|"
-            r"would|can|could|does|do|did|states?|provides?|requires?|"
-            r"determines?|calculates?|computes?|applies?|arises?)\b|"
-            r"\b(?:ca|do|does|did|is|are|was|were|"
-            r"shall|will|would|could|should|must|need)n['’]t\b|"
-            r"\b(?:fails?|refuses?|unable)\s+to\b|"
-            r"\bwithout\s+(?:being\s+)?(?:determin\w*|comput\w*|calculat\w*|"
-            r"appl\w*|impos\w*|aris\w*)\b|"
-            r"\b(?:in\s+no\s+(?:case|event)|under\s+no\s+circumstances|"
-            r"at\s+no\s+time|by\s+no\s+means|in\s+no\s+way|"
-            r"on\s+no\s+account|under\s+no\s+conditions?|"
-            r"in\s+no\s+(?:manner|respect))\b|"
-            r"\b(?:rather|other)\s+than\b",
-            governing_scope,
-            flags=re.IGNORECASE,
-        )
+    The raw scope is read with main's English markers alone
+    (``_ENGLISH_LINK_NEGATION_LANGUAGE``). A scope that mixes in Hebrew is
+    also read as ``cross_language_text`` shows it, with the German markers of
+    ``_SOURCE_LINK_NEGATION_LANGUAGE`` and the Hebrew link negations
+    (``לא``, ``אינו``, ``בלי``, ``למעט``) among them, so ``(a) לא computed in
+    accordance with section 2`` is negated as its translation is (#1882).
+    Either reading's negation counts, so the second reading only refuses; a
+    candidate outside the wall's gate, or a scope outside the folding gate,
+    has no second reading and keeps main's verdict.
+    """
+
+    if _scope_has_unreset_link_negation(
+        governing_scope,
+        tuple(_ENGLISH_LINK_NEGATION_LANGUAGE.finditer(governing_scope)),
+    ):
+        return True
+    if not _hebrew_script():
+        return False
+    cross_language_scope = hebrew_source_text.cross_language_text(governing_scope)
+    if cross_language_scope is None:
+        return False
+    return _scope_has_unreset_link_negation(
+        cross_language_scope,
+        tuple(
+            sorted(
+                (
+                    *_SOURCE_LINK_NEGATION_LANGUAGE.finditer(cross_language_scope),
+                    *hebrew_source_text.link_negations(cross_language_scope),
+                ),
+                key=lambda marker: (marker.start(), marker.end()),
+            )
+        ),
     )
+
+
+def _scope_has_unreset_link_negation(
+    governing_scope: str, negative_markers: tuple[re.Match[str], ...]
+) -> bool:
+    """``_source_link_scope_has_unreset_negation`` for one reading's markers."""
+
     if not negative_markers:
         return False
 
@@ -9780,10 +10251,11 @@ def _reason_dependency_is_source_bound(
     corpus_citation_path: str,
     path: tuple[str, ...] | None = None,
     authenticated_same_act_aliases: Sequence[str] = (),
+    allow_english_only_routes: bool = True,
 ) -> bool:
     """Require one external dependency citation to bind to the deferred source."""
 
-    if _reason_names_missing_same_act_dependency(
+    if allow_english_only_routes and _reason_names_missing_same_act_dependency(
         reason,
         source_scope_text,
         corpus_citation_path=corpus_citation_path,
@@ -9792,8 +10264,18 @@ def _reason_dependency_is_source_bound(
     ):
         return True
 
-    louisiana_dependencies = _qualified_louisiana_rs_dependencies(reason)
-    if not _MISSING_DEPENDENCY_LANGUAGE.search(reason) and not any(
+    # The Louisiana insufficiency grammar reads English only: a reason or
+    # scope with Hebrew script takes no R.S. admission (#1882).
+    louisiana_dependencies = (
+        ()
+        if not allow_english_only_routes
+        or (
+            _hebrew_script()
+            and hebrew_source_text.holds_hebrew_script(reason, source_scope_text)
+        )
+        else _qualified_louisiana_rs_dependencies(reason)
+    )
+    if not _missing_dependency_language().search(reason) and not any(
         _reason_match_has_bounded_insufficiency(
             reason,
             dependency,
@@ -9802,6 +10284,16 @@ def _reason_dependency_is_source_bound(
         for dependency in louisiana_dependencies
     ):
         return False
+    if _hebrew_script() and hebrew_source_text.reason_names_source_bound_dependency(
+        reason,
+        source_scope_text,
+        corpus_citation_path=corpus_citation_path,
+        other_citations=_reason_dependencies,
+        masked_citations=_clause_masked_dependencies,
+        other_negations=_NEGATION_LANGUAGE.finditer,
+        other_link_negations=_SOURCE_LINK_NEGATION_LANGUAGE.finditer,
+    ):
+        return True
     for match in re.finditer(
         r"\bde:policies/bzst-dakg-2025/numbered-sections/"
         r"a-\d+(?:-\d+)+#[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_:/#-])",
@@ -9927,7 +10419,11 @@ def _reason_names_missing_same_act_dependency(
 ) -> bool:
     """Recognize an exact missing session-law section named by one source branch."""
 
-    if not path:
+    # English-only, like the runtime-gap route: Hebrew script refuses (#1882).
+    if not path or (
+        _hebrew_script()
+        and hebrew_source_text.holds_hebrew_script(reason, source_scope_text)
+    ):
         return False
     exact_current_branch = _reason_cites_exact_current_statute_branch(
         reason,
@@ -10084,6 +10580,9 @@ def _same_act_clause_names_missing_dependency(
     section: str,
     authenticated_same_act_aliases: Sequence[str] = (),
 ) -> bool:
+    # English-only, as `_reason_names_missing_same_act_dependency` (#1882).
+    if _hebrew_script() and hebrew_source_text.holds_hebrew_script(clause_text):
+        return False
     act_identity = _same_act_identity_pattern(
         authenticated_same_act_aliases,
     )
@@ -10110,7 +10609,7 @@ def _same_act_clause_names_missing_dependency(
     )
     if (
         named_object_state
-        and not _ADVERSATIVE_LANGUAGE.search(named_object_state.group("object"))
+        and not _adversative_language().search(named_object_state.group("object"))
         and not _same_act_dependency_state_is_reversed(
             clause_text,
             named_object_state,
@@ -10158,7 +10657,7 @@ def _same_act_clause_names_missing_dependency(
     bridge_match = re.search(dependency_bridge, clause_text, flags=re.IGNORECASE)
     return bool(
         bridge_match
-        and not _ADVERSATIVE_LANGUAGE.search(bridge_match.group(0))
+        and not _adversative_language().search(bridge_match.group(0))
         and not _same_act_dependency_state_is_reversed(
             clause_text,
             bridge_match,
@@ -10338,8 +10837,13 @@ def _reason_match_names_missing_dependency(
         source_scope_text=source_scope_text,
     ):
         return True
-    direct_signals = list(_MISSING_DEPENDENCY_LANGUAGE.finditer(before))
+    direct_signals = list(_missing_dependency_language().finditer(before))
     direct_signal_text = direct_signals[-1].group(0) if direct_signals else ""
+    if _hebrew_script() and hebrew_source_text.HEBREW_LETTER.search(direct_signal_text):
+        # The English signal classes below do not cover Hebrew grammar; a
+        # Hebrew signal binds only a Hebrew citation, in
+        # `hebrew_source_text.reason_names_source_bound_dependency`.
+        return False
     if (
         direct_missing_state
         and direct_signals
@@ -10449,6 +10953,11 @@ def _reason_match_has_bounded_insufficiency(
 ) -> bool:
     """Recognize one citation-local statement that a supplied dependency is incomplete."""
 
+    # English-only: a Hebrew qualifier or reversal would go unread (#1882).
+    if _hebrew_script() and hebrew_source_text.holds_hebrew_script(
+        reason, source_scope_text
+    ):
+        return False
     _clause_start, clause_end = _reason_clause_bounds(reason, match)
     if clause_end < len(reason) and clause_end - match.end() <= 240:
         later_stop = re.search(r"[.;\n]", reason[clause_end + 1 :])
@@ -12459,6 +12968,15 @@ def _reason_dependency_occurrence_is_contextual(
     )
 
 
+def _clause_masked_dependencies(reason: str) -> tuple[re.Match[str], ...]:
+    """The citations whose periods ``_reason_clause_bounds`` masks."""
+
+    return (
+        *_qualified_usc_dependencies(reason),
+        *_qualified_louisiana_rs_dependencies(reason),
+    )
+
+
 def _reason_dependencies(reason: str) -> list[re.Match[str]]:
     return sorted(
         (
@@ -13471,14 +13989,22 @@ def _reason_names_source_bound_runtime_gap(
 ) -> bool:
     """Accept a concrete runtime gap anchored to the exact current legal branch."""
 
+    # An English-only route: its vocabulary, word counts and computation veto
+    # read English, so a Hebrew reason or scope is refused rather than read
+    # past (#1882). `_EXPLICIT_COMPUTATION` stays as it is.
+    if _hebrew_script() and hebrew_source_text.holds_hebrew_script(
+        reason, source_scope_text
+    ):
+        return False
+
     if (
         not path
         or not source_scope_text.strip()
-        or not _MISSING_DEPENDENCY_LANGUAGE.search(reason)
-        or not _SOURCE_BOUND_RUNTIME_GAP_LANGUAGE.search(reason)
+        or not _missing_dependency_language().search(reason)
+        or not _source_bound_runtime_gap_language().search(reason)
         or not _ADMINISTRATIVE_SOURCE_ARTIFACT_LANGUAGE.search(source_scope_text)
         or not _ADMINISTRATIVE_SOURCE_ACTION_LANGUAGE.search(source_scope_text)
-        or source_states_explicit_computation(source_scope_text)
+        or _deferral_scope_states_explicit_computation(source_scope_text)
     ):
         return False
     citation_parts = [
@@ -13503,8 +14029,25 @@ def _reason_names_source_bound_runtime_gap(
         }
 
     # Two shared source terms keep an exact self-citation from laundering a vague
-    # or invented capability assertion into complete-source coverage.
+    # or invented capability assertion into complete-source coverage. The count
+    # is of English words: no Hebrew word count can promise that a Hebrew term
+    # would pass the English five-letter test in translation, so a Hebrew
+    # runtime-gap reason is refused rather than admitted on a guess (#1882).
     return len(substantive_tokens(reason) & substantive_tokens(source_scope_text)) >= 2
+
+
+def _deferral_scope_states_explicit_computation(source_scope_text: str) -> bool:
+    """Whether a deferred branch states a computation, in English, German or Hebrew.
+
+    The Hebrew recognizer is confined to the deferral guards: it keeps a
+    runtime-gap deferral from covering a Hebrew branch that states a rate of
+    income, as the English recognizer does for `5.17% of income`.
+    """
+
+    return source_states_explicit_computation(source_scope_text) or (
+        _hebrew_script()
+        and hebrew_source_text.states_explicit_computation(source_scope_text)
+    )
 
 
 def _reason_covers_source_authenticated_repeal(
@@ -13908,6 +14451,21 @@ def _reason_cites_exact_current_statute_branch(
     )
     if canonical_pattern.search(reason):
         return True
+    # Israeli sources: the native citation `סעיף 14(ב)(2)` of the current
+    # section, read through the same gematria transliteration as its path.
+    # It reads only `reason`, and only when that holds Hebrew script (#1882).
+    if (
+        _hebrew_script()
+        and hebrew_source_text.holds_hebrew_script(reason)
+        and hebrew_source_text.cites_current_branch(
+            reason,
+            corpus_citation_path,
+            path,
+            citation_must_start=citation_must_start,
+            citation_must_end=citation_must_end,
+        )
+    ):
+        return True
 
     citation_parts = [
         part for part in corpus_citation_path.strip("/").split("/") if part
@@ -14060,6 +14618,18 @@ def _branch_citation(
         ]
         path = "".join(f"({component})" for component in branch.path)
         return f"{corpus_citation_path}{path} [{', '.join(components)}]"
+    native_citation = (
+        hebrew_source_text.native_branch_citation(corpus_citation_path, branch.path)
+        if _hebrew_script()
+        else None
+    )
+    if (
+        native_citation is not None
+        and _hebrew_script()
+        and hebrew_source_text.HEBREW_LETTER.search(branch.text)
+    ):
+        path = "".join(f"({component})" for component in branch.path)
+        return f"{corpus_citation_path}{path} [{native_citation}]"
     citation = corpus_citation_path
     components: list[str] = []
     for index, component in enumerate(branch.path):
@@ -18171,11 +18741,13 @@ def _rule_cited_source_paths(
     *,
     branches: Sequence[SourceStructureBranch],
     corpus_citation_path: str,
+    hebrew_script: bool,
 ) -> set[tuple[str, ...]]:
     source = str(rule.get("source") or "").strip()
     paths = _paths_from_source_reference(
         source,
         corpus_citation_path=corpus_citation_path,
+        hebrew_script=hebrew_script,
     )
     if paths:
         return paths
@@ -18624,8 +19196,15 @@ def _source_condition_clauses_owned_by_excerpt(
     branches: Sequence[SourceStructureBranch],
     corpus_citation_path: str,
     narrow_conjunctive_excerpt: bool = True,
+    hebrew_script: bool | None = None,
 ) -> tuple[tuple[_SourceConditionClause, ...], bool]:
-    """Resolve exact proof text to rule-cited propositions, reporting ambiguity."""
+    """Resolve exact proof text to rule-cited propositions, reporting ambiguity.
+
+    Native citations in the rule's ``source:`` are read only behind the
+    wall's gate (`_hebrew_script`, #1882). ``hebrew_script`` narrows it: a
+    caller that passes the gate reads them for the whole candidate; one that
+    leaves it ``None`` reads them only when ``source_text`` holds Hebrew.
+    """
 
     excerpt_text = _collapse_text(excerpt)
     if not excerpt_text:
@@ -18695,6 +19274,12 @@ def _source_condition_clauses_owned_by_excerpt(
         rule,
         branches=ownership_branches,
         corpus_citation_path=corpus_citation_path,
+        hebrew_script=_hebrew_script()
+        and (
+            hebrew_source_text.holds_hebrew_script(source_text)
+            if hebrew_script is None
+            else hebrew_script
+        ),
     )
 
     def containing_branch(start: int, end: int) -> SourceStructureBranch | None:
@@ -19900,6 +20485,7 @@ def _opaque_same_source_condition_input_issues(
         }
 
     condition_row_ends = _corroborated_unless_row_ends(source_text)
+    hebrew_script = _hebrew_script()
     findings: list[tuple[str, int, int, frozenset[str]]] = []
     for rule_name, rule in sorted(principal_rules.items()):
         if (
@@ -19924,6 +20510,7 @@ def _opaque_same_source_condition_input_issues(
                     branches=branches,
                     corpus_citation_path=corpus_citation_path,
                     narrow_conjunctive_excerpt=len(excerpts) == 1,
+                    hebrew_script=hebrew_script,
                 )
                 factual_parent = _source_owned_residence_parent_clause(
                     excerpt,
@@ -24673,13 +25260,18 @@ def _chapeau_computation_occurrences(
             )
         inherited.append(
             _NumericOccurrenceView(
-                **{
-                    name: getattr(occurrence, name)
-                    for name in _NumericOccurrenceView.__dataclass_fields__
-                    if name not in {"start", "end"}
-                },
+                value=occurrence.value,
                 start=cue_start + local_start - branch.start,
                 end=cue_start + local_end - branch.start,
+                raw=occurrence.raw,
+                has_rate_context=occurrence.has_rate_context,
+                has_temporal_context=occurrence.has_temporal_context,
+                has_structural_context=occurrence.has_structural_context,
+                source_value=occurrence.source_value,
+                requires_rate_context=occurrence.requires_rate_context,
+                is_word_number=occurrence.is_word_number,
+                alternative_values=occurrence.alternative_values,
+                requires_month_context=occurrence.requires_month_context,
             )
         )
     # Cue coefficients are filtered in their own source context, then appended:

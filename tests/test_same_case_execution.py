@@ -462,10 +462,95 @@ def test_setup_failure_declines_but_does_not_catch_body(monkeypatch, failure):
 )
 def test_malformed_eligibility_does_not_replace_normal_diagnostics(shape):
     pipe = SimpleNamespace(
+        source_citation_path=None,
         _source_texts_for_rulespec_content=lambda _: None,
         _proof_source_texts_for_rulespec_content=lambda *a, **k: {},
     )
     assert not e._has_consumer(pipe, "", shape, {"reported"})
+
+
+@pytest.mark.parametrize("trusted_source", [False, True])
+@pytest.mark.parametrize("ambient_hebrew", [False, True])
+@pytest.mark.parametrize(
+    "source,excerpt,reason,annotation,expected",
+    [
+        (
+            "(א) Round to the nearest dollar.",
+            "(א) Round to the nearest dollar.",
+            "",
+            "",
+            True,
+        ),
+        (
+            "(a) Round to the nearest dollar.",
+            "(a) Round to the nearest dollar.",
+            "",
+            "",
+            True,
+        ),
+        (
+            "Source text.",
+            "(א) Round to the nearest dollar.",
+            "חסר סעיף 2",
+            "",
+            True,
+        ),
+        (
+            "Source text.",
+            "(א) Round to the nearest dollar.",
+            "",
+            "",
+            False,
+        ),
+        (
+            "Source text.",
+            "(א) Round to the nearest dollar.",
+            "",
+            "סיכום",
+            False,
+        ),
+    ],
+    ids=["hebrew-source", "ascii-twin", "hebrew-reason", "proof-only", "summary-only"],
+)
+def test_consumer_derives_its_gate_from_authoritative_source_and_reasons(
+    world, trusted_source, ambient_hebrew, source, excerpt, reason, annotation, expected
+):
+    payload = yaml.safe_load(world.content)
+    payload["module"] = {
+        "source_verification": {"corpus_citation_path": "primary"},
+        "summary": annotation,
+        "deferred_outputs": [{"reason": reason}],
+    }
+    atom_source = payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"]
+    atom_source.update(corpus_citation_path="proof", excerpt=excerpt)
+    content = yaml.safe_dump(payload)
+    pipe = SimpleNamespace(
+        source_citation_path="primary" if trusted_source else None,
+        _source_texts_for_rulespec_content=lambda _: {"primary": source},
+        _proof_source_texts_for_rulespec_content=lambda *a, **k: {"proof": excerpt},
+    )
+    with s._hebrew_reading({}, "עברית" if ambient_hebrew else ""):
+        assert e._has_consumer(pipe, content, payload, {"reported"}) is expected
+        assert s._hebrew_script() is ambient_hebrew
+
+
+def test_consumer_trusted_source_takes_precedence_over_declared_source(world):
+    excerpt = "(א) Round to the nearest dollar."
+    payload = yaml.safe_load(world.content)
+    payload["module"]["source_verification"] = {"corpus_citation_path": "declared"}
+    atom_source = payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"]
+    atom_source.update(corpus_citation_path="proof", excerpt=excerpt)
+    pipe = SimpleNamespace(
+        source_citation_path="trusted",
+        _source_texts_for_rulespec_content=lambda _: {
+            "trusted": "Source text.",
+            "declared": excerpt,
+        },
+        _proof_source_texts_for_rulespec_content=lambda *a, **k: {"proof": excerpt},
+    )
+    with s._hebrew_reading({}, "עברית"):
+        assert not e._has_consumer(pipe, yaml.safe_dump(payload), payload, {"reported"})
+        assert s._hebrew_script()
 
 
 def test_orchestration_preserves_original_repository_context(tmp_path, monkeypatch):
@@ -677,6 +762,7 @@ def test_unhashable_citation_declines_before_mapping_lookup():
         ]
     }
     pipe = SimpleNamespace(
+        source_citation_path=None,
         _source_texts_for_rulespec_content=lambda _: None,
         _proof_source_texts_for_rulespec_content=lambda *a, **k: {"x": "x"},
     )

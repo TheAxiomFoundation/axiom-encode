@@ -1,3 +1,11 @@
+## 0.2.2327
+
+- Format the merged same-case consumer call without changing its syntax tree; preserve round 25 Hebrew behavior and keep the version bump after all encoder-affecting files.
+
+## 0.2.2326
+
+- Keep only closed preposition and filing-construct noun contexts for Hebrew `דוחות`, after measuring unchanged dependency entries and instrument senses. Read verb-first subjects without a word-count limit, restrict indefinite-object and filing lookaheads to clause starts, and stop scans at prefixed heads to preserve linear growth. Label and measure stricter noun refusals; reject the R20 Hebrew gate escape and reproduce the audited negator fixture from its generator.
+
 ## 0.2.2299
 
 - Preserve the original checkout identity when validating staged eval and apply overlays, so same-case source witnesses execute against the candidate closure while retaining exact Git, file, and engine binding checks.
@@ -8,6 +16,58 @@
 - Add each failed check's declared fix, with expected versus found per subject, to the model's retry feedback after the unchanged validator messages. Feedback with no typed issue is byte-identical.
 - Record the bounded `axiom-encode/validation-issue/v2` list (it has every v1 field name proposed in #1660, but a typed issue's `kind`, `value`, `clause` and `locator` values differ from v1; it carries the definitions of the checks it names) per try in its own key `iterations[].errors[].issue_document`, apart from the v1 `issues` list, in the outcome as `validation_issues`, and in the failure bundle as the optional `issues.json` field `typed_issues`; the bundle verifier, the repair extractor and the repair-feedback reader accept it. The 128 KiB bound covers the whole serialized document. A record whose message is cut to 2,000 characters keeps `message_sha256` of the full message, so a `--repair-candidate-root` replay re-types it with its check and fix. The workflow's repair extractor writes only the candidate pair, as before, so a workflow repair replay has no prior issues to re-type. Compile issues name the module by its repo-relative path, with the jurisdiction first when the policy repo is a jurisdiction content root, so `us` and `us-ky` modules at one relative path stay distinct. Branch subjects carry the branch's source span, so two computations in one paragraph get distinct fingerprints. A missing-boundary issue's fingerprint names only its own boundary. On the deferred-apply path, the final try of an overlay rejection records the overlay's typed issues; the legacy non-deferred path still logs the run before apply validation, so its final try has no overlay issues. `validation_failure_counts` now counts a typed issue under `<gate>:<check id>` instead of its message class, so trends over the old classes break at this version for those issues. Run-log `gate.compile` and `gate.ci` findings use the check id as their code.
 - Publish the registry with `axiom-encode checks [--json]` and `src/axiom_encode/data/check_registry.json`. Record `infra:<step>` issues (annotation, step summary, `$RUNNER_TEMP/axiom-infra-issues.jsonl`) for the refusals of the six targeted re-encode steps before the signing supervisor, without changing their messages or exit codes. `tests/test_checks.py` fails when untyped `issues.append` sites or unrecorded workflow refusals increase, or when a check lacks `fix` or `why`.
+
+## 0.2.2298
+
+- Remove clause-head and present-filing `דוחות` noun exceptions after measuring unchanged dependency entries and senses across the statute snapshot. Reject verb-first indefinite computation objects and immediate filing relatives using existing forms; label the removed noun controls intended-stricter. Harden the Hebrew gate AST guard against reflected, escaped and delayed calls, and derive the gate at consumer evidence selection from authoritative source and deferral reasons.
+
+## 0.2.2282
+
+- Read a clause-initial source `דוחות` through a bounded window when looking for its filing verb, so the check costs constant time and the clause-head family grows linearly again; verdicts within the window are unchanged.
+
+## 0.2.2281
+
+- Read Hebrew only behind one gate per candidate, opened when the authoritative source or any deferral reason holds a Hebrew-block code point: a proof excerpt, `source:` annotation, name or test that holds Hebrew over an English or German source and reasons now takes main's verdicts and issue strings, and the shared patterns keep main's literals with their Hebrew variants read behind the gate. Read a source `דוחות` as the verb "reject" unless a preposition, a filing construct noun or a filing verb stands before it, or it heads a clause before a masculine plural filing verb; read a verb-first `דוחות … את` as the verb. End a claim noun's relative clause at its own `under` citation: anything after it opens the claim's content, which the postposed denial covers. The reason grammar stays as it was.
+
+## 0.2.2280
+
+- Read a rule's Hebrew `source:` annotation only when the candidate's source or a deferral reason holds Hebrew script, so a Hebrew annotation over an English reason and source takes main's verdict and issue strings. Read a claim noun's `ש` as a relative clause only before an `under` linker (`לפי`, `על פי`, `עפ"י`) within four tokens; before `בהתאם ל` it opens a content clause, as English reads it. Give the six transitive computation infinitives (`לחשב`, `להחיל`, `ליישם`, `להטיל`, `לחייב`, `להשית`) their nine object suffixes. Read `דוחות` as "reject" only after an overt feminine plural subject, and otherwise as the noun "reports". Search the source citation loop's negations with forward cursors that fall back to a bisect, so `נטול חישוב בהתאם לסעיף 2` repeated reads linearly. The reason grammar stays as it was.
+
+## 0.2.2279
+
+- Wall off text without Hebrew from the Hebrew deferral additions: the English link guard reads a raw scope with main's own negation pattern, and the branch-naming diagnostic, native-citation alternative and Hebrew branch-letter scheme need a Hebrew-block code point in the reason or source. This restores main's verdicts and issue strings for English and German text, which this branch had changed since 0.2.2249 for surnames such as `Nie` and `Kein` in an `in accordance with` scope, and for the root English deferral diagnostic. Read a claim noun's own relative clause (`הדיווחים שהוגשו לפי סעיף 2 אינם נכונים`) as no claim, generate the full and plene spellings `ייוותר`, `חוייב` and `תקומנה` with every holam alternate, classify every snapshot word one ו or י from a generated form, and keep the reason grammar unchanged.
+
+## 0.2.2278
+
+- Correct the generated Hebrew source audit assumption for pre-existing reason negators such as `משולל`; preserve harness behavior and the independent pinned reason differential.
+
+## 0.2.2277
+
+- Read every recognized prefix joint before guarded absent-computation predicates (`נעדר`, `נפקד`, `חסר`), while retaining relative-clause resets and unchanged reason grammar.
+
+## 0.2.2276
+
+- Generate the full-spelling first-person singular and second-person feminine singular plural possessives in every listed Hebrew noun family, while preserving compact spellings obtained by folding pointed Hebrew. Share the same suffix generator across computation and claim readers, and read prefix joints in the existing `באפס`, `במקום` and `בשונה` guarded heads, without adding stems or changing the reason grammar.
+
+## 0.2.2275
+
+- Correct the generated feminine-present continuation slot to `ממשיכה` and validate the guarded unaffected-provision construction. Keep ordinary continuing-company wording operative and preserve reason-reader behavior.
+
+## 0.2.2274
+
+- Introduce one grammar generator for listed Hebrew source noun possessives, final-letter rules, third-person verbs and adjective agreement. Share bounded claim complements, read prefix joints inside generated phrases and disclaimers, use forward cursors for the three new source indexes, and refuse raw/folded Hebrew blocks in English-only routes before marks can be erased. Preserve reason-negation grammar and English/German verdicts.
+
+## 0.2.2273
+
+- Read more Hebrew negations of a source link, as English's source guard reads `without calculation`, `prevented` and `denied`, while the reason reader stays as it was: forms with no statutory homograph negate their clause, and forms with one (`נטול`, `נעדר`, `חסר`, `במקום`, `פטור מ`, `כופר בטענה ש`) negate only over a computation complement. Read reason adversatives `פרט אם`, `מצד שני` and `כל עוד`, a predicate after the citation that denies its claim, and `נותר בעינו`. Refuse Hebrew script in the English-only runtime-gap, Louisiana and same-act routes, and end no Hebrew citation before a Unicode digit or a letter English reads. Preserve English and German verdicts.
+
+## 0.2.2272
+
+- Read Hebrew absence forms (בהיעדר, בהעדר, בחוסר) as "without" in deferral reasons, and read Hebrew governors, signals, links and citations only as complete tokens, so a Hebrew reason or source cannot pass where its canonical English refuses. Preserve English and German verdicts.
+
+## 0.2.2271
+
+- Read Hebrew and mixed-language deferral reasons and sources in the source-completeness gate, so a Hebrew reason cannot pass where its canonical English refuses. Preserve English and German verdicts.
 
 ## 0.2.2270
 

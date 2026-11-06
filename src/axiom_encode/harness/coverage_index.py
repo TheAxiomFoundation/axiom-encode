@@ -44,8 +44,12 @@ def format_coverage_index(
     baseline: str | None = None,
 ) -> str:
     """Show all bounded clause coordinates, including late-source omissions."""
-    # Read the source exactly as the validator does for this citation path.
-    with sc._us_manual_prose_scope(citation):
+    # Read the source exactly as the validator does for this citation path,
+    # with the wall's gate the candidate opens there (#1882).
+    with (
+        sc._us_manual_prose_scope(citation),
+        sc._hebrew_reading(_payload(candidate) or {}, source_text),
+    ):
         return _format_coverage_index(
             source_text, citation, candidate=candidate, baseline=baseline
         )

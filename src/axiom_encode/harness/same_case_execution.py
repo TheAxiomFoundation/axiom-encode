@@ -92,9 +92,20 @@ def _has_consumer(
 ) -> bool:
     """Cheap proof-bound dependency test before any clone or compilation."""
     from . import source_completeness as s
+    from . import validator_pipeline as v
 
+    source_texts = pipe._source_texts_for_rulespec_content(content)
     sources = pipe._proof_source_texts_for_rulespec_content(
-        content, source_texts=pipe._source_texts_for_rulespec_content(content)
+        content, source_texts=source_texts
+    )
+    authoritative_source_text = (
+        v._source_verification_text(
+            citation_paths=(pipe.source_citation_path,),
+            source_label=pipe.source_citation_path,
+            source_texts=source_texts,
+        )
+        if pipe.source_citation_path
+        else v._extract_source_verification_text(content, source_texts=source_texts)
     )
     raw_rules = payload.get("rules")
     if not isinstance(raw_rules, list) or not all(
@@ -125,42 +136,47 @@ def _has_consumer(
             reaches(n, seen | {name}) for n in edges.get(name, set()) if n in rules
         )
 
-    for name, rule in rules.items():
-        if rule.get("kind") != "derived" or not reaches(name, set()):
-            continue
-        metadata = rule.get("metadata")
-        proof = metadata.get("proof") if isinstance(metadata, dict) else None
-        atoms = proof.get("atoms") if isinstance(proof, dict) else None
-        if not isinstance(atoms, list):
-            continue
-        for atom in atoms:
-            if not isinstance(atom, dict) or atom.get("kind") != "formula":
+    # Evidence selection reads the same authoritative source and candidate
+    # reasons as completeness analysis, including when no analysis is active.
+    with s._hebrew_reading(payload, authoritative_source_text or ""):
+        for name, rule in rules.items():
+            if rule.get("kind") != "derived" or not reaches(name, set()):
                 continue
-            source = atom.get("source")
-            if not isinstance(source, dict):
+            metadata = rule.get("metadata")
+            proof = metadata.get("proof") if isinstance(metadata, dict) else None
+            atoms = proof.get("atoms") if isinstance(proof, dict) else None
+            if not isinstance(atoms, list):
                 continue
-            citation, excerpt = (
-                source.get("corpus_citation_path"),
-                source.get("excerpt"),
-            )
-            if not isinstance(citation, str):
-                continue
-            body = sources.get(citation) if sources else None
-            if (
-                not isinstance(body, str)
-                or not isinstance(excerpt, str)
-                or not excerpt
-                or body.count(excerpt) != 1
-            ):
-                continue
-            if s.source_states_explicit_computation(excerpt):
-                return True
-            rows = s._unconflicted_printed_rows(body, (), corpus_citation_path=citation)
-            start = body.index(excerpt)
-            if rows and any(
-                start <= a < b <= start + len(excerpt) for a, b in rows.additions
-            ):
-                return True
+            for atom in atoms:
+                if not isinstance(atom, dict) or atom.get("kind") != "formula":
+                    continue
+                source = atom.get("source")
+                if not isinstance(source, dict):
+                    continue
+                citation, excerpt = (
+                    source.get("corpus_citation_path"),
+                    source.get("excerpt"),
+                )
+                if not isinstance(citation, str):
+                    continue
+                body = sources.get(citation) if sources else None
+                if (
+                    not isinstance(body, str)
+                    or not isinstance(excerpt, str)
+                    or not excerpt
+                    or body.count(excerpt) != 1
+                ):
+                    continue
+                if s.source_states_explicit_computation(excerpt):
+                    return True
+                rows = s._unconflicted_printed_rows(
+                    body, (), corpus_citation_path=citation
+                )
+                start = body.index(excerpt)
+                if rows and any(
+                    start <= a < b <= start + len(excerpt) for a, b in rows.additions
+                ):
+                    return True
     return False
 
 
