@@ -19863,7 +19863,7 @@ def repair_formula_let_bindings(content: str) -> tuple[str, list[str]]:
 
 
 _FORMULA_LET_BINDING_PATTERN = re.compile(
-    r"^(?P<indent>\s*)(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?!=)(?P<expr>.*)$"
+    r"^(?P<indent>\s*)(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=(?![=>])\s*(?P<expr>.*)$"
 )
 
 
