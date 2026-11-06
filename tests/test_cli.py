@@ -1899,6 +1899,13 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admi
     args.axiom_rules_path.mkdir()
     args.corpus_path.mkdir()
     validation_execution = {"schema": "axiom-encode/apply-validation-execution/v2"}
+    waiver_bindings = {
+        "schema": "axiom-encode/validation-waiver-bindings/v1",
+        "files": [
+            {"path": path, "fingerprint": None, "record_sha256": None}
+            for path in ("us/statutes/7/2015/f.test.yaml", "us/statutes/7/2015/f.yaml")
+        ],
+    }
 
     def validate(result, **_kwargs):
         setattr(
@@ -1960,6 +1967,10 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admi
             return_value="c" * 64,
         ),
         patch(
+            "axiom_encode.cli._build_applied_manifest_file_waiver_bindings",
+            return_value=waiver_bindings,
+        ) as bindings_mock,
+        patch(
             "axiom_encode.cli._current_guard_encoder_execution_identity",
             return_value={
                 "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
@@ -1976,6 +1987,12 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admi
         signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
         cmd_promote_reviewed_candidate(args)
 
+    bindings_mock.assert_called_once()
+    assert bindings_mock.call_args.kwargs["covered_paths"] == {
+        "us/statutes/7/2015/f.yaml",
+        "us/statutes/7/2015/f.test.yaml",
+    }
+
     overlay_mock.assert_called_once()
     assert overlay_mock.call_args.kwargs["amendment_documents"] == (amendment,)
     assert overlay_mock.call_args.kwargs["amendment_source_texts"] == {
@@ -1987,6 +2004,8 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admi
     assert payload["tool"] == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
     assert payload["reviewed_rulespec_ref"] == reviewed_ref
     assert payload["validation_execution"] == validation_execution
+    assert payload["validation_waiver_bindings"] == waiver_bindings
+    assert "validation_waiver_set_sha256" not in payload
     assert rule.read_bytes() == original_rule
     assert companion.read_bytes() == original_companion
     assert _git(
@@ -22108,6 +22127,10 @@ rules: []
             patch(
                 "axiom_encode.cli.verify_rulespec_validation_waiver_set",
                 return_value="b" * 64,
+            ),
+            patch(
+                "axiom_encode.cli._build_applied_manifest_file_waiver_bindings",
+                return_value={"schema": "test", "files": []},
             ),
         ):
             manifest = _write_applied_encoding_manifest(
@@ -54814,9 +54837,11 @@ class TestManifestCurrentState:
             },
             "validation_execution": {
                 "policy_root_identity": {
-                    "validation_waiver_set_sha256": payload[
-                        "validation_waiver_set_sha256"
-                    ]
+                    # Per-file manifests keep the validated ledger digest
+                    # as signed provenance in policy_pre_apply (#2092).
+                    "validation_waiver_set_sha256": payload["validation_execution"][
+                        "policy_pre_apply"
+                    ]["validation_waiver_set_sha256"]
                 },
                 "axiom_encode_identity": {
                     "kind": "git",

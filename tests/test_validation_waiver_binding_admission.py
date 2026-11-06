@@ -242,3 +242,57 @@ def test_per_file_manifest_fails_when_validated_ledger_is_unavailable(frozen_rep
         )
     )
     assert any("cannot be checked" in issue for issue in issues), issues
+
+
+def test_writer_binds_from_the_checkout_root_ledger_of_a_content_root(frozen_repo):
+    digest = _write_ledger(frozen_repo, covered="a", other="b")
+    bindings = cli._build_applied_manifest_file_waiver_bindings(
+        frozen_repo.repo / "us",
+        covered_paths={frozen_repo.rule_relative},
+        validated_waiver_set_sha256=digest,
+    )
+    assert bindings["files"] == [
+        cli._validation_waivers.file_waiver_binding(
+            cli._validation_waiver_set_for_sha256(frozen_repo.repo, digest),
+            frozen_repo.rule_relative,
+        )
+    ]
+    assert bindings["files"][0]["fingerprint"] == f"sha256:{'a' * 64}"
+
+
+@pytest.mark.parametrize("validated", ["0" * 64, None])
+def test_writer_refuses_to_sign_when_the_ledger_changed_after_validation(
+    frozen_repo, validated
+):
+    _write_ledger(frozen_repo, covered="a", other="b")
+    with pytest.raises(RuntimeError, match="ledger changed after validation"):
+        cli._build_applied_manifest_file_waiver_bindings(
+            frozen_repo.repo,
+            covered_paths={frozen_repo.rule_relative},
+            validated_waiver_set_sha256=validated,
+        )
+
+
+def test_validated_waiver_digest_of_each_manifest_shape():
+    digest = "a" * 64
+    per_file = {
+        cli.VALIDATION_WAIVER_BINDINGS_FIELD: {},
+        "validation_execution": {
+            "policy_pre_apply": {"validation_waiver_set_sha256": digest}
+        },
+    }
+    assert cli._manifest_validated_waiver_set_sha256(per_file) == digest
+    assert (
+        cli._manifest_validated_waiver_set_sha256(
+            {cli.VALIDATION_WAIVER_SET_SHA256_FIELD: digest}
+        )
+        == digest
+    )
+    both = {**per_file, cli.VALIDATION_WAIVER_SET_SHA256_FIELD: digest}
+    assert cli._manifest_validated_waiver_set_sha256(both) is None
+    malformed = copy.deepcopy(per_file)
+    malformed["validation_execution"]["policy_pre_apply"][
+        "validation_waiver_set_sha256"
+    ] = "not-a-digest"
+    assert cli._manifest_validated_waiver_set_sha256(malformed) is None
+    assert cli._manifest_validated_waiver_set_sha256({}) is None

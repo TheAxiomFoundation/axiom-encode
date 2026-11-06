@@ -28479,6 +28479,7 @@ def _retired_model_manifest_issues(
     signing_broker: SigningBroker | Ed25519PublicKey,
     expected_waiver_set_sha256: str,
     local_corpus_release: LocalCorpusRelease | None,
+    base_commit: str | None = None,
 ) -> list[str]:
     """Verify the complete signed model manifest preserved by one retirement."""
 
@@ -28530,6 +28531,7 @@ def _retired_model_manifest_issues(
                 root_prefix=root_prefix,
                 manifest_label=retired_label,
                 expected_waiver_set_sha256=expected_waiver_set_sha256,
+                base_commit=base_commit,
             )
         )
     elif retired.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != expected_waiver_set_sha256:
@@ -32178,6 +32180,7 @@ def _load_verified_applied_encoding_manifest_payload(
             signing_broker=signing_broker,
             expected_waiver_set_sha256=expected_waiver_set_sha256,
             local_corpus_release=local_corpus_release,
+            base_commit=base_commit,
         )
     )
     issues.extend(
