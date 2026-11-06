@@ -644,6 +644,29 @@ def test_memo_matches_direct_evaluation_at_every_stack_depth(extras, margin):
             assert _typed(memoized) == _typed(direct)
 
 
+def _outcome(call, extra, rules, case, environment):
+    try:
+        return _typed(call(extra, rules, case, environment))
+    except Exception as error:
+        return type(error)
+
+
+def test_memo_matches_direct_evaluation_down_to_the_last_stack_frame():
+    rules, case, environment = _rules(), _case(), {}
+    available = sc._available_stack_frames()
+    outcomes = []
+
+    for extra in range(available - 60, available + 3):
+        with sc._case_dependency_environment_memo_scope():
+            memoized = _outcome(_memoized_at, extra, rules, case, environment)
+        direct = _outcome(_direct_at, extra, rules, case, environment)
+        assert memoized == direct
+        outcomes.append(memoized)
+
+    assert outcomes[0] is not RecursionError
+    assert outcomes[-1] is RecursionError
+
+
 @pytest.mark.parametrize("error", (ValueError, RuntimeError))
 def test_memo_evaluates_fresh_when_float_behavior_is_unknown(monkeypatch, error):
     def unavailable(*args):
