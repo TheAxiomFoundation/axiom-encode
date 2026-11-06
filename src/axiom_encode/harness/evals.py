@@ -68,6 +68,10 @@ from axiom_encode.encode_timing import (
     mark_encode_phase,
     timed_phase,
 )
+from axiom_encode.harness.same_case_execution import (
+    bind_execution_overlay_origin,
+    capture_execution_git_origin,
+)
 from axiom_encode.legacy_replacement import LegacyReplacementContract
 from axiom_encode.legacy_replacement_overlay import (
     LegacyReplacementOverlayError,
@@ -144,7 +148,7 @@ from .policyengine_runtime import (
     PolicyEngineRuntime,
     PolicyEngineRuntimeError,
 )
-from .pricing import estimate_usage_cost_usd
+from .pricing import estimate_anthropic_refusal_cost_usd, estimate_usage_cost_usd
 from .proof_validator import find_interpretation_yaml_issues
 from .source_completeness import (
     _rulespec_target_base,
@@ -1694,6 +1698,7 @@ class EvalReadinessSummary:
     mean_estimated_cost_usd: float | None
     gate_results: list[EvalReadinessGateResult]
     ready: bool
+    infrastructure_error_count: int = 0
 
 
 def parse_runner_spec(spec: str) -> EvalRunnerSpec:
@@ -1730,7 +1735,7 @@ def parse_runner_spec(spec: str) -> EvalRunnerSpec:
         )
     name = alias or re.sub(r"[^a-zA-Z0-9._-]+", "-", f"{backend}-{model}")
 
-    if backend not in {"claude", "codex", "openai"}:
+    if backend not in {"claude", "claude-api", "codex", "openai"}:
         raise ValueError(f"Unsupported backend '{backend}' in runner spec '{spec}'")
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name) is None or name in {".", ".."}:
         raise ValueError(f"Unsafe runner name '{name}' in runner spec '{spec}'")
@@ -3529,6 +3534,7 @@ def run_eval_suite(
     resume_existing: bool = False,
     admission_score: bool = False,
     axiom_compose_path: Path | None = None,
+    skip_reviewers: bool = False,
 ) -> list[EvalResult]:
     """Run a suite while keeping its evidence signer out of child environments."""
 
@@ -3544,6 +3550,7 @@ def run_eval_suite(
             resume_existing=resume_existing,
             admission_score=admission_score,
             axiom_compose_path=axiom_compose_path,
+            skip_reviewers=skip_reviewers,
             evidence_signing_key=evidence_signing_key,
         )
 
@@ -3560,6 +3567,7 @@ def _run_eval_suite_with_signer(
     evidence_signing_key: SigningBroker,
     admission_score: bool = False,
     axiom_compose_path: Path | None = None,
+    skip_reviewers: bool = False,
 ) -> list[EvalResult]:
     """Run every case using a parent-memory-only evidence signer."""
 
@@ -3603,6 +3611,8 @@ def _run_eval_suite_with_signer(
             suite_retry_attempts=suite_retry_attempts,
         )
     )
+    if skip_reviewers:
+        execution_identity["skip_reviewers"] = True
     if admission_score:
         execution_identity["admission_score"] = _eval_suite_admission_score_options(
             axiom_compose_path
@@ -3635,6 +3645,7 @@ def _run_eval_suite_with_signer(
             manifest_identity=manifest_identity,
             execution_identity=execution_identity,
             policyengine_runtime=policyengine_runtime,
+            retry_usage_limits=True,
         )
         completed_cases = _contiguous_completed_case_count(
             completed_case_indexes, len(manifest.cases)
@@ -3741,6 +3752,7 @@ def _run_eval_suite_with_signer(
                                     runtime_axiom_rules_path=axiom_rules_path,
                                     corpus_release=corpus_release,
                                     mode=case.mode,
+                                    skip_reviewers=skip_reviewers,
                                     extra_context_paths=extra_context,
                                     oracle=case.oracle,
                                     policyengine_runtime=policyengine_runtime,
@@ -3767,6 +3779,7 @@ def _run_eval_suite_with_signer(
                                     local_corpus_release=corpus_release,
                                     runtime_axiom_rules_path=axiom_rules_path,
                                     mode=case.mode,
+                                    skip_reviewers=skip_reviewers,
                                     extra_context_paths=extra_context,
                                     oracle=case.oracle,
                                     policyengine_runtime=policyengine_runtime,
@@ -4555,6 +4568,7 @@ def _build_eval_suite_execution_identity(
     suite_retry_attempts: int = _DEFAULT_SUITE_RETRY_ATTEMPTS,
     admission_score: bool = False,
     axiom_compose_path: Path | None = None,
+    skip_reviewers: bool = False,
 ) -> dict[str, object]:
     """Return every executable and RuleSpec input identity used by a suite."""
 
@@ -4595,6 +4609,8 @@ def _build_eval_suite_execution_identity(
             _rulespec_root_execution_identity(Path(root)) for root in rulespec_roots
         ],
     }
+    if skip_reviewers:
+        identity["skip_reviewers"] = True
     if admission_score:
         identity["admission_score"] = _eval_suite_admission_score_options(
             axiom_compose_path
@@ -4637,9 +4653,12 @@ def _eval_result_generation_infrastructure_failure(result: EvalResult) -> str | 
 
     - ``authentication``: the row's backend had no credentials at all (no
       ``OPENAI_API_KEY``, and for Codex no ``CODEX_API_KEY`` or auth file
-      either; ``encode`` refuses to start on the same Codex check) and the
-      row reports no model tokens, so nothing shows a model was reached.
+      either; ``encode`` refuses to start on the same Codex check), or no
+      ``ANTHROPIC_API_KEY`` for Claude API. The row reports no model tokens,
+      so nothing shows a model was reached.
     - ``quota-exhaustion``: the usage-limit rule that already stops the suite.
+    - ``context-overflow``: the API rejected the prompt size or stopped at its
+      context window, before producing a complete artifact.
 
     Any other backend error, including a credential the provider rejects,
     returns ``None`` and stays a scored failure. The fold's run-level
@@ -4653,6 +4672,8 @@ def _eval_result_generation_infrastructure_failure(result: EvalResult) -> str | 
     if result.success or result.output_file or result.failure_kind != "error":
         return None
     backend = result.backend.strip().lower()
+    if _eval_result_is_context_overflow(result):
+        return "context-overflow"
     reports_model_tokens = any(
         getattr(result, name, 0)
         for name in (
@@ -4672,9 +4693,22 @@ def _eval_result_generation_infrastructure_failure(result: EvalResult) -> str | 
             return "authentication"
         if backend == "openai" and not os.getenv("OPENAI_API_KEY"):
             return "authentication"
+        if backend == "claude-api" and not os.getenv("ANTHROPIC_API_KEY"):
+            return "authentication"
     if _eval_result_indicates_usage_limit(result):
         return "quota-exhaustion"
     return None
+
+
+def _eval_result_is_context_overflow(result: EvalResult) -> bool:
+    """Recognize the harness's artifact-free API context rejection."""
+    return (
+        result.backend == "claude-api"
+        and not result.success
+        and not result.output_file
+        and result.failure_kind == "error"
+        and "context overflow" in (result.error or "").lower()
+    )
 
 
 def _recorded_generation_infrastructure_failure(score: object) -> str | None:
@@ -5533,6 +5567,7 @@ def _load_eval_suite_resume_state(
     execution_identity: dict[str, object],
     policyengine_runtime: PolicyEngineRuntime | None = None,
     revalidate_persisted_results: bool = True,
+    retry_usage_limits: bool = False,
 ) -> tuple[str, str, list[EvalResult], set[int]]:
     """Load only a complete, content-identical suite ledger for resumption."""
     state_path = output_root / "suite-run.json"
@@ -5690,6 +5725,8 @@ def _load_eval_suite_resume_state(
 
     completed_case_indexes: set[int] = set()
     results: list[EvalResult] = []
+    quota_case_index: int | None = None
+    quota_result_count = 0
     for case_index in case_indexes:
         case = manifest.cases[case_index - 1]
         expected_source_attestation: dict[str, object] | None = None
@@ -5722,6 +5759,17 @@ def _load_eval_suite_resume_state(
             expected_source_attestation=expected_source_attestation,
             source_unit=live_source_unit,
         )
+        if retry_usage_limits and _suite_case_results_hit_usage_limit(case_results):
+            # Quota exhaustion stops generation before the remaining cases.
+            # Preserve earlier evidence, but rerun this terminal group after
+            # quota resets instead of treating it as a completed model exam.
+            if case_index != case_indexes[-1]:
+                raise ValueError(
+                    "Cannot resume eval suite: rows follow a usage-limit case"
+                )
+            quota_case_index = case_index
+            quota_result_count = len(case_results)
+            break
         admission_options = execution_identity.get("admission_score")
         admission_enabled = isinstance(admission_options, dict) and (
             admission_options.get("enabled") is True
@@ -5780,22 +5828,50 @@ def _load_eval_suite_resume_state(
 
     state_completed_cases = _state_nonnegative_int(state, "completed_cases")
     state_result_count = _state_nonnegative_int(state, "result_count")
-    if state_completed_cases > len(completed_case_indexes):
+    if state_completed_cases > len(completed_case_indexes) + (
+        quota_case_index is not None
+    ):
         raise ValueError(
             "Cannot resume eval suite: suite-run.json claims more completed cases "
             "than the durable results ledger"
         )
-    if state_result_count > len(results):
+    if state_result_count > len(results) + quota_result_count:
         raise ValueError(
             "Cannot resume eval suite: suite-run.json claims more results than the "
             "durable results ledger"
         )
-    if state.get("status") == "completed" and len(completed_case_indexes) != len(
-        manifest.cases
+    if (
+        state.get("status") == "completed"
+        and quota_case_index is None
+        and len(completed_case_indexes) != len(manifest.cases)
     ):
         raise ValueError(
             "Cannot resume eval suite: completed suite-run.json has incomplete "
             "ledger groups"
+        )
+    if quota_case_index is not None:
+        retained_ledger = "".join(
+            json.dumps(row) + "\n"
+            for index in case_indexes
+            if index < quota_case_index
+            for row in rows_by_case[index]
+        )
+        # Lower the progress counts first so an interruption between the two
+        # atomic writes remains resumable with either version of the ledger.
+        state["completed_cases"] = len(completed_case_indexes)
+        state["result_count"] = len(results)
+        state["status"] = "running"
+        for field_name in ("last_case_name", "active_case", "error", "finished_at"):
+            state.pop(field_name, None)
+        if completed_case_indexes:
+            state["last_case_name"] = manifest.cases[
+                max(completed_case_indexes) - 1
+            ].name
+        _secure_atomic_eval_write(
+            output_root, Path("suite-run.json"), json.dumps(state).encode()
+        )
+        _secure_atomic_eval_write(
+            output_root, Path("suite-results.jsonl"), retained_ledger.encode()
         )
     return run_id, started_at, results, completed_case_indexes
 
@@ -6530,6 +6606,8 @@ def _suite_case_results_should_retry(case_results: list[EvalResult]) -> bool:
     """Return True when a suite case likely failed for a transient reason."""
     if _suite_case_results_hit_usage_limit(case_results):
         return False
+    if any(_eval_result_is_context_overflow(result) for result in case_results):
+        return False
     if any(result.timed_out or result.timeout_attempts for result in case_results):
         return False
     return any(
@@ -6556,7 +6634,10 @@ def _eval_result_indicates_usage_limit(result: EvalResult) -> bool:
         texts.extend(result.metrics.generalist_review_issues)
         texts.extend(result.metrics.policyengine_issues)
 
-    return any("usage limit" in text.lower() for text in texts)
+    return any(
+        "usage limit" in text.lower() or "credit balance is too low" in text.lower()
+        for text in texts
+    )
 
 
 def _eval_result_indicates_retryable_timeout(result: EvalResult) -> bool:
@@ -6579,6 +6660,10 @@ def summarize_readiness(
     gates: EvalReadinessGates,
 ) -> EvalReadinessSummary:
     """Summarize suite readiness for one runner."""
+    infrastructure_error_count = sum(
+        _eval_result_is_context_overflow(r) for r in results
+    )
+    results = [r for r in results if not _eval_result_is_context_overflow(r)]
     total_cases = len(results)
     artifact_results = [result for result in results if result.metrics is not None]
     artifact_case_count = len(artifact_results)
@@ -6716,6 +6801,7 @@ def summarize_readiness(
         )
 
     return EvalReadinessSummary(
+        infrastructure_error_count=infrastructure_error_count,
         total_cases=total_cases,
         artifact_case_count=artifact_case_count,
         timeout_count=timeout_count,
@@ -6730,7 +6816,8 @@ def summarize_readiness(
         mean_policyengine_score=mean_policyengine_score,
         mean_estimated_cost_usd=mean_estimated_cost_usd,
         gate_results=gate_results,
-        ready=all(result.passed for result in gate_results),
+        ready=not infrastructure_error_count
+        and all(result.passed for result in gate_results),
     )
 
 
@@ -8674,6 +8761,14 @@ def _evaluate_artifact_in_scope(
                     target=target,
                 )
             )
+    execution_git_origin = (
+        capture_execution_git_origin(Path(policy_repo_root))
+        if require_complete_source_unit
+        and legacy_replacement is None
+        and not replacement_overlay_scope
+        and not rulespec_dependency_roots
+        else None
+    )
     with _rulespec_validation_target(
         rulespec_file,
         policy_repo_root,
@@ -8692,6 +8787,15 @@ def _evaluate_artifact_in_scope(
         )
         pipeline = ValidatorPipeline(
             policy_repo_path=validation_policy_repo_root,
+            execution_overlay_origin=(
+                bind_execution_overlay_origin(
+                    execution_git_origin, validation_policy_repo_root
+                )
+                if legacy_replacement is None
+                and not replacement_overlay_scope
+                and not validation_dependency_roots
+                else None
+            ),
             axiom_rules_path=axiom_rules_path,
             **(
                 {"axiom_rules_engine_ref": axiom_rules_engine_ref}
@@ -11668,11 +11772,11 @@ companion test file required by the task and deterministic validation.
         if tests_only
         else (
             "- Return syntactically complete RuleSpec and companion test YAML, but "
-            "you may omit unchanged named inputs, named rules, imports, deferred "
+            "you may omit unchanged named units, named inputs, named rules, imports, deferred "
             "outputs, and named companion cases. The encoder overlays those "
             "omitted items from the hash-bound candidate before validation. Re-emit "
             "the complete item only when changing or replacing it. To remove an "
-            "obsolete named input, rule, or companion case from this rejected "
+            "obsolete named unit, input, rule, or companion case from this rejected "
             "candidate, emit an exact YAML item containing only "
             "`name: <existing name>` and `repair_remove: true`; input removal is "
             "accepted only after no repaired rule or companion case references "
@@ -11742,7 +11846,7 @@ def _build_rulespec_eval_prompt(
         )
     corpus_citation_path = _workspace_corpus_citation_path(workspace)
     backend_section = ""
-    if runner_backend == "openai":
+    if runner_backend in {"openai", "claude-api"}:
         backend_section = (
             "You do not have filesystem tool access in this eval; rely on the "
             "inline source and any inline context copies in this prompt.\n"
@@ -11996,6 +12100,17 @@ Import and context rules:
 - Do not assert an exact zero imported standard, grant, or threshold unless that exact imported row is visible in the copied chart file.
 {scaffold_dates_section}
 """
+
+    if runner_backend == "claude-api" and context_files:
+        # Include the original copies as well as any derived guidance above.
+        # Amendments and replacement baselines must retain whitespace, too.
+        context_section += (
+            "\nInline context copies (complete files):\n"
+            + _format_inline_context_snippets(
+                workspace, context_files, max_chars_per_file=None
+            )
+            + "\n"
+        )
 
     missing_cited_source_section = _format_missing_cited_source_guidance(
         citation,
@@ -13538,17 +13653,22 @@ Rate-only source boundary:
 def _format_inline_context_snippets(
     workspace: EvalWorkspace,
     context_files: list[EvalContextFile],
-    max_chars_per_file: int = 6000,
+    max_chars_per_file: int | None = 6000,
 ) -> str:
     """Inline copied precedent files for non-tool backends like Responses API."""
     snippets: list[str] = []
     for item in context_files:
         path = workspace.root / item.workspace_path
-        try:
-            content = path.read_text().strip()
-        except OSError:
-            continue
-        if len(content) > max_chars_per_file:
+        if max_chars_per_file is None:
+            # UTF-8 decode preserves CRLF and surrounding whitespace. A missing
+            # copy must fail, never silently reduce the API's context exam.
+            content = path.read_bytes().decode("utf-8")
+        else:
+            try:
+                content = path.read_text().strip()
+            except OSError:
+                continue
+        if max_chars_per_file is not None and len(content) > max_chars_per_file:
             content = content[:max_chars_per_file].rstrip() + "\n... [truncated]"
         snippets.append(f"=== FILE: {item.workspace_path} ===\n{content}")
     return "\n\n".join(snippets)
@@ -16257,6 +16377,8 @@ def _run_prompt_eval(
         )
     if runner.backend == "claude":
         return _run_claude_prompt_eval(runner, workspace, prompt)
+    if runner.backend == "claude-api":
+        return _run_claude_api_prompt_eval(runner, workspace, prompt)
     if runner.backend == "codex":
         return _run_codex_prompt_eval(runner, workspace, prompt)
     if runner.backend == "openai":
@@ -16308,6 +16430,9 @@ def _run_claude_prompt_eval(
         "timeout_seconds": timeout_seconds,
     }
     start = time.time()
+    environment = scrub_attestation_signing_keys()
+    # Claude CLI uses subscription authentication, never the API credit key.
+    environment.pop("ANTHROPIC_API_KEY", None)
     try:
         result = subprocess.run(
             cmd,
@@ -16315,7 +16440,7 @@ def _run_claude_prompt_eval(
             text=True,
             cwd=workspace.root,
             timeout=timeout_seconds,
-            env=scrub_attestation_signing_keys(),
+            env=environment,
         )
     except subprocess.TimeoutExpired:
         duration_ms = int((time.time() - start) * 1000)
@@ -16978,6 +17103,264 @@ def _openai_prompt_input(
     if suffix:
         content.append({"type": "input_text", "text": suffix})
     return [{"type": "message", "role": "user", "content": content}], prefix, True
+
+
+_CLAUDE_API_SYSTEM_PROMPT = (
+    "Produce accurate RuleSpec encodings from the supplied source and context."
+)
+
+
+def _run_claude_api_prompt_eval(
+    runner: EvalRunnerSpec,
+    workspace: EvalWorkspace,
+    prompt: str,
+) -> EvalPromptResponse:
+    """Run a complete, prompt-only exam through the Anthropic Messages API."""
+    import asyncio
+
+    from .anthropic_messages import (
+        ANTHROPIC_MESSAGES_MAX_TOKENS,
+        anthropic_messages_options,
+        resolve_api_encoder_effort,
+    )
+
+    start = time.time()
+    tokens: TokenUsage | None = None
+    refusal_details: Any = None
+    timeout_seconds, case_budget_limited = _timeout_bounded_by_eval_case_budget(
+        _claude_encoder_timeout_seconds()
+    )
+    trace: dict[str, Any] = {
+        "provider": "anthropic",
+        "backend": "messages",
+        "model": runner.model,
+        "served_model": None,
+        "stop_reason": None,
+        "effort": None,
+        "system_prompt_sha256": _sha256_text(_CLAUDE_API_SYSTEM_PROMPT),
+        "anthropic_sdk_version": None,
+        "request_id": None,
+        "prompt_chars": len(prompt),
+        "timed_out": False,
+        "timeout_stage": None,
+        "timeout_reason": None,
+        "timeout_seconds": timeout_seconds,
+        "timeout_attempts": 0,
+    }
+
+    def refusal_category() -> str | None:
+        category = (
+            refusal_details.get("category")
+            if isinstance(refusal_details, dict)
+            else getattr(refusal_details, "category", None)
+        )
+        return category if isinstance(category, str) else None
+
+    def respond(text: str = "", *, error: str | None = None) -> EvalPromptResponse:
+        cost_usd = estimate_usage_cost_usd(runner.model, tokens)
+        if trace["stop_reason"] == "refusal":
+            category = refusal_category()
+            trace["refusal_category"] = category
+            cost_usd = estimate_anthropic_refusal_cost_usd(
+                runner.model,
+                tokens,
+                category=category,
+                has_stop_details=refusal_details is not None,
+            )
+        return EvalPromptResponse(
+            text=text,
+            duration_ms=int((time.time() - start) * 1000),
+            tokens=tokens,
+            estimated_cost_usd=cost_usd,
+            trace=trace,
+            error=error,
+            timed_out=trace["timed_out"],
+            timeout_stage=trace["timeout_stage"],
+            timeout_reason=trace["timeout_reason"],
+            timeout_seconds=trace["timeout_seconds"],
+            timeout_attempts=trace["timeout_attempts"],
+        )
+
+    def timed_out(*, case_budget: bool, reason: str = "wall") -> EvalPromptResponse:
+        trace.update(
+            timed_out=True,
+            timeout_stage="case_budget" if case_budget else "encoder",
+            timeout_reason=reason,
+            timeout_attempts=1,
+        )
+        return respond(
+            error=(
+                "Eval case budget timed out"
+                if case_budget
+                else "Claude API eval timed out"
+            )
+        )
+
+    def context_overflow(detail: str) -> EvalPromptResponse:
+        trace["infrastructure_failure"] = "context-overflow"
+        return respond(error=f"Context overflow (prompt_chars={len(prompt)}): {detail}")
+
+    remaining = _remaining_eval_case_budget_seconds()
+    if remaining is not None and remaining <= 0:
+        return timed_out(case_budget=True)
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return respond(error="ANTHROPIC_API_KEY is not set")
+
+    try:
+        trace["effort"] = resolve_api_encoder_effort()
+    except ValueError as exc:
+        return respond(error=str(exc))
+
+    try:
+        import anthropic
+    except ImportError as exc:
+        return respond(
+            error=f"anthropic SDK not installed; install axiom-encode[api] ({exc})"
+        )
+    trace["anthropic_sdk_version"] = getattr(anthropic, "__version__", None)
+
+    # SDK import and request preparation also consume the shared case budget.
+    remaining = _remaining_eval_case_budget_seconds()
+    if remaining is not None:
+        if remaining <= 0:
+            return timed_out(case_budget=True)
+        case_budget_limited = case_budget_limited or remaining < timeout_seconds
+        timeout_seconds = min(timeout_seconds, remaining)
+        trace["timeout_seconds"] = timeout_seconds
+
+    async def request() -> tuple[str, Any]:
+        nonlocal tokens, refusal_details
+        # The explicit endpoint prevents environment overrides from forwarding
+        # this key. Disable SDK retries so one wall budget bounds the request.
+        async with asyncio.timeout(timeout_seconds):
+            async with anthropic.AsyncAnthropic(
+                api_key=api_key,
+                base_url="https://api.anthropic.com",
+                timeout=timeout_seconds,
+                max_retries=0,
+            ) as client:
+                async with client.messages.stream(
+                    **anthropic_messages_options(
+                        model=runner.model,
+                        prompt=prompt,
+                        effort=trace["effort"],
+                    ),
+                    system=_CLAUDE_API_SYSTEM_PROMPT,
+                ) as stream:
+                    streamed_details = None
+                    async for event in stream:
+                        if getattr(event, "type", None) == "message_delta":
+                            streamed_details = (
+                                getattr(
+                                    getattr(event, "delta", None), "stop_details", None
+                                )
+                                or streamed_details
+                            )
+                    response = await stream.get_final_message()
+                    trace["served_model"] = getattr(response, "model", None)
+                    trace["stop_reason"] = getattr(response, "stop_reason", None)
+                    trace["request_id"] = getattr(response, "_request_id", None)
+                    if trace["request_id"] is None:
+                        raw_response = getattr(stream, "response", None)
+                        if raw_response is not None:
+                            trace["request_id"] = raw_response.headers.get("request-id")
+                    usage = response.usage
+                    usage_payload = (
+                        usage.model_dump()
+                        if callable(getattr(usage, "model_dump", None))
+                        else vars(usage)
+                    )
+                    uncached_input_tokens = int(
+                        usage_payload.get("input_tokens", 0) or 0
+                    )
+                    cache_read_tokens = int(
+                        usage_payload.get("cache_read_input_tokens", 0) or 0
+                    )
+                    cache_creation_tokens = int(
+                        usage_payload.get("cache_creation_input_tokens", 0) or 0
+                    )
+                    trace["uncached_input_tokens"] = uncached_input_tokens
+                    # The shared estimator expects total input, while the SDK
+                    # reports uncached input separately from its cache counts:
+                    # https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+                    tokens = TokenUsage(
+                        input_tokens=(
+                            uncached_input_tokens
+                            + cache_read_tokens
+                            + cache_creation_tokens
+                        ),
+                        output_tokens=int(usage_payload.get("output_tokens", 0) or 0),
+                        cache_read_tokens=cache_read_tokens,
+                        cache_creation_tokens=cache_creation_tokens,
+                        reasoning_output_tokens=int(
+                            usage_payload.get("reasoning_output_tokens", 0) or 0
+                        )
+                        or extract_reasoning_output_tokens(
+                            {"json_result": {"usage": usage_payload}}
+                        ),
+                    )
+                    refusal_details = (
+                        getattr(response, "stop_details", None) or streamed_details
+                    )
+                    text = "".join(
+                        block.text
+                        for block in response.content
+                        if getattr(block, "type", None) == "text"
+                    )
+        return text, refusal_details
+
+    try:
+        text, refusal_details = asyncio.run(request())
+    except Exception as exc:
+        # SDK exception messages are useful diagnostics, but no exception may
+        # echo the API key into a persisted trace or the caller's output.
+        message = str(exc).replace(api_key, "[redacted]")
+        trace["exception_class"] = type(exc).__name__
+        trace["exception_message"] = message
+        trace["request_id"] = getattr(exc, "request_id", trace["request_id"])
+        timeout_error = getattr(anthropic, "APITimeoutError", TimeoutError)
+        if isinstance(exc, (TimeoutError, timeout_error)):
+            remaining = _remaining_eval_case_budget_seconds()
+            return timed_out(
+                case_budget=case_budget_limited
+                or (remaining is not None and remaining <= 0),
+                reason="wall" if isinstance(exc, TimeoutError) else "request",
+            )
+        if (
+            getattr(exc, "status_code", None) == 400
+            and "prompt" in message.lower()
+            and "too long" in message.lower()
+        ):
+            return context_overflow(message)
+        return respond(error=f"{type(exc).__name__}: {message}")
+
+    remaining = _remaining_eval_case_budget_seconds()
+    if remaining is not None and remaining <= 0:
+        return timed_out(case_budget=True)
+    stop_reason = trace["stop_reason"]
+    if stop_reason == "model_context_window_exceeded":
+        return context_overflow("model_context_window_exceeded")
+    if stop_reason == "refusal":
+        category = refusal_category()
+        return respond(
+            error="model declined the encode request"
+            + (f" (category: {category})" if category else "")
+        )
+    if stop_reason == "max_tokens":
+        return respond(
+            error=f"response hit max_tokens={ANTHROPIC_MESSAGES_MAX_TOKENS} "
+            "before the RuleSpec was complete"
+        )
+    if stop_reason not in {"end_turn", "stop_sequence"}:
+        return respond(
+            error=f"Claude API response did not finish (stop_reason: {stop_reason})"
+        )
+    if not text.strip():
+        return respond(
+            error=f"response had no RuleSpec text (stop_reason: {stop_reason})"
+        )
+    return respond(text)
 
 
 def _run_openai_prompt_eval(
@@ -19112,6 +19495,13 @@ def _repair_overlay_candidate_base_issue(
         not isinstance(import_target, str) for import_target in imports
     ):
         return "preserved repair overlay imports must be a list of strings"
+    preserved_units = preserved.get("units", [])
+    if not isinstance(preserved_units, list):
+        return "preserved repair overlay units must be a list"
+    try:
+        _merge_named_yaml_items([], preserved_units, label="units")
+    except ValueError as exc:
+        return str(exc)
     preserved_inputs = preserved.get("inputs", [])
     if not isinstance(preserved_inputs, list):
         return "preserved repair overlay inputs must be a list"
@@ -19227,6 +19617,22 @@ def _overlay_validation_retry_candidate(
             repairs.append(f"import:{import_target}")
     if imports:
         generated["imports"] = imports
+
+    generated_units = generated.get("units", [])
+    preserved_units = preserved.get("units", [])
+    if not isinstance(generated_units, list) or not isinstance(preserved_units, list):
+        raise ValueError("repair overlay units must be lists")
+    units, restored_units, removed_units = _merge_named_yaml_items(
+        generated_units,
+        preserved_units,
+        label="units",
+    )
+    if units:
+        generated["units"] = units
+    else:
+        generated.pop("units", None)
+    repairs.extend(f"unit:{name}" for name in restored_units)
+    repairs.extend(f"removed_unit:{name}" for name in removed_units)
 
     generated_inputs = generated.get("inputs", [])
     preserved_inputs = preserved.get("inputs", [])

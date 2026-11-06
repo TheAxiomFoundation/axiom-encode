@@ -2495,7 +2495,7 @@ def _slice_parent_body(text: str, *, requested_path: str, resolved_path: str) ->
         )
     # Choose by authenticated source layout, never by jurisdiction. Leave
     # the existing parenthetical walker untouched for all other bodies.
-    outline = bare_outline(text)
+    outline = bare_outline(text, corpus_citation_path=resolved_path)
     if outline is not None:
         sliced = slice_bare_path(text, fragments, outline=outline)
     else:
