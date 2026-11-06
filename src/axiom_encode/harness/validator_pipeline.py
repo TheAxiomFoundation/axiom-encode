@@ -9228,6 +9228,186 @@ def _iter_hebrew_gregorian_month_matches(
     return dated
 
 
+# English names a month the same way, and a faithful English rendering of
+# schedule A1 part D ("September 1939 to April 1940 | 65 and 8 months") must
+# ground the birth months its Hebrew original grounds; otherwise the encoder
+# reports a month number as ungrounded only because the source is in English.
+# Only the full names count, capitalised or in capitals: legislation always
+# capitalises a month, so lowercase "may", "march" and "august" stay ordinary
+# words, and the abbreviations ("Pub. L. 99-514, Oct. 22, 1986") mostly date
+# the citations and source credits around a provision.
+_ENGLISH_GREGORIAN_MONTH_NUMBERS = {
+    "January": 1.0,
+    "February": 2.0,
+    "March": 3.0,
+    "April": 4.0,
+    "May": 5.0,
+    "June": 6.0,
+    "July": 7.0,
+    "August": 8.0,
+    "September": 9.0,
+    "October": 10.0,
+    "November": 11.0,
+    "December": 12.0,
+}
+_ENGLISH_GREGORIAN_MONTH_PATTERN = re.compile(
+    r"(?<!\w)(?P<month>"
+    + "|".join(
+        f"{re.escape(name)}|{re.escape(name.upper())}"
+        for name in sorted(_ENGLISH_GREGORIAN_MONTH_NUMBERS, key=len, reverse=True)
+    )
+    + r")(?!\w)"
+)
+# Space inside one line. A month and the words that date it share a line and a
+# table cell, so a month heading a column on its own line is never dated by
+# the row under it (#1822). Every separator `str.splitlines` treats as a line
+# boundary ends the line, not only `\n`.
+_ENGLISH_MONTH_SPACE = rf"[^\S{_LINE_BREAK_CHARS}]"
+_ENGLISH_MONTH_CONTEXT_BREAK_PATTERN = re.compile(rf"[{_LINE_BREAK_CHARS}|]")
+_ENGLISH_MONTH_DAY_NUMBER = r"(?:0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?(?!\w|[.,]\d)"
+# English writes the day between the month and its year ("June 30, 1939"),
+# where Hebrew writes it before the month ("30 ביוני 1939").
+_ENGLISH_MONTH_OPTIONAL_DAY_AFTER = (
+    rf"(?:{_ENGLISH_MONTH_SPACE}+(?:the{_ENGLISH_MONTH_SPACE}+)?"
+    rf"{_ENGLISH_MONTH_DAY_NUMBER})?"
+)
+# A year after the name or its day: "June 1939", "June, 1939", "June of 1939",
+# "June in the year 1939", "June 30, 1939", "May 1st 1950".
+_ENGLISH_MONTH_YEAR_AFTER_PATTERN = re.compile(
+    _ENGLISH_MONTH_OPTIONAL_DAY_AFTER
+    + rf"{_ENGLISH_MONTH_SPACE}*,?{_ENGLISH_MONTH_SPACE}*"
+    + rf"(?:(?:of|in){_ENGLISH_MONTH_SPACE}+(?:the{_ENGLISH_MONTH_SPACE}+)?"
+    + rf"(?:calendar{_ENGLISH_MONTH_SPACE}+)?year{_ENGLISH_MONTH_SPACE}+"
+    + rf"|of{_ENGLISH_MONTH_SPACE}+)?"
+    + rf"{_TEMPORAL_YEAR_BODY}{_TEMPORAL_YEAR_END}"
+)
+# The year the month recurs in, after the name or its day: "June of each year",
+# "May 1 of each year", "January of the following year", "April of the tax
+# year" (Hebrew "של כל שנה", "של שנת המס").
+_ENGLISH_MONTH_YEAR_OF_AFTER_PATTERN = re.compile(
+    _ENGLISH_MONTH_OPTIONAL_DAY_AFTER
+    + rf"{_ENGLISH_MONTH_SPACE}+(?:of|in){_ENGLISH_MONTH_SPACE}+"
+    + rf"(?:(?:each|every|any|that|such|the|a){_ENGLISH_MONTH_SPACE}+)?"
+    + r"(?:(?:same|following|next|preceding|previous|prior|current|succeeding"
+    + rf"|subsequent){_ENGLISH_MONTH_SPACE}+)?"
+    + r"(?:(?:calendar|tax|taxable|fiscal|income|assessment|benefit|plan|school)"
+    + rf"{_ENGLISH_MONTH_SPACE}+)?"
+    + r"year(?!\w)"
+)
+_ENGLISH_MONTH_DAY_AFTER_PATTERN = re.compile(
+    rf"{_ENGLISH_MONTH_SPACE}+(?:the{_ENGLISH_MONTH_SPACE}+)?"
+    rf"{_ENGLISH_MONTH_DAY_NUMBER}"
+)
+_ENGLISH_ORDINAL_DAY_WORDS = (
+    "first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|"
+    "twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|"
+    "nineteenth|twentieth|thirtieth|"
+    "twenty[- ](?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth)|"
+    "thirty[- ]first"
+)
+# A day before the name: "30 June", "30th June", "the 30th of June", "the
+# thirtieth day of June", "the first of May".
+_ENGLISH_MONTH_DAY_BEFORE_PATTERN = re.compile(
+    rf"(?:(?<![\w.,])(?:0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?"
+    rf"(?:{_ENGLISH_MONTH_SPACE}+day)?(?:{_ENGLISH_MONTH_SPACE}+of)?"
+    rf"|(?<!\w)(?:{_ENGLISH_ORDINAL_DAY_WORDS})(?:{_ENGLISH_MONTH_SPACE}+day)?"
+    rf"{_ENGLISH_MONTH_SPACE}+of)"
+    rf"{_ENGLISH_MONTH_SPACE}*$"
+)
+# The singular word month before the name: "the month of July", "in the month
+# of May". The plural ("the months of April, July, October and January") need
+# not name the month that follows; a list after it dates itself.
+_ENGLISH_MONTH_WORD_BEFORE_PATTERN = re.compile(
+    rf"(?<!\w)month{_ENGLISH_MONTH_SPACE}+of{_ENGLISH_MONTH_SPACE}*$"
+)
+# Month names side by side are one list or range: "July and August 1939", "May
+# to December 1940", "April, July, October, and January", "May–December".
+_ENGLISH_MONTH_LIST_GAP_PATTERN = re.compile(
+    rf"{_ENGLISH_MONTH_SPACE}*(?:[,;]{_ENGLISH_MONTH_SPACE}*)?"
+    rf"(?:(?:and/or|and|or|to|through|thru|until|till)(?!\w){_ENGLISH_MONTH_SPACE}*"
+    rf"|[–—-]{_ENGLISH_MONTH_SPACE}*)?"
+)
+# "May" is also the modal verb, capitalised in a title-case heading ("Section 4
+# May Be Waived", "Persons Aged 18 May Apply") and in capitals ("MAY"). A group
+# made only of it is dated by a year after it ("May 1950", "May 1, 1950"), the
+# year it recurs in ("May 1 of each year") or "month of" before it, as Hebrew
+# dates its homographs מאי and מרץ; a day alone is too weak.
+_ENGLISH_MONTH_HOMOGRAPHS = frozenset({"May", "MAY"})
+# How far back a day or the word month can stand from the name it dates.
+_ENGLISH_MONTH_CONTEXT_WINDOW = 40
+
+
+def _english_month_context_before(text: str, first: int) -> str:
+    """The text before a month name on its own line and table cell."""
+    before = text[max(0, first - _ENGLISH_MONTH_CONTEXT_WINDOW) : first]
+    breaks = list(_ENGLISH_MONTH_CONTEXT_BREAK_PATTERN.finditer(before))
+    return before[breaks[-1].end() :] if breaks else before
+
+
+def _iter_english_gregorian_month_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Read each English month name the text uses as a date.
+
+    The English twin of ``_iter_hebrew_gregorian_month_matches``, with its
+    rules. Month names side by side ("July and August 1939", "May to December
+    1940") are one list, dated as a whole. A list of two or more names dates
+    itself; otherwise a name is dated by a year after it or its day ("June
+    1939", "June 30, 1939"), the year it recurs in ("June 30 of each year"), a
+    day after or before it ("June 30", "30 June", "the thirtieth day of June")
+    or "month of" before it, all on its own line and table cell. A group made
+    only of "May" needs a year after it, the year it recurs in, or "month of".
+    """
+    matches = list(_ENGLISH_GREGORIAN_MONTH_PATTERN.finditer(text))
+    if not matches:
+        return []
+    groups: list[list[re.Match[str]]] = [[matches[0]]]
+    for previous, current in zip(matches, matches[1:]):
+        if _ENGLISH_MONTH_LIST_GAP_PATTERN.fullmatch(
+            text, previous.end(), current.start()
+        ):
+            groups[-1].append(current)
+        else:
+            groups.append([current])
+    dated: list[tuple[tuple[int, int], float]] = []
+    for group in groups:
+        first, last = group[0].start(), group[-1].end()
+        before = _english_month_context_before(text, first)
+        dated_by_year = bool(
+            _ENGLISH_MONTH_YEAR_AFTER_PATTERN.match(text, last)
+            or _ENGLISH_MONTH_YEAR_OF_AFTER_PATTERN.match(text, last)
+            or _ENGLISH_MONTH_WORD_BEFORE_PATTERN.search(before)
+        )
+        if all(match.group("month") in _ENGLISH_MONTH_HOMOGRAPHS for match in group):
+            if not dated_by_year:
+                continue
+        elif not (
+            dated_by_year
+            or len(group) > 1
+            or _ENGLISH_MONTH_DAY_AFTER_PATTERN.match(text, last)
+            or _ENGLISH_MONTH_DAY_BEFORE_PATTERN.search(before)
+        ):
+            continue
+        dated.extend(
+            (
+                match.span(),
+                _ENGLISH_GREGORIAN_MONTH_NUMBERS[match.group("month").capitalize()],
+            )
+            for match in group
+        )
+    return dated
+
+
+def _iter_gregorian_month_name_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Every Gregorian month name the text dates, Hebrew or English."""
+    return [
+        *_iter_hebrew_gregorian_month_matches(text),
+        *_iter_english_gregorian_month_matches(text),
+    ]
+
+
 _STRUCTURAL_LINE_MARKER_PATTERN = re.compile(
     r"(?m)^[ \t]*(?:"
     r"\(\d+[a-z]?\)(?:[ \t]+bis[ \t]+\(\d+[a-z]?\))?"
@@ -9363,9 +9543,10 @@ class NumericOccurrence:
     requires_rate_context: bool = False
     is_word_number: bool = False
     alternative_values: tuple[float, ...] = ()
-    # A month number read from a Hebrew month name. It grounds only a literal
-    # the module uses as a month (see ``_month_comparison_literal_values``),
-    # never an unrelated literal that happens to share its value.
+    # A month number read from a Hebrew or English month name. It grounds only
+    # a literal the module uses as a month (see
+    # ``_month_comparison_literal_values``), never an unrelated literal that
+    # happens to share its value.
     requires_month_context: bool = False
 
     @property
@@ -16390,7 +16571,7 @@ def _temporal_numeric_component_spans(
                 match.group("years")
             )
         )
-    spans.update(span for span, _value in _iter_hebrew_gregorian_month_matches(text))
+    spans.update(span for span, _value in _iter_gregorian_month_name_matches(text))
     return tuple(sorted(spans))
 
 
@@ -17926,10 +18107,10 @@ def _tokenize_numeric_occurrences_from_text(
         )
         grounding_spans.append(match.span(1))
 
-    # A Hebrew month name used as a date grounds its month number, and only
-    # grounds it: the encoding compares a month with it, but the statute sets
-    # no value there for the encoding to recall.
-    for span, value in _iter_hebrew_gregorian_month_matches(collector.context_text):
+    # A Hebrew or English month name used as a date grounds its month number,
+    # and only grounds it: the encoding compares a month with it, but the
+    # statute sets no value there for the encoding to recall.
+    for span, value in _iter_gregorian_month_name_matches(collector.context_text):
         collector.add_grounding(source_view, span, value, requires_month_context=True)
 
     collector.grounding = list(
@@ -35852,16 +36033,28 @@ def numeric_value_is_grounded(
 
     Percentage scaling requires an occurrence whose own context supplies rate
     evidence; an unrelated integer can never authorize the conversion. A month
-    number read from a month name grounds only a value listed in
-    ``month_context_values``: by default it grounds nothing.
+    number read from a month name grounds that number alone, and only when the
+    value is listed in ``month_context_values``: by default it grounds nothing.
     """
     for occurrence in source_occurrences:
-        if getattr(occurrence, "requires_month_context", False) and not any(
-            math.isclose(
-                value, month_value, rel_tol=0, abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE
-            )
-            for month_value in month_context_values
-        ):
+        if getattr(occurrence, "requires_month_context", False):
+            # Never a value scaled from the month number: a month name beside
+            # "percent" ("July to December percent") prints no rate of 0.12.
+            if math.isclose(
+                value,
+                occurrence.value,
+                rel_tol=0,
+                abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+            ) and any(
+                math.isclose(
+                    value,
+                    month_value,
+                    rel_tol=0,
+                    abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+                )
+                for month_value in month_context_values
+            ):
+                return True
             continue
         source_values = (occurrence.value, *occurrence.alternative_values)
         if any(

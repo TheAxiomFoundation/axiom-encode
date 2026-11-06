@@ -89,6 +89,8 @@
 "tests/test_encoding_db.py": 0.9,
 "tests/test_engine_binding.py": 1.4,
 "tests/test_engine_pin_diff.py": 6.0,
+"tests/test_english_month_grounding.py": 26.0,
+"tests/test_english_month_grounding_fixture_differential.py": 470.0,
 "tests/test_eval_board.py": 2.1,
 "tests/test_eval_evidence.py": 0.5,
 "tests/test_evals.py": 21.9,
