@@ -38,6 +38,81 @@ def _role(name, words):
     )
 
 
+# Closed reviewed factual vocabulary, independently checked against source roles.
+# This corroborates a caller mapping; it does not authenticate factual truth.
+_FACT_CONTRACTS = {
+    "use": (
+        "is_completing_home_renovation_schedule",
+        "This individual is completing this schedule; does not assert eligibility or completion compliance.",
+    ),
+    "paper": ("is_filing_paper_return", "This individual is filing a paper return."),
+    "space": (
+        "needs_additional_space",
+        "The individual completing this form needs more space for its entries.",
+    ),
+    "eligible": (
+        "has_eligible_home_renovation_expenses",
+        "The individual has eligible home renovation expenses as an externally supplied form premise, not derived from positive amount or age.",
+    ),
+    "residence": (
+        "expenses_relate_to_return_page_one_residence",
+        "The claimant answers whether expenses on line1 relate to residence address entered on return page1; no address equality inferred.",
+    ),
+    "relationship": (
+        "has_spouse_or_common_law_partner_at_reference_date",
+        "The claimant has the explicitly identified spouse/common-law partner at the medical reference date. Reciprocal fixture descriptions identify two distinct claimants; no engine relation is inferred.",
+    ),
+    "separate": (
+        "occupied_separate_principal_residences_at_reference_date",
+        "Claimant and identified spouse/common-law partner occupied separate principal residences on the explicit reference date.",
+    ),
+    "medical": (
+        "principal_residence_separation_was_for_medical_reasons",
+        "The stated separate principal residences at the reference date were for medical reasons.",
+    ),
+    "date": (
+        "medical_separation_reference_date",
+        "Date at which all three medical-separation premise facts are asserted; not the date of this execution.",
+    ),
+    "gst": (
+        "gst_hst_number_is_applicable",
+        "For this explicitly identified sales-slip/contract entry, GST/HST number is applicable; no claimant-entry ownership or complete table inferred.",
+    ),
+}
+
+
+def _fact_role(item, role, return_page):
+    expected_name, expected_description = _FACT_CONTRACTS[role]
+    names = {expected_name}
+    if role == "residence":
+        words = {
+            1: "one",
+            2: "two",
+            3: "three",
+            4: "four",
+            5: "five",
+            6: "six",
+            7: "seven",
+            8: "eight",
+            9: "nine",
+        }
+        names = {expected_name.replace("page_one", "page_" + str(return_page))}
+        if return_page in words:
+            names.add(expected_name.replace("page_one", "page_" + words[return_page]))
+        expected_description = expected_description.replace(
+            "page1;", f"page{return_page};"
+        )
+    if item.get("name") not in names:
+        return False
+    if "description" not in item:
+        return True
+    description = item["description"]
+    return (
+        isinstance(description, str)
+        and " ".join(description.split()) == expected_description
+    )
+
+
 def _expression(value):
     node = _tree(value)
     return ast.dump(node) if node is not None else None
@@ -444,7 +519,7 @@ def bind_schedule(
                 for n, i in inputs.items()
                 if n not in entered.values()
                 and n not in input_roles.values()
-                and _role(n, words)
+                and _fact_role(i, role, conditions.residence.return_page)
                 and i.get("dtype") == dtype
                 and i.get("entity") == entity
                 and "unit" not in i

@@ -147,3 +147,23 @@ def test_operative_row_label_cannot_acquire_ownership(tail):
                 "Home renovation expenses " + tail + " = ^",
             )
     assert bind(p, source) is None
+
+
+@pytest.mark.parametrize("index", range(3, 13))
+@pytest.mark.parametrize("defect", ["description", "prefix", "suffix"])
+def test_all_factual_roles_reject_opposite_or_unknown_contracts(index, defect):
+    p = yaml.safe_load(CONTENT)
+    fact = p["inputs"][index]
+    old = fact["name"]
+    if defect == "description":
+        fact["description"] = "The opposite of this premise is true."
+    else:
+        new = "non_" + old if defect == "prefix" else old + "_except_medical"
+        # Rename formulas coherently so rejection is not a missing input.
+        content = yaml.safe_dump(p, sort_keys=False).replace(old, new)
+        p = yaml.safe_load(content)
+    form = recognize_bound_schedule_structure(SOURCE, CITATION)
+    assert (
+        bind_schedule(form, yaml.safe_dump(p, sort_keys=False), {CITATION: SOURCE})
+        is None
+    )
