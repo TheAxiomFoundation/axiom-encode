@@ -1213,6 +1213,67 @@ def _located_proof_evidence_occurrences(
 # End marks a model adds to a quotation that the source does not print there
 # ("... early retirement age." for "... early retirement age;").
 _PROOF_ADDED_END_MARKS = ".;,"
+# Spaces and at most one line wrap between two words: never a blank line, so a
+# located span never crosses a paragraph gap the matcher keeps.
+_PROOF_LOCATE_WORD_GAP = r"(?:[ \t\u00a0]*\r?\n[ \t\u00a0]*|[ \t\u00a0]+)"
+
+
+def _plain_source_occurrences(
+    source_text: str, excerpt: str
+) -> tuple[_LocatedProofText, ...]:
+    """Each printed occurrence of the excerpt's words, ignoring token boundaries.
+
+    Locating only: a caller stores a returned text only after the matcher
+    accepts it (or a version of it widened to its enclosing parentheses).
+    """
+    words = excerpt.split()
+    if not words:
+        return ()
+    pattern = re.compile(_PROOF_LOCATE_WORD_GAP.join(re.escape(word) for word in words))
+    found: list[_LocatedProofText] = []
+    base = 0
+    for segment in split_proof_evidence_text(source_text):
+        for match in pattern.finditer(segment):
+            start, end = match.span()
+            found.append((base + start, base + end, match.group()))
+            if (
+                0 < start
+                and end < len(segment)
+                and segment[start - 1] == "("
+                and segment[end] == ")"
+                and _PROOF_WIDENABLE_PARENTHETICAL.search(match.group())
+                and not _follows_numeric_sign(segment, start - 1)
+            ):
+                found.append(
+                    (base + start - 1, base + end + 1, "(" + match.group() + ")")
+                )
+        base += len(segment) + len(PROOF_EVIDENCE_SEGMENT_SEPARATOR)
+    return tuple(found)
+
+
+# Parentheses are restored only around words ("(165 Percent of Poverty
+# Level)"): a parenthesized bare number is an accounting negative, and a sign
+# before the parenthesis belongs to the number, so neither is widened.
+_PROOF_WIDENABLE_PARENTHETICAL = re.compile(r"[^\W\d_]{2,}")
+
+
+def _follows_numeric_sign(text: str, index: int) -> bool:
+    """Whether the last meaningful character before ``text[index]`` is a sign.
+
+    Whitespace, format characters (a zero-width space) and currency marks are
+    skipped however many there are, as ``_left_context_omits_numeric_sign``
+    does, so "-         (500 dollars)" and "-$ (500 dollars)" keep their sign.
+    """
+    position = index - 1
+    while position >= 0 and (
+        text[position].isspace()
+        or unicodedata.category(text[position]) == "Cf"
+        or _is_currency_marker(text[position])
+    ):
+        position -= 1
+    return position >= 0 and (
+        _is_numeric_sign_marker(text[position]) or text[position] == "\N{EN DASH}"
+    )
 
 
 def _distinct_printed_forms(
@@ -1249,10 +1310,13 @@ def align_proof_excerpt(*, source_text: str, excerpt: str) -> str | None:
 
     Locating is tolerant; the result is exact. The excerpt is located through
     the typographic view (quotation marks, dashes, ligatures, wraps, a
-    recased first letter), with an added end mark dropped. The result is
-    returned only when every independent occurrence prints one text and
-    ``_source_contains_proof_evidence`` accepts that text, so the stored
-    excerpt is always the printed source text and no check gets looser.
+    recased first letter), with an added end mark dropped. When that finds
+    nothing because a token-boundary rule rejects the bare span, the span
+    widened to its enclosing parentheses is tried ("(165 Percent of Poverty
+    Level)"). The result is returned only when every independent occurrence
+    prints one text and ``_source_contains_proof_evidence`` accepts that text,
+    so the stored excerpt is always the printed source text and no check gets
+    looser.
     """
     excerpt = excerpt.strip()
     if not excerpt:
@@ -1271,6 +1335,17 @@ def align_proof_excerpt(*, source_text: str, excerpt: str) -> str | None:
         )
         if occurrences:
             break
+    if not occurrences:
+        # A bare span the boundary rules reject and its widened form are one
+        # occurrence; keep only the accepted texts.
+        occurrences = tuple(
+            occurrence
+            for query in queries
+            for occurrence in _plain_source_occurrences(source_text, query)
+            if _source_contains_proof_evidence(
+                source_text=source_text, evidence_text=occurrence[2]
+            )
+        )
     distinct = _distinct_printed_forms(occurrences)
     if len(distinct) != 1:
         return None
@@ -1278,6 +1353,46 @@ def align_proof_excerpt(*, source_text: str, excerpt: str) -> str | None:
     if not _source_contains_proof_evidence(source_text=source_text, evidence_text=form):
         return None
     return form
+
+
+def proof_excerpt_printed_forms(*, source_text: str, excerpt: str) -> tuple[str, ...]:
+    """Every distinct printed text an excerpt can stand for in the source.
+
+    For relocation. Unlike ``align_proof_excerpt``, an excerpt the source
+    prints as written does not end the search: the typographic view, an added
+    end mark and the enclosing-parentheses widening are all tried, with their
+    source positions, so a straight-quoted ``"earned income"`` on one page and
+    a plain ``earned income`` on another are two forms. Only forms the exact
+    matcher accepts are returned.
+    """
+    excerpt = excerpt.strip()
+    if not excerpt:
+        return ()
+    queries = [excerpt]
+    trimmed = excerpt.rstrip(_PROOF_ADDED_END_MARKS).rstrip()
+    if trimmed and trimmed != excerpt:
+        queries.append(trimmed)
+    occurrences: list[_LocatedProofText] = []
+    for query in queries:
+        occurrences.extend(
+            (start, end, source_text[start:end])
+            for start, end in _typographic_source_evidence_spans(
+                source_text=source_text, evidence_text=query
+            )
+        )
+        occurrences.extend(_plain_source_occurrences(source_text, query))
+    return tuple(
+        form
+        for form in _distinct_printed_forms(
+            [
+                occurrence
+                for occurrence in occurrences
+                if _source_contains_proof_evidence(
+                    source_text=source_text, evidence_text=occurrence[2]
+                )
+            ]
+        )
+    )
 
 
 # Typographic normalization for proof evidence. A PDF, an HTML export and a
