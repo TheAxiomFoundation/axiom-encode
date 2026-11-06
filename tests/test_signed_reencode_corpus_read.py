@@ -261,7 +261,7 @@ def _recorded_args(record: Path) -> list[str]:
 
 
 def test_the_preflight_records_the_message_it_prints(tmp_path):
-    # One variable feeds both the log line and the typed issue, so they can't drift.
+    # The step records exactly the line it prints, and that line names the credentials.
     _, _, step = _step(_workflow(), PREFLIGHT_STEP)
     stub = tmp_path / "bin"
     stub.mkdir()
@@ -271,6 +271,7 @@ def test_the_preflight_records_the_message_it_prints(tmp_path):
         step["run"], {"PATH": f"{stub}:/usr/bin:/bin", "HAS_CORPUS_READ": "false"}
     )
     assert result.returncode == 1
+    assert record.exists(), result.stderr
     args = _recorded_args(record)
     assert args[:3] == [
         "axiom-encode/scripts/infra_issue.py",
@@ -279,15 +280,20 @@ def test_the_preflight_records_the_message_it_prints(tmp_path):
     ]
     assert len(args) == 4
     assert result.stderr == args[3] + "\n"
+    assert "R2_CORPUS_READ_ACCESS_KEY_ID" in args[3]
 
 
 def test_the_fetch_refusal_records_the_message_it_prints(tmp_path):
+    # The step records exactly the line it prints, and that line names the credentials.
     _, _, step = _step(_workflow(), FETCH_STEP)
     release, marker, path = _fetch_sandbox(tmp_path, locks=True, provisions=False)
+    stub = tmp_path / "bin"
+    assert path.split(":")[0] == str(stub)
     record = tmp_path / "python-args"
-    _stub_python(tmp_path / "bin", record)
+    _stub_python(stub, record)
     result = _run_fetch(step, tmp_path, release, path, {})
     assert result.returncode == 1
+    assert record.exists(), result.stderr
     args = _recorded_args(record)
     assert args[:3] == [
         "axiom-encode/scripts/infra_issue.py",
@@ -296,4 +302,5 @@ def test_the_fetch_refusal_records_the_message_it_prints(tmp_path):
     ]
     assert len(args) == 4
     assert result.stderr == args[3] + "\n"
+    assert "R2_CORPUS_READ_ACCESS_KEY_ID" in args[3]
     assert not marker.exists()
