@@ -1,0 +1,28 @@
+name: Validation effect
+
+# Every encoder pull request declares how it changes RuleSpec validation
+# (#2094): none, loosen or tighten. The RuleSpec drift run reads the
+# declaration of each merged pull request to choose its scope.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  declared:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Check the declared validation effect
+        # The body is untrusted text: pass it in the environment, never in
+        # the script source.
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 -I scripts/check_validation_effect.py
