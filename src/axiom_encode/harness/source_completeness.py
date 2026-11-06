@@ -584,7 +584,7 @@ _SYMBOLIC_ARITHMETIC_OPERAND = (
 )
 _WORDED_ARITHMETIC_EXPRESSION = re.compile(
     rf"{_SYMBOLIC_ARITHMETIC_OPERAND}\s+"
-    r"(?:plus|minus|mal|less(?!\s+than\b))\s+(?:the\s+)?"
+    r"(?:plus|minus|mal|less(?!\s+(?:than|often\s+than)\b))\s+(?:the\s+)?"
     r"(?!(?:beträgt|gilt|ist|sind|wird|werden|equals?|applies?)\b)"
     rf"{_SYMBOLIC_ARITHMETIC_OPERAND}",
     flags=re.IGNORECASE,
@@ -2874,11 +2874,14 @@ def recognize_source_structure(
     if _IRS_REVENUE_PROCEDURE_CITATION.fullmatch(corpus_citation_path):
         return _irs_revenue_procedure_structure(source_text)
 
-    outline = bare_outline(source_text)
+    outline = bare_outline(source_text, corpus_citation_path=corpus_citation_path)
     if outline:
         masked = mask_bare_labels(source_text, outline)
         branches = [
             SourceStructureBranch(
+                # An unproven root (`label.proven` is false) keeps its outline
+                # path, but nothing proves its number names that subsection:
+                # its label stays an obligation and the resolver won't slice it.
                 tuple(part.lower() for part in label.path),
                 "paragraph" if label.token[0].isdigit() else "letter",
                 f"({label.token})",
@@ -5884,7 +5887,10 @@ def _analyze_rulespec_payload(
             parse_branch=_parse_first_formula_branch_node,
             parse_expression=_parse_formula_expression,
         )
-        if _unconflicted_printed_rows(source_text, branches) is not None
+        if _unconflicted_printed_rows(
+            source_text, branches, corpus_citation_path=corpus_citation_path
+        )
+        is not None
         else RepaymentAlternativeCoverage()
     )
     source_condition_issues = _opaque_same_source_condition_input_issues(
@@ -6061,6 +6067,7 @@ def _analyze_rulespec_payload(
         numeric_exception_controls_only=_is_us_manual_citation_path(
             corpus_citation_path
         ),
+        corpus_citation_path=corpus_citation_path,
     )
     principal_formula_clause_rules = _principal_formula_clause_rules(
         formula_branches,
@@ -6482,7 +6489,9 @@ def _principal_formula_clause_rules(
     clause_rules: dict[SourceStructureBranch, set[str]] = {}
     normalized_citation_path = corpus_citation_path.strip("/").lower()
     chart_heading_starts = frozenset(_work_chart_heading_starts(source_text))
-    bare_labels = bare_outline(source_text) or ()
+    bare_labels = (
+        bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
     display_text = mask_bare_labels(source_text, bare_labels)
     active_display = list(display_text)
     for label in bare_labels:
@@ -7466,7 +7475,9 @@ def _resolved_definition_deferral_clauses(
         ):
             return ()
     clauses = []
-    for start, end, text in _source_clause_spans(source_text, branches=branches):
+    for start, end, text in _source_clause_spans(
+        source_text, branches=branches, corpus_citation_path=corpus_citation_path
+    ):
         if not (owner.start <= start and end <= owner.end):
             continue
         definition = re.match(
@@ -14601,6 +14612,7 @@ def manual_outcome_exception_advice(
             active_branches=branches,
             deferred_paths=set(),
             formula_branches=formula_branches,
+            corpus_citation_path=corpus_citation_path,
         )
     source_sha256 = hashlib.sha256(source_text.encode()).hexdigest()
     advice: list[dict[str, Any]] = []
@@ -15995,7 +16007,9 @@ def authoritative_numeric_recall_text(
             source_text, corpus_citation_path=corpus_citation_path
         ),
     )
-    source_text = mask_bare_labels(source_text)
+    source_text = mask_bare_labels(
+        source_text, corpus_citation_path=corpus_citation_path
+    )
     source_text = mask(
         source_text, _english_subdivision_numeric_recall_spans(source_text)
     )
@@ -17873,6 +17887,144 @@ def _without_worksheet_imperative_consequent(body: str) -> str:
     return body
 
 
+_CETERIS_PARIBUS_PRONOUNS = {
+    "them": ("they", "their"),
+    "him": ("he", "his"),
+    "her": ("she", "her"),
+    "it": ("it", "its"),
+}
+_COUNTERFACTUAL_OBJECT = re.compile(
+    r"\bthat\s+would\s+(?:otherwise\s+)?apply\s+to\s+(?P<object>them|him|her|it)\s+$",
+    re.IGNORECASE,
+)
+_CETERIS_PARIBUS_BODY = re.compile(
+    r"\s+(?P<subject>they|he|she|it)\s+were\s+(?P<status>[^\W\d_][^(),;:.!?]*?)"
+    r"\s*\(\s*and\s+(?P<possessive>their|his|her|its)\s+other\s+circumstances"
+    r"\s+were\s+unchanged\s*\)\s*\.?\s*",
+    re.IGNORECASE,
+)
+# A bare status: an optional article and at most two lower-case words, such as
+# `single` or `a sole parent`. Anything longer may carry its own condition.
+_CETERIS_PARIBUS_STATUS = re.compile(r"(?:(?:a|an)\s+)?[a-z]+(?:[ -][a-z]+)?")
+# Words that would let the status state or qualify a condition of its own.
+# Participles (`having`, `excluding`) fall to the `-ing` check instead, and
+# `unless`/`except` to the trailing-exception cut that follows.
+_CETERIS_PARIBUS_STATUS_STOPWORDS = frozenset(
+    "provided if where wherever when whenever while whilst who whom whose which "
+    "that until because since after before with without "
+    "aged and or nor but yet plus as than for "
+    "under in on at by of to from not rather only also".split()
+)
+
+
+def _without_ceteris_paribus_clause(text: str, conditional: re.Match[str]) -> str:
+    """Drop the held-fixed clause of an owned counterfactual, else the body.
+
+    In "the rate that would apply to them if they were single (and their other
+    circumstances were unchanged)" the parenthesis keeps everything but the
+    named status as it is; it states no fact about anyone. Only that exact
+    shape qualifies: `that would apply to X` directly governs a subjunctive
+    `if X were <status>`, the pronouns agree, the status is a bare status of
+    at most an article and two words with no conjunction, subordinator,
+    preposition or participle, and the parenthesis ends the text.
+    """
+    body = conditional.group("body")
+    if conditional.group("cue").casefold() != "if":
+        return body
+    governing = _COUNTERFACTUAL_OBJECT.search(text[: conditional.start()])
+    hypothetical = _CETERIS_PARIBUS_BODY.fullmatch(body)
+    if governing is None or hypothetical is None:
+        return body
+    subject, possessive = _CETERIS_PARIBUS_PRONOUNS[governing["object"].casefold()]
+    if (
+        hypothetical["subject"].casefold() != subject
+        or hypothetical["possessive"].casefold() != possessive
+        or not _CETERIS_PARIBUS_STATUS.fullmatch(hypothetical["status"])
+        or any(
+            word in _CETERIS_PARIBUS_STATUS_STOPWORDS or word.endswith("ing")
+            for word in re.split(r"[ -]", hypothetical["status"])
+        )
+    ):
+        return body
+    return body[: hypothetical.start("status")] + hypothetical["status"]
+
+
+_SHARED_MEMBERSHIP_SUBJECT = (
+    r"(?:the\s+|payment\s+)?(?:"
+    r"(?:paying|receiving)\s+parent|"
+    r"(?:parent|child|spouse|person|participant)"
+    r"(?:\s+(?:paying|receiving)\s+(?:the\s+)?"
+    r"(?:child\s+support|cash\s+medical\s+support|income)"
+    r"|\s+for\s+whom\s+(?:the\s+)?child\s+support\s+is\s+being\s+paid)?)"
+)
+_SHARED_MEMBERSHIP_ASSERTION = (
+    rf"(?P<subject>{_SHARED_MEMBERSHIP_SUBJECT})\s+(?:is|are)\s+in\s+"
+    r"(?:the\s+)?same\s+(?P<unit>budgetary\s+unit|household)\s*\.?"
+)
+
+
+def _shared_membership_list_body(body: str) -> str:
+    """Distribute a closed shared membership predicate over explicit bullets.
+
+    Keep the ordinary parser for modified headers and mixed prose. The shared
+    predicate must survive on every member; merely discarding the header would
+    lose the requirement that the listed people belong to the same unit.
+    """
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if len(lines) < 3:
+        return body
+    header = re.fullmatch(
+        r"all\s+(?:of\s+)?the\s+following\s+are\s+"
+        r"(?P<membership>in\s+the\s+same\s+(?:budgetary\s+unit|household))\s*:",
+        lines[0],
+        re.IGNORECASE,
+    )
+    if header is None:
+        return body
+    subjects = []
+    for line in lines[1:]:
+        bullet = re.fullmatch(
+            rf"[●•]\s+(?P<subject>{_SHARED_MEMBERSHIP_SUBJECT})\.?",
+            line,
+            re.IGNORECASE,
+        )
+        if bullet is None:
+            return body
+        subjects.append(bullet.group("subject"))
+    return "\n".join(
+        f"{subject} is {header.group('membership')}" for subject in subjects
+    )
+
+
+def _is_pure_physical_alternative_condition(body: str) -> bool:
+    """Recognize a closed OR-list, never a conjunctive or qualified list.
+
+    This gate counts simultaneous facts, not alternative triggers. Decline
+    any shared prerequisite, nested condition, or unbulleted continuation;
+    their existing conservative gate analysis must remain in force.
+    """
+
+    header, separator, tail = body.strip().partition(":")
+    if not separator or not re.fullmatch(
+        r"one\s+or\s+more\s+of\s+the\s+following\s+occurs\s+regarding\s+"
+        r"the\s+child\s+support\s+payment",
+        header,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    lines = [line.strip() for line in tail.splitlines() if line.strip()]
+    if len(lines) < 2 or any(not re.match(r"^[●•]\s+\S", line) for line in lines):
+        return False
+    return not any(
+        re.search(
+            r"\b(?:and|nor|but|if|when|unless|provided|except|only)\b|[;:]",
+            line,
+            flags=re.IGNORECASE,
+        )
+        for line in lines
+    )
+
+
 def _source_conjunctive_fact_gates(
     text: str,
     *,
@@ -17899,7 +18051,9 @@ def _source_conjunctive_fact_gates(
         )
     if conditional is None:
         return ()
-    body = conditional.group("body")
+    body = _without_ceteris_paribus_clause(text, conditional)
+    if _is_pure_physical_alternative_condition(body):
+        return ()
     if conditional.group("cue").strip().casefold() != "unless":
         trailing_exception = re.search(
             r"\b(?:unless|except(?:\s+(?:if|when))?)\b",
@@ -17934,7 +18088,15 @@ def _source_conjunctive_fact_gates(
     body = _without_flattened_pdf_alternative_list(body)
     body = _without_completed_chart_result_label(body, text)
     body = _without_worksheet_imperative_consequent(body)
-    segments = _source_gate_split_conjunctive_conditions(body)
+    membership_body = _shared_membership_list_body(body)
+    membership_requirement = None
+    if membership_body != body:
+        membership_requirement = (
+            "shared_membership:budgetary_unit"
+            if "budgetary" in body.split(":", 1)[0].lower()
+            else "shared_membership:household"
+        )
+    segments = _source_gate_split_conjunctive_conditions(membership_body)
     if len(segments) < 2:
         return ()
     gates: list[tuple[frozenset[str], frozenset[str]]] = []
@@ -17992,6 +18154,8 @@ def _source_conjunctive_fact_gates(
             )
         ):
             continue
+        if membership_requirement is not None:
+            predicates = predicates | {membership_requirement}
         gates.append((entities, predicates))
     return tuple(gates) if len(gates) >= 2 else ()
 
@@ -18172,11 +18336,46 @@ def _printed_page_header_boundaries(text: str) -> tuple[int, ...]:
     )
 
 
+def _post_list_verification_heading_starts(text: str) -> tuple[int, ...]:
+    """Locate independent verification lists after physical bullet material.
+
+    A blank line is not a boundary by itself: it can introduce a proviso or
+    continue a bullet. Require the finite, unindented verification-list heading
+    and its following physical bullet. Preserve the entire heading and list;
+    this changes ownership offsets only, never source text or factual gates.
+    """
+
+    first_bullet = re.search(r"(?m)^[●•][ \t]+", text)
+    if first_bullet is None:
+        return ()
+    # Do not infer independent sections under an unresolved conditional
+    # chapeau. In that shape the original enclosing ownership must stand.
+    # This deliberately declines the whole container, including later lists.
+    if re.search(
+        r"(?im)^[ \t]*(?:[●•][ \t]+)?(?:only\s+)?"
+        r"(?:if|when|unless|provided\s+that)\b"
+        r"(?:(?!\r?\n[ \t]*\r?\n)[^:.!?])*:[ \t]*\r?$",
+        text,
+    ):
+        return ()
+    heading = re.compile(
+        r"(?:\r?\n[ \t]*\r?\n)(?P<heading>Verification of )"
+        r"[^\r\n:]+\bincludes\b[^\r\n:]*"
+        r"\bthe following:[ \t]*\r?\n(?:[ \t]*\r?\n)*[●•][ \t]+"
+    )
+    return tuple(
+        match.start("heading")
+        for match in heading.finditer(text)
+        if match.start("heading") > first_bullet.start()
+    )
+
+
 def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     boundaries = [0, len(text)]
     boundaries.extend(_work_chart_heading_starts(text))
     boundaries.extend(_printed_chart_arithmetic_starts(text))
     boundaries.extend(_printed_page_header_boundaries(text))
+    boundaries.extend(_post_list_verification_heading_starts(text))
     # DES manual notes following a physical bullet list are separate
     # propositions, not another conjunctive eligibility condition.
     boundaries.extend(
@@ -18438,8 +18637,12 @@ def _source_condition_clauses_owned_by_excerpt(
     matches = tuple(pattern.finditer(source_text))
     if not matches:
         return (), False
-    printed_rows = _unconflicted_printed_rows(source_text, branches)
-    bare_labels = bare_outline(source_text) or ()
+    printed_rows = _unconflicted_printed_rows(
+        source_text, branches, corpus_citation_path=corpus_citation_path
+    )
+    bare_labels = (
+        bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
     structural_boundaries = {
         *(point for branch in branches for point in (branch.start, branch.end)),
         *(point for label in bare_labels for point in (label.start, label.marker_end)),
@@ -18880,6 +19083,38 @@ def _terminal_gate_evidence(
         )
         effective_polarities = description_polarities | name_polarities
         tokens = set(name_tokens | description_tokens)
+        # Shared-list membership is a required predicate, not optional lexical
+        # overlap. Inspect raw wording before stopword normalization loses `not`.
+        # Unread/qualified descriptions remain conservative for this new path.
+        membership = re.fullmatch(
+            _SHARED_MEMBERSHIP_ASSERTION,
+            name_text.strip(),
+            re.IGNORECASE,
+        )
+        description_membership = re.fullmatch(
+            _SHARED_MEMBERSHIP_ASSERTION,
+            description.strip(),
+            re.IGNORECASE,
+        )
+        description_matches = not description.strip() or (
+            membership is not None
+            and description_membership is not None
+            and description_membership.group("unit").lower().split()
+            == membership.group("unit").lower().split()
+            and tuple(
+                word
+                for word in description_membership.group("subject").lower().split()
+                if word not in {"the", "payment"}
+            )
+            == tuple(
+                word
+                for word in membership.group("subject").lower().split()
+                if word not in {"the", "payment"}
+            )
+        )
+        if membership and description_matches:
+            unit = "_".join(membership.group("unit").lower().split())
+            tokens.add(f"affirmative_membership:{unit}")
         for base_predicate, negative in effective_polarities.items():
             if negative is None:
                 polarity_predicate = f"unknown_{base_predicate}"
@@ -19059,6 +19294,28 @@ def _terminal_names_corroborate_source_gates(
                 continue
             terminal_entities = evidence.entities
             terminal_predicates = evidence.predicates
+            shared_membership = predicates & {
+                "shared_membership:budgetary_unit",
+                "shared_membership:household",
+            }
+            if shared_membership:
+                required_marker = next(iter(shared_membership)).replace(
+                    "shared_membership:", "affirmative_membership:"
+                )
+                if required_marker not in terminal_predicates:
+                    continue
+                required_membership = (
+                    {"same", "budgetary", "unit"}
+                    if "shared_membership:budgetary_unit" in shared_membership
+                    else {"same", "household"}
+                )
+                terminal_tokens = terminal_entities | terminal_predicates
+                if not required_membership <= terminal_tokens or terminal_tokens & {
+                    "different",
+                    "outside",
+                    "separate",
+                }:
+                    continue
             if numeric_income_comparison:
                 terminal_predicates = (terminal_predicates - {"unknown_income"}) | {
                     "income"
@@ -21145,6 +21402,7 @@ def _companion_test_issues(
         narrative_formula_branches=formula_branches,
         extract_numeric_occurrences=extract_numeric_occurrences,
         source_text=source_text,
+        corpus_citation_path=corpus_citation_path,
     )
     missing_boundaries: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
     for branch, boundary in boundary_obligations:
@@ -21214,6 +21472,7 @@ def _companion_test_issues(
         deferred_clauses=deferred_clauses,
         # Manual procedure needs no paired witnesses either.
         numeric_limits_only=_is_us_manual_citation_path(corpus_citation_path),
+        corpus_citation_path=corpus_citation_path,
     )
     if exception_branches:
         independently_covered_paths = {
@@ -21539,6 +21798,7 @@ def _companion_test_issues(
         branches=branches,
         active_branches=active_branches,
         deferred_paths=deferred_paths,
+        corpus_citation_path=corpus_citation_path,
     )
     missing_rounding_formula: list[tuple[SourceStructureBranch, str]] = []
     rounding_witnesses: dict[
@@ -21903,7 +22163,7 @@ class _PrintedOperationContext:
             or clause.computation_text != clause.text
         ):
             return None
-        labels = bare_outline(source_text) or ()
+        labels = bare_outline(source_text, corpus_citation_path=citation_path) or ()
         structural = {
             *(
                 point
@@ -21915,7 +22175,9 @@ class _PrintedOperationContext:
         }
         if any(clause.start < point < clause.end for point in structural):
             return None
-        structure = _unconflicted_printed_rows(source_text, self.source_branches)
+        structure = _unconflicted_printed_rows(
+            source_text, self.source_branches, corpus_citation_path=citation_path
+        )
         if (
             structure is None
             or structure != self.structure
@@ -21964,7 +22226,9 @@ def _printed_operation_context(
     consumer_content: str = "",
     proof_sources: Mapping[str, str | None] | None = None,
 ) -> _PrintedOperationContext | None:
-    structure = _unconflicted_printed_rows(source_text, branches)
+    structure = _unconflicted_printed_rows(
+        source_text, branches, corpus_citation_path=citation_path
+    )
     return (
         _PrintedOperationContext(
             source_text,
@@ -21993,13 +22257,16 @@ def _printed_operation_proof(
 
 
 def _unconflicted_printed_rows(
-    source_text: str, branches: Sequence[SourceStructureBranch]
+    source_text: str,
+    branches: Sequence[SourceStructureBranch],
+    *,
+    corpus_citation_path: str = "",
 ) -> PrintedRowStructure | None:
     """Printed groups never supersede existing source ownership boundaries."""
     evidence = recognize_printed_rows(source_text)
     if evidence is None:
         return None
-    labels = bare_outline(source_text) or ()
+    labels = bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
     structural = {
         *(point for branch in branches for point in (branch.start, branch.end)),
         *(point for label in labels for point in (label.start, label.marker_end)),
@@ -22052,7 +22319,9 @@ def _source_formula_branches(
         mask_form_display(heading_text),
         corpus_citation_path=corpus_citation_path,
     )
-    bare_labels = bare_outline(source_text) or ()
+    bare_labels = (
+        bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
     bare_display_text = mask_bare_labels(source_text, bare_labels)
     bare_deferred_labels = frozenset(
         label
@@ -22088,7 +22357,9 @@ def _source_formula_branches(
     obligations: list[SourceStructureBranch] = []
     inherited_chapeaux: list[tuple[tuple[str, ...], int, tuple[int, int, str]]] = []
     for clause_index, (start, end, clause) in enumerate(
-        _source_clause_spans(source_text, branches=branches),
+        _source_clause_spans(
+            source_text, branches=branches, corpus_citation_path=corpus_citation_path
+        ),
         start=1,
     ):
         if _span_is_deferred(
@@ -22551,6 +22822,7 @@ def _source_control_branches(
     deferred_clauses: Sequence[SourceStructureBranch] = (),
     numeric_exception_controls_only: bool = False,
     raw_source_text: str | None = None,
+    corpus_citation_path: str = "",
 ) -> tuple[SourceStructureBranch, ...]:
     """Return active boundary, exception, and applicability control clauses.
 
@@ -22575,6 +22847,7 @@ def _source_control_branches(
             narrative_formula_branches=formula_branches,
             extract_numeric_occurrences=extract_numeric_occurrences,
             source_text=source_text,
+            corpus_citation_path=corpus_citation_path,
         )
         if not _source_boundary_is_temporal(branch, boundary)
     ]
@@ -22588,6 +22861,7 @@ def _source_control_branches(
             formula_branches=formula_branches,
             deferred_clauses=deferred_clauses,
             numeric_limits_only=numeric_exception_controls_only,
+            corpus_citation_path=corpus_citation_path,
         )
     )
     return tuple(
@@ -22684,13 +22958,18 @@ def _source_clause_spans(
     source_text: str,
     *,
     branches: Sequence[SourceStructureBranch],
+    corpus_citation_path: str = "",
 ) -> Iterable[tuple[int, int, str]]:
     """Yield offset-preserving clauses split at punctuation and structure."""
 
     # Mask only authenticated structural labels, preserving offsets. The
     # resulting excerpts retain every operative character of the source.
-    printed_rows = _unconflicted_printed_rows(source_text, branches)
-    bare_labels = bare_outline(source_text) or ()
+    printed_rows = _unconflicted_printed_rows(
+        source_text, branches, corpus_citation_path=corpus_citation_path
+    )
+    bare_labels = (
+        bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
     display_text = mask_bare_labels(source_text, bare_labels)
     boundary_text = _mask_spaced_german_sentence_labels(display_text)
     boundary = re.compile(
@@ -22723,6 +23002,7 @@ def _source_clause_spans(
     split_points = {
         0,
         len(source_text),
+        *_post_list_verification_heading_starts(source_text),
         *_work_chart_heading_starts(source_text),
         *_printed_chart_arithmetic_starts(source_text),
         *_printed_page_header_boundaries(source_text),
@@ -31711,9 +31991,14 @@ def _source_exception_branches(
     deferred_clauses: Sequence[SourceStructureBranch] = (),
     numeric_limits_only: bool = False,
     raw_source_text: str | None = None,
+    corpus_citation_path: str = "",
 ) -> tuple[SourceStructureBranch, ...]:
     obligations: list[SourceStructureBranch] = []
-    source_clauses = tuple(_source_clause_spans(source_text, branches=branches))
+    source_clauses = tuple(
+        _source_clause_spans(
+            source_text, branches=branches, corpus_citation_path=corpus_citation_path
+        )
+    )
     matches_by_clause: dict[
         tuple[int, int, str],
         list[re.Match[str]],
@@ -32531,9 +32816,14 @@ def _source_rounding_obligations(
     branches: Sequence[SourceStructureBranch],
     active_branches: Sequence[SourceStructureBranch],
     deferred_paths: set[tuple[str, ...]],
+    corpus_citation_path: str = "",
 ) -> tuple[tuple[SourceStructureBranch, str], ...]:
     obligations: list[tuple[SourceStructureBranch, str]] = []
-    source_clauses = tuple(_source_clause_spans(source_text, branches=branches))
+    source_clauses = tuple(
+        _source_clause_spans(
+            source_text, branches=branches, corpus_citation_path=corpus_citation_path
+        )
+    )
     for match in _ROUNDING_LANGUAGE.finditer(source_text):
         if _span_is_deferred(
             match.start(),
@@ -32652,7 +32942,11 @@ def _unwitnessed_exception_branches(
     certified_operations: Any = None,
 ) -> tuple[SourceStructureBranch, ...]:
     bare_branches = (
-        recognize_source_structure(source_text) if bare_outline(source_text) else ()
+        recognize_source_structure(
+            source_text, corpus_citation_path=corpus_citation_path
+        )
+        if bare_outline(source_text, corpus_citation_path=corpus_citation_path)
+        else ()
     )
     candidate_witnesses: dict[SourceStructureBranch, set[_ExceptionWitness]] = {}
     for branch in exception_branches:
@@ -38909,11 +39203,19 @@ def _source_boundary_obligations(
     narrative_formula_branches: Sequence[SourceStructureBranch] = (),
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     source_text: str | None = None,
+    corpus_citation_path: str = "",
 ) -> tuple[tuple[SourceStructureBranch, NumericOccurrenceLike], ...]:
     # Physical deduplication belongs only to positively recognized bare
     # outlines. Ambiguous sources retain the existing fallback obligations.
-    physical_coordinates = bool(source_text and bare_outline(source_text))
-    coordinate_text = mask_bare_labels(source_text) if physical_coordinates else ""
+    physical_coordinates = bool(
+        source_text
+        and bare_outline(source_text, corpus_citation_path=corpus_citation_path)
+    )
+    coordinate_text = (
+        mask_bare_labels(source_text, corpus_citation_path=corpus_citation_path)
+        if physical_coordinates
+        else ""
+    )
     obligations: list[
         tuple[SourceStructureBranch, NumericOccurrenceLike, tuple[int, int] | None]
     ] = []

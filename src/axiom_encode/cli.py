@@ -140,6 +140,7 @@ from .concepts import (
 )
 from .concepts.jurisdiction import jurisdiction_prefix as _repo_jurisdiction_prefix
 from .constants import (
+    DEFAULT_MODEL,
     DEFAULT_OPENAI_ESCALATE_AFTER,
     DEFAULT_OPENAI_ESCALATION_MODEL,
     DEFAULT_OPENAI_MODEL,
@@ -288,6 +289,10 @@ from .harness.proof_validator import (
     load_money_atom_ratchet,
     proof_source_citation_paths,
     validate_rulespec_proofs,
+)
+from .harness.same_case_execution import (
+    bind_execution_overlay_origin,
+    capture_execution_git_origin,
 )
 from .harness.source_completeness import (
     _deferred_coverage,
@@ -570,8 +575,18 @@ APPLIED_ENCODING_DELETED_MARKER = "deleted"
 APPLIED_ENCODING_MODEL_TOOL = "axiom-encode encode --apply"
 APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL = "axiom-encode promote-reviewed-candidate"
 APPLIED_ENCODING_RETIRE_TOOL = "axiom-encode retire"
+APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL = "axiom-encode retire-unreceipted"
 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR = Path(
     _LEGACY_REPLACEMENT_RECEIPT_DIR_TEXT
+)
+_GUARD_PROVENANCE_RECEIPT_DIRS = (
+    APPLIED_ENCODING_MANIFEST_DIR,
+    APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
+    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
+)
+_UNRECEIPTED_RETIREMENT_RECEIPT_DIRS = (
+    *_GUARD_PROVENANCE_RECEIPT_DIRS,
+    Path(RETIRED_SOURCE_METADATA_RECEIPT_DIR),
 )
 APPLIED_ENCODING_OFFICIAL_REPOSITORY = "github.com/TheAxiomFoundation/axiom-encode"
 # Trusted-runtime attestation (encode#1147): the git-free, root-provisioned
@@ -639,6 +654,10 @@ _MODEL_APPLY_MANIFEST_FIELDS = frozenset(
         "signature",
     }
 )
+_MODEL_CODEX_APPLY_MANIFEST_FIELDS = _MODEL_APPLY_MANIFEST_FIELDS | {
+    "codex_cli_version",
+    "codex_cli_sha256",
+}
 _REVIEWED_CANDIDATE_MANIFEST_FIELDS = frozenset(
     {
         "schema_version",
@@ -668,6 +687,20 @@ _RETIRE_APPLY_MANIFEST_FIELDS = frozenset(
         "applied_files",
         "retired_manifest",
         "source_attestation",
+        "signature",
+    }
+)
+_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS = frozenset(
+    {
+        "schema_version",
+        "generated_at",
+        "tool",
+        "reason",
+        "base_commit",
+        "axiom_encode_version",
+        "axiom_encode_git",
+        VALIDATION_WAIVER_SET_SHA256_FIELD,
+        "applied_files",
         "signature",
     }
 )
@@ -759,6 +792,146 @@ _LEGACY_REPLACEMENT_RECEIPT_FIELDS = frozenset(
         "signature",
     }
 )
+# Admission and ownership recognition use these exact, named variants. Codex
+# also admits the base model shape for historical receipts without CLI metadata.
+_APPLIED_MANIFEST_SCHEMA_VARIANTS = {
+    "model": (_MODEL_APPLY_MANIFEST_FIELDS,),
+    "codex model": (_MODEL_APPLY_MANIFEST_FIELDS, _MODEL_CODEX_APPLY_MANIFEST_FIELDS),
+    "reviewed candidate promotion": (_REVIEWED_CANDIDATE_MANIFEST_FIELDS,),
+    "retirement": (_RETIRE_APPLY_MANIFEST_FIELDS,),
+    "unreceipted retirement": (_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS,),
+    "path migration": (_PATH_MIGRATION_APPLY_MANIFEST_FIELDS,),
+    "legacy replacement": (_LEGACY_REPLACEMENT_APPLY_MANIFEST_FIELDS,),
+    "legacy exact dependent": (_LEGACY_EXACT_DEPENDENT_APPLY_MANIFEST_FIELDS,),
+    "legacy retained successor": (_LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS,),
+    "retired source metadata migration": (_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS,),
+}
+# Descriptive strings do not establish file coverage; snapshot integrity checks
+# may still read them. Every other value, including descriptive containers, scans.
+_UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS = frozenset(
+    {
+        "schema_version",
+        "generated_at",
+        "tool",
+        "axiom_encode_version",
+        "axiom_encode_git",
+        VALIDATION_WAIVER_SET_SHA256_FIELD,
+        "signature",
+    }
+)
+_UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES = {
+    _MODEL_APPLY_MANIFEST_FIELDS: (
+        frozenset({"run_id", "runner", "model"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "generation_prompt_sha256",
+            "citation",
+            "backend",
+            "generated_output_root",
+            "generated_output_file",
+            "generated_output_sha256",
+            "trace_file",
+            "trace_sha256",
+            "context_manifest_file",
+            "context_manifest_sha256",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+        },
+    ),
+    _MODEL_CODEX_APPLY_MANIFEST_FIELDS: (
+        frozenset({"run_id", "runner", "model"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "generation_prompt_sha256",
+            "citation",
+            "backend",
+            "generated_output_root",
+            "generated_output_file",
+            "generated_output_sha256",
+            "trace_file",
+            "trace_sha256",
+            "context_manifest_file",
+            "context_manifest_sha256",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+            "codex_cli_version",
+            "codex_cli_sha256",
+        },
+    ),
+    _REVIEWED_CANDIDATE_MANIFEST_FIELDS: (
+        frozenset({"run_id"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "citation",
+            "reviewed_rulespec_ref",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+        },
+    ),
+    _RETIRE_APPLY_MANIFEST_FIELDS: (
+        frozenset({"reason"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"applied_files", "retired_manifest", "source_attestation"},
+    ),
+    _UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS: (
+        frozenset({"reason"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"base_commit", "applied_files"},
+    ),
+    _PATH_MIGRATION_APPLY_MANIFEST_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"applied_files", "migrated_manifest", "migration", "source_attestation"},
+    ),
+    _LEGACY_REPLACEMENT_APPLY_MANIFEST_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "applied_files",
+            "replacement_manifest",
+            "replacement",
+            "source_attestation",
+        },
+    ),
+    _LEGACY_EXACT_DEPENDENT_APPLY_MANIFEST_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"applied_files", "legacy_migration"},
+    ),
+    _LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"applied_files", "legacy_migration", "retained_successor_manifest"},
+    ),
+    _RETIRED_SOURCE_METADATA_MANIFEST_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"applied_files", "retired_source_metadata", "prior_manifest"},
+    ),
+    _LEGACY_REPLACEMENT_RECEIPT_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "repository",
+            "corpus_release",
+            "validation_execution",
+            "legacy",
+            "replacement",
+            "replacement_manifest",
+        },
+    ),
+}
+_UNRECEIPTED_RETIREMENT_NESTED_RECEIPT_FIELDS = frozenset(
+    {
+        "retired_manifest",
+        "migrated_manifest",
+        "replacement_manifest",
+        "retained_successor_manifest",
+    }
+)
 _RETIRED_SCHEMA_COUNT_TEST_PATH = Path("tests/test_legacy_rulespec_freeze.py")
 _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS = frozenset(
     {
@@ -774,6 +947,7 @@ _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS = frozenset(
 )
 _MODEL_APPLIED_FILE_FIELDS = frozenset({"path", "sha256"})
 _RETIRED_APPLIED_FILE_FIELDS = frozenset({"path", "deleted"})
+_UNRECEIPTED_RETIRED_APPLIED_FILE_FIELDS = frozenset({"path", "deleted", "sha256"})
 _PATH_MIGRATION_LIVE_FILE_FIELDS = frozenset({"path", "sha256"})
 _PATH_MIGRATION_DELETED_FILE_FIELDS = frozenset({"path", "deleted"})
 
@@ -2881,6 +3055,14 @@ def main():
         required=True,
         help="Why the files are being retired (recorded in the manifest)",
     )
+    retire_parser.add_argument(
+        "--unreceipted",
+        action="store_true",
+        help=(
+            "Explicitly retire a primary and companion that no manifest or "
+            "receipt covers at HEAD; sign their exact deleted byte hashes"
+        ),
+    )
     _add_required_corpus_path_argument(retire_parser)
 
     path_migration_parser = subparsers.add_parser(
@@ -3053,14 +3235,18 @@ def main():
     encode_parser.add_argument(
         "--model",
         default=None,
-        help=f"Model to use for encoding (default: {DEFAULT_OPENAI_MODEL})",
+        help=(
+            f"Model to use for encoding (default: {DEFAULT_OPENAI_MODEL}; "
+            f"claude-api: {DEFAULT_MODEL})"
+        ),
     )
     encode_parser.add_argument(
         "--escalation-model",
-        default=DEFAULT_OPENAI_ESCALATION_MODEL,
+        default=None,
         help=(
             "Model for the final validator-failure retry "
-            f"(default: {DEFAULT_OPENAI_ESCALATION_MODEL})"
+            f"(default: {DEFAULT_OPENAI_ESCALATION_MODEL}; "
+            f"claude-api: {DEFAULT_MODEL})"
         ),
     )
     encode_parser.add_argument(
@@ -3082,7 +3268,7 @@ def main():
     )
     encode_parser.add_argument(
         "--backend",
-        choices=["codex", "openai", "claude"],
+        choices=["codex", "openai", "claude", "claude-api"],
         default="codex",
         help=(
             "Backend (default: codex): 'codex' uses the Codex CLI with "
@@ -3090,6 +3276,7 @@ def main():
             "OPENAI_API_KEY; use --model/--escalation-model to override, "
             "including gpt-6.1-sol), "
             "'openai' uses OpenAI Responses API, "
+            "'claude-api' uses the Anthropic Messages API, "
             "'claude' uses Claude CLI. Claude tiers are reserved for "
             "orchestration and review; net-new statutory encoding runs "
             "through codex."
@@ -3443,6 +3630,11 @@ def main():
         action="store_true",
         help="Emit machine-readable JSON summary",
     )
+    eval_parser.add_argument(
+        "--skip-reviewers",
+        action="store_true",
+        help="Skip LLM reviewer checks after deterministic validation",
+    )
     _add_complete_source_unit_argument(eval_parser)
     _add_rulespec_dependency_root_argument(eval_parser)
 
@@ -3503,6 +3695,11 @@ def main():
         "--json",
         action="store_true",
         help="Emit machine-readable JSON summary",
+    )
+    eval_source_parser.add_argument(
+        "--skip-reviewers",
+        action="store_true",
+        help="Skip LLM reviewer checks after deterministic validation",
     )
     eval_source_parser.add_argument(
         "--policyengine-rule-hint",
@@ -3569,6 +3766,14 @@ def main():
         "--json",
         action="store_true",
         help="Emit machine-readable JSON summary",
+    )
+    eval_suite_parser.add_argument(
+        "--skip-reviewers",
+        action="store_true",
+        help=(
+            "Skip LLM reviewer checks after deterministic validation; "
+            "repeat this flag when resuming a suite created with it"
+        ),
     )
     eval_suite_parser.add_argument(
         "--admission-score",
@@ -3895,6 +4100,12 @@ def main():
     _judge_cli.register_judge_subparsers(subparsers)
 
     args = parser.parse_args()
+    if args.command == "encode" and args.escalation_model is None:
+        args.escalation_model = (
+            DEFAULT_MODEL
+            if args.backend == "claude-api"
+            else DEFAULT_OPENAI_ESCALATION_MODEL
+        )
 
     if args.command == "ci":
         from .ci_parity import run_ci
@@ -9328,9 +9539,9 @@ def cmd_promote_reviewed_candidate(args):
     """Validate and sign one exact allowlisted reviewed RuleSpec commit."""
 
     from .prepare_signed_backfill import (
+        UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS,
         citation_rulespec_path,
         load_reviewed_rulespec_records,
-        reviewed_rulespec_refs_from_records,
     )
 
     repo_path = _resolve_canonical_rulespec_checkout(
@@ -9368,10 +9579,33 @@ def cmd_promote_reviewed_candidate(args):
             "reviewed candidate promotion has no trusted admission record root"
         )
     reviewed_records = load_reviewed_rulespec_records(record_root)
-    if (country, reviewed_ref) not in reviewed_rulespec_refs_from_records(
-        reviewed_records
-    ):
+    admission = next(
+        (
+            record
+            for record in reviewed_records
+            if (record.country, record.rulespec_ref) == (country, reviewed_ref)
+        ),
+        None,
+    )
+    if admission is None:
         raise ValueError("reviewed candidate ref is not explicitly allowlisted")
+    # A record's binding names the one module, and the exact primary and
+    # companion bytes, that its code-owner review admitted. Only the frozen
+    # pre-record admissions, which never recorded a module, may promote unbound
+    # (their behaviour is unchanged: any eligible module at that commit).
+    binding = admission.payload["binding"]
+    if binding is None:
+        if (country, reviewed_ref) not in UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS:
+            raise ValueError(
+                "reviewed candidate admission record has no promotion binding"
+            )
+    elif not isinstance(binding, dict) or (
+        str(args.citation) != binding["citation"]
+        or str(args.rulespec_path) != binding["rulespec_path"]
+    ):
+        raise ValueError(
+            "reviewed candidate citation or path differs from its admission record"
+        )
 
     rulespec_relative = Path(args.rulespec_path)
     expected_relative = Path(citation_rulespec_path(str(args.citation)))
@@ -9390,6 +9624,11 @@ def cmd_promote_reviewed_candidate(args):
     ):
         raise ValueError("reviewed candidate path is not a protected RuleSpec module")
 
+    # GIT_OPTIONAL_LOCKS=0 keeps this preflight read-only: a plain status may
+    # refresh stat data and rewrite .git/index before a binding refusal. It is
+    # an environment variable, not --no-optional-locks, because the protected
+    # runtime's trusted git wrapper admits only `-C <repo> <command>` (and
+    # itself forces GIT_OPTIONAL_LOCKS=0).
     status = subprocess.check_output(
         [
             "git",
@@ -9400,7 +9639,8 @@ def cmd_promote_reviewed_candidate(args):
             "-z",
             "--untracked-files=all",
             "--ignored=matching",
-        ]
+        ],
+        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
     )
     if status:
         raise ValueError("reviewed candidate promotion requires a clean checkout")
@@ -9438,6 +9678,15 @@ def cmd_promote_reviewed_candidate(args):
             label="reviewed candidate companion",
         ),
     }
+    if binding is not None and (
+        hashlib.sha256(before[rulespec_relative]).hexdigest()
+        != binding["rulespec_sha256"]
+        or hashlib.sha256(before[companion_relative]).hexdigest()
+        != binding["companion_sha256"]
+    ):
+        raise ValueError(
+            "reviewed candidate bytes differ from its admission record binding"
+        )
     _recover_apply_transaction(repo_path)
     with _authoritative_rulespec_dependency_scope(dependency_roots):
         with _isolated_apply_manifest_signer(preflight=True) as signing_broker:
@@ -23878,6 +24127,13 @@ def cmd_retire(args):
             seen.add(target.as_posix())
             unique_selected_targets.append(target)
 
+    unreceipted = getattr(args, "unreceipted", False)
+    unreceipted_groups: dict[Path, dict[str, object]] = {}
+    retirement_base = (
+        _rulespec_migration_git(repo_path, "rev-parse", "HEAD").strip()
+        if unreceipted
+        else None
+    )
     all_manifest_paths = _all_applied_encoding_manifest_paths(repo_path, roots=roots)
     planning_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]] = {}
     retirement_groups: dict[
@@ -23895,6 +24151,61 @@ def cmd_retire(args):
                 f"Cannot retire {target.as_posix()}: target is not under one "
                 "canonical RuleSpec jurisdiction root"
             )
+
+        if unreceipted:
+            companion = target.with_name(target.stem + ".test.yaml")
+            covered = [target, companion]
+            manifest_path = repo_path / _applied_encoding_manifest_path(target)
+            deletion_entries = []
+            for entry in covered:
+                _ensure_safe_apply_target(repo_path, repo_path / entry)
+                try:
+                    raw = read_bounded_regular_file(
+                        repo_path,
+                        repo_path / entry,
+                        label="unreceipted retirement target",
+                        max_bytes=4 * 1024 * 1024,
+                        required_mode=0o644,
+                    )
+                except (OSError, UnsafeCorpusPathError) as exc:
+                    raise SystemExit(
+                        f"Cannot retire {entry.as_posix()}: primary and companion "
+                        f"must both be safe regular files: {exc}"
+                    ) from exc
+                deletion_entries.append(
+                    {
+                        "path": entry.as_posix(),
+                        "deleted": True,
+                        "sha256": hashlib.sha256(raw).hexdigest(),
+                    }
+                )
+            planned = {
+                "base_commit": retirement_base,
+                "applied_files": deletion_entries,
+            }
+            label = manifest_path.relative_to(repo_path).as_posix()
+            issues = _unreceipted_retirement_base_issues(
+                planned,
+                repo_path=repo_path,
+                manifest_label=label,
+                base_ref=retirement_base,
+                roots=roots,
+                proof_cache=planning_receipt_proof_cache,
+            )
+            issues.extend(
+                _unreceipted_retirement_current_ownership_issues(
+                    planned,
+                    repo_path=repo_path,
+                    manifest_label=label,
+                    roots=roots,
+                )
+            )
+            if issues:
+                raise SystemExit(
+                    "Cannot retire unreceipted module: " + "; ".join(issues)
+                )
+            unreceipted_groups[manifest_path] = planned
+            continue
 
         direct_manifest = _applied_encoding_manifest_path(target).as_posix()
         candidates = [
@@ -23976,27 +24287,28 @@ def cmd_retire(args):
     # Every member of a generated group must have that manifest as its sole
     # current owner. Otherwise retiring a selected primary could silently leave
     # an overlapping supplemental manifest stale.
-    coverage = _manifest_coverage_by_file(
-        repo_path,
-        all_manifest_paths,
-        roots=roots,
-        local_corpus_release=local_corpus_release,
-        expected_encoder_identity=expected_encoder_identity,
-        path_migration_receipt_proof_cache=planning_receipt_proof_cache,
-    )
-    for manifest_path, (covered, _payload, _digest) in retirement_groups.items():
-        expected_owner = manifest_path.relative_to(repo_path).as_posix()
-        for covered_path in covered:
-            owners = coverage.get(covered_path.as_posix(), [])
-            if len(owners) != 1 or owners[0].get("manifest") != expected_owner:
-                owner_labels = sorted(
-                    str(owner.get("manifest") or "<unknown>") for owner in owners
-                )
-                detail = ", ".join(owner_labels) if owner_labels else "none"
-                raise SystemExit(
-                    f"Cannot retire {covered_path.as_posix()}: expected sole "
-                    f"manifest owner {expected_owner}, found {detail}"
-                )
+    if retirement_groups:
+        coverage = _manifest_coverage_by_file(
+            repo_path,
+            all_manifest_paths,
+            roots=roots,
+            local_corpus_release=local_corpus_release,
+            expected_encoder_identity=expected_encoder_identity,
+            path_migration_receipt_proof_cache=planning_receipt_proof_cache,
+        )
+        for manifest_path, (covered, _payload, _digest) in retirement_groups.items():
+            expected_owner = manifest_path.relative_to(repo_path).as_posix()
+            for covered_path in covered:
+                owners = coverage.get(covered_path.as_posix(), [])
+                if len(owners) != 1 or owners[0].get("manifest") != expected_owner:
+                    owner_labels = sorted(
+                        str(owner.get("manifest") or "<unknown>") for owner in owners
+                    )
+                    detail = ", ".join(owner_labels) if owner_labels else "none"
+                    raise SystemExit(
+                        f"Cannot retire {covered_path.as_posix()}: expected sole "
+                        f"manifest owner {expected_owner}, found {detail}"
+                    )
 
     # Stage every signed deletion manifest before mutating any live path.
     encoder_provenance = _require_clean_axiom_encode_git_provenance()
@@ -24045,6 +24357,30 @@ def cmd_retire(args):
             if entry not in unique_targets:
                 unique_targets.append(entry)
             expected_originals[repo_path / entry] = retired_digests[entry]
+    for manifest_path, planned in unreceipted_groups.items():
+        payload = {
+            "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+            "generated_at": _utc_now_iso(),
+            "tool": APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL,
+            "reason": args.reason,
+            "axiom_encode_version": __version__,
+            "axiom_encode_git": encoder_provenance,
+            VALIDATION_WAIVER_SET_SHA256_FIELD: waiver_sha256,
+            **planned,
+        }
+        _sign_applied_encoding_manifest(payload, signing_broker)
+        transaction_files.append(
+            (
+                manifest_path,
+                (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode(),
+            )
+        )
+        manifest_paths.append(manifest_path)
+        expected_originals[manifest_path] = None
+        for entry in planned["applied_files"]:
+            target = Path(entry["path"])
+            unique_targets.append(target)
+            expected_originals[repo_path / target] = entry["sha256"]
     transaction_files.extend((repo_path / target, None) for target in unique_targets)
 
     for target, _raw in transaction_files:
@@ -24076,6 +24412,31 @@ def cmd_retire(args):
 
     def pre_install_check() -> None:
         locked_waiver, locked_release = locked_retirement_contract()
+        locked_retirement_base = (
+            _rulespec_migration_git(repo_path, "rev-parse", "HEAD").strip()
+            if unreceipted_groups
+            else None
+        )
+        for manifest_path, planned in unreceipted_groups.items():
+            label = manifest_path.relative_to(repo_path).as_posix()
+            issues = _unreceipted_retirement_base_issues(
+                planned,
+                repo_path=repo_path,
+                manifest_label=label,
+                base_ref=locked_retirement_base,
+                roots=roots,
+                proof_cache=planning_receipt_proof_cache,
+            )
+            issues.extend(
+                _unreceipted_retirement_current_ownership_issues(
+                    planned,
+                    repo_path=repo_path,
+                    manifest_label=label,
+                    roots=roots,
+                )
+            )
+            if issues:
+                raise RuntimeError("Retirement ownership changed: " + "; ".join(issues))
         pre_install_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]] = {}
         for manifest_path, (
             _covered,
@@ -24116,7 +24477,9 @@ def cmd_retire(args):
                     local_corpus_release=locked_release,
                     expected_encoder_identity=expected_encoder_identity,
                     path_migration_receipt_proof_cache=(
-                        post_install_receipt_proof_cache
+                        planning_receipt_proof_cache
+                        if unreceipted
+                        else post_install_receipt_proof_cache
                     ),
                 )
             )
@@ -24158,6 +24521,8 @@ def guard_generated_change_issues(
 
     Every changed provenance receipt is verified, independently of module
     changes, and live modules retain verified coverage from the base.
+    An unreceipted retirement whose receipt or deleted paths change must prove
+    exact unowned bytes at this change's base, not just its recorded base.
     """
     repo_path = Path(repo_path).resolve()
     try:
@@ -24376,6 +24741,14 @@ def guard_generated_change_issues(
     # this guard operation; the cache is discarded before the next operation,
     # and its digest key invalidates a changed receipt within this operation.
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]] = {}
+    retirement_changed_paths = set(changed)
+    if all_files and base_ref is None and (repo_path / ".git").exists():
+        try:
+            retirement_changed_paths.update(
+                _git_guard_changed_files(repo_path, base_ref=None, head_ref=head_ref)
+            )
+        except RuntimeError as exc:
+            return [str(exc)]
     manifest_entries, manifest_issues = _load_applied_encoding_manifest_entries(
         repo_path,
         surviving_manifest_paths,
@@ -24389,6 +24762,9 @@ def guard_generated_change_issues(
         expected_legacy_replacement_waiver_set_sha256=(current_waiver_set_sha256),
         post_waiver_dependent_manifests=post_waiver_dependent_manifests,
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
+        retirement_changed_paths=retirement_changed_paths,
+        retirement_base_ref=base_ref or head_ref,
+        base_tree_cache=base_tree_cache,
     )
     manifest_issues.extend(
         _guard_changed_manifest_coverage_issues(
@@ -24535,6 +24911,7 @@ def _guard_base_receipt_bytes(
     relative: Path,
     *,
     base_tree_cache: dict[str, _GuardBaseReceiptTree] | None = None,
+    max_bytes: int = 4 * 1024 * 1024,
 ) -> tuple[bytes | None, list[str]]:
     """Read a bounded, exact regular Git blob without following base symlinks."""
 
@@ -24567,7 +24944,7 @@ def _guard_base_receipt_bytes(
             or kind != "blob"
             or encoded_path != os.fsencode(label)
             or re.fullmatch(r"[0-9a-f]{40}", object_id) is None
-            or not 0 <= size <= 4 * 1024 * 1024
+            or not 0 <= size <= max_bytes
         ):
             raise ValueError("unsafe base entry")
         completed = subprocess.run(
@@ -24583,6 +24960,505 @@ def _guard_base_receipt_bytes(
     return completed.stdout, []
 
 
+def _unreceipted_retirement_manifest_issues(
+    payload: Mapping[str, object],
+    *,
+    repo_path: Path,
+    manifest_label: str,
+    roots: tuple[str, ...],
+    snapshot_commit: str | None = None,
+) -> list[str]:
+    """Verify one deletion-only pair without inventing source provenance."""
+
+    if payload.get("tool") != APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL:
+        return []
+    reasons: list[str] = []
+    entries = payload.get("applied_files")
+    paths: list[Path] = []
+    if isinstance(entries, list):
+        for index, item in enumerate(entries):
+            if not isinstance(item, dict):
+                continue
+            raw_path = item.get("path")
+            relative = (
+                _canonical_migration_receipt_repo_path(raw_path)
+                if isinstance(raw_path, str) and "\x00" not in raw_path
+                else None
+            )
+            if relative is None:
+                reasons.append(
+                    f"{manifest_label} applied_files[{index}].path is not canonical"
+                )
+                continue
+            paths.append(relative)
+            if item.get("deleted") is not True:
+                reasons.append(
+                    f"{manifest_label} unreceipted retirement may contain only "
+                    "deleted file entries"
+                )
+            digest = item.get("sha256")
+            if (
+                not isinstance(digest, str)
+                or _SHA256_HEX_PATTERN.fullmatch(digest) is None
+            ):
+                reasons.append(
+                    f"{manifest_label} applied_files[{index}].sha256 is invalid"
+                )
+            try:
+                exists = (
+                    _applied_manifest_snapshot_exists(
+                        repo_path,
+                        repo_path / relative,
+                        base_commit=snapshot_commit,
+                    )
+                    if snapshot_commit is not None
+                    else not _is_unambiguously_absent_repo_path(repo_path, relative)
+                )
+            except (OSError, RuntimeError, UnsafeCorpusPathError):
+                exists = True
+            if exists:
+                reasons.append(
+                    f"{manifest_label} lists {relative.as_posix()} as deleted but it exists"
+                )
+    primaries = [
+        path for path in paths if not path.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+    ]
+    if (
+        not isinstance(entries, list)
+        or len(entries) != 2
+        or len(paths) != 2
+        or len(primaries) != 1
+        or len(set(paths)) != 2
+        or any(
+            not _is_protected_rulespec_yaml_path(path, roots=roots)
+            or len(path.parts) < 3
+            or path.parts[1] not in roots
+            or re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", path.parts[0]) is None
+            for path in paths
+        )
+        or set(paths) != {primaries[0], companion_path(primaries[0])}
+    ):
+        reasons.append(
+            f"{manifest_label} unreceipted retirement must contain exactly one "
+            "protected primary and its companion"
+        )
+    elif manifest_label != _applied_encoding_manifest_path(primaries[0]).as_posix():
+        reasons.append(
+            f"{manifest_label} unreceipted retirement is not at its canonical mirrored path"
+        )
+    return reasons
+
+
+def _unreceipted_retirement_inventory_prefix(path: Path) -> tuple[str, ...] | None:
+    """Recognize every current receipt family and the old jurisdiction layout."""
+
+    for offset in (0, 1):
+        if offset and (
+            not path.parts
+            or re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", path.parts[0]) is None
+        ):
+            continue
+        for directory in _UNRECEIPTED_RETIREMENT_RECEIPT_DIRS:
+            prefix = path.parts[:offset] + directory.parts
+            shared = min(len(path.parts), len(prefix))
+            if path.parts[:shared] == prefix[:shared]:
+                return prefix
+    return None
+
+
+def _unreceipted_retirement_manifest_strings(
+    payload: object,
+) -> tuple[set[str], int]:
+    """Collect conservative ownership strings and nonfinite-number occurrences.
+
+    Only exact known receipts at the root or a recognized receipt's prior-receipt
+    field can exclude descriptive strings. All other positions scan every value.
+    """
+
+    pending: list[tuple[object, bool]] = [(payload, True)]
+    strings: set[str] = set()
+    nonfinite_count = 0
+    while pending:
+        item, receipt_position = pending.pop()
+        if isinstance(item, dict):
+            classes = (
+                _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES.get(frozenset(item))
+                if receipt_position
+                else None
+            )
+            for key, value in item.items():
+                if classes is not None and key in classes[0] and isinstance(value, str):
+                    continue
+                if key == "applied_files" and isinstance(value, dict):
+                    # Historical mapping layouts own their keys as well as values.
+                    strings.update(value)
+                if classes is not None and key == "prior_manifest":
+                    # The metadata-retirement writer wraps its prior receipt with
+                    # its path and digest; those wrapper values still count.
+                    if isinstance(value, dict) and set(value) == {
+                        "path",
+                        "sha256",
+                        "manifest",
+                    }:
+                        pending.extend(
+                            (nested, field == "manifest")
+                            for field, nested in value.items()
+                        )
+                        continue
+                pending.append(
+                    (
+                        value,
+                        classes is not None
+                        and key in _UNRECEIPTED_RETIREMENT_NESTED_RECEIPT_FIELDS,
+                    )
+                )
+        elif isinstance(item, list):
+            pending.extend((value, False) for value in item)
+        elif isinstance(item, str):
+            strings.add(item)
+        elif isinstance(item, float) and not math.isfinite(item):
+            nonfinite_count += 1
+    return strings, nonfinite_count
+
+
+def _unreceipted_retirement_ownership_issues(
+    payload: Mapping[str, object],
+    *,
+    manifest_label: str,
+    inventory: Mapping[Path, bytes],
+    location: str,
+) -> list[str]:
+    """Reject ownership even when the old receipt is no longer admissible."""
+
+    entries = payload.get("applied_files")
+    paths = (
+        {
+            item["path"]
+            for item in entries
+            if isinstance(item, dict) and isinstance(item.get("path"), str)
+        }
+        if isinstance(entries, list)
+        else set()
+    )
+    reasons: list[str] = []
+    direct_owners: set[Path] = set()
+    for raw_path in paths:
+        path = Path(raw_path)
+        direct_owners.add(_applied_encoding_manifest_path(path))
+        if len(path.parts) > 1:
+            direct_owners.add(
+                (
+                    Path(path.parts[0])
+                    / APPLIED_ENCODING_MANIFEST_DIR
+                    / Path(*path.parts[1:])
+                ).with_suffix(".json")
+            )
+
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate receipt JSON key")
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ValueError("nonfinite receipt JSON number")
+            result[key] = value
+        return result
+
+    for owner, raw in inventory.items():
+        if owner in direct_owners:
+            reasons.append(
+                f"{manifest_label} is already covered {location} by {owner.as_posix()}"
+            )
+            continue
+        try:
+            prior = json.loads(raw, object_pairs_hook=unique_object)
+        except (ValueError, UnicodeError, RecursionError):
+            reasons.append(
+                f"{manifest_label} cannot establish unreceipted ownership: "
+                f"{owner.as_posix()} {location} is not valid JSON"
+            )
+            continue
+        if not isinstance(prior, dict):
+            reasons.append(
+                f"{manifest_label} cannot establish unreceipted ownership: "
+                f"{owner.as_posix()} {location} is not a JSON object"
+            )
+            continue
+        prefix = owner.parts[0] if owner.parts[0] != ".axiom" else ""
+        strings, nonfinite_count = _unreceipted_retirement_manifest_strings(prior)
+        covered: set[str] = set()
+        for item in strings:
+            normalized = Path(item).as_posix()
+            covered.update(
+                paths.intersection(
+                    (
+                        normalized,
+                        _prefix_applied_manifest_path(normalized, prefix),
+                    )
+                )
+            )
+        reasons.extend(
+            f"{manifest_label} cannot establish unreceipted ownership: "
+            f"{owner.as_posix()} {location} has a nonfinite JSON number"
+            for _ in range(nonfinite_count)
+        )
+        if covered:
+            reasons.append(
+                f"{manifest_label} {', '.join(sorted(covered))} is already covered "
+                f"{location} by {owner.as_posix()}"
+            )
+    return reasons
+
+
+def _unreceipted_retirement_base_issues(
+    payload: Mapping[str, object],
+    *,
+    repo_path: Path,
+    manifest_label: str,
+    base_ref: str,
+    roots: tuple[str, ...],
+    base_tree_cache: dict[str, _GuardBaseReceiptTree] | None = None,
+    proof_cache: dict[tuple[str, str], tuple[str, ...]] | None = None,
+) -> list[str]:
+    """Prove exact bytes and no receipt owners at both independently bound bases."""
+
+    del roots  # Ownership is receipt-family based, including historical layouts.
+    proof_key: tuple[str, str] | None = None
+    if (
+        proof_cache is not None
+        and isinstance(base_ref, str)
+        and re.fullmatch(r"[0-9a-f]{40}", base_ref) is not None
+    ):
+        try:
+            # Only these signed fields affect immutable evidence. Keep live
+            # signatures, producer admission and path absence outside this cache.
+            proof_bytes = json.dumps(
+                {
+                    "base_commit": payload.get("base_commit"),
+                    "applied_files": payload.get("applied_files"),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError, RecursionError):
+            pass
+        else:
+            proof_key = (
+                "\0".join(
+                    (
+                        "unreceipted-retirement-base",
+                        os.path.abspath(repo_path),
+                        base_ref,
+                        manifest_label,
+                    )
+                ),
+                hashlib.sha256(proof_bytes).hexdigest(),
+            )
+            if proof_key in proof_cache:
+                return list(proof_cache[proof_key])
+    recorded_base = payload.get("base_commit")
+    if (
+        not isinstance(recorded_base, str)
+        or re.fullmatch(r"[0-9a-f]{40}", recorded_base) is None
+    ):
+        return [f"{manifest_label} retirement base_commit is invalid"]
+    try:
+        resolved_recorded_base = _rulespec_migration_git(
+            repo_path,
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            f"{recorded_base}^{{commit}}",
+        ).strip()
+    except (OSError, RuntimeError, UnicodeError):
+        return [f"{manifest_label} recorded base_commit is unavailable"]
+    if resolved_recorded_base != recorded_base:
+        return [f"{manifest_label} recorded base_commit is not an exact commit"]
+    try:
+        guard_base = (
+            recorded_base
+            if base_ref == recorded_base
+            else _rulespec_migration_git(
+                repo_path,
+                "rev-parse",
+                "--verify",
+                "--end-of-options",
+                f"{base_ref}^{{commit}}",
+            ).strip()
+        )
+    except (OSError, RuntimeError, UnicodeError):
+        return [f"{manifest_label} cannot inspect its immutable retirement base"]
+    if base_tree_cache is None:
+        base_tree_cache = {}
+
+    def prove_at(base_commit: str, *, location: str) -> list[str]:
+        if base_commit not in base_tree_cache:
+            base_tree_cache[base_commit] = _guard_base_receipt_tree(
+                repo_path, base_commit
+            )
+        tree = base_tree_cache[base_commit]
+        if tree.issue:
+            return [f"{manifest_label} {location} {tree.issue}"]
+        reasons: list[str] = []
+        entries = payload.get("applied_files")
+        for item in entries if isinstance(entries, list) else []:
+            if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+                continue
+            raw, faults = _guard_base_receipt_bytes(
+                repo_path,
+                base_commit,
+                Path(item["path"]),
+                base_tree_cache=base_tree_cache,
+            )
+            reasons.extend(faults)
+            if raw is None:
+                if not faults:
+                    reasons.append(
+                        f"{manifest_label} {item['path']} is absent {location}"
+                    )
+            elif hashlib.sha256(raw).hexdigest() != item.get("sha256"):
+                reasons.append(
+                    f"{manifest_label} {item['path']} base sha256 does not match the exact deleted bytes {location}"
+                )
+        inventory: dict[Path, bytes] = {}
+        for encoded_path in tree.records:
+            path = Path(os.fsdecode(encoded_path))
+            prefix = _unreceipted_retirement_inventory_prefix(path)
+            if prefix is None:
+                continue
+            if len(path.parts) <= len(prefix):
+                records = tree.records[encoded_path]
+                if len(records) != 1 or not records[0].startswith(b"040000 tree "):
+                    reasons.append(
+                        f"{manifest_label} cannot establish unreceipted ownership: "
+                        f"{path.as_posix()} {location} is not a regular receipt directory"
+                    )
+                continue
+            if any(
+                record.startswith(b"120000 ") for record in tree.records[encoded_path]
+            ):
+                reasons.append(
+                    f"{manifest_label} cannot establish unreceipted ownership: "
+                    f"{path.as_posix()} {location} is a receipt inventory symlink"
+                )
+                continue
+            if path.suffix != ".json":
+                continue
+            raw, faults = _guard_base_receipt_bytes(
+                repo_path,
+                base_commit,
+                path,
+                base_tree_cache=base_tree_cache,
+                max_bytes=16 * 1024 * 1024,
+            )
+            reasons.extend(faults)
+            if raw is not None:
+                inventory[path] = raw
+        return reasons + _unreceipted_retirement_ownership_issues(
+            payload,
+            manifest_label=manifest_label,
+            inventory=inventory,
+            location=location,
+        )
+
+    reasons = prove_at(guard_base, location="at the immutable base")
+    if recorded_base != guard_base:
+        reasons.extend(
+            prove_at(recorded_base, location="at the recorded retirement base")
+        )
+    if proof_key is not None and proof_cache is not None:
+        proof_cache[proof_key] = tuple(reasons)
+    return reasons
+
+
+def _unreceipted_retirement_current_ownership_issues(
+    payload: Mapping[str, object],
+    *,
+    repo_path: Path,
+    manifest_label: str,
+    roots: tuple[str, ...],
+) -> list[str]:
+    """Check uncommitted receipt owners without following filesystem links."""
+
+    del roots
+    reasons: list[str] = []
+    inventory: dict[Path, bytes] = {}
+    try:
+        parents = [repo_path] + [
+            child
+            for child in repo_path.iterdir()
+            if re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", child.name)
+        ]
+    except OSError as exc:
+        return [f"{manifest_label} cannot establish unreceipted ownership: {exc}"]
+    for parent in parents:
+        for directory in _UNRECEIPTED_RETIREMENT_RECEIPT_DIRS:
+            cursor = repo_path
+            relative = (parent / directory).relative_to(repo_path)
+            for part in relative.parts:
+                cursor /= part
+                try:
+                    mode = cursor.lstat().st_mode
+                except FileNotFoundError:
+                    break
+                except OSError as exc:
+                    reasons.append(
+                        f"{manifest_label} cannot establish unreceipted ownership: {exc}"
+                    )
+                    break
+                if not stat.S_ISDIR(mode):
+                    reasons.append(
+                        f"{manifest_label} cannot establish unreceipted ownership: {cursor.relative_to(repo_path).as_posix()} is not a regular receipt directory"
+                    )
+                    break
+            else:
+
+                def unreadable(exc: OSError) -> None:
+                    reasons.append(
+                        f"{manifest_label} cannot establish unreceipted ownership: {exc}"
+                    )
+
+                for current, children, names in os.walk(
+                    cursor, followlinks=False, onerror=unreadable
+                ):
+                    for name in list(children):
+                        child = Path(current) / name
+                        try:
+                            regular = stat.S_ISDIR(child.lstat().st_mode)
+                        except OSError:
+                            regular = False
+                        if not regular:
+                            children.remove(name)
+                            reasons.append(
+                                f"{manifest_label} cannot establish unreceipted ownership: {child.relative_to(repo_path).as_posix()} is not a regular receipt directory"
+                            )
+                    for name in names:
+                        if Path(name).suffix != ".json":
+                            continue
+                        path = Path(current) / name
+                        try:
+                            inventory[path.relative_to(repo_path)] = (
+                                read_bounded_regular_file(
+                                    repo_path,
+                                    path,
+                                    label="unreceipted ownership receipt",
+                                    max_bytes=16 * 1024 * 1024,
+                                    required_mode=0o644,
+                                )
+                            )
+                        except (OSError, UnsafeCorpusPathError) as exc:
+                            reasons.append(
+                                f"{manifest_label} cannot establish unreceipted ownership: {exc}"
+                            )
+    return reasons + _unreceipted_retirement_ownership_issues(
+        payload,
+        manifest_label=manifest_label,
+        inventory=inventory,
+        location="in the working tree",
+    )
+
+
 def _guard_base_manifest_claims(
     raw: bytes,
     *,
@@ -24592,6 +25468,8 @@ def _guard_base_manifest_claims(
     retrospective: bool,
     roots: tuple[str, ...],
     signing_broker: SigningBroker | Ed25519PublicKey,
+    snapshot_commit: str | None = None,
+    proof_cache: dict[tuple[str, str], tuple[str, ...]] | None = None,
 ) -> tuple[set[str], list[str]]:
     """Authenticate base claims as obligations, never as head authorization."""
 
@@ -24615,6 +25493,7 @@ def _guard_base_manifest_claims(
         and tool
         in {
             APPLIED_ENCODING_RETIRE_TOOL,
+            APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL,
             APPLIED_ENCODING_PATH_MIGRATION_TOOL,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL,
             APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
@@ -24643,6 +25522,26 @@ def _guard_base_manifest_claims(
     signature_issue = _applied_encoding_manifest_signature_issue(payload, verifier)
     if signature_issue:
         issues.append(f"{label} {signature_issue}")
+    issues.extend(
+        _unreceipted_retirement_manifest_issues(
+            payload,
+            repo_path=repo_path,
+            manifest_label=manifest_path,
+            roots=roots,
+            snapshot_commit=snapshot_commit,
+        )
+    )
+    if payload.get("tool") == APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL:
+        issues.extend(
+            _unreceipted_retirement_base_issues(
+                payload,
+                repo_path=repo_path,
+                manifest_label=manifest_path,
+                base_ref=payload.get("base_commit"),
+                roots=roots,
+                proof_cache=proof_cache,
+            )
+        )
     root_prefix = _applied_encoding_manifest_root_prefix(
         Path(manifest_path), roots=roots
     )
@@ -24842,6 +25741,8 @@ def _guard_changed_manifest_coverage_issues(
             retrospective=retrospective,
             roots=roots,
             signing_broker=signing_broker,
+            snapshot_commit=base_ref or head_ref,
+            proof_cache=path_migration_receipt_proof_cache,
         )
         if receipt_issues:
             replacement_bases[manifest_path] = (
@@ -25044,6 +25945,12 @@ def _guard_changed_manifest_coverage_issues(
     if issues:
         return issues
     claimants = sorted(set(claimants))
+    try:
+        retirement_changed_paths = set(changed) | set(
+            _git_guard_changed_files(repo_path, base_ref=base_ref, head_ref=head_ref)
+        )
+    except RuntimeError as exc:
+        return [str(exc)]
     head_entries, verification_issues = _load_applied_encoding_manifest_entries(
         repo_path,
         claimants,
@@ -25059,6 +25966,9 @@ def _guard_changed_manifest_coverage_issues(
         ),
         post_waiver_dependent_manifests=post_waiver_dependent_manifests,
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
+        retirement_changed_paths=retirement_changed_paths,
+        retirement_base_ref=base_ref or head_ref,
+        base_tree_cache=base_tree_cache,
     )
     issues.extend(verification_issues)
     live_claims: list[str] = []
@@ -25140,11 +26050,7 @@ def _provenance_inventory_prefix(path: Path) -> tuple[str, ...] | None:
     """Classify inventory ancestors and descendants by folded components."""
 
     folded = tuple(part.casefold() for part in path.parts)
-    for inventory in (
-        APPLIED_ENCODING_MANIFEST_DIR,
-        APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
-        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
-    ):
+    for inventory in _GUARD_PROVENANCE_RECEIPT_DIRS:
         prefix = inventory.parts
         shared = min(len(folded), len(prefix))
         if folded[:shared] == tuple(part.casefold() for part in prefix[:shared]):
@@ -26397,7 +27303,9 @@ def _applied_manifest_source_attestation_issues(
 ) -> list[str]:
     """Validate source provenance claimed by an applied encoding manifest."""
 
-    if payload.get("tool") in {
+    tool = payload.get("tool")
+    if isinstance(tool, str) and tool in {
+        APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL,
         APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
         APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
         RETIRED_SOURCE_METADATA_TOOL,
@@ -26881,7 +27789,7 @@ def _applied_manifest_tool_execution_issues(
         if producer_issue:
             issues.append(f"{manifest_label} {contract} {producer_issue}")
 
-    if backend in APPLIED_ENCODING_ENCODER_BACKENDS:
+    if isinstance(backend, str) and backend in APPLIED_ENCODING_ENCODER_BACKENDS:
         if tool != APPLIED_ENCODING_MODEL_TOOL:
             issues.append(
                 f"{manifest_label} model backend must use tool "
@@ -26908,6 +27816,36 @@ def _applied_manifest_tool_execution_issues(
         return issues
     if backend is None:
         applied_files = payload.get("applied_files")
+        if tool == APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL:
+            reasons: list[str] = []
+            if (
+                not isinstance(applied_files, list)
+                or not applied_files
+                or any(
+                    not isinstance(item, dict)
+                    or item.get("deleted") is not True
+                    or set(item) != _UNRECEIPTED_RETIRED_APPLIED_FILE_FIELDS
+                    for item in applied_files
+                )
+            ):
+                reasons.append(
+                    f"{manifest_label} unreceipted retirement has malformed deleted file entries"
+                )
+            if any(
+                field in payload
+                for field in (
+                    "deterministic_execution",
+                    "validation_execution",
+                    "source_attestation",
+                    "retired_manifest",
+                )
+            ):
+                reasons.append(
+                    f"{manifest_label} unreceipted retirement may claim only exact-byte deletion"
+                )
+            issues.extend(reasons)
+            check_producer("unreceipted retirement")
+            return issues
         if tool == RETIRED_SOURCE_METADATA_TOOL:
             if (
                 not isinstance(applied_files, list)
@@ -27089,7 +28027,7 @@ def _applied_manifest_exact_schema_issues(
 
     backend = payload.get("backend")
     tool = payload.get("tool")
-    if backend in APPLIED_ENCODING_ENCODER_BACKENDS:
+    if isinstance(backend, str) and backend in APPLIED_ENCODING_ENCODER_BACKENDS:
         expected_fields = _MODEL_APPLY_MANIFEST_FIELDS
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
         contract = "model"
@@ -27101,6 +28039,10 @@ def _applied_manifest_exact_schema_issues(
         expected_fields = _RETIRE_APPLY_MANIFEST_FIELDS
         expected_item_fields = _RETIRED_APPLIED_FILE_FIELDS
         contract = "retirement"
+    elif backend is None and tool == APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL:
+        expected_fields = _UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS
+        expected_item_fields = _UNRECEIPTED_RETIRED_APPLIED_FILE_FIELDS
+        contract = "unreceipted retirement"
     elif backend is None and tool == APPLIED_ENCODING_PATH_MIGRATION_TOOL:
         expected_fields = _PATH_MIGRATION_APPLY_MANIFEST_FIELDS
         expected_item_fields = None
@@ -27125,14 +28067,13 @@ def _applied_manifest_exact_schema_issues(
         return []
 
     issues: list[str] = []
-    codex_fields = {"codex_cli_version", "codex_cli_sha256"}
+    codex_fields = _MODEL_CODEX_APPLY_MANIFEST_FIELDS - _MODEL_APPLY_MANIFEST_FIELDS
     present_codex_fields = set(payload) & codex_fields
-    admitted_fields = expected_fields | (codex_fields if backend == "codex" else set())
-    if (
-        set(payload) - codex_fields != expected_fields
-        or (backend == "codex" and present_codex_fields not in (set(), codex_fields))
-        or (backend != "codex" and present_codex_fields)
-    ):
+    variants = _APPLIED_MANIFEST_SCHEMA_VARIANTS[
+        "codex model" if backend == "codex" else contract
+    ]
+    admitted_fields = frozenset().union(*variants)
+    if frozenset(payload) not in variants:
         missing = sorted(expected_fields - set(payload))
         extra = sorted(set(payload) - admitted_fields)
         detail: list[str] = []
@@ -27209,15 +28150,26 @@ def _applied_manifest_exact_schema_issues(
             issues.append(
                 f"{manifest_label} axiom_encode_git.version_commit is invalid"
             )
-        if provenance.get("identity_source") not in _APPLY_IDENTITY_SOURCES:
+        if (
+            not isinstance(provenance.get("identity_source"), str)
+            or provenance["identity_source"] not in _APPLY_IDENTITY_SOURCES
+        ):
             issues.append(
                 f"{manifest_label} axiom_encode_git.identity_source is invalid"
             )
 
-    if contract == "retirement" and (
+    if contract in {"retirement", "unreceipted retirement"} and (
         not isinstance(payload.get("reason"), str) or not payload["reason"].strip()
     ):
         issues.append(f"{manifest_label} retirement reason is invalid")
+    if contract == "unreceipted retirement":
+        reasons: list[str] = []
+        if (
+            not isinstance(payload.get("base_commit"), str)
+            or re.fullmatch(r"[0-9a-f]{40}", payload["base_commit"]) is None
+        ):
+            reasons.append(f"{manifest_label} retirement base_commit is invalid")
+        issues.extend(reasons)
 
     applied_files = payload.get("applied_files")
     if isinstance(applied_files, list):
@@ -30685,13 +31637,17 @@ def _load_verified_applied_encoding_manifest_payload(
             [f"{manifest_label} {signature_issue}"],
         )
 
-    if expected_legacy_replacement_waiver_set_sha256 is not None and payload.get(
-        "tool"
-    ) in {
-        APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL,
-        APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
-        APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
-    }:
+    tool = payload.get("tool")
+    if (
+        expected_legacy_replacement_waiver_set_sha256 is not None
+        and isinstance(tool, str)
+        and tool
+        in {
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL,
+            APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
+            APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
+        }
+    ):
         expected_waiver_set_sha256 = expected_legacy_replacement_waiver_set_sha256
 
     issues: list[str] = []
@@ -30746,7 +31702,8 @@ def _load_verified_applied_encoding_manifest_payload(
             )
         )
     if (
-        backend in APPLIED_ENCODING_ENCODER_BACKENDS
+        isinstance(backend, str)
+        and backend in APPLIED_ENCODING_ENCODER_BACKENDS
         or payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
     ) and expected_encoder_identity is not None:
         issues.extend(
@@ -30758,10 +31715,28 @@ def _load_verified_applied_encoding_manifest_payload(
             )
         )
     if payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != expected_waiver_set_sha256:
-        issues.append(
-            f"{manifest_label} {VALIDATION_WAIVER_SET_SHA256_FIELD} does not "
-            "match the RuleSpec toolchain-bound waiver set"
-        )
+        historical_retirement_waiver_matches = False
+        recorded_base = payload.get("base_commit")
+        if (
+            historical_verification
+            and payload.get("tool") == APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL
+            and isinstance(recorded_base, str)
+            and re.fullmatch(r"[0-9a-f]{40}", recorded_base) is not None
+        ):
+            recorded_waivers, faults = _guard_base_receipt_bytes(
+                repo_path, recorded_base, Path(_validation_waivers.DEFAULT_WAIVER_PATH)
+            )
+            historical_retirement_waiver_matches = (
+                not faults
+                and recorded_waivers is not None
+                and hashlib.sha256(recorded_waivers).hexdigest()
+                == payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD)
+            )
+        if not historical_retirement_waiver_matches:
+            issues.append(
+                f"{manifest_label} {VALIDATION_WAIVER_SET_SHA256_FIELD} does not "
+                "match the RuleSpec toolchain-bound waiver set"
+            )
     applied_files = payload.get("applied_files")
     if not isinstance(applied_files, list) or not applied_files:
         issues.append(f"{manifest_label} does not list applied files")
@@ -30848,6 +31823,26 @@ def _load_verified_applied_encoding_manifest_payload(
             applied_file_snapshots[prefixed_path] = current_bytes
             if hashlib.sha256(current_bytes).hexdigest() != file_sha256:
                 issues.append(f"{manifest_label} has stale sha256 for {prefixed_path}")
+    issues.extend(
+        _unreceipted_retirement_manifest_issues(
+            payload,
+            repo_path=repo_path,
+            manifest_label=manifest_label,
+            roots=roots,
+            snapshot_commit=base_commit,
+        )
+    )
+    if not issues and payload.get("tool") == APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL:
+        issues.extend(
+            _unreceipted_retirement_base_issues(
+                payload,
+                repo_path=repo_path,
+                manifest_label=manifest_label,
+                base_ref=payload.get("base_commit"),
+                roots=roots,
+                proof_cache=path_migration_receipt_proof_cache,
+            )
+        )
     issues.extend(
         _retired_model_manifest_issues(
             payload,
@@ -30971,6 +31966,9 @@ def _load_applied_encoding_manifest_entries(
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]]
     | None = None,
     post_waiver_dependent_manifests: frozenset[str] = frozenset(),
+    retirement_changed_paths: set[str] | None = None,
+    retirement_base_ref: str | None = None,
+    base_tree_cache: dict[str, _GuardBaseReceiptTree] | None = None,
 ) -> tuple[dict[str, set[str]], list[str]]:
     entries: dict[str, set[str]] = defaultdict(set)
     issues: list[str] = []
@@ -31028,6 +32026,46 @@ def _load_applied_encoding_manifest_entries(
             continue
         applied_files = payload["applied_files"]
         assert isinstance(applied_files, list)
+        if (
+            payload.get("tool") == APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL
+            and retirement_changed_paths is not None
+            and (
+                manifest_path in retirement_changed_paths
+                or any(
+                    _prefix_applied_manifest_path(item["path"], root_prefix)
+                    in retirement_changed_paths
+                    for item in applied_files
+                )
+            )
+        ):
+            retirement_reasons = []
+            if (
+                payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD)
+                != expected_waiver_set_sha256
+            ):
+                retirement_reasons.append(
+                    f"{manifest_path} {VALIDATION_WAIVER_SET_SHA256_FIELD} does not "
+                    "match the RuleSpec toolchain-bound waiver set for a changed retirement"
+                )
+            if retirement_base_ref is None:
+                retirement_reasons.append(
+                    f"{manifest_path} unreceipted retirement requires an immutable base ref"
+                )
+            else:
+                retirement_reasons.extend(
+                    _unreceipted_retirement_base_issues(
+                        payload,
+                        repo_path=repo_path,
+                        manifest_label=manifest_path,
+                        base_ref=retirement_base_ref,
+                        roots=roots,
+                        base_tree_cache=base_tree_cache,
+                        proof_cache=path_migration_receipt_proof_cache,
+                    )
+                )
+            if retirement_reasons:
+                issues.extend(retirement_reasons)
+                continue
         for item in applied_files:
             if not isinstance(item, dict):
                 continue
@@ -32046,6 +33084,11 @@ def _local_verification_encode_roots(args) -> _LocalVerificationRoots | None:
 
 def cmd_encode(args):
     """Encode, inside the verification-only local context when one is given."""
+    if getattr(args, "backend", None) == "claude-api" and getattr(args, "apply", False):
+        raise ValueError(
+            "encode --apply --backend claude-api is unavailable for signed "
+            "encoding until the encoding rule changes"
+        )
     local_roots = _local_verification_encode_roots(args)
     if local_roots is None:
         return _cmd_encode_under_current_trust(args)
@@ -35856,11 +36899,14 @@ def _resolve_encode_replacement_target(
 
 def _resolve_encode_escalation_config(args) -> _EncodeEscalationConfig:
     """Resolve and validate the per-section validator retry policy."""
-    initial_model = getattr(args, "model", None) or DEFAULT_OPENAI_MODEL
+    uses_claude_api = getattr(args, "backend", None) == "claude-api"
+    initial_model = getattr(args, "model", None) or (
+        DEFAULT_MODEL if uses_claude_api else DEFAULT_OPENAI_MODEL
+    )
     escalation_model = getattr(
         args,
         "escalation_model",
-        DEFAULT_OPENAI_ESCALATION_MODEL,
+        DEFAULT_MODEL if uses_claude_api else DEFAULT_OPENAI_ESCALATION_MODEL,
     )
     if (
         not isinstance(escalation_model, str)
@@ -35932,9 +36978,9 @@ def _next_encode_attempt_model(
 
 def _require_compatible_encode_retry_model(*, backend: str, model: str) -> None:
     """Reject a known cross-provider retry before invoking the wrong CLI."""
-    if backend == "claude" and model.startswith("gpt-"):
+    if backend in {"claude", "claude-api"} and model.startswith("gpt-"):
         raise ValueError(
-            "encode cannot use a GPT escalation model with --backend claude; "
+            f"encode cannot use a GPT escalation model with --backend {backend}; "
             "pass a Claude-compatible --escalation-model or --no-escalation"
         )
 
@@ -62895,6 +63941,14 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
             policy_repo_path,
             relative_output,
         )
+        execution_git_origin = (
+            capture_execution_git_origin(policy_content_root)
+            if require_complete_source_unit
+            and legacy_replacement is None
+            and not replacement_overlay_scope
+            and not rulespec_dependency_roots
+            else None
+        )
         overlay_repo_name = policy_checkout_path.name
         staged_dependency_roots = _stage_apply_overlay_dependency_roots(
             overlay_parent=overlay_parent,
@@ -63016,6 +64070,15 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
 
         pipeline = ValidatorPipeline(
             policy_repo_path=overlay_content_root,
+            execution_overlay_origin=(
+                bind_execution_overlay_origin(
+                    execution_git_origin, overlay_content_root
+                )
+                if legacy_replacement is None
+                and not replacement_overlay_scope
+                and not staged_dependency_roots
+                else None
+            ),
             axiom_rules_path=axiom_rules_path,
             axiom_rules_engine_ref=axiom_rules_engine_ref,
             axiom_compose_path=axiom_compose_path,
@@ -68192,6 +69255,7 @@ def cmd_eval(args):
         require_complete_source_unit=(
             getattr(args, "require_complete_source_unit", False) is True
         ),
+        skip_reviewers=bool(getattr(args, "skip_reviewers", False)),
     )
 
     if args.json:
@@ -68274,6 +69338,7 @@ def cmd_eval_source(args):
         require_complete_source_unit=(
             getattr(args, "require_complete_source_unit", False) is True
         ),
+        skip_reviewers=bool(getattr(args, "skip_reviewers", False)),
     )
 
     if args.json:
@@ -68487,6 +69552,7 @@ def _load_verified_eval_suite_artifacts(
     suite_retry_attempts: int | None = None,
     admission_score: bool | None = None,
     axiom_compose_path: Path | None = None,
+    skip_reviewers: bool | None = None,
 ) -> dict[str, object]:
     """Load one suite output only after the harness validates every identity."""
 
@@ -68511,7 +69577,11 @@ def _load_verified_eval_suite_artifacts(
         max_bytes=256 * 1024 * 1024,
         required=False,
     )
-    if suite_retry_attempts is None or admission_score is None:
+    if (
+        suite_retry_attempts is None
+        or admission_score is None
+        or skip_reviewers is None
+    ):
         try:
             persisted_run_state = json.loads((state_raw_before or b"").decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -68551,6 +69621,12 @@ def _load_verified_eval_suite_artifacts(
                 compose_identity = scoring_options.get("axiom_compose")
                 if isinstance(compose_identity, dict):
                     axiom_compose_path = Path(compose_identity["path"])
+        if skip_reviewers is None:
+            skip_reviewers = persisted_identity.get("skip_reviewers", False)
+    if not isinstance(skip_reviewers, bool):
+        raise ValueError(
+            "suite-run.json execution identity skip_reviewers must be boolean"
+        )
     manifest_identity = _build_eval_suite_manifest_identity(manifest)
     rulespec_roots = _eval_suite_rulespec_roots(manifest, policy_repo_path)
     policyengine_cases = [
@@ -68573,6 +69649,7 @@ def _load_verified_eval_suite_artifacts(
         rulespec_roots,
         policyengine_runtime=policyengine_runtime if policyengine_cases else None,
         suite_retry_attempts=suite_retry_attempts,
+        **({"skip_reviewers": True} if skip_reviewers else {}),
         **(
             {
                 "admission_score": True,
@@ -69152,6 +70229,11 @@ def cmd_eval_suite(args):
                 policyengine_runtime=policyengine_runtime,
                 resume_existing=resume_existing,
                 **(
+                    {"skip_reviewers": True}
+                    if getattr(args, "skip_reviewers", False)
+                    else {}
+                ),
+                **(
                     {
                         "admission_score": True,
                         "axiom_compose_path": getattr(args, "axiom_compose_path", None),
@@ -69208,6 +70290,7 @@ def cmd_eval_suite(args):
             require_complete=False,
             suite_retry_attempts=_DEFAULT_SUITE_RETRY_ATTEMPTS,
             admission_score=getattr(args, "admission_score", False),
+            skip_reviewers=bool(getattr(args, "skip_reviewers", False)),
             **(
                 {
                     "axiom_compose_path": getattr(args, "axiom_compose_path", None),
@@ -69279,6 +70362,12 @@ def cmd_eval_suite(args):
             "generalist_review="
             f"{_format_percent(summary.generalist_review_pass_rate)}"
         )
+        infrastructure_errors = getattr(summary, "infrastructure_error_count", 0)
+        if isinstance(infrastructure_errors, int) and infrastructure_errors > 0:
+            print(
+                f"  infrastructure_errors={infrastructure_errors} "
+                "(context overflow; excluded from model scores)"
+            )
         if summary.mean_generalist_review_score is not None:
             print(
                 f"  mean_generalist_review_score={summary.mean_generalist_review_score:.2f}/10"
@@ -69453,6 +70542,7 @@ def _cmd_eval_suite_revalidate_with_signer(args, evidence_signing_key):
             source_citation_path=source_citation_path,
             rulespec_dependency_roots=manifest.rulespec_dependency_roots,
             require_complete_source_unit=case.require_complete_source_unit,
+            skip_reviewers=run_state["execution_identity"].get("skip_reviewers", False),
             amendment_documents=_amendment_documents_visible_in_context_manifest(
                 source_unit.amendment_documents,
                 Path(result.context_manifest_file),
@@ -70704,7 +71794,7 @@ def _validated_eval_suite_report_payload(
             not isinstance(runner, dict)
             or not isinstance(runner.get("name"), str)
             or not runner.get("name")
-            or runner.get("backend") not in {"claude", "codex", "openai"}
+            or runner.get("backend") not in {"claude", "claude-api", "codex", "openai"}
             or not isinstance(runner.get("model"), str)
             or not runner.get("model")
             or runner["name"] in runners_by_name
