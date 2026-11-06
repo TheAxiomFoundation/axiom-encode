@@ -1,3 +1,7 @@
+## 0.2.2326
+
+- Keep only closed preposition and filing-construct noun contexts for Hebrew `דוחות`, after measuring unchanged dependency entries and instrument senses. Read verb-first subjects without a word-count limit, restrict indefinite-object and filing lookaheads to clause starts, and stop scans at prefixed heads to preserve linear growth. Label and measure stricter noun refusals; reject the R20 Hebrew gate escape and reproduce the audited negator fixture from its generator.
+
 ## 0.2.2299
 
 - Preserve the original checkout identity when validating staged eval and apply overlays, so same-case source witnesses execute against the candidate closure while retaining exact Git, file, and engine binding checks.
