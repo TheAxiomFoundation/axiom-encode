@@ -5771,6 +5771,15 @@ def _analyze_rulespec_payload(
         content, imported_export_bindings
     ):
         execution_evidence = None
+    from .investment_adjustment_evidence import certify_investment_adjustment
+
+    investment_evidence = certify_investment_adjustment(
+        content,
+        raw_source_text or source_text,
+        corpus_citation_path,
+        test_cases,
+        execution_evidence,
+    )
     local_names = {
         str(rule.get("name") or "").strip()
         for rule in payload.get("rules", [])
@@ -5866,6 +5875,7 @@ def _analyze_rulespec_payload(
     )
     issues: list[str] = []
     issues.extend(imprecise_deferrals)
+    issues.extend(investment_evidence.missing())
     from axiom_encode.harness.worksheet_country_evidence import (
         certify_worksheet_country,
     )
@@ -5905,6 +5915,7 @@ def _analyze_rulespec_payload(
         certified_transfers=certified_transfers,
         certified_country=certified_country,
         repayment_alternatives=repayment_alternatives,
+        investment_evidence=investment_evidence,
         test_cases=test_cases,
     )
     issues.extend(source_condition_issues)
@@ -6079,6 +6090,18 @@ def _analyze_rulespec_payload(
         corpus_citation_path=corpus_citation_path,
         deferred_paths=deferred_paths,
     )
+    formula_branches, investment_missing_formulas = investment_evidence.partition(
+        formula_branches, "formula"
+    )
+    control_branches, investment_missing_controls = investment_evidence.partition(
+        control_branches, "control"
+    )
+    for branch in (*investment_missing_formulas, *investment_missing_controls):
+        issues.append(
+            "[complete-source-unit:schedule-n-evidence] Missing or duplicate source-owned "
+            f"{branch.kind} occurrence at {branch.start}:{branch.end}; "
+            "private principal evidence cannot be replaced by generic fallback."
+        )
     source_has_computation = source_states_explicit_computation(
         source_text, corpus_citation_path=corpus_citation_path
     )
@@ -6197,6 +6220,7 @@ def _analyze_rulespec_payload(
             _companion_test_issues(
                 principal_rules,
                 execution_evidence=execution_evidence,
+                investment_evidence=investment_evidence,
                 referral_context=referral_context,
                 floor_imported_exports=imported_export_bindings,
                 floor_source_context=imported_proof_source_context,
@@ -6292,6 +6316,9 @@ def _analyze_rulespec_payload(
     covered_source_values = len(source_occurrences) - len(unrepresented_occurrences)
     missing_source_values: list[float] = []
     for occurrence in unrepresented_occurrences:
+        if investment_evidence.numeric_owner(occurrence) is not None:
+            covered_source_values += 1
+            continue
         if any(
             numeric_value_is_grounded(named_value, (occurrence,))
             for named_value in named_values
@@ -19514,6 +19541,7 @@ def _opaque_same_source_condition_input_issues(
     certified_country: Any = None,
     repayment_alternatives: RepaymentAlternativeCoverage | None = None,
     test_cases: Sequence[object] | None = None,
+    investment_evidence: Any = None,
 ) -> list[str]:
     """Reject terminal selectors that collapse explicit same-source fact gates."""
 
@@ -19951,6 +19979,14 @@ def _opaque_same_source_condition_input_issues(
                     )
                 )
                 for clause in condition_clauses:
+                    if (
+                        investment_evidence is not None
+                        and not ambiguous
+                        and investment_evidence.covers_gate(
+                            rule_name, rule, version_index, formula, start, end, clause
+                        )
+                    ):
+                        continue
                     if (
                         repayment_alternatives is not None
                         and consumer_content is not None
@@ -21123,6 +21159,7 @@ def _companion_test_issues(
     partnership_content: str | None = None,
     printed_operations: _PrintedOperationContext | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    investment_evidence: Any = None,
     floor_imported_exports: Sequence[ResolvedImportedExport] = (),
     floor_source_context: Mapping[str, str | None] | None = None,
     referral_context: Any = None,
@@ -21474,6 +21511,16 @@ def _companion_test_issues(
         numeric_limits_only=_is_us_manual_citation_path(corpus_citation_path),
         corpus_citation_path=corpus_citation_path,
     )
+    if investment_evidence is not None:
+        exception_branches, investment_missing = investment_evidence.partition(
+            exception_branches, "control"
+        )
+        for branch in investment_missing:
+            issues.append(
+                "[complete-source-unit:schedule-n-evidence] Missing or duplicate source-owned "
+                f"control occurrence at {branch.start}:{branch.end}; "
+                "private principal evidence cannot be replaced by generic fallback."
+            )
     if exception_branches:
         independently_covered_paths = {
             path
