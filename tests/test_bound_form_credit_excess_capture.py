@@ -1,5 +1,6 @@
 """Historical actual captures exercise complete graph accounting, not signing."""
 
+import copy
 import json
 from pathlib import Path
 
@@ -71,6 +72,110 @@ def test_actual_parent_complete_partition_and_thirteen_captures(tmp_path):
     assert b.credit_excess.return_field == "47900"
     assert b.credit_excess.credit_owner == dict(b.row_owners)[9]
     assert observed_form_frame(b, evidence(tmp_path, d), d["content"], d["cases"])
+
+
+def _claimant_pair(case, record, claimant, suffix):
+    """Synthetic identity variant of retained captures, not fresh engine evidence."""
+    case, record = copy.deepcopy(case), copy.deepcopy(record)
+    case["name"] += suffix
+    case["entity_id"] = claimant
+    for fact in record["request"]["dataset"]["inputs"]:
+        fact["entity_id"] = claimant
+    record["request"]["queries"][0]["entity_id"] = claimant
+    result = record["response"]["results"][0]
+    result["entity_id"] = claimant
+    for trace in result["trace"].values():
+        trace["entity_id"] = claimant
+    return case, record
+
+
+def _ordered_case_records(d, pairs):
+    d["cases"] = [case for case, _record in pairs]
+    d["records"] = []
+    for index, (_case, record) in enumerate(pairs, 1):
+        record["case_index"] = index
+        d["records"].append(record)
+
+
+@pytest.mark.parametrize("direction", [False, True, "both"])
+@pytest.mark.parametrize("order", ["append", "prepend", "reverse"])
+def test_other_claimant_cannot_erase_complete_document_pair(tmp_path, direction, order):
+    from axiom_encode.harness.bound_form_obligations import _observed_document_pair_keys
+    from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+
+    d = data()
+    original_pairs = list(zip(d["cases"], d["records"], strict=True))
+    indices = [8, 9] if direction == "both" else [9 if direction else 8]
+    extras = [
+        _claimant_pair(*original_pairs[i], "another-claimant", "_other_claimant")
+        for i in indices
+    ]
+    pairs = original_pairs + extras
+    if order == "prepend":
+        pairs = extras + original_pairs
+    elif order == "reverse":
+        pairs.reverse()
+    _ordered_case_records(d, pairs)
+    b = bind(d)
+    captured = evidence(tmp_path / "ordered", d)
+    assert observed_form_frame(b, captured, d["content"], d["cases"])
+    pipeline = ValidatorPipeline(
+        tmp_path / "rulespec-ca",
+        tmp_path / "engine",
+        local_corpus_release=None,
+        enable_oracles=False,
+        require_complete_source_unit=True,
+    )
+    assert (
+        pipeline._complete_source_unit_issues(
+            d["content"],
+            validation_source_texts={CITATION: d["source"]},
+            proof_source_texts={CITATION: d["source"]},
+            test_cases=d["cases"],
+            execution_evidence=captured,
+        )
+        == []
+    )
+    prefix = "ca:policies/cra/t1-2025/nl479-credits#"
+    selected = _observed_document_pair_keys(
+        b.document_requirements, captured, d["cases"], prefix, d["cases"][0]["period"]
+    )
+    assert selected is not None
+    # Multiple valid pairs and case order must produce the same owner tokens.
+    assert selected == _observed_document_pair_keys(
+        b.document_requirements,
+        captured,
+        list(reversed(d["cases"])),
+        prefix,
+        d["cases"][0]["period"],
+    )
+
+
+def test_document_directions_from_different_claimants_do_not_form_pair(tmp_path):
+    from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+
+    d = data()
+    pairs = list(zip(d["cases"], d["records"], strict=True))
+    pairs[9] = _claimant_pair(*pairs[9], "different-claimant", "_different")
+    _ordered_case_records(d, pairs)
+    b = bind(d)
+    captured = evidence(tmp_path, d)
+    assert not observed_form_frame(b, captured, d["content"], d["cases"])
+    pipeline = ValidatorPipeline(
+        tmp_path / "rulespec-ca",
+        tmp_path / "engine",
+        local_corpus_release=None,
+        enable_oracles=False,
+        require_complete_source_unit=True,
+    )
+    issues = pipeline._complete_source_unit_issues(
+        d["content"],
+        validation_source_texts={CITATION: d["source"]},
+        proof_source_texts={CITATION: d["source"]},
+        test_cases=d["cases"],
+        execution_evidence=captured,
+    )
+    assert any("applicability conditions" in issue for issue in issues)
 
 
 @pytest.mark.parametrize(
@@ -429,3 +534,88 @@ def test_new_unowned_condition_is_not_cleared_by_complete_form_certificate(tmp_p
         execution_evidence=evidence(tmp_path, d),
     )
     assert any("nonresident" in issue and "conditions" in issue for issue in issues)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("context", ["plain", "negated", "qualified"])
+def test_sheet_enclosing_context_reaches_full_analyzer(tmp_path, newline, context):
+    """Coherent source/capture variants, not fresh native execution."""
+    import hashlib
+
+    from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+
+    d = data()
+    clause = "If you need more space, attach an additional sheet of paper."
+    assert d["source"].count(clause) == 1
+    replacement = {
+        "plain": clause,
+        "negated": "Do not:\n\n" + clause,
+        "qualified": clause + "\n\nunless another condition applies.",
+    }[context]
+    paragraph = "\n\n" + clause + "\n\n"
+    assert paragraph in d["source"]
+    # Vary the attachment paragraph's raw line endings, not unrelated owners.
+    d["source"] = d["source"].replace(
+        paragraph, newline * 2 + replacement.replace("\n", newline) + newline * 2
+    )
+    payload = yaml.safe_load(d["content"])
+    payload["module"]["source_verification"]["source_sha256"] = hashlib.sha256(
+        d["source"].encode()
+    ).hexdigest()
+    d["content"] = yaml.safe_dump(payload, sort_keys=False)
+    pipeline = ValidatorPipeline(
+        tmp_path / "rulespec-ca",
+        tmp_path / "engine",
+        local_corpus_release=None,
+        enable_oracles=False,
+        require_complete_source_unit=True,
+    )
+    issues = pipeline._complete_source_unit_issues(
+        d["content"],
+        validation_source_texts={CITATION: d["source"]},
+        proof_source_texts={CITATION: d["source"]},
+        test_cases=d["cases"],
+        execution_evidence=evidence(tmp_path, d),
+    )
+    if context == "plain":
+        assert bind(d) is not None
+        assert issues == []
+    else:
+        assert bind(d) is None
+        assert issues
+
+
+def test_raw_numeric_expected_strings_preserve_form_observation(tmp_path):
+    from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+
+    d = data()
+    for case in d["cases"]:
+        case["output"] = {k: str(v) for k, v in case["output"].items()}
+    binding = bind(d)
+    assert binding is not None
+    captured = evidence(tmp_path, d)
+    assert observed_form_frame(binding, captured, d["content"], d["cases"])
+    pipeline = ValidatorPipeline(
+        tmp_path / "rulespec-ca",
+        tmp_path / "engine",
+        local_corpus_release=None,
+        enable_oracles=False,
+        require_complete_source_unit=True,
+    )
+    args = dict(
+        validation_source_texts={CITATION: d["source"]},
+        proof_source_texts={CITATION: d["source"]},
+        execution_evidence=captured,
+    )
+    assert (
+        pipeline._complete_source_unit_issues(
+            d["content"], test_cases=d["cases"], **args
+        )
+        == []
+    )
+    changed = copy.deepcopy(d["cases"])
+    for case in changed:
+        case["name"] += "-unobserved"
+    assert pipeline._complete_source_unit_issues(
+        d["content"], test_cases=changed, **args
+    )

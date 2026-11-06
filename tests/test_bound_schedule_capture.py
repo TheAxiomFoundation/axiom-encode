@@ -397,3 +397,74 @@ def test_actual_capture_refuses_changed_identity_or_semantics(tmp_path, defect):
     elif defect == "frame":
         medical["request"]["queries"][0]["period"]["end"] = "2025-12-30"
     assert observe(tmp_path, d) is None
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["nonmedical", "opposite_description", "relationship_and", "source_page_two"],
+)
+def test_coherent_factual_contract_cannot_gain_source_clearance(tmp_path, change):
+    """Coherent capture variants exercise semantic refusal, not stale identity."""
+    d = data()
+    if change == "nonmedical":
+        d = json.loads(
+            json.dumps(d).replace(
+                "principal_residence_separation_was_for_medical_reasons",
+                "principal_residence_separation_was_for_non_medical_reasons",
+            )
+        )
+    elif change == "relationship_and":
+        d = json.loads(
+            json.dumps(d).replace(
+                "has_spouse_or_common_law_partner_at_reference_date",
+                "has_spouse_and_common_law_partner_at_reference_date",
+            )
+        )
+    elif change == "source_page_two":
+        d = json.loads(
+            json.dumps(d).replace("page 1 of your return", "page 2 of your return")
+        )
+    p = yaml.safe_load(d["content"])
+    if change in {"nonmedical", "opposite_description"}:
+        fact = next(i for i in p["inputs"] if "separation_was_for" in i["name"])
+        fact["description"] = (
+            "The stated separate principal residences at the reference date were for non-medical reasons."
+        )
+    elif change == "relationship_and":
+        fact = next(i for i in p["inputs"] if i["name"].startswith("has_spouse_and"))
+        fact["description"] = (
+            "The claimant has both a spouse and a common-law partner at the reference date."
+        )
+    p["module"]["source_verification"]["source_sha256"] = hashlib.sha256(
+        d["source"].encode()
+    ).hexdigest()
+    d["content"] = yaml.safe_dump(p, sort_keys=False)
+    form = recognize_bound_schedule_structure(d["source"], CITATION)
+    assert form is not None
+    binding = bind_schedule(
+        form, d["content"], {CITATION: d["source"]}, root_relative=ROOT
+    )
+    assert analyzer(tmp_path, d)
+    assert binding is None
+
+
+def test_residence_fact_tracks_source_page_two(tmp_path):
+    d = data()
+    d = json.loads(
+        json.dumps(d)
+        .replace("page 1 of your return", "page 2 of your return")
+        .replace("return_page_one_residence", "return_page_two_residence")
+    )
+    p = yaml.safe_load(d["content"])
+    fact = next(
+        i
+        for i in p["inputs"]
+        if i["name"] == "expenses_relate_to_return_page_two_residence"
+    )
+    fact["description"] = fact["description"].replace("page1;", "page2;")
+    p["module"]["source_verification"]["source_sha256"] = hashlib.sha256(
+        d["source"].encode()
+    ).hexdigest()
+    d["content"] = yaml.safe_dump(p, sort_keys=False)
+    assert observe(tmp_path / "direct", d) is not None
+    assert analyzer(tmp_path / "full", d) == []

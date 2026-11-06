@@ -6342,7 +6342,7 @@ def _analyze_rulespec_payload(
                 printed_operations.ordered_binding,
                 execution_evidence,
                 content,
-                test_cases,
+                execution_test_cases,
             )
         )
     ):
@@ -21747,9 +21747,7 @@ def _companion_test_issues(
                     printed_operations.ordered_binding,
                     execution_evidence,
                     partnership_content,
-                    execution_test_cases
-                    if isinstance(printed_operations.ordered_binding, ScheduleBinding)
-                    else cases,
+                    execution_test_cases,
                     missing_exception_branches,
                     source_text=source_text,
                     corpus_citation_path=corpus_citation_path,
