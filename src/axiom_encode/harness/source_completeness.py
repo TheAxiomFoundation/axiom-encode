@@ -5447,6 +5447,27 @@ _SITE_ANALYZE = (
     "axiom_encode/harness/source_completeness.py:analyze_complete_source_unit"
 )
 
+CHECK_SCHEDULE_N_EXECUTION_EVIDENCE = declare_check(
+    "complete-source-unit:schedule-n-evidence/missing",
+    title="Schedule N lacks complete private execution evidence",
+    requires=(
+        "Every owned Schedule N source obligation has unique, fresh typed "
+        "principal and refusal evidence bound to the complete authenticated unit."
+    ),
+    why=(
+        "Generic scalar witnesses, duplicate obligations, or stale execution "
+        "records cannot establish the worksheet's joint source conditions."
+    ),
+    fix=(
+        "Correct the complete companion and source-bound module, then rerun "
+        "ordinary validation with the authenticated release and pinned engine. "
+        "Preserve the source conditions and their positive and refusal witnesses."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+
 CHECK_STRUCTURE_BRANCH_UNENCODED = declare_check(
     "complete-source-unit:structure/branch-unencoded",
     title="Source branch neither encoded nor precisely deferred",
@@ -5876,7 +5897,10 @@ def _analyze_rulespec_payload(
     )
     issues: list[str] = []
     issues.extend(imprecise_deferrals)
-    issues.extend(investment_evidence.missing())
+    issues.extend(
+        ValidationIssue(message, check=CHECK_SCHEDULE_N_EXECUTION_EVIDENCE)
+        for message in investment_evidence.missing()
+    )
     from axiom_encode.harness.worksheet_country_evidence import (
         certify_worksheet_country,
     )
@@ -6099,9 +6123,13 @@ def _analyze_rulespec_payload(
     )
     for branch in (*investment_missing_formulas, *investment_missing_controls):
         issues.append(
-            "[complete-source-unit:schedule-n-evidence] Missing or duplicate source-owned "
-            f"{branch.kind} occurrence at {branch.start}:{branch.end}; "
-            "private principal evidence cannot be replaced by generic fallback."
+            ValidationIssue(
+                "[complete-source-unit:schedule-n-evidence] Missing or duplicate source-owned "
+                f"{branch.kind} occurrence at {branch.start}:{branch.end}; "
+                "private principal evidence cannot be replaced by generic fallback.",
+                check=CHECK_SCHEDULE_N_EXECUTION_EVIDENCE,
+                subject=_branch_subject(corpus_citation_path, branch),
+            )
         )
     source_has_computation = source_states_explicit_computation(
         source_text, corpus_citation_path=corpus_citation_path
@@ -21668,9 +21696,13 @@ def _companion_test_issues(
         )
         for branch in investment_missing:
             issues.append(
-                "[complete-source-unit:schedule-n-evidence] Missing or duplicate source-owned "
-                f"control occurrence at {branch.start}:{branch.end}; "
-                "private principal evidence cannot be replaced by generic fallback."
+                ValidationIssue(
+                    "[complete-source-unit:schedule-n-evidence] Missing or duplicate source-owned "
+                    f"control occurrence at {branch.start}:{branch.end}; "
+                    "private principal evidence cannot be replaced by generic fallback.",
+                    check=CHECK_SCHEDULE_N_EXECUTION_EVIDENCE,
+                    subject=_branch_subject(corpus_citation_path, branch),
+                )
             )
     if exception_branches:
         independently_covered_paths = {

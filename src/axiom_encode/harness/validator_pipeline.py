@@ -236,6 +236,48 @@ _AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS: ContextVar[tuple[Path, ...]] = Context
 
 
 _SITE_COMPILE = "axiom_encode/harness/validator_pipeline.py:_run_rulespec_compile_check"
+CHECK_SCOPED_REFUSAL_CONTEXT = declare_check(
+    "tests:scoped-refusal/context-unbound",
+    title="Expected refusal has no authenticated execution context",
+    requires=(
+        "A scoped expected-refusal case identifies its source-bound principal "
+        "inside the fresh materialized execution context."
+    ),
+    why=(
+        "An expected-error label alone cannot prove that a source restriction "
+        "rejected the intended principal computation."
+    ),
+    fix=(
+        "Use a supported source-bound refusal case with its required factual "
+        "inputs and query, and validate the whole companion against the "
+        "authenticated release and pinned engine. Do not treat arbitrary errors "
+        "as source evidence."
+    ),
+    cause="encoder_output",
+    gate="tests",
+    site="axiom_encode/harness/validator_pipeline.py:_run_rulespec_test_cases",
+)
+CHECK_SCOPED_EXECUTION_PAIRS = declare_check(
+    "tests:scoped-execution/incomplete",
+    title="Scoped execution records or refusal pairs are incomplete",
+    requires=(
+        "The complete companion produces fresh typed positive records and "
+        "source-coherent positive/refusal pairs in the same execution context."
+    ),
+    why=(
+        "Incomplete, stale, or unrelated records cannot establish that the "
+        "source condition controls the requested principal output."
+    ),
+    fix=(
+        "Correct the companion's factual cases and matching positive/refusal "
+        "pairs, then rerun the whole module with the authenticated source and "
+        "pinned engine. Keep failed records instead of borrowing older results."
+    ),
+    cause="encoder_output",
+    gate="tests",
+    site="axiom_encode/harness/validator_pipeline.py:_run_rulespec_test_cases",
+)
+
 CHECK_RULES_ENGINE_COMPILE_FAILED = declare_check(
     "compile:rules-engine/failed",
     title="Axiom rules engine rejected the RuleSpec",
@@ -33316,7 +33358,10 @@ def find_test_input_assignment_issues(
             )
             if target is None:
                 issues.append(
-                    f"Test case `{test_name}` lacks authenticated refusal context."
+                    ValidationIssue(
+                        f"Test case `{test_name}` lacks authenticated refusal context.",
+                        check=CHECK_SCOPED_REFUSAL_CONTEXT,
+                    )
                 )
                 continue
             selected_output_names = (target,)
@@ -38783,7 +38828,10 @@ class ValidatorPipeline:
             )
             if target is None or output_names != [target]:
                 return None, [
-                    f"Test case `{case_name}` lacks authenticated refusal context."
+                    ValidationIssue(
+                        f"Test case `{case_name}` lacks authenticated refusal context.",
+                        check=CHECK_SCOPED_REFUSAL_CONTEXT,
+                    )
                 ]
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
         query_entity_id = self._rulespec_case_query_entity_id(
@@ -39110,7 +39158,10 @@ class ValidatorPipeline:
                 )
                 if target is None:
                     issues.append(
-                        f"Test case `{case_name}` lacks authenticated refusal context."
+                        ValidationIssue(
+                            f"Test case `{case_name}` lacks authenticated refusal context.",
+                            check=CHECK_SCOPED_REFUSAL_CONTEXT,
+                        )
                     )
                     continue
                 query_outputs = [target]
@@ -39325,7 +39376,12 @@ class ValidatorPipeline:
                 and observation(execution_capture.evidence(), rules_file.read_text())
                 is None
             ):
-                issues.append("Incomplete fresh scoped execution/refusal pairs.")
+                issues.append(
+                    ValidationIssue(
+                        "Incomplete fresh scoped execution/refusal pairs.",
+                        check=CHECK_SCOPED_EXECUTION_PAIRS,
+                    )
+                )
         if issues and execution_capture is not None:
             execution_capture.records.clear()
             from .scoped_execution import clear_private
