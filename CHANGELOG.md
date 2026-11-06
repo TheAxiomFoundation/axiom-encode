@@ -1,4 +1,4 @@
-## 0.2.2346
+## 0.2.2348
 
 - Align proof excerpts to the printed source text instead of accepting the model's spelling. The proof check stays exact; the generated-artifact repair, which runs after every try, now stores the printed text an excerpt quotes when exactly one printed text matches: typographic spellings (ligatures, quotation-mark and in-word dash variants, wrapped compound and line-end hyphens, a space after a currency or section sign, a space before a comma, enclosing quotation marks, a recased first letter), or an added end mark (`.`, `;`, `,`); matches at different places in the source that print different texts are refused. Recognize the Code's "($X in the case of a joint return)" parenthetical as prose (never when a sign precedes the parenthesis), read fused ORS `(1)(a)` markers in subsection scope, and drop an `imports:` header that unused-import pruning leaves empty (the engine rejected `imports: null`).
 
