@@ -423,6 +423,11 @@ def hardware_rounding():
         set_rounding = library.fesetround
     except (AttributeError, OSError, TypeError, RuntimeError):
         pytest.skip("C floating-point rounding API unavailable")
+    if sc._floating_point_behavior() is None:
+        pytest.skip(
+            "The memo evaluates every call fresh on this host, since it can't "
+            "confirm that native floating-point traps are masked"
+        )
     get_rounding.argtypes = ()
     get_rounding.restype = ctypes.c_int
     set_rounding.argtypes = (ctypes.c_int,)
