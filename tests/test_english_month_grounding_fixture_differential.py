@@ -14,20 +14,21 @@ of recomputing every verdict:
 
 * every fixture ``provision.txt`` source that names an English month
   tokenizes to the same grounding and inventory streams with the reading on
-  and off (a source that names none cannot differ: the recognizer finds
-  nothing in it either way, and the random-text property in
-  ``test_english_month_grounding.py`` covers any other text);
+  and off (a source that names none cannot differ: the recognizer returns
+  nothing for a text with no English month name, with the reading on or
+  off);
 * no fixture module compares a calendar month with a literal.
 
-Neither is vacuous: well over a hundred fixture sources date an English month
-name. The #1745 differential recomputes every fixture verdict, with this
-reading on in both of its runs.
+Neither is vacuous. On 2026-11-05, 97 of the 173 distinct fixture sources
+named and dated an English month name, and 194 of the 374 fixture modules
+used one of them. The #1745 differential recomputes every fixture verdict,
+with this reading on in both of its runs.
 
 Synthetic controls compute every grounding verdict with the reading on and
 off, and the set of changed verdicts must equal an explicit list: faithful
 English Part D must change, and each guard must leave its verdicts alone (an
-annualising 12, a count of months, the modal "May", a month beside "percent",
-the Hebrew rendering).
+annualising 12, a count of months, the modal "May", people's names listed like
+months, a month beside "percent", the Hebrew rendering).
 
 The numeric tokenizer is cached, so the cache is cleared before each side.
 
@@ -59,7 +60,7 @@ from tests.test_hebrew_month_index_selector_fixture_differential import (
 )
 
 # 194 fixture modules had a source dating an English month name (2026-11-05).
-MIN_FIXTURE_SOURCES_WITH_DATED_ENGLISH_MONTHS = 100
+MIN_FIXTURE_MODULES_WITH_DATED_ENGLISH_MONTHS = 100
 # 97 distinct fixture sources named one (2026-11-05).
 MIN_FIXTURE_SOURCE_FILES_NAMING_ENGLISH_MONTHS = 50
 
@@ -79,15 +80,24 @@ CONTROL_CASES: dict[str, tuple[str, str]] = {
         _month_module("months_employed >= 6"),
         "Until June 1939 | 65",
     ),
-    # The modal "May" dates nothing.
+    # The modal "May" dates nothing, before a word the month shares or not.
     "english-modal-may": (
         _month_module("birth_month >= 5"),
         "Persons Aged 18 May Apply",
     ),
+    "english-modal-may-in-any-year": (
+        _month_module("birth_month >= 5"),
+        "THE BOARD MAY IN ANY YEAR ADOPT RULES",
+    ),
+    # People's names listed like months date nothing (review round 2).
+    "english-personal-names": (
+        _month_module("birth_month == 6"),
+        "Persons named April and June may apply.",
+    ),
     # A month beside "percent" grounds no rate scaled from its number.
     "english-rate-neighbour": (
         _month_module("birth_month >= 0.12"),
-        "July to December percent",
+        "the months July to December percent",
     ),
     # The Hebrew rendering: its months ground with English on or off.
     "hebrew-part-d": (_part_d_birth_month_module(), PART_D_TEXT),
@@ -143,7 +153,7 @@ def test_fixture_sources_date_english_months():
             (path.parent / "provision.txt").read_text(encoding="utf-8")
         )
     ]
-    assert len(dated) >= MIN_FIXTURE_SOURCES_WITH_DATED_ENGLISH_MONTHS
+    assert len(dated) >= MIN_FIXTURE_MODULES_WITH_DATED_ENGLISH_MONTHS
 
 
 def test_english_months_leave_every_fixture_source_stream_unchanged():
@@ -198,6 +208,8 @@ def test_english_part_d_grounds_like_hebrew_with_english_on(control_pair):
         for name, literal in (
             ("english-month-count", "6"),
             ("english-modal-may", "5"),
+            ("english-modal-may-in-any-year", "5"),
+            ("english-personal-names", "6"),
             ("english-rate-neighbour", "0.12"),
         ):
             assert any(

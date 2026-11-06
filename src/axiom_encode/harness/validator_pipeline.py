@@ -9122,11 +9122,13 @@ _HEBREW_GREGORIAN_MONTH_PATTERN = re.compile(
 )
 # The name is a month only where the text uses it as a date: a year after it
 # ("מאי 1942", "אפריל שנת 2011", "של כל שנה"), a day before it ("4 במאי",
-# "באחד באפריל"), the word month before it ("בחודש יולי", "מהחודשים אפריל,
-# יולי"), or another month beside it ("מאי עד דצמבר 1940"), all on the name's
-# own line and table cell. Elsewhere a homograph may be speaking: "הסובל מאי
-# ספיקת לב" (National Health Insurance Law, schedule 2) is "suffering from
-# heart failure", "במאי" is also a director and "מרץ" vigour.
+# "באחד באפריל"), or the word month before it ("בחודש יולי", "מהחודשים
+# אפריל, יולי"), all on the name's own line and table cell. Names side by
+# side ("מאי עד דצמבר 1940") share that evidence, but a list or range adds
+# none of its own: a source lists people's names the same way ("יוני ומאי",
+# Yoni and Mai). Elsewhere a homograph may be speaking: "הסובל מאי ספיקת לב"
+# (National Health Insurance Law, schedule 2) is "suffering from heart
+# failure", "במאי" is also a director and "מרץ" vigour.
 _HEBREW_MONTH_LIST_GAP_PATTERN = re.compile(
     "[^\\S\\n]*(?:,|;|[\u05be\u2013\u2014-]|עד|ועד|או)?[^\\S\\n]*"
 )
@@ -9137,6 +9139,12 @@ _HEBREW_MONTH_YEAR_AFTER_PATTERN = re.compile(
 _HEBREW_MONTH_YEAR_OF_AFTER_PATTERN = re.compile(
     "[^\\S\\n]+(?:של|ב)[^\\S\\n]*(?:כל[^\\S\\n]+|אותה[^\\S\\n]+)?"
     "(?:ה[\u05be-]?)?שנ[הת](?![\u05d0-\u05ea])"
+)
+# "Each year" with no "של" or "ב" dates a name only after a day: "ב־1 במאי כל
+# שנה" (English "May 1 each year"). Without the day the name may be a person's
+# ("יוני כל שנה מגיש", Yoni files every year), and "כל השנה" is the whole year.
+_HEBREW_MONTH_EACH_YEAR_AFTER_PATTERN = re.compile(
+    "[^\\S\\n]+כל[^\\S\\n]+שנה(?![\u05d0-\u05ea])"
 )
 _HEBREW_MONTH_DAY_BEFORE_PATTERN = re.compile(
     "(?:(?<![\\d.,])(?:0?[1-9]|[12]\\d|3[01])"
@@ -9157,9 +9165,20 @@ _HEBREW_MONTH_WORD_BEFORE_PATTERN = re.compile(
     "(?<![\u0590-\u05ff])"
     + _HEBREW_WORD_PREFIX_PATTERN
     # Singular, full spelling only: חדש is also "new", and the plural
-    # ("within 3 months") need not name the month that follows. A list of
-    # months after the plural dates itself.
+    # ("within 3 months") need not name the month that follows.
     + "חודש[^\\S\\n]*$"
+)
+# The plural dates a list of two or more names after it: "מהחודשים אפריל,
+# יולי, אוקטובר וינואר", "בחודשים יולי ואוגוסט", "חודשי יולי ואוגוסט". Only
+# the definite plural (the article, or ב or ל, which take it in) or the
+# construct counts; a bare plural is usually a count of months, a length of
+# time ("בתוך 2 חודשים מאי תשלום").
+_HEBREW_MONTHS_WORD_BEFORE_PATTERN = re.compile(
+    "(?<![֐-׿])(?:[וש]?(?:מה|[הבל])"
+    + _HEBREW_PREFIX_SEPARATOR
+    + "חודשים|"
+    + _HEBREW_WORD_PREFIX_PATTERN
+    + "חודשי)[^\\S\\n]*$"
 )
 # For the homographs only "in the month of" will do: bare singular חודש is
 # also a length of time ("בתוך חודש מאי תשלום", within a month of non-payment).
@@ -9168,9 +9187,9 @@ _HEBREW_MONTH_IN_THE_MONTH_OF_BEFORE_PATTERN = re.compile(
 )
 # Names that are also ordinary words: מאי ("from whom", "of non-", the name
 # Shammai as ש+מאי) and מרץ ("vigour"). A group made only of these is dated
-# by a year after it or by "in the month of" before it ("בחודש מאי");
-# a day number or a second homograph beside it is too weak ("סעיף 7 מאי
-# ספיקה", "במרץ ובמרץ").
+# by a year after it, the year it recurs in ("של כל שנה", or "כל שנה" after a
+# day) or "in the month of" before it ("בחודש מאי"); a day number or a second
+# homograph beside it is too weak ("סעיף 7 מאי ספיקה", "במרץ ובמרץ").
 _HEBREW_MONTH_HOMOGRAPHS = frozenset({"מאי", "מרץ"})
 # How far back a day or the word month can stand from the name it dates.
 _HEBREW_MONTH_CONTEXT_WINDOW = 40
@@ -9184,6 +9203,7 @@ def _iter_hebrew_gregorian_month_matches(
     Month names side by side, joined by a comma, a dash, "עד" or "או" or by
     the conjunction the next name carries, are one list or range, and it is
     dated as a whole: "יולי ואוגוסט 1939" dates July by the year after August.
+    The list itself dates nothing; a plural "the months" before it does.
     """
     matches = list(_HEBREW_GREGORIAN_MONTH_PATTERN.finditer(text))
     if not matches:
@@ -9206,22 +9226,27 @@ def _iter_hebrew_gregorian_month_matches(
         )
         # Searched by position, not in a slice, so the lookbehinds see the
         # character before the window: a number it cuts in two is no day.
+        day_before = _HEBREW_MONTH_DAY_BEFORE_PATTERN.search(text, window_start, first)
         if all(
             match.group("month") in _HEBREW_MONTH_HOMOGRAPHS for match in group
         ) and not (
             _HEBREW_MONTH_YEAR_AFTER_PATTERN.match(text, last)
             or _HEBREW_MONTH_YEAR_OF_AFTER_PATTERN.match(text, last)
+            or (day_before and _HEBREW_MONTH_EACH_YEAR_AFTER_PATTERN.match(text, last))
             or _HEBREW_MONTH_IN_THE_MONTH_OF_BEFORE_PATTERN.search(
                 text, window_start, first
             )
         ):
             continue
         if not (
-            len(group) > 1
-            or _HEBREW_MONTH_YEAR_AFTER_PATTERN.match(text, last)
+            _HEBREW_MONTH_YEAR_AFTER_PATTERN.match(text, last)
             or _HEBREW_MONTH_YEAR_OF_AFTER_PATTERN.match(text, last)
-            or _HEBREW_MONTH_DAY_BEFORE_PATTERN.search(text, window_start, first)
+            or day_before
             or _HEBREW_MONTH_WORD_BEFORE_PATTERN.search(text, window_start, first)
+            or (
+                len(group) > 1
+                and _HEBREW_MONTHS_WORD_BEFORE_PATTERN.search(text, window_start, first)
+            )
         ):
             continue
         dated.extend(
@@ -9235,10 +9260,11 @@ def _iter_hebrew_gregorian_month_matches(
 # schedule A1 part D ("September 1939 to April 1940 | 65 and 8 months") must
 # ground the birth months its Hebrew original grounds; otherwise the encoder
 # reports a month number as ungrounded only because the source is in English.
-# Only the full names count, capitalised or in capitals: legislation always
-# capitalises a month, so lowercase "may", "march" and "august" stay ordinary
-# words, and the abbreviations ("Pub. L. 99-514, Oct. 22, 1986") mostly date
-# the citations and source credits around a provision.
+# Only the full names count, in title case or in capitals ("June", "JUNE").
+# English writes a month with a capital letter, so lowercase "may", "march" and
+# "august" are read as the ordinary words, and a month a source types in
+# lowercase stays undated. The abbreviations ("Pub. L. 99-514, Oct. 22, 1986")
+# mostly date the citations and source credits around a provision.
 _ENGLISH_GREGORIAN_MONTH_NUMBERS = {
     "January": 1.0,
     "February": 2.0,
@@ -9268,6 +9294,10 @@ _ENGLISH_GREGORIAN_MONTH_PATTERN = re.compile(
 _ENGLISH_MONTH_SPACE = rf"[^\S{_LINE_BREAK_CHARS}]"
 _ENGLISH_MONTH_CONTEXT_BREAK_PATTERN = re.compile(rf"[{_LINE_BREAK_CHARS}|]")
 _ENGLISH_MONTH_DAY_NUMBER = r"(?:0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?(?!\w|[.,]\d)"
+# The words that date a name match in any case, as the names do: a schedule
+# set in capitals ("JULY AND AUGUST 1939", "IN THE MONTH OF JUNE") dates its
+# months as one in sentence case does.
+#
 # English writes the day between the month and its year ("June 30, 1939"),
 # where Hebrew writes it before the month ("30 ביוני 1939").
 _ENGLISH_MONTH_OPTIONAL_DAY_AFTER = (
@@ -9282,24 +9312,39 @@ _ENGLISH_MONTH_YEAR_AFTER_PATTERN = re.compile(
     + rf"(?:(?:of|in){_ENGLISH_MONTH_SPACE}+(?:the{_ENGLISH_MONTH_SPACE}+)?"
     + rf"(?:calendar{_ENGLISH_MONTH_SPACE}+)?year{_ENGLISH_MONTH_SPACE}+"
     + rf"|of{_ENGLISH_MONTH_SPACE}+)?"
-    + rf"{_TEMPORAL_YEAR_BODY}{_TEMPORAL_YEAR_END}"
+    + rf"{_TEMPORAL_YEAR_BODY}{_TEMPORAL_YEAR_END}",
+    re.IGNORECASE,
 )
-# The year the month recurs in, after the name or its day: "June of each year",
-# "May 1 of each year", "January of the following year", "April of the tax
-# year" (Hebrew "של כל שנה", "של שנת המס").
-_ENGLISH_MONTH_YEAR_OF_AFTER_PATTERN = re.compile(
-    _ENGLISH_MONTH_OPTIONAL_DAY_AFTER
-    + rf"{_ENGLISH_MONTH_SPACE}+(?:of|in){_ENGLISH_MONTH_SPACE}+"
-    + rf"(?:(?:each|every|any|that|such|the|a){_ENGLISH_MONTH_SPACE}+)?"
-    + r"(?:(?:same|following|next|preceding|previous|prior|current|succeeding"
+_ENGLISH_MONTH_RECURRING_YEAR = (
+    r"(?:(?:same|following|next|preceding|previous|prior|current|succeeding"
     + rf"|subsequent){_ENGLISH_MONTH_SPACE}+)?"
     + r"(?:(?:calendar|tax|taxable|fiscal|income|assessment|benefit|plan|school)"
     + rf"{_ENGLISH_MONTH_SPACE}+)?"
     + r"year(?!\w)"
 )
+# The year the month recurs in, after the name or its day: "June of each year",
+# "May 1 of each year", "January of the following year", "April of the tax
+# year" (Hebrew "של כל שנה", "בכל שנה", "של שנת המס").
+_ENGLISH_MONTH_YEAR_OF_AFTER_PATTERN = re.compile(
+    _ENGLISH_MONTH_OPTIONAL_DAY_AFTER
+    + rf"{_ENGLISH_MONTH_SPACE}+(?:of|in){_ENGLISH_MONTH_SPACE}+"
+    + rf"(?:(?:each|every|any|that|such|the|a){_ENGLISH_MONTH_SPACE}+)?"
+    + _ENGLISH_MONTH_RECURRING_YEAR,
+    re.IGNORECASE,
+)
+# "Each year" or "every year" with no "of" or "in" dates a name only beside a
+# day: "May 1 each year", "on 1 May every year" (Hebrew "ב־1 במאי כל שנה").
+# Without the day the names may be people ("April and June each year receive
+# a grant").
+_ENGLISH_MONTH_EACH_YEAR_AFTER_PATTERN = re.compile(
+    rf"{_ENGLISH_MONTH_SPACE}+(?:each|every){_ENGLISH_MONTH_SPACE}+"
+    + _ENGLISH_MONTH_RECURRING_YEAR,
+    re.IGNORECASE,
+)
 _ENGLISH_MONTH_DAY_AFTER_PATTERN = re.compile(
     rf"{_ENGLISH_MONTH_SPACE}+(?:the{_ENGLISH_MONTH_SPACE}+)?"
-    rf"{_ENGLISH_MONTH_DAY_NUMBER}"
+    rf"{_ENGLISH_MONTH_DAY_NUMBER}",
+    re.IGNORECASE,
 )
 _ENGLISH_ORDINAL_DAY_WORDS = (
     "first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|"
@@ -9315,29 +9360,74 @@ _ENGLISH_MONTH_DAY_BEFORE_PATTERN = re.compile(
     rf"(?:{_ENGLISH_MONTH_SPACE}+day)?(?:{_ENGLISH_MONTH_SPACE}+of)?"
     rf"|(?<!\w)(?:{_ENGLISH_ORDINAL_DAY_WORDS})(?:{_ENGLISH_MONTH_SPACE}+day)?"
     rf"{_ENGLISH_MONTH_SPACE}+of)"
-    rf"{_ENGLISH_MONTH_SPACE}*$"
+    rf"{_ENGLISH_MONTH_SPACE}*$",
+    re.IGNORECASE,
 )
 # The singular word month before the name: "the month of July", "in the month
-# of May". The plural ("the months of April, July, October and January") need
-# not name the month that follows; a list after it dates itself.
+# of May".
 _ENGLISH_MONTH_WORD_BEFORE_PATTERN = re.compile(
-    rf"(?<!\w)month{_ENGLISH_MONTH_SPACE}+of{_ENGLISH_MONTH_SPACE}*$"
+    rf"(?<!\w)month{_ENGLISH_MONTH_SPACE}+of{_ENGLISH_MONTH_SPACE}*$",
+    re.IGNORECASE,
+)
+# The plural dates a list of two or more names after it: "the months April,
+# July, October and January", "the ten months February through November",
+# "during the months of June and July" (Hebrew "מהחודשים", "חודשי"). After a
+# count with "of" ("within 3 months of April and June") the names may be
+# people, and a single name after the plural may be one too.
+_ENGLISH_MONTHS_WORD_BEFORE_PATTERN = re.compile(
+    rf"(?:(?<!\w)the{_ENGLISH_MONTH_SPACE}+months{_ENGLISH_MONTH_SPACE}+of"
+    rf"|(?<!\w)months){_ENGLISH_MONTH_SPACE}*$",
+    re.IGNORECASE,
 )
 # Month names side by side are one list or range: "July and August 1939", "May
-# to December 1940", "April, July, October, and January", "May–December".
+# to December 1940", "April, July, October, and January", "May–December". They
+# share the evidence that dates any of them, but the list adds none of its own:
+# a source lists and ranges people's names the same way ("Persons named April
+# and June may apply", "a letter from April to June").
 _ENGLISH_MONTH_LIST_GAP_PATTERN = re.compile(
     rf"{_ENGLISH_MONTH_SPACE}*(?:[,;]{_ENGLISH_MONTH_SPACE}*)?"
     rf"(?:(?:and/or|and|or|to|through|thru|until|till)(?!\w){_ENGLISH_MONTH_SPACE}*"
-    rf"|[–—-]{_ENGLISH_MONTH_SPACE}*)?"
+    rf"|[–—-]{_ENGLISH_MONTH_SPACE}*)?",
+    re.IGNORECASE,
 )
 # "May" is also the modal verb, capitalised in a title-case heading ("Section 4
-# May Be Waived", "Persons Aged 18 May Apply") and in capitals ("MAY"). A group
+# May Be Waived", "Persons Aged 18 May Apply") and in capitals ("MAY"). A list
 # made only of it is dated by a year after it ("May 1950", "May 1, 1950"), the
 # year it recurs in ("May 1 of each year") or "month of" before it, as Hebrew
 # dates its homographs מאי and מרץ; a day alone is too weak.
 _ENGLISH_MONTH_HOMOGRAPHS = frozenset({"May", "MAY"})
-# How far back the dating patterns look. They end at the name (only spaces
-# between), so the window bounds the scan and cuts off only a run of padding.
+# Some words follow both the month and the verb: "May in each year" and "THE
+# BOARD MAY IN ANY YEAR ADOPT", "May through December" and "THE SECRETARY MAY,
+# THROUGH DECEMBER 31, EXTEND". Before one of them, a "May" that opens its list
+# is the month only after a word that takes a month ("from May through
+# December", "on 1 May in each year", "the first day of May in each year") or
+# at the start of its line or cell, with at most a day before it ("1 May in
+# each year").
+_ENGLISH_MAY_SHARED_CONTINUATION_PATTERN = re.compile(
+    rf"{_ENGLISH_MONTH_SPACE}*,?{_ENGLISH_MONTH_SPACE}*"
+    r"(?:in|each|every|through|thru|until|till)(?!\w)",
+    re.IGNORECASE,
+)
+_ENGLISH_MAY_DAY_BEFORE = (
+    rf"(?:the{_ENGLISH_MONTH_SPACE}+)?(?<![\w.,])(?:0?[1-9]|[12]\d|3[01])"
+    rf"(?:st|nd|rd|th)?{_ENGLISH_MONTH_SPACE}+"
+)
+_ENGLISH_MAY_AFTER_PREPOSITION_PATTERN = re.compile(
+    r"(?<!\w)(?:from|in|on|during|since|until|till|through|thru|between|before"
+    r"|after|by|to|for|of|beginning|starting|ending|commencing)"
+    rf"{_ENGLISH_MONTH_SPACE}+(?:{_ENGLISH_MAY_DAY_BEFORE})?$",
+    re.IGNORECASE,
+)
+_ENGLISH_MAY_AT_LINE_START_PATTERN = re.compile(
+    rf"{_ENGLISH_MONTH_SPACE}*(?:{_ENGLISH_MAY_DAY_BEFORE})?",
+    re.IGNORECASE,
+)
+# How far back a day or the word month can stand from the name it dates: one
+# that starts more than 40 characters before the name dates nothing, even when
+# the window cuts through it ("31" and 39 spaces before "June"). The patterns
+# search the text by position, so their lookbehinds see the character before
+# the window, and the tail of a cut number or word ("1230", "semimonth") is
+# never read on its own.
 _ENGLISH_MONTH_CONTEXT_WINDOW = 40
 
 
@@ -9353,19 +9443,36 @@ def _english_month_context_start(text: str, first: int) -> int:
     return breaks[-1].end() if breaks else start
 
 
+def _english_may_can_be_the_month(text: str, may: re.Match[str]) -> bool:
+    """Whether a "May" that opens its list can be the month, not the verb."""
+    if not _ENGLISH_MAY_SHARED_CONTINUATION_PATTERN.match(text, may.end()):
+        return True
+    first = may.start()
+    start = _english_month_context_start(text, first)
+    if _ENGLISH_MAY_AFTER_PREPOSITION_PATTERN.search(text, start, first):
+        return True
+    at_line_start = start == 0 or bool(
+        _ENGLISH_MONTH_CONTEXT_BREAK_PATTERN.match(text, start - 1)
+    )
+    return at_line_start and bool(
+        _ENGLISH_MAY_AT_LINE_START_PATTERN.fullmatch(text, start, first)
+    )
+
+
 def _iter_english_gregorian_month_matches(
     text: str,
 ) -> list[tuple[tuple[int, int], float]]:
     """Read each English month name the text uses as a date.
 
     The English twin of ``_iter_hebrew_gregorian_month_matches``, with its
-    rules. Month names side by side ("July and August 1939", "May to December
-    1940") are one list, dated as a whole. A list of two or more names dates
-    itself; otherwise a name is dated by a year after it or its day ("June
-    1939", "June 30, 1939"), the year it recurs in ("June 30 of each year"), a
-    day after or before it ("June 30", "30 June", "the thirtieth day of June")
-    or "month of" before it, all on its own line and table cell. A group made
-    only of "May" needs a year after it, the year it recurs in, or "month of".
+    rules. A year after the name or its day dates it ("June 1939", "June 30,
+    1939"), as do the year it recurs in ("June 30 of each year", "June 30 each
+    year"), a day after or before it ("June 30", "30 June", "the thirtieth day
+    of June") and "month of" before it, all on its own line and table cell. Names side by side
+    ("July and August 1939", "May to December 1940") are one list, dated as a
+    whole; the list itself dates nothing, but the plural "months" before it
+    does. A list made only of "May" needs a year after it, the year it recurs
+    in, or "month of" before it.
     """
     matches = list(_ENGLISH_GREGORIAN_MONTH_PATTERN.finditer(text))
     if not matches:
@@ -9380,21 +9487,40 @@ def _iter_english_gregorian_month_matches(
             groups.append([current])
     dated: list[tuple[tuple[int, int], float]] = []
     for group in groups:
+        # A "May" that opens the list and may be the verb leaves it.
+        while (
+            group
+            and group[0].group("month") in _ENGLISH_MONTH_HOMOGRAPHS
+            and not _english_may_can_be_the_month(text, group[0])
+        ):
+            group = group[1:]
+        if not group:
+            continue
         first, last = group[0].start(), group[-1].end()
         start = _english_month_context_start(text, first)
+        day_after = _ENGLISH_MONTH_DAY_AFTER_PATTERN.match(text, last)
+        day_before = _ENGLISH_MONTH_DAY_BEFORE_PATTERN.search(text, start, first)
         dated_by_year = bool(
             _ENGLISH_MONTH_YEAR_AFTER_PATTERN.match(text, last)
             or _ENGLISH_MONTH_YEAR_OF_AFTER_PATTERN.match(text, last)
             or _ENGLISH_MONTH_WORD_BEFORE_PATTERN.search(text, start, first)
+            or (
+                day_after
+                and _ENGLISH_MONTH_EACH_YEAR_AFTER_PATTERN.match(text, day_after.end())
+            )
+            or (day_before and _ENGLISH_MONTH_EACH_YEAR_AFTER_PATTERN.match(text, last))
         )
         if all(match.group("month") in _ENGLISH_MONTH_HOMOGRAPHS for match in group):
             if not dated_by_year:
                 continue
         elif not (
             dated_by_year
-            or len(group) > 1
-            or _ENGLISH_MONTH_DAY_AFTER_PATTERN.match(text, last)
-            or _ENGLISH_MONTH_DAY_BEFORE_PATTERN.search(text, start, first)
+            or day_after
+            or day_before
+            or (
+                len(group) > 1
+                and _ENGLISH_MONTHS_WORD_BEFORE_PATTERN.search(text, start, first)
+            )
         ):
             continue
         dated.extend(

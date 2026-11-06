@@ -81,7 +81,8 @@ DATED_CONTEXTS = (
     "בחודש {m} שבתכוף",
     "מהחודשים {m}, יולי",
     "{m} של כל שנה",
-    "{m} ועד דצמבר",
+    "ב־1 {m} כל שנה",
+    "{m} ועד דצמבר 1940",
     "(5 {m} 2008)",
 )
 # Contexts dated by a day alone. The homographs מאי and מרץ need a year or the
@@ -96,6 +97,14 @@ UNDATED_CONTEXTS = (
     "65 ו־4 חודשים\n{m} ספיקה",
     "| 4 | {m} ספיקה",
     "1939\n{m} ספיקה",
+    # A list or a range of names dates nothing by itself: people's names are
+    # listed the same way ("יוני ומאי", Yoni and Mai).
+    "{m} ויולי",
+    "{m} ועד דצמבר",
+    # A count of months is a length of time, not the months it names.
+    "בתוך 3 חודשים {m} ויולי",
+    # "כל שנה" with no של or ב needs a day ("יוני כל שנה מגיש").
+    "{m} כל שנה",
 )
 
 
@@ -322,8 +331,9 @@ def test_defective_or_plural_month_word_dates_no_single_month():
 
 
 def test_a_list_of_months_is_dated_as_a_whole():
-    # July is dated by the year after August, and a list after "the months"
-    # is dated by that word however long it runs.
+    # The year after August dates July too, and "the months" dates the list
+    # after it, however long the list runs. The list alone dates nothing
+    # (test_english_month_grounding.py, section b).
     assert {7.0, 8.0} <= _month_numbers("יולי ואוגוסט 1939")
     assert {1.0, 4.0, 7.0, 10.0} <= _month_numbers(
         "בכל אחד מהחודשים אפריל, יולי, אוקטובר וינואר, בעבור הרבעון"
@@ -947,15 +957,20 @@ def test_other_grounding_consumers_ignore_month_numbers_by_default():
     )
 
 
-@pytest.mark.parametrize("text", ("מאי ויוני", "מאי, יוני", "מרץ עד אפריל"))
+@pytest.mark.parametrize(
+    "text", ("בחודשים מאי ויוני", "מהחודשים מאי, יוני", "ביום 4 במרץ עד אפריל")
+)
 def test_a_homograph_listed_with_another_month_is_dated_with_the_list(text):
-    # The homograph gate covers groups made only of homographs; a list with a
-    # non-homograph month dates every name in it, as the changelog states.
+    # The homograph gate covers groups made only of homographs: what dates a
+    # non-homograph month in a list (the plural "months" before it, a day)
+    # dates every name in the list.
     values = {value for _raw, value, _temporal in _month_occurrences(text)}
     assert len(values) == 2
 
 
-@pytest.mark.parametrize("text", ("מאי ומרץ", "מרץ, מאי"))
+@pytest.mark.parametrize(
+    "text", ("מאי ומרץ", "מרץ, מאי", "בחודשים מאי ומרץ", "ביום 4 במרץ עד מאי")
+)
 def test_a_list_of_only_homographs_needs_a_year_or_in_the_month_of(text):
     assert _month_occurrences(text) == set()
     assert {3.0, 5.0} <= {value for _r, value, _t in _month_occurrences(text + " 1990")}
