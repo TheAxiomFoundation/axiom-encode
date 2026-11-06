@@ -377,6 +377,8 @@ class ExecutionCapture:
     # Neither constructor arguments nor RuleSpec/environment metadata grant it.
     _child_credit_seed: Any = field(default=None, init=False, repr=False)
     _child_credit_context: Any = field(default=None, init=False, repr=False)
+    _retirement_transfer_seed: Any = field(default=None, init=False, repr=False)
+    _retirement_transfer_context: Any = field(default=None, init=False, repr=False)
 
     def fresh(self) -> bool:
         try:
@@ -402,9 +404,15 @@ class ExecutionCapture:
     def compiled(self, artifact: Path) -> None:
         self.records.clear()
         self._child_credit_context = None
+        self._retirement_transfer_context = None
         self.artifact = artifact
         raw = artifact.read_bytes()
         self.artifact_sha256 = digest(raw)
+        if (
+            self._child_credit_seed is not None
+            and self._retirement_transfer_seed is not None
+        ):
+            return
         if self._child_credit_seed is not None:
             from .child_credit_execution import _bind_capture_context
 
@@ -418,6 +426,26 @@ class ExecutionCapture:
             if root is not None and companion is not None:
                 self._child_credit_context = _bind_capture_context(
                     self._child_credit_seed,
+                    root.raw.decode(),
+                    self.root_relative,
+                    self.engine_pin,
+                    raw,
+                    companion.raw,
+                )
+
+        if self._retirement_transfer_seed is not None:
+            from .retirement_transfer_execution import _bind_capture_context
+
+            root = next(
+                (f for f in self.files if f.relative == self.root_relative), None
+            )
+            companion_path = str(Path(self.root_relative).with_suffix(".test.yaml"))
+            companion = next(
+                (f for f in self.files if f.relative == companion_path), None
+            )
+            if root is not None and companion is not None:
+                self._retirement_transfer_context = _bind_capture_context(
+                    self._retirement_transfer_seed,
                     root.raw.decode(),
                     self.root_relative,
                     self.engine_pin,
@@ -454,11 +482,34 @@ class ExecutionCapture:
         ):
             return
         trace = row.get("trace")
+        if (
+            self._child_credit_seed is not None
+            and self._retirement_transfer_seed is not None
+        ):
+            return
         if self._child_credit_seed is not None:
             context = self._child_credit_context
             if (
                 context is None
                 or context.binding != self._child_credit_seed
+                or context.root_relative != self.root_relative
+                or context.engine_pin != self.engine_pin
+                or not context.accepts(
+                    self.artifact.read_bytes(), case, request, response, case_index
+                )
+            ):
+                return
+        elif self._retirement_transfer_seed is not None:
+            context = self._retirement_transfer_context
+            companion_path = str(Path(self.root_relative).with_suffix(".test.yaml"))
+            closure = {f.relative: f.raw for f in self.files}
+            if (
+                context is None
+                or len(self.files) != 2
+                or set(closure) != {self.root_relative, companion_path}
+                or context.content.encode() != closure.get(self.root_relative)
+                or context.companion_bytes != closure.get(companion_path)
+                or context.binding != self._retirement_transfer_seed
                 or context.root_relative != self.root_relative
                 or context.engine_pin != self.engine_pin
                 or not context.accepts(
@@ -685,6 +736,17 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
                     is not None
                 )
             if not local_form:
+                from .retirement_transfer_execution import (
+                    _capture_source_binding as bind_transfer,
+                )
+
+                local_form = (
+                    bind_transfer(
+                        content, sources, rules_file.relative_to(root).as_posix()
+                    )
+                    is not None
+                )
+            if not local_form:
                 return None
         exports = pipe._complete_source_unit_import_bindings(rules_file)
         derived = set()
@@ -826,8 +888,23 @@ def _materialize_snapshot(
             )
             or {}
         )
+        from .retirement_transfer_execution import (
+            _capture_source_binding as bind_transfer,
+        )
+
         seed = _capture_source_binding(content, sources, capture.root_relative)
-        if seed is not None:
+        transfer_seed = bind_transfer(content, sources, capture.root_relative)
+        if seed is not None and transfer_seed is not None:
+            return None
+        if transfer_seed is not None:
+            companion = str(Path(capture.root_relative).with_suffix(".test.yaml"))
+            if {f.relative for f in capture.files} != {
+                capture.root_relative,
+                companion,
+            }:
+                return None
+            capture._retirement_transfer_seed = transfer_seed
+        elif seed is not None:
             companion = str(Path(capture.root_relative).with_suffix(".test.yaml"))
             if {f.relative for f in capture.files} != {
                 capture.root_relative,
@@ -836,7 +913,7 @@ def _materialize_snapshot(
                 return None
             capture._child_credit_seed = seed
         elif not bind_local_form_snapshot(content, sources, capture.root_relative):
-            # An eligible NS graph cannot fall back to an unbound same-entity
+            # An eligible local graph cannot fall back to an unbound same-entity
             # capture if its resolver selection changed during cloning.
             return None
     return capture
