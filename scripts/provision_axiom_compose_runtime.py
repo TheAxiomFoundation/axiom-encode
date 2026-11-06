@@ -124,9 +124,10 @@ def provision(
         git_home = snapshot / "home"
         git_home.mkdir()
         git_dir = _own_compose_git_directory(checkout, snapshot)
-        if _hardened_git_text(
-            trusted_git, git_dir, git_home, "rev-parse", "HEAD"
-        ) != compose_ref:
+        if (
+            _hardened_git_text(trusted_git, git_dir, git_home, "rev-parse", "HEAD")
+            != compose_ref
+        ):
             raise SystemExit("axiom-compose snapshot HEAD does not match --compose-ref")
         origin = _hardened_git_text(
             trusted_git, git_dir, git_home, "config", "--get", "remote.origin.url"
