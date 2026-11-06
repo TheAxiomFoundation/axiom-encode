@@ -421,9 +421,15 @@ jobs:
 
           path = pathlib.Path(sys.argv[1])
           # A repository without a workflow toolchain table pins no composer,
-          # the same as a table without axiom_compose_ref. Any path entry that
-          # is present (a dangling link, a directory, bad TOML) still fails.
-          if not os.path.lexists(path):
+          # the same as a table without axiom_compose_ref. The file counts as
+          # absent only when .axiom is absent or a real directory; any other
+          # entry (a dangling link, a directory, bad TOML, a non-directory or
+          # linked .axiom) still fails.
+          axiom_dir = path.parent
+          axiom_dir_is_plain = not os.path.lexists(axiom_dir) or (
+              axiom_dir.is_dir() and not axiom_dir.is_symlink()
+          )
+          if axiom_dir_is_plain and not os.path.lexists(path):
               print("")
               raise SystemExit(0)
           payload = tomllib.loads(path.read_text())

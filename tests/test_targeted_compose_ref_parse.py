@@ -117,6 +117,34 @@ def test_dangling_toolchain_link_still_fails(tmp_path: Path) -> None:
     assert "FileNotFoundError" in result.stderr
 
 
+def test_axiom_file_still_fails(tmp_path: Path) -> None:
+    axiom = tmp_path / "rulespec-xx" / ".axiom"
+    axiom.parent.mkdir()
+    axiom.write_text("", encoding="utf-8")
+
+    result = _parse(tmp_path, axiom / "workflow-toolchain.toml")
+
+    assert result.returncode != 0
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("target_exists", [False, True])
+def test_linked_axiom_directory_still_fails(
+    tmp_path: Path, target_exists: bool
+) -> None:
+    target = tmp_path / "elsewhere"
+    if target_exists:
+        target.mkdir()
+    axiom = tmp_path / "rulespec-xx" / ".axiom"
+    axiom.parent.mkdir()
+    axiom.symlink_to(target, target_is_directory=True)
+
+    result = _parse(tmp_path, axiom / "workflow-toolchain.toml")
+
+    assert result.returncode != 0
+    assert result.stdout == ""
+
+
 def test_toolchain_directory_still_fails(tmp_path: Path) -> None:
     toolchain = _toolchain(tmp_path)
     toolchain.mkdir()
