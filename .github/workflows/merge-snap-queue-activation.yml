@@ -210,41 +210,62 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --merge \
             --match-head-commit "$HEAD_SHA"
+          # Retry a read three times, so one API error does not end the wait.
+          read_pr() {
+            for attempt in 1 2 3; do
+              if gh api \
+                --header "Accept: application/vnd.github+json" \
+                --header "X-GitHub-Api-Version: $api_version" \
+                "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST_NUMBER" \
+                > "$RUNNER_TEMP/merged-activation-pr.json"; then
+                return 0
+              fi
+              sleep $((attempt * 5))
+            done
+            return 1
+          }
+          read_queue_entry() {
+            for attempt in 1 2 3; do
+              if gh api graphql \
+                -F owner="${GITHUB_REPOSITORY%/*}" \
+                -F name="${GITHUB_REPOSITORY#*/}" \
+                -F number="$PULL_REQUEST_NUMBER" \
+                -f query='query($owner: String!, $name: String!, $number: Int!) {
+                  repository(owner: $owner, name: $name) {
+                    pullRequest(number: $number) { mergeQueueEntry { state } }
+                  }
+                }' > "$RUNNER_TEMP/activation-queue-entry.json"; then
+                return 0
+              fi
+              sleep $((attempt * 5))
+            done
+            return 1
+          }
           merged=false
+          awaiting_since=""
+          ci_started=false
           for _ in $(seq 1 180); do
-            gh api \
-              --header "Accept: application/vnd.github+json" \
-              --header "X-GitHub-Api-Version: $api_version" \
-              "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST_NUMBER" \
-              > "$RUNNER_TEMP/merged-activation-pr.json"
+            read_pr
             if jq -e '.merged_at != null' \
               "$RUNNER_TEMP/merged-activation-pr.json" > /dev/null; then
               merged=true
               break
             fi
+            # GitHub sets merged_at when it closes a merged pull request, so a
+            # closed pull request without merged_at is final.
             if ! jq -e '.state == "open"' \
               "$RUNNER_TEMP/merged-activation-pr.json" > /dev/null; then
               echo "activation pull request closed without a merge" >&2
               exit 1
             fi
-            in_queue="$(gh api graphql \
-              -F owner="${GITHUB_REPOSITORY%/*}" \
-              -F name="${GITHUB_REPOSITORY#*/}" \
-              -F number="$PULL_REQUEST_NUMBER" \
-              -f query='query($owner: String!, $name: String!, $number: Int!) {
-                repository(owner: $owner, name: $name) {
-                  pullRequest(number: $number) { isInMergeQueue }
-                }
-              }' \
-              --jq '.data.repository.pullRequest.isInMergeQueue')"
-            if [ "$in_queue" != "true" ]; then
+            read_queue_entry
+            entry_state="$(jq -r \
+              '.data.repository.pullRequest.mergeQueueEntry.state // "NONE"' \
+              "$RUNNER_TEMP/activation-queue-entry.json")"
+            if [ "$entry_state" = "NONE" ]; then
               # The queue may have merged it just after the read above.
               sleep 10
-              gh api \
-                --header "Accept: application/vnd.github+json" \
-                --header "X-GitHub-Api-Version: $api_version" \
-                "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST_NUMBER" \
-                > "$RUNNER_TEMP/merged-activation-pr.json"
+              read_pr
               if jq -e '.merged_at != null' \
                 "$RUNNER_TEMP/merged-activation-pr.json" > /dev/null; then
                 merged=true
@@ -252,6 +273,30 @@ jobs:
               fi
               echo "the merge queue removed the activation pull request" >&2
               exit 1
+            fi
+            # Events that GITHUB_TOKEN causes usually start no workflow run, and
+            # a merge_group run belongs to the account that queued the pull
+            # request. So once the queue builds this entry, a merge_group run
+            # on its gh-readonly-queue/main/pr-<number>-<sha> branch must start
+            # within 5 minutes. If none does, fail; the step after this one
+            # takes the entry out, so it does not hold the queue for the
+            # rule's 60-minute check timeout.
+            if [ "$entry_state" = "AWAITING_CHECKS" ] \
+              && [ "$ci_started" != "true" ]; then
+              awaiting_since="${awaiting_since:-$SECONDS}"
+              ci_runs="$(gh api \
+                --header "Accept: application/vnd.github+json" \
+                --header "X-GitHub-Api-Version: $api_version" \
+                "repos/$GITHUB_REPOSITORY/actions/runs?event=merge_group&per_page=100" \
+                --jq "[.workflow_runs[] | select(.head_branch | startswith(\"gh-readonly-queue/main/pr-$PULL_REQUEST_NUMBER-\"))] | length" \
+                || echo unknown)"
+              if [[ "$ci_runs" =~ ^[1-9][0-9]*$ ]]; then
+                ci_started=true
+              elif [ "$ci_runs" = "0" ] \
+                && [ $((SECONDS - awaiting_since)) -ge 300 ]; then
+                echo "the merge queue started no merge_group CI run for pull request $PULL_REQUEST_NUMBER in 5 minutes; a pull request that GITHUB_TOKEN queues may need an App token" >&2
+                exit 1
+              fi
             fi
             sleep 30
           done
@@ -272,13 +317,6 @@ jobs:
             echo "trusted activation merge commit is unavailable" >&2
             exit 1
           fi
-          # gh cannot delete the branch of a queued pull request, so delete
-          # it here. A failed delete leaves a stale branch, not a bad merge.
-          gh api -X DELETE \
-            --header "Accept: application/vnd.github+json" \
-            --header "X-GitHub-Api-Version: $api_version" \
-            "repos/$GITHUB_REPOSITORY/git/refs/heads/$HEAD_REF" \
-            || echo "::warning::could not delete branch $HEAD_REF"
           git fetch --no-tags origin main
           git merge-base --is-ancestor "$merge_commit" refs/remotes/origin/main
           queue_change_sha="$(git log --first-parent -1 --format=%H \
@@ -317,3 +355,88 @@ jobs:
             ${{ runner.temp }}/merged-activation-pr.json
           if-no-files-found: error
           retention-days: 90
+
+      # If the merge step fails or is cancelled after it queued the pull
+      # request, the queue could still merge it later with no merge
+      # authorization artifact. So take an unmerged activation pull request out
+      # of the queue and turn off any auto-merge. Only this workflow may merge
+      # an activation pull request (merged_by must be github-actions[bot]), so
+      # this never removes a merge that a person started.
+      - name: Take an unmerged activation out of the merge queue
+        if: ${{ (failure() || cancelled()) && steps.pull.outputs.head_sha != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+        run: |
+          set -euo pipefail
+          gh api graphql \
+            -F owner="${GITHUB_REPOSITORY%/*}" \
+            -F name="${GITHUB_REPOSITORY#*/}" \
+            -F number="$PULL_REQUEST_NUMBER" \
+            -f query='query($owner: String!, $name: String!, $number: Int!) {
+              repository(owner: $owner, name: $name) {
+                pullRequest(number: $number) {
+                  id merged mergeQueueEntry { state } autoMergeRequest { enabledAt }
+                }
+              }
+            }' > "$RUNNER_TEMP/activation-cleanup.json"
+          pr='.data.repository.pullRequest'
+          if jq -e "$pr.merged" "$RUNNER_TEMP/activation-cleanup.json" > /dev/null; then
+            exit 0
+          fi
+          pr_id="$(jq -er "$pr.id" "$RUNNER_TEMP/activation-cleanup.json")"
+          if jq -e "$pr.mergeQueueEntry != null" \
+            "$RUNNER_TEMP/activation-cleanup.json" > /dev/null; then
+            gh api graphql -F id="$pr_id" \
+              -f query='mutation($id: ID!) {
+                dequeuePullRequest(input: {id: $id}) { clientMutationId }
+              }' > /dev/null
+            echo "::warning::took activation pull request $PULL_REQUEST_NUMBER out of the merge queue"
+          fi
+          if jq -e "$pr.autoMergeRequest != null" \
+            "$RUNNER_TEMP/activation-cleanup.json" > /dev/null; then
+            gh api graphql -F id="$pr_id" \
+              -f query='mutation($id: ID!) {
+                disablePullRequestAutoMerge(input: {pullRequestId: $id}) { clientMutationId }
+              }' > /dev/null
+            echo "::warning::turned off auto-merge on activation pull request $PULL_REQUEST_NUMBER"
+          fi
+
+      # gh cannot delete the branch of a queued pull request, so this step
+      # deletes it. It deletes the ref by its GraphQL ID, only while the ref
+      # still has the activation branch's name and the reviewed head, so a
+      # branch name with URL characters (such as "#") can not select another
+      # branch. A failed delete leaves a stale branch, not a bad merge.
+      - name: Delete merged activation branch
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ steps.pull.outputs.head_ref }}
+          HEAD_SHA: ${{ steps.pull.outputs.head_sha }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+        run: |
+          set -euo pipefail
+          gh api graphql \
+            -F owner="${GITHUB_REPOSITORY%/*}" \
+            -F name="${GITHUB_REPOSITORY#*/}" \
+            -F number="$PULL_REQUEST_NUMBER" \
+            -f query='query($owner: String!, $name: String!, $number: Int!) {
+              repository(owner: $owner, name: $name) {
+                pullRequest(number: $number) {
+                  headRef { id name target { oid } }
+                }
+              }
+            }' > "$RUNNER_TEMP/activation-head-ref.json"
+          ref_id="$(jq -r '
+            .data.repository.pullRequest.headRef
+            | select(.name == env.HEAD_REF and .target.oid == env.HEAD_SHA)
+            | .id
+          ' "$RUNNER_TEMP/activation-head-ref.json")"
+          if [ -z "$ref_id" ]; then
+            echo "::warning::activation branch is gone or moved; not deleting it"
+            exit 0
+          fi
+          gh api graphql -F id="$ref_id" \
+            -f query='mutation($id: ID!) {
+              deleteRef(input: {refId: $id}) { clientMutationId }
+            }' > /dev/null

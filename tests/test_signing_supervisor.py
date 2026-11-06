@@ -5072,7 +5072,25 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     # fails when the queue drops the pull request (axiom-encode#2048).
     assert merge["jobs"]["merge"]["timeout-minutes"] >= 100
     assert "--delete-branch" not in command
-    assert "isInMergeQueue" in command
+    assert "mergeQueueEntry" in command
+    assert "gh-readonly-queue/main/pr-$PULL_REQUEST_NUMBER-" in command
+    queue_cleanup = next(
+        step
+        for step in steps
+        if step.get("name") == "Take an unmerged activation out of the merge queue"
+    )
+    assert "failure() || cancelled()" in queue_cleanup["if"]
+    assert "dequeuePullRequest" in queue_cleanup["run"]
+    assert "disablePullRequestAutoMerge" in queue_cleanup["run"]
+    # The branch cleanup deletes by GraphQL ref ID, never by a branch-name URL
+    # (test_merge_snap_queue_activation.py runs it on a "#" branch name).
+    assert "git/refs/heads/" not in command
+    cleanup = next(
+        step for step in steps if step.get("name") == "Delete merged activation branch"
+    )
+    assert cleanup["continue-on-error"] is True
+    assert "deleteRef" in cleanup["run"]
+    assert "git/refs/heads/" not in cleanup["run"]
     assert "the merge queue removed the activation pull request" in command
     assert command.index("merged_at != null") < command.index(
         '.merged_by.login == "github-actions[bot]"'
