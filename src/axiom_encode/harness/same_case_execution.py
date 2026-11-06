@@ -383,6 +383,11 @@ class ExecutionCapture:
     _capital_gift_owned: bool = field(default=False, init=False, repr=False)
     _capital_gift_context: Any = field(default=None, init=False, repr=False)
     _capital_gift_refusals: list = field(default_factory=list, init=False, repr=False)
+    _investment_adjustment_owned: bool = field(default=False, init=False, repr=False)
+    _investment_adjustment_context: Any = field(default=None, init=False, repr=False)
+    _investment_adjustment_refusals: list = field(
+        default_factory=list, init=False, repr=False
+    )
 
     def fresh(self) -> bool:
         try:
@@ -408,28 +413,33 @@ class ExecutionCapture:
     def compiled(self, artifact: Path) -> None:
         self.records.clear()
         self._capital_gift_refusals.clear()
+        self._investment_adjustment_refusals.clear()
         self.artifact = artifact
         self.artifact_sha256 = digest(artifact.read_bytes())
-        if self._capital_gift_owned:
-            from .capital_gift_capture import mint
+        from .scoped_execution import adapter
 
-            self._capital_gift_context = mint(self)
+        selected = adapter(self)
+        if selected is not None:
+            module, prefix = selected
+            setattr(self, prefix + "_context", module.mint(self))
 
     def stage_refusal(
         self, case, request, returncode, stdout, stderr, binary, artifact, case_index
     ) -> bool:
         """Separate bounded failure evidence; never fall back to generic stage."""
+        from .scoped_execution import adapter
+
+        selected = adapter(self)
         if (
-            not self._capital_gift_owned
+            selected is None
             or binary != self.binary
             or artifact != self.artifact
             or not self.fresh()
         ):
             return False
-        from .capital_gift_capture import stage_refusal
-
-        return stage_refusal(
-            self._capital_gift_context,
+        module, prefix = selected
+        return module.stage_refusal(
+            getattr(self, prefix + "_context"),
             self,
             case,
             request,
@@ -452,10 +462,20 @@ class ExecutionCapture:
             return
         if not strict_explain_metadata(request, response):
             return
-        if self._capital_gift_owned:
-            from .capital_gift_capture import stage
+        if self._capital_gift_owned or self._investment_adjustment_owned:
+            from .scoped_execution import adapter
 
-            stage(self._capital_gift_context, self, case, request, response, case_index)
+            selected = adapter(self)
+            if selected is not None:
+                module, prefix = selected
+                module.stage(
+                    getattr(self, prefix + "_context"),
+                    self,
+                    case,
+                    request,
+                    response,
+                    case_index,
+                )
             return
         # Initially one Person query, no nested/table/assessment transport.
         queries = request.get("queries")
@@ -506,10 +526,16 @@ class ExecutionCapture:
             tuple(self.records),
             self.overlay_origin,
         )
-        if self._capital_gift_owned:
-            from .capital_gift_capture import register_evidence
+        if self._capital_gift_owned or self._investment_adjustment_owned:
+            from .scoped_execution import adapter
 
-            if not register_evidence(self._capital_gift_context, self, evidence):
+            selected = adapter(self)
+            if selected is None:
+                return None
+            module, prefix = selected
+            if not module.register_evidence(
+                getattr(self, prefix + "_context"), self, evidence
+            ):
                 return None
         return evidence
 
@@ -570,7 +596,7 @@ class SameCaseEvidence:
         self, case: dict[str, Any], content: str
     ) -> tuple[dict[str, Any], dict[str, Any]] | None:
         """Canonical direct imports only; local trace outputs corroborate replay."""
-        from .capital_gift_capture import owns_evidence
+        from .scoped_execution import owns_evidence
 
         if owns_evidence(self):
             # The private positive observer does not grant generic source credit.
@@ -677,10 +703,11 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
         companion = pipe._rulespec_test_path(rules_file)
         if pipe.rulespec_dependency_roots or not companion.is_file():
             return None
-        from .capital_gift_capture import eligible
+        from .scoped_execution import eligible_adapters
 
-        capital_gift = not imports and eligible(pipe, content)
-        if not imports and not capital_gift:
+        owners = eligible_adapters(pipe, content) if not imports else ()
+        scoped = len(owners) == 1
+        if not imports and not scoped:
             return None
         exports = pipe._complete_source_unit_import_bindings(rules_file)
         derived = set()
@@ -693,7 +720,7 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
                 for r in provider.get("rules", [])
             ):
                 derived.add(export.export_name)
-        if not capital_gift and (
+        if not scoped and (
             not derived or not _has_consumer(pipe, content, payload, derived)
         ):
             return None
@@ -815,11 +842,15 @@ def _materialize_snapshot(
         capture, lambda _: _MATERIALIZED_CAPTURES.pop(capture_identity, None)
     )
     if not _payload(rules_file.read_bytes()).get("imports", []):
-        from .capital_gift_capture import activate
+        from .scoped_execution import eligible_adapters
 
-        if not activate(pipe, capture):
+        owners = eligible_adapters(pipe, rules_file.read_text())
+        if len(owners) != 1:
             return None
-        capture._capital_gift_owned = True
+        module, prefix = owners[0]
+        if not module.activate(pipe, capture):
+            return None
+        setattr(capture, prefix + "_owned", True)
     return capture
 
 

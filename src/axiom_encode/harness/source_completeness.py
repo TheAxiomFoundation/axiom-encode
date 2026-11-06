@@ -299,6 +299,7 @@ class _TerminalGateEvidence:
     polarity_conflict: bool
     explicit_name_polarities: frozenset[tuple[str, bool]] = frozenset()
     numeric_income_amount: bool = False
+    affirmative_reason_evidence: bool = False
 
 
 @dataclass(frozen=True)
@@ -5446,6 +5447,27 @@ _SITE_ANALYZE = (
     "axiom_encode/harness/source_completeness.py:analyze_complete_source_unit"
 )
 
+CHECK_SCHEDULE_N_EXECUTION_EVIDENCE = declare_check(
+    "complete-source-unit:schedule-n-evidence/missing",
+    title="Schedule N lacks complete private execution evidence",
+    requires=(
+        "Every owned Schedule N source obligation has unique, fresh typed "
+        "principal and refusal evidence bound to the complete authenticated unit."
+    ),
+    why=(
+        "Generic scalar witnesses, duplicate obligations, or stale execution "
+        "records cannot establish the worksheet's joint source conditions."
+    ),
+    fix=(
+        "Correct the complete companion and source-bound module, then rerun "
+        "ordinary validation with the authenticated release and pinned engine. "
+        "Preserve the source conditions and their positive and refusal witnesses."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+
 CHECK_STRUCTURE_BRANCH_UNENCODED = declare_check(
     "complete-source-unit:structure/branch-unencoded",
     title="Source branch neither encoded nor precisely deferred",
@@ -5771,6 +5793,15 @@ def _analyze_rulespec_payload(
         content, imported_export_bindings
     ):
         execution_evidence = None
+    from .investment_adjustment_evidence import certify_investment_adjustment
+
+    investment_evidence = certify_investment_adjustment(
+        content,
+        raw_source_text or source_text,
+        corpus_citation_path,
+        test_cases,
+        execution_evidence,
+    )
     local_names = {
         str(rule.get("name") or "").strip()
         for rule in payload.get("rules", [])
@@ -5866,6 +5897,10 @@ def _analyze_rulespec_payload(
     )
     issues: list[str] = []
     issues.extend(imprecise_deferrals)
+    issues.extend(
+        ValidationIssue(message, check=CHECK_SCHEDULE_N_EXECUTION_EVIDENCE)
+        for message in investment_evidence.missing()
+    )
     from axiom_encode.harness.worksheet_country_evidence import (
         certify_worksheet_country,
     )
@@ -5905,6 +5940,7 @@ def _analyze_rulespec_payload(
         certified_transfers=certified_transfers,
         certified_country=certified_country,
         repayment_alternatives=repayment_alternatives,
+        investment_evidence=investment_evidence,
         test_cases=test_cases,
     )
     issues.extend(source_condition_issues)
@@ -6079,6 +6115,22 @@ def _analyze_rulespec_payload(
         corpus_citation_path=corpus_citation_path,
         deferred_paths=deferred_paths,
     )
+    formula_branches, investment_missing_formulas = investment_evidence.partition(
+        formula_branches, "formula"
+    )
+    control_branches, investment_missing_controls = investment_evidence.partition(
+        control_branches, "control"
+    )
+    for branch in (*investment_missing_formulas, *investment_missing_controls):
+        issues.append(
+            ValidationIssue(
+                "[complete-source-unit:schedule-n-evidence] Missing or duplicate source-owned "
+                f"{branch.kind} occurrence at {branch.start}:{branch.end}; "
+                "private principal evidence cannot be replaced by generic fallback.",
+                check=CHECK_SCHEDULE_N_EXECUTION_EVIDENCE,
+                subject=_branch_subject(corpus_citation_path, branch),
+            )
+        )
     source_has_computation = source_states_explicit_computation(
         source_text, corpus_citation_path=corpus_citation_path
     )
@@ -6197,6 +6249,7 @@ def _analyze_rulespec_payload(
             _companion_test_issues(
                 principal_rules,
                 execution_evidence=execution_evidence,
+                investment_evidence=investment_evidence,
                 referral_context=referral_context,
                 floor_imported_exports=imported_export_bindings,
                 floor_source_context=imported_proof_source_context,
@@ -6292,6 +6345,9 @@ def _analyze_rulespec_payload(
     covered_source_values = len(source_occurrences) - len(unrepresented_occurrences)
     missing_source_values: list[float] = []
     for occurrence in unrepresented_occurrences:
+        if investment_evidence.numeric_owner(occurrence) is not None:
+            covered_source_values += 1
+            continue
         if any(
             numeric_value_is_grounded(named_value, (occurrence,))
             for named_value in named_values
@@ -18025,6 +18081,93 @@ def _is_pure_physical_alternative_condition(body: str) -> bool:
     )
 
 
+_SOURCE_ANY_REASON_PREFIX = "source_any_reason:"
+
+
+def _closed_nested_reason_list(body: str) -> tuple[str, tuple[str, ...]] | None:
+    """Separate a closed nested reason list, retaining its concrete alternatives.
+
+    This is a physical-list grammar, not a general English parser. Unknown
+    continuations, qualifiers, or navigation prose retain conservative analysis.
+    """
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if not lines or not re.fullmatch(
+        r"all\s+of\s+the\s+following\s+apply:", lines[0], re.IGNORECASE
+    ):
+        return None
+    headers = [
+        i
+        for i, line in enumerate(lines)
+        if re.fullmatch(
+            r"[●•]\s+[^:;!?]+\s+for\s+any\s+of\s+the\s+following\s+reasons:",
+            line,
+            re.IGNORECASE,
+        )
+    ]
+    if len(headers) != 1 or headers[0] < 2:
+        return None
+    index = headers[0]
+    if any(not re.fullmatch(r"[●•]\s+[^:;!?]+\.", line) for line in lines[1:index]):
+        return None
+    reasons = lines[index + 1 :]
+    navigation = [
+        i
+        for i, line in enumerate(reasons)
+        if re.fullmatch(
+            r"Quick access to (?:the )?types of [A-Za-z ]+:", line, re.IGNORECASE
+        )
+    ]
+    if navigation:
+        if len(navigation) != 1:
+            return None
+        boundary = navigation[0]
+        links = reasons[boundary + 1 :]
+        if len(links) < 2 or any(
+            not re.fullmatch(r"[●•]\s+[A-Z][A-Za-z'-]*(?:\s+[A-Z][A-Za-z'-]*)*", line)
+            or re.search(
+                r"\b(?:if|when|unless|must|shall|only|not|is|are|requires?)\b",
+                line,
+                re.IGNORECASE,
+            )
+            for line in links
+        ):
+            return None
+        reasons = reasons[:boundary]
+    if not 2 <= len(reasons) <= _SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT:
+        return None
+    alternatives = []
+    for reason in reasons:
+        # A final glossary marker is metadata, not an operative qualifier.
+        reason = re.sub(r"\([a-z]\)$", "", reason).strip()
+        if not re.fullmatch(r"[A-Za-z][A-Za-z '-]*", reason) or re.search(
+            r"\b(?:and|nor|but|if|when|unless|provided|except|only|not|without|must|shall|is|are|requires?)\b",
+            reason,
+            re.IGNORECASE,
+        ):
+            return None
+        if re.search(r"\bor\b", reason, re.IGNORECASE):
+            away = re.fullmatch(
+                r"([A-Za-z-]+)\s+or\s+([A-Za-z-]+)(\s+away\s+from\s+[A-Za-z '-]+)",
+                reason,
+                re.IGNORECASE,
+            )
+            causal = re.fullmatch(
+                r"(.+\s+caused\s+by\s+)([^:]+?)\s+or\s+([^:]+)", reason, re.IGNORECASE
+            )
+            if away:
+                options = [away[1] + away[3], away[2] + away[3]]
+            elif causal and len(re.findall(r"\bor\b", reason, re.IGNORECASE)) == 1:
+                options = [causal[1] + causal[2], causal[1] + causal[3]]
+            else:
+                return None
+        else:
+            options = [reason]
+        alternatives.extend(options)
+        if len(alternatives) > _SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT:
+            return None
+    return "\n".join(lines[:index]), tuple(alternatives)
+
+
 def _source_conjunctive_fact_gates(
     text: str,
     *,
@@ -18052,6 +18195,19 @@ def _source_conjunctive_fact_gates(
     if conditional is None:
         return ()
     body = _without_ceteris_paribus_clause(text, conditional)
+    # Preserve a complete physical nested list before exception preprocessing.
+    # Exact proof-context fragments may end at its heading; those keep their
+    # existing analysis, while the complete source list owns the reason gate.
+    nested_reason_body = (
+        body
+        if re.search(
+            r"[●•]\s+[^\n:]+\s+for\s+any\s+of\s+the\s+following\s+reasons:\s*\S",
+            body,
+            re.IGNORECASE,
+        )
+        and re.match(r"\s*all\s+of\s+the\s+following\s+apply:", body, re.IGNORECASE)
+        else None
+    )
     if _is_pure_physical_alternative_condition(body):
         return ()
     if conditional.group("cue").strip().casefold() != "unless":
@@ -18096,6 +18252,25 @@ def _source_conjunctive_fact_gates(
             if "budgetary" in body.split(":", 1)[0].lower()
             else "shared_membership:household"
         )
+    nested_reasons = _closed_nested_reason_list(nested_reason_body or membership_body)
+    # An identified but unparsed continuation must not silently lose its gate.
+    # The empty marker is deliberately unmatchable (including by empty tokens).
+    reason_gates = (
+        frozenset({_SOURCE_ANY_REASON_PREFIX}) if nested_reason_body else frozenset()
+    )
+    if nested_reasons is not None:
+        outer_body, reasons = nested_reasons
+        signatures = [
+            _source_gate_semantic_tokens(reason, care_source_text=care_source_text)
+            - _SOURCE_GATE_SUBJECT_PRONOUNS
+            for reason in reasons
+        ]
+        if all(signatures):
+            membership_body = outer_body
+            reason_gates = frozenset(
+                _SOURCE_ANY_REASON_PREFIX + " ".join(sorted(tokens))
+                for tokens in signatures
+            )
     segments = _source_gate_split_conjunctive_conditions(membership_body)
     if len(segments) < 2:
         return ()
@@ -18157,6 +18332,8 @@ def _source_conjunctive_fact_gates(
         if membership_requirement is not None:
             predicates = predicates | {membership_requirement}
         gates.append((entities, predicates))
+    if reason_gates:
+        gates.append((frozenset(), reason_gates))
     return tuple(gates) if len(gates) >= 2 else ()
 
 
@@ -19145,6 +19322,15 @@ def _terminal_gate_evidence(
             and not _SOURCE_GATE_INCOME_NEGATION_MARKERS.intersection(
                 name_text.casefold().split() + description.casefold().split()
             ),
+            not polarity_conflict
+            and not any(
+                negative is not False for negative in effective_polarities.values()
+            )
+            and not re.search(
+                r"\b(?:not|no|never|without|neither|nor|unless|except|if|unqualified|ineligible)\b",
+                name_text + " " + description,
+                re.IGNORECASE,
+            ),
         )
 
     for item in payload.get("inputs", ()) or ():
@@ -19225,6 +19411,26 @@ def _terminal_names_corroborate_source_gates(
     ]
     candidates: list[tuple[str, ...]] = []
     for index, (entities, predicates) in enumerate(gates):
+        alternative_reasons = [
+            frozenset(predicate.removeprefix(_SOURCE_ANY_REASON_PREFIX).split())
+            for predicate in predicates
+            if predicate.startswith(_SOURCE_ANY_REASON_PREFIX)
+        ]
+        if alternative_reasons:
+            candidates.append(
+                tuple(
+                    name
+                    for name in sorted(names)
+                    if (evidence := terminal_evidence.get(name)) is not None
+                    and not evidence.polarity_conflict
+                    and evidence.affirmative_reason_evidence
+                    and any(
+                        tokens and tokens <= evidence.entities | evidence.predicates
+                        for tokens in alternative_reasons
+                    )
+                )
+            )
+            continue
         if predicates & _SOURCE_GATE_UNKNOWN_POLARITY_PREDICATES:
             candidates.append(())
             continue
@@ -19514,6 +19720,7 @@ def _opaque_same_source_condition_input_issues(
     certified_country: Any = None,
     repayment_alternatives: RepaymentAlternativeCoverage | None = None,
     test_cases: Sequence[object] | None = None,
+    investment_evidence: Any = None,
 ) -> list[str]:
     """Reject terminal selectors that collapse explicit same-source fact gates."""
 
@@ -19951,6 +20158,14 @@ def _opaque_same_source_condition_input_issues(
                     )
                 )
                 for clause in condition_clauses:
+                    if (
+                        investment_evidence is not None
+                        and not ambiguous
+                        and investment_evidence.covers_gate(
+                            rule_name, rule, version_index, formula, start, end, clause
+                        )
+                    ):
+                        continue
                     if (
                         repayment_alternatives is not None
                         and consumer_content is not None
@@ -21123,6 +21338,7 @@ def _companion_test_issues(
     partnership_content: str | None = None,
     printed_operations: _PrintedOperationContext | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    investment_evidence: Any = None,
     floor_imported_exports: Sequence[ResolvedImportedExport] = (),
     floor_source_context: Mapping[str, str | None] | None = None,
     referral_context: Any = None,
@@ -21474,6 +21690,20 @@ def _companion_test_issues(
         numeric_limits_only=_is_us_manual_citation_path(corpus_citation_path),
         corpus_citation_path=corpus_citation_path,
     )
+    if investment_evidence is not None:
+        exception_branches, investment_missing = investment_evidence.partition(
+            exception_branches, "control"
+        )
+        for branch in investment_missing:
+            issues.append(
+                ValidationIssue(
+                    "[complete-source-unit:schedule-n-evidence] Missing or duplicate source-owned "
+                    f"control occurrence at {branch.start}:{branch.end}; "
+                    "private principal evidence cannot be replaced by generic fallback.",
+                    check=CHECK_SCHEDULE_N_EXECUTION_EVIDENCE,
+                    subject=_branch_subject(corpus_citation_path, branch),
+                )
+            )
     if exception_branches:
         independently_covered_paths = {
             path

@@ -5863,7 +5863,7 @@ def cmd_test(args):
         ),
         local_corpus_release=(
             load_rulespec_local_corpus_release(root, args.corpus_path)
-            if getattr(args, "corpus_path", None) is not None
+            if args.corpus_path is not None
             else None
         ),
         enable_oracles=False,
@@ -6017,7 +6017,9 @@ def _execute_rulespec_test_file(
         scoped_pipeline = copy.copy(pipeline)
         scoped_pipeline.require_complete_source_unit = True
         with compilation_snapshot(scoped_pipeline, program_file) as capture:
-            if capture is None or not capture._capital_gift_owned:
+            from .harness.scoped_execution import adapter
+
+            if capture is None or adapter(capture) is None:
                 raise ValueError("scoped refusal snapshot/source binding unavailable")
             snapshot_program = capture.snapshot_root / capture.root_relative
             return _execute_rulespec_test_file(
@@ -6084,7 +6086,9 @@ def _execute_rulespec_test_file(
     compiled_path, artifact = compiled
     if execution_capture is not None:
         execution_capture.compiled(compiled_path)
-        if execution_capture._capital_gift_context is None:
+        from .harness.scoped_execution import context_ready
+
+        if not context_ready(execution_capture):
             raise ValueError("compiled scoped refusal context could not be minted")
     item_policy_repo_path = (
         policy_repo_path or find_policy_repo_root(program_file) or program_file.parent
@@ -6145,7 +6149,7 @@ def _execute_rulespec_test_file(
             )
 
     if execution_capture is not None:
-        from .harness.capital_gift_capture import observation
+        from .harness.scoped_execution import observation
 
         if (
             not failures
@@ -6161,9 +6165,9 @@ def _execute_rulespec_test_file(
             )
         if failures:
             execution_capture.records.clear()
-            if getattr(execution_capture, "_capital_gift_owned", False):
-                execution_capture._capital_gift_refusals.clear()
-                execution_capture._capital_gift_context = None
+            from .harness.scoped_execution import clear_private
+
+            clear_private(execution_capture)
     return {"cases": len(cases), "compiled": compiled_count, "failures": failures}
 
 
@@ -6213,11 +6217,9 @@ def _execute_rulespec_test_case(
             raise ValueError(
                 "refusal requires actual authenticated execution, not request_only"
             )
-        from .harness.capital_gift_capture import refusal_target
+        from .harness.scoped_execution import refusal_target
 
-        refusal_output = refusal_target(
-            execution_capture._capital_gift_context, execution_capture, case, case_index
-        )
+        refusal_output = refusal_target(execution_capture, case, case_index)
         if refusal_output is None:
             raise ValueError("invalid scoped refusal case/source identity")
     query_outputs = [refusal_output] if refusal_output is not None else list(expected)
