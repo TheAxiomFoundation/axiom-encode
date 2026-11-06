@@ -16,17 +16,24 @@ must be neither accepted nor aligned.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
 from axiom_encode import cli
+from axiom_encode.corpus_resolver import (
+    CorpusResolutionError,
+    CorpusSourceNotFoundError,
+    CorpusSourceSliceError,
+)
 from axiom_encode.harness.proof_validator import (
     _located_proof_evidence,
     _source_contains_proof_evidence,
     _source_proof_evidence_spans,
     _typographic_source_evidence_spans,
     align_proof_excerpt,
+    proof_excerpt_printed_forms,
     source_contains_typographic_proof_evidence,
     validate_rulespec_proofs,
 )
@@ -459,6 +466,19 @@ def test_quoted_excerpt_with_several_printed_forms_keeps_scope_check():
             "factor for the calendar year in which such individual attains "
             "early retirement age",
         ),
+        # The parentheses a token-boundary rule needs to read the number.
+        (
+            "Where Elderly Disabled Are a Separate Household (165 Percent of "
+            "Poverty Level) Household Size",
+            "165 Percent of Poverty Level",
+            "(165 Percent of Poverty Level)",
+        ),
+        (
+            "Table 2: Gross Monthly Income Limit (130% of Federal Poverty Level) "
+            "Household Size",
+            "130% of Federal Poverty Level",
+            "(130% of Federal Poverty Level)",
+        ),
         # Straight quotation marks for printed curly ones: the quoted words
         # found inside the quoted span are the same occurrence.
         (
@@ -563,8 +583,8 @@ def test_repair_stores_the_printed_text_of_a_typographic_excerpt(tmp_path):
     rules_file = _write_rules(
         tmp_path,
         path="us/guidance/example/page-3",
-        excerpt="the five-year period applies",
-        summary="Under this memo the \ufb01ve-year period applies to each household.",
+        excerpt="165 Percent of Poverty Level",
+        summary="Separate Household (165 Percent of Poverty Level) Household Size",
     )
 
     repaired = cli._try_repair_generated_nonexact_proof_excerpts(
@@ -582,23 +602,280 @@ def test_repair_stores_the_printed_text_of_a_typographic_excerpt(tmp_path):
     ][0]["source"]
     assert source == {
         "corpus_citation_path": "us/guidance/example/page-3",
-        "excerpt": "the \ufb01ve-year period applies",
+        "excerpt": "(165 Percent of Poverty Level)",
     }
 
 
-def test_alignment_refuses_independent_occurrences_that_print_different_forms():
-    pages = (
-        "The term \u201cearned income\u201d means wages.",
-        "Quality control reviews follow the usual schedule.",
-        "earned income is disregarded for this purpose.",
+_MEMO = "us/guidance/usda/fns/example-memo"
+_MEMO_PAGES = {
+    f"{_MEMO}/page-3": "State agencies that implement after the deadline will not "
+    "apply the exclusion. The exclusion will not apply if the State agency "
+    "does not implement the new provision.",
+    f"{_MEMO}/page-4": "Quality control reviews follow the usual schedule.",
+    f"{_MEMO}/page-5": "Contact the regional office with questions.",
+}
+_QUOTE = "will not apply if the State agency does not implement the new provision"
+
+
+def _with_document(pages: dict[str, str], document: str = _MEMO) -> dict[str, str]:
+    """Pages plus the document's release text, which joins its pages."""
+    joined = "\n\x1e\n".join(
+        text
+        for path, text in sorted(
+            pages.items(), key=lambda item: int(item[0].rsplit("-", 1)[1])
+        )
+        if path.startswith(document + "/")
     )
-    document = "\n\x1e\n".join(pages)
+    return {**pages, document: joined}
+
+
+def _corpus(monkeypatch, texts: dict[str, str], *, raising: set[str] = frozenset()):
+    """A fake release: page texts, and documents composed from their pages."""
+
+    def lookup(path, *, corpus_release):
+        if path in raising:
+            raise CorpusSourceSliceError(f"slice for {path} is absent")
+        return texts.get(path)
+
+    def resolve(path, corpus_release):
+        if path in raising or path not in texts:
+            raise CorpusSourceNotFoundError(path)
+        rows = tuple(
+            SimpleNamespace(citation_path=child)
+            for child in texts
+            if child.startswith(path + "/")
+        )
+        return SimpleNamespace(proof_evidence_text=texts[path], component_rows=rows)
+
+    monkeypatch.setattr(cli, "_local_source_text_for_corpus_path", lookup)
+    monkeypatch.setattr(cli, "resolve_local_corpus_source", resolve)
+    return SimpleNamespace(name="test-release")
+
+
+@pytest.fixture
+def memo_corpus(monkeypatch):
+    return _corpus(monkeypatch, _with_document(_MEMO_PAGES))
+
+
+def _repair(rules_file, release, path=f"{_MEMO}/page-4"):
+    return cli._try_repair_generated_nonexact_proof_excerpts(
+        rules_file,
+        corpus_release=release,
+        issues=[_REPAIR_ISSUE.format(rule="official_amount", path=path)],
+    )
+
+
+def _atom_source(rules_file):
+    return yaml.safe_load(rules_file.read_text())["rules"][0]["metadata"]["proof"][
+        "atoms"
+    ][0]["source"]
+
+
+def test_repair_moves_a_quote_to_the_one_page_of_its_document_that_prints_it(
+    tmp_path, memo_corpus
+):
+    rules_file = _write_rules(tmp_path, path=f"{_MEMO}/page-4", excerpt=_QUOTE)
+
+    assert _repair(rules_file, memo_corpus) == ["official_amount[0]"]
+    moved = _atom_source(rules_file)
+    assert moved == {"corpus_citation_path": f"{_MEMO}/page-3", "excerpt": _QUOTE}
+    # The moved atom passes the full proof check against the new page.
+    content = rules_file.read_text()
+    result = validate_rulespec_proofs(
+        content, source_texts={f"{_MEMO}/page-3": _MEMO_PAGES[f"{_MEMO}/page-3"]}
+    )
+    assert not [i for i in result.issues if "Proof source" in i], result.issues
+
+
+def test_repair_does_not_move_a_quote_two_pages_print(tmp_path, monkeypatch):
+    pages = dict(_MEMO_PAGES)
+    pages[f"{_MEMO}/page-5"] = pages[f"{_MEMO}/page-3"]
+    release = _corpus(monkeypatch, _with_document(pages))
+    rules_file = _write_rules(tmp_path, path=f"{_MEMO}/page-4", excerpt=_QUOTE)
+    original = rules_file.read_text()
+
+    assert _repair(rules_file, release) == []
+    assert rules_file.read_text() == original
+
+
+def test_repair_does_not_move_past_a_page_gap_or_the_scan(tmp_path, monkeypatch):
+    # Pages 11-13 do not exist; page 15 prints the quote a second time, and so
+    # does a page beyond any scan limit. The document text shows both copies.
+    pages = dict(_MEMO_PAGES)
+    pages.update({f"{_MEMO}/page-{n}": f"Page {n} text." for n in (6, 7, 8, 9, 10, 14)})
+    pages[f"{_MEMO}/page-15"] = pages[f"{_MEMO}/page-3"]
+    for extra in (
+        {},
+        {
+            f"{_MEMO}/page-15": "Page 15 text.",
+            f"{_MEMO}/page-999": pages[f"{_MEMO}/page-3"],
+        },
+    ):
+        release = _corpus(monkeypatch, _with_document({**pages, **extra}))
+        rules_file_dir = tmp_path / str(len(extra))
+        rules_file = _write_rules(
+            rules_file_dir, path=f"{_MEMO}/page-4", excerpt=_QUOTE
+        )
+        original = rules_file.read_text()
+
+        assert _repair(rules_file, release) == []
+        assert rules_file.read_text() == original
+
+
+def test_repair_page_probe_survives_resolver_errors(tmp_path, monkeypatch):
+    release = _corpus(
+        monkeypatch,
+        _with_document(_MEMO_PAGES),
+        # Page 5 is one of the document's pages, so the page probe reads it.
+        raising={f"{_MEMO}/page-5"},
+    )
+    rules_file = _write_rules(tmp_path, path=f"{_MEMO}/page-4", excerpt=_QUOTE)
+
+    assert _repair(rules_file, release) == ["official_amount[0]"]
+    assert _atom_source(rules_file)["corpus_citation_path"] == f"{_MEMO}/page-3"
+
+
+def test_repair_keeps_the_citation_when_the_document_does_not_resolve(
+    tmp_path, monkeypatch
+):
+    release = _corpus(monkeypatch, dict(_MEMO_PAGES), raising={_MEMO})
+    rules_file = _write_rules(tmp_path, path=f"{_MEMO}/page-4", excerpt=_QUOTE)
+    original = rules_file.read_text()
+
+    assert _repair(rules_file, release) == []
+    assert rules_file.read_text() == original
+
+
+def test_repair_does_not_move_a_pinned_or_out_of_scope_atom(tmp_path, memo_corpus):
+    pinned = _write_rules(tmp_path / "pinned", path=f"{_MEMO}/page-4", excerpt=_QUOTE)
+    pinned.write_text(
+        pinned.read_text().replace(
+            "          excerpt:", "          source_sha256: abc\n          excerpt:"
+        )
+    )
+    original = pinned.read_text()
+    assert _repair(pinned, memo_corpus) == []
+    assert pinned.read_text() == original
+
+    scoped = _write_rules(tmp_path / "scoped", path=f"{_MEMO}/page-4", excerpt=_QUOTE)
+    original = scoped.read_text()
+    out_of_scope = (
+        "Proof source evidence not found: rule `official_amount` proof atom 0 "
+        "`source.excerpt` appears outside the rule's declared subsection scope "
+        "`x(1)` (excerpt begins at `(2)`)."
+    )
+    cli._try_repair_generated_nonexact_proof_excerpts(
+        scoped, corpus_release=memo_corpus, issues=[out_of_scope]
+    )
+    assert _atom_source(scoped)["corpus_citation_path"] == f"{_MEMO}/page-4"
+
+
+def test_repair_never_moves_a_quote_to_another_section(tmp_path, monkeypatch):
+    texts = {
+        "us/statute/26/25A": "the taxable year increased by any amount excluded",
+        "us/statute/26/24": "adjusted gross income increased by any amount excluded",
+    }
+    release = _corpus(monkeypatch, texts)
+    rules_file = _write_rules(
+        tmp_path,
+        path="us/statute/26/25A",
+        excerpt="adjusted gross income increased by any amount excluded",
+    )
+    cli._try_repair_generated_nonexact_proof_excerpts(
+        rules_file,
+        corpus_release=release,
+        issues=[_REPAIR_ISSUE.format(rule="official_amount", path="us/statute/26/25A")],
+    )
+
+    # The page move is for pages of one document only: the citation stays on
+    # 25A even though 26 USC 24 prints the quote. (Any excerpt change here
+    # comes from the existing closest-exact-span repair on 25A's own text.)
+    source = yaml.safe_load(rules_file.read_text())["rules"][0]["metadata"]["proof"][
+        "atoms"
+    ][0]["source"]
+    assert source["corpus_citation_path"] == "us/statute/26/25A"
+
+
+@pytest.mark.parametrize(
+    "sign",
+    [
+        "-" + " " * 9,
+        "-\n        ",
+        "\uff0d",
+        "\u2212\u200b",
+        "\u2212 \u200b ",
+        "+ ",
+        "\u2013 ",
+    ],
+)
+def test_alignment_never_drops_a_sign_before_a_parenthesized_phrase(sign):
+    source = f"total {sign}(500 dollars) due"
+    assert align_proof_excerpt(source_text=source, excerpt="500 dollars") is None
+    assert align_proof_excerpt(source_text=source, excerpt="500 dollars.") is None
+
+
+def test_alignment_widens_a_parenthesized_phrase_without_a_sign():
+    source = "total (500 dollars) due"
+    assert (
+        align_proof_excerpt(source_text=source, excerpt="500 dollars")
+        == "(500 dollars)"
+    )
+
+
+_EARNED_PAGES = {
+    f"{_MEMO}/page-3": "The term \u201cearned income\u201d means wages.",
+    f"{_MEMO}/page-4": "Quality control reviews follow the usual schedule.",
+    f"{_MEMO}/page-5": "earned income is disregarded for this purpose.",
+}
+
+
+def test_alignment_refuses_independent_occurrences_that_print_different_forms():
+    document = _with_document(_EARNED_PAGES)[_MEMO]
     assert align_proof_excerpt(source_text=document, excerpt='"earned income"') is None
     # The quoted occurrence alone still aligns to its printed quotation marks.
     assert (
-        align_proof_excerpt(source_text=pages[0], excerpt='"earned income"')
+        align_proof_excerpt(
+            source_text=_EARNED_PAGES[f"{_MEMO}/page-3"], excerpt='"earned income"'
+        )
         == "\u201cearned income\u201d"
     )
+
+
+def test_repair_does_not_move_when_pages_print_independent_forms(tmp_path, monkeypatch):
+    release = _corpus(monkeypatch, _with_document(_EARNED_PAGES))
+    rules_file = _write_rules(
+        tmp_path, path=f"{_MEMO}/page-4", excerpt='"earned income"'
+    )
+
+    _repair(rules_file, release)
+    assert _atom_source(rules_file)["corpus_citation_path"] == f"{_MEMO}/page-4"
+
+
+def test_repair_keeps_the_citation_when_composing_the_document_text_fails(
+    tmp_path, monkeypatch
+):
+    release = _corpus(monkeypatch, _with_document(_MEMO_PAGES))
+    resolve = cli.resolve_local_corpus_source
+
+    class _Unreadable:
+        component_rows = resolve(_MEMO, release).component_rows
+
+        @property
+        def proof_evidence_text(self):
+            raise CorpusResolutionError(
+                "Corpus proof evidence contains the reserved segment separator"
+            )
+
+    monkeypatch.setattr(
+        cli,
+        "resolve_local_corpus_source",
+        lambda path, corpus_release: _Unreadable(),
+    )
+    rules_file = _write_rules(tmp_path, path=f"{_MEMO}/page-4", excerpt=_QUOTE)
+    original = rules_file.read_text()
+
+    assert _repair(rules_file, release) == []
+    assert rules_file.read_text() == original
 
 
 @pytest.mark.parametrize(
@@ -636,3 +913,55 @@ def test_repair_keeps_the_sign_of_a_joint_return_parenthetical(tmp_path):
     ][0]["source"]["excerpt"]
     # Whatever the repair stores keeps the sign, or it stores nothing new.
     assert excerpt == "$500 in the case of a joint return" or "-" in excerpt
+
+
+@pytest.mark.parametrize("sign", ["-$ ", "-$", "\u2212\u20ac ", "-\u200b$"])
+def test_widening_keeps_a_sign_before_a_currency_mark(sign):
+    source = f"total {sign}(500 dollars) due"
+    assert align_proof_excerpt(source_text=source, excerpt="500 dollars") is None
+
+
+def test_repair_does_not_widen_past_a_signed_currency_mark(tmp_path):
+    rules_file = _write_rules(
+        tmp_path,
+        path="us/guidance/example/page-3",
+        excerpt="500 dollars",
+        summary="total -$ (500 dollars) due",
+    )
+
+    cli._try_repair_generated_nonexact_proof_excerpts(
+        rules_file,
+        issues=[
+            _REPAIR_ISSUE.format(
+                rule="official_amount", path="us/guidance/example/page-3"
+            )
+        ],
+    )
+
+    excerpt = _atom_source(rules_file)["excerpt"]
+    assert excerpt != "(500 dollars)"
+    assert excerpt == "500 dollars" or "-" in excerpt
+
+
+_STRAIGHT_EARNED_PAGES = {
+    **_EARNED_PAGES,
+    f"{_MEMO}/page-3": 'The term "earned income" means wages.',
+}
+
+
+def test_printed_forms_do_not_stop_at_an_exact_spelling():
+    document = _with_document(_STRAIGHT_EARNED_PAGES)[_MEMO]
+    forms = proof_excerpt_printed_forms(source_text=document, excerpt='"earned income"')
+    assert sorted(forms) == ['"earned income"', "earned income"]
+
+
+def test_repair_does_not_move_a_straight_quoted_quote_with_a_plain_twin(
+    tmp_path, monkeypatch
+):
+    release = _corpus(monkeypatch, _with_document(_STRAIGHT_EARNED_PAGES))
+    rules_file = _write_rules(
+        tmp_path, path=f"{_MEMO}/page-4", excerpt='"earned income"'
+    )
+
+    _repair(rules_file, release)
+    assert _atom_source(rules_file)["corpus_citation_path"] == f"{_MEMO}/page-4"
