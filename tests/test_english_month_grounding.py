@@ -18,9 +18,12 @@ axiom-encode#2045, are shared with Hebrew and unchanged.
 
 from __future__ import annotations
 
+import ast
 import re
+from pathlib import Path
 
 import pytest
+import yaml
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
@@ -30,6 +33,7 @@ from axiom_encode.harness.validator_pipeline import (
     GROUNDING_ALLOWED_VALUES,
     _month_comparison_literal_values,
     extract_numeric_occurrences_from_text,
+    extract_typed_month_occurrences_from_text,
     extract_typed_numeric_inventory_occurrences_from_text,
     extract_typed_numeric_occurrences_from_text,
     find_ungrounded_numeric_issues,
@@ -110,8 +114,7 @@ def _month_values(text: str) -> set[float]:
     """The month numbers the text's dated month names ground."""
     return {
         occurrence.value
-        for occurrence in extract_typed_numeric_occurrences_from_text(text)
-        if occurrence.requires_month_context
+        for occurrence in extract_typed_month_occurrences_from_text(text)
     }
 
 
@@ -119,9 +122,8 @@ def _english_month_occurrences(text: str) -> set[tuple[str, float, bool]]:
     """Month occurrences read from English names: raw word, value, temporal."""
     return {
         (occurrence.raw, occurrence.value, occurrence.has_temporal_context)
-        for occurrence in extract_typed_numeric_occurrences_from_text(text)
-        if occurrence.requires_month_context
-        and occurrence.raw.capitalize() in _ENGLISH_GREGORIAN_MONTH_NUMBERS
+        for occurrence in extract_typed_month_occurrences_from_text(text)
+        if occurrence.raw.capitalize() in _ENGLISH_GREGORIAN_MONTH_NUMBERS
     }
 
 
@@ -404,6 +406,38 @@ def test_a_day_or_month_word_too_far_back_dates_nothing():
     assert 6.0 not in _month_values("30" + filler + " June")
 
 
+# A day the window reaches in full dates the name; the tail of a longer number
+# the window cuts ("1230") is no day. The patterns search the text by position,
+# so they see the digit before the window, as they would with no window.
+WINDOW_EDGE_PADDING = " " * 38
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    (("June", 6.0), ("JUNE", 6.0), ("ביוני", 6.0)),
+)
+def test_a_number_the_window_cuts_is_no_day(name, value):
+    window = (
+        vp._ENGLISH_MONTH_CONTEXT_WINDOW
+        if name.isascii()
+        else vp._HEBREW_MONTH_CONTEXT_WINDOW
+    )
+    assert len("30" + WINDOW_EDGE_PADDING) == window
+
+    assert _month_values("30" + WINDOW_EDGE_PADDING + name) == {value}
+    assert _month_values("1230" + WINDOW_EDGE_PADDING + name) == set()
+    assert _month_values("1.30" + WINDOW_EDGE_PADDING + name) == set()
+    assert _month_values("1230 " + name) == set()
+    # A cell break just before the window leaves the day whole.
+    assert _month_values("12|30" + WINDOW_EDGE_PADDING + name) == {value}
+
+
+def test_a_word_the_window_cuts_is_no_month_of():
+    padding = " " * (vp._ENGLISH_MONTH_CONTEXT_WINDOW - len("month of"))
+    assert _month_values("month of" + padding + "May") == {5.0}
+    assert _month_values("semimonth of" + padding + "May") == set()
+
+
 # --- (c) Month numbers ground only month comparisons, in English -------------
 
 DATED_DECEMBER_TEXT_EN = (
@@ -454,17 +488,24 @@ def test_a_dated_english_month_grounds_nothing_outside_a_plain_month_comparison(
 
 
 def test_english_month_occurrences_ground_nothing_by_default():
-    (month,) = [
-        occurrence
-        for occurrence in extract_typed_numeric_occurrences_from_text(
-            DATED_DECEMBER_TEXT_EN
-        )
-        if occurrence.requires_month_context
-    ]
-    assert (month.raw, month.value) == ("December", 12.0)
+    (month,) = extract_typed_month_occurrences_from_text(DATED_DECEMBER_TEXT_EN)
+    assert (month.raw, month.value, month.requires_month_context) == (
+        "December",
+        12.0,
+        True,
+    )
     assert not numeric_value_is_grounded(12.0, [month])
     assert numeric_value_is_grounded(
         12.0, [month], month_context_values=frozenset({12.0})
+    )
+    # The stream every other consumer reads never holds the name.
+    shared = extract_typed_numeric_occurrences_from_text(DATED_DECEMBER_TEXT_EN)
+    assert {occurrence.value for occurrence in shared} >= {1940.0, 500.0}
+    assert not any(
+        occurrence.requires_month_context
+        or occurrence.value == 12.0
+        or "December" in occurrence.raw
+        for occurrence in shared
     )
 
 
@@ -585,8 +626,8 @@ RATE_NEIGHBOUR_TEXTS = (
 def test_a_month_beside_a_rate_grounds_no_scaled_value(text):
     december = [
         occurrence
-        for occurrence in extract_typed_numeric_occurrences_from_text(text)
-        if occurrence.requires_month_context and occurrence.value == 12.0
+        for occurrence in extract_typed_month_occurrences_from_text(text)
+        if occurrence.value == 12.0
     ]
     assert [occurrence.has_rate_context for occurrence in december] == [True]
     assert _reported(_month_module("birth_month >= 0.12"), text) == {"0.12"}
@@ -947,59 +988,113 @@ def test_property_a_dated_month_grounds_only_month_comparisons(uses, dated):
     }, (formula, text)
 
 
+MONTH_STREAM_TOKENS = st.lists(
+    st.one_of(
+        st.sampled_from(
+            [
+                *_ENGLISH_GREGORIAN_MONTH_NUMBERS,
+                *(name.upper() for name in _ENGLISH_GREGORIAN_MONTH_NUMBERS),
+                *(name.lower() for name in _ENGLISH_GREGORIAN_MONTH_NUMBERS),
+                *HEBREW_NAMES_BY_VALUE.values(),
+                *(f"ב{name}" for name in HEBREW_NAMES_BY_VALUE.values()),
+                "מרץ",
+                "of each year",
+                "the month of",
+                "בחודש",
+                "שנת",
+                "and",
+                "to",
+                "עד",
+                ",",
+                "|",
+                "\n",
+                "Section",
+                "may",
+                "percent",
+                "%",
+                "$",
+                "₪",
+            ]
+        ),
+        st.integers(min_value=0, max_value=2100).map(str),
+    ),
+    max_size=14,
+)
+
+
+def _cold_tokenization(text: str, profile: str = "legacy"):
+    vp._tokenize_numeric_occurrences_from_text.cache_clear()
+    return vp._tokenize_numeric_occurrences_from_text(text, profile=profile)
+
+
 @settings(
     max_examples=200,
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow],
 )
-@given(
-    st.lists(
-        st.one_of(
-            st.sampled_from(
-                [
-                    *_ENGLISH_GREGORIAN_MONTH_NUMBERS,
-                    *(name.upper() for name in _ENGLISH_GREGORIAN_MONTH_NUMBERS),
-                    *(name.lower() for name in _ENGLISH_GREGORIAN_MONTH_NUMBERS),
-                    "of each year",
-                    "the month of",
-                    "and",
-                    "to",
-                    ",",
-                    "|",
-                    "\n",
-                    "Section",
-                    "may",
-                    "percent",
-                    "$",
-                ]
-            ),
-            st.integers(min_value=0, max_value=2100).map(str),
-        ),
-        max_size=14,
-    )
-)
-def test_property_english_month_names_never_add_obligations(tokens):
-    """The reading only grounds: inventories and other numbers never change."""
+@given(MONTH_STREAM_TOKENS, st.sampled_from(sorted(vp._NUMERIC_EXTRACTION_PROFILES)))
+def test_property_month_names_reach_only_the_month_stream(tokens, profile):
+    """No month name, Hebrew or English, changes what other readers see.
+
+    Source completeness, proof excerpts, reanchoring and worksheet
+    certification read the grounding and inventory streams, so a month name
+    must leave both exactly as they are without it, under every profile.
+    """
     text = " ".join(tokens)
-    vp._tokenize_numeric_occurrences_from_text.cache_clear()
-    on_grounding = extract_typed_numeric_occurrences_from_text(text)
-    on_inventory = extract_numeric_occurrences_from_text(text)
+    on = _cold_tokenization(text, profile)
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(vp, "_iter_english_gregorian_month_matches", lambda *_a: [])
-        vp._tokenize_numeric_occurrences_from_text.cache_clear()
-        off_grounding = extract_typed_numeric_occurrences_from_text(text)
-        off_inventory = extract_numeric_occurrences_from_text(text)
+        patch.setattr(vp, "_iter_gregorian_month_name_matches", lambda *_a: [])
+        off = _cold_tokenization(text, profile)
     vp._tokenize_numeric_occurrences_from_text.cache_clear()
 
-    assert on_inventory == off_inventory
-    added = [
-        occurrence for occurrence in on_grounding if occurrence not in off_grounding
-    ]
-    assert [
-        occurrence for occurrence in off_grounding if occurrence not in on_grounding
-    ] == []
-    for occurrence in added:
+    assert on.grounding == off.grounding
+    assert on.inventory == off.inventory
+    assert off.month_grounding == ()
+    if profile != "legacy":
+        # Only the legacy reader, which every non-German, non-Danish source
+        # uses, reads month names, as on main.
+        assert on.month_grounding == ()
+        return
+    assert sorted(
+        (occurrence.start, occurrence.end, occurrence.value)
+        for occurrence in on.month_grounding
+    ) == sorted(
+        (start, end, value)
+        for (start, end), value in vp._iter_gregorian_month_name_matches(text)
+    )
+    for occurrence in on.month_grounding:
         assert occurrence.requires_month_context
+        assert text[occurrence.start : occurrence.end] == occurrence.raw
+
+
+@settings(
+    max_examples=200,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow],
+)
+@given(MONTH_STREAM_TOKENS)
+def test_property_english_month_names_only_ground_their_month(tokens):
+    """An English name grounds its own month number, in a month comparison only."""
+    text = " ".join(tokens)
+    on = _cold_tokenization(text)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(vp, "_iter_english_gregorian_month_matches", lambda *_a: [])
+        off = _cold_tokenization(text)
+    vp._tokenize_numeric_occurrences_from_text.cache_clear()
+
+    assert on.grounding == off.grounding
+    assert on.inventory == off.inventory
+    assert [
+        occurrence
+        for occurrence in off.month_grounding
+        if occurrence not in on.month_grounding
+    ] == []
+    added = [
+        occurrence
+        for occurrence in on.month_grounding
+        if occurrence not in off.month_grounding
+    ]
+    for occurrence in added:
         name = occurrence.raw
         assert name in (name.capitalize(), name.upper()), name
         month = _ENGLISH_GREGORIAN_MONTH_NUMBERS[name.capitalize()]
@@ -1015,3 +1110,272 @@ def test_property_english_month_names_never_add_obligations(tokens):
             assert not numeric_value_is_grounded(
                 scaled, [occurrence], month_context_values=frozenset({scaled})
             ), (text, occurrence)
+
+
+# --- (f) Only the grounding decisions read a month number --------------------
+#
+# Source completeness, proof excerpts, reanchoring and worksheet certification
+# read the shared grounding stream for intervals, boundaries, formula matching
+# and counts, where a month name is no number. The month numbers live in a
+# stream of their own (``_NumericTokenization.month_grounding``), which only
+# the two grounding decisions read.
+
+PACKAGE_ROOT = Path(vp.__file__).resolve().parents[1]
+MONTH_EVIDENCE_NAMES = frozenset(
+    {
+        "month_grounding",
+        "_grounding_decision_occurrences",
+        "extract_typed_month_occurrences_from_text",
+    }
+)
+# (module, enclosing class or function, name) for every reference to the
+# month stream in the package. A new reader must be added here on purpose.
+EXPECTED_MONTH_EVIDENCE_REFERENCES = {
+    ("harness/validator_pipeline.py", "_NumericTokenization", "month_grounding"),
+    (
+        "harness/validator_pipeline.py",
+        "_tokenize_numeric_occurrences_from_text",
+        "month_grounding",
+    ),
+    (
+        "harness/validator_pipeline.py",
+        "extract_typed_month_occurrences_from_text",
+        "month_grounding",
+    ),
+    (
+        "harness/validator_pipeline.py",
+        "_grounding_decision_occurrences",
+        "month_grounding",
+    ),
+    (
+        "harness/validator_pipeline.py",
+        "_numeric_evidence_index",
+        "_grounding_decision_occurrences",
+    ),
+    (
+        "harness/validator_pipeline.py",
+        "evaluate_numeric_grounding_values",
+        "_grounding_decision_occurrences",
+    ),
+}
+
+
+def _month_evidence_references() -> set[tuple[str, str, str]]:
+    references: set[tuple[str, str, str]] = set()
+
+    def visit(node: ast.AST, module: str, scope: str) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            scope = node.name
+        name = None
+        if isinstance(node, ast.Attribute):
+            name = node.attr
+        elif isinstance(node, ast.Name):
+            name = node.id
+        elif isinstance(node, ast.keyword):
+            name = node.arg
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            name = node.value
+        elif isinstance(node, ast.alias):
+            name = node.name
+        if name in MONTH_EVIDENCE_NAMES:
+            references.add((module, scope, name))
+        for child in ast.iter_child_nodes(node):
+            visit(child, module, scope)
+
+    for path in sorted(PACKAGE_ROOT.rglob("*.py")):
+        module = path.relative_to(PACKAGE_ROOT).as_posix()
+        visit(ast.parse(path.read_text(encoding="utf-8")), module, "<module>")
+    return references
+
+
+def test_only_the_grounding_decisions_read_the_month_stream():
+    assert _month_evidence_references() == EXPECTED_MONTH_EVIDENCE_REFERENCES
+
+
+def test_the_grounding_decisions_still_ground_part_d_through_the_month_stream():
+    # The guard above would also pass if no one read the month stream; Part D
+    # grounds only because the decisions do.
+    content = _part_d_birth_month_module()
+    for text in (ENGLISH_PART_D_TEXT, PART_D_TEXT):
+        assert _reported(content, text) == set()
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(
+                vp, "_grounding_decision_occurrences", lambda tokens: tokens.grounding
+            )
+            vp._tokenize_numeric_occurrences_from_text.cache_clear()
+            assert _reported(content, text) != set()
+        vp._tokenize_numeric_occurrences_from_text.cache_clear()
+
+
+# What the readers of the shared stream returned before any month name was
+# read, in Hebrew (#1745) or English. An audit of those readers found #1745's
+# Hebrew month numbers changing each of these.
+MONTH_CONSUMER_TEXTS = {
+    "Hebrew": ("יוני 1939", "חודש יוני"),
+    "English": ("June 1939", "the month of June"),
+}
+
+
+@pytest.mark.parametrize("language", sorted(MONTH_CONSUMER_TEXTS))
+def test_proof_excerpt_readers_never_count_a_month_name(language):
+    from axiom_encode import cli
+
+    dated, month_of = MONTH_CONSUMER_TEXTS[language]
+    assert _month_values(dated) == {6.0}
+    assert _month_values(month_of) == {6.0}
+
+    assert dict(
+        cli._proof_excerpt_numeric_occurrence_counter(dated, profile="legacy")
+    ) == {1939.0: 1}
+    assert (
+        cli._closest_exact_source_excerpt(
+            source_text="The allowance applies in 1939.",
+            excerpt=f"The allowance applies in {dated}.",
+        )
+        == "The allowance applies in 1939."
+    )
+    assert (
+        cli._legacy_exact_dependent_reanchor_query(
+            "... percent",
+            rule_source=f"{month_of} percent",
+            numeric_profile="legacy",
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize("language", sorted(MONTH_CONSUMER_TEXTS))
+def test_source_completeness_never_reads_a_month_name_as_a_bound(language):
+    from axiom_encode.harness import source_completeness
+
+    dated, _month_of = MONTH_CONSUMER_TEXTS[language]
+    text = f"at least {dated}"
+    branch = source_completeness.SourceStructureBranch(
+        (), "source-unit", "source", text, 0, len(text)
+    )
+
+    assert (
+        source_completeness._formula_interval_from_text(
+            text,
+            extract_numeric_occurrences=extract_typed_numeric_occurrences_from_text,
+        )
+        is None
+    )
+    assert (
+        list(
+            source_completeness._source_boundary_obligations(
+                (branch,),
+                extract_numeric_occurrences=extract_typed_numeric_occurrences_from_text,
+            )
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize("language", sorted(MONTH_CONSUMER_TEXTS))
+def test_complete_source_analysis_asks_no_test_for_a_month_name(language):
+    from axiom_encode.harness import source_completeness
+
+    _dated, month_of = MONTH_CONSUMER_TEXTS[language]
+    citation = "us/statute/example"
+    source = f"The amount is 2 percent of income in {month_of}."
+
+    def rule(name: str, formula: str, kind: str = "derived") -> dict:
+        return {
+            "name": name,
+            "kind": kind,
+            "dtype": "Decimal",
+            "entity": "Person",
+            "period": "Year",
+            "versions": [{"effective_from": "2020-01-01", "formula": formula}],
+            "metadata": {
+                "proof": {
+                    "atoms": [
+                        {
+                            "path": "versions[0].formula",
+                            "kind": "formula",
+                            "source": {
+                                "corpus_citation_path": citation,
+                                "excerpt": source,
+                            },
+                        }
+                    ]
+                }
+            },
+        }
+
+    payload = {
+        "format": "rulespec/v1",
+        "module": {"source_verification": {"corpus_citation_path": citation}},
+        "inputs": [
+            {"name": "income", "dtype": "Decimal", "entity": "Person", "period": "Year"}
+        ],
+        "rules": [
+            rule("result", "income * 0.02"),
+            rule("rate", "0.02", "parameter"),
+        ],
+    }
+    case = {
+        "name": "case",
+        "period": "2024",
+        "input": {"income": 1},
+        "output": {"result": "0.02"},
+    }
+
+    analysis = source_completeness.analyze_complete_source_unit(
+        yaml.safe_dump(payload),
+        source,
+        corpus_citation_path=citation,
+        test_cases=[case],
+        extract_numeric_occurrences=extract_typed_numeric_inventory_occurrences_from_text,
+        extract_numeric_grounding_occurrences=extract_typed_numeric_occurrences_from_text,
+        extract_named_scalars=vp.extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+
+    assert [str(issue) for issue in analysis.issues] == []
+
+
+WORKSHEET_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "source_path_shadow"
+
+
+def _certify_worksheet_with_formula(formula: str):
+    from axiom_encode.harness.source_path_evidence import certify_worksheet_paths
+
+    candidate = yaml.safe_load(
+        (WORKSHEET_FIXTURE / "candidate.yaml").read_text(encoding="utf-8")
+    )
+    source = (WORKSHEET_FIXTURE / "source.txt").read_text(encoding="utf-8")
+    (rule,) = [
+        rule
+        for rule in candidate["rules"]
+        if rule["name"] == "multiple_foreign_country_count_threshold"
+    ]
+    rule["versions"][0]["formula"] = formula
+    rule["metadata"]["proof"]["atoms"][0]["source"]["excerpt"] = source
+    vp._tokenize_numeric_occurrences_from_text.cache_clear()
+    return certify_worksheet_paths(
+        candidate,
+        source_text=source,
+        corpus_citation_path=(
+            "ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit"
+        ),
+        test_cases=yaml.safe_load(
+            (WORKSHEET_FIXTURE / "cases.yaml").read_text(encoding="utf-8")
+        ),
+        numeric_value_is_grounded=numeric_value_is_grounded,
+        extract_numeric_occurrences=extract_typed_numeric_occurrences_from_text,
+    )
+
+
+@pytest.mark.parametrize("formula", ("1 # יוני 2025", "1 # June 2025"))
+def test_worksheet_certification_reads_no_month_in_a_formula_comment(formula):
+    # A month named in a parameter's formula comment once left the parameter
+    # "ungrounded selected parameter", with no certified condition.
+    with_month = _certify_worksheet_with_formula(formula)
+    without_month = _certify_worksheet_with_formula("1 # 2025")
+
+    assert without_month.unresolved == ()
+    assert without_month.condition_spans
+    assert with_month.unresolved == without_month.unresolved
+    assert with_month.condition_spans == without_month.condition_spans

@@ -9204,21 +9204,24 @@ def _iter_hebrew_gregorian_month_matches(
             text.rfind("\n", 0, first) + 1,
             text.rfind("|", 0, first) + 1,
         )
-        before = text[window_start:first]
+        # Searched by position, not in a slice, so the lookbehinds see the
+        # character before the window: a number it cuts in two is no day.
         if all(
             match.group("month") in _HEBREW_MONTH_HOMOGRAPHS for match in group
         ) and not (
             _HEBREW_MONTH_YEAR_AFTER_PATTERN.match(text, last)
             or _HEBREW_MONTH_YEAR_OF_AFTER_PATTERN.match(text, last)
-            or _HEBREW_MONTH_IN_THE_MONTH_OF_BEFORE_PATTERN.search(before)
+            or _HEBREW_MONTH_IN_THE_MONTH_OF_BEFORE_PATTERN.search(
+                text, window_start, first
+            )
         ):
             continue
         if not (
             len(group) > 1
             or _HEBREW_MONTH_YEAR_AFTER_PATTERN.match(text, last)
             or _HEBREW_MONTH_YEAR_OF_AFTER_PATTERN.match(text, last)
-            or _HEBREW_MONTH_DAY_BEFORE_PATTERN.search(before)
-            or _HEBREW_MONTH_WORD_BEFORE_PATTERN.search(before)
+            or _HEBREW_MONTH_DAY_BEFORE_PATTERN.search(text, window_start, first)
+            or _HEBREW_MONTH_WORD_BEFORE_PATTERN.search(text, window_start, first)
         ):
             continue
         dated.extend(
@@ -9333,15 +9336,21 @@ _ENGLISH_MONTH_LIST_GAP_PATTERN = re.compile(
 # year it recurs in ("May 1 of each year") or "month of" before it, as Hebrew
 # dates its homographs מאי and מרץ; a day alone is too weak.
 _ENGLISH_MONTH_HOMOGRAPHS = frozenset({"May", "MAY"})
-# How far back a day or the word month can stand from the name it dates.
+# How far back the dating patterns look. They end at the name (only spaces
+# between), so the window bounds the scan and cuts off only a run of padding.
 _ENGLISH_MONTH_CONTEXT_WINDOW = 40
 
 
-def _english_month_context_before(text: str, first: int) -> str:
-    """The text before a month name on its own line and table cell."""
-    before = text[max(0, first - _ENGLISH_MONTH_CONTEXT_WINDOW) : first]
-    breaks = list(_ENGLISH_MONTH_CONTEXT_BREAK_PATTERN.finditer(before))
-    return before[breaks[-1].end() :] if breaks else before
+def _english_month_context_start(text: str, first: int) -> int:
+    """Where the text before a month name, on its line and cell, begins.
+
+    The day and "month of" patterns search ``text`` from here to the name by
+    position, not in a slice, so their lookbehinds see the character before
+    the window: a number the window cuts in two ("1230") is never a day.
+    """
+    start = max(0, first - _ENGLISH_MONTH_CONTEXT_WINDOW)
+    breaks = list(_ENGLISH_MONTH_CONTEXT_BREAK_PATTERN.finditer(text, start, first))
+    return breaks[-1].end() if breaks else start
 
 
 def _iter_english_gregorian_month_matches(
@@ -9372,11 +9381,11 @@ def _iter_english_gregorian_month_matches(
     dated: list[tuple[tuple[int, int], float]] = []
     for group in groups:
         first, last = group[0].start(), group[-1].end()
-        before = _english_month_context_before(text, first)
+        start = _english_month_context_start(text, first)
         dated_by_year = bool(
             _ENGLISH_MONTH_YEAR_AFTER_PATTERN.match(text, last)
             or _ENGLISH_MONTH_YEAR_OF_AFTER_PATTERN.match(text, last)
-            or _ENGLISH_MONTH_WORD_BEFORE_PATTERN.search(before)
+            or _ENGLISH_MONTH_WORD_BEFORE_PATTERN.search(text, start, first)
         )
         if all(match.group("month") in _ENGLISH_MONTH_HOMOGRAPHS for match in group):
             if not dated_by_year:
@@ -9385,7 +9394,7 @@ def _iter_english_gregorian_month_matches(
             dated_by_year
             or len(group) > 1
             or _ENGLISH_MONTH_DAY_AFTER_PATTERN.match(text, last)
-            or _ENGLISH_MONTH_DAY_BEFORE_PATTERN.search(before)
+            or _ENGLISH_MONTH_DAY_BEFORE_PATTERN.search(text, start, first)
         ):
             continue
         dated.extend(
@@ -14628,6 +14637,12 @@ class _NumericTokenization:
 
     grounding: tuple[NumericOccurrence, ...]
     inventory: tuple[NumericOccurrence, ...]
+    # Month numbers read from dated Hebrew or English month names. Only the
+    # grounding decisions read them (``_grounding_decision_occurrences``), for
+    # a module's month comparisons. Every other reader of ``grounding`` --
+    # source completeness, proof excerpts, worksheet certification -- uses
+    # values, spans and counts directly, and a month name is no number there.
+    month_grounding: tuple[NumericOccurrence, ...] = ()
 
 
 def _numeric_occurrence_has_local_rate_context(
@@ -18109,9 +18124,12 @@ def _tokenize_numeric_occurrences_from_text(
 
     # A Hebrew or English month name used as a date grounds its month number,
     # and only grounds it: the encoding compares a month with it, but the
-    # statute sets no value there for the encoding to recall.
-    for span, value in _iter_gregorian_month_name_matches(collector.context_text):
-        collector.add_grounding(source_view, span, value, requires_month_context=True)
+    # statute sets no value there for the encoding to recall. It goes in a
+    # stream of its own, which only the grounding decisions read.
+    month_grounding = tuple(
+        collector.occurrence(source_view, span, value, requires_month_context=True)
+        for span, value in _iter_gregorian_month_name_matches(collector.context_text)
+    )
 
     collector.grounding = list(
         _complete_typed_year_occurrences(collector, collector.grounding)
@@ -18131,6 +18149,7 @@ def _tokenize_numeric_occurrences_from_text(
     return _NumericTokenization(
         grounding=tuple(collector.grounding),
         inventory=normalized_inventory,
+        month_grounding=month_grounding,
     )
 
 
@@ -18139,10 +18158,41 @@ def extract_typed_numeric_occurrences_from_text(
     *,
     profile: str = "legacy",
 ) -> list[NumericOccurrence]:
-    """Extract typed numeric grounding candidates with exact source metadata."""
+    """Extract typed numeric grounding candidates with exact source metadata.
+
+    A month name is no candidate here, even where it dates its month number:
+    see ``extract_typed_month_occurrences_from_text``.
+    """
     return list(
         _tokenize_numeric_occurrences_from_text(text, profile=profile).grounding
     )
+
+
+def extract_typed_month_occurrences_from_text(
+    text: str,
+    *,
+    profile: str = "legacy",
+) -> list[NumericOccurrence]:
+    """Extract the month number each dated month name gives, Hebrew or English.
+
+    Each occurrence spans the name and carries ``requires_month_context``. Only
+    the grounding decisions use them, to ground a literal the module compares
+    with a calendar month (``_month_comparison_literal_values``).
+    """
+    return list(
+        _tokenize_numeric_occurrences_from_text(text, profile=profile).month_grounding
+    )
+
+
+def _grounding_decision_occurrences(
+    tokenization: _NumericTokenization,
+) -> tuple[NumericOccurrence, ...]:
+    """The grounding candidates plus month evidence, for grounding decisions.
+
+    ``numeric_value_is_grounded`` lets a month occurrence ground only its own
+    number, and only a value listed in ``month_context_values``.
+    """
+    return (*tokenization.grounding, *tokenization.month_grounding)
 
 
 def extract_typed_numeric_inventory_occurrences_from_text(
@@ -18333,7 +18383,11 @@ def _numeric_evidence_index(
     ]
     | None = None,
 ) -> tuple[tuple[NumericOccurrence, ...], set[float]]:
-    """Parse each evidence item under its own profile, then union the indexes."""
+    """Parse each evidence item under its own profile, then union the indexes.
+
+    The index serves the scoped grounding decision, so it carries month
+    evidence (``_grounding_decision_occurrences``).
+    """
     occurrences: list[NumericOccurrence] = []
     decimal_place_scale_values: set[float] = set()
     for item in evidence_items:
@@ -18349,10 +18403,9 @@ def _numeric_evidence_index(
         source_index = cache.get(cache_key) if cache is not None else None
         if source_index is None:
             source_index = (
-                _tokenize_numeric_occurrences_from_text(
-                    source,
-                    profile=profile,
-                ).grounding,
+                _grounding_decision_occurrences(
+                    _tokenize_numeric_occurrences_from_text(source, profile=profile)
+                ),
                 frozenset(_decimal_place_scale_values_from_source(source)),
             )
             if cache is not None:
@@ -18530,10 +18583,12 @@ def evaluate_numeric_grounding_values(
                     source_index = source_indexes.get(source_index_key)
                     if source_index is None:
                         source_index = (
-                            _tokenize_numeric_occurrences_from_text(
-                                grounding_source,
-                                profile=source_profile,
-                            ).grounding,
+                            _grounding_decision_occurrences(
+                                _tokenize_numeric_occurrences_from_text(
+                                    grounding_source,
+                                    profile=source_profile,
+                                )
+                            ),
                             _decimal_place_scale_values_from_source(grounding_source),
                         )
                         source_indexes[source_index_key] = source_index
@@ -18553,10 +18608,9 @@ def evaluate_numeric_grounding_values(
             if len(decisions) == len(grounding_values):
                 return decisions
 
-    source_occurrences = _tokenize_numeric_occurrences_from_text(
-        source_text,
-        profile=source_profile,
-    ).grounding
+    source_occurrences = _grounding_decision_occurrences(
+        _tokenize_numeric_occurrences_from_text(source_text, profile=source_profile)
+    )
     decimal_place_scale_values = _decimal_place_scale_values_from_source(source_text)
     return [
         (

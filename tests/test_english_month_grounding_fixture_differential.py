@@ -3,18 +3,31 @@
 The branch reads an English month name used as a date (``June 1939``,
 ``December 1, 1940``, ``the month of July``) as its month number, the way
 #1745 reads Hebrew ones. Turning ``_iter_english_gregorian_month_matches`` off
-restores the Hebrew-only reading. These tests compute every validator verdict
-the reading can touch, with it on and off, and require the set of changed
-verdicts to equal an explicit list:
+restores the Hebrew-only reading.
 
-* over each RuleSpec fixture in the repository (and its ``provision.txt``
-  source where one exists). The expected list is empty: no fixture module
-  compares a calendar month with a literal that needs grounding, so a month
-  number has nothing there to ground, although well over a hundred fixture
-  sources date English month names (the corpus guard below);
-* over synthetic controls: faithful English Part D must change, and each
-  guard must leave its verdicts alone (an annualising 12, a count of months,
-  the modal "May", a month beside "percent", the Hebrew rendering).
+No verdict on a RuleSpec fixture in the repository can change. The reading
+puts month numbers in a stream of their own, which only the grounding
+decisions read (``test_only_the_grounding_decisions_read_the_month_stream``),
+and there a month number grounds only a literal that the module compares with a
+calendar month. These tests check the two premises over the fixtures instead
+of recomputing every verdict:
+
+* every fixture ``provision.txt`` source that names an English month
+  tokenizes to the same grounding and inventory streams with the reading on
+  and off (a source that names none cannot differ: the recognizer finds
+  nothing in it either way, and the random-text property in
+  ``test_english_month_grounding.py`` covers any other text);
+* no fixture module compares a calendar month with a literal.
+
+Neither is vacuous: well over a hundred fixture sources date an English month
+name. The #1745 differential recomputes every fixture verdict, with this
+reading on in both of its runs.
+
+Synthetic controls compute every grounding verdict with the reading on and
+off, and the set of changed verdicts must equal an explicit list: faithful
+English Part D must change, and each guard must leave its verdicts alone (an
+annualising 12, a count of months, the modal "May", a month beside "percent",
+the Hebrew rendering).
 
 The numeric tokenizer is cached, so the cache is cleared before each side.
 
@@ -41,15 +54,14 @@ from tests.test_hebrew_month_index_selector_fixture_differential import (
     REPO_ROOT,
     _assert_only_removes_and_keeps_inventory,
     _changed,
-    _fixture_verdicts,
     _rulespec_fixtures,
     _verdicts_for,
 )
 
-# Every (fixture, verdict) the English reading changes. Empty: see above.
-EXPECTED_CHANGED_FIXTURE_VERDICTS: dict[str, list[str]] = {}
-# 194 fixture sources date at least one English month name (2026-11-05).
+# 194 fixture modules had a source dating an English month name (2026-11-05).
 MIN_FIXTURE_SOURCES_WITH_DATED_ENGLISH_MONTHS = 100
+# 97 distinct fixture sources named one (2026-11-05).
+MIN_FIXTURE_SOURCE_FILES_NAMING_ENGLISH_MONTHS = 50
 
 # One synthetic module per behaviour, with the verdicts it must change.
 CONTROL_CASES: dict[str, tuple[str, str]] = {
@@ -104,9 +116,16 @@ def _english_on_and_off(compute):
     return before, after
 
 
-@pytest.fixture(scope="module")
-def fixture_pair():
-    return _english_on_and_off(_fixture_verdicts)
+def _fixture_sources_naming_english_months() -> dict[str, str]:
+    """Each fixture ``provision.txt`` naming an English month, by path."""
+    sources = {}
+    for path in _rulespec_fixtures():
+        source_path = path.parent / "provision.txt"
+        if source_path.is_file():
+            source = source_path.read_text(encoding="utf-8")
+            if vp._ENGLISH_GREGORIAN_MONTH_PATTERN.search(source):
+                sources[source_path.relative_to(REPO_ROOT).as_posix()] = source
+    return sources
 
 
 @pytest.fixture(scope="module")
@@ -127,9 +146,24 @@ def test_fixture_sources_date_english_months():
     assert len(dated) >= MIN_FIXTURE_SOURCES_WITH_DATED_ENGLISH_MONTHS
 
 
+def test_english_months_leave_every_fixture_source_stream_unchanged():
+    sources = _fixture_sources_naming_english_months()
+    assert len(sources) >= MIN_FIXTURE_SOURCE_FILES_NAMING_ENGLISH_MONTHS
+
+    def streams() -> dict[str, tuple[object, object]]:
+        streams = {}
+        for name, source in sources.items():
+            tokenization = vp._tokenize_numeric_occurrences_from_text(source)
+            streams[name] = (tokenization.grounding, tokenization.inventory)
+        return streams
+
+    before, after = _english_on_and_off(streams)
+    assert {name for name in after if after[name] != before[name]} == set()
+
+
 def test_no_fixture_compares_a_month_with_a_literal():
-    # Why the expected fixture list is empty: no module has a literal for a
-    # month number to ground.
+    # A month number grounds only such a literal, so no fixture verdict can
+    # change.
     assert {
         path.relative_to(REPO_ROOT).as_posix(): sorted(values)
         for path in _rulespec_fixtures()
@@ -139,14 +173,6 @@ def test_no_fixture_compares_a_month_with_a_literal():
             )
         )
     } == {}
-
-
-def test_fixture_differential_lists_every_changed_verdict(fixture_pair):
-    assert _changed(*fixture_pair) == EXPECTED_CHANGED_FIXTURE_VERDICTS
-
-
-def test_fixture_verdicts_only_remove_issues_and_keep_inventories(fixture_pair):
-    _assert_only_removes_and_keeps_inventory(*fixture_pair)
 
 
 def test_control_differential_lists_every_changed_verdict(control_pair):
