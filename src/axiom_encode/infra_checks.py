@@ -35,6 +35,27 @@ _INPUT_WHY = (
 #: One definition per refusing workflow step. ``site`` names the step.
 INFRA_CHECK_DEFINITIONS: tuple[dict[str, str], ...] = (
     {
+        "id": "infra:require-corpus-read-credentials",
+        "title": "The corpus read credentials are not available to this repository",
+        "requires": (
+            "axiom-encode can read the organization's "
+            "`R2_CORPUS_READ_ACCESS_KEY_ID` and "
+            "`R2_CORPUS_READ_SECRET_ACCESS_KEY` secrets."
+        ),
+        "why": (
+            "A lock-pinned corpus fetches scopes stored only in R2 with these "
+            "credentials. Without them the run would fail after the "
+            "production-signing approval and waste that review."
+        ),
+        "fix": (
+            "Grant this repository access to the organization's "
+            "`R2_CORPUS_READ_*` secrets, then dispatch the run again."
+        ),
+        "site": (
+            f"{_WORKFLOW}:Require corpus read credentials before the signing gate"
+        ),
+    },
+    {
         "id": "infra:validate-country-routing-input",
         "title": "Dispatch routing or queue inputs are invalid",
         "requires": (
@@ -120,17 +141,22 @@ INFRA_CHECK_DEFINITIONS: tuple[dict[str, str], ...] = (
         "requires": (
             "The signed release object lists provision artifacts only under "
             "`data/corpus/provisions/`, or the pinned corpus checkout holds "
-            "the provisions directory itself."
+            "the provisions directory itself. A locked corpus also needs the "
+            "R2 corpus read credentials."
         ),
         "why": (
             "Encoding reads source text only from verified provision objects; "
             "a path outside the provisions tree or a checkout with neither "
-            "locks nor provisions gives the run no authenticated source."
+            "locks nor provisions gives the run no authenticated source, and "
+            "without the credentials the run cannot fetch a scope stored only "
+            "in R2."
         ),
         "fix": (
             "Check the signed release object's provision artifact paths and the "
             "axiom-corpus ref; publish or pin a release whose corpus checkout "
-            "has `.axiom/corpus-locks` or `data/corpus/provisions`, then retry."
+            "has `.axiom/corpus-locks` or `data/corpus/provisions`, then retry. "
+            "If the message names the R2 corpus read credentials, grant this "
+            "repository access to the organization's `R2_CORPUS_READ_*` secrets."
         ),
         "site": f"{_WORKFLOW}:Fetch pinned corpus provision objects",
     },
