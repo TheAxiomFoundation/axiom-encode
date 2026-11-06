@@ -120,6 +120,7 @@ from .checks import (
     ISSUE_SCHEMA_VERSION as VALIDATION_ISSUE_SCHEMA_VERSION,
 )
 from .checks import (
+    ValidationIssue,
     issues_from_document,
     registry_document,
     retype,
@@ -871,6 +872,17 @@ _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES = {
         | {
             "citation",
             "reviewed_rulespec_ref",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+        },
+    ),
+    _REVIEWED_REPAIR_MANIFEST_FIELDS: (
+        frozenset({"run_id"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "citation",
+            "reviewed_repair",
             "applied_files",
             "source_attestation",
             "validation_execution",
@@ -27337,10 +27349,15 @@ def _applied_manifest_source_attestation_issues(
             for issue in structure_issues
         )
 
-    reviewed_candidate = backend == "" and payload.get("tool") in {
-        APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
-        APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
-    }
+    reviewed_candidate = (
+        backend == ""
+        and isinstance(tool, str)
+        and tool
+        in {
+            APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+            APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
+        }
+    )
     generated_backend = (
         backend in APPLIED_ENCODING_GENERATED_BACKENDS or reviewed_candidate
     )
@@ -27816,13 +27833,16 @@ def _applied_manifest_tool_execution_issues(
             )
         return issues
     if backend is None and tool == APPLIED_ENCODING_REVIEWED_REPAIR_TOOL:
-        from .reviewed_repair_patch import verify_repair_binding
+        from .reviewed_repair_patch import CHECK_REPAIR_BINDING, verify_repair_binding
 
         try:
             verify_repair_binding(payload.get("reviewed_repair"))
         except (ValueError, TypeError, RecursionError) as exc:
             issues.append(
-                f"{manifest_label} reviewed repair reconstruction refused: {exc}"
+                ValidationIssue(
+                    f"{manifest_label} reviewed repair reconstruction refused: {exc}",
+                    check=CHECK_REPAIR_BINDING,
+                )
             )
         check_producer("reviewed repair")
         return issues
@@ -31734,11 +31754,14 @@ def _load_verified_applied_encoding_manifest_payload(
     if (
         isinstance(backend, str)
         and backend in APPLIED_ENCODING_ENCODER_BACKENDS
-        or payload.get("tool")
-        in {
-            APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
-            APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
-        }
+        or (
+            isinstance(payload.get("tool"), str)
+            and payload["tool"]
+            in {
+                APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+                APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
+            }
+        )
     ) and expected_encoder_identity is not None:
         issues.extend(
             _model_apply_validation_execution_issues(
@@ -31749,7 +31772,10 @@ def _load_verified_applied_encoding_manifest_payload(
             )
         )
     if payload.get("tool") == APPLIED_ENCODING_REVIEWED_REPAIR_TOOL:
-        from .reviewed_repair_patch import verify_manifest_reconstruction
+        from .reviewed_repair_patch import (
+            CHECK_REPAIR_LINEAGE,
+            verify_manifest_reconstruction,
+        )
 
         try:
             verify_manifest_reconstruction(payload, repo_path, manifest_label)
@@ -31760,7 +31786,12 @@ def _load_verified_applied_encoding_manifest_payload(
             subprocess.CalledProcessError,
             RecursionError,
         ) as exc:
-            issues.append(f"{manifest_label} reviewed repair lineage refused: {exc}")
+            issues.append(
+                ValidationIssue(
+                    f"{manifest_label} reviewed repair lineage refused: {exc}",
+                    check=CHECK_REPAIR_LINEAGE,
+                )
+            )
     if payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != expected_waiver_set_sha256:
         historical_retirement_waiver_matches = False
         recorded_base = payload.get("base_commit")

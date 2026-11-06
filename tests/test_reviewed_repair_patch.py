@@ -1140,6 +1140,18 @@ def test_actual_signed_guard_verifies_reconstruction_and_rejects_signed_wrong_po
         local_corpus_release=release,
     )
     assert any("postimage" in issue for issue in issues)
+    # The real signed-receipt loader must preserve the declared lineage issue,
+    # not merely raise inside the reconstruction helper or return plain text.
+    from axiom_encode.checks import ValidationIssue, issue_record
+
+    lineage = [issue for issue in issues if "reviewed repair lineage refused" in issue]
+    assert len(lineage) == 1
+    assert isinstance(lineage[0], ValidationIssue)
+    assert lineage[0].check == "manifest:reviewed-repair/lineage"
+    assert "postimage" in lineage[0]
+    record = issue_record(lineage[0], gate=None)
+    assert record["check"] == "manifest:reviewed-repair/lineage"
+    assert record["gate"] == "manifest"
 
 
 @pytest.mark.parametrize(
@@ -1510,3 +1522,27 @@ def test_subnational_request_uses_country_not_jurisdiction(tmp_path, monkeypatch
     for wrong in ("us-ny", "ca"):
         with pytest.raises(ValueError, match="dispatch differs"):
             patch.resolve_request(raw, {**dispatch, "COUNTRY": wrong}, tmp_path)
+
+
+def test_invalid_repair_binding_emits_declared_issue_without_losing_refusal():
+    from axiom_encode import cli
+    from axiom_encode.checks import ValidationIssue, issue_record
+
+    issues = cli._applied_manifest_tool_execution_issues(
+        {"tool": patch.TOOL, "reviewed_repair": {}},
+        manifest_label="invalid-repair.json",
+        expected_encoder_identity={
+            "repository": patch.OFFICIAL_REPOSITORY,
+            "commit": "a" * 40,
+            "version": "0.2.1",
+        },
+    )
+    refused = [issue for issue in issues if "reconstruction refused" in issue]
+    assert len(refused) == 1
+    assert isinstance(refused[0], ValidationIssue)
+    assert refused[0].check == "manifest:reviewed-repair/binding"
+    assert "invalid-repair.json" in refused[0]
+    assert (
+        issue_record(refused[0], gate="manifest")["check"]
+        == "manifest:reviewed-repair/binding"
+    )

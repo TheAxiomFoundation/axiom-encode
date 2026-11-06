@@ -20,6 +20,29 @@ from typing import Any
 
 import yaml
 
+from .checks import declare_check
+
+CHECK_REPAIR_BINDING = declare_check(
+    "manifest:reviewed-repair/binding",
+    title="Reviewed repair binding is invalid",
+    requires="The repair binding identifies an exact registered immutable patch package.",
+    why="Caller-supplied hashes cannot authorize unregistered repair bytes.",
+    fix="Use the reviewed package registration and its exact binding; do not edit signed artifacts.",
+    cause="encoder_output",
+    gate="manifest",
+    site="axiom_encode/cli.py:_applied_manifest_tool_execution_issues",
+)
+CHECK_REPAIR_LINEAGE = declare_check(
+    "manifest:reviewed-repair/lineage",
+    title="Reviewed repair reconstruction failed",
+    requires="The retained seed and registered patch reconstruct the manifest-bound repair exactly.",
+    why="A valid signature alone does not prove the repair came from the authorized seed and patch.",
+    fix="Restore the authenticated seed and registered patch inputs and regenerate through the supported route.",
+    cause="encoder_output",
+    gate="manifest",
+    site="axiom_encode/cli.py:_load_verified_applied_encoding_manifest_payload",
+)
+
 OFFICIAL_REPOSITORY = "https://github.com/TheAxiomFoundation/axiom-encode.git"
 SCHEMA = "axiom-encode/reviewed-repair-patch/v1"
 MAX_MEMBER_BYTES = 1024 * 1024

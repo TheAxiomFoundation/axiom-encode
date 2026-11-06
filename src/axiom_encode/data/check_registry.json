@@ -349,6 +349,30 @@
       "why": "Signed provenance names exact commits. A branch name or a moved ref would sign work against code nobody reviewed."
     },
     {
+      "category": "manifest:reviewed-repair",
+      "cause": "encoder_output",
+      "fix": "Use the reviewed package registration and its exact binding; do not edit signed artifacts.",
+      "gate": "manifest",
+      "id": "manifest:reviewed-repair/binding",
+      "requires": "The repair binding identifies an exact registered immutable patch package.",
+      "severity": "important",
+      "site": "axiom_encode/cli.py:_applied_manifest_tool_execution_issues",
+      "title": "Reviewed repair binding is invalid",
+      "why": "Caller-supplied hashes cannot authorize unregistered repair bytes."
+    },
+    {
+      "category": "manifest:reviewed-repair",
+      "cause": "encoder_output",
+      "fix": "Restore the authenticated seed and registered patch inputs and regenerate through the supported route.",
+      "gate": "manifest",
+      "id": "manifest:reviewed-repair/lineage",
+      "requires": "The retained seed and registered patch reconstruct the manifest-bound repair exactly.",
+      "severity": "important",
+      "site": "axiom_encode/cli.py:_load_verified_applied_encoding_manifest_payload",
+      "title": "Reviewed repair reconstruction failed",
+      "why": "A valid signature alone does not prove the repair came from the authorized seed and patch."
+    },
+    {
       "category": "proof:source-evidence",
       "cause": "encoder_output",
       "fix": "Copy a short contiguous excerpt verbatim from the cited provision (no ellipsis, paraphrase or joined fragments), or cite the provision that holds the text.",
@@ -373,6 +397,6 @@
       "why": "A proof atom ties a rule to the exact source words it implements. An excerpt that is not in the cited provision, or not in the rule's own subsection, proves nothing and can hide an invented value or condition."
     }
   ],
-  "registry_sha256": "03a2bf3ee1428a84788d8085b5802ca62bdce38e5bba00e1b88f3d7fa7104a11",
+  "registry_sha256": "a57cef748ff37f75ddf4018b82e83238ac3b3904ce5efff1e81b0f9e879b8263",
   "schema": "axiom-encode/check-registry/v1"
 }
