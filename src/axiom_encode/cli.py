@@ -2747,6 +2747,29 @@ def main():
         help="Emit findings as JSON instead of human-readable text",
     )
 
+    admission_registry_parser = subparsers.add_parser(
+        "admission-registry",
+        help=(
+            "Export or check the reviewed admissions registry of a RuleSpec "
+            "repository (.axiom/admissions)"
+        ),
+    )
+    admission_registry_sub = admission_registry_parser.add_subparsers(
+        dest="admission_registry_command", required=True
+    )
+    registry_export_parser = admission_registry_sub.add_parser(
+        "export",
+        help="Export the registry of one exact protected commit from Git objects",
+    )
+    registry_export_parser.add_argument("--repo", type=Path, required=True)
+    registry_export_parser.add_argument("--commit", required=True)
+    registry_export_parser.add_argument("--output", type=Path, required=True)
+    registry_check_parser = admission_registry_sub.add_parser(
+        "check",
+        help="Check a RuleSpec checkout's working-tree registry (for its own PR CI)",
+    )
+    registry_check_parser.add_argument("--repo", type=Path, required=True)
+
     verifier_identity_parser = subparsers.add_parser(
         "verifier-identity",
         help=(
@@ -4272,6 +4295,8 @@ def main():
         cmd_guard_generated(args)
     elif args.command == "verifier-identity":
         sys.exit(cmd_verifier_identity(args))
+    elif args.command == "admission-registry":
+        sys.exit(cmd_admission_registry(args))
     elif args.command == "stage-signed-backfill":
         cmd_stage_signed_backfill(args)
     elif args.command == "refresh-applied-manifest":
@@ -33329,6 +33354,28 @@ def _encoder_git_history_admission_issue(
     except (OSError, subprocess.SubprocessError, RuntimeError, UnicodeError) as exc:
         return f"cannot prove encoder producer ancestry: {exc}"
     return None
+
+
+def cmd_admission_registry(args) -> int:
+    """Export a protected registry, or check a checkout's registry files."""
+
+    from . import rulespec_admission_registry as registry_module
+
+    try:
+        if args.admission_registry_command == "export":
+            registry = registry_module.export_registry(
+                args.repo, args.commit, args.output
+            )
+        else:
+            registry = registry_module.check_working_tree_registry(args.repo)
+    except (OSError, ValueError) as exc:
+        print(f"admission-registry: {exc}", file=sys.stderr)
+        return 1
+    print(
+        f"admission registry {registry.country} at {registry.commit}: "
+        f"{len(registry.coverage_exemptions)} coverage exemptions"
+    )
+    return 0
 
 
 VERIFIER_IDENTITY_SCHEMA = "axiom-encode/verifier-identity/v1"
