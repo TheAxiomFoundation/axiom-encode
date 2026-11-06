@@ -54,11 +54,19 @@ def _new_us_entry() -> dict:
 
 def _repo(tmp_path: Path, name: str = "rulespec-us") -> Path:
     repo = tmp_path / name
-    repo.mkdir()
+    repo.mkdir(parents=True)
     _git(repo, "init", "-q", "-b", "main")
+    _git(
+        repo,
+        "remote",
+        "add",
+        "origin",
+        f"https://github.com/TheAxiomFoundation/{name}.git",
+    )
     (repo / "README.md").write_text("fixture\n")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-qm", "init")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
     return repo
 
 
@@ -69,6 +77,7 @@ def _commit_registry(repo: Path, lines: list[dict], name=None) -> str:
     path.write_text("".join(json.dumps(line) + "\n" for line in lines))
     _git(repo, "add", "-A")
     _git(repo, "commit", "-qm", "registry")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
     return _git(repo, "rev-parse", "HEAD")
 
 
@@ -135,6 +144,7 @@ def test_symlinked_registry_file_fails(tmp_path):
     (directory / registry.COVERAGE_EXEMPTIONS_FILE).symlink_to("../../elsewhere.jsonl")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-qm", "symlink")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
     with pytest.raises(registry.AdmissionRegistryError, match="not a regular file"):
         registry.export_registry(repo, _git(repo, "rev-parse", "HEAD"), tmp_path / "o")
 
@@ -174,3 +184,44 @@ def test_check_command_validates_head_and_refuses_uncommitted_edits(tmp_path, ca
     assert "1 coverage exemptions" in capsys.readouterr().out
     (repo / ".axiom/admissions/coverage-exemptions.jsonl").write_text("{}\n")
     assert cli.cmd_admission_registry(args) == 1
+
+
+def test_export_refuses_a_commit_off_protected_main(tmp_path):
+    repo = _repo(tmp_path)
+    main = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "checkout", "-q", "-b", "pr")
+    commit = _commit_registry(repo, [_new_us_entry()])
+    _git(repo, "update-ref", "refs/remotes/origin/main", main)
+    with pytest.raises(registry.AdmissionRegistryError, match="origin/main"):
+        registry.export_registry(repo, commit, tmp_path / "out")
+
+
+def test_state_repository_admits_only_its_own_jurisdiction(tmp_path):
+    entry = _new_us_entry()
+    jurisdiction = entry["citation_path"].split("/", 1)[0]
+    assert jurisdiction.startswith("us-")
+    repo = _repo(tmp_path, f"rulespec-{jurisdiction}")
+    commit = _commit_registry(repo, [entry])
+    exported = registry.export_registry(repo, commit, tmp_path / "own")
+    assert exported.country == jurisdiction
+    other = _repo(tmp_path / "other", "rulespec-us-zz")
+    commit = _commit_registry(other, [entry])
+    with pytest.raises(registry.AdmissionRegistryError, match="outside"):
+        registry.export_registry(other, commit, tmp_path / "foreign")
+
+
+def test_export_requires_an_official_origin(tmp_path):
+    repo = _repo(tmp_path)
+    _git(repo, "remote", "set-url", "origin", "https://example.com/rulespec-us.git")
+    with pytest.raises(registry.AdmissionRegistryError, match="origin"):
+        registry.export_registry(repo, _git(repo, "rev-parse", "HEAD"), tmp_path / "o")
+
+
+def test_export_ignores_git_environment_overrides(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    commit = _commit_registry(repo, [_new_us_entry()])
+    decoy = _repo(tmp_path / "decoy")
+    monkeypatch.setenv("GIT_DIR", str(decoy / ".git"))
+    exported = registry.export_registry(repo, commit, tmp_path / "out")
+    assert len(exported.coverage_exemptions) == 1
+    assert len(exported.digest) == 64

@@ -67,9 +67,9 @@ def test_main_reads_the_body_from_the_environment(monkeypatch, tmp_path, capsys)
     assert "::error::" in capsys.readouterr().out
 
 
-def test_template_declares_a_valid_default():
+def test_unedited_template_fails_until_the_author_chooses():
     template = Path(__file__).resolve().parents[1] / ".github/pull_request_template.md"
-    assert check.validation_effect_issues(template.read_text()) == ("none", [])
+    assert check.validation_effect_issues(template.read_text())[1]
 
 
 def test_html_comments_are_not_declarations():
@@ -77,7 +77,8 @@ def test_html_comments_are_not_declarations():
         Path(__file__).resolve().parents[1] / ".github/pull_request_template.md"
     ).read_text()
     body = template.replace(
-        "Validation effect: none", "Validation effect: loosen\nChanged checks: x.y"
+        "Validation effect: <none|loosen|tighten>",
+        "Validation effect: loosen\nChanged checks: x.y",
     )
     assert check.validation_effect_issues(body) == ("loosen", [])
     assert check.validation_effect_issues("<!-- Validation effect: none -->")[1]

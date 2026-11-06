@@ -1,6 +1,6 @@
 <!-- Say what changes and why. Link the issue. -->
 
-Validation effect: none
+Validation effect: <none|loosen|tighten>
 <!--
 Required (#2094). One of:
 - none: RuleSpec validation results cannot change.

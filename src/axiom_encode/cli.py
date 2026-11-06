@@ -10300,6 +10300,12 @@ def signed_import_inventory(
         "schema": "axiom-encode/signed-import-inventory/v1",
         "rulespec_base": base_ref,
         "verifier_encoder_identity": verifier_encoder_identity,
+        # Present only when a floor loosened producer admission (#2095).
+        **(
+            {"producer_floor": verifier_encoder_identity.producer_floor}
+            if getattr(verifier_encoder_identity, "producer_floor", None)
+            else {}
+        ),
         "items": items,
     }
 
@@ -28188,10 +28194,31 @@ def _applied_manifest_tool_execution_issues(
                     f"{manifest_label} retired source metadata migration has malformed file entries"
                 )
             provenance = payload.get("axiom_encode_git")
-            if not isinstance(provenance, dict) or (
-                provenance.get("commit") != expected_encoder_identity.get("commit")
-                or provenance.get("version") != expected_encoder_identity.get("version")
+            if (
+                not isinstance(provenance, dict)
                 or provenance.get("dirty_tracked") is not False
+                or (
+                    getattr(expected_encoder_identity, "producer_floor", None) is None
+                    and (
+                        provenance.get("commit")
+                        != expected_encoder_identity.get("commit")
+                        or provenance.get("version")
+                        != expected_encoder_identity.get("version")
+                    )
+                )
+                or (
+                    getattr(expected_encoder_identity, "producer_floor", None)
+                    is not None
+                    and _encoder_producer_admission_issue(
+                        {
+                            "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+                            "commit": provenance.get("commit"),
+                            "version": provenance.get("version"),
+                        },
+                        expected_encoder_identity,
+                    )
+                    is not None
+                )
             ):
                 issues.append(
                     f"{manifest_label} retired source metadata migration does not match the running pinned encoder"
@@ -33137,11 +33164,35 @@ def _validated_encoder_producer_floor(value: object) -> str:
 
 
 def _apply_encoder_producer_floor_argument(args: argparse.Namespace) -> None:
-    """Install the producer floor for this command's guard identities."""
+    """Install this command's producer floor, or clear an inherited one."""
 
     floor = getattr(args, "encoder_producer_floor", None)
-    if floor is not None:
-        _ENCODER_PRODUCER_FLOOR.set(_validated_encoder_producer_floor(floor))
+    _ENCODER_PRODUCER_FLOOR.set(
+        _validated_encoder_producer_floor(floor) if floor is not None else None
+    )
+
+
+def _encoder_floor_verifier_issue(identity: Mapping[str, str]) -> str | None:
+    """Prove once that a floored verifier is on main at or after its floor."""
+
+    try:
+        floor = _validated_encoder_producer_floor(
+            getattr(identity, "producer_floor", None)
+        )
+    except ValueError as exc:
+        return str(exc)
+    checkout = getattr(identity, "history_checkout", None)
+    commit = identity.get("commit")
+    if checkout is None or not isinstance(commit, str):
+        return "encoder history is unavailable to prove the verifier"
+    cache = getattr(identity, "producer_admission_cache", {})
+    key = ("verifier", floor, commit)
+    if key not in cache:
+        issue = _encoder_git_history_admission_issue(
+            checkout, pin=floor, producer=commit, allow_equal=True
+        )
+        cache[key] = f"the running verifier: {issue}" if issue else None
+    return cache[key]
 
 
 def _encoder_producer_admission_issue(
@@ -33156,6 +33207,14 @@ def _encoder_producer_admission_issue(
     """
 
     mismatch = "does not match the running pinned encoder"
+    floor = getattr(expected_encoder_identity, "producer_floor", None)
+    if floor is not None:
+        # With a floor, the running verifier itself must be on official
+        # first-parent main at or after the floor; otherwise even an exact
+        # match could admit a producer below the floor.
+        verifier_issue = _encoder_floor_verifier_issue(expected_encoder_identity)
+        if verifier_issue:
+            return f"is not admitted by the encoder producer floor: {verifier_issue}"
     core = _encoder_identity_binding_core(producer)
     expected = _encoder_identity_binding_core(dict(expected_encoder_identity))
     if core == expected:
@@ -33186,13 +33245,8 @@ def _encoder_producer_admission_issue(
     # The producer must still be on official first-parent main, at or after
     # the floor. Signature, digests and manifest format are checked by the
     # running verifier as before.
-    floor = getattr(expected_encoder_identity, "producer_floor", None)
     if floor is not None:
         mismatch = "is not admitted by the encoder producer floor"
-        try:
-            floor = _validated_encoder_producer_floor(floor)
-        except ValueError as exc:
-            return f"{mismatch}: {exc}"
     pin = floor if floor is not None else expected["commit"]
     cache_key = (pin, core["commit"])
     cache = expected_encoder_identity.producer_admission_cache
@@ -33375,6 +33429,8 @@ def cmd_admission_registry(args) -> int:
         f"admission registry {registry.country} at {registry.commit}: "
         f"{len(registry.coverage_exemptions)} coverage exemptions"
     )
+    # Recorded in check output so a result names the registry it used.
+    print(f"admission registry digest: {registry.digest}")
     return 0
 
 
@@ -33400,6 +33456,14 @@ def verifier_identity_record(
     if checkout is None:
         raise RuntimeError("the verifier needs a Git checkout with main history")
     commit = identity["commit"]
+    # The record names the running code, not only a checkout with the same
+    # version string: the running package or its runtime attestation must
+    # be this exact commit.
+    running = _current_guard_encoder_execution_identity()
+    if running.get("commit") != commit:
+        raise RuntimeError(
+            "the running encoder commit does not match the verifier checkout"
+        )
     issue = _encoder_git_history_admission_issue(
         checkout, pin=floor, producer=commit, allow_equal=True
     )

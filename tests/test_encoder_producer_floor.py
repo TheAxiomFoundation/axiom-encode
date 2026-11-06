@@ -101,8 +101,58 @@ def test_floor_argument_sets_the_floor_of_new_guard_identities(graph):
         cli._ENCODER_PRODUCER_FLOOR.reset(token)
 
 
-def test_verifier_identity_records_an_encoder_main_verifier(identity_checkout):
+@pytest.fixture
+def running_as(monkeypatch):
+    def install(commit: str) -> None:
+        monkeypatch.setattr(
+            cli,
+            "_current_guard_encoder_execution_identity",
+            lambda: _identity(commit, cli.__version__),
+        )
+
+    return install
+
+
+def test_a_verifier_below_the_floor_admits_nothing(graph):
+    """Even an exact match fails when the verifier is older than the floor."""
+
+    old_verifier = _expected(graph, pin=1)
+    old_verifier.producer_floor = graph.commits[3]
+    for producer in (1, 3, 4):
+        assert cli._encoder_producer_admission_issue(
+            _identity(graph.commits[producer]), old_verifier
+        ), producer
+
+
+def test_a_verifier_off_first_parent_main_admits_nothing(graph):
+    side_verifier = _expected(graph, pin=2)
+    side_verifier.producer_floor = graph.commits[1]
+    assert cli._encoder_producer_admission_issue(
+        _identity(graph.commits[2]), side_verifier
+    )
+
+
+def test_a_command_without_the_flag_clears_an_inherited_floor(graph):
+    token = cli._ENCODER_PRODUCER_FLOOR.set(graph.commits[FLOOR])
+    try:
+        cli._apply_encoder_producer_floor_argument(argparse.Namespace())
+        assert _expected(graph, pin=VERIFIER).producer_floor is None
+    finally:
+        cli._ENCODER_PRODUCER_FLOOR.reset(token)
+
+
+def test_verifier_identity_rejects_other_running_code(identity_checkout, running_as):
+    checkout, pin, producer = identity_checkout
+    running_as(producer)
+    with pytest.raises(RuntimeError, match="running encoder commit"):
+        cli.verifier_identity_record(checkout, producer_floor=pin)
+
+
+def test_verifier_identity_records_an_encoder_main_verifier(
+    identity_checkout, running_as
+):
     checkout, pin, _producer = identity_checkout
+    running_as(pin)
     record = cli.verifier_identity_record(checkout, producer_floor=pin)
     assert record == {
         "schema": cli.VERIFIER_IDENTITY_SCHEMA,
@@ -112,14 +162,20 @@ def test_verifier_identity_records_an_encoder_main_verifier(identity_checkout):
     }
 
 
-def test_verifier_identity_rejects_a_floor_newer_than_the_verifier(identity_checkout):
-    checkout, _pin, producer = identity_checkout
+def test_verifier_identity_rejects_a_floor_newer_than_the_verifier(
+    identity_checkout, running_as
+):
+    checkout, pin, producer = identity_checkout
+    running_as(pin)
     with pytest.raises(RuntimeError, match="not an admitted verifier"):
         cli.verifier_identity_record(checkout, producer_floor=producer)
 
 
-def test_verifier_identity_cli_writes_the_record(identity_checkout, tmp_path):
+def test_verifier_identity_cli_writes_the_record(
+    identity_checkout, tmp_path, running_as
+):
     checkout, pin, _producer = identity_checkout
+    running_as(pin)
     output = tmp_path / "verifier.json"
     args = argparse.Namespace(
         expected_encoder_checkout=checkout,

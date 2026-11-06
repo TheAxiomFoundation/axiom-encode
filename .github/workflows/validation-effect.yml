@@ -19,7 +19,12 @@ jobs:
   declared:
     runs-on: ubuntu-latest
     steps:
+      # Run the base branch's checker, so a pull request cannot edit the
+      # check that judges it.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
       - name: Check the declared validation effect
         # The body is untrusted text: pass it in the environment, never in
         # the script source.
