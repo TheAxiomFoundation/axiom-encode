@@ -157,6 +157,18 @@
       "why": "A complete-source encoding claims the whole unit. A branch that is neither encoded nor deferred is silently dropped law: the module computes a result the source does not support."
     },
     {
+      "category": "complete-source-unit:t1170-evidence",
+      "cause": "encoder_output",
+      "fix": "Correct the complete source-bound module and companion, then rerun ordinary validation with the authenticated release and pinned engine. Keep source roles, exact provider lineage, and failed evidence intact.",
+      "gate": "ci",
+      "id": "complete-source-unit:t1170-evidence/missing",
+      "requires": "Every owned T1170 source obligation has unique, fresh typed principal and direct or provider refusal evidence bound to the authenticated unit.",
+      "severity": "important",
+      "site": "axiom_encode/harness/source_completeness.py:analyze_complete_source_unit",
+      "title": "T1170 lacks complete private source execution evidence",
+      "why": "Generic numeric witnesses, duplicate source obligations, or unrelated provider failures cannot prove the complete form's source conditions."
+    },
+    {
       "category": "complete-source-unit:tests",
       "cause": "encoder_output",
       "fix": "Add cases at each listed boundary value (and just across it) that assert the affected principal output.",
@@ -409,6 +421,6 @@
       "why": "An expected-error label alone cannot prove that a source restriction rejected the intended principal computation."
     }
   ],
-  "registry_sha256": "65b65076d228097d7574b89cccda3303922a79791168678b939465a17a1fb67a",
+  "registry_sha256": "40f3f59f463ad66eeb983cff283a35d63587be7f50b96863497fc16501684c03",
   "schema": "axiom-encode/check-registry/v1"
 }

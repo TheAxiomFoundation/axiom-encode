@@ -6,7 +6,7 @@ execution completeness are separate, and unobserved owned obligations remain.
 
 import weakref
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
 
@@ -446,11 +446,46 @@ class CapitalGiftEvidence:
         version = expected["versions"][0]
         return (formula, start, end) == (version["formula"], "2025-01-01", "2025-12-31")
 
-    def numeric_owner(self, occurrence):
+    def numeric_owner(self, occurrence, *, recall_text=None):
+        """Own raw coordinates, or explicitly map the actual recall input.
+
+        Recall substitutions can delete a page label. The caller must supply
+        the exact text it extracted; masked or otherwise different inputs do
+        not inherit the raw source's coordinate authority.
+        """
         from .validator_pipeline import NumericOccurrence
 
         if not self.live() or type(occurrence) is not NumericOccurrence:
             return None
+        if recall_text is not None:
+            from .bound_capital_gift_operands import PARENT
+            from .source_completeness import (
+                _NumericRecallSourceMap,
+                authoritative_numeric_recall_text,
+            )
+
+            if (
+                type(recall_text) is not str
+                or type(occurrence.start) is not int
+                or type(occurrence.end) is not int
+            ):
+                return None
+            source_map = _NumericRecallSourceMap(list(range(len(self.source.source))))
+            expected = authoritative_numeric_recall_text(
+                self.source.source,
+                corpus_citation_path=PARENT,
+                _source_map=source_map,
+            )
+            if recall_text != expected:
+                return None
+            span = source_map.source_span(occurrence.start, occurrence.end)
+            if (
+                span is None
+                or recall_text[occurrence.start : occurrence.end] != occurrence.raw
+                or self.source.source[slice(*span)] != occurrence.raw
+            ):
+                return None
+            occurrence = replace(occurrence, start=span[0], end=span[1])
         records = {r.role: r for r in self.source.records}
         for role, left, right, raw, value, source_value, rate in _NUMERIC_SOURCE_ROLES:
             start = records[role].span[0] + left

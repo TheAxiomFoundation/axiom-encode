@@ -346,3 +346,85 @@ def test_coherent_provider_family_omission_cannot_borrow_direct_refusals(
         ValueError, match="missing source-owned role: provider:" + target
     ):
         source_role_witnesses(bound, observed)
+
+
+def analyze(evidence, cases, *, source=SOURCE, content=None):
+    from axiom_encode.harness import validator_pipeline as v
+    from axiom_encode.harness.bound_capital_gift_operands import GUIDE
+    from axiom_encode.harness.source_completeness import analyze_complete_source_unit
+
+    return analyze_complete_source_unit(
+        content or STATIC["policy_yaml"],
+        source,
+        corpus_citation_path=PARENT,
+        test_cases=cases,
+        extract_numeric_occurrences=v.extract_typed_numeric_inventory_occurrences_from_text,
+        extract_numeric_grounding_occurrences=v.extract_typed_numeric_occurrences_from_text,
+        extract_named_scalars=v.extract_named_scalar_occurrences,
+        numeric_value_is_grounded=v.numeric_value_is_grounded,
+        source_context={PARENT: source, GUIDE: STATIC["p113_body"]},
+        execution_evidence=evidence,
+    )
+
+
+def test_whole_analyzer_requires_private_complete_source_ownership(
+    complete, monkeypatch
+):
+    cap, cases = complete
+    evidence = cap.evidence()
+    from axiom_encode.harness.source_completeness import (
+        _NumericRecallSourceMap,
+        authoritative_numeric_recall_text,
+    )
+
+    context = certify_capital_gift(
+        STATIC["policy_yaml"], SOURCE, PARENT, cases, evidence
+    )
+    recall = authoritative_numeric_recall_text(SOURCE, corpus_citation_path=PARENT)
+    assert len(recall) == len(SOURCE) - len("Page 1 of 2")
+    occurrences = extract_typed_numeric_inventory_occurrences_from_text(recall)
+    assert all(
+        context.numeric_owner(o, recall_text=recall) is not None for o in occurrences
+    )
+    one = next(o for o in occurrences if o.raw == "1")
+    relocated = recall.index("1170")
+    assert recall[relocated : relocated + 1] == one.raw
+    assert (
+        context.numeric_owner(
+            replace(one, start=relocated, end=relocated + 1), recall_text=recall
+        )
+        is None
+    )
+    page = SOURCE.index("Page 1 of 2")
+    across_gap = replace(
+        one, start=page - 1, end=page + 1, raw=recall[page - 1 : page + 1]
+    )
+    assert context.numeric_owner(across_gap, recall_text=recall) is None
+    deleted = SOURCE.index("1 of 2")
+    assert (
+        context.numeric_owner(
+            replace(one, start=deleted, end=deleted + 1), recall_text=recall
+        )
+        is None
+    )
+    assert context.numeric_owner(one, recall_text=recall + " ") is None
+    assert context.numeric_owner(one, recall_text=SOURCE) is None
+    assert (
+        context.numeric_owner(replace(one, value=one.value + 1), recall_text=recall)
+        is None
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            _NumericRecallSourceMap, "source_span", lambda self, start, end: None
+        )
+        assert context.numeric_owner(one, recall_text=recall) is None
+    actual = analyze(evidence, cases)
+    assert not actual.issues, "\n".join(actual.issues)
+    for absent in (None, replace(evidence)):
+        refused = analyze(absent, cases)
+        assert any("t1170-evidence" in issue for issue in refused.issues)
+    changed = SOURCE + " Do not claim the amount."
+    assert any(
+        "t1170-evidence" in issue
+        for issue in analyze(evidence, cases, source=changed).issues
+    )
