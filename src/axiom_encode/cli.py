@@ -295,6 +295,7 @@ from .harness.same_case_execution import (
     capture_execution_git_origin,
 )
 from .harness.source_completeness import (
+    MISSING_BOUNDARY_DETAIL_MARKER,
     _deferred_coverage,
     _rulespec_target_base,
     recognize_source_structure,
@@ -33666,7 +33667,9 @@ def _validation_residual_obligation_count(issues: Sequence[str]) -> int:
             "[complete-source-unit:tests] Companion tests do not exercise "
             "every source-stated boundary input; missing:" in issue
         ):
-            missing = issue.split("missing:", 1)[1].strip().rstrip(".")
+            missing = issue.split("missing:", 1)[1]
+            missing = missing.split(MISSING_BOUNDARY_DETAIL_MARKER, 1)[0]
+            missing = missing.strip().rstrip(".")
             obligation_count = max(
                 1,
                 len([item for item in missing.split(",") if item.strip()]),

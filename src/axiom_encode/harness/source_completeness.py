@@ -21090,6 +21090,134 @@ def _formula_rule_depends_on(
     return False
 
 
+MISSING_BOUNDARY_DETAIL_MARKER = " Boundary details:"
+_MISSING_BOUNDARY_DETAIL_LIMIT = 12
+_MISSING_BOUNDARY_NAME_LIMIT = 4
+_BOUNDARY_CONTEXT_BEFORE = 90
+_BOUNDARY_CONTEXT_AFTER = 60
+
+
+def _boundary_source_context(
+    boundary: NumericOccurrenceLike,
+    recall_text: str | None,
+) -> tuple[str, str, bool] | None:
+    """Return the source token, a short window and whether it is a ratio.
+
+    ``recall_text`` must be the numeric-recall view that the occurrence's
+    offsets index, as recorded by ``_source_boundary_obligations``. The slice
+    must also equal the occurrence's raw token, so an unverified coordinate
+    never quotes source words. The token is marked as ``⟨token⟩`` because a
+    window can contain an equal number that belongs to another comparison.
+    The ratio flag is set only for a percentage whose listed value is the
+    stated number divided by 100.
+    """
+
+    raw = getattr(boundary, "raw", None)
+    if not isinstance(raw, str) or not raw.strip() or not recall_text:
+        return None
+    text = recall_text
+    start, end = int(boundary.start), int(boundary.end)
+    if not (0 <= start < end <= len(text)) or text[start:end] != raw:
+        return None
+    window_start = max(0, start - _BOUNDARY_CONTEXT_BEFORE)
+    window_end = min(len(text), end + _BOUNDARY_CONTEXT_AFTER)
+    while 0 < window_start < start and not text[window_start - 1].isspace():
+        window_start += 1
+    while end < window_end < len(text) and not text[window_end].isspace():
+        window_end -= 1
+    context = _collapse_text(
+        f"{text[window_start:start]}\u27e8{raw}\u27e9{text[end:window_end]}"
+    )
+    if not context:
+        return None
+    prefix = "..." if window_start > 0 else ""
+    suffix = "..." if window_end < len(text) else ""
+    percent = bool(
+        re.search(r"%|\bper\s*cent\b", raw, re.IGNORECASE)
+        or re.match(r"\s*(?:%|per\s*cent\b)", text[end:], re.IGNORECASE)
+    )
+    stated = getattr(boundary, "source_value", None)
+    if not isinstance(stated, (int, float)) or isinstance(stated, bool):
+        number = re.search(r"[+-]?\d+(?:\.\d+)?", raw.replace(",", ""))
+        stated = float(number.group(0)) if number else None
+    ratio = bool(
+        percent
+        and stated is not None
+        and math.isclose(float(boundary.value) * 100, float(stated), rel_tol=1e-9)
+    )
+    return (
+        _collapse_text(raw).replace("`", "'"),
+        f"{prefix}{context}{suffix}".replace("`", "'"),
+        ratio,
+    )
+
+
+def _missing_boundary_repair_detail(
+    missing_boundaries: Sequence[tuple[SourceStructureBranch, NumericOccurrenceLike]],
+    *,
+    recall_views: Mapping[int, str],
+    principal_rule_paths: dict[str, set[tuple[str, ...]]],
+    corpus_citation_path: str,
+) -> str:
+    """Explain each missing boundary with its source words and covering outputs.
+
+    The listed ``label=value`` items name an internal clause ordinal and a
+    normalized number (``200%`` is listed as ``2``). Without the source words
+    a retry cannot tell which comparison the value belongs to.
+    """
+
+    def bounded(names: Sequence[str]) -> str:
+        shown = ", ".join(f"`{name}`" for name in names[:_MISSING_BOUNDARY_NAME_LIMIT])
+        omitted = len(names) - _MISSING_BOUNDARY_NAME_LIMIT
+        return shown + (f" (+{omitted} more)" if omitted > 0 else "")
+
+    details: list[str] = []
+    for branch, boundary in missing_boundaries[:_MISSING_BOUNDARY_DETAIL_LIMIT]:
+        value = f"{boundary.value:g}"
+        parts = [
+            f"{branch.label}={value} at "
+            f"{_branch_citation(corpus_citation_path, branch)}"
+        ]
+        source = _boundary_source_context(boundary, recall_views.get(id(boundary)))
+        if source is not None:
+            token, context, ratio = source
+            if ratio:
+                unit = (
+                    ""
+                    if re.search(r"%|\bper\s*cent\b", token, re.IGNORECASE)
+                    else " percent"
+                )
+                parts.append(
+                    f"source states `{token}`{unit}, listed as the ratio "
+                    f"{value}, in `{context}`"
+                )
+            else:
+                parts.append(f"source states `{token}` in `{context}`")
+        covering = sorted(_rules_covering_branch(branch, principal_rule_paths))
+        if covering:
+            parts.append(f"covering principal output(s) {bounded(covering)}")
+        else:
+            parts.append(
+                "no principal derived output cites this source branch yet; bind "
+                "the rule that applies this threshold with a "
+                "`versions[N].formula` proof atom whose `source.excerpt` quotes "
+                "this source text"
+            )
+        details.append("; ".join(parts))
+    omitted = len(missing_boundaries) - len(details)
+    if omitted > 0:
+        details.append(f"{omitted} more boundary obligation(s) omitted")
+    return (
+        f"{MISSING_BOUNDARY_DETAIL_MARKER} "
+        + " | ".join(details)
+        + ". For each listed boundary, add a companion case that asserts a "
+        "covering principal output, sets the numeric input its formula compares "
+        "with that source value to exactly that threshold in the input's own "
+        "unit, and asserts the output the source requires at that value "
+        "(whether the source includes or excludes the value itself)."
+    )
+
+
 def _companion_test_issues(
     principal_rules: dict[str, dict[str, Any]],
     *,
@@ -21397,12 +21525,14 @@ def _companion_test_issues(
             source_text=source_text,
         )
     )
+    boundary_recall_views: dict[int, str] = {}
     boundary_obligations = _source_boundary_obligations(
         boundary_branches,
         narrative_formula_branches=formula_branches,
         extract_numeric_occurrences=extract_numeric_occurrences,
         source_text=source_text,
         corpus_citation_path=corpus_citation_path,
+        recall_views=boundary_recall_views,
     )
     missing_boundaries: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
     for branch, boundary in boundary_obligations:
@@ -21448,7 +21578,13 @@ def _companion_test_issues(
         issues.append(
             ValidationIssue(
                 "[complete-source-unit:tests] Companion tests do not exercise every "
-                f"source-stated boundary input; missing: {rendered}.",
+                f"source-stated boundary input; missing: {rendered}."
+                + _missing_boundary_repair_detail(
+                    missing_boundaries,
+                    recall_views=boundary_recall_views,
+                    principal_rule_paths=principal_rule_paths,
+                    corpus_citation_path=corpus_citation_path,
+                ),
                 check=CHECK_TESTS_BOUNDARY_UNEXERCISED,
                 subject=_branch_subject(corpus_citation_path, missing_boundaries[0][0]),
                 # Name only the subject's own boundary: the fingerprint must not
@@ -39204,7 +39340,13 @@ def _source_boundary_obligations(
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     source_text: str | None = None,
     corpus_citation_path: str = "",
+    recall_views: dict[int, str] | None = None,
 ) -> tuple[tuple[SourceStructureBranch, NumericOccurrenceLike], ...]:
+    """Return source boundary obligations.
+
+    When ``recall_views`` is given, it receives, keyed by ``id(occurrence)``,
+    the numeric-recall text that each returned occurrence's offsets index.
+    """
     # Physical deduplication belongs only to positively recognized bare
     # outlines. Ambiguous sources retain the existing fallback obligations.
     physical_coordinates = bool(
@@ -39315,14 +39457,8 @@ def _source_boundary_obligations(
             )
             if interval is None:
                 continue
-            obligations.extend(
-                (
-                    branch,
-                    boundary,
-                    raw_boundary_span(
-                        branch, boundary, raw_direct_text, direct_text, source_map
-                    ),
-                )
+            direct_boundaries = [
+                boundary
                 for boundary in (interval.lower, interval.upper)
                 if boundary is not None
                 and any(
@@ -39331,6 +39467,20 @@ def _source_boundary_obligations(
                     and _numeric_occurrences_are_equivalent(boundary, occurrence)
                     for occurrence in direct_inventory
                 )
+            ]
+            if recall_views is not None:
+                recall_views.update(
+                    (id(boundary), direct_text) for boundary in direct_boundaries
+                )
+            obligations.extend(
+                (
+                    branch,
+                    boundary,
+                    raw_boundary_span(
+                        branch, boundary, raw_direct_text, direct_text, source_map
+                    ),
+                )
+                for boundary in direct_boundaries
             )
     for branch in narrative_formula_branches:
         # _formula_branch_interval inventories only the first physical line.
@@ -39343,6 +39493,15 @@ def _source_boundary_obligations(
         )
         if interval is None:
             continue
+        narrative_boundaries = [
+            boundary
+            for boundary in (interval.lower, interval.upper)
+            if boundary is not None
+        ]
+        if recall_views is not None:
+            recall_views.update(
+                (id(boundary), range_text) for boundary in narrative_boundaries
+            )
         obligations.extend(
             (
                 branch,
@@ -39351,8 +39510,7 @@ def _source_boundary_obligations(
                     branch, boundary, raw_first_line, range_text, source_map
                 ),
             )
-            for boundary in (interval.lower, interval.upper)
-            if boundary is not None
+            for boundary in narrative_boundaries
         )
     return tuple(
         {

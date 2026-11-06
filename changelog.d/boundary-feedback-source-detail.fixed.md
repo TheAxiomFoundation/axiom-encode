@@ -1,0 +1,1 @@
+Show the source words, a percentage-to-ratio note and the covering principal outputs for each missing companion-test boundary, so a retry can tell which comparison a value such as `formula clause 3=2` (200% of FPL) names.
