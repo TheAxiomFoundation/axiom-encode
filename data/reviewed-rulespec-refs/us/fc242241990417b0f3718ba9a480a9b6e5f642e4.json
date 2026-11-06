@@ -10,11 +10,11 @@
   "declared": {
     "encoder_commit": "5750e611b2dc530259c94156c8bad17b12387216",
     "encoder_version": "0.2.2324",
-    "failure_class": "source-completeness parser false refusals; repaired by encoder PR2074",
+    "failure_class": "Run45caec6a failed CI under 0.2.2324: source-completeness parser false refusals. Later deterministic validation after PR2074 is separate evidence, not an original successful outcome.",
     "generator_cli": "codex-cli 0.159.0 via production signing supervisor",
     "generator_model": "gpt-6.1-sol",
-    "outcome_sha256": null,
-    "pre_encode_gate": "Attempt2 of3 admitted; run45caec6a. Promotion must not reset accounting."
+    "outcome_sha256": "3074bc8a0246c00fc6d248a52c4935ea8dff4379a77bb0d0bba07313890b9348",
+    "pre_encode_gate": "Operator reports attempt 2 of 3. Digest is DB outcome_json UTF8, not an authenticated receipt. Original budget artifact missing; budget/provenance review blocking. No accounting reset."
   },
   "pr_base_branch": "codex/az-child-support-verification-reviewed",
   "purpose": "Promote byte-identical protected-generated Arizona child-support verification candidate from rulespec-us PR2044 after current complete-source overlay validation; no regeneration or budget reset.",
