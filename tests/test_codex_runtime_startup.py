@@ -94,5 +94,7 @@ def test_runtime_error_cannot_be_hidden_by_completed_turn_or_final_file(
         assert response.text == (
             "candidate from file"
             if last_message_file
-            else (message + "\ncandidate" if item_type == "agent_message" else "candidate")
+            else (
+                message + "\ncandidate" if item_type == "agent_message" else "candidate"
+            )
         )
