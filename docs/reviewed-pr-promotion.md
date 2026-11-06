@@ -12,6 +12,11 @@ can promote one new primary and companion from a same-repository RuleSpec PR
 based on current RuleSpec main. The optional derived reverse index is the only
 other permitted changed file. Existing-module replacements, stacked PR bases,
 forks, workflow changes, manifests, imports, queues and repair inputs are refused.
+Scope is derived from complete recursive base/head leaf-tree differences (path,
+type, mode and object ID), not just the mutable PR-files response. Both PR files
+and immutable comparison files must agree exactly with that delta; truncated or
+contradictory evidence fails closed. Later live revalidation checks mutable
+authorization against the provisioned receipt, not repeated immutable queries.
 
 One effective `APPROVED` review must be on the exact candidate head, from the
 main-owned signing policy's human GitHub identity (currently MaxGhenis, ID 6076111,

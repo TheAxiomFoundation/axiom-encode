@@ -3,6 +3,7 @@
 import base64
 import copy
 import hashlib
+import inspect
 from dataclasses import replace
 
 import pytest
@@ -71,6 +72,7 @@ def api():
         ROOT + f"/compare/{BASE}...{HEAD}": {
             "status": "ahead",
             "merge_base_commit": {"sha": BASE},
+            "files": [{"filename": p, "status": "added"} for p in files],
         },
         ROOT + f"/git/trees/{BASE}?recursive=1": {"truncated": False, "tree": []},
         ROOT + "/git/ref/heads/codex%2Fmedical": {"object": {"sha": HEAD}},
@@ -162,6 +164,9 @@ def test_independent_owner_approval(api, change):
         api[PR]["user"]["id"] = 6076111
     if change == "actor":
         selector = replace(SELECTOR, actor="MaxGhenis")
+        api["/repos/TheAxiomFoundation/axiom-encode/actions/runs/12345"][
+            "triggering_actor"
+        ]["login"] = "MaxGhenis"
     if change == "bot":
         review["user"]["type"] = "Bot"
     if change == "recycled_login":
@@ -312,6 +317,118 @@ def test_path_now_exists_on_main_despite_added_diff(api):
     api[ROOT + f"/git/trees/{BASE}?recursive=1"]["tree"] = [{"path": PATH}]
     with pytest.raises(AdmissionError):
         verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+
+
+@pytest.mark.parametrize("hide_in_comparison", [False, True])
+def test_mutable_files_cannot_hide_changed_workflow(api, hide_in_comparison):
+    workflow = ".github/workflows/ci.yml"
+    old = {"path": workflow, "type": "blob", "mode": "100644", "sha": "d" * 40}
+    new = {**old, "sha": "e" * 40}
+    api[ROOT + f"/git/trees/{BASE}?recursive=1"]["tree"].append(old)
+    api[ROOT + f"/git/trees/{HEAD}?recursive=1"]["tree"].append(new)
+    api[PR]["changed_files"] = 3
+    api[PR + "/files?per_page=100&page=1"].append(
+        {"filename": ".axiom/index/provisions_to_rules.json", "status": "modified"}
+    )
+    api[ROOT + f"/compare/{BASE}...{HEAD}"]["files"].append(
+        {
+            "filename": ".axiom/index/provisions_to_rules.json"
+            if hide_in_comparison
+            else workflow,
+            "status": "modified",
+        }
+    )
+    with pytest.raises(AdmissionError, match="immutable tree delta"):
+        receipt = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+        # The reported two-call exploit must fail before a receipt exists.
+        # Revalidation deliberately checks mutable authority, not immutable
+        # objects already inspected and bound by exact commit IDs.
+        revalidate_admission(receipt, fetch=api.__getitem__)
+
+
+def test_allowed_index_delta_and_unchanged_leaves(api):
+    index = ".axiom/index/provisions_to_rules.json"
+    old = {"path": index, "type": "blob", "mode": "100644", "sha": "d" * 40}
+    unchanged = {
+        "path": "unrelated.yaml",
+        "type": "blob",
+        "mode": "100644",
+        "sha": "f" * 40,
+    }
+    api[ROOT + f"/git/trees/{BASE}?recursive=1"]["tree"] += [old, unchanged]
+    api[ROOT + f"/git/trees/{HEAD}?recursive=1"]["tree"] += [
+        {**old, "sha": "e" * 40},
+        unchanged,
+    ]
+    api[PR]["changed_files"] = 3
+    for files in (
+        api[PR + "/files?per_page=100&page=1"],
+        api[ROOT + f"/compare/{BASE}...{HEAD}"]["files"],
+    ):
+        files.append({"filename": index, "status": "modified"})
+    verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "duplicate",
+        "nonobject",
+        "bad_sha",
+        "truncated_compare",
+        "type_change",
+        "mode_change",
+        "removed",
+    ],
+)
+def test_complete_tree_delta_fails_closed(api, kind):
+    tree = api[ROOT + f"/git/trees/{HEAD}?recursive=1"]["tree"]
+    if kind == "duplicate":
+        tree.append(copy.deepcopy(tree[0]))
+    elif kind == "nonobject":
+        tree.append(None)
+    elif kind == "bad_sha":
+        tree.append({"path": "other", "type": "blob", "mode": "100644", "sha": "bad"})
+    elif kind == "truncated_compare":
+        api[ROOT + f"/compare/{BASE}...{HEAD}"]["files"].pop()
+    else:
+        old = {"path": "other", "type": "blob", "mode": "100644", "sha": "e" * 40}
+        api[ROOT + f"/git/trees/{BASE}?recursive=1"]["tree"].append(old)
+        if kind == "type_change":
+            tree.append({**old, "type": "commit", "mode": "160000"})
+        elif kind == "mode_change":
+            tree.append({**old, "mode": "100755"})
+    with pytest.raises(AdmissionError):
+        verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+
+
+def test_actor_regression_detects_removed_independence_guard(api, monkeypatch):
+    from axiom_encode import reviewed_pr_admission as module
+
+    source = inspect.getsource(module._approved_reviews)
+    guard = '            and reviewer["login"].lower() != selector.actor.lower()\n'
+    assert guard in source
+    namespace = dict(vars(module))
+    exec(
+        compile(source.replace(guard, ""), "<actor-guard-mutation>", "exec"), namespace
+    )
+    monkeypatch.setattr(module, "_approved_reviews", namespace["_approved_reviews"])
+    # The negative test must fail when only actor exclusion is removed; a
+    # mismatch with the mocked workflow actor must not mask that mutation.
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_independent_owner_approval(api, "actor")
+
+
+def test_scope_regression_detects_removed_immutable_delta_guard(api, monkeypatch):
+    from axiom_encode import reviewed_pr_admission as module
+
+    monkeypatch.setattr(
+        module,
+        "_require_immutable_delta",
+        lambda base, head, files, comparison: module._leaf_entries(head),
+    )
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_mutable_files_cannot_hide_changed_workflow(api, False)
 
 
 def test_promotion_wrapper_preserves_contract():

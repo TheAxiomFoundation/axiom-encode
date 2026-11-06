@@ -114,6 +114,76 @@ def _object(value: object, label: str) -> dict:
     return value
 
 
+def _leaf_entries(tree: dict) -> dict[str, dict]:
+    """Retain every immutable leaf, including symlinks and submodules."""
+    if tree.get("truncated") is not False or not isinstance(tree.get("tree"), list):
+        raise AdmissionError("Git tree cannot be inspected completely")
+    leaves = {}
+    seen = set()
+    for entry in tree["tree"]:
+        entry = _object(entry, "tree entry")
+        path = entry.get("path")
+        if (
+            not isinstance(path, str)
+            or not path
+            or any(part in {"", ".", ".."} for part in path.split("/"))
+            or path in seen
+            or (entry.get("type"), entry.get("mode"))
+            not in {
+                ("tree", "040000"),
+                ("blob", "100644"),
+                ("blob", "100755"),
+                ("blob", "120000"),
+                ("commit", "160000"),
+            }
+            or not re.fullmatch(r"[0-9a-f]{40}", str(entry.get("sha", "")))
+        ):
+            raise AdmissionError("invalid or duplicate Git tree entry")
+        seen.add(path)
+        if entry["type"] != "tree":
+            leaves[path] = entry
+    return leaves
+
+
+def _require_immutable_delta(
+    base_tree: dict, head_tree: dict, files: list[dict], comparison: dict
+) -> dict[str, dict]:
+    base_entries = _leaf_entries(base_tree)
+    head_entries = _leaf_entries(head_tree)
+    delta = {}
+    for path in base_entries.keys() | head_entries.keys():
+        old, new = base_entries.get(path), head_entries.get(path)
+
+        def identity(entry):
+            return (
+                None if entry is None else (entry["type"], entry["mode"], entry["sha"])
+            )
+
+        if identity(old) != identity(new):
+            delta[path] = (
+                "added" if old is None else "removed" if new is None else "modified"
+            )
+            if new is not None and (new["type"] != "blob" or new["mode"] != "100644"):
+                raise AdmissionError("changed candidate file is not a regular blob")
+    # PR files can race or contradict an immutable comparison. Neither can
+    # substitute a permitted index for a workflow changed at the approved SHA.
+    for evidence in (files, comparison.get("files")):
+        if not isinstance(evidence, list):
+            raise AdmissionError("immutable comparison lacks its file delta")
+        observed = {}
+        for item in evidence:
+            item = _object(item, "changed file")
+            path = item.get("filename")
+            if not isinstance(path, str) or path in observed:
+                raise AdmissionError("invalid or duplicate changed file")
+            observed[path] = item.get("status")
+        if observed != delta:
+            raise AdmissionError(
+                "file scope differs from complete immutable tree delta"
+            )
+    return head_entries
+
+
 def selector_from_payload(value: object) -> PromotionSelector:
     payload = _object(value, "promotion selector")
     if set(payload) != set(PromotionSelector.__dataclass_fields__):
@@ -317,9 +387,7 @@ def verify_reviewed_pr(
     )
     if tree.get("truncated") is not False or not isinstance(tree.get("tree"), list):
         raise AdmissionError("candidate tree cannot be inspected completely")
-    entries = {
-        entry.get("path"): entry for entry in tree["tree"] if isinstance(entry, dict)
-    }
+    entries = _require_immutable_delta(base_tree, tree, files, comparison)
     for path in sorted(expected):
         entry = entries.get(path, {})
         if entry.get("type") != "blob" or entry.get("mode") != "100644":
