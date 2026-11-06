@@ -118,7 +118,7 @@ jobs:
           queued="$(gh api graphql \
             -f owner="${GITHUB_REPOSITORY%%/*}" -f name="${GITHUB_REPOSITORY#*/}" \
             -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { mergeQueue(branch: "main") { entries(first: 100) { nodes { pullRequest { headRefName } } } } } }' \
-            --jq '[.data.repository.mergeQueue.entries.nodes[]?.pullRequest.headRefName | select(startswith("automation/encoder-version-"))] | length')"
+            --jq '[.data.repository.mergeQueue.entries.nodes[]?.pullRequest.headRefName // "" | select(startswith("automation/encoder-version-"))] | length')"
           if [ "$queued" != "0" ]; then
             echo "::notice::An encoder version bump pull request is in the merge queue; its merge runs this workflow again."
             exit 0

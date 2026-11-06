@@ -32599,10 +32599,13 @@ def _git_show_bytes(repo: Path, ref: str, path: str) -> bytes | None:
 def _git_name_only(repo: Path, *args: str) -> list[str]:
     try:
         completed = subprocess.run(
-            ["git", "-C", str(repo), *args],
+            [shutil.which("git") or "git", "-C", str(repo), *args],
             capture_output=True,
             check=True,
             text=True,
+            # No replace refs, grafts or commit-graph: a local history rewrite
+            # must not hide an unversioned encoder change (axiom-encode#2048).
+            env=_read_only_git_environment(),
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         stderr = getattr(exc, "stderr", "") or ""
@@ -32613,10 +32616,13 @@ def _git_name_only(repo: Path, *args: str) -> list[str]:
 def _git_nul_paths(repo: Path, *args: str) -> list[str]:
     try:
         completed = subprocess.run(
-            ["git", "-C", str(repo), *args],
+            [shutil.which("git") or "git", "-C", str(repo), *args],
             capture_output=True,
             check=True,
             text=True,
+            # No replace refs, grafts or commit-graph: a local history rewrite
+            # must not hide an unversioned encoder change (axiom-encode#2048).
+            env=_read_only_git_environment(),
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         stderr = getattr(exc, "stderr", "") or ""

@@ -199,7 +199,7 @@ def test_ambient_git_dir_does_not_hide_an_unversioned_pin(
 
 @pytest.mark.parametrize("rewrite", ["replace-graft", "replace-object", "grafts-file"])
 def test_history_rewrites_in_the_same_repo_do_not_hide_an_unversioned_pin(
-    repo: Path, rewrite: str
+    repo: Path, rewrite: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     bump = _git(repo, "rev-parse", "HEAD")
     unversioned = _change_encoder(repo, 1)
@@ -216,6 +216,19 @@ def test_history_rewrites_in_the_same_repo_do_not_hide_an_unversioned_pin(
     with pytest.raises(ValueError, match="after its version bump"):
         encoder_version_at_pin(repo, unversioned)
     assert version_provenance.unversioned_changes(repo, unversioned)
+    # The --apply guard and the provisioner see through the rewrite too.
+    assert _verdicts(repo, monkeypatch, tmp_path / "home") == {True}
+
+
+def test_a_replaced_versioned_pin_reports_its_stored_version(repo: Path):
+    older_bump = _git(repo, "rev-parse", "HEAD")
+    (repo / "src/axiom_encode/cli.py").write_text("MARKER = 1\n")
+    _write_version(repo, "0.2.11")
+    pin = _commit(repo, "encoder change under a bump")
+    # The pin's object is swapped for a commit that carries another version.
+    _git(repo, "replace", pin, older_bump)
+
+    assert encoder_version_at_pin(repo, pin) == "0.2.11"
 
 
 _PROVISIONER_SPEC = importlib.util.spec_from_file_location(

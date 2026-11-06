@@ -1185,6 +1185,10 @@ _GITHUB_REMOTE_PATTERNS = (
 _HARDENED_GIT_FLAGS = (
     "--no-pager",
     "-c",
+    "core.commitGraph=false",
+    "-c",
+    "advice.graftFileDeprecated=false",
+    "-c",
     "core.fsmonitor=",
     "-c",
     "core.hooksPath=/dev/null",
@@ -1237,6 +1241,9 @@ def _hardened_git_environment(home: Path) -> dict[str, str]:
         "GIT_ATTR_NOSYSTEM": "1",
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_NO_REPLACE_OBJECTS": "1",
+        # An info/grafts file must not rewrite the history the version-bump
+        # check reads, as in version_provenance and cli (axiom-encode#2048).
+        "GIT_GRAFT_FILE": os.devnull,
         "GIT_NO_LAZY_FETCH": "1",
         "GIT_OPTIONAL_LOCKS": "0",
     }
