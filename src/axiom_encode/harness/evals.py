@@ -11749,11 +11749,11 @@ companion test file required by the task and deterministic validation.
         if tests_only
         else (
             "- Return syntactically complete RuleSpec and companion test YAML, but "
-            "you may omit unchanged named inputs, named rules, imports, deferred "
+            "you may omit unchanged named units, named inputs, named rules, imports, deferred "
             "outputs, and named companion cases. The encoder overlays those "
             "omitted items from the hash-bound candidate before validation. Re-emit "
             "the complete item only when changing or replacing it. To remove an "
-            "obsolete named input, rule, or companion case from this rejected "
+            "obsolete named unit, input, rule, or companion case from this rejected "
             "candidate, emit an exact YAML item containing only "
             "`name: <existing name>` and `repair_remove: true`; input removal is "
             "accepted only after no repaired rule or companion case references "
@@ -19465,6 +19465,13 @@ def _repair_overlay_candidate_base_issue(
         not isinstance(import_target, str) for import_target in imports
     ):
         return "preserved repair overlay imports must be a list of strings"
+    preserved_units = preserved.get("units", [])
+    if not isinstance(preserved_units, list):
+        return "preserved repair overlay units must be a list"
+    try:
+        _merge_named_yaml_items([], preserved_units, label="units")
+    except ValueError as exc:
+        return str(exc)
     preserved_inputs = preserved.get("inputs", [])
     if not isinstance(preserved_inputs, list):
         return "preserved repair overlay inputs must be a list"
@@ -19580,6 +19587,22 @@ def _overlay_validation_retry_candidate(
             repairs.append(f"import:{import_target}")
     if imports:
         generated["imports"] = imports
+
+    generated_units = generated.get("units", [])
+    preserved_units = preserved.get("units", [])
+    if not isinstance(generated_units, list) or not isinstance(preserved_units, list):
+        raise ValueError("repair overlay units must be lists")
+    units, restored_units, removed_units = _merge_named_yaml_items(
+        generated_units,
+        preserved_units,
+        label="units",
+    )
+    if units:
+        generated["units"] = units
+    else:
+        generated.pop("units", None)
+    repairs.extend(f"unit:{name}" for name in restored_units)
+    repairs.extend(f"removed_unit:{name}" for name in removed_units)
 
     generated_inputs = generated.get("inputs", [])
     preserved_inputs = preserved.get("inputs", [])

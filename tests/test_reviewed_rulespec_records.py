@@ -16,6 +16,7 @@ from axiom_encode.prepare_signed_backfill import (
     REVIEWED_RULESPEC_PR_BASES,
     REVIEWED_RULESPEC_RECORD_SCHEMA,
     REVIEWED_RULESPEC_REFS,
+    UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS,
     load_reviewed_rulespec_records,
     reviewed_rulespec_pr_bases_from_records,
     reviewed_rulespec_refs_from_records,
@@ -157,6 +158,22 @@ def _write(
     path.write_bytes(_canonical(payload) if raw is None else raw)
     path.chmod(mode)
     return path
+
+
+def test_income_standards_admission_preserves_exact_base_only_scope() -> None:
+    head = "8eff74e39ca3ed50de3439b27de7c438a7b7bcda"
+    branch = "axiom/signed-backfill-us-38802732779-1"
+    assert ("us", head) in REVIEWED_RULESPEC_REFS
+    assert ("us", head, branch) in REVIEWED_RULESPEC_PR_BASES
+    assert ("us", head, "main") not in REVIEWED_RULESPEC_PR_BASES
+    assert ("us", head) not in UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS
+    assert (
+        "us",
+        "949b31dc3a7c105519eafdc2cb6117d82d4c3578",
+    ) not in REVIEWED_RULESPEC_REFS
+    record = json.loads((RECORD_ROOT / "us" / f"{head}.json").read_text())
+    assert record["binding"] is None
+    assert record["rulespec_pr"] == 1790
 
 
 def test_records_preserve_every_pre_record_admission() -> None:
@@ -450,3 +467,17 @@ def test_checkout_without_record_root_admits_no_reviewed_head(
         sys.modules.pop(spec.name, None)
 
     assert module.REVIEWED_RULESPEC_REFS == frozenset({("us", SHA)})
+
+
+def test_unbound_promotion_set_is_frozen_to_the_migrated_records() -> None:
+    """Only pre-record admissions may promote without a record binding."""
+
+    assert UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS == (
+        PRE_RECORD_REVIEWED_RULESPEC_REFS
+    )
+    records = load_reviewed_rulespec_records(RECORD_ROOT)
+    assert UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS <= {
+        (record.country, record.rulespec_ref)
+        for record in records
+        if record.payload["binding"] is None
+    }
