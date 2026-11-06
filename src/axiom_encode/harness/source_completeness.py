@@ -5944,8 +5944,19 @@ def _analyze_rulespec_payload(
         is not None
         else RepaymentAlternativeCoverage()
     )
+    from .child_credit_evidence import _child_credit_context
+
+    child_credit = _child_credit_context(
+        source_text,
+        corpus_citation_path,
+        content,
+        execution_evidence,
+        execution_test_cases,
+        raw_source=raw_source_text,
+    )
     source_condition_issues = _opaque_same_source_condition_input_issues(
         payload,
+        child_credit=child_credit,
         consumer_content=content,
         source_text=source_text,
         care_source_text=raw_source_text,
@@ -6371,6 +6382,8 @@ def _analyze_rulespec_payload(
 
     if student_loan is not None:
         represented_form_spans.update(student_loan.numeric_spans())
+    if child_credit is not None:
+        represented_form_spans.update(child_credit.numeric_spans())
 
     numeric_recall_text = authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path
@@ -19629,6 +19642,7 @@ CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED = declare_check(
 def _opaque_same_source_condition_input_issues(
     payload: Mapping[str, Any],
     *,
+    child_credit: Any = None,
     source_text: str,
     consumer_content: str | None = None,
     branches: Sequence[SourceStructureBranch],
@@ -20159,6 +20173,10 @@ def _opaque_same_source_condition_input_issues(
                     )
                 )
                 for clause in condition_clauses:
+                    if child_credit is not None and child_credit.owns_refund_condition(
+                        rule_name, version_index, formula, start, end, clause, ambiguous
+                    ):
+                        continue
                     if (
                         repayment_alternatives is not None
                         and consumer_content is not None
@@ -21357,6 +21375,16 @@ def _companion_test_issues(
         execution_evidence,
         execution_test_cases,
     )
+    from .child_credit_evidence import _child_credit_context
+
+    child_credit = _child_credit_context(
+        source_text,
+        corpus_citation_path,
+        partnership_content,
+        execution_evidence,
+        execution_test_cases,
+        raw_source=raw_source_text,
+    )
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
     if not cases:
@@ -21452,11 +21480,17 @@ def _companion_test_issues(
         for branch in formula_branches
         if student_loan is not None and student_loan.formula_owned(branch)
     )
+    child_formula_branches = tuple(
+        b
+        for b in formula_branches
+        if child_credit is not None and child_credit.formula_owned(b)
+    )
     missing_formula_branches = _unwitnessed_formula_branches(
         tuple(
             branch
             for branch in formula_branches
             if branch not in student_formula_branches
+            and branch not in child_formula_branches
         ),
         execution_evidence=execution_evidence,
         execution_content=partnership_content,
@@ -21491,6 +21525,11 @@ def _companion_test_issues(
                     for branch in student_formula_branches
                 }
             ),
+        )
+    if child_credit is not None:
+        missing_formula_branches = (
+            *missing_formula_branches,
+            *child_credit.unmatched(child_formula_branches),
         )
     if measurement_roles is not None:
         # These exact source operations are not necessarily formula branches in
@@ -21740,6 +21779,21 @@ def _companion_test_issues(
                         end,
                     ),
                 )
+    if child_credit is not None:
+        for role in ("volunteer", "paper_attachment", "receipts"):
+            start, end = child_credit.owned_spans()[role]
+            if not any((b.start, b.end) == (start, end) for b in exception_branches):
+                exception_branches = (
+                    *exception_branches,
+                    SourceStructureBranch(
+                        (),
+                        "exception-clause",
+                        "source unit",
+                        source_text[start:end],
+                        start,
+                        end,
+                    ),
+                )
     if exception_branches:
         independently_covered_paths = {
             path
@@ -21753,6 +21807,10 @@ def _companion_test_issues(
             if (
                 student_loan is not None
                 and student_loan.branch_role(branch) is not None
+            )
+            or (
+                child_credit is not None
+                and child_credit.branch_role(branch) is not None
             )
             or _source_exception_requires_paired_witness(
                 branch.text,
@@ -21776,11 +21834,17 @@ def _companion_test_issues(
             for branch in paired_exception_branches
             if student_loan is not None and student_loan.branch_role(branch) is not None
         )
+        child_exception_branches = tuple(
+            b
+            for b in paired_exception_branches
+            if child_credit is not None and child_credit.branch_role(b) is not None
+        )
         missing_exception_branches = _unwitnessed_exception_branches(
             tuple(
                 branch
                 for branch in paired_exception_branches
                 if branch not in student_exception_branches
+                and branch not in child_exception_branches
             ),
             certified_composition=certified_composition,
             certified_replacement=certified_replacement,
@@ -22011,6 +22075,11 @@ def _companion_test_issues(
                         for branch in student_exception_branches
                     }
                 ),
+            )
+        if child_credit is not None:
+            missing_exception_branches = (
+                *missing_exception_branches,
+                *child_credit.unmatched(child_exception_branches),
             )
         if missing_exception_branches:
             unsupported_row_outputs = [
