@@ -779,6 +779,112 @@ _LEGACY_REPLACEMENT_RECEIPT_FIELDS = frozenset(
         "signature",
     }
 )
+# Explicit classifications keep new schema fields subject to audit. Descriptive
+# strings are caller-selected text unused by ownership/provenance readers; every
+# other value is scanned, including containers in descriptive fields.
+_UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS = frozenset(
+    {
+        "schema_version",
+        "generated_at",
+        "tool",
+        "axiom_encode_version",
+        "axiom_encode_git",
+        VALIDATION_WAIVER_SET_SHA256_FIELD,
+        "signature",
+    }
+)
+_UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES = {
+    _MODEL_APPLY_MANIFEST_FIELDS: (
+        frozenset({"run_id", "runner", "model"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "generation_prompt_sha256",
+            "citation",
+            "backend",
+            "generated_output_root",
+            "generated_output_file",
+            "generated_output_sha256",
+            "trace_file",
+            "trace_sha256",
+            "context_manifest_file",
+            "context_manifest_sha256",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+        },
+    ),
+    _REVIEWED_CANDIDATE_MANIFEST_FIELDS: (
+        frozenset({"run_id"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "citation",
+            "reviewed_rulespec_ref",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+        },
+    ),
+    _RETIRE_APPLY_MANIFEST_FIELDS: (
+        frozenset({"reason"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"applied_files", "retired_manifest", "source_attestation"},
+    ),
+    _UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS: (
+        frozenset({"reason"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"base_commit", "applied_files"},
+    ),
+    _PATH_MIGRATION_APPLY_MANIFEST_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"applied_files", "migrated_manifest", "migration", "source_attestation"},
+    ),
+    _LEGACY_REPLACEMENT_APPLY_MANIFEST_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "applied_files",
+            "replacement_manifest",
+            "replacement",
+            "source_attestation",
+        },
+    ),
+    _LEGACY_EXACT_DEPENDENT_APPLY_MANIFEST_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"applied_files", "legacy_migration"},
+    ),
+    _LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"applied_files", "legacy_migration", "retained_successor_manifest"},
+    ),
+    _RETIRED_SOURCE_METADATA_MANIFEST_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"applied_files", "retired_source_metadata", "prior_manifest"},
+    ),
+    _LEGACY_REPLACEMENT_RECEIPT_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "repository",
+            "corpus_release",
+            "validation_execution",
+            "legacy",
+            "replacement",
+            "replacement_manifest",
+        },
+    ),
+}
+_UNRECEIPTED_RETIREMENT_NESTED_RECEIPT_FIELDS = frozenset(
+    {
+        "retired_manifest",
+        "migrated_manifest",
+        "replacement_manifest",
+        "retained_successor_manifest",
+    }
+)
 _RETIRED_SCHEMA_COUNT_TEST_PATH = Path("tests/test_legacy_rulespec_freeze.py")
 _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS = frozenset(
     {
@@ -24865,6 +24971,61 @@ def _unreceipted_retirement_inventory_prefix(path: Path) -> tuple[str, ...] | No
     return None
 
 
+def _unreceipted_retirement_manifest_strings(
+    payload: object,
+) -> tuple[set[str], int]:
+    """Collect conservative ownership strings and nonfinite-number occurrences.
+
+    Only exact known receipts at the root or a recognized receipt's prior-receipt
+    field can exclude descriptive strings. All other positions scan every value.
+    """
+
+    pending: list[tuple[object, bool]] = [(payload, True)]
+    strings: set[str] = set()
+    nonfinite_count = 0
+    while pending:
+        item, receipt_position = pending.pop()
+        if isinstance(item, dict):
+            classes = (
+                _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES.get(frozenset(item))
+                if receipt_position
+                else None
+            )
+            for key, value in item.items():
+                if classes is not None and key in classes[0] and isinstance(value, str):
+                    continue
+                if key == "applied_files" and isinstance(value, dict):
+                    # Historical mapping layouts own their keys as well as values.
+                    strings.update(value)
+                if classes is not None and key == "prior_manifest":
+                    # The metadata-retirement writer wraps its prior receipt with
+                    # its path and digest; those wrapper values still count.
+                    if isinstance(value, dict) and set(value) == {
+                        "path",
+                        "sha256",
+                        "manifest",
+                    }:
+                        pending.extend(
+                            (nested, field == "manifest")
+                            for field, nested in value.items()
+                        )
+                        continue
+                pending.append(
+                    (
+                        value,
+                        classes is not None
+                        and key in _UNRECEIPTED_RETIREMENT_NESTED_RECEIPT_FIELDS,
+                    )
+                )
+        elif isinstance(item, list):
+            pending.extend((value, False) for value in item)
+        elif isinstance(item, str):
+            strings.add(item)
+        elif isinstance(item, float) and not math.isfinite(item):
+            nonfinite_count += 1
+    return strings, nonfinite_count
+
+
 def _unreceipted_retirement_ownership_issues(
     payload: Mapping[str, object],
     *,
@@ -24929,55 +25090,23 @@ def _unreceipted_retirement_ownership_issues(
             )
             continue
         prefix = owner.parts[0] if owner.parts[0] != ".axiom" else ""
-        # A retirement receipt's reason holds an operator's free text and owns
-        # nothing. Every other string, in every other shape, still counts.
-        retirement_reason = isinstance(prior.get("reason"), str) and set(prior) in (
-            _RETIRE_APPLY_MANIFEST_FIELDS,
-            _UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS,
-        )
-        pending: list[object] = [
-            {key: value for key, value in prior.items() if key != "reason"}
-            if retirement_reason
-            else prior
-        ]
+        strings, nonfinite_count = _unreceipted_retirement_manifest_strings(prior)
         covered: set[str] = set()
-        while pending:
-            item = pending.pop()
-            if isinstance(item, dict):
-                for key, value in item.items():
-                    if key == "applied_files" and isinstance(value, dict):
-                        # Preserve fail-closed handling of historical mapping layouts.
-                        for raw_path in value:
-                            normalized = Path(raw_path).as_posix()
-                            covered.update(
-                                paths.intersection(
-                                    (
-                                        normalized,
-                                        _prefix_applied_manifest_path(
-                                            normalized, prefix
-                                        ),
-                                    )
-                                )
-                            )
-                    pending.append(value)
-            elif isinstance(item, list):
-                pending.extend(item)
-            elif isinstance(item, str):
-                # Unknown receipt shapes still own any path they reference.
-                normalized = Path(item).as_posix()
-                covered.update(
-                    paths.intersection(
-                        (
-                            normalized,
-                            _prefix_applied_manifest_path(normalized, prefix),
-                        )
+        for item in strings:
+            normalized = Path(item).as_posix()
+            covered.update(
+                paths.intersection(
+                    (
+                        normalized,
+                        _prefix_applied_manifest_path(normalized, prefix),
                     )
                 )
-            elif isinstance(item, float) and not math.isfinite(item):
-                issues.append(
-                    f"{manifest_label} cannot establish unreceipted ownership: "
-                    f"{owner.as_posix()} {location} has a nonfinite JSON number"
-                )
+            )
+        issues.extend(
+            f"{manifest_label} cannot establish unreceipted ownership: "
+            f"{owner.as_posix()} {location} has a nonfinite JSON number"
+            for _ in range(nonfinite_count)
+        )
         if covered:
             issues.append(
                 f"{manifest_label} {', '.join(sorted(covered))} is already covered "

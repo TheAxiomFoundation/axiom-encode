@@ -1364,6 +1364,168 @@ def test_reason_naming_another_pair_leaves_that_pair_retirable(tmp_path):
     assert not (checkout.repo / second_companion).exists()
 
 
+@pytest.mark.parametrize("retire_owner", [False, True], ids=["live", "retired"])
+def test_model_run_id_naming_independent_pair_does_not_create_ownership(
+    tmp_path, retire_owner
+):
+    """Production refresh and retirement writers preserve descriptive run IDs."""
+
+    checkout = _repo(tmp_path)
+    owner = checkout.repo / "us/statutes/26/1.yaml"
+    owner_companion = owner.with_name("1.test.yaml")
+    owner_companion.write_text("[]\n")
+    owner_manifest = checkout.repo / cli._applied_encoding_manifest_path(
+        owner.relative_to(checkout.repo)
+    )
+    historical = json.loads(owner_manifest.read_text())
+    historical["applied_files"].append(
+        {
+            "path": owner_companion.relative_to(checkout.repo).as_posix(),
+            "sha256": _sha256(owner_companion.read_bytes()),
+        }
+    )
+    cli._sign_applied_encoding_manifest(historical, fixtures.TEST_APPLY_SIGNING_BROKER)
+    owner_manifest.write_text(json.dumps(historical) + "\n")
+
+    # Keep an authenticated live model for --all after both requested deletions.
+    sentinel = owner.with_name("sentinel.yaml")
+    sentinel.write_bytes(owner.read_bytes())
+    sentinel_manifest = checkout.repo / cli._applied_encoding_manifest_path(
+        sentinel.relative_to(checkout.repo)
+    )
+    sentinel_payload = copy.deepcopy(historical)
+    sentinel_payload["applied_files"] = [
+        {
+            "path": sentinel.relative_to(checkout.repo).as_posix(),
+            "sha256": _sha256(sentinel.read_bytes()),
+        }
+    ]
+    cli._sign_applied_encoding_manifest(
+        sentinel_payload, fixtures.TEST_APPLY_SIGNING_BROKER
+    )
+    sentinel_manifest.write_text(json.dumps(sentinel_payload) + "\n")
+    checkout.base = checkout.commit("prepare independent owner and live sentinel")
+
+    output_root = tmp_path / "refresh-output"
+    output_root.mkdir()
+    generated = output_root / "1.yaml"
+    generated.write_bytes(owner.read_bytes())
+    source_text = output_root / "source.txt"
+    source_text.write_text(
+        fixtures.resolve_corpus_source_unit("us/statute/26/1", checkout.release).body,
+        encoding="utf-8",
+    )
+    context_manifest = output_root / "context-manifest.json"
+    context_manifest.write_text(
+        json.dumps(
+            {
+                "source_text_file": source_text.name,
+                "source_metadata": {
+                    "source_attestation": historical["source_attestation"]
+                },
+            }
+        )
+        + "\n"
+    )
+    result = SimpleNamespace(
+        output_file=str(generated),
+        runner="openai",
+        backend="openai",
+        model="fixture-refresh-model",
+        tool=cli.APPLIED_ENCODING_MODEL_TOOL,
+        citation="us/statute/26/1",
+        generation_prompt_sha256=None,
+        trace_file=None,
+        context_manifest_file=str(context_manifest),
+        source_attestation=historical["source_attestation"],
+    )
+    setattr(result, cli._MANIFEST_ONLY_REFRESH_ATTR, True)
+    setattr(
+        result,
+        cli._APPLY_VALIDATION_SNAPSHOT_ATTR,
+        {"manifest_validation_execution": historical["validation_execution"]},
+    )
+    refreshed_manifest = cli._write_applied_encoding_manifest(
+        result,
+        output_root=output_root,
+        policy_repo_path=checkout.repo / "us",
+        corpus_path=checkout.corpus_path,
+        relative_output=Path("statutes/26/1.yaml"),
+        applied_files=[owner, owner_companion],
+        run_id=checkout.primary,
+        signing_broker=fixtures.TEST_APPLY_SIGNING_BROKER,
+        axiom_encode_git=_encoder_provenance(),
+    )
+    assert refreshed_manifest == owner_manifest
+    assert (
+        set(json.loads(owner_manifest.read_text())) == cli._MODEL_APPLY_MANIFEST_FIELDS
+    )
+    assert checkout.guard() == []
+    assert (
+        cli._load_verified_applied_encoding_manifest_payload(
+            checkout.repo,
+            owner_manifest.relative_to(checkout.repo).as_posix(),
+            historical_verification=True,
+            local_corpus_release=checkout.release,
+            expected_encoder_identity=fixtures.TEST_PINNED_ENCODER_IDENTITY,
+        )[3]
+        == []
+    )
+    checkout.commit("refresh live owner with independent pair as run ID")
+
+    if retire_owner:
+        checkout.retire(
+            paths=[owner.relative_to(checkout.repo).as_posix()],
+            unreceipted=False,
+        )
+        checkout.commit("retire owner while preserving its signed model")
+        owner_payload = json.loads(owner_manifest.read_text())
+        assert owner_payload["retired_manifest"]["run_id"] == checkout.primary
+        assert checkout.guard() == []
+        assert (
+            cli._load_verified_applied_encoding_manifest_payload(
+                checkout.repo,
+                owner_manifest.relative_to(checkout.repo).as_posix(),
+                historical_verification=True,
+                local_corpus_release=checkout.release,
+                expected_encoder_identity=fixtures.TEST_PINNED_ENCODER_IDENTITY,
+            )[3]
+            == []
+        )
+    else:
+        assert json.loads(owner_manifest.read_text())["run_id"] == checkout.primary
+
+    parent = fixtures._git(checkout.repo, "rev-parse", "HEAD").stdout.strip()
+    checkout.retire()
+    final_receipt = json.loads(checkout.manifest.read_text())
+    assert set(final_receipt) == cli._UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS
+    assert final_receipt["schema_version"] == cli.APPLIED_ENCODING_MANIFEST_SCHEMA
+    assert final_receipt["tool"] == cli.APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL
+    assert final_receipt["base_commit"] == parent
+    assert final_receipt["applied_files"] == [
+        {"path": path, "deleted": True, "sha256": _sha256(raw)}
+        for path, raw in checkout.originals.items()
+    ]
+    assert (
+        cli._applied_encoding_manifest_signature_issue(
+            final_receipt, fixtures.TEST_APPLY_SIGNING_BROKER
+        )
+        is None
+    )
+    checkout.commit("retire independent unreceipted pair")
+    assert not (checkout.repo / checkout.primary).exists()
+    assert not (checkout.repo / checkout.companion).exists()
+    assert checkout.guard(base=parent) == []
+    assert checkout.guard(all_files=True, base=parent) == []
+    assert (
+        cli.guard_generated_change_issues(
+            checkout.repo, corpus_path=checkout.corpus_path, all_files=True
+        )
+        == []
+    )
+    assert checkout.load()[3] == []
+
+
 @pytest.mark.parametrize("shape", sorted(_RETIREMENT_SHAPES))
 def test_retirement_receipt_reason_owns_nothing(shape):
     claimed = "us/policies/council/second.yaml"
@@ -1448,3 +1610,468 @@ def test_no_base_all_snapshot_does_not_replay_settled_deletion(tmp_path):
     )
     issues = checkout.guard(all_files=True, base=recreated_base)
     assert any("base sha256 does not match" in issue for issue in issues), issues
+
+
+# These expectations are deliberately independent of the production classes: a
+# classification mutation must change behavior, rather than its own test cases.
+_SCAN_SCHEMA_NAMES = (
+    "_MODEL_APPLY_MANIFEST_FIELDS",
+    "_REVIEWED_CANDIDATE_MANIFEST_FIELDS",
+    "_RETIRE_APPLY_MANIFEST_FIELDS",
+    "_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS",
+    "_PATH_MIGRATION_APPLY_MANIFEST_FIELDS",
+    "_LEGACY_REPLACEMENT_APPLY_MANIFEST_FIELDS",
+    "_LEGACY_EXACT_DEPENDENT_APPLY_MANIFEST_FIELDS",
+    "_LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS",
+    "_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS",
+    "_LEGACY_REPLACEMENT_RECEIPT_FIELDS",
+)
+_SCAN_SCHEMA_EXCLUSIONS = frozenset()
+# Independent audited sets: adding a field requires an explicit classification.
+_EXPECTED_COMMON_SCANNED = frozenset(
+    {
+        "schema_version",
+        "generated_at",
+        "tool",
+        "axiom_encode_version",
+        "axiom_encode_git",
+        "validation_waiver_set_sha256",
+        "signature",
+    }
+)
+_EXPECTED_MANIFEST_CLASSES = {
+    "_MODEL_APPLY_MANIFEST_FIELDS": (
+        frozenset({"run_id", "runner", "model"}),
+        _EXPECTED_COMMON_SCANNED
+        | {
+            "generation_prompt_sha256",
+            "citation",
+            "backend",
+            "generated_output_root",
+            "generated_output_file",
+            "generated_output_sha256",
+            "trace_file",
+            "trace_sha256",
+            "context_manifest_file",
+            "context_manifest_sha256",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+        },
+    ),
+    "_REVIEWED_CANDIDATE_MANIFEST_FIELDS": (
+        frozenset({"run_id"}),
+        _EXPECTED_COMMON_SCANNED
+        | {
+            "citation",
+            "reviewed_rulespec_ref",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+        },
+    ),
+    "_RETIRE_APPLY_MANIFEST_FIELDS": (
+        frozenset({"reason"}),
+        _EXPECTED_COMMON_SCANNED
+        | {"applied_files", "retired_manifest", "source_attestation"},
+    ),
+    "_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS": (
+        frozenset({"reason"}),
+        _EXPECTED_COMMON_SCANNED | {"base_commit", "applied_files"},
+    ),
+    "_PATH_MIGRATION_APPLY_MANIFEST_FIELDS": (
+        frozenset(),
+        _EXPECTED_COMMON_SCANNED
+        | {"applied_files", "migrated_manifest", "migration", "source_attestation"},
+    ),
+    "_LEGACY_REPLACEMENT_APPLY_MANIFEST_FIELDS": (
+        frozenset(),
+        _EXPECTED_COMMON_SCANNED
+        | {
+            "applied_files",
+            "replacement_manifest",
+            "replacement",
+            "source_attestation",
+        },
+    ),
+    "_LEGACY_EXACT_DEPENDENT_APPLY_MANIFEST_FIELDS": (
+        frozenset(),
+        _EXPECTED_COMMON_SCANNED | {"applied_files", "legacy_migration"},
+    ),
+    "_LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS": (
+        frozenset(),
+        _EXPECTED_COMMON_SCANNED
+        | {"applied_files", "legacy_migration", "retained_successor_manifest"},
+    ),
+    "_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS": (
+        frozenset(),
+        _EXPECTED_COMMON_SCANNED
+        | {"applied_files", "retired_source_metadata", "prior_manifest"},
+    ),
+    "_LEGACY_REPLACEMENT_RECEIPT_FIELDS": (
+        frozenset(),
+        _EXPECTED_COMMON_SCANNED
+        | {
+            "repository",
+            "corpus_release",
+            "validation_execution",
+            "legacy",
+            "replacement",
+            "replacement_manifest",
+        },
+    ),
+}
+_EXPECTED_DESCRIPTIVE_FIELDS = frozenset({"reason", "run_id", "runner", "model"})
+_SCAN_SCHEMAS = {name: getattr(cli, name) for name in _SCAN_SCHEMA_NAMES}
+_SCAN_PATH = "us/policies/council/second.yaml"
+_SCAN_NESTED_POSITIONS = (
+    ("_RETIRE_APPLY_MANIFEST_FIELDS", "retired_manifest"),
+    ("_PATH_MIGRATION_APPLY_MANIFEST_FIELDS", "migrated_manifest"),
+    ("_LEGACY_REPLACEMENT_APPLY_MANIFEST_FIELDS", "replacement_manifest"),
+    ("_LEGACY_REPLACEMENT_RECEIPT_FIELDS", "replacement_manifest"),
+    ("_LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS", "retained_successor_manifest"),
+    ("_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS", "prior_manifest"),
+)
+
+
+def _scan_shaped(schema_name, **values):
+    return {field: values.get(field, "") for field in _SCAN_SCHEMAS[schema_name]}
+
+
+def _scan_nested(inner, position, depth):
+    schema_name, field = position
+    for _ in range(depth):
+        value = (
+            {"path": "old-owner.json", "sha256": "0" * 64, "manifest": inner}
+            if field == "prior_manifest"
+            else inner
+        )
+        inner = _scan_shaped(schema_name, **{field: value})
+    return inner
+
+
+def _scan_strings(receipt):
+    strings, nonfinite_count = cli._unreceipted_retirement_manifest_strings(receipt)
+    assert nonfinite_count == 0
+    return strings
+
+
+def _assert_scan_ownership(receipt, *, covered, context):
+    assert (_SCAN_PATH in _scan_strings(receipt)) is covered, context
+    issues = _other_receipt_issues(_SCAN_PATH, receipt)
+    assert bool(issues) is covered, (context, issues)
+    if covered:
+        assert any("already covered" in issue for issue in issues), (context, issues)
+
+
+def test_manifest_scan_classes_cover_each_schema_and_all_schema_constants():
+    discovered = {
+        name
+        for name, value in vars(cli).items()
+        if name.endswith("_MANIFEST_FIELDS") and isinstance(value, frozenset)
+    }
+    recognized = set(_SCAN_SCHEMA_NAMES)
+    assert discovered == (recognized & discovered) | _SCAN_SCHEMA_EXCLUSIONS
+    assert not recognized & _SCAN_SCHEMA_EXCLUSIONS
+    classes = cli._UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES
+    assert set(classes) == set(_SCAN_SCHEMAS.values())
+    for name, schema in _SCAN_SCHEMAS.items():
+        descriptive, scanned = classes[schema]
+        assert not descriptive & scanned, name
+        assert descriptive | scanned == schema, name
+        expected_descriptive, expected_scanned = _EXPECTED_MANIFEST_CLASSES[name]
+        assert expected_descriptive | expected_scanned == schema, name
+        assert descriptive == expected_descriptive, name
+        assert scanned == expected_scanned, name
+
+
+@pytest.mark.parametrize(
+    ("schema_name", "field"),
+    [
+        (name, field)
+        for name, (descriptive, _scanned) in _EXPECTED_MANIFEST_CLASSES.items()
+        for field in sorted(descriptive)
+    ],
+)
+def test_manifest_scan_descriptive_strings_do_not_own(schema_name, field):
+    receipt = _scan_shaped(schema_name, **{field: _SCAN_PATH})
+    _assert_scan_ownership(receipt, covered=False, context=(schema_name, field))
+    for position in _SCAN_NESTED_POSITIONS:
+        for depth in (1, 2):
+            nested = _scan_nested(receipt, position, depth)
+            _assert_scan_ownership(
+                nested, covered=False, context=(schema_name, field, position, depth)
+            )
+
+
+@pytest.mark.parametrize(
+    ("schema_name", "field"),
+    [
+        (name, field)
+        for name, (_descriptive, scanned) in _EXPECTED_MANIFEST_CLASSES.items()
+        for field in sorted(scanned)
+    ],
+)
+@pytest.mark.parametrize("form", ["string", "list", "dict"])
+def test_manifest_scan_every_other_field_still_owns(schema_name, field, form):
+    value = {
+        "string": _SCAN_PATH,
+        "list": [[_SCAN_PATH]],
+        "dict": {"nested": {"covered": _SCAN_PATH}},
+    }[form]
+    receipt = _scan_shaped(schema_name, **{field: value})
+    _assert_scan_ownership(receipt, covered=True, context=(schema_name, field, form))
+    for position in _SCAN_NESTED_POSITIONS:
+        for depth in (1, 2):
+            nested = _scan_nested(receipt, position, depth)
+            _assert_scan_ownership(
+                nested,
+                covered=True,
+                context=(schema_name, field, form, position, depth),
+            )
+
+
+@pytest.mark.parametrize(
+    ("schema_name", "field"),
+    [
+        (name, field)
+        for name, (descriptive, _scanned) in _EXPECTED_MANIFEST_CLASSES.items()
+        for field in sorted(descriptive)
+    ],
+)
+@pytest.mark.parametrize("form", ["list", "dict"])
+def test_manifest_scan_descriptive_containers_still_own(schema_name, field, form):
+    value = [_SCAN_PATH] if form == "list" else {"covered": _SCAN_PATH}
+    receipt = _scan_shaped(schema_name, **{field: value})
+    _assert_scan_ownership(receipt, covered=True, context=(schema_name, field, form))
+    for position in _SCAN_NESTED_POSITIONS:
+        for depth in (1, 2):
+            _assert_scan_ownership(
+                _scan_nested(receipt, position, depth),
+                covered=True,
+                context=(schema_name, field, form, position, depth),
+            )
+
+
+@pytest.mark.parametrize("key_change", ["added", "removed"])
+def test_manifest_scan_nested_model_requires_exact_keys(key_change):
+    receipt = _scan_shaped("_MODEL_APPLY_MANIFEST_FIELDS", run_id=_SCAN_PATH)
+    if key_change == "added":
+        receipt["unknown"] = ""
+    else:
+        del receipt["generated_at"]
+    for position in _SCAN_NESTED_POSITIONS:
+        for depth in (1, 2):
+            _assert_scan_ownership(
+                _scan_nested(receipt, position, depth),
+                covered=True,
+                context=(key_change, position, depth),
+            )
+
+
+@pytest.mark.parametrize("envelope", ["source-attestation", "unknown-top", "list"])
+def test_manifest_scan_schema_keys_at_other_positions_still_own(envelope):
+    nested = _scan_shaped("_MODEL_APPLY_MANIFEST_FIELDS", run_id=_SCAN_PATH)
+    receipt = {
+        "source-attestation": _scan_shaped(
+            "_MODEL_APPLY_MANIFEST_FIELDS", source_attestation=nested
+        ),
+        "unknown-top": {"unknown": nested},
+        "list": _scan_shaped(
+            "_RETIRE_APPLY_MANIFEST_FIELDS", retired_manifest=[nested]
+        ),
+    }[envelope]
+    _assert_scan_ownership(receipt, covered=True, context=envelope)
+
+
+@pytest.mark.parametrize("key_change", ["added", "removed"])
+def test_manifest_scan_prior_manifest_wrapper_requires_exact_keys(key_change):
+    nested = _scan_shaped("_MODEL_APPLY_MANIFEST_FIELDS", run_id=_SCAN_PATH)
+    wrapper = {"path": "old-owner.json", "sha256": "0" * 64, "manifest": nested}
+    if key_change == "added":
+        wrapper["unknown"] = ""
+    else:
+        del wrapper["path"]
+    receipt = _scan_shaped(
+        "_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS", prior_manifest=wrapper
+    )
+    _assert_scan_ownership(receipt, covered=True, context=key_change)
+
+
+def test_manifest_scan_mapping_applied_files_keys_still_own():
+    receipt = _scan_shaped(
+        "_MODEL_APPLY_MANIFEST_FIELDS", applied_files={_SCAN_PATH: "0" * 64}
+    )
+    _assert_scan_ownership(receipt, covered=True, context="mapping-applied-files")
+    for position in _SCAN_NESTED_POSITIONS:
+        _assert_scan_ownership(
+            _scan_nested(receipt, position, 2),
+            covered=True,
+            context=("mapping-applied-files", position),
+        )
+
+
+def test_manifest_scan_is_iterative_for_deep_values():
+    value = _SCAN_PATH
+    for _ in range(2000):
+        value = {"nested": [value]}
+    strings, nonfinite_count = cli._unreceipted_retirement_manifest_strings(
+        {"unknown": value}
+    )
+    assert strings == {_SCAN_PATH}
+    assert nonfinite_count == 0
+
+
+@pytest.mark.parametrize("number", [float("nan"), float("inf"), float("-inf")])
+def test_manifest_scan_keeps_nonfinite_numbers(number):
+    receipt = _scan_shaped(
+        "_MODEL_APPLY_MANIFEST_FIELDS", run_id=[number, {"nested": number}]
+    )
+    strings, nonfinite_count = cli._unreceipted_retirement_manifest_strings(receipt)
+    assert strings == {""}
+    assert nonfinite_count == 2
+    list_only = _scan_shaped(
+        "_MODEL_APPLY_MANIFEST_FIELDS", run_id=[[number], [number]]
+    )
+    assert any(
+        "nonfinite" in issue for issue in _other_receipt_issues(_SCAN_PATH, list_only)
+    )
+
+
+def _reference_manifest_strings(receipt):
+    """The previous conservative scanner, including historical mapping keys."""
+    pending = [receipt]
+    strings = set()
+    while pending:
+        item = pending.pop()
+        if isinstance(item, dict):
+            for key, value in item.items():
+                if key == "applied_files" and isinstance(value, dict):
+                    strings.update(value)
+                pending.append(value)
+        elif isinstance(item, list):
+            pending.extend(item)
+        elif isinstance(item, str):
+            strings.add(item)
+    return strings
+
+
+def _recognized_descriptive_strings(receipt):
+    """Independent positional specification of the permitted exclusions."""
+    pending = [(receipt, True)]
+    excluded = set()
+    while pending:
+        item, recognized_position = pending.pop()
+        if not isinstance(item, dict):
+            continue
+        schema = frozenset(item)
+        if not recognized_position or schema not in _SCAN_SCHEMAS.values():
+            continue
+        for field in schema & _EXPECTED_DESCRIPTIVE_FIELDS:
+            if isinstance(item[field], str):
+                excluded.add(item[field])
+        for _name, field in _SCAN_NESTED_POSITIONS:
+            nested = item.get(field)
+            if field == "prior_manifest":
+                if isinstance(nested, dict) and set(nested) == {
+                    "path",
+                    "sha256",
+                    "manifest",
+                }:
+                    pending.append((nested["manifest"], True))
+            else:
+                pending.append((nested, True))
+    return excluded
+
+
+_SCAN_JSON_VALUES = st.recursive(
+    st.one_of(
+        st.none(),
+        st.booleans(),
+        st.integers(),
+        st.floats(allow_nan=False, allow_infinity=False),
+        st.sampled_from([_SCAN_PATH, "us/statutes/26/1.yaml", "", "ordinary text"]),
+        st.text(max_size=30),
+    ),
+    lambda child: st.one_of(
+        st.lists(child, max_size=3),
+        st.dictionaries(
+            st.one_of(st.text(max_size=12), st.just("applied_files")),
+            child,
+            max_size=3,
+        ),
+    ),
+    max_leaves=15,
+)
+
+
+@st.composite
+def _manifest_scan_examples(draw):
+    schema_name = draw(st.sampled_from(_SCAN_SCHEMA_NAMES))
+    fields = sorted(_SCAN_SCHEMAS[schema_name])
+    values = draw(
+        st.lists(_SCAN_JSON_VALUES, min_size=len(fields), max_size=len(fields))
+    )
+    receipt = dict(zip(fields, values))
+    for _ in range(draw(st.integers(min_value=0, max_value=2))):
+        receipt = _scan_nested(
+            receipt, draw(st.sampled_from(_SCAN_NESTED_POSITIONS)), 1
+        )
+    return receipt
+
+
+@settings(max_examples=70, deadline=None)
+@given(receipt=_manifest_scan_examples())
+@example(receipt=_scan_shaped("_MODEL_APPLY_MANIFEST_FIELDS", run_id=_SCAN_PATH))
+@example(
+    receipt=_scan_nested(
+        _scan_shaped("_RETIRE_APPLY_MANIFEST_FIELDS", reason=_SCAN_PATH),
+        _SCAN_NESTED_POSITIONS[-1],
+        2,
+    )
+)
+def test_manifest_scan_only_removes_recognized_descriptive_strings(receipt):
+    conservative = _reference_manifest_strings(receipt)
+    actual = _scan_strings(receipt)
+    assert actual <= conservative
+    assert conservative - actual <= _recognized_descriptive_strings(receipt)
+    unknown = {"unknown": receipt}
+    assert _scan_strings(unknown) == _reference_manifest_strings(unknown)
+
+
+@pytest.mark.parametrize("field", ["path", "sha256"])
+def test_manifest_scan_prior_manifest_wrapper_provenance_stays_scanned(field):
+    wrapper = {
+        "path": "old-owner.json",
+        "sha256": "0" * 64,
+        "manifest": _scan_shaped("_MODEL_APPLY_MANIFEST_FIELDS", run_id=_SCAN_PATH),
+    }
+    wrapper[field] = _SCAN_PATH
+    receipt = _scan_shaped(
+        "_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS", prior_manifest=wrapper
+    )
+    _assert_scan_ownership(receipt, covered=True, context=("prior-provenance", field))
+
+
+@pytest.mark.parametrize("field", ["root", "rulespec_root"])
+@pytest.mark.parametrize("depth", [1, 2])
+def test_manifest_scan_caller_chosen_nested_provenance_still_owns(field, depth):
+    values = (
+        {"axiom_encode_git": {"root": _SCAN_PATH}}
+        if field == "root"
+        else {
+            "validation_execution": {
+                "rulespec_dependencies": [
+                    {"jurisdiction_roots": [{"rulespec_root": _SCAN_PATH}]}
+                ]
+            }
+        }
+    )
+    receipt = _scan_shaped("_MODEL_APPLY_MANIFEST_FIELDS", **values)
+    _assert_scan_ownership(receipt, covered=True, context=(field, "root"))
+    for position in _SCAN_NESTED_POSITIONS:
+        _assert_scan_ownership(
+            _scan_nested(receipt, position, depth),
+            covered=True,
+            context=(field, position, depth),
+        )
