@@ -2638,7 +2638,11 @@ jobs:
           declare -f run_signed_encode checkpoint_signed_changes \
             > "$signing_queue/functions.sh"
           operation_index=0
+          model_generation=false
           queue_operation() {
+            case "$1" in
+              encode|second-dependent) model_generation=true ;;
+            esac
             printf '%s\0' "$@" > "$signing_queue/operation.$operation_index"
             operation_index=$((operation_index + 1))
           }
@@ -2804,6 +2808,9 @@ jobs:
             fi
           fi
 
+          # Publish only after the entire queue has been constructed. Failure
+          # before this point remains historically ambiguous/conservative.
+          echo "model_generation=$model_generation" >> "$GITHUB_OUTPUT"
           printf '0\n' > "$signing_queue/cursor"
           cat > "$signing_queue/advance.sh" <<'ADVANCE'
           # Each invocation runs key-free post-signing work and prepares one request.
@@ -3142,6 +3149,15 @@ jobs:
           set -euo pipefail
           test "$PRIOR_STATUS" = success
           bash "$RUNNER_TEMP/signed-encode/advance.sh" --require-complete
+
+      - name: Record model-free signing transaction
+        id: model_free_transaction
+        if: ${{ !cancelled() && steps.prepare_encode_apply.outputs.model_generation == 'false' }}
+        run: echo 'The constructed signing queue contains no model-capable operation.'
+
+      - name: Record completed model-capable generation
+        if: ${{ steps.prepare_encode_apply.outputs.model_generation == 'true' && steps.encode_apply.outcome == 'success' }}
+        run: echo 'The model-capable signing queue completed successfully.'
 
       - name: Summarize model spend
         id: run_cost_summary
