@@ -1,3 +1,11 @@
+## 0.2.2344
+
+- Integrate the independently reviewed nested-condition and physical-alternative source checks; refresh encoder version provenance for the combined tree.
+
+## 0.2.2338
+
+- Check bounded physical allowance alternatives as shared prerequisites plus complete alternative factual groups, using signed granting paths and an explicit shared-set input naming contract. Preserve billing, action, causal, distinct-count, entity, period, proof-ownership, and temporal requirements; unknown contracts remain conservative. This is not complete semantic equivalence, legal-alternative coverage, or validation of raw caller classifications.
+
 ## 0.2.2337
 
 - Preserve closed nested physical reason alternatives as one required factual gate inside an all-of condition, rather than requiring mutually alternative reasons simultaneously or treating a closed navigation list as operative conditions. Unknown continuations remain conservative; negative or qualified terminal evidence cannot corroborate a positive reason. This narrows a source-explicit-condition opacity check, not Boolean equivalence, source completeness as a whole, or oracle validation.
