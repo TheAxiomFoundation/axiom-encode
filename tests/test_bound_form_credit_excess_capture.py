@@ -534,3 +534,52 @@ def test_new_unowned_condition_is_not_cleared_by_complete_form_certificate(tmp_p
         execution_evidence=evidence(tmp_path, d),
     )
     assert any("nonresident" in issue and "conditions" in issue for issue in issues)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("context", ["plain", "negated", "qualified"])
+def test_sheet_enclosing_context_reaches_full_analyzer(tmp_path, newline, context):
+    """Coherent source/capture variants, not fresh native execution."""
+    import hashlib
+
+    from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+
+    d = data()
+    clause = "If you need more space, attach an additional sheet of paper."
+    assert d["source"].count(clause) == 1
+    replacement = {
+        "plain": clause,
+        "negated": "Do not:\n\n" + clause,
+        "qualified": clause + "\n\nunless another condition applies.",
+    }[context]
+    paragraph = "\n\n" + clause + "\n\n"
+    assert paragraph in d["source"]
+    # Vary the attachment paragraph's raw line endings, not unrelated owners.
+    d["source"] = d["source"].replace(
+        paragraph, newline * 2 + replacement.replace("\n", newline) + newline * 2
+    )
+    payload = yaml.safe_load(d["content"])
+    payload["module"]["source_verification"]["source_sha256"] = hashlib.sha256(
+        d["source"].encode()
+    ).hexdigest()
+    d["content"] = yaml.safe_dump(payload, sort_keys=False)
+    pipeline = ValidatorPipeline(
+        tmp_path / "rulespec-ca",
+        tmp_path / "engine",
+        local_corpus_release=None,
+        enable_oracles=False,
+        require_complete_source_unit=True,
+    )
+    issues = pipeline._complete_source_unit_issues(
+        d["content"],
+        validation_source_texts={CITATION: d["source"]},
+        proof_source_texts={CITATION: d["source"]},
+        test_cases=d["cases"],
+        execution_evidence=evidence(tmp_path, d),
+    )
+    if context == "plain":
+        assert bind(d) is not None
+        assert issues == []
+    else:
+        assert bind(d) is None
+        assert issues

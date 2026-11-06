@@ -16,7 +16,7 @@ from typing import Any, Mapping
 from axiom_encode.bound_form_structure import BoundFormStructure
 
 _SHEET = re.compile(
-    r"(?m)^If you need more space, attach an additional sheet of paper\.\r?$"
+    r"(?m)^If you need more space, attach an additional sheet of paper\.(?=\r?$)"
 )
 _PREMISE = re.compile(
     r"The (?:individual|filer) completing this form needs "
@@ -125,20 +125,19 @@ def bind_document_requirements(
         if len(matches) > 1:
             return None
         for match in matches:
-            if pattern is _TABLE:
-                before, after = form.source[: match.start()], form.source[match.end() :]
-                # A newline does not detach an enclosing instruction or qualifier.
-                if (
-                    (before and not before.endswith(("\n\n", "\r\n\r\n")))
-                    or (after and not after.startswith(("\n\n", "\r\n\r\n")))
-                    or before.rstrip().endswith(":")
-                    or re.match(
-                        r"(?:unless|except|provided|subject\s+to|but|however)\b",
-                        after.lstrip(),
-                        flags=re.IGNORECASE,
-                    )
-                ):
-                    continue
+            before, after = form.source[: match.start()], form.source[match.end() :]
+            # A newline does not detach an enclosing instruction or qualifier.
+            if (
+                (before and not before.endswith(("\n\n", "\r\n\r\n")))
+                or (after and not after.startswith(("\n\n", "\r\n\r\n")))
+                or before.rstrip().endswith(":")
+                or re.match(
+                    r"(?:unless|except|provided|subject\s+to|but|however)\b",
+                    after.lstrip(),
+                    flags=re.IGNORECASE,
+                )
+            ):
+                continue
             clauses.append((match, premise_name, premise))
     frame = (f"{form.header.year}-01-01", f"{form.header.year}-12-31")
     result = []
