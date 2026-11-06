@@ -211,19 +211,19 @@ ROUND_22_REPRODUCERS = (
         "f4-filed-reports",
         "(א) יוגשו דוחות חישוב בהתאם לסעיף 2.",
         "(a) Calculation reports shall be filed in accordance with section 2.",
+        False,
         True,
-        True,
-        "(א) יוגשו דוחות חישוב בהתאם לסעיף 2.",
-        "(a) Calculation reports shall be filed in accordance with section 2.",
+        "(א) יוגשו מסמכים חישוב בהתאם לסעיף 2.",
+        "(a) Calculation documents shall be filed in accordance with section 2.",
     ),
     (
         "f4-filed-definite-reports",
         "(א) יוגשו דוחות החישוב בהתאם לסעיף 2.",
         "(a) The calculation reports shall be filed in accordance with section 2.",
+        False,
         True,
-        True,
-        "(א) יוגשו דוחות החישוב בהתאם לסעיף 2.",
-        "(a) The calculation reports shall be filed in accordance with section 2.",
+        "(א) יוגשו מסמכים החישוב בהתאם לסעיף 2.",
+        "(a) The calculation documents shall be filed in accordance with section 2.",
     ),
     (
         "f4-reports-first",
@@ -231,17 +231,17 @@ ROUND_22_REPRODUCERS = (
         "(a) Calculation reports shall be filed in accordance with section 2.",
         False,
         True,
-        "(א) יוגשו דוחות חישוב בהתאם לסעיף 2.",
-        "(a) Calculation reports shall be filed in accordance with section 2.",
+        "(א) יוגשו מסמכים חישוב בהתאם לסעיף 2.",
+        "(a) Calculation documents shall be filed in accordance with section 2.",
     ),
     (
         "f4-taxpayer-files-reports",
         "(א) הנישום יגיש דוחות חישוב בהתאם לסעיף 2.",
         "(a) The taxpayer shall file calculation reports in accordance with section 2.",
+        False,
         True,
-        True,
-        "(א) הנישום יגיש דוחות חישוב בהתאם לסעיף 2.",
-        "(a) The taxpayer shall file calculation reports in accordance with section 2.",
+        "(א) הנישום יגיש מסמכים חישוב בהתאם לסעיף 2.",
+        "(a) The taxpayer shall file calculation documents in accordance with section 2.",
     ),
     (
         "f4-authorities-reject",
@@ -316,6 +316,10 @@ def test_every_round_22_divergence_is_hebrew_stricter():
         "f2-content-under",
         # Round 24 removes the clause-head noun context; guarded snapshot 0.
         "f4-reports-first",
+        # Round 25: finite contexts removed; guarded snapshot count 0 each.
+        "f4-filed-definite-reports",
+        "f4-filed-reports",
+        "f4-taxpayer-files-reports",
     }
 
 
@@ -405,7 +409,8 @@ def test_the_snapshot_charge_him_keeps_its_context_guard():
 # --- Finding 4: ``דוחות`` is the verb unless a noun context applies -----------
 # Round 23 (review r11 B2): the verb is the default, so a bare clause-initial
 # ``דוחות חישוב`` and any subject read "reject"; only a closed noun context
-# (here a filing verb before it) reads "reports".
+# (a listed preposition or filing construct) reads "reports". Round 25
+# removes finite filing contexts; those rows intentionally refuse.
 
 
 @pytest.mark.parametrize(
@@ -419,8 +424,8 @@ def test_the_snapshot_charge_him_keeps_its_context_guard():
         ("הנשים", True),
         ("והן", True),
         ("ואלה", True),
-        ("יוגשו", False),
-        ("הנישום יגיש", False),
+        ("יוגשו", True),
+        ("הנישום יגיש", True),
         ("", True),
     ),
 )

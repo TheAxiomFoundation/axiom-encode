@@ -3,17 +3,19 @@
 Expectations are hand-written from the review targets. Clause-initial reports
 and reports after a present filing form intentionally refuse: neither shape
 occurs before a guarded link in the 1,633-record snapshot (25 reports tokens).
-The finite filing controls remain accepted. Every row has an accepting control.
+Round 25 also removes finite filing contexts (intended-stricter, guarded
+snapshot count 0 each). Every row retains an accepting document control.
 """
 
 from __future__ import annotations
 
 import pytest
 
+from tests.hebrew_reports_snapshot import guarded_snapshot_count
 from tests.test_source_completeness_hebrew import _accepted, _english_accepted
 
-FILED_H = "(א) יוגשו דוחות חישוב בהתאם לסעיף 2."
-FILED_E = "(a) Calculation reports shall be filed in accordance with section 2."
+FILED_H = "(א) יוגשו מסמכים לחישוב בהתאם לסעיף 2."
+FILED_E = "(a) Calculation documents shall be filed in accordance with section 2."
 RELATIVE_E = (
     "(a) Calculation reports which shall be filed in accordance with section 2."
 )
@@ -61,7 +63,7 @@ ROUND_24_REPRODUCERS = (
     (
         "noun-14-spaces-intended-stricter",
         "(א)              דוחות חישוב יוגשו בהתאם לסעיף 2.",
-        FILED_E,
+        "(a) Calculation reports shall be filed in accordance with section 2.",
         False,
         True,
         FILED_H,
@@ -70,7 +72,7 @@ ROUND_24_REPRODUCERS = (
     (
         "noun-spaces-intended-stricter",
         "(א)                דוחות חישוב יוגשו בהתאם לסעיף 2.",
-        FILED_E,
+        "(a) Calculation reports shall be filed in accordance with section 2.",
         False,
         True,
         FILED_H,
@@ -115,7 +117,7 @@ ROUND_24_REPRODUCERS = (
     (
         "clause-head-intended-stricter",
         "(א) דוחות חישוב יוגשו בהתאם לסעיף 2.",
-        FILED_E,
+        "(a) Calculation reports shall be filed in accordance with section 2.",
         False,
         True,
         FILED_H,
@@ -184,12 +186,20 @@ ROUND_24_REPRODUCERS = (
         FILED_H,
         FILED_E,
     ),
-    ("finite-passive", FILED_H, FILED_E, True, True, FILED_H, FILED_E),
     (
-        "finite-active",
+        "finite-passive-intended-stricter",
+        "(א) יוגשו דוחות חישוב בהתאם לסעיף 2.",
+        "(a) Calculation reports shall be filed in accordance with section 2.",
+        False,
+        True,
+        FILED_H,
+        FILED_E,
+    ),
+    (
+        "finite-active-intended-stricter",
         "(א) הנישום יגיש דוחות חישוב בהתאם לסעיף 2.",
         "(a) The taxpayer shall file calculation reports in accordance with section 2.",
-        True,
+        False,
         True,
         FILED_H,
         FILED_E,
@@ -236,17 +246,17 @@ def test_round_24_reproducers(
 
 
 INTENDED_STRICTER_ROUND_24 = tuple(
-    (row[0], row[1], row[2], 0)
+    (row[0], row[1], row[2])
     for row in ROUND_24_REPRODUCERS
     if row[3:5] == (False, True)
 )
 
 
 @pytest.mark.parametrize(
-    ("hebrew", "english", "guarded_snapshot_count"),
+    ("hebrew", "english"),
     [row[1:] for row in INTENDED_STRICTER_ROUND_24],
     ids=[row[0] for row in INTENDED_STRICTER_ROUND_24],
 )
-def test_round_24_intended_stricter(hebrew, english, guarded_snapshot_count):
+def test_round_24_intended_stricter(hebrew, english):
     assert _pair(hebrew, english) == (False, True)
-    assert guarded_snapshot_count == 0
+    assert guarded_snapshot_count(hebrew) == 0

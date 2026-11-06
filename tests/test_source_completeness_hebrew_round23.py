@@ -42,8 +42,8 @@ def _pair(hebrew_source: str, english_source: str) -> tuple[bool, bool]:
 
 
 # B2 and N4: the guarded ``דוחות`` and the verb-first ``דוחות … את`` are the
-# verb; retained noun contexts accept. Three noun rows are intentionally
-# stricter in Round 24 (clause head and present forms; guarded snapshot count 0). B3: the relative's own ``under`` citation,
+# verb; closed noun contexts accept. Six noun rows are intentionally
+# stricter by Round 25 (clause head and present forms; guarded snapshot count 0). B3: the relative's own ``under`` citation,
 # then anything but the denial, opens content. ``r11-*`` rows are every row
 # of review r11's linguistic sweeps (r11/ling.py, ling2.py) that round 22
 # accepted while English refused, but the two left open below.
@@ -142,19 +142,19 @@ ROUND_23_REPRODUCERS = (
         "b2-noun-filed",
         "(א) יוגשו דוחות חישוב בהתאם לסעיף 2.",
         "(a) Calculation reports shall be filed in accordance with section 2.",
+        False,
         True,
-        True,
-        "(א) יוגשו דוחות חישוב בהתאם לסעיף 2.",
-        "(a) Calculation reports shall be filed in accordance with section 2.",
+        "(א) יוגשו מסמכים חישוב בהתאם לסעיף 2.",
+        "(a) Calculation documents shall be filed in accordance with section 2.",
     ),
     (
         "b2-noun-filed-definite",
         "(א) יוגשו דוחות החישוב בהתאם לסעיף 2.",
         "(a) The calculation reports shall be filed in accordance with section 2.",
+        False,
         True,
-        True,
-        "(א) יוגשו דוחות החישוב בהתאם לסעיף 2.",
-        "(a) The calculation reports shall be filed in accordance with section 2.",
+        "(א) יוגשו מסמכים החישוב בהתאם לסעיף 2.",
+        "(a) The calculation documents shall be filed in accordance with section 2.",
     ),
     (
         "b2-noun-clause-head",
@@ -162,17 +162,17 @@ ROUND_23_REPRODUCERS = (
         "(a) Calculation reports shall be filed in accordance with section 2.",
         False,
         True,
-        "(א) יוגשו דוחות חישוב בהתאם לסעיף 2.",
-        "(a) Calculation reports shall be filed in accordance with section 2.",
+        "(א) יוגשו מסמכים חישוב בהתאם לסעיף 2.",
+        "(a) Calculation documents shall be filed in accordance with section 2.",
     ),
     (
         "b2-noun-taxpayer-files",
         "(א) הנישום יגיש דוחות חישוב בהתאם לסעיף 2.",
         "(a) The taxpayer shall file calculation reports in accordance with section 2.",
+        False,
         True,
-        True,
-        "(א) הנישום יגיש דוחות חישוב בהתאם לסעיף 2.",
-        "(a) The taxpayer shall file calculation reports in accordance with section 2.",
+        "(א) הנישום יגיש מסמכים חישוב בהתאם לסעיף 2.",
+        "(a) The taxpayer shall file calculation documents in accordance with section 2.",
     ),
     (
         "b2-noun-authorities-file",
@@ -180,8 +180,8 @@ ROUND_23_REPRODUCERS = (
         "(a) The authorities file calculation reports in accordance with section 2.",
         False,
         True,
-        "(א) יוגשו דוחות חישוב בהתאם לסעיף 2.",
-        "(a) Calculation reports shall be filed in accordance with section 2.",
+        "(א) יוגשו מסמכים חישוב בהתאם לסעיף 2.",
+        "(a) Calculation documents shall be filed in accordance with section 2.",
     ),
     (
         "b2-noun-funds-prepare",
@@ -189,8 +189,8 @@ ROUND_23_REPRODUCERS = (
         "(a) The funds prepare calculation reports in accordance with section 2.",
         False,
         True,
-        "(א) יוגשו דוחות חישוב בהתאם לסעיף 2.",
-        "(a) Calculation reports shall be filed in accordance with section 2.",
+        "(א) יוגשו מסמכים חישוב בהתאם לסעיף 2.",
+        "(a) Calculation documents shall be filed in accordance with section 2.",
     ),
     (
         "r10-rejects-singular",
@@ -1672,12 +1672,6 @@ def _links(source: str) -> bool:
         "ולענין",
         *sorted(negators.REPORTS_CONSTRUCTS),
         "ולהגשת",
-        "יוגשו",
-        "להכין",
-        "פורסמו",
-        "שקיבלו",
-        "יתקבלו",
-        "תוכנה",
     ),
 )
 def test_a_noun_context_reads_reports(before):
@@ -1731,6 +1725,15 @@ def test_clause_head_reads_reject_intended_stricter(source):
 def test_present_filing_context_intended_stricter(before):
     """Agent-noun homographs no longer open reports; guarded snapshot count 0."""
 
+    assert not _links(f"(א) {before} דוחות חישוב בהתאם לסעיף 2.")
+
+
+@pytest.mark.parametrize(
+    "before", ("יוגשו", "להכין", "פורסמו", "שקיבלו", "יתקבלו", "תוכנה")
+)
+def test_removed_filing_context_is_intended_stricter(before):
+    # Round 25: keep the former accepting spellings as explicit refusals.
+    # The corresponding bilingual rows and measured counts are in Round 25.
     assert not _links(f"(א) {before} דוחות חישוב בהתאם לסעיף 2.")
 
 
