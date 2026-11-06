@@ -1,0 +1,1 @@
+Run the supervised-producer namespace boundary test on an ephemeral Ubuntu/systemd runner. Verify key isolation, trusted-file immutability, worker identity and cleanup without production credentials or model calls.
