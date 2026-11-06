@@ -1,0 +1,1 @@
+The targeted re-encode failed-attempt guard now also refuses an ad hoc dispatch, repair replays included, after two consecutive model-bearing failures for the citation that ended with the same final validator rule-code set (read from those runs' failure artifacts). An expiring exact-citation entry in `REPEATED_FAILURE_OVERRIDE_JSON`, or `ATTEMPT_BUDGET_OVERRIDE=true`, lifts it.

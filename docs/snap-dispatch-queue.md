@@ -20,7 +20,11 @@ same draft RuleSpec pull request as an ad hoc encode.
    `main` that has since moved is cancelled, and a run that failed because
    `main` moved is not counted; both are sent again on the new tip, up to six
    times in a row. A run that already opened its PR is never cancelled or
-   redone, whatever its conclusion: its PR is tracked instead.
+   redone, whatever its conclusion: its PR is tracked instead. A run refused
+   by the encode workflow's `Check RuleSpec encoder pin admission` job (the
+   rulespec pin cannot admit axiom-encode `main`) is not counted: its item
+   goes back to pending, and dispatch holds on that rulespec tip for a day or
+   until `main` moves.
 2. For every item in review, read its PR: merged is done, closed is blocked.
 3. If the queue is active, dispatch pending items until `max_in_flight` (4)
    runs are open, pinned to `main`'s tip and the corpus and rules-engine refs

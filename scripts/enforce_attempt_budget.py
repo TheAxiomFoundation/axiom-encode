@@ -14,10 +14,19 @@ attempt_budget job's own condition skips them so the guard can never
 stall a tranche. The ``queue_id`` report-only branch below survives as
 defense in depth for odd dispatch paths and local use.
 
-Repair replays are report-only here. Their prior-run identity and preserved
-candidate are authenticated by the protected resolver before any model call,
-so they must be able to reach that resolver even when fresh attempts are
-exhausted.
+Repair replays are report-only for the numeric budget. Their prior-run
+identity and preserved candidate are authenticated by the protected resolver
+before any model call, so they must be able to reach that resolver even when
+fresh attempts are exhausted.
+
+A second rule covers repair replays too: when the two most recent consecutive
+model-bearing failures for the citation ended with the same final rule-code
+set, another dispatch is refused. The set comes from each failed run's own
+diagnostics artifact (``generated/<lane>/final-rejected-candidate/issues.json``).
+A run without that artifact, or with any final issue that names no validator
+rule code (a YAML parse, compile or expected-value error), has no known set
+and never triggers the rule. An exact-citation entry in
+``REPEATED_FAILURE_OVERRIDE_JSON`` or ``ATTEMPT_BUDGET_OVERRIDE=true`` lifts it.
 
 The guard is a cost damper, not a security gate: if the GitHub API cannot
 be reached it fails open with a loud warning. Stdlib-only because it runs
@@ -28,11 +37,15 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
+import tarfile
+import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -61,6 +74,27 @@ ENCODE_STEP_NAME = "Encode, review, validate, and apply"
 # At most this many per-run jobs lookups per evaluation; beyond the cap a
 # failure is counted without verification (conservative toward blocking).
 MAX_JOB_LOOKUPS = 10
+# Consecutive failures with one final rule-code set that refuse the next run.
+REPEATED_FAILURE_LIMIT = 2
+# Failure diagnostics: the artifact holds one tar of the packaged directory.
+FAILURE_ARTIFACT_PREFIX = "targeted-reencode-failure"
+FAILURE_ARCHIVE_NAME = "targeted-reencode-failure.tar"
+FINAL_ISSUES_PATTERN = re.compile(
+    r"generated/[A-Za-z0-9._-]+/final-rejected-candidate/issues\.json"
+)
+# The packaging step caps generated diagnostics at 64 MiB before tar and zip.
+MAX_ARTIFACT_BYTES = 96 * 1024 * 1024
+MAX_ISSUES_BYTES = 4 * 1024 * 1024
+# Wall-clock budget for reading rule codes, well inside the job's 10 minutes;
+# past it the rule stays silent (fails open) instead of timing out the job.
+RULE_CODE_LOOKUP_SECONDS = 240
+# "<module path>: <stage>: [<rule code>] <message>". Only validator rules
+# carry a code; output defects without one (a YAML parse error, a compile
+# error, a wrong expected value) leave the run's set unknown, because a fresh
+# generation often clears them.
+BRACKETED_RULE_CODE = re.compile(
+    r"(?:\S+: )?[a-z][a-z-]*: \[(?P<code>[a-z][a-z0-9-]*(?::[a-z0-9-]+)*)\]"
+)
 
 
 @dataclass
@@ -135,6 +169,7 @@ def evaluate_attempt_budget(
             decision.counted_runs.append(
                 {
                     "id": run.get("id"),
+                    "run_attempt": run.get("run_attempt", 1),
                     "created_at": run.get("created_at"),
                     "conclusion": conclusion,
                     "html_url": run.get("html_url"),
@@ -144,6 +179,99 @@ def evaluate_attempt_budget(
         # Unknown conclusion values are treated as neutral so that new
         # GitHub statuses cannot spuriously block encodes.
     return decision
+
+
+def issue_rule_code(issue: object) -> str | None:
+    """The rule code a final validator issue names, or ``None`` if unknown."""
+
+    if not isinstance(issue, str):
+        return None
+    coded = BRACKETED_RULE_CODE.match(issue)
+    return coded["code"] if coded else None
+
+
+def rule_codes_from_issue_payloads(payloads: list[object]) -> frozenset[str] | None:
+    """Union of rule codes across lanes; ``None`` unless every issue is named."""
+
+    codes: set[str] = set()
+    for payload in payloads:
+        issues = payload.get("issues") if isinstance(payload, dict) else None
+        if not isinstance(issues, list) or not issues:
+            return None
+        for issue in issues:
+            code = issue_rule_code(issue)
+            if code is None:
+                return None
+            codes.add(code)
+    return frozenset(codes) if codes else None
+
+
+def rule_codes_from_failure_artifact(zip_path: str) -> frozenset[str] | None:
+    """Read final rule codes from a downloaded failure diagnostics artifact.
+
+    Streams the packaged tar without extracting anything to disk and reads
+    only bounded ``final-rejected-candidate/issues.json`` regular files.
+    """
+
+    payloads: list[object] = []
+    with zipfile.ZipFile(zip_path) as archive:
+        if archive.namelist() != [FAILURE_ARCHIVE_NAME]:
+            return None
+        with (
+            archive.open(FAILURE_ARCHIVE_NAME) as stream,
+            tarfile.open(fileobj=stream, mode="r|") as packaged,
+        ):
+            for member in packaged:
+                name = member.name.removeprefix("./")
+                if FINAL_ISSUES_PATTERN.fullmatch(name) is None:
+                    continue
+                if not member.isreg() or member.size > MAX_ISSUES_BYTES:
+                    return None
+                handle = packaged.extractfile(member)
+                if handle is None:
+                    return None
+                try:
+                    payloads.append(json.loads(handle.read(MAX_ISSUES_BYTES + 1)))
+                except (ValueError, UnicodeDecodeError, RecursionError):
+                    return None
+    if not payloads:
+        return None
+    return rule_codes_from_issue_payloads(payloads)
+
+
+@dataclass
+class RepeatedFailure:
+    """Consecutive failures that ended with one final rule-code set."""
+
+    rule_codes: frozenset[str]
+    runs: list[dict]
+
+
+def evaluate_repeated_failure(
+    counted_runs: list[dict],
+    rule_codes: Callable[[dict], frozenset[str] | None],
+    *,
+    limit: int = REPEATED_FAILURE_LIMIT,
+) -> RepeatedFailure | None:
+    """Whether the newest ``limit`` counted failures share a final rule set.
+
+    ``counted_runs`` is the newest-first failure streak from
+    :func:`evaluate_attempt_budget`. An unknown set on any of those runs
+    leaves the rule silent.
+    """
+
+    recent = counted_runs[:limit]
+    if len(recent) < limit:
+        return None
+    sets = []
+    for run in recent:
+        codes = rule_codes(run)
+        if not codes:
+            return None
+        sets.append(codes)
+    if any(codes != sets[0] for codes in sets[1:]):
+        return None
+    return RepeatedFailure(rule_codes=sets[0], runs=recent)
 
 
 def make_encode_job_checker(
@@ -265,6 +393,116 @@ def _fetch_run_jobs(*, repo: str, token: str, run_id: int) -> list[dict]:
     return [job for job in jobs if isinstance(job, dict)]
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+def _fetch_failure_rule_codes(
+    *, repo: str, token: str, run: dict, deadline: float | None = None
+) -> frozenset[str] | None:
+    """Final rule codes of one failed run, or ``None`` when unavailable.
+
+    ``deadline`` is a :func:`time.monotonic` instant after which the download
+    stops and the run's set is unknown.
+    """
+
+    if deadline is None:
+        deadline = time.monotonic() + RULE_CODE_LOOKUP_SECONDS
+    run_id = run.get("id")
+    run_attempt = run.get("run_attempt") or 1
+    if not isinstance(run_id, int) or not isinstance(run_attempt, int):
+        return None
+    name = f"{FAILURE_ARTIFACT_PREFIX}-{run_id}-{run_attempt}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "axiom-encode-attempt-budget",
+    }
+    query = urllib.parse.urlencode({"name": name, "per_page": "10"})
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts?{query}",
+        headers=headers,
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        listing = json.load(response)
+    artifacts = [
+        artifact
+        for artifact in (listing or {}).get("artifacts") or []
+        if isinstance(artifact, dict)
+        and artifact.get("name") == name
+        and artifact.get("expired") is False
+    ]
+    if len(artifacts) != 1:
+        return None
+    size = artifacts[0].get("size_in_bytes")
+    download_url = artifacts[0].get("archive_download_url")
+    if (
+        not isinstance(size, int)
+        or size > MAX_ARTIFACT_BYTES
+        or not isinstance(download_url, str)
+        or not download_url.startswith("https://api.github.com/")
+    ):
+        return None
+    # The API answers with a redirect to signed blob storage. Follow it by
+    # hand so the bearer token never leaves api.github.com.
+    opener = urllib.request.build_opener(_NoRedirect)
+    try:
+        with opener.open(
+            urllib.request.Request(download_url, headers=headers), timeout=30
+        ):
+            return None
+    except urllib.error.HTTPError as redirect:
+        location = redirect.headers.get("Location")
+        redirect.close()
+        if redirect.code not in {301, 302, 303, 307, 308} or not location:
+            return None
+    if not location.startswith("https://") or time.monotonic() > deadline:
+        return None
+    with tempfile.TemporaryDirectory() as scratch:
+        zip_path = os.path.join(scratch, "artifact.zip")
+        with (
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    location, headers={"User-Agent": headers["User-Agent"]}
+                ),
+                timeout=60,
+            ) as response,
+            open(zip_path, "wb") as sink,
+        ):
+            written = 0
+            while chunk := response.read(1024 * 1024):
+                written += len(chunk)
+                if written > MAX_ARTIFACT_BYTES or time.monotonic() > deadline:
+                    return None
+                sink.write(chunk)
+        return rule_codes_from_failure_artifact(zip_path)
+
+
+def repeated_failure_override(raw: str, *, citation: str, now: datetime) -> bool:
+    """Whether an expiring exact-citation entry lifts the repeated-failure rule."""
+
+    if not raw.strip():
+        return False
+    configuration = json.loads(raw)
+    if not isinstance(configuration, dict):
+        raise ValueError("repeated-failure override must be an object")
+    if citation not in configuration:
+        return False
+    entry = configuration[citation]
+    if not isinstance(entry, dict) or set(entry) != {"expires_at", "reason"}:
+        raise ValueError("repeated-failure override requires expires_at and reason")
+    if not isinstance(entry["reason"], str) or not entry["reason"].strip():
+        raise ValueError("repeated-failure override requires a triage reason")
+    if not isinstance(entry["expires_at"], str):
+        raise ValueError("repeated-failure override expiration must be ISO")
+    expiration = datetime.fromisoformat(entry["expires_at"])
+    if expiration.tzinfo is None or expiration.utcoffset() is None:
+        raise ValueError("repeated-failure override expiration needs a timezone")
+    return expiration > now
+
+
 def _append_summary(lines: list[str]) -> None:
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
@@ -345,6 +583,37 @@ def is_retired_source_metadata_plan(source_bundle_json: str) -> bool:
         "axiom-encode/retired-source-metadata-migration-plan/v1",
         "axiom-encode/retired-source-metadata-migration-plan/v2",
     )
+
+
+def _render_repeated_failure(
+    repeated: RepeatedFailure, *, citation: str, blocked: bool
+) -> list[str]:
+    codes = ", ".join(f"`{code}`" for code in sorted(repeated.rule_codes))
+    lines = [
+        "### Repeated failure",
+        "",
+        f"- Citation: `{citation}` — the last {len(repeated.runs)} model-bearing "
+        f"runs failed with the same final rule codes: {codes}.",
+    ]
+    for run in repeated.runs:
+        lines.append(f"  - {run.get('created_at')} — {run.get('html_url')}")
+    if blocked:
+        lines.append(
+            "- **Blocked before the signing environment and any model call**, "
+            "including repair replays. Another attempt rarely clears the same "
+            "rules: fix the generator (prompt, repair guidance or deterministic "
+            "repair) or a wrong validator rule first, or make sure the review "
+            "finding addresses these rules. To retry anyway, add an expiring "
+            "entry for this exact citation to the repository variable "
+            "`REPEATED_FAILURE_OVERRIDE_JSON` (see "
+            "`docs/targeted-reencode-attempt-budget.md`)."
+        )
+    else:
+        lines.append(
+            "- Report-only: queue dispatch, deterministic migration, or override; "
+            "not blocking."
+        )
+    return lines
 
 
 def main() -> int:
@@ -434,9 +703,70 @@ def main() -> int:
                 decision, citation=citation, enforced=enforced, blocked=blocked
             )
         )
+
+    try:
+        repeat_overridden = repeated_failure_override(
+            os.environ.get("REPEATED_FAILURE_OVERRIDE_JSON", ""),
+            citation=citation,
+            now=datetime.now(timezone.utc),
+        )
+    except (ValueError, TypeError):
+        repeat_overridden = False
+        print(
+            "attempt-budget: invalid repeated-failure override configuration; "
+            "keeping the repeated-failure rule.",
+            file=sys.stderr,
+        )
+    repeat_enforced = (
+        queue_id == ""
+        and not metadata_migration
+        and override != "true"
+        and not repeat_overridden
+    )
+
+    lookup_deadline = time.monotonic() + RULE_CODE_LOOKUP_SECONDS
+
+    def rule_codes(run: dict) -> frozenset[str] | None:
+        try:
+            return _fetch_failure_rule_codes(
+                repo=repo, token=token, run=run, deadline=lookup_deadline
+            )
+        except Exception as error:  # noqa: BLE001 - fail open on API trouble
+            print(
+                f"attempt-budget: could not read rule codes for run "
+                f"{run.get('id')} ({error}); not counting it.",
+                file=sys.stderr,
+            )
+            return None
+
+    repeated = (
+        evaluate_repeated_failure(decision.counted_runs, rule_codes)
+        if decision.streak >= REPEATED_FAILURE_LIMIT
+        else None
+    )
+    repeat_blocked = repeat_enforced and repeated is not None
+    if repeated is not None:
+        print(
+            "attempt-budget: repeated final rule codes "
+            f"{sorted(repeated.rule_codes)} enforced={repeat_enforced} "
+            f"blocked={repeat_blocked}"
+        )
+        _append_summary(
+            _render_repeated_failure(
+                repeated, citation=citation, blocked=repeat_blocked
+            )
+        )
+        if repeat_blocked:
+            print(
+                "::error title=Repeated final rule codes::The last "
+                f"{len(repeated.runs)} model-bearing runs for {citation} failed "
+                f"with {', '.join(sorted(repeated.rule_codes))}; see "
+                "REPEATED_FAILURE_OVERRIDE_JSON in "
+                "docs/targeted-reencode-attempt-budget.md"
+            )
     if override == "true":
         print("attempt-budget: override set by dispatcher; not blocking.")
-    if repair_run_id:
+    if repair_run_id and not repeat_blocked:
         print(
             "attempt-budget: repair replay is authenticated by the protected "
             "resolver; not blocking."
@@ -446,7 +776,7 @@ def main() -> int:
             "attempt-budget: retired source metadata migration makes no model call; "
             "not blocking."
         )
-    return 1 if blocked else 0
+    return 1 if blocked or repeat_blocked else 0
 
 
 if __name__ == "__main__":
