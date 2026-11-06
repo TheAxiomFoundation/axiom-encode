@@ -24910,7 +24910,7 @@ def _unreceipted_retirement_manifest_issues(
 
     if payload.get("tool") != APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL:
         return []
-    issues: list[str] = []
+    reasons: list[str] = []
     entries = payload.get("applied_files")
     paths: list[Path] = []
     if isinstance(entries, list):
@@ -24924,13 +24924,13 @@ def _unreceipted_retirement_manifest_issues(
                 else None
             )
             if relative is None:
-                issues.append(
+                reasons.append(
                     f"{manifest_label} applied_files[{index}].path is not canonical"
                 )
                 continue
             paths.append(relative)
             if item.get("deleted") is not True:
-                issues.append(
+                reasons.append(
                     f"{manifest_label} unreceipted retirement may contain only "
                     "deleted file entries"
                 )
@@ -24939,7 +24939,7 @@ def _unreceipted_retirement_manifest_issues(
                 not isinstance(digest, str)
                 or _SHA256_HEX_PATTERN.fullmatch(digest) is None
             ):
-                issues.append(
+                reasons.append(
                     f"{manifest_label} applied_files[{index}].sha256 is invalid"
                 )
             try:
@@ -24955,7 +24955,7 @@ def _unreceipted_retirement_manifest_issues(
             except (OSError, RuntimeError, UnsafeCorpusPathError):
                 exists = True
             if exists:
-                issues.append(
+                reasons.append(
                     f"{manifest_label} lists {relative.as_posix()} as deleted but it exists"
                 )
     primaries = [
@@ -24976,15 +24976,15 @@ def _unreceipted_retirement_manifest_issues(
         )
         or set(paths) != {primaries[0], companion_path(primaries[0])}
     ):
-        issues.append(
+        reasons.append(
             f"{manifest_label} unreceipted retirement must contain exactly one "
             "protected primary and its companion"
         )
     elif manifest_label != _applied_encoding_manifest_path(primaries[0]).as_posix():
-        issues.append(
+        reasons.append(
             f"{manifest_label} unreceipted retirement is not at its canonical mirrored path"
         )
-    return issues
+    return reasons
 
 
 def _unreceipted_retirement_inventory_prefix(path: Path) -> tuple[str, ...] | None:
@@ -25083,7 +25083,7 @@ def _unreceipted_retirement_ownership_issues(
         if isinstance(entries, list)
         else set()
     )
-    issues: list[str] = []
+    reasons: list[str] = []
     direct_owners: set[Path] = set()
     for raw_path in paths:
         path = Path(raw_path)
@@ -25109,20 +25109,20 @@ def _unreceipted_retirement_ownership_issues(
 
     for owner, raw in inventory.items():
         if owner in direct_owners:
-            issues.append(
+            reasons.append(
                 f"{manifest_label} is already covered {location} by {owner.as_posix()}"
             )
             continue
         try:
             prior = json.loads(raw, object_pairs_hook=unique_object)
         except (ValueError, UnicodeError, RecursionError):
-            issues.append(
+            reasons.append(
                 f"{manifest_label} cannot establish unreceipted ownership: "
                 f"{owner.as_posix()} {location} is not valid JSON"
             )
             continue
         if not isinstance(prior, dict):
-            issues.append(
+            reasons.append(
                 f"{manifest_label} cannot establish unreceipted ownership: "
                 f"{owner.as_posix()} {location} is not a JSON object"
             )
@@ -25140,17 +25140,17 @@ def _unreceipted_retirement_ownership_issues(
                     )
                 )
             )
-        issues.extend(
+        reasons.extend(
             f"{manifest_label} cannot establish unreceipted ownership: "
             f"{owner.as_posix()} {location} has a nonfinite JSON number"
             for _ in range(nonfinite_count)
         )
         if covered:
-            issues.append(
+            reasons.append(
                 f"{manifest_label} {', '.join(sorted(covered))} is already covered "
                 f"{location} by {owner.as_posix()}"
             )
-    return issues
+    return reasons
 
 
 def _unreceipted_retirement_base_issues(
@@ -25243,7 +25243,7 @@ def _unreceipted_retirement_base_issues(
         tree = base_tree_cache[base_commit]
         if tree.issue:
             return [f"{manifest_label} {location} {tree.issue}"]
-        issues: list[str] = []
+        reasons: list[str] = []
         entries = payload.get("applied_files")
         for item in entries if isinstance(entries, list) else []:
             if not isinstance(item, dict) or not isinstance(item.get("path"), str):
@@ -25254,14 +25254,14 @@ def _unreceipted_retirement_base_issues(
                 Path(item["path"]),
                 base_tree_cache=base_tree_cache,
             )
-            issues.extend(faults)
+            reasons.extend(faults)
             if raw is None:
                 if not faults:
-                    issues.append(
+                    reasons.append(
                         f"{manifest_label} {item['path']} is absent {location}"
                     )
             elif hashlib.sha256(raw).hexdigest() != item.get("sha256"):
-                issues.append(
+                reasons.append(
                     f"{manifest_label} {item['path']} base sha256 does not match the exact deleted bytes {location}"
                 )
         inventory: dict[Path, bytes] = {}
@@ -25273,7 +25273,7 @@ def _unreceipted_retirement_base_issues(
             if len(path.parts) <= len(prefix):
                 records = tree.records[encoded_path]
                 if len(records) != 1 or not records[0].startswith(b"040000 tree "):
-                    issues.append(
+                    reasons.append(
                         f"{manifest_label} cannot establish unreceipted ownership: "
                         f"{path.as_posix()} {location} is not a regular receipt directory"
                     )
@@ -25281,7 +25281,7 @@ def _unreceipted_retirement_base_issues(
             if any(
                 record.startswith(b"120000 ") for record in tree.records[encoded_path]
             ):
-                issues.append(
+                reasons.append(
                     f"{manifest_label} cannot establish unreceipted ownership: "
                     f"{path.as_posix()} {location} is a receipt inventory symlink"
                 )
@@ -25295,24 +25295,24 @@ def _unreceipted_retirement_base_issues(
                 base_tree_cache=base_tree_cache,
                 max_bytes=16 * 1024 * 1024,
             )
-            issues.extend(faults)
+            reasons.extend(faults)
             if raw is not None:
                 inventory[path] = raw
-        return issues + _unreceipted_retirement_ownership_issues(
+        return reasons + _unreceipted_retirement_ownership_issues(
             payload,
             manifest_label=manifest_label,
             inventory=inventory,
             location=location,
         )
 
-    issues = prove_at(guard_base, location="at the immutable base")
+    reasons = prove_at(guard_base, location="at the immutable base")
     if recorded_base != guard_base:
-        issues.extend(
+        reasons.extend(
             prove_at(recorded_base, location="at the recorded retirement base")
         )
     if proof_key is not None and proof_cache is not None:
-        proof_cache[proof_key] = tuple(issues)
-    return issues
+        proof_cache[proof_key] = tuple(reasons)
+    return reasons
 
 
 def _unreceipted_retirement_current_ownership_issues(
@@ -25325,7 +25325,7 @@ def _unreceipted_retirement_current_ownership_issues(
     """Check uncommitted receipt owners without following filesystem links."""
 
     del roots
-    issues: list[str] = []
+    reasons: list[str] = []
     inventory: dict[Path, bytes] = {}
     try:
         parents = [repo_path] + [
@@ -25351,19 +25351,19 @@ def _unreceipted_retirement_current_ownership_issues(
                 except FileNotFoundError:
                     break
                 except OSError as exc:
-                    issues.append(
+                    reasons.append(
                         f"{manifest_label} cannot establish unreceipted ownership: {exc}"
                     )
                     break
                 if not stat.S_ISDIR(mode):
-                    issues.append(
+                    reasons.append(
                         f"{manifest_label} cannot establish unreceipted ownership: {cursor.relative_to(repo_path).as_posix()} is not a regular receipt directory"
                     )
                     break
             else:
 
                 def unreadable(exc: OSError) -> None:
-                    issues.append(
+                    reasons.append(
                         f"{manifest_label} cannot establish unreceipted ownership: {exc}"
                     )
 
@@ -25378,7 +25378,7 @@ def _unreceipted_retirement_current_ownership_issues(
                             regular = False
                         if not regular:
                             children.remove(name)
-                            issues.append(
+                            reasons.append(
                                 f"{manifest_label} cannot establish unreceipted ownership: {child.relative_to(repo_path).as_posix()} is not a regular receipt directory"
                             )
                     for name in names:
@@ -25396,10 +25396,10 @@ def _unreceipted_retirement_current_ownership_issues(
                                 )
                             )
                         except (OSError, UnsafeCorpusPathError) as exc:
-                            issues.append(
+                            reasons.append(
                                 f"{manifest_label} cannot establish unreceipted ownership: {exc}"
                             )
-    return issues + _unreceipted_retirement_ownership_issues(
+    return reasons + _unreceipted_retirement_ownership_issues(
         payload,
         manifest_label=manifest_label,
         inventory=inventory,
@@ -27769,6 +27769,7 @@ def _applied_manifest_tool_execution_issues(
     if backend is None:
         applied_files = payload.get("applied_files")
         if tool == APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL:
+            reasons: list[str] = []
             if (
                 not isinstance(applied_files, list)
                 or not applied_files
@@ -27779,7 +27780,7 @@ def _applied_manifest_tool_execution_issues(
                     for item in applied_files
                 )
             ):
-                issues.append(
+                reasons.append(
                     f"{manifest_label} unreceipted retirement has malformed deleted file entries"
                 )
             if any(
@@ -27791,9 +27792,10 @@ def _applied_manifest_tool_execution_issues(
                     "retired_manifest",
                 )
             ):
-                issues.append(
+                reasons.append(
                     f"{manifest_label} unreceipted retirement may claim only exact-byte deletion"
                 )
+            issues.extend(reasons)
             check_producer("unreceipted retirement")
             return issues
         if tool == RETIRED_SOURCE_METADATA_TOOL:
@@ -28113,11 +28115,14 @@ def _applied_manifest_exact_schema_issues(
         not isinstance(payload.get("reason"), str) or not payload["reason"].strip()
     ):
         issues.append(f"{manifest_label} retirement reason is invalid")
-    if contract == "unreceipted retirement" and (
-        not isinstance(payload.get("base_commit"), str)
-        or re.fullmatch(r"[0-9a-f]{40}", payload["base_commit"]) is None
-    ):
-        issues.append(f"{manifest_label} retirement base_commit is invalid")
+    if contract == "unreceipted retirement":
+        reasons: list[str] = []
+        if (
+            not isinstance(payload.get("base_commit"), str)
+            or re.fullmatch(r"[0-9a-f]{40}", payload["base_commit"]) is None
+        ):
+            reasons.append(f"{manifest_label} retirement base_commit is invalid")
+        issues.extend(reasons)
 
     applied_files = payload.get("applied_files")
     if isinstance(applied_files, list):
@@ -31986,21 +31991,21 @@ def _load_applied_encoding_manifest_entries(
                 )
             )
         ):
-            retirement_issues = []
+            retirement_reasons = []
             if (
                 payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD)
                 != expected_waiver_set_sha256
             ):
-                retirement_issues.append(
+                retirement_reasons.append(
                     f"{manifest_path} {VALIDATION_WAIVER_SET_SHA256_FIELD} does not "
                     "match the RuleSpec toolchain-bound waiver set for a changed retirement"
                 )
             if retirement_base_ref is None:
-                retirement_issues.append(
+                retirement_reasons.append(
                     f"{manifest_path} unreceipted retirement requires an immutable base ref"
                 )
             else:
-                retirement_issues.extend(
+                retirement_reasons.extend(
                     _unreceipted_retirement_base_issues(
                         payload,
                         repo_path=repo_path,
@@ -32011,8 +32016,8 @@ def _load_applied_encoding_manifest_entries(
                         proof_cache=path_migration_receipt_proof_cache,
                     )
                 )
-            if retirement_issues:
-                issues.extend(retirement_issues)
+            if retirement_reasons:
+                issues.extend(retirement_reasons)
                 continue
         for item in applied_files:
             if not isinstance(item, dict):
