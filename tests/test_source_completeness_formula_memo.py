@@ -1,21 +1,23 @@
 """Formula token and case-environment reuse must not change an analysis.
 
 The tokenizer and string masking are pure functions of their text, so a bounded
-cache returns what a fresh call would. A case's dependency environment is
-reused only inside one analysis, only for the same input objects, and only
-while their contents are unchanged.
+cache returns what a fresh call would. The memo reuses a case's dependency
+environment only inside one analysis, only for the same input objects, and only
+when their contents and ambient numeric settings match.
 """
 
 from __future__ import annotations
 
+import contextlib
 import copy
+import ctypes
 import decimal
 import functools
 from pathlib import Path
 
 import pytest
 import yaml
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode.harness import source_completeness as sc
@@ -25,6 +27,18 @@ _FORMULA_ALPHABET = st.sampled_from(
     list("abxy_019 .:,=+-*/<>()[]#\"'\\\n\t") + ["if ", "else", "match ", '"""']
 )
 _FORMULA_TEXTS = st.lists(_FORMULA_ALPHABET, max_size=40).map("".join)
+
+
+@pytest.fixture(autouse=True)
+def stable_rounding_reader(monkeypatch, request):
+    """Ordinary memo tests need a known mode even without a native host API."""
+
+    original = getattr(sc, "_floating_point_rounding_reader", None)
+    if "hardware_rounding" not in request.fixturenames:
+        monkeypatch.setattr(
+            sc, "_floating_point_rounding_reader", lambda: lambda: 0, raising=False
+        )
+    return original
 
 
 @pytest.fixture(autouse=True)
@@ -345,6 +359,151 @@ def test_memo_still_hits_after_a_decimal_flag_changes(monkeypatch):
             context.flags[decimal.Inexact] = True
             _environment(rules, case, environment)
     assert len(calls) == 1
+
+
+@pytest.fixture(scope="module")
+def hardware_rounding():
+    """Probe C rounding modes without assuming an architecture's FE_* values."""
+
+    try:
+        library = ctypes.CDLL(None)
+        get_rounding = library.fegetround
+        set_rounding = library.fesetround
+    except (AttributeError, OSError):
+        pytest.skip("C floating-point rounding API unavailable")
+    get_rounding.argtypes = ()
+    get_rounding.restype = ctypes.c_int
+    set_rounding.argtypes = (ctypes.c_int,)
+    set_rounding.restype = ctypes.c_int
+    original = get_rounding()
+    if original < 0:
+        pytest.skip("C floating-point rounding mode unavailable")
+    modes = []
+    try:
+        # x86 and ARM encodings; only use modes the host accepts and reports.
+        for mode in (0, 0x400, 0x800, 0xC00, 0x400000, 0x800000, 0xC00000):
+            if set_rounding(mode) == 0 and get_rounding() == mode:
+                modes.append(mode)
+    finally:
+        assert set_rounding(original) == 0
+    if len(modes) < 2:
+        pytest.skip("Host does not expose multiple floating-point rounding modes")
+    return library, modes
+
+
+@contextlib.contextmanager
+def _hardware_rounding_mode(library, mode):
+    original = library.fegetround()
+    try:
+        assert library.fesetround(mode) == 0
+        yield
+    finally:
+        assert library.fesetround(original) == 0
+
+
+def test_memo_preserves_money_assertion_comparison_at_each_hardware_rounding(
+    monkeypatch, hardware_rounding
+):
+    library, modes = hardware_rounding
+    calls = _count_evaluations(monkeypatch)
+    rules = {"x": _rule("x", "0.10000000000000002", "Money")}
+    case = {"name": "case", "period": "2025", "input": {}, "output": {"x": 0.1}}
+    environment = {}
+    with sc._case_dependency_environment_memo_scope():
+        for index, mode in enumerate(modes):
+            with _hardware_rounding_mode(library, mode):
+                memoized = _environment(
+                    rules, case, environment, require_asserted_value=True
+                )
+                repeated = _environment(
+                    rules, case, environment, require_asserted_value=True
+                )
+                direct = sc._evaluate_case_dependency_environment(
+                    rules,
+                    case,
+                    formula_environment=environment,
+                    require_asserted_value=True,
+                )
+            assert _typed(memoized) == _typed(direct)
+            assert _typed(repeated) == _typed(direct)
+            assert len(calls) == 2 * (index + 1)  # each mode misses once, then hits
+
+
+@settings(max_examples=75, deadline=None, database=None)
+@example(mode_indexes=[0, 1], require_asserted_value=True)
+@given(
+    mode_indexes=st.lists(st.integers(0, 3), min_size=2, max_size=8),
+    require_asserted_value=st.booleans(),
+)
+def test_memo_matches_fresh_evaluation_across_hardware_rounding_sequences(
+    hardware_rounding, mode_indexes, require_asserted_value
+):
+    library, modes = hardware_rounding
+    rules = {"x": _rule("x", "0.10000000000000002", "Money")}
+    case = {"name": "case", "period": "2025", "input": {}, "output": {"x": 0.1}}
+    environment = {}
+    with sc._case_dependency_environment_memo_scope():
+        for index in mode_indexes:
+            with _hardware_rounding_mode(library, modes[index % len(modes)]):
+                memoized = _environment(
+                    rules,
+                    case,
+                    environment,
+                    require_asserted_value=require_asserted_value,
+                )
+                direct = sc._evaluate_case_dependency_environment(
+                    rules,
+                    case,
+                    formula_environment=environment,
+                    require_asserted_value=require_asserted_value,
+                )
+            assert _typed(memoized) == _typed(direct)
+
+
+@pytest.mark.parametrize("reader", (None, lambda: -1))
+def test_memo_evaluates_fresh_when_hardware_rounding_is_unknown(monkeypatch, reader):
+    monkeypatch.setattr(sc, "_floating_point_rounding_reader", lambda: reader)
+    calls = _count_evaluations(monkeypatch)
+    rules, case, environment = _rules(), _case(), {}
+    with sc._case_dependency_environment_memo_scope():
+        first = _environment(rules, case, environment)
+        second = _environment(rules, case, environment)
+    assert len(calls) == 2
+    assert _typed(first) == _typed(second)
+    assert first == {"helper": 100, "result": 100}
+
+
+@pytest.mark.parametrize("error", (AttributeError, OSError, TypeError))
+def test_hardware_rounding_reader_handles_an_unavailable_host_api(
+    monkeypatch, stable_rounding_reader, error
+):
+    def unavailable(_name):
+        raise error("rounding query unavailable")
+
+    monkeypatch.setattr(sc.ctypes, "CDLL", unavailable)
+    assert stable_rounding_reader.__wrapped__() is None
+
+
+def test_decimal_partitions_can_retain_hits_after_inputs_and_settings_return(
+    monkeypatch,
+):
+    calls = _count_evaluations(monkeypatch)
+    rules = {"out": _rule("out", "-x")}
+    case = {"name": "case", "input": {"x": 12345}, "output": {}}
+    environment = {}
+    counts, results = [], []
+    with sc._case_dependency_environment_memo_scope():
+        for precision, value in ((5, 12345), (3, 23456), (5, 12345)):
+            case["input"]["x"] = value
+            with decimal.localcontext(prec=precision):
+                results.append(_environment(rules, case, environment))
+            counts.append(len(calls))
+    assert counts == [1, 2, 2]
+    assert results == [
+        {"out": decimal.Decimal("-12345")},
+        {"out": decimal.Decimal("-2.35E+4")},
+        {"out": decimal.Decimal("-12345")},
+    ]
 
 
 _NAMES = ("a", "b", "c", "d")

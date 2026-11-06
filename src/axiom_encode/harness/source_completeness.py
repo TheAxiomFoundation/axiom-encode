@@ -14,6 +14,7 @@ import calendar
 import contextlib
 import contextvars
 import copy
+import ctypes
 import difflib
 import functools
 import hashlib
@@ -27104,9 +27105,9 @@ def _case_asserted_dependency_environment(
 # One analysis asks for the same case's dependency environment from several
 # checks, each time with the same rule, case and constant mappings.
 # `_case_dependency_environment_memo_scope` holds a memo for one analysis so a
-# repeat reuses the first result. A hit needs the same objects, the same ambient
-# Decimal settings and a matching digest of their current contents, so a mapping
-# or a setting changed between calls is evaluated again.
+# repeat can reuse an earlier result. The memo partitions entries by the
+# ambient Decimal settings and the hardware rounding mode, and every hit still
+# needs the same input objects and a matching digest of their contents.
 _CASE_DEPENDENCY_ENVIRONMENT_MEMO: contextvars.ContextVar[
     dict[tuple[Any, ...], tuple[tuple[Any, ...], bytes, dict[str, Any]]] | None
 ] = contextvars.ContextVar("_CASE_DEPENDENCY_ENVIRONMENT_MEMO", default=None)
@@ -27160,6 +27161,30 @@ def _decimal_context_settings() -> tuple[Any, ...]:
     )
 
 
+@functools.lru_cache(maxsize=1)
+def _floating_point_rounding_reader() -> Callable[[], int] | None:
+    """Bind the host's rounding query once; never cache its thread-local value."""
+
+    try:
+        # On Windows, CDLL(None) hands None to LoadLibrary, which takes a path.
+        reader = ctypes.CDLL(None).fegetround
+    except (AttributeError, OSError, TypeError):
+        return None
+    reader.argtypes = ()
+    reader.restype = ctypes.c_int
+    return reader
+
+
+def _floating_point_rounding_mode() -> int | None:
+    """Float arithmetic and Decimal-to-float conversion read hardware rounding."""
+
+    reader = _floating_point_rounding_reader()
+    if reader is None:
+        return None
+    mode = reader()
+    return mode if mode >= 0 else None
+
+
 # Values a memo may hand to several callers: none can be changed in place.
 _SHAREABLE_RUNTIME_VALUE_TYPES = (
     type(None),
@@ -27184,7 +27209,10 @@ def _case_dependency_environment(
     """Evaluate an acyclic reached subset of local principal outputs."""
 
     memo = _CASE_DEPENDENCY_ENVIRONMENT_MEMO.get()
-    if memo is None:
+    float_rounding = _floating_point_rounding_mode() if memo is not None else None
+    # Without a readable rounding mode, the key can't tell modes apart, so
+    # evaluate fresh.
+    if memo is None or float_rounding is None:
         return _evaluate_case_dependency_environment(
             principal_rules,
             case,
@@ -27202,6 +27230,7 @@ def _case_dependency_environment(
         allow_bound_row_assertions,
         _US_MANUAL_PROSE_SCOPE.get(),
         _decimal_context_settings(),
+        float_rounding,
     )
     digest = _case_dependency_environment_inputs_digest(
         principal_rules, case, formula_environment
