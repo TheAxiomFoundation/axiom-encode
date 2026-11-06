@@ -1,3 +1,7 @@
+## 0.2.2337
+
+- Preserve closed nested physical reason alternatives as one required factual gate inside an all-of condition, rather than requiring mutually alternative reasons simultaneously or treating a closed navigation list as operative conditions. Unknown continuations remain conservative; negative or qualified terminal evidence cannot corroborate a positive reason. This narrows a source-explicit-condition opacity check, not Boolean equivalence, source completeness as a whole, or oracle validation.
+
 ## 0.2.2299
 
 - Preserve the original checkout identity when validating staged eval and apply overlays, so same-case source witnesses execute against the candidate closure while retaining exact Git, file, and engine binding checks.
