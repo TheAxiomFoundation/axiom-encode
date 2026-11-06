@@ -1,0 +1,1 @@
+Validate the complete T1170 source unit using source-bound typed execution and refusal evidence, including exact provider lineage, document duties, and numeric coordinates. Missing, altered, or duplicated owned evidence retains validation findings instead of borrowing generic witnesses.

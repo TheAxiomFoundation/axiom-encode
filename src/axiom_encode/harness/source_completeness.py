@@ -85,7 +85,9 @@ from axiom_encode.statute import (
     parse_usc_citation,
 )
 
+from .physical_allowance_conditions import read_physical_allowance_condition
 from .same_case_execution import SameCaseEvidence, formula_witnesses
+from .signed_condition_paths import signed_granting_paths
 
 if TYPE_CHECKING:
     from axiom_encode.harness.worksheet_composition_evidence import (
@@ -20169,6 +20171,40 @@ def _opaque_same_source_condition_input_issues(
         }
 
     condition_row_ends = _corroborated_unless_row_ends(source_text)
+    physical_allowance = read_physical_allowance_condition(
+        source_text, limit=_SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT
+    )
+    physical_inputs = {
+        str(item.get("name")): item for item in inputs or () if isinstance(item, dict)
+    }
+
+    def physical_resolve(name, lo, hi, *, entity, period):
+        if name in physical_inputs:
+            if (
+                name in named_rules
+                or name in imported_names
+                or sum(
+                    isinstance(item, dict) and item.get("name") == name
+                    for item in inputs or ()
+                )
+                != 1
+            ):
+                raise ValueError("ambiguous physical-condition input")
+            return None
+        dependency = named_rules.get(name)
+        if (
+            dependency is None
+            or str(dependency.get("dtype", "")).lower()
+            not in {"boolean", "bool", "judgment"}
+            or dependency.get("entity") != entity
+            or dependency.get("period") != period
+        ):
+            raise ValueError("unresolved physical-condition dependency")
+        return tuple(
+            (_parse_formula_expression(child), child_start, child_end)
+            for _, child, child_start, child_end in interval_cache.get(name, ())
+        )
+
     findings: list[tuple[str, int, int, frozenset[str]]] = []
     for rule_name, rule in sorted(principal_rules.items()):
         if (
@@ -20179,6 +20215,47 @@ def _opaque_same_source_condition_input_issues(
             continue
         for version_index, formula, start, end in interval_cache.get(rule_name, ()):
             excerpts = proof_excerpts.get(rule_name, {}).get(version_index, ())
+            if physical_allowance is not None:
+                paths = signed_granting_paths(
+                    _parse_formula_expression(formula),
+                    start=start,
+                    end=end,
+                    resolve=lambda name, lo, hi: physical_resolve(
+                        name,
+                        lo,
+                        hi,
+                        entity=rule.get("entity"),
+                        period=rule.get("period"),
+                    ),
+                    intersect=_formula_interval_intersection,
+                    limit=_SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT,
+                    depth_limit=_SOURCE_EXPLICIT_CONDITION_DEPENDENCY_DEPTH_LIMIT,
+                    numeric_names=frozenset(
+                        name
+                        for name, item in physical_inputs.items()
+                        if str(item.get("dtype", "")).lower() == "count"
+                    ),
+                )
+                if (
+                    not physical_allowance.owns_excerpts(excerpts)
+                    or str(rule.get("dtype", "")).lower()
+                    not in {"boolean", "bool", "judgment"}
+                    or str(rule.get("period", "")).lower() != physical_allowance.period
+                    or not physical_allowance.corroborates(
+                        paths, physical_inputs, entity=rule.get("entity")
+                    )
+                ):
+                    findings.append(
+                        (
+                            rule_name,
+                            version_index,
+                            physical_allowance.gate_count,
+                            frozenset(
+                                f.name for path in paths or () for f in path.facts
+                            ),
+                        )
+                    )
+                continue
             gate_sets: dict[
                 tuple[tuple[str, ...], int, int],
                 tuple[tuple[frozenset[str], frozenset[str]], ...],

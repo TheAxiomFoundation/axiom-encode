@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import yaml
 
 from ..corpus_resolver import LocalCorpusRelease, resolve_local_corpus_source
+from ..yaml_serialization import safe_dump_yaml
 from .bound_investment_adjustment_operands import GUIDE, bind_investment_adjustment
 from .bound_investment_adjustment_structure import CITATION as PARENT
 from .investment_adjustment_coverage import observe_investment_adjustment_coverage
@@ -462,7 +463,7 @@ def _mixed_observation(context, records, refusal_records):
     ]
     # This projection is internal and every ordinal was checked above against
     # the immutable full raw companion. It is never a replacement signed file.
-    companion = yaml.safe_dump(positive_cases, sort_keys=False)
+    companion = safe_dump_yaml(positive_cases, sort_keys=False)
     args = (
         context.binding,
         context.content,
