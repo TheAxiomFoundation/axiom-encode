@@ -1,0 +1,1 @@
+Record each encode-loop try's wall time and phase timeline (`started_at`, `finished_at`, `wall_duration_ms`, `phases` on every `encoding_runs.iterations` entry, plus `outcome.encode_loop_timing` for the loop's setup and finalization), and print one flushed progress line per phase change so job-log timestamps mark real phase boundaries.

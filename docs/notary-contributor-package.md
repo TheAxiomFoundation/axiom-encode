@@ -47,7 +47,7 @@ approval sidecar, not caller-selected roots, repositories, manifests, or a
 generic signing scope. Production callers must install the concrete
 `GitHubSignerInputs` adapter; test adapters do not establish remote authority.
 
-`PublicationPlan` is enforced by `GitPublication` atomic ref updates. The
+`PublicationPlan` is enforced by `ChainWriter` atomic ref updates. The
 publisher runner receives only the two operation-specific short-lived App
 tokens; broker-side finalization never returns a write credential. The
 source-App-bound check remains independent of the generated-file guard.

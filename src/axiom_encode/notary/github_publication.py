@@ -240,8 +240,8 @@ class AdmissionChecks:
         prefix = f"/repos/{self.repository}/check-runs"
         # GitHub has no conditional create for checks. Repair same-App
         # duplicates instead of making a duplicate permanently unmodifiable.
-        # The pinned admission/finalizer workflows also share a lane-wide
-        # concurrency group; differently targeted writes must be serialized.
+        # The broker's durable lane lease serializes admission/finalizer
+        # mutations; differently targeted writes must not race here.
         for _ in range(3):
             rows = self._checks(head)
             if rows:

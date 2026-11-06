@@ -1,0 +1,151 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_paths:
+      - uk/guidance/govuk/carers-allowance/eligibility
+      - uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+  summary: |-
+    Carer's allowance as described by GOV.UK guidance: a weekly amount for a
+    person aged 16 or over who cares for someone at least 35 hours a week,
+    where the person cared for gets a qualifying disability benefit, the
+    carer's earnings after tax, National Insurance and expenses are no more
+    than the weekly earnings limit, and the carer is not in full-time
+    education. A person in Scotland applies for carer support payment instead.
+    The weekly rate is set by the Social Security Benefits Up-rating Order
+    2026.
+imports:
+  - uk:regulations/uksi/2026/148/schedule/1#carers_allowance_weekly_rate
+rules:
+  - name: carers_allowance_minimum_weekly_care_hours
+    kind: parameter
+    dtype: Count
+    source: GOV.UK, Carer's Allowance, "Eligibility"
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/guidance/govuk/carers-allowance/eligibility
+              excerpt: "spend at least 35 hours a week caring for someone"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          35
+
+  - name: carers_allowance_weekly_earnings_limit
+    kind: parameter
+    dtype: Money
+    unit: GBP
+    source: GOV.UK, Carer's Allowance, "Eligibility"
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/guidance/govuk/carers-allowance/eligibility
+              excerpt: "Your earnings are £204 or less a week after tax, National Insurance and expenses"
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          204
+
+  - name: carers_allowance_weeks_in_year
+    kind: parameter
+    dtype: Count
+    source: Universal Credit Regulations 2013, Schedule 4 paragraph 7 (weekly amounts converted over 52 weeks)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+              excerpt: "calculated as a monthly amount"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          52
+
+  - name: entitled_to_carers_allowance
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Week
+    source: GOV.UK, Carer's Allowance, "Eligibility"
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/govuk/carers-allowance/eligibility
+              excerpt: "if you care for someone at least 35 hours a week and they get certain benefits"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/govuk/carers-allowance/eligibility
+              excerpt: "You're not in full-time education"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/govuk/carers-allowance/eligibility
+              excerpt: "You're 16 or over"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/govuk/carers-allowance/eligibility
+              excerpt: "you need to apply for Carer Support Payment instead of Carer's Allowance"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          person_is_aged_16_or_over and weekly_care_hours >= carers_allowance_minimum_weekly_care_hours and cared_for_person_receives_qualifying_disability_benefit and weekly_earnings_after_tax_national_insurance_and_expenses <= carers_allowance_weekly_earnings_limit and not person_is_in_full_time_education and not person_lives_in_scotland
+
+  - name: carers_allowance_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: GOV.UK, Carer's Allowance
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/guidance/govuk/carers-allowance/eligibility
+              excerpt: "You could get £86.45 a week"
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/schedule/1#carers_allowance_weekly_rate
+              output: carers_allowance_weekly_rate
+              hash: sha256:01b4050f255edf055e9c04e2b267c7a899f3f862b6e80e3e5bf54e18e29ddb88
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if entitled_to_carers_allowance: carers_allowance_weekly_rate else: 0
+
+  - name: carers_allowance_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: GOV.UK, Carer's Allowance (weekly amount annualised over the year)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/guidance/govuk/carers-allowance/eligibility
+              excerpt: "You could get £86.45 a week"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          carers_allowance_weekly_amount * carers_allowance_weeks_in_year

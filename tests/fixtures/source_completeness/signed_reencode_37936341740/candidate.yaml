@@ -1,0 +1,124 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-va/statute/58.1/58.1-322.03
+    source_sha256: 4d5721391f85bf246ad9621182c60b40cbaa1bbe5df80250248b1dc33a8206ab
+  summary: Subdivision 7 allows a purchaser or contributor a deduction for payments
+    or contributions to a Commonwealth Savers Plan account, generally limited to $4,000
+    per account per taxable year, with eligible excess carried forward. A purchaser
+    or contributor age 70 or older may deduct the full amount paid or contributed,
+    less amounts previously deducted. The section also states deductions for itemized
+    or standard deductions, exemptions, specified expenses and payments, and other
+    listed adjustments.
+deferred_outputs:
+- output: us-va:statutes/58.1/58/1-322/03#return_deduction_total
+  reason: Va. Code § 58.1-322.03(7)(a)-(b) requires attributing account deductions
+    to the purchaser or contributor shown on Commonwealth Savers Plan records as of
+    December 31 and aggregating the appropriate owners' deductions to a return; the
+    available source and context provide no executable account-ownership, December
+    31 record, or return relationship.
+- output: us-va:statutes/58.1/58/1-322/03#other_section_deductions
+  reason: Va. Code § 58.1-322.03(1)-(6) and (8)-(19) state additional computations,
+    but the available context does not provide the facts, relations, and cross-referenced
+    executable legal outputs needed to encode those computations completely and faithfully.
+rules:
+- name: college_savings_annual_deduction_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Va. Code § 58.1-322.03(7)(a)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-va/statute/58.1/58.1-322.03
+          excerpt: $4,000 per prepaid tuition contract or college savings trust account
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '4000'
+- name: college_savings_no_limit_age
+  kind: parameter
+  dtype: Integer
+  source: Va. Code § 58.1-322.03(7)(b)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-va/statute/58.1/58.1-322.03
+          excerpt: who has attained age 70
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '70'
+- name: college_savings_account_deduction
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: USD
+  source: Va. Code § 58.1-322.03(7)(a)-(b)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-va/statute/58.1/58.1-322.03
+          excerpt: shall not be subject to the limitation that the amount of the deduction
+            not exceed $ 4,000
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: us-va/statute/58.1/58.1-322.03
+          excerpt: No deduction shall be allowed pursuant to this subdivision 7 if
+            such payments or contributions are deducted on the purchaser's or contributor's
+            federal income tax return.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'if contribution_claimed_as_federal_deduction: 0 else: if account_owner_age
+      >= college_savings_no_limit_age: max(0, account_contribution + eligible_opening_carryforward)
+      else: min(college_savings_annual_deduction_limit, max(0, account_contribution
+      + eligible_opening_carryforward))'
+- name: college_savings_account_carryforward
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: USD
+  source: Va. Code § 58.1-322.03(7)(a)-(b)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-va/statute/58.1/58.1-322.03
+          excerpt: the remainder may be carried forward and subtracted in future taxable
+            years until the purchase price or college savings trust contribution has
+            been fully deducted
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'if contribution_claimed_as_federal_deduction: 0 else: max(0, account_contribution
+      + eligible_opening_carryforward - college_savings_account_deduction)'
+inputs:
+- name: account_owner_age
+  entity: Person
+  dtype: Integer
+  period: Year
+- name: account_contribution
+  entity: Person
+  dtype: Money
+  period: Year
+- name: eligible_opening_carryforward
+  entity: Person
+  dtype: Money
+  period: Year
+- name: contribution_claimed_as_federal_deduction
+  entity: Person
+  dtype: Boolean
+  period: Year
