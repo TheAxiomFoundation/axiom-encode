@@ -1192,6 +1192,72 @@ def test_only_the_grounding_decisions_read_the_month_stream():
     assert _month_evidence_references() == EXPECTED_MONTH_EVIDENCE_REFERENCES
 
 
+# How a caller may take a tokenization: by naming the one stream it reads, or
+# whole, for the grounding decisions only. A reader that kept or unpacked the
+# whole tokenization (``dataclasses.asdict``, a stored variable) could reach
+# the month stream without naming it.
+TOKENIZATION_READS = frozenset(
+    {"grounding", "inventory", "month_grounding", "_grounding_decision_occurrences"}
+)
+
+
+def _node_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+def _tokenization_reads() -> list[tuple[str, str, str]]:
+    """(module, enclosing function, what it reads) for each tokenizer call."""
+    reads = []
+    for path in sorted(PACKAGE_ROOT.rglob("*.py")):
+        module = path.relative_to(PACKAGE_ROOT).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        parents = {
+            child: node
+            for node in ast.walk(tree)
+            for child in ast.iter_child_nodes(node)
+        }
+
+        def scope_of(node: ast.AST) -> str:
+            while node in parents:
+                node = parents[node]
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    return node.name
+            return "<module>"
+
+        for node in ast.walk(tree):
+            if _node_name(node) != "_tokenize_numeric_occurrences_from_text":
+                continue
+            call = parents.get(node)
+            reader = parents.get(call)
+            if not (isinstance(call, ast.Call) and call.func is node):
+                read = "<not a call>"
+            elif isinstance(reader, ast.Attribute) and reader.value is call:
+                read = reader.attr
+            elif (
+                isinstance(reader, ast.Call)
+                and reader.args == [call]
+                and _node_name(reader.func) == "_grounding_decision_occurrences"
+            ):
+                read = "_grounding_decision_occurrences"
+            else:
+                read = f"<{type(reader).__name__}>"
+            reads.append((module, scope_of(node), read))
+    return reads
+
+
+def test_every_tokenizer_call_names_the_stream_it_reads():
+    reads = _tokenization_reads()
+    assert len(reads) >= 10
+    assert [read for read in reads if read[2] not in TOKENIZATION_READS] == []
+    assert {scope for _module, scope, read in reads if read == "month_grounding"} == {
+        "extract_typed_month_occurrences_from_text"
+    }
+
+
 def test_the_grounding_decisions_still_ground_part_d_through_the_month_stream():
     # The guard above would also pass if no one read the month stream; Part D
     # grounds only because the decisions do.

@@ -18177,7 +18177,8 @@ def extract_typed_month_occurrences_from_text(
 
     Each occurrence spans the name and carries ``requires_month_context``. Only
     the grounding decisions use them, to ground a literal the module compares
-    with a calendar month (``_month_comparison_literal_values``).
+    with a calendar month (``_month_comparison_literal_values``). Only the
+    legacy profile reads month names; every other profile gives none.
     """
     return list(
         _tokenize_numeric_occurrences_from_text(text, profile=profile).month_grounding
