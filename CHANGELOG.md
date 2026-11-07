@@ -1,12 +1,10 @@
-## 0.2.2342
+## 0.2.2344
 
-- Assign the encoder version after merge, not in each pull request (#2048). The new `Encoder version bump` workflow runs on every push to `main`. When encoder-affecting files changed after the latest bump, it writes the next version into `pyproject.toml`, `src/axiom_encode/__init__.py` and `uv.lock`, adds a `CHANGELOG.md` header that lists the pull requests merged since the previous bump by title (it leaves out bump pull requests), and opens a bump pull request with auto-merge on. It leaves the towncrier fragments in `changelog.d/` alone. The workflow opens the pull request with a token of the `axiom-encoder-version-bump` GitHub App, made on each run from the `ENCODER_VERSION_BUMP_APP_CLIENT_ID` variable and the `ENCODER_VERSION_BUMP_APP_KEY` secret of the `encoder-version-bump` environment, whose branch rule allows only `main`.
-- Add `axiom_encode.version_provenance`, a standard-library check of the version rule at any git ref. It applies the same rule as the `--apply` guard: no encoder-affecting file may change after the latest version bump. It refuses a shallow clone, whose boundary commit would read as a bump.
-- Count a deleted encoder file, both sides of a moved one and a non-ASCII file name as encoder changes, in `version_provenance`, the `--apply` guard and the provisioner (`--no-renames --diff-filter=ACDMRT -z`). Before, each of these needed no bump. A differential test over random histories holds the three copies to one verdict.
-- Read the history that the version rule checks without replacement refs, grafts (including an `info/grafts` file) or the commit graph, in `version_provenance`, the `--apply` guard and the provisioner, so a local history rewrite cannot hide an unversioned encoder change. `ci_parity.encoder_version_at_pin` reads the version files through the same helper.
-- Refuse an encoder head that no bump covers in the re-encode workflow's attempt-budget job. The encode job is then skipped, so an ad hoc dispatch made before the bump lands uses no production-signing approval. The attempt budget treats such a run as neutral when it can look up the run's jobs; past its ten job lookups (or on a lookup error) it still counts a failed run, as before. Queue dispatches skip that job, so the SNAP queue tick holds and the protected SNAP queue workflow refuses to dispatch while `main` is unversioned.
-- `ci_parity.encoder_version_at_pin` refuses a pin whose encoder files changed after its version bump, so that one version never names two encoder states.
-- `test_current_encoder_affecting_changes_are_behind_version_bump` now runs only with `AXIOM_ENCODE_REQUIRE_VERSION_BUMP=1`, because a pull request no longer carries a bump. CI sets it on bump pull requests (`automation/encoder-version-*` heads).
+- Integrate the independently reviewed nested-condition and physical-alternative source checks; refresh encoder version provenance for the combined tree.
+
+## 0.2.2338
+
+- Check bounded physical allowance alternatives as shared prerequisites plus complete alternative factual groups, using signed granting paths and an explicit shared-set input naming contract. Preserve billing, action, causal, distinct-count, entity, period, proof-ownership, and temporal requirements; unknown contracts remain conservative. This is not complete semantic equivalence, legal-alternative coverage, or validation of raw caller classifications.
 
 ## 0.2.2337
 
