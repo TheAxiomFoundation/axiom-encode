@@ -6202,6 +6202,7 @@ def _execute_rulespec_test_case(
         ),
     )
 
+    related_row_index = 0
     for key, value in (case.get("input") or {}).items():
         key = str(key)
         flat_inputs[key] = value
@@ -6255,8 +6256,9 @@ def _execute_rulespec_test_case(
                 current_slot, executable_entity = direction
                 if executable_entity is not None:
                     related_entity = executable_entity
-            for row_index, row in enumerate(value):
-                related_id = f"related_{row_index}"
+            for row in value:
+                related_id = f"related_{related_row_index}"
+                related_row_index += 1
                 relation_tuple = [related_id, root_entity_id]
                 if current_slot == 0:
                     relation_tuple.reverse()
