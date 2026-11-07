@@ -58501,6 +58501,20 @@ def _enforce_no_apply_collision(
 _YAML_NON_ASCII_ESCAPE = re.compile(r"\\u([0-9A-Fa-f]{4})")
 
 
+def _yaml_emitter_writes_literally(character: str) -> bool:
+    """True when PyYAML's emitter, with allow_unicode, writes `character` as itself.
+
+    Inside double quotes the emitter escapes each non-ASCII character outside
+    U+00A0-U+D7FF and U+E000-U+FFFD (C1 controls, surrogates, U+FFFE, U+FFFF
+    and characters past U+FFFF), and U+2028, U+2029 and U+FEFF as well. A
+    scalar holding U+FEFF can only take double quotes, so the emitter writes
+    that character as `\\uFEFF` in every module it dumps.
+    """
+    return (
+        "\xa0" <= character <= "\ud7ff" or "\ue000" <= character <= "\ufffd"
+    ) and character not in "\u2028\u2029\ufeff"
+
+
 def _unescape_non_ascii_yaml_escapes(text: str) -> str | None:
     """Rewrite `\\uXXXX` escapes of non-ASCII characters as the characters themselves.
 
@@ -58514,13 +58528,20 @@ def _unescape_non_ascii_yaml_escapes(text: str) -> str | None:
     equivalent (unparseable YAML on either side, or a different parse), in
     which case the caller must leave the file exactly as the model wrote it.
     Escapes of ASCII characters are left alone; this pass exists for scripts.
+    So are escapes of the characters the emitter itself escapes (see
+    `_yaml_emitter_writes_literally`): apply stamps the module again, and a
+    re-dump would escape such a character again and change the bytes overlay
+    validation recorded. Their escapes also read better than invisible
+    separators and byte order marks.
     """
     if "\\u" not in text:
         return None
 
     def _replace(match: re.Match[str]) -> str:
         character = chr(int(match.group(1), 16))
-        return character if ord(character) > 0x7F else match.group(0)
+        if _yaml_emitter_writes_literally(character):
+            return character
+        return match.group(0)
 
     rewritten = _YAML_NON_ASCII_ESCAPE.sub(_replace, text)
     if rewritten == text:
@@ -60573,7 +60594,73 @@ def _require_unchanged_successful_apply_validation(
         raise RuntimeError(
             "Cannot apply generated RuleSpec: validated artifacts or provenance "
             "changed after overlay validation"
+            + _apply_validation_snapshot_change_summary(
+                _apply_validation_snapshot_changed_paths(expected, actual)
+            )
         )
+
+
+_APPLY_SNAPSHOT_KEY_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_APPLY_SNAPSHOT_CHANGES_NAMED = 8
+
+
+def _apply_validation_snapshot_key_path(prefix: str, key: object) -> str:
+    if isinstance(key, str) and _APPLY_SNAPSHOT_KEY_IDENTIFIER.fullmatch(key):
+        return f"{prefix}.{key}" if prefix else key
+    return f"{prefix}[{json.dumps(str(key))}]"
+
+
+def _apply_validation_snapshot_changed_paths(
+    expected: object,
+    actual: object,
+    prefix: str = "",
+) -> list[str]:
+    """Name every place where two apply validation snapshots disagree.
+
+    Returns key paths such as ``output.sha256`` or
+    ``validation_execution.policy_content_files["statutes/26/2.yaml"]`` and
+    never the values on either side. A field missing on one side, a list whose
+    length changed, or a value of another type names the path that holds it.
+    The comparison uses the same equality as the guard, so unequal snapshots
+    always name at least one path.
+    """
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        changed: list[str] = []
+        for key in sorted(expected.keys() | actual.keys(), key=str):
+            path = _apply_validation_snapshot_key_path(prefix, key)
+            if key in expected and key in actual:
+                changed.extend(
+                    _apply_validation_snapshot_changed_paths(
+                        expected[key], actual[key], path
+                    )
+                )
+            else:
+                changed.append(path)
+        return changed
+    if (
+        isinstance(expected, list)
+        and isinstance(actual, list)
+        and len(expected) == len(actual)
+    ):
+        changed = []
+        for index, (left, right) in enumerate(zip(expected, actual, strict=True)):
+            changed.extend(
+                _apply_validation_snapshot_changed_paths(
+                    left, right, f"{prefix}[{index}]"
+                )
+            )
+        return changed
+    if expected == actual:
+        return []
+    return [prefix or "<snapshot>"]
+
+
+def _apply_validation_snapshot_change_summary(changed: Sequence[str]) -> str:
+    if not changed:
+        return ""
+    named = ", ".join(changed[:_APPLY_SNAPSHOT_CHANGES_NAMED])
+    more = len(changed) - _APPLY_SNAPSHOT_CHANGES_NAMED
+    return f" (changed: {named}{f' and {more} more' if more > 0 else ''})"
 
 
 def _planned_apply_file_bytes(
@@ -63781,6 +63868,12 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
     )
     if artifact_issue is not None:
         return False, [artifact_issue], {}
+    # When the stamp above re-dumps the module, it writes non-ASCII as
+    # characters except where PyYAML's emitter escapes them, and the rewrite
+    # keeps those escapes, so the rewrite leaves its output unchanged. It still
+    # changes modules the stamp returns early on (other backends, non-mapping
+    # payloads, reviewed-candidate promotions) and the companion tests, which
+    # the stamp never writes.
     if vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None:
         _rewrite_generated_yaml_without_non_ascii_escapes(
             output_file,
