@@ -39424,8 +39424,11 @@ class ValidatorPipeline:
                 if mismatch:
                     issues.append(mismatch)
 
-        if execution_capture is not None and any(
-            isinstance(case, dict) and "expected_refusal" in case for case in cases
+        if execution_capture is not None and (
+            getattr(execution_capture, "_mhrtc_owned", False) is True
+            or any(
+                isinstance(case, dict) and "expected_refusal" in case for case in cases
+            )
         ):
             from .scoped_execution import observation
 
@@ -39436,7 +39439,7 @@ class ValidatorPipeline:
             ):
                 issues.append(
                     ValidationIssue(
-                        "Incomplete fresh scoped execution/refusal pairs.",
+                        "Incomplete fresh scoped execution evidence.",
                         check=CHECK_SCOPED_EXECUTION_PAIRS,
                     )
                 )

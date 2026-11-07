@@ -5470,6 +5470,36 @@ CHECK_T1170_EXECUTION_EVIDENCE = declare_check(
     site=_SITE_ANALYZE,
 )
 
+CHECK_MHRTC_EXECUTION_EVIDENCE = declare_check(
+    "complete-source-unit:mhrtc-evidence/missing",
+    title="MHRtC lacks complete private source execution evidence",
+    requires="Every exact MHRtC source occurrence and supplemental role has complete fresh private principal, parameter and auxiliary evidence.",
+    why="Generic scalar assertions, missing or duplicated inventories, and stale or detached execution cannot establish the source-bound joint conditions.",
+    fix="Correct the closed source-bound program and complete factual companion, then rerun ordinary validation with the authenticated release and receipted pinned engine; do not weaken predicates or substitute generic witnesses.",
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+
+
+def _mhrtc_inventory_issues(missing, kind, citation):
+    """Typed diagnostics also tolerate deliberately malformed extractor objects."""
+    result = []
+    for item in missing:
+        start, end = getattr(item, "start", None), getattr(item, "end", None)
+        span = f"{start}:{end}" if type(start) is int and type(end) is int else None
+        result.append(
+            ValidationIssue(
+                f"[complete-source-unit:mhrtc-evidence] Missing or malformed exact {kind} inventory occurrence; private source evidence cannot be replaced by generic fallback.",
+                check=CHECK_MHRTC_EXECUTION_EVIDENCE,
+                subject=IssueSubject(citation=citation, field=kind, span=span),
+                expected="complete exact typed occurrence multiset",
+                found="unmatched occurrence",
+            )
+        )
+    return result
+
+
 CHECK_SCHEDULE_N_EXECUTION_EVIDENCE = declare_check(
     "complete-source-unit:schedule-n-evidence/missing",
     title="Schedule N lacks complete private execution evidence",
@@ -5834,6 +5864,16 @@ def _analyze_rulespec_payload(
         test_cases,
         execution_evidence,
     )
+    from .mhrtc_evidence import certify_mhrtc
+
+    # One analysis-local private computation, before ordinary case normalization.
+    mhrtc_evidence = certify_mhrtc(
+        content,
+        raw_source_text or source_text,
+        corpus_citation_path,
+        test_cases,
+        execution_evidence,
+    )
     local_names = {
         str(rule.get("name") or "").strip()
         for rule in payload.get("rules", [])
@@ -5937,6 +5977,10 @@ def _analyze_rulespec_payload(
         ValidationIssue(message, check=CHECK_T1170_EXECUTION_EVIDENCE)
         for message in capital_evidence.missing()
     )
+    issues.extend(
+        ValidationIssue(message, check=CHECK_MHRTC_EXECUTION_EVIDENCE)
+        for message in mhrtc_evidence.missing()
+    )
     from axiom_encode.harness.worksheet_country_evidence import (
         certify_worksheet_country,
     )
@@ -5978,6 +6022,7 @@ def _analyze_rulespec_payload(
         repayment_alternatives=repayment_alternatives,
         investment_evidence=investment_evidence,
         capital_evidence=capital_evidence,
+        mhrtc_evidence=mhrtc_evidence,
         test_cases=test_cases,
     )
     issues.extend(source_condition_issues)
@@ -6142,6 +6187,23 @@ def _analyze_rulespec_payload(
         ),
         corpus_citation_path=corpus_citation_path,
     )
+    # Exception extraction must see the original formula inventory. Removing M
+    # formulas first otherwise synthesizes a new table exception (6543:7147).
+    mhrtc_source_formula_branches = (
+        tuple(formula_branches) if mhrtc_evidence.recognized else None
+    )
+    formula_branches, mhrtc_missing_formulas = mhrtc_evidence.partition(
+        formula_branches, "formula"
+    )
+    control_branches, mhrtc_missing_controls = mhrtc_evidence.partition(
+        control_branches, "control"
+    )
+    issues.extend(
+        _mhrtc_inventory_issues(mhrtc_missing_formulas, "formula", corpus_citation_path)
+    )
+    issues.extend(
+        _mhrtc_inventory_issues(mhrtc_missing_controls, "control", corpus_citation_path)
+    )
     principal_formula_clause_rules = _principal_formula_clause_rules(
         formula_branches,
         printed_operations=printed_operations,
@@ -6304,6 +6366,8 @@ def _analyze_rulespec_payload(
                 execution_evidence=execution_evidence,
                 investment_evidence=investment_evidence,
                 capital_evidence=capital_evidence,
+                mhrtc_evidence=mhrtc_evidence,
+                mhrtc_source_formula_branches=mhrtc_source_formula_branches,
                 referral_context=referral_context,
                 floor_imported_exports=imported_export_bindings,
                 floor_source_context=imported_proof_source_context,
@@ -6371,9 +6435,18 @@ def _analyze_rulespec_payload(
             numeric_recall_text,
         )
     )
-    unrepresented_occurrences = source_occurrences
     unrepresented_recall_text = numeric_recall_text
-    if represented_annual_spans or represented_measurement_spans:
+    # Check the complete unmasked multiset, including an empty or duplicated
+    # extractor result, before any generic numeric representation can consume it.
+    unrepresented_occurrences, mhrtc_missing_numeric = mhrtc_evidence.partition_numeric(
+        source_occurrences
+    )
+    issues.extend(
+        _mhrtc_inventory_issues(mhrtc_missing_numeric, "numeric", corpus_citation_path)
+    )
+    if not mhrtc_evidence.recognized and (
+        represented_annual_spans or represented_measurement_spans
+    ):
         unrepresented_recall_text = authoritative_numeric_recall_text(
             _mask_numeric_spans(
                 source_text, represented_annual_spans | represented_measurement_spans
@@ -6398,6 +6471,12 @@ def _analyze_rulespec_payload(
         )
     )
     covered_source_values = len(source_occurrences) - len(unrepresented_occurrences)
+    if mhrtc_evidence.recognized:
+        covered_source_values = (
+            len(source_occurrences)
+            if not mhrtc_missing_numeric and mhrtc_evidence.live()
+            else 0
+        )
     missing_source_values: list[float] = []
     for occurrence in unrepresented_occurrences:
         if investment_evidence.numeric_owner(occurrence) is not None:
@@ -6432,13 +6511,17 @@ def _analyze_rulespec_payload(
         )
 
     issues.extend(companion_issues)
+    issues.extend(
+        ValidationIssue(message, check=CHECK_MHRTC_EXECUTION_EVIDENCE)
+        for message in mhrtc_evidence.missing()
+    )
 
     return CompleteSourceUnitAnalysis(
         tuple(dict.fromkeys(issues)),
         branches,
         len(source_occurrences),
         covered_source_values,
-        len(missing_source_values),
+        len(missing_source_values) + len(mhrtc_missing_numeric),
     )
 
 
@@ -19785,9 +19868,11 @@ def _opaque_same_source_condition_input_issues(
     test_cases: Sequence[object] | None = None,
     investment_evidence: Any = None,
     capital_evidence: Any = None,
+    mhrtc_evidence: Any = None,
 ) -> list[str]:
     """Reject terminal selectors that collapse explicit same-source fact gates."""
 
+    mhrtc_gate_issues = []
     inputs = payload.get("inputs")
     declared_inputs = {
         str(item.get("name") or "").strip()
@@ -20297,6 +20382,16 @@ def _opaque_same_source_condition_input_issues(
                     )
                 )
                 for clause in condition_clauses:
+                    if mhrtc_evidence is not None and mhrtc_evidence.recognized:
+                        if ambiguous or not mhrtc_evidence.covers_gate(
+                            rule_name, rule, version_index, formula, start, end, clause
+                        ):
+                            mhrtc_gate_issues.extend(
+                                _mhrtc_inventory_issues(
+                                    (clause,), "source-gate", corpus_citation_path
+                                )
+                            )
+                        continue
                     if (
                         investment_evidence is not None
                         and not ambiguous
@@ -20524,7 +20619,7 @@ def _opaque_same_source_condition_input_issues(
                 )
             )
     if not findings:
-        return []
+        return mhrtc_gate_issues
 
     findings.sort(key=lambda item: (item[0], item[1], tuple(sorted(item[3]))))
     rendered = [
@@ -20541,7 +20636,7 @@ def _opaque_same_source_condition_input_issues(
             "additional formula versions omitted)"
         )
     first_rule, first_version, first_gate_count, first_evidence = findings[0]
-    return [
+    return mhrtc_gate_issues + [
         ValidationIssue(
             "[complete-source-unit:source-explicit-conditions] Derived formula "
             "version(s) delegate multiple conjunctive factual gates stated in their "
@@ -21487,6 +21582,8 @@ def _companion_test_issues(
     execution_evidence: SameCaseEvidence | None = None,
     investment_evidence: Any = None,
     capital_evidence: Any = None,
+    mhrtc_evidence: Any = None,
+    mhrtc_source_formula_branches: Sequence[SourceStructureBranch] | None = None,
     floor_imported_exports: Sequence[ResolvedImportedExport] = (),
     floor_source_context: Mapping[str, str | None] | None = None,
     referral_context: Any = None,
@@ -21536,6 +21633,44 @@ def _companion_test_issues(
             )
         )
     cases = [case for case in cases if case not in colliding_cases]
+
+    if mhrtc_evidence is not None and mhrtc_evidence.recognized:
+        # Closed native reexecution replaces the generic local interpreter only
+        # for this reserved source. Raw case identity was checked before case
+        # normalization; public intermediate outputs are not invented assertions.
+        issues.extend(
+            ValidationIssue(message, check=CHECK_MHRTC_EXECUTION_EVIDENCE)
+            for message in mhrtc_evidence.missing()
+        )
+        if not mhrtc_evidence.live():
+            issues.append(
+                ValidationIssue(
+                    "[complete-source-unit:mhrtc-evidence] Complete live private companion evidence is required; a caller-built owner cannot delegate source tests.",
+                    check=CHECK_MHRTC_EXECUTION_EVIDENCE,
+                    subject=IssueSubject(citation=corpus_citation_path),
+                )
+            )
+        active = tuple(
+            b for b in branches if not _path_is_deferred(b.path, deferred_paths)
+        )
+        exceptions = _source_exception_branches(
+            source_text,
+            raw_source_text=raw_source_text,
+            branches=branches,
+            active_branches=active,
+            deferred_paths=deferred_paths,
+            formula_branches=mhrtc_source_formula_branches
+            if mhrtc_source_formula_branches is not None
+            else (),
+            deferred_clauses=deferred_clauses,
+            numeric_limits_only=False,
+            corpus_citation_path=corpus_citation_path,
+        )
+        _, missing = mhrtc_evidence.partition(exceptions, "exception")
+        issues.extend(
+            _mhrtc_inventory_issues(missing, "exception", corpus_citation_path)
+        )
+        return issues
 
     asserted_by_rule = {
         name: [case for case in cases if name in _test_case_output_names(case)]
