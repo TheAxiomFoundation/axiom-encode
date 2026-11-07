@@ -33343,7 +33343,9 @@ rules:
         self, capsys, tmp_path
     ):
         # A 12 CFR 1005.6 shape: the generated case's `false` triggers the
-        # repair, which must turn it into 0 and leave the model's 100 alone.
+        # repair, which must turn it into 0 and leave the model's numbers
+        # alone. `transfers_that_were_preventable` reads as boolean to the name
+        # guess, so only its Money declaration keeps the model's 200.
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
         result = self._make_eval_result(False)
@@ -33366,6 +33368,10 @@ inputs:
     entity: Person
     dtype: Money
     period: Month
+  - name: transfers_that_were_preventable
+    entity: Person
+    dtype: Money
+    period: Month
 rules:
   - name: timely_notice_liability
     kind: derived
@@ -33377,7 +33383,8 @@ rules:
         formula: |-
           if consumer_notified_within_two_business_days:
             min(50, unauthorized_transfers_before_notice)
-          else: 0
+          else:
+            min(500, min(50, unauthorized_transfers_before_notice) + transfers_that_were_preventable)
 """
         )
         test_file = output_file.with_name("151.test.yaml")
@@ -33387,6 +33394,7 @@ rules:
   input:
     us:statutes/26/151#input.consumer_notified_within_two_business_days: true
     us:statutes/26/151#input.unauthorized_transfers_before_notice: 100
+    us:statutes/26/151#input.transfers_that_were_preventable: 200
   output:
     us:statutes/26/151#timely_notice_liability: 50
 - name: auto_zero_timely_notice_liability
@@ -33394,6 +33402,7 @@ rules:
   input:
     us:statutes/26/151#input.consumer_notified_within_two_business_days: false
     us:statutes/26/151#input.unauthorized_transfers_before_notice: false
+    us:statutes/26/151#input.transfers_that_were_preventable: false
   output:
     us:statutes/26/151#timely_notice_liability: 0
 """
@@ -33430,16 +33439,19 @@ rules:
         assert exc_info.value.code == 0
         test_payload = yaml.safe_load(test_file.read_text())
         transfers = "us:statutes/26/151#input.unauthorized_transfers_before_notice"
+        preventable = "us:statutes/26/151#input.transfers_that_were_preventable"
         notified = "us:statutes/26/151#input.consumer_notified_within_two_business_days"
-        model_value = test_payload[0]["input"][transfers]
-        repaired_value = test_payload[1]["input"][transfers]
-        assert model_value == 100 and not isinstance(model_value, bool)
-        assert repaired_value == 0 and not isinstance(repaired_value, bool)
+        for ref, model_number in ((transfers, 100), (preventable, 200)):
+            model_value = test_payload[0]["input"][ref]
+            repaired_value = test_payload[1]["input"][ref]
+            assert model_value == model_number and not isinstance(model_value, bool)
+            assert repaired_value == 0 and not isinstance(repaired_value, bool)
         assert test_payload[1]["input"][notified] is False
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
-        assert run.outcome["auto_repaired_wrong_typed_test_inputs"] == [
-            f"auto_zero_timely_notice_liability:{transfers}"
-        ]
+        assert sorted(run.outcome["auto_repaired_wrong_typed_test_inputs"]) == sorted(
+            f"auto_zero_timely_notice_liability:{ref}"
+            for ref in (transfers, preventable)
+        )
         assert run.outcome["status"] == "apply_applied"
 
     def test_size_named_string_selector_is_not_numeric(self):

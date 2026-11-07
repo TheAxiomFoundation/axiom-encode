@@ -40,6 +40,7 @@ NUMERIC_DTYPES = (
     "rate",
     "Decimal",
     "Integer",
+    "int",
     "Count",
     "Float",
 )
@@ -343,19 +344,84 @@ class TestUndeclaredBareNumericValues:
         assert value is False
 
     def test_a_longer_name_that_starts_with_the_input_is_not_a_match(self):
-        payload = _module(formula="if flag: transfers_total else: 0")
+        # `transfers` appears whole in the condition, so the formula reaches
+        # the branch-value check, which must not read `transfers_total` as it.
+        payload = _module(
+            formula="if flag: transfers_total else: sum_where(members, amount, transfers)"
+        )
 
         value = _default_generated_test_input_value("transfers", rules_payload=payload)
 
         assert value is False
 
+    def test_an_int_rule_returns_its_branch_values_as_numbers(self):
+        # The rules engine reads a rule dtype of `int` as Integer.
+        payload = _module(rule_dtype="int", formula="if flag: transfers else: 0")
+
+        value = _default_generated_test_input_value("transfers", rules_payload=payload)
+
+        assert _same_value(value, 0)
+
+    def test_an_elif_condition_inside_a_min_argument_stays_boolean(self):
+        payload = _module(
+            formula=(
+                "min(cap_amount, if a_code == 1: base_amount elif late_flag: 5 else: 0)"
+            )
+        )
+
+        value = _default_generated_test_input_value("late_flag", rules_payload=payload)
+
+        assert value is False
+        assert (
+            _wrong_typed_test_input_replacement(
+                "late_flag", True, rules_payload=payload
+            )
+            is None
+        )
+
+    def test_a_comment_after_a_colon_is_not_a_branch_value(self):
+        payload = _module(
+            formula="# cap rule: notice_flag\nsum_where(members, amount, notice_flag)"
+        )
+
+        value = _default_generated_test_input_value(
+            "notice_flag", rules_payload=payload
+        )
+
+        assert value is False
+
+    def test_a_branch_value_with_a_trailing_comment_is_numeric(self):
+        payload = _module(formula="if flag: transfers  # before notice\nelse: 0")
+
+        value = _default_generated_test_input_value("transfers", rules_payload=payload)
+
+        assert _same_value(value, 0)
+
+    def test_a_hash_inside_a_string_starts_no_comment(self):
+        payload = _module(formula='if code == "a#b": transfers else: 0')
+
+        value = _default_generated_test_input_value("transfers", rules_payload=payload)
+
+        assert _same_value(value, 0)
+
 
 class TestMissingInputDefaults:
-    @pytest.mark.parametrize("declared", [False, 0, ""])
-    def test_a_falsy_declared_default_still_wins(self, declared):
+    # Each name's guess differs from the declared value, so the declaration
+    # can only win by being read.
+    @pytest.mark.parametrize(
+        ("declared", "input_name"),
+        [
+            (False, "household_income_amount"),
+            (0, "liability_under_this_section"),
+            ("", "liability_under_this_section"),
+        ],
+    )
+    def test_a_falsy_declared_default_still_wins(self, declared, input_name):
+        assert not _same_value(_infer_missing_input_default(input_name), declared)
+
         value = _missing_input_default(
-            "liability_under_this_section",
-            "us:regulations/12-cfr/1005/6#input.liability_under_this_section",
+            input_name,
+            f"us:regulations/12-cfr/1005/6#input.{input_name}",
             declared_default=lambda _ref: declared,
         )
 
@@ -487,6 +553,8 @@ FORMULA_TEMPLATES = (
     '{n} == "category"',
     "max(0, {n} - 1)",
     "if flag:\n  {n}\nelse:\n  0",
+    "min(cap, if code == 1: 0 elif {n}: 1 else: 2)",
+    "# note: {n}\nif flag: {n}  # value\nelse: 0",
 )
 RULE_DTYPES = ("Money", "Rate", "Integer", "Judgment", "Boolean")
 
