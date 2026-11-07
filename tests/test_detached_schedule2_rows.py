@@ -198,7 +198,10 @@ def test_only_reviewed_structural_consumers_opt_in():
             ("harness/actual_floor_evidence.py", "bind_same_page_floors"),
             ("harness/actual_floor_evidence.py", "same_page_witnesses"),
             ("harness/source_completeness.py", "_bound_copied_amount_categories"),
-            ("harness/source_completeness.py", "_document_request_selector_is_relevant"),
+            (
+                "harness/source_completeness.py",
+                "_document_request_selector_is_relevant",
+            ),
             ("harness/source_completeness.py", "_printed_operation_context"),
             ("harness/source_completeness.py", "_source_clause_spans"),
             ("harness/source_completeness.py", "_source_exception_branches"),
