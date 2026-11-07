@@ -22072,11 +22072,25 @@ def _companion_test_issues(
                 }
             )
         if execution_evidence is not None and partnership_content is not None:
-            from .actual_floor_evidence import same_page_witnesses
+            from .actual_floor_evidence import (
+                same_page_choice_witnesses,
+                same_page_witnesses,
+            )
 
             missing_exception_branches = _unmatched_evidence_obligations(
                 {
                     branch: same_page_witnesses(
+                        execution_evidence,
+                        branch,
+                        content=partnership_content,
+                        source_context=local_floor_source_context,
+                        source_text=source_text,
+                        corpus_citation_path=corpus_citation_path,
+                        principal_rules=principal_rules,
+                        asserted_by_rule=asserted_by_rule,
+                        formula_environment=formula_environment,
+                    )
+                    | same_page_choice_witnesses(
                         execution_evidence,
                         branch,
                         content=partnership_content,
