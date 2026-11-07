@@ -5449,6 +5449,48 @@ _SITE_ANALYZE = (
     "axiom_encode/harness/source_completeness.py:analyze_complete_source_unit"
 )
 
+CHECK_T1170_EXECUTION_EVIDENCE = declare_check(
+    "complete-source-unit:t1170-evidence/missing",
+    title="T1170 lacks complete private source execution evidence",
+    requires=(
+        "Every owned T1170 source obligation has unique, fresh typed principal "
+        "and direct or provider refusal evidence bound to the authenticated unit."
+    ),
+    why=(
+        "Generic numeric witnesses, duplicate source obligations, or unrelated "
+        "provider failures cannot prove the complete form's source conditions."
+    ),
+    fix=(
+        "Correct the complete source-bound module and companion, then rerun "
+        "ordinary validation with the authenticated release and pinned engine. "
+        "Keep source roles, exact provider lineage, and failed evidence intact."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+
+CHECK_SCHEDULE_N_EXECUTION_EVIDENCE = declare_check(
+    "complete-source-unit:schedule-n-evidence/missing",
+    title="Schedule N lacks complete private execution evidence",
+    requires=(
+        "Every owned Schedule N source obligation has unique, fresh typed "
+        "principal and refusal evidence bound to the complete authenticated unit."
+    ),
+    why=(
+        "Generic scalar witnesses, duplicate obligations, or stale execution "
+        "records cannot establish the worksheet's joint source conditions."
+    ),
+    fix=(
+        "Correct the complete companion and source-bound module, then rerun "
+        "ordinary validation with the authenticated release and pinned engine. "
+        "Preserve the source conditions and their positive and refusal witnesses."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+
 CHECK_STRUCTURE_BRANCH_UNENCODED = declare_check(
     "complete-source-unit:structure/branch-unencoded",
     title="Source branch neither encoded nor precisely deferred",
@@ -5774,6 +5816,24 @@ def _analyze_rulespec_payload(
         content, imported_export_bindings
     ):
         execution_evidence = None
+    from .investment_adjustment_evidence import certify_investment_adjustment
+
+    investment_evidence = certify_investment_adjustment(
+        content,
+        raw_source_text or source_text,
+        corpus_citation_path,
+        test_cases,
+        execution_evidence,
+    )
+    from .capital_gift_evidence import certify_capital_gift
+
+    capital_evidence = certify_capital_gift(
+        content,
+        raw_source_text or source_text,
+        corpus_citation_path,
+        test_cases,
+        execution_evidence,
+    )
     local_names = {
         str(rule.get("name") or "").strip()
         for rule in payload.get("rules", [])
@@ -5869,6 +5929,14 @@ def _analyze_rulespec_payload(
     )
     issues: list[str] = []
     issues.extend(imprecise_deferrals)
+    issues.extend(
+        ValidationIssue(message, check=CHECK_SCHEDULE_N_EXECUTION_EVIDENCE)
+        for message in investment_evidence.missing()
+    )
+    issues.extend(
+        ValidationIssue(message, check=CHECK_T1170_EXECUTION_EVIDENCE)
+        for message in capital_evidence.missing()
+    )
     from axiom_encode.harness.worksheet_country_evidence import (
         certify_worksheet_country,
     )
@@ -5908,6 +5976,8 @@ def _analyze_rulespec_payload(
         certified_transfers=certified_transfers,
         certified_country=certified_country,
         repayment_alternatives=repayment_alternatives,
+        investment_evidence=investment_evidence,
+        capital_evidence=capital_evidence,
         test_cases=test_cases,
     )
     issues.extend(source_condition_issues)
@@ -6082,6 +6152,38 @@ def _analyze_rulespec_payload(
         corpus_citation_path=corpus_citation_path,
         deferred_paths=deferred_paths,
     )
+    formula_branches, investment_missing_formulas = investment_evidence.partition(
+        formula_branches, "formula"
+    )
+    control_branches, investment_missing_controls = investment_evidence.partition(
+        control_branches, "control"
+    )
+    for branch in (*investment_missing_formulas, *investment_missing_controls):
+        issues.append(
+            ValidationIssue(
+                "[complete-source-unit:schedule-n-evidence] Missing or duplicate source-owned "
+                f"{branch.kind} occurrence at {branch.start}:{branch.end}; "
+                "private principal evidence cannot be replaced by generic fallback.",
+                check=CHECK_SCHEDULE_N_EXECUTION_EVIDENCE,
+                subject=_branch_subject(corpus_citation_path, branch),
+            )
+        )
+    formula_branches, capital_missing_formulas = capital_evidence.partition(
+        formula_branches, "formula"
+    )
+    control_branches, capital_missing_controls = capital_evidence.partition(
+        control_branches, "control"
+    )
+    for branch in (*capital_missing_formulas, *capital_missing_controls):
+        issues.append(
+            ValidationIssue(
+                "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned "
+                f"{branch.kind} occurrence at {branch.start}:{branch.end}; "
+                "private principal evidence cannot be replaced by generic fallback.",
+                check=CHECK_T1170_EXECUTION_EVIDENCE,
+                subject=_branch_subject(corpus_citation_path, branch),
+            )
+        )
     source_has_computation = source_states_explicit_computation(
         source_text, corpus_citation_path=corpus_citation_path
     )
@@ -6200,6 +6302,8 @@ def _analyze_rulespec_payload(
             _companion_test_issues(
                 principal_rules,
                 execution_evidence=execution_evidence,
+                investment_evidence=investment_evidence,
+                capital_evidence=capital_evidence,
                 referral_context=referral_context,
                 floor_imported_exports=imported_export_bindings,
                 floor_source_context=imported_proof_source_context,
@@ -6268,6 +6372,7 @@ def _analyze_rulespec_payload(
         )
     )
     unrepresented_occurrences = source_occurrences
+    unrepresented_recall_text = numeric_recall_text
     if represented_annual_spans or represented_measurement_spans:
         unrepresented_recall_text = authoritative_numeric_recall_text(
             _mask_numeric_spans(
@@ -6295,6 +6400,17 @@ def _analyze_rulespec_payload(
     covered_source_values = len(source_occurrences) - len(unrepresented_occurrences)
     missing_source_values: list[float] = []
     for occurrence in unrepresented_occurrences:
+        if investment_evidence.numeric_owner(occurrence) is not None:
+            covered_source_values += 1
+            continue
+        if (
+            capital_evidence.numeric_owner(
+                occurrence, recall_text=unrepresented_recall_text
+            )
+            is not None
+        ):
+            covered_source_values += 1
+            continue
         if any(
             numeric_value_is_grounded(named_value, (occurrence,))
             for named_value in named_values
@@ -19667,6 +19783,8 @@ def _opaque_same_source_condition_input_issues(
     certified_country: Any = None,
     repayment_alternatives: RepaymentAlternativeCoverage | None = None,
     test_cases: Sequence[object] | None = None,
+    investment_evidence: Any = None,
+    capital_evidence: Any = None,
 ) -> list[str]:
     """Reject terminal selectors that collapse explicit same-source fact gates."""
 
@@ -20179,6 +20297,22 @@ def _opaque_same_source_condition_input_issues(
                     )
                 )
                 for clause in condition_clauses:
+                    if (
+                        investment_evidence is not None
+                        and not ambiguous
+                        and investment_evidence.covers_gate(
+                            rule_name, rule, version_index, formula, start, end, clause
+                        )
+                    ):
+                        continue
+                    if (
+                        capital_evidence is not None
+                        and not ambiguous
+                        and capital_evidence.covers_gate(
+                            rule_name, rule, version_index, formula, start, end, clause
+                        )
+                    ):
+                        continue
                     if (
                         repayment_alternatives is not None
                         and consumer_content is not None
@@ -21351,6 +21485,8 @@ def _companion_test_issues(
     partnership_content: str | None = None,
     printed_operations: _PrintedOperationContext | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    investment_evidence: Any = None,
+    capital_evidence: Any = None,
     floor_imported_exports: Sequence[ResolvedImportedExport] = (),
     floor_source_context: Mapping[str, str | None] | None = None,
     referral_context: Any = None,
@@ -21702,6 +21838,34 @@ def _companion_test_issues(
         numeric_limits_only=_is_us_manual_citation_path(corpus_citation_path),
         corpus_citation_path=corpus_citation_path,
     )
+    if investment_evidence is not None:
+        exception_branches, investment_missing = investment_evidence.partition(
+            exception_branches, "control"
+        )
+        for branch in investment_missing:
+            issues.append(
+                ValidationIssue(
+                    "[complete-source-unit:schedule-n-evidence] Missing or duplicate source-owned "
+                    f"control occurrence at {branch.start}:{branch.end}; "
+                    "private principal evidence cannot be replaced by generic fallback.",
+                    check=CHECK_SCHEDULE_N_EXECUTION_EVIDENCE,
+                    subject=_branch_subject(corpus_citation_path, branch),
+                )
+            )
+    if capital_evidence is not None:
+        exception_branches, capital_missing = capital_evidence.partition(
+            exception_branches, "control"
+        )
+        for branch in capital_missing:
+            issues.append(
+                ValidationIssue(
+                    "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned "
+                    f"control occurrence at {branch.start}:{branch.end}; "
+                    "private principal evidence cannot be replaced by generic fallback.",
+                    check=CHECK_T1170_EXECUTION_EVIDENCE,
+                    subject=_branch_subject(corpus_citation_path, branch),
+                )
+            )
     if exception_branches:
         independently_covered_paths = {
             path
