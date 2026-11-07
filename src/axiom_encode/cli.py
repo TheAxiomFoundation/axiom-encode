@@ -336,6 +336,7 @@ from .harness.validator_pipeline import (
     _rulespec_resolution_cache_scope,
     _rulespec_rule_formula_rule_records,
     _rulespec_target_is_descendant_of,
+    _safe_load_companion_test,
     _safe_load_unique_keys,
     extract_embedded_source_text,
     extract_typed_numeric_occurrences_from_text,
@@ -1802,7 +1803,7 @@ def _required_deferred_output_contract_issues(
 
     test_file = _rulespec_test_path(output_file)
     try:
-        test_payload = _safe_load_unique_keys(test_file.read_text(encoding="utf-8"))
+        test_payload = _safe_load_companion_test(test_file.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, yaml.YAMLError, RecursionError, ValueError) as exc:
         return [*issues, f"required test-case contract could not parse YAML: {exc}"]
     if isinstance(test_payload, dict) and isinstance(test_payload.get("cases"), list):
@@ -63949,7 +63950,7 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
     generated_test_cases: Any | None = None
     if output_test.exists():
         try:
-            loaded_tests = _safe_load_unique_keys(output_test.read_text())
+            loaded_tests = _safe_load_companion_test(output_test.read_text())
         except (yaml.YAMLError, ValueError):
             loaded_tests = None
         if isinstance(loaded_tests, dict) and isinstance(

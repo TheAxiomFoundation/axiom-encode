@@ -528,8 +528,90 @@ _UniqueKeySafeLoader.add_constructor(
 
 
 def _safe_load_unique_keys(content: str) -> Any:
-    """Load YAML with duplicate mapping keys treated as parse errors."""
+    """Load YAML with duplicate mapping keys treated as parse errors.
+
+    Merge keys are applied before the duplicate check, so an explicit key that
+    overrides a merged one is refused too. That stays right for modules: the
+    engine does not apply YAML merge keys, so it reads such a module
+    differently. Companion tests use `_safe_load_companion_test`.
+    """
     return yaml.load(content, Loader=_UniqueKeySafeLoader)
+
+
+_YAML_MERGE_TAG = "tag:yaml.org,2002:merge"
+_YAML_VALUE_TAG = "tag:yaml.org,2002:value"
+
+
+def _reject_keys_repeated_before_merging(
+    loader: yaml.SafeLoader, root: yaml.Node
+) -> None:
+    """Raise on two equal keys written in one mapping, merge sources included.
+
+    This runs on the composed document before construction, because applying
+    merge keys rewrites the nodes of the mappings it merges. Merge keys are
+    left to PyYAML, which applies them; every other key is compared as loading
+    constructs it, so `a`, `'a'` and `!!str a` collide, and so do `1` and
+    `1.0`.
+    """
+
+    visited: set[int] = set()
+    pending: list[yaml.Node] = [root]
+    while pending:
+        node = pending.pop()
+        if id(node) in visited:
+            continue
+        visited.add(id(node))
+        children: list[yaml.Node] = []
+        if isinstance(node, yaml.SequenceNode):
+            children = list(node.value)
+        elif isinstance(node, yaml.MappingNode):
+            keys: set[Any] = set()
+            for key_node, value_node in node.value:
+                children.extend((key_node, value_node))
+                if key_node.tag == _YAML_MERGE_TAG:
+                    continue
+                key = (
+                    key_node.value
+                    if isinstance(key_node, yaml.ScalarNode)
+                    and key_node.tag == _YAML_VALUE_TAG
+                    else loader.construct_object(key_node, deep=True)
+                )
+                try:
+                    duplicate = key in keys
+                except TypeError:
+                    # Loading rejects an unhashable collection key itself. A
+                    # collection key can also load as a string, as
+                    # `? !!str {=: rules}` loads as `rules`; that one is compared.
+                    continue
+                if duplicate:
+                    raise yaml.constructor.ConstructorError(
+                        "while constructing a mapping",
+                        node.start_mark,
+                        f"found duplicate key {key!r}",
+                        key_node.start_mark,
+                    )
+                keys.add(key)
+        pending.extend(reversed(children))
+
+
+class _CompanionTestSafeLoader(yaml.SafeLoader):
+    """Safe loader for companion tests: merges as PyYAML does, no duplicate keys.
+
+    Companion tests are read only by PyYAML-based harnesses, and each applies
+    YAML merge keys: an explicit key overrides a merged one, and an earlier
+    merge source wins over a later one (#1943). Duplicates are therefore
+    checked among each mapping's own keys before any merge is applied, and
+    construction is then exactly ``yaml.safe_load``'s.
+    """
+
+    def construct_document(self, node: yaml.Node) -> Any:
+        _reject_keys_repeated_before_merging(self, node)
+        return super().construct_document(node)
+
+
+def _safe_load_companion_test(content: str) -> Any:
+    """Load a companion test as ``yaml.safe_load`` does, refusing duplicate keys."""
+    return yaml.load(content, Loader=_CompanionTestSafeLoader)
 
 
 def _yaml_parse_issue(path: Path, exc: BaseException) -> str:
@@ -39587,7 +39669,7 @@ class ValidatorPipeline:
         test_path = self._rulespec_test_path(rules_file)
         if test_path.exists():
             try:
-                payload = _safe_load_unique_keys(test_path.read_text())
+                payload = _safe_load_companion_test(test_path.read_text())
             except (yaml.YAMLError, ValueError) as exc:
                 issues.append(_yaml_parse_issue(test_path, exc))
             else:
