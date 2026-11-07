@@ -22455,7 +22455,7 @@ def _printed_operation_context(
     proof_sources: Mapping[str, str | None] | None = None,
 ) -> _PrintedOperationContext | None:
     structure = _unconflicted_printed_rows(
-        source_text, branches, corpus_citation_path=citation_path
+        source_text, branches, corpus_citation_path=citation_path, allow_detached=True
     )
     return (
         _PrintedOperationContext(
@@ -22489,9 +22489,10 @@ def _unconflicted_printed_rows(
     branches: Sequence[SourceStructureBranch],
     *,
     corpus_citation_path: str = "",
+    allow_detached: bool = False,
 ) -> PrintedRowStructure | None:
     """Printed groups never supersede existing source ownership boundaries."""
-    evidence = recognize_printed_rows(source_text)
+    evidence = recognize_printed_rows(source_text, allow_detached=allow_detached)
     if evidence is None:
         return None
     labels = bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
@@ -22537,8 +22538,9 @@ def _source_formula_branches(
     )
     heading_text = source_text
     if printed_rows is not None:
-        a, b = printed_rows.heading_dash
-        heading_text = source_text[:a] + " " * (b - a) + source_text[b:]
+        if printed_rows.heading_dash is not None:
+            a, b = printed_rows.heading_dash
+            heading_text = source_text[:a] + " " * (b - a) + source_text[b:]
         glyphs = list(heading_text)
         for a, b in printed_rows.typography_spans:
             glyphs[a:b] = _TYPOGRAPHY_MASK * (b - a)
@@ -23193,7 +23195,10 @@ def _source_clause_spans(
     # Mask only authenticated structural labels, preserving offsets. The
     # resulting excerpts retain every operative character of the source.
     printed_rows = _unconflicted_printed_rows(
-        source_text, branches, corpus_citation_path=corpus_citation_path
+        source_text,
+        branches,
+        corpus_citation_path=corpus_citation_path,
+        allow_detached=True,
     )
     bare_labels = (
         bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
