@@ -21746,6 +21746,7 @@ def _companion_test_issues(
             asserted_by_rule=asserted_by_rule,
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
+            source_branches=branches,
         )
         if execution_evidence is not None and partnership_content is not None:
             from .floor_retained_referral_evidence import (
@@ -33168,6 +33169,7 @@ def _unwitnessed_exception_branches(
     certified_transfers: Any = None,
     certified_paths: Any = None,
     certified_operations: Any = None,
+    source_branches: Sequence[SourceStructureBranch] = (),
 ) -> tuple[SourceStructureBranch, ...]:
     bare_branches = (
         recognize_source_structure(
@@ -33189,6 +33191,7 @@ def _unwitnessed_exception_branches(
             asserted_by_rule=asserted_by_rule,
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
+            source_branches=source_branches,
         )
         affected_outputs = _bare_definition_condition_outputs(
             branch,
@@ -34975,6 +34978,35 @@ def _formula_comparison_changes_boolean_output(
     ) is (not actual)
 
 
+def _rule_excerpts_under_branch(
+    rule: dict[str, Any],
+    branch: SourceStructureBranch,
+    *,
+    source_branches: Sequence[SourceStructureBranch],
+    corpus_citation_path: str,
+) -> tuple[str, ...]:
+    """The rule's cited excerpts whose own branch lies below ``branch``.
+
+    Each excerpt sits in the deepest branch whose text contains it, as rule
+    coverage places it.
+    """
+
+    depth = len(branch.path)
+    unit = corpus_citation_path.strip("/").lower()
+    excerpts: list[str] = []
+    for citation_path, excerpt in _rule_source_excerpts(rule):
+        if citation_path.strip("/").lower() != unit:
+            continue
+        located = _most_specific_excerpt_branch(excerpt, source_branches)
+        if (
+            located is not None
+            and len(located.path) > depth
+            and located.path[:depth] == branch.path
+        ):
+            excerpts.append(excerpt)
+    return tuple(excerpts)
+
+
 def _exception_witnesses_for_branch(
     branch: SourceStructureBranch,
     *,
@@ -34987,6 +35019,7 @@ def _exception_witnesses_for_branch(
     asserted_by_rule: dict[str, list[dict[str, Any]]],
     toggled_exception_selectors: set[_ExceptionWitness],
     extract_numeric_occurrences: NumericOccurrenceExtractor,
+    source_branches: Sequence[SourceStructureBranch] = (),
 ) -> set[_ExceptionWitness]:
     # Neither a numeric operand switch nor a named Judgment selector proves
     # an independent condition combined with the greater-alternative clause.
@@ -35025,6 +35058,21 @@ def _exception_witnesses_for_branch(
         }
     requirement = _source_exception_effect_requirement(branch.text)
     condition_text = _source_exception_condition_text(branch.text)
+    item_texts_by_rule = (
+        {
+            rule_name: _rule_excerpts_under_branch(
+                principal_rules[rule_name],
+                branch,
+                source_branches=source_branches,
+                corpus_citation_path=corpus_citation_path,
+            )
+            for rule_name in affecting_rules
+            if rule_name in principal_rules
+        }
+        if source_branches
+        and _IF_LIST_CHAPEAU_PATTERN.fullmatch(_collapse_text(condition_text).lower())
+        else {}
+    )
     numeric_interval = _formula_interval_from_text(
         authoritative_numeric_recall_text(condition_text),
         extract_numeric_occurrences=extract_numeric_occurrences,
@@ -35133,6 +35181,7 @@ def _exception_witnesses_for_branch(
                             principal_rules[witness.rule_name]
                         )
                     ),
+                    item_texts=item_texts_by_rule.get(witness.rule_name, ()),
                 )
                 or _source_qualified_cardinality_evidence(
                     branch,
@@ -35726,13 +35775,35 @@ def _direct_exception_reverses_negative_proposition(text: str) -> bool:
     )
 
 
+# A list chapeau, such as "if they are:", whose condition lies in the items
+# that follow it. Only a bare subject may stand between "if" or "when" and the
+# verb: a pronoun, or a determiner and up to four words. A clause with a
+# condition of its own, such as "if the household so elects, the deductions
+# allowed to the household are:", is not a list chapeau. The verb is "is",
+# "are" or "be", and "be" may follow a modal such as "would".
+_IF_LIST_CHAPEAU_PATTERN = re.compile(
+    r"(?:if|when)\s+"
+    r"(?:they|it|he\s+or\s+she|he|she"
+    r"|(?:the|a|an|such|its|their|his|her|each|this|that|these|those)"
+    r"(?:\s+(?!(?:who|whom|whose|which|that|and|or|but|so|not)\b)[\w'’-]+){1,4})"
+    r"\s+(?:is|are|(?:(?:would|shall|will|may|must|can|could|should|might)\s+)?be)"
+    r"\s*(?:[-–—]|:)\s*"
+)
+
+
 def _source_exception_selector_is_relevant(
     text: str,
     name: str,
     *,
     supporting_texts: Sequence[str] = (),
+    item_texts: Sequence[str] = (),
 ) -> bool:
-    """Reject formula toggles with no semantic link to the source exception."""
+    """Reject formula toggles with no semantic link to the source exception.
+
+    ``supporting_texts`` holds every excerpt the toggling rule cites.
+    ``item_texts`` holds only those that lie in the exception's own
+    sub-items, the list items that follow a chapeau.
+    """
 
     normalized_name = _normalized_selector_name(name)
     collapsed = _collapse_text(text).lower()
@@ -35773,6 +35844,18 @@ def _source_exception_selector_is_relevant(
             )
             for supporting_text in supporting_texts
         )
+    if _IF_LIST_CHAPEAU_PATTERN.fullmatch(collapsed) and any(
+        _source_selector_distinctive_concept_matches(item_text, normalized_name)
+        for item_text in item_texts
+    ):
+        # A list chapeau such as "do not count toward the frequencies if they
+        # are:" states its condition only in the items that follow it, so a
+        # selector named in full by a cited excerpt of one of those items is
+        # relevant. An excerpt from elsewhere in the rule doesn't count: a
+        # parent rule's own text says nothing about this chapeau's items. This
+        # branch only adds a match, so a chapeau that names the selector itself
+        # still matches below.
+        return True
     return _source_selector_relevance_matches(collapsed, normalized_name)
 
 
