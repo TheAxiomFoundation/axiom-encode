@@ -687,6 +687,10 @@ def _expression(formula: Any) -> tuple:
         if not match:
             raise ValueError("only one true arm with no wildcard is supported")
         return ("match_true", match[1], _node(ast.parse(match[2], mode="eval").body))
+    # The ordinary materializer emits RuleSpec conditionals on one line.
+    inline = re.fullmatch(r"if ([^\n]+?): ([^\n]+?) else: ([^\n]+)", formula)
+    if inline:
+        formula = f"if {inline[1]}:\n    {inline[2]}\nelse:\n    {inline[3]}"
     parsed = ast.parse(formula, mode="exec")
     if len(parsed.body) != 1:
         raise ValueError("multiple formula statements")

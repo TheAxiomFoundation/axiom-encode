@@ -444,3 +444,76 @@ def test_additional_closed_contract_edges(mutation):
         a["versions"], b["versions"] = b["versions"], a["versions"]
         a["metadata"], b["metadata"] = b["metadata"], a["metadata"]
     assert bind(value) is None
+
+
+def test_ordinary_materializer_canonical_conditionals_preserve_complete_contract(
+    tmp_path,
+):
+    from axiom_encode.harness.evals import _normalize_main_eval_content
+
+    original = FIXTURE["policy_yaml"]
+    normalized = _normalize_main_eval_content(
+        original,
+        target_path=tmp_path / "capital-gains-on-gifts.yaml",
+        single_amount_table_slice=False,
+        source_text=SOURCE,
+    )
+    before = bind_capital_gift(original, SOURCE, GUIDE)
+    after = bind_capital_gift(normalized, SOURCE, GUIDE)
+    assert before is not None
+    assert after is not None
+    from dataclasses import replace
+    from hashlib import sha256
+
+    assert before.content_sha256 == sha256(original.encode()).hexdigest()
+    assert after.content_sha256 == sha256(normalized.encode()).hexdigest()
+    assert after.content_sha256 != before.content_sha256
+    assert replace(after, content_sha256=before.content_sha256) == before
+    changed = [
+        (a, b)
+        for a, b in zip(
+            yaml.safe_load(original)["rules"],
+            yaml.safe_load(normalized)["rules"],
+            strict=True,
+        )
+        if a != b
+    ]
+    assert len(changed) == 12
+    assert all(
+        " ".join(a["versions"][0]["formula"].split())
+        == " ".join(b["versions"][0]["formula"].split())
+        for a, b in changed
+    )
+
+
+@pytest.mark.parametrize(
+    "formula_text",
+    [
+        "if flag: true else: false # hidden",
+        "if flag: true else: false else: true",
+        "if flag: true else: false; true",
+        "if flag: true else: false\ntrue",
+        "if flag: if other: true else: false else: false",
+    ],
+)
+def test_inline_conditional_does_not_widen_closed_formula_grammar(formula_text):
+    from axiom_encode.harness.bound_capital_gift_operands import _expression
+
+    with pytest.raises((ValueError, SyntaxError, IndentationError)):
+        _expression(formula_text)
+
+
+def test_inline_conditional_keeps_predicate_and_arm_identity():
+    from axiom_encode.harness.bound_capital_gift_operands import _expression
+
+    expected = _expression("if flag:\n    true\nelse:\n    false")
+    assert _expression("if flag: true else: false") == expected
+    assert _expression("if other: true else: false") != expected
+    assert _expression("if flag: false else: true") != expected
+    value = payload()
+    item = rule(value, "t1170_ecological_land_classification_matches")
+    original = item["versions"][0]["formula"]
+    item["versions"][0]["formula"] = " ".join(original.split()).replace(
+        "land_interest", "share"
+    )
+    assert bind(value) is None
