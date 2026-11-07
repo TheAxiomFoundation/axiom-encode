@@ -441,6 +441,9 @@ _INLINE_PARENTHESIZED_OUTLINE_MARKER = re.compile(
     r"(?=\s|bis\b)",
     flags=re.IGNORECASE,
 )
+_STANDALONE_ROMAN_ITEM_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9)\]])(?P<marker>\((?:i|ii)\))(?![ \t]*\()"
+)
 _INLINE_OUTLINE_REFERENCE_CONTEXT = re.compile(
     r"\b(?:section|subsection|paragraph|subparagraph|clause|subclause|item|"
     r"subitem|division|subdivision|part|subpart|chapter|subchapter|title|article|"
@@ -3423,6 +3426,10 @@ def _qualified_parenthesized_legal_outline_markers(
     cue_index = {
         match.start("marker"): index for index, match in enumerate(cue_matches)
     }
+    token_matches = _markers_with_standalone_roman_items(source_text, cue_matches)
+    token_index = {
+        match.start("marker"): index for index, match in enumerate(token_matches)
+    }
 
     first_labels = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", matches[0].group("marker")))
     outline_levels = (
@@ -3461,6 +3468,20 @@ def _qualified_parenthesized_legal_outline_markers(
                     )
                     if unfiltered_label != "ii":
                         following_label = unfiltered_label
+                    else:
+                        # A list can open mid-sentence inside a lettered
+                        # paragraph (i), as in "(i) A collector may not (i)
+                        # call; (ii) write." No marker regex takes the list's
+                        # (i), which follows a word, but the inline regex takes
+                        # its (ii), so both checks see (ii) next. This check
+                        # also counts the (i) and (ii) that no marker regex
+                        # takes, pairing them like nested items. It can only
+                        # withhold the roman reading.
+                        token_label = _next_label_beside_i(
+                            token_matches, token_index[marker_start] + 1, raw_labels[1:]
+                        )
+                        if token_label != "ii":
+                            following_label = token_label
             level, category = _parenthesized_legal_outline_level(
                 raw_label,
                 active=active,
@@ -3778,6 +3799,47 @@ def _next_label_beside_i(
             elif _parenthesized_legal_outline_categories(label) == ("lower-alpha",):
                 return None
     return None
+
+
+def _markers_with_standalone_roman_items(
+    source_text: str,
+    marker_matches: Sequence[re.Match[str]],
+) -> tuple[re.Match[str], ...]:
+    """Merge ``marker_matches`` with the ``(i)`` and ``(ii)`` no marker regex takes.
+
+    A list that opens mid-sentence, as in "may not (i) call; (ii) write",
+    leaves its ``(i)`` in running text. Such a token counts only when it sits
+    outside every marker, when no letter, digit, ``)`` or ``]`` comes right
+    before it, as in "(h)(1)(i)", when no ``(`` comes right after it, as in
+    "(i)(A)", and when no reference context, such as "clause", leads into it.
+    ``marker_matches`` must be in document order, and so is the result.
+    """
+
+    marker_spans = [
+        (match.start("marker"), match.end("marker")) for match in marker_matches
+    ]
+    marker_starts = [start for start, _end in marker_spans]
+
+    def inside_a_marker(position: int) -> bool:
+        span_index = bisect.bisect_right(marker_starts, position) - 1
+        if span_index < 0:
+            return False
+        start, end = marker_spans[span_index]
+        return start <= position < end
+
+    standalone_items = (
+        token
+        for token in _STANDALONE_ROMAN_ITEM_TOKEN.finditer(source_text)
+        if not inside_a_marker(token.start("marker"))
+        and not _inline_outline_marker_has_reference_context(source_text, token)
+    )
+    return tuple(
+        heapq.merge(
+            marker_matches,
+            standalone_items,
+            key=lambda match: match.start("marker"),
+        )
+    )
 
 
 def _outline_label_opens_roman_items(following_label: str | None) -> bool:
