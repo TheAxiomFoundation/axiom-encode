@@ -25,6 +25,7 @@ from axiom_encode.harness.validator_pipeline import (
     _rulespec_index_selectors,
     extract_numbers_from_text,
     extract_numeric_occurrences_from_text,
+    extract_typed_month_occurrences_from_text,
     extract_typed_numeric_inventory_occurrences_from_text,
     extract_typed_numeric_occurrences_from_text,
     find_ungrounded_numeric_issues,
@@ -80,7 +81,8 @@ DATED_CONTEXTS = (
     "בחודש {m} שבתכוף",
     "מהחודשים {m}, יולי",
     "{m} של כל שנה",
-    "{m} ועד דצמבר",
+    "ב־1 {m} כל שנה",
+    "{m} ועד דצמבר 1940",
     "(5 {m} 2008)",
 )
 # Contexts dated by a day alone. The homographs מאי and מרץ need a year or the
@@ -95,16 +97,23 @@ UNDATED_CONTEXTS = (
     "65 ו־4 חודשים\n{m} ספיקה",
     "| 4 | {m} ספיקה",
     "1939\n{m} ספיקה",
+    # A list or a range of names dates nothing by itself: people's names are
+    # listed the same way ("יוני ומאי", Yoni and Mai).
+    "{m} ויולי",
+    "{m} ועד דצמבר",
+    # A count of months is a length of time, not the months it names.
+    "בתוך 3 חודשים {m} ויולי",
+    # "כל שנה" with no של or ב needs a day ("יוני כל שנה מגיש").
+    "{m} כל שנה",
 )
 
 
 def _month_occurrences(text: str) -> set[tuple[str, float, bool]]:
-    """The grounding occurrences a month name produced: raw word, value, temporal."""
+    """The occurrences a Hebrew month name produced: raw word, value, temporal."""
     return {
         (occurrence.raw, occurrence.value, occurrence.has_temporal_context)
-        for occurrence in extract_typed_numeric_occurrences_from_text(text)
-        if not any(character.isdigit() for character in occurrence.raw)
-        and any(month in occurrence.raw for month in _HEBREW_GREGORIAN_MONTH_NUMBERS)
+        for occurrence in extract_typed_month_occurrences_from_text(text)
+        if any(month in occurrence.raw for month in _HEBREW_GREGORIAN_MONTH_NUMBERS)
     }
 
 
@@ -198,11 +207,26 @@ def _printed_numbers(text: str) -> set[float]:
     }
 
 
+def _month_numbers(text: str) -> set[float]:
+    """The month numbers the text's dated month names ground.
+
+    They come from a stream of their own: ``extract_numbers_from_text`` and
+    the other readers of the shared stream never see them.
+    """
+    return {
+        occurrence.value
+        for occurrence in extract_typed_month_occurrences_from_text(text)
+    }
+
+
 def test_part_d_grounds_exactly_the_months_it_names():
-    grounded = extract_numbers_from_text(PART_D_TEXT)
+    grounded = _month_numbers(PART_D_TEXT)
 
     assert PART_D_MONTH_NUMBERS <= grounded
     assert not {10.0, 11.0} & grounded
+    # The shared stream holds only the months Part D prints as numbers, the
+    # 4 and 8 months of age.
+    assert PART_D_MONTH_NUMBERS & extract_numbers_from_text(PART_D_TEXT) == {4.0, 8.0}
 
 
 def test_month_numbers_ground_but_are_never_recall_obligations():
@@ -288,32 +312,33 @@ def test_no_month_name_under_any_prefix_grounds_a_number_undated(context):
     ],
 )
 def test_month_homographs_ground_nothing(text):
-    assert not ({3.0, 5.0} & extract_numbers_from_text(text))
+    assert not ({3.0, 5.0} & _month_numbers(text))
 
 
 def test_homograph_needs_in_the_month_of():
-    assert 5.0 in extract_numbers_from_text("ובחודש מאי ישולם")
-    assert 3.0 in extract_numbers_from_text("שבחודש מרץ ישולם")
+    assert 5.0 in _month_numbers("ובחודש מאי ישולם")
+    assert 3.0 in _month_numbers("שבחודש מרץ ישולם")
     for text in ("לחודש מאי ישולם", "מחודש מאי ישולם", "בחודש\nמאי ישולם"):
-        assert 5.0 not in extract_numbers_from_text(text), text
+        assert 5.0 not in _month_numbers(text), text
 
 
 def test_defective_or_plural_month_word_dates_no_single_month():
-    assert 7.0 not in extract_numbers_from_text("רכב חדש יולי")
-    assert 7.0 not in extract_numbers_from_text("בתוך 3 חודשים יולי")
-    assert 7.0 in extract_numbers_from_text("בחודש יולי")
-    assert 5.0 in extract_numbers_from_text("בחודש מאי")
-    assert 5.0 in extract_numbers_from_text("מאי 1942")
+    assert 7.0 not in _month_numbers("רכב חדש יולי")
+    assert 7.0 not in _month_numbers("בתוך 3 חודשים יולי")
+    assert 7.0 in _month_numbers("בחודש יולי")
+    assert 5.0 in _month_numbers("בחודש מאי")
+    assert 5.0 in _month_numbers("מאי 1942")
 
 
 def test_a_list_of_months_is_dated_as_a_whole():
-    # July is dated by the year after August, and a list after "the months"
-    # is dated by that word however long it runs.
-    assert {7.0, 8.0} <= extract_numbers_from_text("יולי ואוגוסט 1939")
-    assert {1.0, 4.0, 7.0, 10.0} <= extract_numbers_from_text(
+    # The year after August dates July too, and "the months" dates the list
+    # after it, however long the list runs. The list alone dates nothing
+    # (test_english_month_grounding.py, section b).
+    assert {7.0, 8.0} <= _month_numbers("יולי ואוגוסט 1939")
+    assert {1.0, 4.0, 7.0, 10.0} <= _month_numbers(
         "בכל אחד מהחודשים אפריל, יולי, אוקטובר וינואר, בעבור הרבעון"
     )
-    assert {2.0, 11.0} <= extract_numbers_from_text(
+    assert {2.0, 11.0} <= _month_numbers(
         "ביום החמישה עשר של כל אחד מעשרת החדשים פברואר עד נובמבר של כל שנת מס"
     )
 
@@ -912,29 +937,40 @@ def test_month_context_values_require_every_use_to_be_a_month():
 
 
 def test_other_grounding_consumers_ignore_month_numbers_by_default():
-    month_occurrences = [
-        occurrence
+    # The month number is in a stream of its own, which only the grounding
+    # decisions read; the shared stream holds only what the source prints.
+    month_occurrences = extract_typed_month_occurrences_from_text(DATED_DECEMBER_TEXT)
+    assert [
+        (occurrence.value, occurrence.requires_month_context)
+        for occurrence in month_occurrences
+    ] == [(12.0, True)]
+    assert not any(
+        occurrence.requires_month_context or occurrence.value == 12.0
         for occurrence in extract_typed_numeric_occurrences_from_text(
             DATED_DECEMBER_TEXT
         )
-        if occurrence.requires_month_context
-    ]
-    assert [occurrence.value for occurrence in month_occurrences] == [12.0]
+    )
+    assert 12.0 not in extract_numbers_from_text(DATED_DECEMBER_TEXT)
     assert not numeric_value_is_grounded(12.0, month_occurrences)
     assert numeric_value_is_grounded(
         12.0, month_occurrences, month_context_values=frozenset({12.0})
     )
 
 
-@pytest.mark.parametrize("text", ("מאי ויוני", "מאי, יוני", "מרץ עד אפריל"))
+@pytest.mark.parametrize(
+    "text", ("בחודשים מאי ויוני", "מהחודשים מאי, יוני", "ביום 4 במרץ עד אפריל")
+)
 def test_a_homograph_listed_with_another_month_is_dated_with_the_list(text):
-    # The homograph gate covers groups made only of homographs; a list with a
-    # non-homograph month dates every name in it, as the changelog states.
+    # The homograph gate covers groups made only of homographs: what dates a
+    # non-homograph month in a list (the plural "months" before it, a day)
+    # dates every name in the list.
     values = {value for _raw, value, _temporal in _month_occurrences(text)}
     assert len(values) == 2
 
 
-@pytest.mark.parametrize("text", ("מאי ומרץ", "מרץ, מאי"))
+@pytest.mark.parametrize(
+    "text", ("מאי ומרץ", "מרץ, מאי", "בחודשים מאי ומרץ", "ביום 4 במרץ עד מאי")
+)
 def test_a_list_of_only_homographs_needs_a_year_or_in_the_month_of(text):
     assert _month_occurrences(text) == set()
     assert {3.0, 5.0} <= {value for _r, value, _t in _month_occurrences(text + " 1990")}
@@ -943,13 +979,7 @@ def test_a_list_of_only_homographs_needs_a_year_or_in_the_month_of(text):
 def test_rebased_month_occurrence_still_grounds_only_month_comparisons():
     from axiom_encode.harness.source_completeness import _shift_numeric_occurrence
 
-    (month,) = [
-        occurrence
-        for occurrence in extract_typed_numeric_occurrences_from_text(
-            DATED_DECEMBER_TEXT
-        )
-        if occurrence.requires_month_context
-    ]
+    (month,) = extract_typed_month_occurrences_from_text(DATED_DECEMBER_TEXT)
     shifted = _shift_numeric_occurrence(month, 7)
 
     assert shifted.requires_month_context
