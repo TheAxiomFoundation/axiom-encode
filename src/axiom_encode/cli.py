@@ -54371,6 +54371,14 @@ def _formula_without_string_literals(formula: str) -> str:
     )
 
 
+def _formula_without_comments(formula: str) -> str:
+    """Drop each ``#`` comment, as the rules engine's tokenizer does.
+
+    String literals are blanked first, so a ``#`` inside one starts no comment.
+    """
+    return re.sub(r"#[^\n]*", "", _formula_without_string_literals(formula))
+
+
 def _formula_identifiers(formula: str) -> set[str]:
     return (
         set(
@@ -58012,12 +58020,13 @@ def _parse_test_input_assignment_issue(issue: str) -> tuple[str, set[str]] | Non
 
 # Declared input dtypes, grouped by the test value each one takes: tests give
 # Boolean and Judgment inputs true or false, numeric inputs numbers, and text
-# inputs strings. The rules engine parses Money and Rate as Decimal, and the
-# encoder's eval dtypes add Count, Float and String. Date, and any dtype outside
-# these groups, leaves the choice to the name and formula heuristics.
+# inputs strings. The rules engine reads Money, Rate and float as Decimal and
+# int as Integer, and the encoder's eval dtypes add Count, Float and String.
+# Date, and any dtype outside these groups, leaves the choice to the name and
+# formula heuristics.
 _DECLARED_BOOLEAN_INPUT_DTYPES = frozenset({"bool", "boolean", "judgment"})
 _DECLARED_NUMERIC_INPUT_DTYPES = frozenset(
-    {"count", "decimal", "float", "integer", "money", "rate"}
+    {"count", "decimal", "float", "int", "integer", "money", "rate"}
 )
 _DECLARED_TEXT_INPUT_DTYPES = frozenset({"string", "text"})
 _DECLARED_INPUT_KIND_DEFAULTS: dict[str, bool | int | str] = {
@@ -58163,14 +58172,15 @@ def _factual_input_appears_numeric(
             rf"|(?:[+\-*/]\s*)\b{re.escape(input_name)}\b)"
         )
         boolean_context = re.compile(
-            rf"(\bif\s+{re.escape(input_name)}\s*:"
+            rf"(\b(?:if|elif)\s+{re.escape(input_name)}\s*:"
             rf"|\bnot\s+{re.escape(input_name)}\b"
             rf"|\b{re.escape(input_name)}\b\s+(?:and|or)\b"
             rf"|\b(?:and|or)\s+{re.escape(input_name)}\b)"
         )
         # A rule with a numeric dtype that returns the input bare, as its whole
         # formula or as one branch's value, uses it as a number. So does a
-        # numeric function that takes it as an argument.
+        # numeric function that takes it as an argument. Both checks read the
+        # formula without its comments, as the rules engine does.
         bare_numeric_value = re.compile(
             rf"(?:\A|:)[ \t]*(?:\n[ \t]*)?{re.escape(input_name)}[ \t]*"
             rf"(?=\Z|\n|else\b|elif\b)"
@@ -58180,6 +58190,7 @@ def _factual_input_appears_numeric(
         )
         formula_hits: list[str] = []
         numeric_rule_formula_hits: list[str] = []
+        formula_code: list[str] = []
         for rule in rules:
             if not isinstance(rule, dict):
                 continue
@@ -58197,8 +58208,10 @@ def _factual_input_appears_numeric(
                 if not isinstance(formula, str) or not pattern.search(formula):
                     continue
                 formula_hits.append(formula)
+                code = _formula_without_comments(formula)
+                formula_code.append(code)
                 if rule_is_numeric:
-                    numeric_rule_formula_hits.append(formula)
+                    numeric_rule_formula_hits.append(code)
         if any(
             _string_positive_assignment_for_expression(
                 input_name=input_name,
@@ -58213,8 +58226,8 @@ def _factual_input_appears_numeric(
         if any(boolean_context.search(formula) for formula in formula_hits):
             return False
         if any(
-            bare_numeric_value.search(formula) for formula in numeric_rule_formula_hits
-        ) or any(numeric_call_argument.search(formula) for formula in formula_hits):
+            bare_numeric_value.search(code) for code in numeric_rule_formula_hits
+        ) or any(numeric_call_argument.search(code) for code in formula_code):
             return True
 
     if _factual_input_name_looks_positive_count(input_name):
