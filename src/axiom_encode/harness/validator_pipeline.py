@@ -38383,9 +38383,12 @@ class ValidatorPipeline:
                 raise ValueError("explicit relation root differs from query identity")
             relations.extend(
                 explicit_companion_relations(
-                    explicit_relations_case["relations"], tables=case_tables,
-                    root_id=root_id, root_entity=query_entity,
-                    compiled_relations=compiled_relations, interval=interval,
+                    explicit_relations_case["relations"],
+                    tables=case_tables,
+                    root_id=root_id,
+                    root_entity=query_entity,
+                    compiled_relations=compiled_relations,
+                    interval=interval,
                 )
             )
 

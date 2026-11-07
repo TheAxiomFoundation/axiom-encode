@@ -6384,8 +6384,11 @@ def _execute_rulespec_test_case(
     if "relations" in case:
         relations.extend(
             explicit_companion_relations(
-                case["relations"], tables=tables, root_id=root_entity_id,
-                root_entity=query_entity, compiled_relations=compiled_relations,
+                case["relations"],
+                tables=tables,
+                root_id=root_entity_id,
+                root_entity=query_entity,
+                compiled_relations=compiled_relations,
                 interval=interval,
             )
         )
