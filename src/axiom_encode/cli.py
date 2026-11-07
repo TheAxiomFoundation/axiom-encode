@@ -63868,6 +63868,12 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
     )
     if artifact_issue is not None:
         return False, [artifact_issue], {}
+    # When the stamp above re-dumps the module, it writes non-ASCII as
+    # characters except where PyYAML's emitter escapes them, and the rewrite
+    # keeps those escapes, so the rewrite leaves its output unchanged. It still
+    # changes modules the stamp returns early on (other backends, non-mapping
+    # payloads, reviewed-candidate promotions) and the companion tests, which
+    # the stamp never writes.
     if vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None:
         _rewrite_generated_yaml_without_non_ascii_escapes(
             output_file,
