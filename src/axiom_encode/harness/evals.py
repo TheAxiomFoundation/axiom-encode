@@ -11759,7 +11759,9 @@ companion test file required by the task and deterministic validation.
             "accepted only after no repaired rule or companion case references "
             "it as an input. A same-named derived or parameter rule is not an "
             "input reference, but companion `#input.<name>` assignments must "
-            "still be replaced with factual inputs. "
+            "still be replaced with factual inputs. A name is never both an "
+            "input and a rule: to replace a retained rule with a same-named "
+            "input, also emit that rule's removal marker. "
             "To remove an obsolete deferred output, emit an exact YAML item "
             "containing only `output: <existing output>` and "
             "`repair_remove: true`. Other deferred-output records may contain "
@@ -13491,7 +13493,13 @@ def _build_eval_prompt(
 
 
 def _is_single_amount_table_slice(source_text: str) -> bool:
-    """Return True when source text is a single amount-bearing table row slice."""
+    """Return True for one amount-bearing table row or atomic amount leaf.
+
+    A structured table row qualifies on its own. Without table structure,
+    only a one-sentence leaf such as "£22,020 for joint claimants not resident
+    in Greater London." qualifies: a statute with several sentences or
+    branches that happens to state one amount is not a table row.
+    """
     marker = "Structured table:"
     if marker in source_text:
         table_section = source_text.split(marker, 1)[1]
@@ -13506,12 +13514,11 @@ def _is_single_amount_table_slice(source_text: str) -> bool:
     if _CONDITIONAL_AMOUNT_SLICE_PATTERN.search(source_text):
         return False
 
-    money_lines = [
-        line.strip()
-        for line in source_text.splitlines()
-        if re.search(r"[£$€]\s*\d[\d,]*(?:\.\d+)?", line)
-    ]
-    return len(money_lines) == 1
+    lines = [line.strip() for line in source_text.splitlines() if line.strip()]
+    if len(lines) != 1:
+        return False
+    # A sentence end followed by more text means a second sentence.
+    return re.search(r"[.;:!?](?=\s+\S)", lines[0]) is None
 
 
 def _source_identifier_requests_percentage_rate_boundary(
@@ -18362,11 +18369,29 @@ def _normalize_single_amount_row_test_content(
             return False
         return True
 
-    def normalize_case(case: object) -> object:
+    cases = _coerce_test_payload_to_case_list(payload)
+    used_names = {
+        case["name"]
+        for case in cases or ()
+        if isinstance(case, dict) and isinstance(case.get("name"), str)
+    }
+
+    def twin_name(name: object) -> object:
+        if not isinstance(name, str):
+            return name
+        candidate = f"{name} (non-amount outputs)"
+        suffix = 2
+        while candidate in used_names:
+            candidate = f"{name} (non-amount outputs {suffix})"
+            suffix += 1
+        used_names.add(candidate)
+        return candidate
+
+    def normalize_case(case: object) -> list[object]:
         if not isinstance(case, dict):
-            return case
+            return [case]
         if _is_exact_repair_removal_marker(case):
-            return case
+            return [case]
         normalized_case = dict(case)
         if annual_period and effective_date is not None:
             normalized_case["period"] = _normalize_annual_test_period_value(
@@ -18387,20 +18412,29 @@ def _normalize_single_amount_row_test_content(
                 if value is None
                 or (isinstance(value, (int, float)) and not isinstance(value, bool))
             }
-            if numeric_output:
+            other_output = {
+                key: value for key, value in output.items() if key not in numeric_output
+            }
+            if numeric_output and other_output:
+                # The amount case stays comparable with an amount oracle. Every
+                # other assertion moves to a twin with the same facts, never away.
+                twin = {**normalized_case, "output": other_output}
+                if "name" in normalized_case:
+                    twin["name"] = twin_name(normalized_case["name"])
                 normalized_case["output"] = numeric_output
-        return normalized_case
+                return [normalized_case, twin]
+        return [normalized_case]
 
-    cases = _coerce_test_payload_to_case_list(payload)
     if cases is not None:
         filtered = [
-            normalize_case(case)
+            normalized
             for case in cases
             if (
                 not isinstance(case, dict)
                 or _is_exact_repair_removal_marker(case)
                 or should_keep(case.get("name"))
             )
+            for normalized in normalize_case(case)
         ]
         return safe_dump_yaml(filtered, sort_keys=False).strip() + "\n"
 
@@ -19367,6 +19401,78 @@ def _merge_named_yaml_items(
     return generated_items, restored, sorted(removed_names)
 
 
+def _reject_repair_overlay_declaration_collisions(
+    inputs: Sequence[object],
+    rules: Sequence[object],
+    *,
+    restored_inputs: Sequence[str],
+    restored_rules: Sequence[str],
+) -> None:
+    """Refuse a merged artifact that declares one name as an input and a rule.
+
+    Validation reads such a name as derived, so the input's supplied facts
+    would vanish from every companion case. Name both declarations and the
+    exact removal marker that makes a deliberate conversion explicit.
+    """
+
+    def declared(items: Sequence[object]) -> dict[str, dict[str, object]]:
+        return {
+            item["name"]: item
+            for item in items
+            if isinstance(item, dict) and isinstance(item.get("name"), str)
+        }
+
+    declared_inputs = declared(inputs)
+    declared_rules = declared(rules)
+    collisions = sorted(set(declared_inputs) & set(declared_rules))
+    if not collisions:
+        return
+    restored_input_names = set(restored_inputs)
+    restored_rule_names = set(restored_rules)
+    details: list[str] = []
+    retained_only = True
+    for name in collisions:
+        rule = declared_rules[name]
+        rule_kind = str(rule.get("kind") or "").strip() or "unkinded"
+        input_owner = (
+            "retained candidate's" if name in restored_input_names else "this repair's"
+        )
+        rule_owner = (
+            "retained candidate's" if name in restored_rule_names else "this repair's"
+        )
+        detail = (
+            f"`{name}` is both the {input_owner} input on "
+            f"{declared_inputs[name].get('entity') or 'an unstated entity'} and the "
+            f"{rule_owner} {rule_kind} rule on "
+            f"{rule.get('entity') or 'an unstated entity'}"
+        )
+        if name in restored_rule_names and name not in restored_input_names:
+            detail += (
+                f"; to replace the retained rule with this input, add "
+                f"`{{name: {name}, repair_remove: true}}` to `rules`, otherwise "
+                "drop the input"
+            )
+        elif name in restored_input_names and name not in restored_rule_names:
+            detail += (
+                f"; to replace the retained input with this rule, add "
+                f"`{{name: {name}, repair_remove: true}}` to `inputs`, otherwise "
+                "drop the rule"
+            )
+        else:
+            detail += "; declare it once"
+        retained_only = retained_only and (
+            name in restored_input_names and name in restored_rule_names
+        )
+        details.append(detail)
+    message = (
+        "repair overlay would declare a name as both an input and a rule: "
+        + "; ".join(details)
+    )
+    if retained_only:
+        raise _PreservedRepairOverlayError(message)
+    raise ValueError(message)
+
+
 def _repair_overlay_removed_input_references(
     payload: object,
     removed_inputs: Sequence[str],
@@ -19657,6 +19763,12 @@ def _overlay_validation_retry_candidate(
             )
     repairs.extend(f"rule:{name}" for name in restored_rules)
     repairs.extend(f"removed_rule:{name}" for name in removed_rules)
+    _reject_repair_overlay_declaration_collisions(
+        inputs,
+        rules,
+        restored_inputs=restored_inputs,
+        restored_rules=restored_rules,
+    )
 
     generated_module = generated.get("module")
     preserved_module = preserved.get("module")
