@@ -14727,8 +14727,14 @@ class TestCmdEncode:
         policy_repo_path: Path,
         corpus_path: Path,
         supplemental_files: dict[Path, str] | None = None,
+        rewrite_non_ascii_escapes: bool = False,
     ) -> None:
-        """Bind direct apply-unit fixtures to the same overlay snapshot contract."""
+        """Bind direct apply-unit fixtures to the same overlay snapshot contract.
+
+        With ``rewrite_non_ascii_escapes``, the module also goes through the
+        escape rewrite that overlay validation runs between its stamp and its
+        snapshot.
+        """
 
         trace_path = Path(str(getattr(result, "trace_file", "") or ""))
         if not trace_path.is_file():
@@ -14740,6 +14746,11 @@ class TestCmdEncode:
             result,
             Path(result.output_file),
         )
+        if rewrite_non_ascii_escapes:
+            _rewrite_generated_yaml_without_non_ascii_escapes(
+                Path(result.output_file),
+                contained_in=output_root / str(result.runner),
+            )
         from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
         with patch.dict(
@@ -20950,7 +20961,12 @@ cli._install_apply_transaction(
                     "identity_source": "git",
                 },
             ),
-            pytest.raises(RuntimeError, match="changed after overlay validation"),
+            pytest.raises(
+                RuntimeError,
+                match=(
+                    r"changed after overlay validation \(changed: output\.sha256\)$"
+                ),
+            ),
         ):
             _apply_generated_encoding_result(
                 result,
@@ -21154,8 +21170,14 @@ cli._install_apply_transaction(
         )
         if mutated_input == "rulespec":
             imported.write_text("format: rulespec/v1\nrules: []\n# mutated\n")
+            changed_field = (
+                r'validation_execution\.policy_content_files\["statutes/26/2\.yaml"\]'
+            )
         else:
             engine_input.write_text("mutated engine bytes\n")
+            changed_field = (
+                r"validation_execution\.axiom_rules_identity\.working_tree_sha256"
+            )
 
         with (
             patch.dict(
@@ -21178,7 +21200,12 @@ cli._install_apply_transaction(
                     "identity_source": "git",
                 },
             ),
-            pytest.raises(RuntimeError, match="changed after overlay validation"),
+            pytest.raises(
+                RuntimeError,
+                match=(
+                    r"changed after overlay validation \(changed: [^)]*" + changed_field
+                ),
+            ),
         ):
             _apply_generated_encoding_result(
                 result,
@@ -21279,6 +21306,80 @@ rules: []
                 manifest_payload, TEST_APPLY_SIGNING_BROKER
             )
             == "has an invalid encoder apply manifest signature"
+        )
+
+    def test_apply_accepts_validated_module_holding_a_byte_order_mark(self, tmp_path):
+        # Overlay validation stamps the module, rewrites its non-ASCII escapes
+        # and records the bytes; apply stamps again and compares. PyYAML's
+        # emitter writes U+FEFF only as `\uFEFF`, so the rewrite must leave
+        # that escape alone for the second stamp to reproduce the recorded
+        # bytes. A New Zealand section citing "72(1)<U+FEFF>(a)" hit this.
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes" / "26" / "1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            '  summary: "Under section 72(1)\\uFEFF(a), \\u05D0 applies."\n'
+            "  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1\n"
+            "rules: []\n"
+        )
+        policy_repo.mkdir(parents=True)
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.generation_prompt_sha256 = None
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            policy_repo,
+            tmp_path,
+        )
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo / "us",
+            corpus_path=corpus_path,
+            rewrite_non_ascii_escapes=True,
+        )
+        validated = generated.read_text(encoding="utf-8")
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                    "identity_source": "git",
+                },
+            ),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo / "us",
+                corpus_path=corpus_path,
+            )
+
+        target = policy_repo / "us/statutes/26/1.yaml"
+        assert target.read_text(encoding="utf-8") == validated
+        assert "\\uFEFF" in validated
+        assert "\ufeff" not in validated
+        assert "\u05d0" in validated
+        assert (
+            yaml.safe_load(validated)["module"]["summary"]
+            == "Under section 72(1)\ufeff(a), \u05d0 applies."
         )
 
     def test_apply_accepts_crlf_source_digest_from_generation_workspace(self, tmp_path):
