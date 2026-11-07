@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode import corpus_resolver
 from axiom_encode.corpus_resolver import (
@@ -1751,6 +1753,83 @@ def test_delimiter_replay_rejects_a_negative_first_marker_offset():
         corpus_resolver._delimiter_enclosed_marker_starts("xx", (-1,))
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("", id="empty"),
+        pytest.param("Plain text.", id="plain"),
+        pytest.param("(annotation)", id="final-parenthesis"),
+        pytest.param("[annotation]", id="final-bracket"),
+        pytest.param("{annotation}", id="final-brace"),
+        pytest.param("“quoted”", id="directional-double"),
+        pytest.param("‘quoted’", id="directional-single"),
+        pytest.param("«quoted»", id="guillemets"),
+        pytest.param("‹quoted›", id="single-guillemets"),
+        pytest.param('"quoted"', id="symmetric-double"),
+        pytest.param("'quoted'", id="symmetric-single"),
+        pytest.param("`code`", id="code-span"),
+        pytest.param("``code``", id="double-code-span"),
+        pytest.param("(outer [“inner”] outer)", id="mixed-nesting"),
+        pytest.param("“outer “inner” outer”", id="nested-quotes"),
+        pytest.param("The workers' rights apply.", id="word-apostrophe"),
+        pytest.param(r"An escaped \( opener.", id="escaped-parenthesis"),
+        pytest.param(r"An escaped \“ opener.", id="escaped-quote"),
+        pytest.param(
+            "The notice states “first quoted paragraph.\n“Second quoted paragraph.”",
+            id="repeated-line-quotes",
+        ),
+        pytest.param(
+            "Notice: “First sentence. “Second sentence.”; and\n\n",
+            id="colon-sentence-terminal-quotes",
+        ),
+    ],
+)
+def test_delimiter_replay_eof_accepts_balanced_source(text: str):
+    assert len(text) not in corpus_resolver._delimiter_enclosed_marker_starts(
+        text, (len(text),), allow_eof=True
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("Unclosed (annotation", id="parenthesis"),
+        pytest.param("Unclosed [annotation", id="bracket"),
+        pytest.param("Unclosed {annotation", id="brace"),
+        pytest.param("Unclosed “quotation", id="directional-double"),
+        pytest.param("Unclosed ‘quotation", id="directional-single"),
+        pytest.param('Unclosed "quotation', id="symmetric-double"),
+        pytest.param("Unclosed 'quotation", id="symmetric-single"),
+        pytest.param("Unclosed `code", id="code-span"),
+        pytest.param("([)])", id="crossed-brackets-then-all-closed"),
+        pytest.param("“outer [inner” rest]”", id="crossed-quote-then-all-closed"),
+        pytest.param('("inner) still")', id="crossed-symmetric-then-all-closed"),
+        pytest.param(
+            "Notice: “First sentence. “Second sentence.”",
+            id="colon-sentence-without-terminal-evidence",
+        ),
+    ],
+)
+def test_delimiter_replay_eof_marks_unclosed_or_crossed_source(text: str):
+    assert len(text) in corpus_resolver._delimiter_enclosed_marker_starts(
+        text, (len(text),), allow_eof=True
+    )
+
+
+@pytest.mark.parametrize("text", ["", "Plain text.", "(annotation)"])
+def test_delimiter_replay_rejects_eof_marker_without_explicit_opt_in(text: str):
+    with pytest.raises(CorpusSourceSliceError, match="outside corpus source text"):
+        corpus_resolver._delimiter_enclosed_marker_starts(text, (len(text),))
+
+
+def test_delimiter_replay_eof_opt_in_keeps_later_offsets_out_of_bounds():
+    text = "(annotation)"
+    with pytest.raises(CorpusSourceSliceError, match="outside corpus source text"):
+        corpus_resolver._delimiter_enclosed_marker_starts(
+            text, (len(text) + 1,), allow_eof=True
+        )
+
+
 def test_delimiter_replay_indexes_deep_quote_stack_without_scanning_it():
     text = "“" * 255 + "” “" * 10_000 + "(2) Replay."
     marker_start = text.index("(2)")
@@ -3074,7 +3153,7 @@ def test_us_cfr_hierarchy_ignores_reused_nested_numeric_markers(tmp_path: Path):
     assert "(2) Verification of questionable information." not in resolved.body
 
 
-def test_pinned_cfr_273_11_c_slice_requires_exact_source_bytes(monkeypatch):
+def test_us_cfr_273_11_c_slice_uses_walker_after_source_text_changes():
     parent = "us/regulation/7/273/11"
     body = (
         "(a) First subsection.\n\n"
@@ -3087,12 +3166,6 @@ def test_pinned_cfr_273_11_c_slice_requires_exact_source_bytes(monkeypatch):
         "(2) Second target condition.\n\n"
         "(d) Treatment of income and resources of other nonhousehold members."
     )
-    monkeypatch.setattr(
-        corpus_resolver,
-        "_PINNED_CFR_273_11_PARENT_SHA256",
-        hashlib.sha256(body.encode()).hexdigest(),
-    )
-
     assert corpus_resolver._slice_parent_body(
         body, requested_path=f"{parent}/c", resolved_path=parent
     ) == (
@@ -3100,12 +3173,13 @@ def test_pinned_cfr_273_11_c_slice_requires_exact_source_bytes(monkeypatch):
         "(1) Target condition.\n\n"
         "(2) Second target condition."
     )
-    with pytest.raises(CorpusSourceSliceError, match="missing structural marker"):
-        corpus_resolver._slice_parent_body(
-            body.replace("Second target condition", "Changed target condition"),
-            requested_path=f"{parent}/c",
-            resolved_path=parent,
-        )
+    # The former hash fallback made this source-text edit refuse, recording the
+    # walker's Roman/alpha defect rather than a supported hierarchy distinction.
+    assert corpus_resolver._slice_parent_body(
+        body.replace("Second target condition", "Changed target condition"),
+        requested_path=f"{parent}/c",
+        resolved_path=parent,
+    ).endswith("(2) Changed target condition.")
 
 
 def test_us_cfr_hierarchy_keeps_contiguous_roman_c_nested():
@@ -3177,6 +3251,524 @@ def test_us_cfr_hierarchy_does_not_promote_roman_v_with_inline_numeric_reference
     with pytest.raises(CorpusSourceSliceError, match="missing structural marker"):
         corpus_resolver._slice_parent_body(
             body, requested_path=f"{parent}/v", resolved_path=parent
+        )
+
+
+@pytest.mark.parametrize(
+    ("document_class", "previous_path", "target", "following", "target_children"),
+    [
+        pytest.param("regulation", "c/2/iii", "d", "e", ("1",), id="c-2-iii-to-d"),
+        pytest.param("regulation", "b/2/ii", "c", "d", ("1",), id="b-2-ii-to-c"),
+        pytest.param("regulation", "k/1/iii", "l", "m", (), id="k-1-iii-to-l"),
+        pytest.param("regulation", "l/1/ii", "m", "n", (), id="l-1-ii-to-m"),
+        pytest.param("regulation", "u/1/iii", "v", "w", (), id="u-1-iii-to-v"),
+        pytest.param("regulation", "w/1/iii", "x", "y", (), id="w-1-iii-to-x"),
+        pytest.param("regulation", "c/1/i/A", "d", "e", ("1",), id="deep-cfr-to-d"),
+        pytest.param("statute", "c/1/A/i", "d", "e", ("1",), id="statute-to-d"),
+        pytest.param("statute", "a/1/C/i/I", "a/1/D", "a/1/E", ("i",), id="upper-D"),
+    ],
+)
+def test_us_hierarchy_prefers_exact_next_alpha_over_skipped_roman(
+    document_class: str,
+    previous_path: str,
+    target: str,
+    following: str,
+    target_children: tuple[str, ...],
+):
+    parent = (
+        "us/regulation/7/999/1"
+        if document_class == "regulation"
+        else "us/statute/7/9999"
+    )
+    previous = "\n\n".join(
+        f"({token}) Previous depth {depth}."
+        for depth, token in enumerate(previous_path.split("/"))
+    )
+    expected = "\n\n".join(
+        [f"({target.split('/')[-1]}) Target paragraph."]
+        + [f"({token}) Target child." for token in target_children]
+    )
+    body = f"{previous}\n\n{expected}\n\n({following.split('/')[-1]}) Following."
+
+    assert (
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/{target}", resolved_path=parent
+        )
+        == expected
+    )
+    previous_alpha = "/".join(previous_path.split("/")[: len(target.split("/"))])
+    previous_span = "\n\n".join(previous.split("\n\n")[len(target.split("/")) - 1 :])
+    assert (
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/{previous_alpha}", resolved_path=parent
+        )
+        == previous_span
+    )
+
+
+@pytest.mark.parametrize(
+    ("previous_alpha", "previous_roman", "token", "following", "inline"),
+    [
+        pytest.param("b", "xcix", "c", "ci", "", id="contiguous-c-ci"),
+        pytest.param("u", "ii", "v", "vi", "", id="skipped-v-vi"),
+        pytest.param(
+            "u",
+            "ii",
+            "v",
+            "vi",
+            " It mentions (1) only as an inline reference.",
+            id="inline-reference",
+        ),
+        pytest.param("a", "ii", "c", "b", "", id="non-successor-c"),
+        pytest.param("w", "ix", "x", "y", "", id="contiguous-x-known-limit"),
+    ],
+)
+def test_us_hierarchy_preserves_corroborated_or_non_successor_roman(
+    previous_alpha: str,
+    previous_roman: str,
+    token: str,
+    following: str,
+    inline: str,
+):
+    parent = "us/regulation/7/999/1"
+    expected = f"({token}) Roman clause.{inline}"
+    body = (
+        f"({previous_alpha}) Previous paragraph.\n\n(1) Numeric child.\n\n"
+        f"({previous_roman}) Previous Roman clause.\n\n{expected}\n\n"
+        f"({following}) Following paragraph."
+    )
+    assert (
+        corpus_resolver._slice_parent_body(
+            body,
+            requested_path=f"{parent}/{previous_alpha}/1/{token}",
+            resolved_path=parent,
+        )
+        == expected
+    )
+    with pytest.raises(CorpusSourceSliceError):
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/{token}", resolved_path=parent
+        )
+
+
+@pytest.mark.parametrize("document_class", ["regulation", "statute"])
+def test_us_hierarchy_keeps_roman_continuation_after_closed_prose_parenthesis(
+    document_class: str,
+):
+    parent = (
+        "us/regulation/7/999/1"
+        if document_class == "regulation"
+        else "us/statute/7/9999"
+    )
+    statute_subparagraph = "(A) A.\n" if document_class == "statute" else ""
+    expected = (
+        "(u) U.\n(1) N.\n"
+        f"{statute_subparagraph}(ii) II.\n"
+        "(v) Roman (closed)\n(vi) Continuation."
+    )
+    body = f"{expected}\n(w) W."
+    # Line-start (vi) still corroborates Roman (v) when a closing prose
+    # parenthesis triggers the walker's existing lexical structural veto.
+    assert (
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/u", resolved_path=parent
+        )
+        == expected
+    )
+    with pytest.raises(CorpusSourceSliceError):
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/v", resolved_path=parent
+        )
+
+
+def test_us_hierarchy_prefers_exact_next_alpha_without_following_marker():
+    parent = "us/regulation/7/999/1"
+    body = "(u) Previous.\n\n(1) Child.\n\n(ii) Roman.\n\n(v) Terminal paragraph."
+
+    assert (
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/v", resolved_path=parent
+        )
+        == "(v) Terminal paragraph."
+    )
+
+
+def test_us_hierarchy_keeps_existing_slice_when_eof_probe_exceeds_depth_limit():
+    parent = "us/regulation/7/999/1"
+    body = (
+        "(b) Existing paragraph.\n"
+        + "(" * (corpus_resolver._MAX_DELIMITER_NESTING_DEPTH + 1)
+        + "Tail."
+    )
+    # Ordinary marker replay stops at (b), so the base walker never scans the
+    # deep tail. Existing targets do not need the extra recovered-path EOF check.
+    assert (
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/b", resolved_path=parent
+        )
+        == body
+    )
+
+
+@pytest.mark.parametrize("document_class", ["regulation", "statute"])
+def test_us_hierarchy_rejects_alpha_recovery_with_unclosed_source_delimiter(
+    document_class: str,
+):
+    parent = (
+        "us/regulation/7/999/1"
+        if document_class == "regulation"
+        else "us/statute/7/9999"
+    )
+    statute_subparagraph = "(A) Subparagraph.\n" if document_class == "statute" else ""
+    body = (
+        "(b) Previous.\n(1) Child.\n"
+        f"{statute_subparagraph}(ii) Roman.\n"
+        "(c) Target (unclosed prose.\n(d) Following."
+    )
+    # Recovering (c) would turn the base refusal into a successful slice that
+    # swallows (d), whose marker the unmatched prose parenthesis encloses.
+    with pytest.raises(CorpusSourceSliceError):
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/c", resolved_path=parent
+        )
+
+
+@pytest.mark.parametrize("document_class", ["regulation", "statute"])
+def test_us_hierarchy_rejects_unbounded_later_target_after_alpha_recovery(
+    document_class: str,
+):
+    parent = (
+        "us/regulation/7/999/1"
+        if document_class == "regulation"
+        else "us/statute/7/9999"
+    )
+    statute_subparagraph = "(A) A.\n" if document_class == "statute" else ""
+    body = (
+        "(b) B.\n(1) N.\n"
+        f"{statute_subparagraph}(ii) R.\n(c) C.\n(1) N.\n"
+        "(e) E (open\n(f) F."
+    )
+    # Finding (e) now succeeds after the earlier recovery repairs the stack.
+    # Its malformed ending remains unsafe even though (c) is no longer an
+    # ancestor of the requested target.
+    with pytest.raises(CorpusSourceSliceError):
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/e", resolved_path=parent
+        )
+
+
+@pytest.mark.parametrize("document_class", ["regulation", "statute"])
+@pytest.mark.parametrize("following", ["", "\n(e) Later accepted boundary."])
+def test_us_hierarchy_rejects_recovered_slice_after_vetoed_ending_marker(
+    document_class: str,
+    following: str,
+):
+    parent = (
+        "us/regulation/7/999/1"
+        if document_class == "regulation"
+        else "us/statute/7/9999"
+    )
+    statute_subparagraph = "(A) Subparagraph.\n" if document_class == "statute" else ""
+    body = (
+        "(b) Previous.\n(1) Child.\n"
+        f"{statute_subparagraph}(ii) Roman.\n"
+        f"(c) Target (closed)\n(d) Plausible ending.{following}"
+    )
+    # The existing preceding-parenthesis veto rejects line-start (d). A new
+    # (c) reading must refuse rather than swallow it, including when accepted
+    # (e) would otherwise give the slice a later, bounded ending.
+    with pytest.raises(CorpusSourceSliceError):
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/c", resolved_path=parent
+        )
+
+
+@pytest.mark.parametrize("document_class", ["regulation", "statute"])
+def test_us_hierarchy_rejects_unbounded_descendant_of_recovered_alpha(
+    document_class: str,
+):
+    parent = (
+        "us/regulation/7/999/1"
+        if document_class == "regulation"
+        else "us/statute/7/9999"
+    )
+    statute_subparagraph = "(A) Subparagraph.\n" if document_class == "statute" else ""
+    body = (
+        "(b) Previous.\n(1) Child.\n"
+        f"{statute_subparagraph}(ii) Roman.\n"
+        "(c) Recovered paragraph.\n"
+        "(1) Target child (unclosed prose.\n(d) Following."
+    )
+    # The numeric marker is ordinary, but finding its ancestor (c) depends on
+    # recovery. That does not establish an end boundary hidden by open prose.
+    with pytest.raises(CorpusSourceSliceError):
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/c/1", resolved_path=parent
+        )
+
+
+@pytest.mark.parametrize("document_class", ["regulation", "statute"])
+def test_us_hierarchy_recovers_bounded_alpha_before_unclosed_later_paragraph(
+    document_class: str,
+):
+    parent = (
+        "us/regulation/7/999/1"
+        if document_class == "regulation"
+        else "us/statute/7/9999"
+    )
+    statute_subparagraph = "(A) Subparagraph.\n" if document_class == "statute" else ""
+    body = (
+        "(b) Previous.\n(1) Child.\n"
+        f"{statute_subparagraph}(ii) Roman.\n"
+        "(c) Target (closed prose).\n(d) Following (unclosed later prose."
+    )
+    # A proved (d) boundary ends this slice before the malformed later prose.
+    # Requiring the whole section to balance would reject this bounded target.
+    assert (
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/c", resolved_path=parent
+        )
+        == "(c) Target (closed prose)."
+    )
+
+
+@pytest.mark.parametrize("document_class", ["regulation", "statute"])
+def test_us_hierarchy_recovers_alpha_after_balanced_source_delimiters(
+    document_class: str,
+):
+    parent = (
+        "us/regulation/7/999/1"
+        if document_class == "regulation"
+        else "us/statute/7/9999"
+    )
+    statute_subparagraph = "(A) Subparagraph.\n" if document_class == "statute" else ""
+    body = (
+        "(b) Previous.\n(1) Child.\n"
+        f"{statute_subparagraph}(ii) Roman.\n"
+        "(c) Target (closed prose).\n(d) Following."
+    )
+    assert (
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/c", resolved_path=parent
+        )
+        == "(c) Target (closed prose)."
+    )
+
+
+def test_us_hierarchy_sibling_evidence_stops_at_promoted_alpha_boundary():
+    parent = "us/regulation/7/999/1"
+    body = (
+        "(c) Deductions from income (1) Numeric child.\n\n"
+        "(iii) Roman child.\n\n(d) Next top level.\n\n"
+        "(2) Child of d.\n\n(e) End."
+    )
+    # The inline (1) needs a later sibling to prove its depth. Paragraph (d)'s
+    # (2) cannot supply that evidence across a top-level boundary.
+    with pytest.raises(CorpusSourceSliceError, match="missing structural marker"):
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/c/1", resolved_path=parent
+        )
+
+
+def test_us_cfr_hierarchy_slices_verbatim_claims_excerpt():
+    # Verbatim 273.18(b) through the first line of (f), from the pinned
+    # us-rulespec-2026-10-29-ecfr-section-text section row, without repairs.
+    body = (
+        Path(__file__).parent / "fixtures" / "cfr_273_18_claims_excerpt.txt"
+    ).read_text(encoding="utf-8")
+    parent = "us/regulation/7/273/18"
+    slices = {
+        letter: corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/{letter}", resolved_path=parent
+        )
+        for letter in "bcde"
+    }
+    for letter, following in zip("bcde", "cdef", strict=True):
+        start = 0 if letter == "b" else body.index(f"\n({letter})") + 1
+        end = body.index(f"\n({following})") + 1
+        assert slices[letter] == body[start:end].strip()
+        assert not body[start + len(slices[letter]) : end].strip()
+    assert slices["c"].endswith("the basis for the trafficking determination.")
+    assert "Claim referral management" not in slices["c"]
+    assert slices["d"].startswith("(d) Claim referral management.")
+    assert slices["e"].startswith(
+        "(e) Initiating collection action and managing claims"
+    )
+    table_row = (
+        "(B) do not apply the earned income deduction to that part of any earned "
+        "income that the household failed to report in a timely manner when this "
+        "act is the basis for the claim | the claim is an AE claim | apply the "
+        "earned income deduction."
+    )
+    assert table_row in slices["c"]
+
+
+_OUTLINE_ROMANS = (
+    "i",
+    "ii",
+    "iii",
+    "iv",
+    "v",
+    "vi",
+    "vii",
+    "viii",
+    "ix",
+    "x",
+    "xi",
+    "xii",
+)
+
+
+@st.composite
+def _generated_us_legal_outlines(draw):
+    document_class = draw(st.sampled_from(("regulation", "statute")))
+    letters = draw(st.sampled_from(("abcd", "klmn", "uvw", "wxy", "ghij")))
+    top_count = draw(st.integers(min_value=1, max_value=len(letters)))
+    marker_levels = (
+        (tuple("12"), _OUTLINE_ROMANS[:4], tuple("ABC"))
+        if document_class == "regulation"
+        else (tuple("12"), tuple("ABC"), _OUTLINE_ROMANS[:4], ("I", "II"))
+    )
+    expected: dict[tuple[str, ...], str] = {}
+
+    def render(path: tuple[str, ...]) -> str:
+        parts = [f"({path[-1]}) Paragraph {'/'.join(path)}."]
+        if len(path) <= len(marker_levels):
+            markers = marker_levels[len(path) - 1]
+            child_count = draw(st.integers(min_value=0, max_value=len(markers)))
+            if path[0] == "h" and markers[0] == "i" and child_count:
+                # A lone (i) after (h) is already ambiguous in the base walker.
+                # Require immediate (i),(ii) evidence instead of assigning an
+                # unsupported intended span to that outline (issue #1808).
+                child_count = max(2, child_count)
+            if (
+                path[0] == "u"
+                and "v" in letters[:top_count]
+                and markers[0] == "i"
+                and child_count == 4
+            ):
+                # Existing contiguous-collision limit: (u)(1)(iv), then (v),
+                # is Roman iv/v even when this generator intends top-level v.
+                # Keep that ambiguity out of soundness inputs; the separate
+                # contiguous-list property exercises iv/v as nested clauses.
+                child_count = 3
+            if path[0] == "h" and path[-1] == "i":
+                child_count = 0
+            parts.extend(render((*path, token)) for token in markers[:child_count])
+        text = "\n\n".join(parts)
+        expected[path] = text
+        return text
+
+    body = "\n\n".join(render((letter,)) for letter in letters[:top_count])
+    return document_class, body, expected
+
+
+@settings(max_examples=50, deadline=None, database=None)
+@given(_generated_us_legal_outlines())
+def test_us_hierarchy_generated_outline_soundness(outline):
+    """Every successful generated path has exactly its independently rendered span."""
+    document_class, body, expected = outline
+    parent = (
+        "us/regulation/7/999/1"
+        if document_class == "regulation"
+        else "us/statute/7/9999"
+    )
+    for path, span in expected.items():
+        try:
+            actual = corpus_resolver._slice_parent_body(
+                body, requested_path=f"{parent}/{'/'.join(path)}", resolved_path=parent
+            )
+        except CorpusSourceSliceError:
+            continue
+        assert actual == span, path
+
+
+@settings(max_examples=50, deadline=None, database=None)
+@given(
+    document_class=st.sampled_from(("regulation", "statute")),
+    target=st.sampled_from(tuple("cdlmvx")),
+    numeric_count=st.integers(min_value=1, max_value=3),
+    roman_count=st.integers(min_value=1, max_value=3),
+    separator=st.sampled_from(("\n", "\n\n", "\n \n")),
+)
+def test_us_hierarchy_collision_liveness_and_partition(
+    document_class: str,
+    target: str,
+    numeric_count: int,
+    roman_count: int,
+    separator: str,
+):
+    """Uncorroborated exact-next collision letters resolve and top slices abut."""
+    parent = (
+        "us/regulation/7/999/1"
+        if document_class == "regulation"
+        else "us/statute/7/9999"
+    )
+    previous = chr(ord(target) - 1)
+    following = chr(ord(target) + 1)
+    spans = {}
+    for letter in (previous, target, following):
+        parts = [f"({letter}) Paragraph {letter}."]
+        for number in range(1, numeric_count + 1):
+            parts.append(f"({number}) Numeric child {number}.")
+            if document_class == "statute":
+                parts.append("(A) Subparagraph.")
+            parts.extend(
+                f"({roman}) Clause {roman}." for roman in _OUTLINE_ROMANS[:roman_count]
+            )
+        spans[letter] = separator.join(parts)
+    body = separator.join(spans.values())
+    end = 0
+    for letter, span in spans.items():
+        actual = corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/{letter}", resolved_path=parent
+        )
+        assert actual == span
+        start = body.index(actual, end)
+        assert not body[end:start].strip()
+        end = start + len(actual)
+    assert not body[end:].strip()
+
+
+@pytest.mark.parametrize("length", range(1, 13))
+@settings(max_examples=8, deadline=None, database=None)
+@given(
+    document_class=st.sampled_from(("regulation", "statute")),
+    letter=st.sampled_from(tuple("bkuw")),
+)
+def test_us_hierarchy_contiguous_roman_lists_stay_nested(
+    length: int, document_class: str, letter: str
+):
+    """Every length through twelve keeps each Roman clause inside its parent."""
+    parent = (
+        "us/regulation/7/999/1"
+        if document_class == "regulation"
+        else "us/statute/7/9999"
+    )
+    prefix = f"({letter}) Paragraph.\n\n(1) Numeric child."
+    path = f"{letter}/1"
+    if document_class == "statute":
+        prefix += "\n\n(A) Subparagraph."
+        path += "/A"
+    clauses = [f"({roman}) Clause {roman}." for roman in _OUTLINE_ROMANS[:length]]
+    expected = "\n\n".join([prefix, *clauses])
+    # Finish at an unambiguous later top-level letter. Roman continuation is
+    # generated inside this paragraph, independently of the boundary under test.
+    following = "e" if letter == "b" else "y"
+    body = f"{expected}\n\n({following}) Following paragraph."
+
+    assert (
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/{letter}", resolved_path=parent
+        )
+        == expected
+    )
+    for roman, clause in zip(_OUTLINE_ROMANS[:length], clauses, strict=True):
+        assert (
+            corpus_resolver._slice_parent_body(
+                body, requested_path=f"{parent}/{path}/{roman}", resolved_path=parent
+            )
+            == clause
         )
 
 

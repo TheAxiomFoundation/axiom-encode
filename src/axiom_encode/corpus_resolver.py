@@ -2483,11 +2483,6 @@ def _slice_parent_body(text: str, *, requested_path: str, resolved_path: str) ->
             return successful_slice
         if errors:
             raise errors[0]
-        pinned_slice = _pinned_cfr_273_11_c_slice(
-            text, requested_path=requested_path, resolved_path=resolved_path
-        )
-        if pinned_slice is not None:
-            return pinned_slice
         missing = "/".join(fragments)
         raise CorpusSourceSliceError(
             f"Could not isolate {requested_path!r} from active parent "
@@ -2512,46 +2507,6 @@ def _slice_parent_body(text: str, *, requested_path: str, resolved_path: str) ->
             f"{resolved_path!r}; missing structural marker path {missing!r}"
         )
     return sliced.strip()
-
-
-_PINNED_CFR_273_11_PARENT_SHA256 = (
-    "6808e0468eac7a775882c2abf9218c810347ba9edcddaa5c0c58dc694fe3dbce"
-)
-
-
-def _pinned_cfr_273_11_c_slice(
-    text: str, *, requested_path: str, resolved_path: str
-) -> str | None:
-    """Recover one independently checked parent span without generalizing ambiguity."""
-
-    if (
-        requested_path != "us/regulation/7/273/11/c"
-        or resolved_path != "us/regulation/7/273/11"
-        or hashlib.sha256(text.encode("utf-8")).hexdigest()
-        != _PINNED_CFR_273_11_PARENT_SHA256
-    ):
-        return None
-    c_heading = re.compile(
-        r"(?m)^\(c\) Treatment of income and resources of certain "
-        r"nonhousehold members\."
-    )
-    d_heading = re.compile(
-        r"(?m)^\(d\) Treatment of income and resources of other "
-        r"nonhousehold members\."
-    )
-    c_matches = tuple(c_heading.finditer(text))
-    d_matches = tuple(d_heading.finditer(text))
-    if len(c_matches) != 1 or len(d_matches) != 1:
-        raise CorpusSourceSliceError(
-            "Pinned 7 CFR 273.11(c) source has ambiguous structural boundaries"
-        )
-    start = c_matches[0].start()
-    end = d_matches[0].start()
-    if not 0 < start < end < len(text):
-        raise CorpusSourceSliceError(
-            "Pinned 7 CFR 273.11(c) source has invalid structural order"
-        )
-    return text[start:end].strip()
 
 
 def _us_legal_hierarchy_fragments(
@@ -2780,6 +2735,8 @@ def _slice_us_legal_hierarchy(
     target_level: int | None = None
     target_kind: str | None = None
     target_ordinal: int | None = None
+    recovered_alpha_seen = False
+    rejected_ending_marker = False
     rejected_target_seen = False
     ambiguous_unassigned_before_target = False
     provisional_levels: set[int] = set()
@@ -2805,6 +2762,23 @@ def _slice_us_legal_hierarchy(
         (match.start("marker") for match in marker_matches),
     )
     evidence_budget = _HierarchyEvidenceBudget()
+
+    def finish_slice(end: int) -> str:
+        assert target_start is not None
+        if recovered_alpha_seen:
+            if rejected_ending_marker:
+                raise CorpusSourceSliceError(
+                    "Ambiguous ending marker after recovered legal hierarchy"
+                )
+            if end == len(first_scope) and not (
+                _legal_source_has_complete_delimiter_replay(first_scope)
+            ):
+                raise CorpusSourceSliceError(
+                    "Could not verify delimiters for recovered legal hierarchy "
+                    "at end of source"
+                )
+        return first_scope[target_start:end]
+
     for marker_index, match in enumerate(marker_matches):
         token = match.group("token")
         directly_structural = _parenthetical_marker_is_structural(
@@ -2823,6 +2797,13 @@ def _slice_us_legal_hierarchy(
             document_class=document_class,
             delimiter_enclosed_starts=delimiter_enclosed_starts,
         )
+        continues_roman_sequence = _marker_continues_roman_sequence(
+            first_scope,
+            marker_matches,
+            marker_index,
+            evidence_budget=evidence_budget,
+            delimiter_enclosed_starts=delimiter_enclosed_starts,
+        )
         assigned = _assign_legal_marker_level(
             stack,
             token,
@@ -2830,6 +2811,7 @@ def _slice_us_legal_hierarchy(
             target_fragments=fragments,
             prefer_target_child=not directly_structural,
             prefer_roman_child=begins_roman_sequence,
+            continues_roman_sequence=continues_roman_sequence,
         )
         marker_kind_ordinals = _legal_marker_kind_ordinals(token)
         top_level_kind = _legal_marker_kind_for_level(0, document_class=document_class)
@@ -2849,7 +2831,7 @@ def _slice_us_legal_hierarchy(
             # Weak inline Roman/alpha collisions can temporarily corrupt the
             # inferred stack in flattened text. A later strongly anchored,
             # advancing top-level marker re-establishes the provision boundary.
-            assigned = (0, top_level_kind, top_level_ordinal)
+            assigned = (0, top_level_kind, top_level_ordinal, False)
         if assigned is None:
             if (
                 target_start is None
@@ -2879,7 +2861,7 @@ def _slice_us_legal_hierarchy(
                             first_scope,
                             match.start("marker"),
                         )
-                        return first_scope[target_start:sibling_start]
+                        return finish_slice(sibling_start)
                     raise CorpusSourceSliceError(
                         "Malformed duplicate or backward legal marker sequence"
                     )
@@ -2893,7 +2875,7 @@ def _slice_us_legal_hierarchy(
                         "Malformed duplicate or backward legal marker sequence"
                     )
             continue
-        level, kind, ordinal = assigned
+        level, kind, ordinal, recovered_alpha = assigned
         potential_ambiguous_advancing = (
             target_start is not None
             and target_level is not None
@@ -2929,6 +2911,20 @@ def _slice_us_legal_hierarchy(
             delimiter_enclosed_starts=delimiter_enclosed_starts,
         )
         if not marker_is_structural:
+            if (
+                target_level is not None
+                and level <= target_level
+                and has_strong_boundary
+                and match.start("marker") not in delimiter_enclosed_starts
+                and not _marker_follows_explicit_reference_cue(
+                    first_scope,
+                    match.start("marker"),
+                    context_start=last_structural_end,
+                )
+            ):
+                # A new interpretation must not silently swallow a plausible
+                # ending that the existing structural/reference veto rejects.
+                rejected_ending_marker = True
             if candidate_path == fragments and (
                 (directly_structural and has_strong_boundary) or has_preceding_heading
             ):
@@ -2947,6 +2943,7 @@ def _slice_us_legal_hierarchy(
                 stack.append((kind, token, ordinal))
                 provisional_levels.add(level)
             continue
+        recovered_alpha_seen |= recovered_alpha
         stack = stack[:level]
         provisional_levels = {
             provisional_level
@@ -3008,14 +3005,14 @@ def _slice_us_legal_hierarchy(
             sibling_start = _bracket_aware_marker_start(
                 first_scope, match.start("marker")
             )
-            return first_scope[target_start:sibling_start]
+            return finish_slice(sibling_start)
 
     if target_start is not None:
         if ambiguous_deep_advancing_level is not None:
             raise CorpusSourceSliceError(
                 "Ambiguous advancing legal marker below provisional scope"
             )
-        return first_scope[target_start:]
+        return finish_slice(len(first_scope))
     return None
 
 
@@ -3066,6 +3063,64 @@ def _marker_begins_roman_sequence(
     )
 
 
+def _legal_source_has_complete_delimiter_replay(text: str) -> bool:
+    """Require complete EOF evidence only for scopes using the new preference."""
+
+    try:
+        return len(text) not in _delimiter_enclosed_marker_starts(
+            text, (len(text),), allow_eof=True
+        )
+    except CorpusSourceSliceError:
+        # The extra EOF probe can reach a depth limit after the last marker.
+        # Failed evidence must not change an unrelated legacy slice.
+        return False
+
+
+def _marker_continues_roman_sequence(
+    text: str,
+    matches: tuple[re.Match[str], ...],
+    index: int,
+    *,
+    evidence_budget: _HierarchyEvidenceBudget,
+    delimiter_enclosed_starts: AbstractSet[int],
+) -> bool:
+    """Check the next anchored marker, skipping inline numeric references."""
+
+    current_ordinals = dict(_legal_marker_kind_ordinals(matches[index].group("token")))
+    roman_kind = next(
+        (kind for kind in ("lower_roman", "upper_roman") if kind in current_ordinals),
+        None,
+    )
+    if roman_kind is None:
+        return False
+    # Cache the next anchored token for every traversed index, so a tail of
+    # inline references is scanned once across the walk and its evidence scans.
+    next_token: str | None = None
+    visited: list[int] = []
+    for next_index in range(index + 1, len(matches)):
+        if next_index in evidence_budget.next_anchored_tokens:
+            next_token = evidence_budget.next_anchored_tokens[next_index]
+            break
+        visited.append(next_index)
+        next_match = matches[next_index]
+        next_ordinals = dict(_legal_marker_kind_ordinals(next_match.group("token")))
+        marker_start = next_match.start("marker")
+        if (
+            next_ordinals
+            and _parenthetical_marker_has_strong_boundary(text, marker_start)
+            and marker_start not in delimiter_enclosed_starts
+        ):
+            # A closing prose delimiter can veto a genuine line-start marker
+            # in the existing lexer. Its Roman continuation still makes the
+            # new ancestor-alpha interpretation unsafe.
+            next_token = next_match.group("token")
+            break
+    for visited_index in visited:
+        evidence_budget.next_anchored_tokens[visited_index] = next_token
+    next_ordinals = dict(_legal_marker_kind_ordinals(next_token or ""))
+    return next_ordinals.get(roman_kind) == current_ordinals[roman_kind] + 1
+
+
 def _assign_legal_marker_level(
     stack: list[tuple[str, str, int]],
     token: str,
@@ -3074,7 +3129,10 @@ def _assign_legal_marker_level(
     target_fragments: tuple[str, ...],
     prefer_target_child: bool,
     prefer_roman_child: bool,
-) -> tuple[int, str, int] | None:
+    continues_roman_sequence: bool,
+) -> tuple[int, str, int, bool] | None:
+    """Assign depth and report whether the new Roman/alpha preference was used."""
+
     possible = _legal_marker_kind_ordinals(token)
     if not possible:
         return None
@@ -3087,7 +3145,7 @@ def _assign_legal_marker_level(
     if prefer_roman_child:
         for kind, ordinal in possible:
             if kind == expected_child_kind:
-                return (child_level, kind, ordinal)
+                return (child_level, kind, ordinal, False)
     stack_path = tuple(item[1] for item in stack)
     if (
         prefer_target_child
@@ -3097,7 +3155,7 @@ def _assign_legal_marker_level(
     ):
         for kind, ordinal in possible:
             if kind == expected_child_kind:
-                return (child_level, kind, ordinal)
+                return (child_level, kind, ordinal, False)
     roman_alpha_kind = {
         "lower_roman": "lower_alpha",
         "upper_roman": "upper_alpha",
@@ -3113,10 +3171,10 @@ def _assign_legal_marker_level(
                     kind == expected_kind == roman_alpha_kind
                     and ordinal == stack[level][2] + 1
                 ):
-                    return (level, kind, ordinal)
+                    return (level, kind, ordinal, False)
         for kind, ordinal in possible:
             if kind == expected_child_kind:
-                return (child_level, kind, ordinal)
+                return (child_level, kind, ordinal, False)
 
     for level in range(len(stack) - 1, -1, -1):
         expected_kind = _legal_marker_kind_for_level(
@@ -3125,11 +3183,30 @@ def _assign_legal_marker_level(
         )
         for kind, ordinal in possible:
             if kind == expected_kind and ordinal > stack[level][2]:
-                return (level, kind, ordinal)
+                alpha_kind = {
+                    "lower_roman": "lower_alpha",
+                    "upper_roman": "upper_alpha",
+                }.get(kind)
+                if (
+                    alpha_kind is not None
+                    and ordinal != stack[level][2] + 1
+                    and not continues_roman_sequence
+                ):
+                    # A skipped Roman sibling can instead be the next letter
+                    # at an ancestor level. Neither side of a contiguous Roman
+                    # sequence may be promoted to that ancestor.
+                    alpha_ordinal = dict(possible).get(alpha_kind)
+                    for ancestor_level in range(level - 1, -1, -1):
+                        if (
+                            stack[ancestor_level][0] == alpha_kind
+                            and alpha_ordinal == stack[ancestor_level][2] + 1
+                        ):
+                            return (ancestor_level, alpha_kind, alpha_ordinal, True)
+                return (level, kind, ordinal, False)
 
     for kind, ordinal in possible:
         if kind == expected_child_kind:
-            return (child_level, kind, ordinal)
+            return (child_level, kind, ordinal, False)
     return None
 
 
@@ -3291,6 +3368,7 @@ _MAX_DELIMITER_NESTING_DEPTH = 256
 @dataclass
 class _HierarchyEvidenceBudget:
     remaining: int = _MAX_INLINE_HEADING_EVIDENCE_WORK
+    next_anchored_tokens: dict[int, str | None] = field(default_factory=dict)
 
     def consume(self) -> None:
         self.remaining -= 1
@@ -3722,6 +3800,13 @@ def _has_following_structural_sibling(
             document_class=document_class,
             delimiter_enclosed_starts=delimiter_enclosed_starts,
         )
+        continues_roman_sequence = _marker_continues_roman_sequence(
+            text,
+            marker_matches,
+            later_index,
+            evidence_budget=evidence_budget,
+            delimiter_enclosed_starts=delimiter_enclosed_starts,
+        )
         later_assigned = _assign_legal_marker_level(
             scan_stack,
             later_match.group("token"),
@@ -3729,6 +3814,7 @@ def _has_following_structural_sibling(
             target_fragments=(),
             prefer_target_child=False,
             prefer_roman_child=begins_roman_sequence,
+            continues_roman_sequence=continues_roman_sequence,
         )
         if later_assigned is None:
             if directly_structural and _unassigned_marker_blocks_hierarchy(
@@ -3739,7 +3825,7 @@ def _has_following_structural_sibling(
             ):
                 return False
             continue
-        later_level, later_kind, later_ordinal = later_assigned
+        later_level, later_kind, later_ordinal, _recovered_alpha = later_assigned
         if later_level > assigned_level:
             if has_provisional_evidence:
                 scan_stack = scan_stack[:later_level]
@@ -4084,6 +4170,8 @@ def _parenthetical_marker_is_structural(
 def _delimiter_enclosed_marker_starts(
     text: str,
     marker_starts: Iterable[int],
+    *,
+    allow_eof: bool = False,
 ) -> frozenset[int]:
     """Replay delimiter state once and identify enclosed marker offsets.
 
@@ -4092,6 +4180,9 @@ def _delimiter_enclosed_marker_starts(
     quadratic, while a fixed look-behind window forgets long quotations. This
     single forward pass retains balanced quote/bracket state with bounded
     memory and records only the supplied marker positions.
+
+    With ``allow_eof``, the offset ``len(text)`` reports unresolved delimiter
+    state after replaying the original source through its final character.
     """
 
     starts_list: list[int] = []
@@ -4116,7 +4207,11 @@ def _delimiter_enclosed_marker_starts(
     starts = tuple(starts_list)
     if not starts:
         return frozenset()
-    if starts[0] < 0 or starts[-1] >= len(text):
+    if (
+        starts[0] < 0
+        or starts[-1] > len(text)
+        or (starts[-1] == len(text) and not allow_eof)
+    ):
         raise CorpusSourceSliceError("Marker offset is outside corpus source text")
 
     # Each frame is ``(opening token, closing token, opening offset,
@@ -4522,6 +4617,12 @@ def _delimiter_enclosed_marker_starts(
 
         index += 1
 
+    if (
+        allow_eof
+        and starts[-1] == len(text)
+        and (malformed_delimiters or delimiter_stack)
+    ):
+        enclosed.add(len(text))
     return frozenset(enclosed)
 
 
