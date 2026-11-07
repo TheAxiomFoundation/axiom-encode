@@ -274,6 +274,25 @@ CHECK_RULES_ENGINE_COMPILE_CRASHED = declare_check(
     gate="compile",
     site=_SITE_COMPILE,
 )
+CHECK_COMPANION_RELATIONS_DERIVED_QUERY_REQUIRED = declare_check(
+    "tests:companion-relations/derived-query-required",
+    title="Explicit companion relations have no derived query output",
+    requires=(
+        "Each companion case containing `relations`, including an empty list, "
+        "asserts at least one compiled derived query output."
+    ),
+    why=(
+        "Explicit relation edges need a derived query's root entity; a "
+        "parameter-only case cannot execute the supplied graph."
+    ),
+    fix=(
+        "Assert a compiled derived query output in this case, or remove "
+        "`relations` if the case only checks parameters."
+    ),
+    cause="encoder_output",
+    gate="tests",
+    site="axiom_encode/harness/validator_pipeline.py:_run_rulespec_test_cases",
+)
 _ENGINE_LINE_RE = re.compile(r"\bline (\d+)\b")
 
 
@@ -39167,7 +39186,15 @@ class ValidatorPipeline:
 
             if "relations" in case and not derived_outputs:
                 issues.append(
-                    f"Test case `{case_name}` relations requires a derived query output"
+                    ValidationIssue(
+                        f"Test case `{case_name}` relations requires a derived query output",
+                        check=CHECK_COMPANION_RELATIONS_DERIVED_QUERY_REQUIRED,
+                        subject=IssueSubject(
+                            module=str(rules_file), test_case=case_name, field="output"
+                        ),
+                        expected="at least one derived query output",
+                        found="no derived query output",
+                    )
                 )
                 continue
 

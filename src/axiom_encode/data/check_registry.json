@@ -371,8 +371,20 @@
       "site": "axiom_encode/harness/proof_validator.py:_proof_excerpt_subsection_scope_issues",
       "title": "Proof excerpt lies outside the rule's declared subsection",
       "why": "A proof atom ties a rule to the exact source words it implements. An excerpt that is not in the cited provision, or not in the rule's own subsection, proves nothing and can hide an invented value or condition."
+    },
+    {
+      "category": "tests:companion-relations",
+      "cause": "encoder_output",
+      "fix": "Assert a compiled derived query output in this case, or remove `relations` if the case only checks parameters.",
+      "gate": "tests",
+      "id": "tests:companion-relations/derived-query-required",
+      "requires": "Each companion case containing `relations`, including an empty list, asserts at least one compiled derived query output.",
+      "severity": "important",
+      "site": "axiom_encode/harness/validator_pipeline.py:_run_rulespec_test_cases",
+      "title": "Explicit companion relations have no derived query output",
+      "why": "Explicit relation edges need a derived query's root entity; a parameter-only case cannot execute the supplied graph."
     }
   ],
-  "registry_sha256": "03a2bf3ee1428a84788d8085b5802ca62bdce38e5bba00e1b88f3d7fa7104a11",
+  "registry_sha256": "8004664ad0018642adaafefb8dd802fdde36707839fb0253fd8e5abdfe271512",
   "schema": "axiom-encode/check-registry/v1"
 }

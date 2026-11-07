@@ -9,6 +9,7 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
+from axiom_encode.checks import ValidationIssue
 from axiom_encode.cli import _execute_rulespec_test_case, _execute_rulespec_test_file
 from axiom_encode.harness.evals import _normalize_test_periods_to_effective_dates
 from axiom_encode.harness.same_case_execution import case_key
@@ -449,3 +450,17 @@ def test_parameter_only_graph_case_is_not_silently_ignored(tmp_path, executor):
             cases=[case],
         )
     assert "relations requires a derived query output" in str(failures)
+    if executor == "pipeline":
+        assert len(failures) == 1
+        issue = failures[0]
+        assert isinstance(issue, ValidationIssue)
+        assert issue.check == "tests:companion-relations/derived-query-required"
+        assert issue.definition().requires == (
+            "Each companion case containing `relations`, including an empty list, "
+            "asserts at least one compiled derived query output."
+        )
+        assert issue.subject.module == str(module)
+        assert issue.subject.test_case == case["name"]
+        assert issue.subject.field == "output"
+        assert issue.expected == "at least one derived query output"
+        assert issue.found == "no derived query output"
