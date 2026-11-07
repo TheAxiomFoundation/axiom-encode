@@ -331,6 +331,19 @@ class _TemporalFormulaValue:
 
 
 @dataclass(frozen=True)
+class _DeclaredDateTable:
+    """Closed local Date values and declared lineage, not source authentication."""
+
+    name: str
+    indexed_by: str
+    cells: tuple[tuple[int, date], ...]
+    source_atoms: tuple[tuple[str, str, str], ...]
+    index_versions: tuple[tuple[str, str, int, tuple[tuple[str, str, str], ...]], ...]
+    selected_index_atoms: tuple[tuple[str, str, str], ...] = ()
+    selected_index_value: int | None = None
+
+
+@dataclass(frozen=True)
 class _FormulaBranchNode:
     """One parsed RuleSpec conditional or match expression."""
 
@@ -29283,9 +29296,27 @@ def _evaluate_rulespec_formula(
                 continue
             if peek() == "LBRACKET":
                 consume("LBRACKET")
-                index = resolve(parse_expression())
+                index_reference = parse_expression()
+                index = resolve(index_reference)
                 consume("RBRACKET")
                 base = resolve(value)
+                if type(base) is _DeclaredDateTable:
+                    selected = _UNRESOLVED_CONDITION_VALUE
+                    if (
+                        is_reference(value)
+                        and value[1] == base.name
+                        and is_reference(index_reference)
+                        and index_reference[1] == base.indexed_by
+                        and type(index) is int
+                        and bool(base.selected_index_atoms)
+                        and index == base.selected_index_value
+                    ):
+                        for key, cell in base.cells:
+                            if key == index:
+                                selected = cell
+                                break
+                    value = selected
+                    continue
                 if (
                     base is _UNRESOLVED_CONDITION_VALUE
                     or index is _UNRESOLVED_CONDITION_VALUE
@@ -29959,6 +29990,26 @@ def _evaluate_condition_expression(
         if expression.id == "false":
             return False
         return environment.get(expression.id, _UNRESOLVED_CONDITION_VALUE)
+    if isinstance(expression, ast.Subscript):
+        if not isinstance(expression.value, ast.Name) or not isinstance(
+            expression.slice, ast.Name
+        ):
+            return _UNRESOLVED_CONDITION_VALUE
+        table = environment.get(expression.value.id)
+        if (
+            type(table) is not _DeclaredDateTable
+            or table.name != expression.value.id
+            or table.indexed_by != expression.slice.id
+            or not table.selected_index_atoms
+        ):
+            return _UNRESOLVED_CONDITION_VALUE
+        key = environment.get(table.indexed_by)
+        if type(key) is not int or key != table.selected_index_value:
+            return _UNRESOLVED_CONDITION_VALUE
+        for cell_key, cell_value in table.cells:
+            if key == cell_key:
+                return cell_value
+        return _UNRESOLVED_CONDITION_VALUE
     if isinstance(expression, ast.BoolOp):
         if isinstance(expression.op, ast.And):
             for item in expression.values:
@@ -40756,6 +40807,175 @@ def _resolved_imported_parameter_rules(
     return {name: rules[0] for name, rules in candidates.items() if len(rules) == 1}
 
 
+def _declared_date_table_environment(
+    payload: dict[str, Any], *, authoritative_citation_path: str
+) -> dict[str, Any]:
+    """Interpret closed Date tables; preserve values lineage without granting trust."""
+
+    rules = payload.get("rules")
+    inputs = payload.get("inputs", [])
+    if not isinstance(rules, list) or not isinstance(inputs, list):
+        return {}
+    declarations: dict[str, list[dict[str, Any]]] = {}
+    for item in [*rules, *inputs]:
+        if isinstance(item, dict) and isinstance(item.get("name"), str):
+            declarations.setdefault(item["name"], []).append(item)
+    result: dict[str, Any] = {}
+    forbidden = ("entity", "unit", "rounding", "default", "formula", "period")
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = rule.get("name")
+        index_name = rule.get("indexed_by")
+        if (
+            not isinstance(name, str)
+            or not isinstance(index_name, str)
+            or len(declarations.get(name, ())) != 1
+            or len(declarations.get(index_name, ())) != 1
+            or rule.get("kind") != "parameter"
+            or rule.get("dtype") != "Date"
+            or any(field in rule for field in forbidden)
+        ):
+            continue
+        index_rule = declarations[index_name][0]
+        if (
+            index_rule not in rules
+            or index_rule.get("kind") != "parameter"
+            or index_rule.get("dtype") != "Integer"
+            or any(field in index_rule for field in (*forbidden, "indexed_by"))
+        ):
+            continue
+        index_versions = index_rule.get("versions")
+        if (
+            not isinstance(index_versions, list)
+            or not index_versions
+            or len(index_versions) > _TEMPORAL_WITNESS_VERSION_LIMIT
+        ):
+            continue
+        index_atoms = tuple(
+            (path, citation, excerpt)
+            for path, citation, excerpt in _rule_source_excerpt_atoms(index_rule)
+            if authoritative_citation_path
+            and citation.strip("/").lower() == authoritative_citation_path
+            and excerpt.strip()
+        )
+        index_entries = []
+        for number, version in enumerate(index_versions):
+            if not isinstance(version, dict) or set(version) - {
+                "effective_from",
+                "effective_to",
+                "formula",
+            }:
+                break
+            start = version.get("effective_from")
+            end = version.get("effective_to", "")
+            if (
+                not isinstance(start, str)
+                or not _is_iso_calendar_date(start)
+                or not isinstance(end, str)
+                or (end and (not _is_iso_calendar_date(end) or end < start))
+            ):
+                break
+            try:
+                index_value = ast.literal_eval(str(version.get("formula")))
+            except (ValueError, SyntaxError):
+                break
+            if type(index_value) is not int:
+                break
+            paths = {
+                f"versions[{number}].formula",
+                f"versions[{number}].effective_from",
+            }
+            if end:
+                paths.add(f"versions[{number}].effective_to")
+            lineage = tuple(atom for atom in index_atoms if atom[0] in paths)
+            if {atom[0] for atom in lineage} != paths:
+                break
+            if any(
+                start <= (b or "9999-12-31") and a <= (end or "9999-12-31")
+                for a, b, _, _ in index_entries
+            ):
+                break
+            index_entries.append((start, end, index_value, lineage))
+        if len(index_entries) != len(index_versions):
+            continue
+        versions = rule.get("versions")
+        if (
+            not isinstance(versions, list)
+            or not versions
+            or len(versions) > _TEMPORAL_WITNESS_VERSION_LIMIT
+        ):
+            continue
+        atoms = tuple(
+            (path, citation, excerpt)
+            for path, citation, excerpt in _rule_source_excerpt_atoms(rule)
+            if authoritative_citation_path
+            and citation.strip("/").lower() == authoritative_citation_path
+            and excerpt.strip()
+        )
+        entries: list[tuple[str, str, Any]] = []
+        for number, version in enumerate(versions):
+            if not isinstance(version, dict) or set(version) - {
+                "effective_from",
+                "effective_to",
+                "values",
+            }:
+                break
+            start = version.get("effective_from")
+            end = version.get("effective_to", "")
+            values = version.get("values")
+            if (
+                not isinstance(start, str)
+                or not _is_iso_calendar_date(start)
+                or not isinstance(end, str)
+                or (end and (not _is_iso_calendar_date(end) or end < start))
+                or not isinstance(values, dict)
+                or not values
+                or len(values) > _TEMPORAL_WITNESS_NAME_LIMIT
+                or any(
+                    type(key) is not int
+                    or not isinstance(value, str)
+                    or not _is_iso_calendar_date(value)
+                    for key, value in values.items()
+                )
+            ):
+                break
+            required_paths = {
+                f"versions[{number}].values",
+                f"versions[{number}].effective_from",
+            }
+            if end:
+                required_paths.add(f"versions[{number}].effective_to")
+            selected_atoms = tuple(atom for atom in atoms if atom[0] in required_paths)
+            if {atom[0] for atom in selected_atoms} != required_paths:
+                break
+            if any(
+                start <= (prior_end or "9999-12-31")
+                and prior_start <= (end or "9999-12-31")
+                for prior_start, prior_end, _ in entries
+            ):
+                break
+            entries.append(
+                (
+                    start,
+                    end,
+                    _DeclaredDateTable(
+                        name,
+                        index_name,
+                        tuple(
+                            (key, date.fromisoformat(value))
+                            for key, value in sorted(values.items())
+                        ),
+                        selected_atoms,
+                        tuple(index_entries),
+                    ),
+                )
+            )
+        if len(entries) == len(versions):
+            result[name] = _TemporalFormulaValue(tuple(entries))
+    return result
+
+
 def _constant_rule_environment(payload: dict[str, Any]) -> dict[str, Any]:
     """Return bounded local parameter values and temporal aliases."""
 
@@ -40850,6 +41070,11 @@ def _constant_rule_environment(payload: dict[str, Any]) -> dict[str, Any]:
             for value in values[1:]
         ):
             environment[name] = values[0]
+    environment.update(
+        _declared_date_table_environment(
+            payload, authoritative_citation_path=authoritative_citation_path
+        )
+    )
     pending_aliases = {
         str(rule.get("name") or "").strip(): rule
         for rule in rules
@@ -41090,6 +41315,11 @@ def _formula_environment_for_case(
         if not _is_iso_calendar_date(period):
             if "period" not in case:
                 candidates = [candidate for _start, _end, candidate in value.versions]
+                if any(
+                    isinstance(candidate, _DeclaredDateTable)
+                    for candidate in candidates
+                ):
+                    continue
                 if candidates and all(
                     type(candidate) is type(candidates[0])
                     and candidate == candidates[0]
@@ -41101,6 +41331,49 @@ def _formula_environment_for_case(
         if len(selected_indexes) != 1:
             continue
         resolved[name] = value.versions[selected_indexes[0]][2]
+    raw_period = case.get("period")
+    valid_date_period = _is_iso_calendar_date(period) and (
+        type(raw_period) is date
+        or (
+            isinstance(raw_period, str)
+            and re.fullmatch(r"\d{4}(?:-\d{2}(?:-\d{2})?)?", raw_period.strip())
+            is not None
+        )
+        or (
+            isinstance(raw_period, dict)
+            and _case_runtime_period_start(case) is not _UNRESOLVED_CONDITION_VALUE
+        )
+    )
+    for name, table in tuple(resolved.items()):
+        if type(table) is not _DeclaredDateTable:
+            continue
+        if not valid_date_period:
+            del resolved[name]
+            continue
+        selected = [
+            entry
+            for entry in table.index_versions
+            if _is_iso_calendar_date(period)
+            and entry[0] <= period
+            and (not entry[1] or period <= entry[1])
+        ]
+        index_value = resolved.get(table.indexed_by)
+        if (
+            len(selected) != 1
+            or type(index_value) is not int
+            or index_value != selected[0][2]
+        ):
+            del resolved[name]
+            continue
+        resolved[name] = _DeclaredDateTable(
+            table.name,
+            table.indexed_by,
+            table.cells,
+            table.source_atoms,
+            table.index_versions,
+            selected[0][3],
+            selected[0][2],
+        )
     return resolved
 
 
