@@ -1,0 +1,1 @@
+Unsigned NL479 diagnostic regression fixture. Source body is the authenticated primary document (SHA256 9e88b12d0ddafe64504fb8b3fdb28d62e5a57bb371fd7c6b50aec19491a8c5a2). Policy and six cases are copied unchanged from the reviewed local diagnostic; they are not native generated or publication artifacts. This regression deliberately retains six unresolved source findings.

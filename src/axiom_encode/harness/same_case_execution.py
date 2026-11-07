@@ -373,6 +373,11 @@ class ExecutionCapture:
     records: list[CaseExecution] = field(default_factory=list)
     overlay_origin: ExecutionOverlayOrigin | None = None
 
+    # Minted only by snapshot materialization from resolver-owned source bodies.
+    # Neither constructor arguments nor RuleSpec/environment metadata grant it.
+    _child_credit_seed: Any = field(default=None, init=False, repr=False)
+    _child_credit_context: Any = field(default=None, init=False, repr=False)
+
     def fresh(self) -> bool:
         try:
             return (
@@ -396,8 +401,29 @@ class ExecutionCapture:
 
     def compiled(self, artifact: Path) -> None:
         self.records.clear()
+        self._child_credit_context = None
         self.artifact = artifact
-        self.artifact_sha256 = digest(artifact.read_bytes())
+        raw = artifact.read_bytes()
+        self.artifact_sha256 = digest(raw)
+        if self._child_credit_seed is not None:
+            from .child_credit_execution import _bind_capture_context
+
+            root = next(
+                (f for f in self.files if f.relative == self.root_relative), None
+            )
+            companion_path = str(Path(self.root_relative).with_suffix(".test.yaml"))
+            companion = next(
+                (f for f in self.files if f.relative == companion_path), None
+            )
+            if root is not None and companion is not None:
+                self._child_credit_context = _bind_capture_context(
+                    self._child_credit_seed,
+                    root.raw.decode(),
+                    self.root_relative,
+                    self.engine_pin,
+                    raw,
+                    companion.raw,
+                )
 
     def stage(
         self,
@@ -428,7 +454,19 @@ class ExecutionCapture:
         ):
             return
         trace = row.get("trace")
-        if not isinstance(trace, dict) or any(
+        if self._child_credit_seed is not None:
+            context = self._child_credit_context
+            if (
+                context is None
+                or context.binding != self._child_credit_seed
+                or context.root_relative != self.root_relative
+                or context.engine_pin != self.engine_pin
+                or not context.accepts(
+                    self.artifact.read_bytes(), case, request, response, case_index
+                )
+            ):
+                return
+        elif not isinstance(trace, dict) or any(
             not isinstance(n, dict)
             or n.get("id") != key
             or n.get("entity_id") != q.get("entity_id")
@@ -619,8 +657,35 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
         payload = _payload(content.encode())
         imports = payload.get("imports", [])
         companion = pipe._rulespec_test_path(rules_file)
-        if not imports or pipe.rulespec_dependency_roots or not companion.is_file():
+        if pipe.rulespec_dependency_roots or not companion.is_file():
             return None
+        local_form = False
+        if imports == []:
+            from .bound_form_operands import bind_local_form_snapshot
+
+            sources = (
+                pipe._proof_source_texts_for_rulespec_content(
+                    content,
+                    source_texts=pipe._source_texts_for_rulespec_content(content),
+                )
+                or {}
+            )
+            local_form = bind_local_form_snapshot(
+                content,
+                sources,
+                rules_file.relative_to(root).as_posix(),
+            )
+            if not local_form:
+                from .child_credit_execution import _capture_source_binding
+
+                local_form = (
+                    _capture_source_binding(
+                        content, sources, rules_file.relative_to(root).as_posix()
+                    )
+                    is not None
+                )
+            if not local_form:
+                return None
         exports = pipe._complete_source_unit_import_bindings(rules_file)
         derived = set()
         for export in exports:
@@ -632,7 +697,9 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
                 for r in provider.get("rules", [])
             ):
                 derived.add(export.export_name)
-        if not derived or not _has_consumer(pipe, content, payload, derived):
+        if not local_form and (
+            not derived or not _has_consumer(pipe, content, payload, derived)
+        ):
             return None
         pending = [rules_file]
         files: dict[Path, ClosureFile] = {}
@@ -747,6 +814,31 @@ def _materialize_snapshot(
     )
     if not capture.fresh():
         return None
+    root_file = next(f for f in capture.files if f.relative == capture.root_relative)
+    content = root_file.raw.decode()
+    if _payload(root_file.raw).get("imports", []) == []:
+        from .bound_form_operands import bind_local_form_snapshot
+        from .child_credit_execution import _capture_source_binding
+
+        sources = (
+            pipe._proof_source_texts_for_rulespec_content(
+                content, source_texts=pipe._source_texts_for_rulespec_content(content)
+            )
+            or {}
+        )
+        seed = _capture_source_binding(content, sources, capture.root_relative)
+        if seed is not None:
+            companion = str(Path(capture.root_relative).with_suffix(".test.yaml"))
+            if {f.relative for f in capture.files} != {
+                capture.root_relative,
+                companion,
+            }:
+                return None
+            capture._child_credit_seed = seed
+        elif not bind_local_form_snapshot(content, sources, capture.root_relative):
+            # An eligible NS graph cannot fall back to an unbound same-entity
+            # capture if its resolver selection changed during cloning.
+            return None
     return capture
 
 
