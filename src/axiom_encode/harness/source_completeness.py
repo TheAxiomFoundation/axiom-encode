@@ -3424,7 +3424,7 @@ def _qualified_parenthesized_legal_outline_markers(
     markers: list[_OutlineMarker] = []
     emitted_paths: set[tuple[str, ...]] = set()
     active: list[tuple[int, str, str, str]] = []
-    for match in matches:
+    for match_index, match in enumerate(matches):
         raw_labels = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", match.group("marker")))
         if not raw_labels or not all(
             _is_parenthesized_outline_label(label) for label in raw_labels
@@ -3433,11 +3433,21 @@ def _qualified_parenthesized_legal_outline_markers(
         marker_start = match.start("marker")
         attached_parent_level: int | None = None
         for label_index, raw_label in enumerate(raw_labels):
+            following_label = (
+                raw_labels[label_index + 1]
+                if label_index + 1 < len(raw_labels)
+                else _first_parenthesized_outline_label(matches, match_index + 1)
+            )
+            if label_index == 0 and raw_label == "i" and following_label == "A":
+                # (A) opens children under either reading of (i), so look
+                # past them to the next marker at the level of (i).
+                following_label = _next_label_beside_i(matches, match_index + 1)
             level, category = _parenthesized_legal_outline_level(
                 raw_label,
                 active=active,
                 attached_parent_level=attached_parent_level,
                 outline_levels=outline_levels,
+                following_label=following_label,
             )
             if (
                 marker_start in inline_marker_starts
@@ -3671,12 +3681,73 @@ def _inline_outline_marker_has_reference_context(
     )
 
 
+def _first_parenthesized_outline_label(
+    matches: Sequence[re.Match[str]],
+    index: int,
+) -> str | None:
+    """Return the first label of the marker at ``index``, if there is one."""
+
+    if index >= len(matches):
+        return None
+    labels = re.findall(r"\(([A-Za-z0-9]+)\)", matches[index].group("marker"))
+    return labels[0] if labels else None
+
+
+def _next_label_beside_i(
+    matches: Sequence[re.Match[str]],
+    start: int,
+) -> str | None:
+    """Return ``(ii)`` or ``(j)``, whichever next stands at the level of an ``(i)``.
+
+    The scan starts inside the children of ``(i)``. Each nested ``(i)`` pairs
+    with a later ``(ii)``, so only an unpaired ``(ii)`` or ``(j)`` counts. A
+    lower-case letter that is neither ``(j)`` nor a roman numeral ends the
+    scan: the outline has moved past the place where either could stand.
+    """
+
+    unpaired = 0
+    for match in matches[start:]:
+        labels = re.findall(r"\(([A-Za-z0-9]+)\)", match.group("marker"))
+        if not labels or not all(
+            _is_parenthesized_outline_label(label) for label in labels
+        ):
+            continue
+        label = labels[0]
+        if label == "i":
+            unpaired += 1
+        elif label == "ii":
+            if not unpaired:
+                return label
+            unpaired -= 1
+        elif label == "j":
+            if not unpaired:
+                return label
+        elif _parenthesized_legal_outline_categories(label) == ("lower-alpha",):
+            return None
+    return None
+
+
+def _outline_label_opens_roman_items(following_label: str | None) -> bool:
+    """Whether an ``(i)`` opens roman items, judged by the marker after it.
+
+    ``(i)`` is both the letter after ``(h)`` and the first roman numeral. A
+    roman ``(i)`` has ``(ii)`` as its next sibling and a lettered ``(i)`` has
+    ``(j)``, so ``(i)`` reads as roman when the next marker at its level is
+    ``(ii)``. ``following_label`` is the first label of the next marker, or,
+    when that marker is a child ``(A)``, the label
+    :func:`_next_label_beside_i` finds.
+    """
+
+    return following_label == "ii"
+
+
 def _parenthesized_legal_outline_level(
     raw_label: str,
     *,
     active: Sequence[tuple[int, str, str, str]],
     attached_parent_level: int | None,
     outline_levels: Sequence[str],
+    following_label: str | None = None,
 ) -> tuple[int, str]:
     categories = _parenthesized_legal_outline_categories(raw_label)
     candidate_levels = tuple(
@@ -3691,6 +3762,22 @@ def _parenthesized_legal_outline_level(
             candidate_levels[-1],
         )
         return level, outline_levels[level]
+
+    if raw_label == "i" and _outline_label_opens_roman_items(following_label):
+        # Inside paragraph (h), an (i) that opens a marker also reads as the
+        # next lettered paragraph. When the next marker at its level is (ii),
+        # not (j), it opens roman items under the innermost open marker.
+        parent_level = active[-1][0] if active else -1
+        roman_level = next(
+            (
+                level
+                for level in candidate_levels
+                if level > parent_level and outline_levels[level] == "roman"
+            ),
+            None,
+        )
+        if roman_level is not None:
+            return roman_level, "roman"
 
     continuing = [
         (level, category)
