@@ -71,6 +71,7 @@ EXPECTED_CONSUMERS = {
     ("measurement_role_evidence", "evidence"): 1,
     ("measurement_role_evidence", "_current_evidence"): 1,
     ("source_completeness", "_annual_source_evidence"): 1,
+    ("source_completeness", "_annual_form_source_evidence"): 1,
     ("source_completeness", "_formula_execution_is_source_branch_witness"): 2,
     ("source_completeness", "_unasserted_reached_formula_dependency_names"): 1,
     ("source_completeness", "_case_dependency_environment"): 2,

@@ -68,6 +68,15 @@ class SamePageFloor:
 
 
 @dataclass(frozen=True)
+class AnnualFormYearRole:
+    """Literal reporting-year coordinates; neither arithmetic nor source credit."""
+
+    owner_span: tuple[int, int]
+    year_span: tuple[int, int]
+    header_span: tuple[int, int]
+
+
+@dataclass(frozen=True)
 class PrintedRowStructure:
     boundaries: tuple[int, ...]
     atomic_spans: tuple[tuple[int, int], ...]
@@ -80,6 +89,7 @@ class PrintedRowStructure:
     nonoperative_header_spans: tuple[tuple[int, int], ...] = ()
     same_page_floors: tuple[SamePageFloor, ...] = ()
     note_marker_spans: tuple[tuple[int, int], ...] = ()
+    annual_form_year_roles: tuple[AnnualFormYearRole, ...] = ()
 
 
 # Exact detached Schedule 2 transcription. Every record includes its literal
@@ -832,6 +842,26 @@ def _multipage_t936_rows(text: str) -> PrintedRowStructure | None:
         locators.append((pos, pos + len(token)))
     if len(locators) != len(set(locators)):
         return None
+    annual_roles = []
+    for role in (
+        "part1_row6",
+        "part1_totalA",
+        "part2_row11",
+        "part2_totalB",
+        "part3_row14",
+        "part3_row19",
+    ):
+        start, end = records[role]
+        match = re.search(r"(?:claimed|reported) in (?P<year>2025)\b", text[start:end])
+        if match is None:
+            return None
+        annual_roles.append(
+            AnnualFormYearRole(
+                (start, end),
+                (start + match.start("year"), start + match.end("year")),
+                (records["header"][0], text.index("\n")),
+            )
+        )
     return PrintedRowStructure(
         boundaries=tuple(sorted(boundaries)),
         atomic_spans=tuple(sorted(set(atomic))),
@@ -843,6 +873,7 @@ def _multipage_t936_rows(text: str) -> PrintedRowStructure | None:
         ownership_spans=tuple(sorted(ownership)),
         nonoperative_header_spans=tuple(records[role] for role in header_roles),
         numeric_locator_spans=tuple(sorted(locators)),
+        annual_form_year_roles=tuple(annual_roles),
         note_marker_spans=tuple(
             (records[role][0], records[role][0] + 3) for role in ("note1", "note2")
         ),

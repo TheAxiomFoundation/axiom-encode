@@ -107,6 +107,7 @@ def test_only_reviewed_source_callers_opt_in():
             "_printed_operation_context",
             "_source_clause_spans",
             "_source_exception_branches",
+            "_annual_form_source_evidence",
         ]
     }
 

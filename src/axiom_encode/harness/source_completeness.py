@@ -23993,6 +23993,114 @@ def _annual_source_evidence(
     return tuple(evidence)
 
 
+def _annual_form_source_evidence(
+    rule: dict[str, Any],
+    *,
+    case: dict[str, Any],
+    execution: _FormulaExecution | None,
+    branch: SourceStructureBranch,
+    source_text: str,
+    corpus_citation_path: str,
+) -> tuple[_AnnualSourceEvidence, ...]:
+    """Tentative reporting-year roles from a fully recognized annual form.
+
+    Recognition identifies coordinates only. The existing complete formula
+    witness must succeed before the caller commits any represented occurrence.
+    Historical and acquisition years receive no evidence from this path.
+    """
+    if not source_text or source_text[branch.start : branch.end] != branch.text:
+        return ()
+    structure = recognize_printed_rows(source_text, allow_multipage=True)
+    if structure is None or not structure.annual_form_year_roles:
+        return ()
+    raw_period = case.get("period")
+    if isinstance(raw_period, dict):
+        if type(_case_runtime_period_start(case)) is not date:
+            return ()
+    elif not isinstance(raw_period, str):
+        return ()
+    period = _normalized_case_period(case)
+    if not _is_iso_calendar_date(period):
+        return ()
+    selected = _selected_rule_formula_version_index(rule, case)
+    if selected is None:
+        return ()
+    intervals = _effective_formula_version_intervals(rule)
+    versions = rule.get("versions", [])
+    if len(intervals) != len(versions):
+        return ()
+    raw_intervals = [(v.get("effective_from"), v.get("effective_to")) for v in versions]
+    if any(
+        not isinstance(a, str)
+        or not isinstance(b, str)
+        or not _is_iso_calendar_date(a)
+        or not _is_iso_calendar_date(b)
+        or a > b
+        for a, b in raw_intervals
+    ) or any(
+        start <= other_end and other_start <= end
+        for i, (start, end) in enumerate(raw_intervals)
+        for other_start, other_end in raw_intervals[i + 1 :]
+    ):
+        return ()
+    if execution is None or not _asserted_formula_runtime_values_equal(
+        rule,
+        _formula_execution_runtime_value(execution),
+        _test_case_asserted_output_value(case, str(rule.get("name") or "")),
+    ):
+        return ()
+    quoted = _annual_source_quoted_spans(source_text)
+    if quoted is None:
+        return ()
+    citation = corpus_citation_path.strip("/").casefold()
+    if not citation:
+        return ()
+    atoms = tuple(_rule_source_excerpt_atoms(rule))
+    version = rule["versions"][selected]
+    result = []
+    for role in structure.annual_form_year_roles:
+        start, end = role.year_span
+        owner_start, owner_end = role.owner_span
+        header_start, header_end = role.header_span
+        header = source_text[header_start:header_end]
+        year = int(source_text[start:end])
+        if (
+            not owner_start <= branch.start <= start < end <= branch.end <= owner_end
+            or any(a <= start < b or a <= header_start < b for a, b in quoted)
+            or (version.get("effective_from"), version.get("effective_to"))
+            != (f"{year}-01-01", f"{year}-12-31")
+            or not f"{year}-01-01" <= period <= f"{year}-12-31"
+            or (
+                isinstance(raw_period, dict)
+                and str(raw_period["end"]) > f"{year}-12-31"
+            )
+        ):
+            continue
+        if not all(
+            any(
+                re.sub(r"\s+", "", path) == f"versions[{selected}].{field}"
+                and atom_citation.strip("/").casefold() == citation
+                and excerpt.strip() == header
+                for path, atom_citation, excerpt in atoms
+            )
+            for field in ("effective_from", "effective_to")
+        ):
+            continue
+        owner = source_text[owner_start:owner_end].strip()
+        if not any(
+            _formula_proof_version_index(path) == selected
+            and atom_citation.strip("/").casefold() == citation
+            and excerpt.strip() == owner
+            and source_states_explicit_computation(excerpt)
+            for path, atom_citation, excerpt in atoms
+        ):
+            continue
+        result.append(
+            _AnnualSourceEvidence(start, end, year, str(rule["name"]), selected)
+        )
+    return tuple(result)
+
+
 def _statutory_credit_operand_is_nonaffirmative(text: str) -> bool:
     return bool(
         re.search(
@@ -24553,6 +24661,13 @@ def _formula_branch_test_witnesses(
                 )
             execution = execution_cache[execution_key]
             annual_evidence = _annual_source_evidence(
+                rule,
+                case=case,
+                execution=execution,
+                branch=branch,
+                source_text=source_text,
+                corpus_citation_path=corpus_citation_path,
+            ) + _annual_form_source_evidence(
                 rule,
                 case=case,
                 execution=execution,
