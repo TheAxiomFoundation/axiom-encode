@@ -17988,8 +17988,36 @@ def _worksheet_monetary_operation_antecedent(body: str) -> str | None:
     return None
 
 
+def _chart_completion_purpose_antecedent(body: str) -> str | None:
+    match = re.fullmatch(
+        r'(?P<antecedent>[^.;:!?"“”●•]+),\s*first\s+complete\s+'
+        r"Chart\s+[A-Z][0-9]?\s+on\s+page\s+[1-9]\d?\s+of\s+this\s+form\s+"
+        r"to\s+determine\s+if\s+you\s+have\s+additional\s+investment\s+income\s+"
+        r"to\s+include\s+when\s+you\s+calculate\s+your\s+[A-Z][A-Z0-9]{1,12}\.\s*",
+        body,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    antecedent = match.group("antecedent")
+    # Nested conditional introducers need the conservative original analysis;
+    # retaining their text alone does not prove the caller preserves the gate.
+    if re.search(r"\b(?:if|unless|when|where|provided|except)\b", antecedent, re.I):
+        return None
+    return re.sub(
+        r"\bqualified[ \t]+small[ \t]*\r?\n[ \t]*business[ \t]+corporation[ \t]+shares\b",
+        "qualified small business corporation shares",
+        antecedent,
+        flags=re.IGNORECASE,
+    )
+
+
 def _without_worksheet_imperative_consequent(body: str) -> str:
     """Separate a bounded worksheet command from its factual antecedent."""
+
+    chart_antecedent = _chart_completion_purpose_antecedent(body)
+    if chart_antecedent is not None:
+        return chart_antecedent
 
     monetary_antecedent = _worksheet_monetary_operation_antecedent(body)
     if monetary_antecedent is not None:
@@ -18294,12 +18322,43 @@ def _closed_filing_return_alternatives(text: str) -> bool:
     return re.fullmatch(pattern, " ".join(text.split()), re.IGNORECASE) is not None
 
 
+def _concessive_form_completion_condition(text: str) -> str | None:
+    """Separate an express non-prerequisite from a same-actor form duty."""
+
+    match = re.fullmatch(
+        r"\s*Even\s+if\s+you\s+are\s+not\s+claiming\s+"
+        r"a\s+capital\s+gains\s+deduction\s+in\s+\d{4},\s*"
+        r"you\s+should\s+still\s+complete\s+this\s+form\s+if\s+"
+        r'(?P<condition>you\b[^.;:!?"“”●•]+)\.\s*',
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    condition = match.group("condition")
+    # This noun phrase can wrap in physical prose. Do not collapse independent
+    # lines or lists elsewhere in the condition.
+    condition = re.sub(
+        r"\binvestment[ \t]*\r?\n[ \t]*income\b",
+        "investment income",
+        condition,
+        flags=re.IGNORECASE,
+    )
+    return "If " + condition + "."
+
+
 def _source_conjunctive_fact_gates(
     text: str,
     *,
     care_source_text: str | None = None,
 ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
     """Return distinct entity/predicate signatures from one condition."""
+
+    actual_condition = _concessive_form_completion_condition(text)
+    if actual_condition is not None:
+        if care_source_text is None:
+            care_source_text = text
+        text = actual_condition
 
     if _closed_filing_return_alternatives(text):
         return ()
