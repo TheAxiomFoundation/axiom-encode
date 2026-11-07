@@ -18137,12 +18137,27 @@ def _closed_complementary_return_amount_row(text: str) -> bool:
     )
 
 
+def _closed_filing_return_alternatives(text: str) -> bool:
+    """Recognize a complete same-actor filing/nonfiling instruction pair."""
+    actor = r"your (?:spouse(?: or common-law partner)?|common-law partner)"
+    pattern = (
+        rf"If (?P<actor>{actor}) is filing a return, use the amounts entered on their return\. "
+        r"If (?P=actor) is not filing a return, use the amounts they would have entered "
+        r"on their return, schedules, and worksheets as if they were filing a return, "
+        r"and attach their information slips\."
+    )
+    return re.fullmatch(pattern, " ".join(text.split()), re.IGNORECASE) is not None
+
+
 def _source_conjunctive_fact_gates(
     text: str,
     *,
     care_source_text: str | None = None,
 ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
     """Return distinct entity/predicate signatures from one condition."""
+
+    if _closed_filing_return_alternatives(text):
+        return ()
 
     if _closed_complementary_return_amount_row(text):
         return ()
