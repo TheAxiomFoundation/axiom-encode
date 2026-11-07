@@ -101,6 +101,10 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 from axiom_encode import __version__
+from axiom_encode.companion_edges import (
+    explicit_companion_relations,
+    explicit_relation_root,
+)
 from axiom_encode.companion_entities import (
     assign_generated_fixture_ids,
     cross_entity_input_findings,
@@ -6141,13 +6145,15 @@ def _execute_rulespec_test_case(
     failures: list[dict[str, str | None]] = []
     period = _rulespec_period_spec(case.get("period", "2026-01"))
     interval = {"start": period["start"], "end": period["end"]}
-    root_entity_id = "case"
+    root_entity_id = explicit_relation_root(case) if "relations" in case else "case"
     expected = case.get("output") or {}
     expected_entities = {
         str(derived_by_id[str(output)].get("entity") or "Case")
         for output in expected
         if str(output) in derived_by_id
     }
+    if "relations" in case and not expected_entities:
+        raise ValueError("relations requires a derived query output")
     if len(expected_entities) > 1:
         raise ValueError(
             "mixes derived output entities "
@@ -6202,6 +6208,7 @@ def _execute_rulespec_test_case(
         ),
     )
 
+    related_row_index = 0
     for key, value in (case.get("input") or {}).items():
         key = str(key)
         flat_inputs[key] = value
@@ -6255,8 +6262,9 @@ def _execute_rulespec_test_case(
                 current_slot, executable_entity = direction
                 if executable_entity is not None:
                     related_entity = executable_entity
-            for row_index, row in enumerate(value):
-                related_id = f"related_{row_index}"
+            for row in value:
+                related_id = f"related_{related_row_index}"
+                related_row_index += 1
                 relation_tuple = [related_id, root_entity_id]
                 if current_slot == 0:
                     relation_tuple.reverse()
@@ -6372,6 +6380,18 @@ def _execute_rulespec_test_case(
                         (table_entity, row_ids, 0, inputs[input_start:])
                     )
             table_rows_by_entity[table_entity] = resolved_rows
+
+    if "relations" in case:
+        relations.extend(
+            explicit_companion_relations(
+                case["relations"],
+                tables=tables,
+                root_id=root_entity_id,
+                root_entity=query_entity,
+                compiled_relations=compiled_relations,
+                interval=interval,
+            )
+        )
 
     require_distinct_entity_ids(occupied_entity_ids)
     assign_generated_fixture_ids(generated_table_rows, occupied_entity_ids)
