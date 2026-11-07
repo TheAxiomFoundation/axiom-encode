@@ -139,6 +139,52 @@ a record only by that digest, so a long issue keeps its check and fix when a
 (`scripts/extract_repair_candidate.py`) checks `typed_issues` but writes only
 the candidate pair, so a workflow repair replay has no prior issues to re-type.
 
+## Bounded physical allowance alternatives
+
+The source-explicit-condition factual-gate check has a closed reader for a
+same-period expense allowance list: a shared minimum distinct-object count,
+followed by physical `any of the following applies` bullets. Each supported
+bullet coordinates an action with billing, and either states a bounded causal
+alternative or repeats the shared period. The reader consumes the whole source
+unit; it is not a general English parser. Other source shapes retain existing
+analysis. Recognized lists with missing or ambiguous proof ownership fail.
+
+This reader requires an explicit shared-set identifier contract. For a source
+object such as `warehouses`, a common prefix containing that object token, such
+as `stored_warehouses`, identifies the caller-classified set. Other prefix words
+are unrestricted; the object token is required:
+
+- `<prefix>_distinct_expense_warehouse_count` is a `Count`, not an invoice count.
+- `<prefix>_billed_for_those_warehouses` and
+  `<prefix>_<action>_those_warehouses` are separate Boolean facts for that same
+  set. The literal source action `moves` instead requires
+  `<prefix>_moves_between_those_warehouses`, meaning the actor moves between
+  the objects, not physically moves the objects themselves. Other actions
+  cannot use `between` to replace a direct-object assertion.
+- `<prefix>_because_of_<source_cause>` supplies a separate causal fact when the
+  source requires one. The supported coordinated causal wording is bounded,
+  such as `research or training away from office`.
+
+The object and actions come from the source, not a jurisdiction or concept
+allowlist. Unsupported identifiers and nonempty free-form input descriptions
+cannot corroborate this closed contract; the reader does not guess whether
+prose redefines the count, billing set, or causal relationship. Facts and output
+must share the declared entity and source period. The count comparison must
+match the source minimum, including its supported integer complement.
+
+Every signed granting formula path must supply the shared prerequisites and
+one entire factual alternative. A false prefix in an `or` expression cannot
+provide positive evidence. Local derived dependencies retain temporal
+partitions; gaps, overlaps, cycles, unknown references, unsupported expressions,
+and path caps fail closed. Exact authoritative formula proofs must cover the
+shared clause and every physical alternative.
+
+This verifies neither raw object identities nor raw causal evidence. Those
+remain caller-classification obligations. Passing this check alone establishes
+neither coverage of every legal alternative nor complete semantic equivalence,
+successful protected validation, or oracle parity. No historical failed run is
+reclassified, and generated candidates are not manually rewritten to fit it.
+
 ## Publish the registry
 
 - `axiom-encode checks` lists the checks; `axiom-encode checks --json` prints
