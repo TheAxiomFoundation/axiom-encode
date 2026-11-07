@@ -27515,8 +27515,8 @@ def _case_asserted_dependency_environment(
 # checks, each time with the same rule, case and constant mappings.
 # `_case_dependency_environment_memo_scope` holds a memo for one analysis so a
 # repeat can reuse an earlier result. The memo partitions entries by the
-# ambient Decimal settings, observed native float behavior (signed rounding,
-# subnormal results and subnormal inputs) and the Python frames still available.
+# ambient Decimal settings and observed native float behavior (signed rounding,
+# subnormal results and subnormal inputs).
 # Native traps must be masked before probing. Every hit still needs the same
 # input objects and a matching digest of their contents; fingerprint failures or
 # an unsafe/unreadable probe run fresh.
