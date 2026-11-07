@@ -399,8 +399,9 @@ class TestUndeclaredBareNumericValues:
 
         assert _same_value(value, 0)
 
-    def test_a_hash_inside_a_string_starts_no_comment(self):
-        payload = _module(formula='if code == "a#b": transfers else: 0')
+    @pytest.mark.parametrize("literal", ['"a#b"', "'a#b'"])
+    def test_a_hash_inside_a_string_starts_no_comment(self, literal):
+        payload = _module(formula=f"if code == {literal}: transfers else: 0")
 
         value = _default_generated_test_input_value("transfers", rules_payload=payload)
 
