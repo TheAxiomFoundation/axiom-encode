@@ -18115,12 +18115,37 @@ def _closed_nested_reason_list(body: str) -> tuple[str, tuple[str, ...]] | None:
     return "\n".join(lines[:index]), tuple(alternatives)
 
 
+def _closed_complementary_return_amount_row(text: str) -> bool:
+    """Two exhaustive amount arms are not two simultaneous factual gates.
+
+    This recognizes only a complete worksheet instruction with the same
+    measure, owner and literal threshold. Both arms remain formula obligations.
+    """
+    normalized = " ".join(text.split())
+    return (
+        re.fullmatch(
+            r"(?:Spouse's or common-law partner's taxable income: )?"
+            r"Enter the amount from line [1-9][0-9]{0,4} of (?P<owner>your|their) "
+            r"return on line [1-9][0-9]{0,2} if it is "
+            r"(?P<threshold>\$[1-9][0-9]*(?:,[0-9]{3})*) or less\. "
+            r"If it is more than (?P=threshold), enter the result of the following "
+            r"calculation: amount from line [1-9][0-9]{0,4} of (?P=owner) return "
+            r"÷ [1-9][0-9]*(?:\.[0-9]+)?% =",
+            normalized,
+        )
+        is not None
+    )
+
+
 def _source_conjunctive_fact_gates(
     text: str,
     *,
     care_source_text: str | None = None,
 ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
     """Return distinct entity/predicate signatures from one condition."""
+
+    if _closed_complementary_return_amount_row(text):
+        return ()
 
     if _direct_exception_reverses_negative_proposition(text):
         reversal = _negative_proposition_reversal_match(text)
@@ -18748,6 +18773,7 @@ def _source_condition_clauses_owned_by_excerpt(
     branches: Sequence[SourceStructureBranch],
     corpus_citation_path: str,
     narrow_conjunctive_excerpt: bool = True,
+    allow_detached_rows: bool = False,
 ) -> tuple[tuple[_SourceConditionClause, ...], bool]:
     """Resolve exact proof text to rule-cited propositions, reporting ambiguity."""
 
@@ -18762,7 +18788,10 @@ def _source_condition_clauses_owned_by_excerpt(
     if not matches:
         return (), False
     printed_rows = _unconflicted_printed_rows(
-        source_text, branches, corpus_citation_path=corpus_citation_path
+        source_text,
+        branches,
+        corpus_citation_path=corpus_citation_path,
+        allow_detached=allow_detached_rows,
     )
     bare_labels = (
         bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
@@ -20152,6 +20181,7 @@ def _opaque_same_source_condition_input_issues(
                     branches=branches,
                     corpus_citation_path=corpus_citation_path,
                     narrow_conjunctive_excerpt=len(excerpts) == 1,
+                    allow_detached_rows=True,
                 )
                 factual_parent = _source_owned_residence_parent_clause(
                     excerpt,

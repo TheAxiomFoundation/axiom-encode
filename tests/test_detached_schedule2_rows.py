@@ -267,3 +267,58 @@ def test_competing_header_owner_keeps_condition():
         corpus_citation_path=CITATION,
     )
     assert any("Protected B when completed" in b.text for b in obligations)
+
+
+def income_row():
+    rows = recognize_printed_rows(SOURCE, allow_detached=True)
+    return next(SOURCE[a:b] for a, b in rows.ownership_spans if "57,375" in SOURCE[a:b])
+
+
+def test_complementary_amount_row_keeps_one_measure_not_two_fact_gates():
+    assert s._closed_complementary_return_amount_row(income_row())
+    assert s._source_conjunctive_fact_gates(income_row()) == ()
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        ("more than $57,375", "more than $57,376"),
+        ("or less", "or more"),
+        ("If it is more", "If another amount is more"),
+        ("line 76 of their", "line 76 of your"),
+        ("14.5% =", "14.5% = if resident"),
+        ("14.5% =", "14.5% = and disabled"),
+    ],
+)
+def test_noncomplementary_or_added_conditions_are_not_cleared(old, new):
+    assert not s._closed_complementary_return_amount_row(income_row().replace(old, new))
+
+
+def test_real_conjunction_still_requires_two_facts():
+    assert (
+        len(
+            s._source_conjunctive_fact_gates(
+                "If your spouse is disabled and dependent on you, claim the amount."
+            )
+        )
+        >= 2
+    )
+
+
+def test_detached_owner_is_explicit_and_private_default_preserved():
+    row = income_row()
+    excerpt = row.split("\n", 1)[1]
+    args = dict(
+        rule={"name": "income"},
+        source_text=SOURCE,
+        branches=(),
+        corpus_citation_path=CITATION,
+    )
+    old, _ = s._source_condition_clauses_owned_by_excerpt(excerpt, **args)
+    new, ambiguous = s._source_condition_clauses_owned_by_excerpt(
+        excerpt, allow_detached_rows=True, **args
+    )
+    assert not ambiguous and len(new) == 1
+    assert new[0].text == row
+    assert "line 30000" in old[0].text
+    assert "line 30000" not in new[0].text
