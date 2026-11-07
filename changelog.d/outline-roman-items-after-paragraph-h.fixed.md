@@ -1,0 +1,1 @@
+Read an `(i)` that opens a marker under paragraph `(h)` as a roman item when the next marker at its level is `(ii)`. The complete-source check no longer reports items such as 12 CFR 1006.14(h)(2)(i) to (iii) as paragraphs (i) to (iii) of the section.
