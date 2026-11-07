@@ -32693,6 +32693,20 @@ def _exception_cues_have_distinct_conditions(between: str) -> bool:
     )
 
 
+def _source_is_agency_review_interrogative(text: str) -> bool:
+    """A review's embedded question is not a claimant-controlled condition.
+
+    Match the complete observed frame; added approval conditions or duties
+    must retain their ordinary paired-witness requirements. Source extraction
+    and proof coverage still retain the agency statement itself.
+    """
+    return _collapse_text(text) == (
+        "Before assessing your return, the Canada Revenue Agency (CRA) will "
+        "review your claim to see if your spouse or common-law partner is "
+        "eligible for the disability tax credit."
+    )
+
+
 def _source_exception_requires_paired_witness(
     text: str,
     *,
@@ -32709,6 +32723,8 @@ def _source_exception_requires_paired_witness(
     """
 
     collapsed = _collapse_text(text)
+    if _source_is_agency_review_interrogative(collapsed):
+        return False
     if _source_is_nonoperative_guidance_instruction(collapsed):
         return False
     if _source_is_guidance_glossary_description(collapsed):
