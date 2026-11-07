@@ -3122,6 +3122,11 @@ def main():
     )
     test_parser.add_argument("--json", action="store_true", help="Output as JSON")
     test_parser.add_argument(
+        "--corpus-path",
+        type=Path,
+        help="Authenticated local corpus release required for scoped refusal cases",
+    )
+    test_parser.add_argument(
         "--axiom-compose-path",
         type=Path,
         help="Exact axiom-compose executable for composition modules (no discovery)",
@@ -5856,7 +5861,11 @@ def cmd_test(args):
         axiom_compose_path=_resolve_optional_axiom_compose_path(
             getattr(args, "axiom_compose_path", None)
         ),
-        local_corpus_release=None,
+        local_corpus_release=(
+            load_rulespec_local_corpus_release(root, args.corpus_path)
+            if args.corpus_path is not None
+            else None
+        ),
         enable_oracles=False,
         rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
     )
@@ -5981,6 +5990,7 @@ def _execute_rulespec_test_file(
     tmp_path: Path,
     compiled_cache: dict[Path, tuple[Path, dict]],
     policy_repo_path: Path | None = None,
+    execution_capture: object | None = None,
 ) -> dict:
     failures: list[dict[str, str | None]] = []
     program_file = _rulespec_program_for_test_file(test_file)
@@ -5997,14 +6007,43 @@ def _execute_rulespec_test_file(
             ],
         }
 
-    compiled = compiled_cache.get(program_file)
+    cases = _load_rulespec_test_cases(test_file)
+    has_refusals = any("expected_refusal" in case for case in cases)
+    if has_refusals and execution_capture is None:
+        from .harness.same_case_execution import compilation_snapshot
+
+        if pipeline is None or pipeline.local_corpus_release is None:
+            raise ValueError("scoped refusals require an authenticated corpus pipeline")
+        scoped_pipeline = copy.copy(pipeline)
+        scoped_pipeline.require_complete_source_unit = True
+        with compilation_snapshot(scoped_pipeline, program_file) as capture:
+            from .harness.scoped_execution import adapter
+
+            if capture is None or adapter(capture) is None:
+                raise ValueError("scoped refusal snapshot/source binding unavailable")
+            snapshot_program = capture.snapshot_root / capture.root_relative
+            return _execute_rulespec_test_file(
+                snapshot_program.with_name(test_file.name),
+                binary=binary,
+                pipeline=scoped_pipeline,
+                axiom_rules_path=axiom_rules_path,
+                env=env,
+                rulespec_roots=(capture.snapshot_root,),
+                tmp_path=tmp_path,
+                compiled_cache={},
+                policy_repo_path=capture.snapshot_root / pipeline.policy_repo_path.name,
+                execution_capture=capture,
+            )
+    compiled = (
+        None if execution_capture is not None else compiled_cache.get(program_file)
+    )
     compiled_count = 0
     if compiled is None:
         if not rulespec_roots:
             raise ValueError("RuleSpec engine compilation requires an explicit root")
         compile_file = (
             _canonical_rulespec_compile_path(program_file, policy_repo_path)
-            if policy_repo_path is not None
+            if policy_repo_path is not None and execution_capture is None
             else program_file
         )
         compiled_path = tmp_path / (_safe_artifact_stem(program_file) + ".json")
@@ -6045,7 +6084,12 @@ def _execute_rulespec_test_file(
         compiled_count = 1
 
     compiled_path, artifact = compiled
-    cases = _load_rulespec_test_cases(test_file)
+    if execution_capture is not None:
+        execution_capture.compiled(compiled_path)
+        from .harness.scoped_execution import context_ready
+
+        if not context_ready(execution_capture):
+            raise ValueError("compiled scoped refusal context could not be minted")
     item_policy_repo_path = (
         policy_repo_path or find_policy_repo_root(program_file) or program_file.parent
     )
@@ -6095,6 +6139,8 @@ def _execute_rulespec_test_file(
                     compiled_relations=artifact.get("program", {}).get("relations", []),
                     policy_repo_path=item_policy_repo_path,
                     rulespec_roots=rulespec_roots,
+                    execution_capture=execution_capture,
+                    case_index=index + 1,
                 )
             )
         except Exception as error:
@@ -6102,6 +6148,26 @@ def _execute_rulespec_test_file(
                 {"file": str(test_file), "case": case_name, "message": str(error)}
             )
 
+    if execution_capture is not None:
+        from .harness.scoped_execution import observation
+
+        if (
+            not failures
+            and observation(execution_capture.evidence(), program_file.read_text())
+            is None
+        ):
+            failures.append(
+                {
+                    "file": str(test_file),
+                    "case": None,
+                    "message": "incomplete fresh scoped execution/refusal pairs",
+                }
+            )
+        if failures:
+            execution_capture.records.clear()
+            from .harness.scoped_execution import clear_private
+
+            clear_private(execution_capture)
     return {"cases": len(cases), "compiled": compiled_count, "failures": failures}
 
 
@@ -6137,15 +6203,29 @@ def _execute_rulespec_test_case(
     policy_repo_path: Path,
     rulespec_roots: Sequence[Path] = (),
     request_only: bool = False,
+    execution_capture: object | None = None,
+    case_index: int | None = None,
 ) -> list[dict[str, str | None]] | dict:
     failures: list[dict[str, str | None]] = []
     period = _rulespec_period_spec(case.get("period", "2026-01"))
     interval = {"start": period["start"], "end": period["end"]}
-    root_entity_id = "case"
+    root_entity_id = case.get("entity_id") if execution_capture is not None else "case"
     expected = case.get("output") or {}
+    refusal_output = None
+    if "expected_refusal" in case:
+        if request_only or execution_capture is None:
+            raise ValueError(
+                "refusal requires actual authenticated execution, not request_only"
+            )
+        from .harness.scoped_execution import refusal_target
+
+        refusal_output = refusal_target(execution_capture, case, case_index)
+        if refusal_output is None:
+            raise ValueError("invalid scoped refusal case/source identity")
+    query_outputs = [refusal_output] if refusal_output is not None else list(expected)
     expected_entities = {
         str(derived_by_id[str(output)].get("entity") or "Case")
-        for output in expected
+        for output in query_outputs
         if str(output) in derived_by_id
     }
     if len(expected_entities) > 1:
@@ -6157,14 +6237,14 @@ def _execute_rulespec_test_case(
     query_entity = next(
         (
             str(derived_by_id[str(output)].get("entity") or "Case")
-            for output in expected
+            for output in query_outputs
             if str(output) in derived_by_id
         ),
         "Case",
     )
     executable_directions = executable_relation_directions(
         derived_by_id,
-        list(expected),
+        query_outputs,
         period,
         query_entity,
         declared_relation_slots,
@@ -6202,6 +6282,7 @@ def _execute_rulespec_test_case(
         ),
     )
 
+    related_row_index = 0
     for key, value in (case.get("input") or {}).items():
         key = str(key)
         flat_inputs[key] = value
@@ -6255,8 +6336,13 @@ def _execute_rulespec_test_case(
                 current_slot, executable_entity = direction
                 if executable_entity is not None:
                     related_entity = executable_entity
-            for row_index, row in enumerate(value):
-                related_id = f"related_{row_index}"
+            for local_row_index, row in enumerate(value, 1):
+                related_id = (
+                    f"{root_entity_id}-{key}-{local_row_index}"
+                    if execution_capture is not None
+                    else f"related_{related_row_index}"
+                )
+                related_row_index += 1
                 relation_tuple = [related_id, root_entity_id]
                 if current_slot == 0:
                     relation_tuple.reverse()
@@ -6430,7 +6516,10 @@ def _execute_rulespec_test_case(
                 }
             )
 
-    unknown = [output for output in derived_expected if output not in derived_ids]
+    derived_queries = [
+        output for output in query_outputs if output not in parameter_by_id
+    ]
+    unknown = [output for output in derived_queries if output not in derived_ids]
     for output in unknown:
         failures.append(
             {
@@ -6444,12 +6533,13 @@ def _execute_rulespec_test_case(
         for output, value in derived_expected.items()
         if output in derived_ids
     }
-    if not derived_expected and not request_only:
+    derived_queries = [output for output in derived_queries if output in derived_ids]
+    if not derived_queries and not request_only:
         return failures
 
     output_entities = {
         output: str(derived_by_id.get(output, {}).get("entity") or "Case")
-        for output in derived_expected
+        for output in derived_queries
     }
     list_outputs = {
         output
@@ -6459,7 +6549,7 @@ def _execute_rulespec_test_case(
     query_entity = (
         output_entities[next(iter(list_outputs))]
         if list_outputs
-        else output_entities.get(next(iter(derived_expected), ""), query_entity)
+        else output_entities.get(next(iter(derived_queries), ""), query_entity)
     )
     if any(output_entities[output] != query_entity for output in list_outputs):
         failures.append(
@@ -6503,7 +6593,7 @@ def _execute_rulespec_test_case(
 
     runtime_output_by_expected = {
         output: str(derived_by_id.get(output, {}).get("id") or output)
-        for output in derived_expected
+        for output in derived_queries
     }
     request = {
         "mode": "explain",
@@ -6541,6 +6631,25 @@ def _execute_rulespec_test_case(
         cwd=str(axiom_rules_path) if axiom_rules_path.exists() else None,
         env=env,
     )
+    if refusal_output is not None:
+        if failures or not execution_capture.stage_refusal(
+            case,
+            request,
+            result.returncode,
+            result.stdout,
+            result.stderr,
+            binary,
+            compiled_path,
+            case_index,
+        ):
+            failures.append(
+                {
+                    "file": str(test_file),
+                    "case": case_name,
+                    "message": "execution did not satisfy exact scoped refusal",
+                }
+            )
+        return failures
     if result.returncode != 0:
         message = result.stderr.strip() or result.stdout.strip()
         findings = cross_entity_input_findings(
@@ -6561,7 +6670,17 @@ def _execute_rulespec_test_case(
         )
         return failures
 
-    results = json.loads(result.stdout)["results"]
+    if execution_capture is not None:
+        from .harness.capital_gift_execution import _unique_json
+
+        response = json.loads(result.stdout, object_pairs_hook=_unique_json)
+    else:
+        response = json.loads(result.stdout)
+    if execution_capture is not None:
+        execution_capture.stage(
+            case, request, response, binary, compiled_path, case_index
+        )
+    results = response["results"]
     for output, expected_value in derived_expected.items():
         if isinstance(expected_value, list):
             for row_index, row_expected_value in enumerate(expected_value):

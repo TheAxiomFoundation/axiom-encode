@@ -121,6 +121,18 @@
       "why": "A number the source states but the module does not name is either dropped law or hidden inside a formula, where it cannot be grounded or updated."
     },
     {
+      "category": "complete-source-unit:schedule-n-evidence",
+      "cause": "encoder_output",
+      "fix": "Correct the complete companion and source-bound module, then rerun ordinary validation with the authenticated release and pinned engine. Preserve the source conditions and their positive and refusal witnesses.",
+      "gate": "ci",
+      "id": "complete-source-unit:schedule-n-evidence/missing",
+      "requires": "Every owned Schedule N source obligation has unique, fresh typed principal and refusal evidence bound to the complete authenticated unit.",
+      "severity": "important",
+      "site": "axiom_encode/harness/source_completeness.py:analyze_complete_source_unit",
+      "title": "Schedule N lacks complete private execution evidence",
+      "why": "Generic scalar witnesses, duplicate obligations, or stale execution records cannot establish the worksheet's joint source conditions."
+    },
+    {
       "category": "complete-source-unit:source-explicit-conditions",
       "cause": "encoder_output",
       "fix": "Declare each source-stated fact as its own document-root `inputs` entry (a sibling of `module` and `rules`) or canonical import, combine them in a derived Judgment with formula proof, and test each gate.",
@@ -371,8 +383,32 @@
       "site": "axiom_encode/harness/proof_validator.py:_proof_excerpt_subsection_scope_issues",
       "title": "Proof excerpt lies outside the rule's declared subsection",
       "why": "A proof atom ties a rule to the exact source words it implements. An excerpt that is not in the cited provision, or not in the rule's own subsection, proves nothing and can hide an invented value or condition."
+    },
+    {
+      "category": "tests:scoped-execution",
+      "cause": "encoder_output",
+      "fix": "Correct the companion's factual cases and matching positive/refusal pairs, then rerun the whole module with the authenticated source and pinned engine. Keep failed records instead of borrowing older results.",
+      "gate": "tests",
+      "id": "tests:scoped-execution/incomplete",
+      "requires": "The complete companion produces fresh typed positive records and source-coherent positive/refusal pairs in the same execution context.",
+      "severity": "important",
+      "site": "axiom_encode/harness/validator_pipeline.py:_run_rulespec_test_cases",
+      "title": "Scoped execution records or refusal pairs are incomplete",
+      "why": "Incomplete, stale, or unrelated records cannot establish that the source condition controls the requested principal output."
+    },
+    {
+      "category": "tests:scoped-refusal",
+      "cause": "encoder_output",
+      "fix": "Use a supported source-bound refusal case with its required factual inputs and query, and validate the whole companion against the authenticated release and pinned engine. Do not treat arbitrary errors as source evidence.",
+      "gate": "tests",
+      "id": "tests:scoped-refusal/context-unbound",
+      "requires": "A scoped expected-refusal case identifies its source-bound principal inside the fresh materialized execution context.",
+      "severity": "important",
+      "site": "axiom_encode/harness/validator_pipeline.py:_run_rulespec_test_cases",
+      "title": "Expected refusal has no authenticated execution context",
+      "why": "An expected-error label alone cannot prove that a source restriction rejected the intended principal computation."
     }
   ],
-  "registry_sha256": "03a2bf3ee1428a84788d8085b5802ca62bdce38e5bba00e1b88f3d7fa7104a11",
+  "registry_sha256": "65b65076d228097d7574b89cccda3303922a79791168678b939465a17a1fb67a",
   "schema": "axiom-encode/check-registry/v1"
 }

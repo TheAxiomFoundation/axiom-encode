@@ -15,6 +15,7 @@ import stat
 import subprocess
 import tempfile
 import time
+import weakref
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
@@ -22,6 +23,13 @@ from pathlib import Path
 from typing import Any, Iterator
 
 import yaml
+
+_MATERIALIZED_CAPTURES: dict[int, weakref.ReferenceType] = {}
+
+
+def _materialized_capture(capture: Any) -> bool:
+    reference = _MATERIALIZED_CAPTURES.get(id(capture))
+    return reference is not None and reference() is capture
 
 
 def digest(data: bytes) -> str:
@@ -372,6 +380,14 @@ class ExecutionCapture:
     artifact_sha256: str | None = None
     records: list[CaseExecution] = field(default_factory=list)
     overlay_origin: ExecutionOverlayOrigin | None = None
+    _capital_gift_owned: bool = field(default=False, init=False, repr=False)
+    _capital_gift_context: Any = field(default=None, init=False, repr=False)
+    _capital_gift_refusals: list = field(default_factory=list, init=False, repr=False)
+    _investment_adjustment_owned: bool = field(default=False, init=False, repr=False)
+    _investment_adjustment_context: Any = field(default=None, init=False, repr=False)
+    _investment_adjustment_refusals: list = field(
+        default_factory=list, init=False, repr=False
+    )
 
     def fresh(self) -> bool:
         try:
@@ -396,8 +412,42 @@ class ExecutionCapture:
 
     def compiled(self, artifact: Path) -> None:
         self.records.clear()
+        self._capital_gift_refusals.clear()
+        self._investment_adjustment_refusals.clear()
         self.artifact = artifact
         self.artifact_sha256 = digest(artifact.read_bytes())
+        from .scoped_execution import adapter
+
+        selected = adapter(self)
+        if selected is not None:
+            module, prefix = selected
+            setattr(self, prefix + "_context", module.mint(self))
+
+    def stage_refusal(
+        self, case, request, returncode, stdout, stderr, binary, artifact, case_index
+    ) -> bool:
+        """Separate bounded failure evidence; never fall back to generic stage."""
+        from .scoped_execution import adapter
+
+        selected = adapter(self)
+        if (
+            selected is None
+            or binary != self.binary
+            or artifact != self.artifact
+            or not self.fresh()
+        ):
+            return False
+        module, prefix = selected
+        return module.stage_refusal(
+            getattr(self, prefix + "_context"),
+            self,
+            case,
+            request,
+            returncode,
+            stdout,
+            stderr,
+            case_index,
+        )
 
     def stage(
         self,
@@ -411,6 +461,21 @@ class ExecutionCapture:
         if binary != self.binary or artifact != self.artifact or not self.fresh():
             return
         if not strict_explain_metadata(request, response):
+            return
+        if self._capital_gift_owned or self._investment_adjustment_owned:
+            from .scoped_execution import adapter
+
+            selected = adapter(self)
+            if selected is not None:
+                module, prefix = selected
+                module.stage(
+                    getattr(self, prefix + "_context"),
+                    self,
+                    case,
+                    request,
+                    response,
+                    case_index,
+                )
             return
         # Initially one Person query, no nested/table/assessment transport.
         queries = request.get("queries")
@@ -450,7 +515,7 @@ class ExecutionCapture:
     def evidence(self) -> SameCaseEvidence | None:
         if not self.records or not self.fresh() or self.artifact is None:
             return None
-        return SameCaseEvidence(
+        evidence = SameCaseEvidence(
             self.files,
             self.root_relative,
             self.snapshot_root,
@@ -461,6 +526,18 @@ class ExecutionCapture:
             tuple(self.records),
             self.overlay_origin,
         )
+        if self._capital_gift_owned or self._investment_adjustment_owned:
+            from .scoped_execution import adapter
+
+            selected = adapter(self)
+            if selected is None:
+                return None
+            module, prefix = selected
+            if not module.register_evidence(
+                getattr(self, prefix + "_context"), self, evidence
+            ):
+                return None
+        return evidence
 
 
 @dataclass(frozen=True)
@@ -519,6 +596,11 @@ class SameCaseEvidence:
         self, case: dict[str, Any], content: str
     ) -> tuple[dict[str, Any], dict[str, Any]] | None:
         """Canonical direct imports only; local trace outputs corroborate replay."""
+        from .scoped_execution import owns_evidence
+
+        if owns_evidence(self):
+            # The private positive observer does not grant generic source credit.
+            return None
         key = case_key(case)
         if key is None:
             return None
@@ -619,7 +701,13 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
         payload = _payload(content.encode())
         imports = payload.get("imports", [])
         companion = pipe._rulespec_test_path(rules_file)
-        if not imports or pipe.rulespec_dependency_roots or not companion.is_file():
+        if pipe.rulespec_dependency_roots or not companion.is_file():
+            return None
+        from .scoped_execution import eligible_adapters
+
+        owners = eligible_adapters(pipe, content) if not imports else ()
+        scoped = len(owners) == 1
+        if not imports and not scoped:
             return None
         exports = pipe._complete_source_unit_import_bindings(rules_file)
         derived = set()
@@ -632,7 +720,9 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
                 for r in provider.get("rules", [])
             ):
                 derived.add(export.export_name)
-        if not derived or not _has_consumer(pipe, content, payload, derived):
+        if not scoped and (
+            not derived or not _has_consumer(pipe, content, payload, derived)
+        ):
             return None
         pending = [rules_file]
         files: dict[Path, ClosureFile] = {}
@@ -747,6 +837,20 @@ def _materialize_snapshot(
     )
     if not capture.fresh():
         return None
+    capture_identity = id(capture)
+    _MATERIALIZED_CAPTURES[capture_identity] = weakref.ref(
+        capture, lambda _: _MATERIALIZED_CAPTURES.pop(capture_identity, None)
+    )
+    if not _payload(rules_file.read_bytes()).get("imports", []):
+        from .scoped_execution import eligible_adapters
+
+        owners = eligible_adapters(pipe, rules_file.read_text())
+        if len(owners) != 1:
+            return None
+        module, prefix = owners[0]
+        if not module.activate(pipe, capture):
+            return None
+        setattr(capture, prefix + "_owned", True)
     return capture
 
 
