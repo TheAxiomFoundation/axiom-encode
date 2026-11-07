@@ -1,0 +1,161 @@
+name: Encoder version bump
+
+# Pull requests no longer pick an encoder version (axiom-encode#2048). After an
+# encoder-affecting change reaches main, this workflow writes the next version
+# into pyproject.toml, src/axiom_encode/__init__.py and uv.lock, adds a
+# CHANGELOG.md header that lists the commits merged since the previous bump,
+# and opens a bump pull request with auto-merge on. It leaves the towncrier
+# fragments in changelog.d/ alone. Until that pull request merges, `--apply`,
+# the provisioner and the re-encode workflow's early check refuse the
+# unversioned head.
+#
+# The pull request is opened with a token of the axiom-encoder-version-bump
+# GitHub App, not GITHUB_TOKEN: GitHub does not run workflows for pull
+# requests that GITHUB_TOKEN opens, so the required checks would never report.
+# Repository auto-merge must be on.
+#
+# The App owns no seat and is not in CODEOWNERS, so its approval of a pull
+# request would never count as a code owner's. It holds only contents and
+# pull-requests write and merge-queues read, and is installed on this
+# repository only. Its client ID (a variable) and private key (a secret) live
+# in the encoder-version-bump environment, whose deployment branch rule allows
+# only main: a workflow on any pushed branch can read repository secrets. Each
+# run mints a token that lasts one hour, is limited to this repository and
+# those permissions, and is revoked when the job ends.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: encoder-version-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Open the encoder version bump pull request
+    if: github.repository == 'TheAxiomFoundation/axiom-encode'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Holds the App's client ID and private key; its branch rule allows only main.
+    environment: encoder-version-bump
+    steps:
+      - name: Checkout axiom-encode
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check for encoder changes that no bump covers
+        id: check
+        run: |
+          python3 -I src/axiom_encode/version_provenance.py \
+            check --repo . --ref HEAD --github-output "$GITHUB_OUTPUT"
+
+      - name: Require the bump App
+        if: steps.check.outputs.needs_bump == 'true'
+        env:
+          APP_CLIENT_ID: ${{ vars.ENCODER_VERSION_BUMP_APP_CLIENT_ID }}
+          APP_KEY_SET: ${{ secrets.ENCODER_VERSION_BUMP_APP_KEY != '' }}
+        run: |
+          if [ -z "$APP_CLIENT_ID" ] || [ "$APP_KEY_SET" != "true" ]; then
+            echo "::error::ENCODER_VERSION_BUMP_APP_CLIENT_ID or ENCODER_VERSION_BUMP_APP_KEY is not set in the encoder-version-bump environment; main has encoder changes that no version bump covers, and re-encodes refuse it until a bump merges."
+            exit 1
+          fi
+
+      - name: Create the bump token
+        id: app-token
+        if: steps.check.outputs.needs_bump == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.ENCODER_VERSION_BUMP_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ENCODER_VERSION_BUMP_APP_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-merge-queues: read
+
+      - name: Write the next version and changelog
+        id: bump
+        if: steps.check.outputs.needs_bump == 'true'
+        run: |
+          set -euo pipefail
+          base_sha="$(git rev-parse HEAD)"
+          version="$(python3 -I src/axiom_encode/version_provenance.py bump --repo . --ref HEAD)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "automation/encoder-version-${version}-${base_sha:0:12}"
+          git add pyproject.toml src/axiom_encode/__init__.py uv.lock CHANGELOG.md
+          git commit -m "Bump encoder version to ${version}"
+          # The new commit must satisfy the same rule --apply enforces.
+          python3 -I src/axiom_encode/version_provenance.py check --repo . --ref HEAD
+          {
+            echo "version=${version}"
+            echo "base_sha=${base_sha}"
+            echo "branch=automation/encoder-version-${version}-${base_sha:0:12}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open the bump pull request with auto-merge
+        if: steps.check.outputs.needs_bump == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          BASE_SHA: ${{ steps.bump.outputs.base_sha }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+        run: |
+          set -euo pipefail
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # A bump pull request already in the merge queue stays there: closing
+          # it would restart its wait each time main moves. Its merge pushes to
+          # main and runs this workflow again, which bumps the commits after it.
+          # If the queue drops it instead, the next push to main or a manual run
+          # of this workflow opens a new one.
+          queued="$(gh api graphql \
+            -f owner="${GITHUB_REPOSITORY%%/*}" -f name="${GITHUB_REPOSITORY#*/}" \
+            -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { mergeQueue(branch: "main") { entries(first: 100) { nodes { pullRequest { headRefName } } } } } }' \
+            --jq '[.data.repository.mergeQueue.entries.nodes[]?.pullRequest.headRefName // "" | select(startswith("automation/encoder-version-"))] | length')"
+          if [ "$queued" != "0" ]; then
+            echo "::notice::An encoder version bump pull request is in the merge queue; its merge runs this workflow again."
+            exit 0
+          fi
+          # A newer main supersedes any other bump pull request still open: this
+          # one covers every commit since the last bump, so close the older ones.
+          gh pr list --repo "$GITHUB_REPOSITORY" --state open --json number,headRefName \
+            --jq '.[] | select(.headRefName | startswith("automation/encoder-version-")) | "\(.number) \(.headRefName)"' |
+            while read -r number head; do
+              if [ "$head" != "$BRANCH" ]; then
+                gh pr close "$number" --repo "$GITHUB_REPOSITORY" --delete-branch \
+                  --comment "Superseded by the encoder version bump for main at ${BASE_SHA}."
+              fi
+            done
+          # A rerun for the same main commit finds the branch that an earlier
+          # run pushed (for example when that run then failed to open the pull
+          # request). Reuse it only when it is exactly this bump: one commit on
+          # main with the same tree. Anything else stops here, unchanged.
+          existing="$(git ls-remote --heads "$remote" "refs/heads/${BRANCH}" | cut -f1)"
+          if [ -z "$existing" ]; then
+            git push "$remote" "HEAD:refs/heads/${BRANCH}"
+          else
+            git fetch --no-tags -q "$remote" "refs/heads/${BRANCH}"
+            if [ "$(git rev-parse "${existing}^@")" != "$BASE_SHA" ] ||
+              [ "$(git rev-parse "${existing}^{tree}")" != "$(git rev-parse 'HEAD^{tree}')" ]; then
+              echo "::error::${BRANCH} already exists and is not this bump; inspect it before a rerun."
+              exit 1
+            fi
+            echo "Reusing ${BRANCH} at ${existing}."
+          fi
+          url="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --head "$BRANCH" \
+            --json url --jq '.[0].url // empty')"
+          if [ -z "$url" ]; then
+            url="$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+              --title "Bump encoder version to ${VERSION}" \
+              --body "Automated encoder version bump for main at ${BASE_SHA} (axiom-encode#2048). It changes only the version files and CHANGELOG.md. Re-encodes refuse main until this merges.")"
+          fi
+          if [ "$(gh pr view "$url" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '.autoMergeRequest == null')" = "true" ]; then
+            gh pr merge "$url" --repo "$GITHUB_REPOSITORY" --auto --merge
+          fi

@@ -90,6 +90,9 @@ jobs:
         id: tests
         env:
           AXIOM_ENCODE_TEST_SHARD: ${{ matrix.shard }}/8
+          # A bump pull request must leave no encoder change unversioned
+          # (axiom-encode#2048); other heads may be unversioned until their bump.
+          AXIOM_ENCODE_REQUIRE_VERSION_BUMP: ${{ startsWith(github.head_ref, 'automation/encoder-version-') && '1' || '' }}
         run: |
           set -e
           export AXIOM_ENCODE_TEST_SHARD_REPORT="$RUNNER_TEMP/shard-report"
