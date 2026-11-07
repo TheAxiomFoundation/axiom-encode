@@ -624,8 +624,12 @@ class SameCaseEvidence:
         payload = _payload(content.encode())
         imports = payload.get("imports", [])
         if not imports:
-            # Local-only scoped traces cannot become generic direct-import credit.
-            return None
+            from .mhrtc_program_contract import POLICY_PATH
+
+            if self.root_relative == POLICY_PATH:
+                # Expired or detached MHRtC records remain private-only. Ordinary
+                # local replay still returns its empty imported-value mapping.
+                return None
         aliases = [x.rsplit("#", 1)[-1] for x in imports]
         local = {r.get("name") for r in payload.get("rules", [])} | {
             i.get("name") for i in payload.get("inputs", [])

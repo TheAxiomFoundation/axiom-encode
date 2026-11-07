@@ -139,6 +139,7 @@ def test_no_import_evidence_cannot_fall_back_after_owner_expiry(
 
     case = {"name": "local", "period": "2025", "input": {}, "output": {"local": 0}}
     capture._mhrtc_owned = False
+    capture.root_relative = m.POLICY_PATH
     capture.records.append(
         e.CaseExecution(
             e.case_key(case),
@@ -159,3 +160,25 @@ def test_no_import_evidence_cannot_fall_back_after_owner_expiry(
         )
         is None
     )
+
+
+def test_ordinary_no_import_evidence_keeps_local_replay_contract(capture, monkeypatch):
+    import json
+
+    case = {"name": "local", "period": "2025", "input": {}, "output": {"local": 0}}
+    capture._mhrtc_owned = False
+    capture.root_relative = "ca/policies/test/ordinary-local.yaml"
+    capture.records.append(
+        e.CaseExecution(
+            e.case_key(case),
+            json.dumps({"queries": [{"entity_id": "p"}]}),
+            json.dumps({"results": [{"trace": {}}]}),
+            1,
+        )
+    )
+    result = capture.evidence()
+    assert result is not None
+    monkeypatch.setattr(s, "owns_evidence", lambda _: False)
+    assert result.values(
+        case, "format: rulespec/v1\nmodule: {}\nimports: []\nrules: []\ninputs: []\n"
+    ) == ({}, {})

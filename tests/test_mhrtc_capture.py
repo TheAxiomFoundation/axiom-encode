@@ -636,3 +636,17 @@ def test_source_coverage_rechecks_generation_after_analysis(
         )
         is None
     )
+
+
+def test_wrong_root_cannot_activate_mhrtc_owner(lifecycle):
+    capture, pipe, calls = lifecycle
+    capture.root_relative = "ca/policies/unrelated.yaml"
+    assert not m.activate(pipe, capture)
+    assert not calls
+
+
+def test_changed_root_cannot_preserve_mhrtc_context(lifecycle):
+    capture, pipe, _ = lifecycle
+    context = mint_attached(capture, pipe)
+    capture.root_relative = "ca/policies/unrelated.yaml"
+    assert not m.valid(context, capture)
