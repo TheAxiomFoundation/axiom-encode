@@ -1,0 +1,136 @@
+(b) Types of claims. There are three types of claims:
+
+An . . . | is . . .
+(1) Intentional Program violation (IPV) claim | any claim for an overpayment or trafficking resulting from an individual committing an IPV. An IPV is defined in § 273.16.
+(2) Inadvertent household error (IHE) claim | any claim for an overpayment resulting from a misunderstanding or unintended error on the part of the household.
+(3) Agency error (AE) claim | any claim for an overpayment caused by an action or failure to take action by the State agency.
+
+(c) Calculating the claim amount—(1) Claims not related to trafficking.
+
+(i) As a State agency, you
+must calculate a claim . . . | and . . . | and . . .
+back to at least twelve months prior to when you become aware of the overpayment | for an IPV claim, the claim must be calculated back to the month the act of IPV first occurred | for all claims, don't include any amounts that occurred more than six years before you became aware of the overpayment.
+(ii) The actual steps for calculating a claim are
+you . . . | unless . . . | then . . .
+(A) determine the correct amount of benefits for each month that a household received an overpayment
+(B) do not apply the earned income deduction to that part of any earned income that the household failed to report in a timely manner when this act is the basis for the claim | the claim is an AE claim | apply the earned income deduction.
+(C) subtract the correct amount of benefits from the benefits actually received. The answer is the amount of the overpayment | this answer is zero or negative | dispose of the claim referral.
+(D) reduce the overpayment amount by any EBT benefits expunged from the household's EBT benefit account in accordance with your own procedures. The difference is the amount of the claim | you are not aware of any expunged benefits | the amount of the overpayment calculated in paragraph (c)(1)(ii)(C) of this section is the amount of the claim.
+
+(2) Trafficking-related claims. Claims arising from trafficking-related offenses will be the value of the trafficked benefits as determined by:
+
+(i) The individual's admission;
+
+(ii) Adjudication; or
+
+(iii) The documentation that forms the basis for the trafficking determination.
+
+(d) Claim referral management.
+
+(1) As a State agency, you
+must . . . | and you . . . | unless . . .
+establish a claim before the last day of the quarter following the quarter in which the overpayment or trafficking incident was discovered | will ensure that no less than 90 percent of all claim referrals are either established or disposed of according to this time frame | you develop and use your own standards and procedures that have been approved by us (see paragraph (d)(2) of this section).
+
+(2) Instead of using the standard in paragraph (d)(1) of this section, you may opt to develop and follow your own plan for the efficient and effective management of claim referrals.
+
+(i) This plan must be approved by us.
+
+(ii) At a minimum, this plan must include:
+
+(A) Justification as to why your standards and procedures will be more efficient and effective than our claim referral standard;
+
+(B) Procedures for the detection and referral of potential overpayments or trafficking violations;
+
+(C) Time frames and procedures for tracking claim referrals through date of discovery to date of establishment;
+
+(D) A description of the process to ensure that these time frames are being met;
+
+(E) Any special procedures and time frames for IPV referrals; and
+
+(F) A procedure to track and follow-up on IPV claim referrals when these referrals are referred for prosecutorial or similar action.
+
+(3) States must establish claims even if they cannot be established within the timeframes outlined under paragraph (d) of this section.
+
+(e) Initiating collection action and managing claims—(1) Applicability. State agencies must begin collection action on all claims unless the conditions under paragraph (e)(2) of this section apply.
+
+(2) Pre-establishment cost effectiveness determination. A State agency may opt not to establish and subsequently collect an overpayment that is not cost effective. The following is our cost-effectiveness policy for State agencies:
+
+(i) You may follow your own cost effectiveness plan and
+opt not to establish any claim if . . . | unless . . . | or . . .
+you determine that the claim referral is not cost effective to pursue | you do not have a cost-effectiveness plan approved by us | you already established the claim or discovered the overpayment in a quality control review.
+(ii) Or you may follow the FNS threshold and
+opt not to establish any claim if . . . | unless . . . | or . . .
+you determine that the claim referral is $125 or less | the household is currently participating in the Program | you already established the claim or discovered the overpayment in a quality control review.
+
+(3) Notification of claim. (i) Each State agency must develop and mail or otherwise deliver to the household written notification to begin collection action on any claim.
+
+(ii) The claim will be considered established for tracking purposes as of the date of the initial demand letter or written notification.
+
+(iii) If the claim or the amount of the claim was not established at a fair hearing, the State agency must provide the household with a one-time notice of adverse action. The notice of adverse action may either be sent separately or as part of the demand letter.
+
+(iv) The initial demand letter or notice of adverse action must include language stating:
+(A) The amount of the claim.
+(B) The intent to collect from all adults in the household when the overpayment occurred.
+(C) The type (IPV, IHE, AE or similar language) and reason for the claim.
+(D) The time period associated with the claim.
+(E) How the claim was calculated.
+(F) The phone number to call for more information about the claim.
+(G) That, if the claim is not paid, it will be sent to other collection agencies, who will use various collection methods to collect the claim.
+(H) The opportunity to inspect and copy records related to the claim.
+(I) Unless the amount of the claim was established at a fair hearing, the opportunity for a fair hearing on the decision related to the claim. The household will have 90 days to request a fair hearing.
+(J) That, if not paid, the claim will be referred to the Federal government for federal collection action.
+(K) That the household can make a written agreement to repay the amount of the claim prior to it being referred for Federal collection action.
+(L) That, if the claim becomes delinquent, the household may be subject to additional processing charges.
+(M) That the State agency may reduce any part of the claim if the agency believes that the household is not able to repay the claim.
+(N) A due date or time frame to either repay or make arrangements to repay the claim, unless the State agency is to impose allotment reduction.
+(O) If allotment reduction is to be imposed, a due date or time frame to either repay or make arrangements to repay the claim in the event that the household stops receiving benefits.
+(P) If allotment reduction is to be imposed, the percentage to be used and the effective date.
+
+(v) The due date or time frame for repayment must be not later than 30 days after the date of the initial written notification or demand letter.
+
+(vi) Subsequent demand letters or notices may be sent at the discretion of the State agency. The language to be used and content of these letters is left up to the State agency.
+
+(4) Repayment agreements. (i) Any repayment agreement for any claim must contain due dates or time frames for the periodic submission of payments.
+
+(ii) The agreement must specify that the household will be subject to involuntary collection action(s) if payment is not received by the due date and the claim becomes delinquent.
+
+(5) Determining Delinquency. (i) Unless specified in paragraph (e)(5)(iv) of this section, a claim must be considered delinquent if:
+
+(A) The claim has not been paid by the due date and a satisfactory payment arrangement has not been made; or
+
+(B) A payment arrangement has been established and a scheduled payment has not been made by the due date.
+
+(ii) The date of delinquency for a claim covered under paragraph (e)(5)(i)(A) of this section is the due date on the initial written notification/demand letter. The claim will remain delinquent until payment is received in full, a satisfactory payment agreement is negotiated, or allotment reduction is invoked.
+
+(iii) The date of delinquency for a claim covered under paragraph (e)(5)(i)(B) of this section is the due date of the missed installment payment unless the claim was delinquent prior to entering into a repayment agreement, in which case the due date will be the due date on the initial notification/demand letter. The claim will remain delinquent until payment is received in full, allotment reduction is invoked, or if the State agency determines to either resume or re-negotiate the repayment schedule.
+
+(iv) A claim will not be considered delinquent if another claim for the same household is currently being paid either through an installment agreement or allotment reduction and you, as a State agency, expect to begin collection on the claim once the prior claim(s) is settled.
+
+(v) A claim is not subject to the requirements for delinquent debts if the State agency is unable to determine delinquency status because collection is coordinated through the court system.
+
+(6) Fair hearings and claims. (i) A claim awaiting a fair hearing decision must not be considered delinquent.
+
+(ii) If the hearing official determines that a claim does, in fact, exist against the household, the household must be re-notified of the claim. The language to be used in this notice is left up to the State agency. The demand for payment may be combined with the notice of the hearing decision. Delinquency must be based on the due date of this subsequent notice and not on the initial pre-hearing demand letter sent to the household.
+
+(iii) If the hearing official determines that a claim does not exist, the claim is disposed of in accordance with paragraph (e)(8) of this section.
+
+(7) Compromising claims. (i) As a State agency, you may compromise a claim or any portion of a claim if it can be reasonably determined that a household's economic circumstances dictate that the claim will not be paid in three years.
+
+(ii) You may use the full amount of the claim (including any amount compromised) to offset benefits in accordance with § 273.17.
+
+(iii) You may reinstate any compromised portion of a claim if the claim becomes delinquent.
+
+(8) Terminating and writing-off claims—(i) A terminated claim is a claim in which all collection action has ceased. A written-off claim is no longer considered a receivable subject to continued Federal and State agency collection and reporting requirements.
+
+(ii) The following is our claim termination policy:
+
+As a State agency, if . . . | Then you . . . | Unless . . .
+(A) you find that the claim is invalid | must discharge the claim and reflect the event as a balance adjustment rather than a termination | it is appropriate to pursue the overpayment as a different type of claim (e.g., as an IHE rather than an IPV claim).
+(B) all adult household members die | must terminate and write-off the claim | you plan to pursue the claim against the estate.
+(C) the claim balance is $25 or less and the claim has been delinquent for 90 days or more | must terminate and write-off the claim | other claims exist against this household resulting in an aggregate claim total of greater than $25.
+(D) you determine it is not cost effective to pursue the claim any further | must terminate and write-off the claim | we have not approved your overall cost-effectiveness criteria.
+(E) the claim is delinquent for three years or more | must terminate and write-off the claim | you plan to continue to pursue the claim through Treasury's Offset Program.
+(F) you cannot locate the household | may terminate and write-off the claim
+(G) a new collection method or a specific event (such as winning the lottery) substantially increases the likelihood of further collections | may reinstate a terminated and written-off claim | you decide not to pursue this option.
+
+(f) Acceptable forms of payment.
