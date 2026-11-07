@@ -66,6 +66,7 @@ class PrintedRowStructure:
     ownership_spans: tuple[tuple[int, int], ...]
     arithmetic_referral_spans: tuple[tuple[int, int], ...] = ()
     numeric_locator_spans: tuple[tuple[int, int], ...] = ()
+    nonoperative_header_spans: tuple[tuple[int, int], ...] = ()
 
 
 # Exact detached Schedule 2 transcription. Every record includes its literal
@@ -243,6 +244,7 @@ def _detached_schedule2_rows(text: str) -> PrintedRowStructure | None:
         typography_spans=(),
         ownership_spans=ownership,
         numeric_locator_spans=tuple(sorted(locators)),
+        nonoperative_header_spans=(records["header"][:2],),
     )
 
 

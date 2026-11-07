@@ -197,6 +197,7 @@ def test_only_reviewed_structural_consumers_opt_in():
             ("form_numeric_structure.py", "form_numeric_locator_spans"),
             ("harness/source_completeness.py", "_printed_operation_context"),
             ("harness/source_completeness.py", "_source_clause_spans"),
+            ("harness/source_completeness.py", "_source_exception_branches"),
         ]
     )
 
@@ -217,3 +218,52 @@ def test_same_family_detached_source_preserves_signed_evidence(signed):  # noqa:
     assert expected
     signed["source_context"]["ca/policy/test/detached"] = SOURCE
     assert fmt.witnesses(**signed) == expected
+
+
+def test_header_is_not_exception_but_other_conditions_remain():
+    branches = s.recognize_source_structure(SOURCE, corpus_citation_path=CITATION)
+    obligations = s._source_exception_branches(
+        SOURCE,
+        branches=branches,
+        active_branches=branches,
+        deferred_paths=set(),
+        corpus_citation_path=CITATION,
+    )
+    assert not any("Protected B when completed" in b.text for b in obligations)
+    assert any("90 days" in b.text for b in obligations)
+    assert any("eligible for 2024" in b.text for b in obligations)
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        "Protected B when completed and resident",
+        '"Protected B when completed"',
+        "If completed, you may claim the credit.",
+    ],
+)
+def test_changed_headers_keep_condition_obligations(replacement):
+    source = SOURCE.replace("Protected B when completed", replacement)
+    obligations = s._source_exception_branches(
+        source,
+        branches=(),
+        active_branches=(),
+        deferred_paths=set(),
+        corpus_citation_path=CITATION,
+    )
+    assert any(replacement in b.text for b in obligations)
+
+
+def test_competing_header_owner_keeps_condition():
+    end = SOURCE.index("Complete this schedule")
+    owner = s.SourceStructureBranch(
+        ("owned",), "paragraph", "owned", SOURCE[:end], 0, end
+    )
+    obligations = s._source_exception_branches(
+        SOURCE,
+        branches=(owner,),
+        active_branches=(owner,),
+        deferred_paths=set(),
+        corpus_citation_path=CITATION,
+    )
+    assert any("Protected B when completed" in b.text for b in obligations)

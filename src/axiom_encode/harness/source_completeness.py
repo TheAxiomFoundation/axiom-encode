@@ -32232,6 +32232,24 @@ def _source_exception_branches(
             source_text, branches=branches, corpus_citation_path=corpus_citation_path
         )
     )
+    printed_rows = _unconflicted_printed_rows(
+        source_text,
+        branches,
+        corpus_citation_path=corpus_citation_path,
+        allow_detached=True,
+    )
+    header_spans = (
+        ()
+        if printed_rows is None
+        else tuple(
+            (start, end)
+            for start, end in printed_rows.nonoperative_header_spans
+            if not any(
+                branch.path and branch.start < end and start < branch.end
+                for branch in branches
+            )
+        )
+    )
     matches_by_clause: dict[
         tuple[int, int, str],
         list[re.Match[str]],
@@ -32239,6 +32257,10 @@ def _source_exception_branches(
     for match in _source_exception_or_applicability_matches(
         source_text, raw_source_text=raw_source_text
     ):
+        if any(
+            start <= match.start() and match.end() <= end for start, end in header_spans
+        ):
+            continue
         if any(
             clause.start <= match.start() and match.end() <= clause.end
             for clause in deferred_clauses
