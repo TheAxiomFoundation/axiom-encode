@@ -592,6 +592,13 @@ _WORDED_ARITHMETIC_EXPRESSION = re.compile(
     rf"{_SYMBOLIC_ARITHMETIC_OPERAND}",
     flags=re.IGNORECASE,
 )
+# A monetary operand may end in a qualified statutory reference. Keep this
+# separate from the generic symbolic tokenizer: the reference alone is not
+# an arithmetic operand.
+_REFERENCED_MONETARY_ARITHMETIC_EXPRESSION = re.compile(
+    "\\b(?:payments?|amounts?|income)[ \\t]+(?:taxable|included|deductible)[ \\t]+under[ \\t]+(?:paragraph|subsection)[ \\t]+[1-9]\\d{0,3}(?:\\([A-Za-z0-9]{1,4}\\)){1,4}[ \\t\\r\\n]+(?:minus|plus)[ \\t\\r\\n]+(?:the[ \\t]+)?(?:capital[ \\t]+portion|amounts?|payments?|income)\\b",
+    flags=re.IGNORECASE,
+)
 _SYMBOLIC_ARITHMETIC_TOKEN = re.compile(
     rf"\b(?:plus|minus|mal)\b|{_SYMBOLIC_ARITHMETIC_OPERAND}|"
     r"[()+*/×·•∗∙−–-]",
@@ -2937,6 +2944,9 @@ def recognize_source_structure(
             sorted(branches, key=lambda branch: (branch.start, len(branch.path)))
         )
 
+    printed = recognize_printed_rows(source_text, allow_multipage=True)
+    note_markers = () if printed is None else printed.note_marker_spans
+
     branches: list[SourceStructureBranch] = []
     paragraph_segments: list[tuple[tuple[str, ...], int, int, str]] = []
     dotted_matches = _qualified_dotted_subsection_matches(source_text)
@@ -3024,7 +3034,11 @@ def recognize_source_structure(
                 )
                 paragraph_segments.append((marker.path, marker.start, end, text))
     else:
-        nested_markers = _qualified_parenthesized_legal_outline_markers(source_text)
+        nested_markers = tuple(
+            marker
+            for marker in _qualified_parenthesized_legal_outline_markers(source_text)
+            if (marker.start, marker.start + len(marker.label)) not in note_markers
+        )
         if nested_markers:
             for marker, end in _nested_outline_marker_spans(
                 nested_markers,
@@ -3045,7 +3059,14 @@ def recognize_source_structure(
                 )
                 paragraph_segments.append((marker.path, marker.start, end, text))
         else:
-            paragraph_matches = list(_PARAGRAPH_MARKER.finditer(source_text))
+            paragraph_matches = [
+                match
+                for match in _PARAGRAPH_MARKER.finditer(source_text)
+                if not any(
+                    a <= match.start("marker") and match.end("marker") <= b
+                    for a, b in note_markers
+                )
+            ]
             for index, match in enumerate(paragraph_matches):
                 start = match.start()
                 end = (
@@ -5410,7 +5431,9 @@ def _has_substantive_arithmetic_expression(source_text: str) -> bool:
                 metadata.end() - metadata.start()
             )
     masked_source_text = "".join(arithmetic_text)
-    if _WORDED_ARITHMETIC_EXPRESSION.search(masked_source_text):
+    if _WORDED_ARITHMETIC_EXPRESSION.search(
+        masked_source_text
+    ) or _REFERENCED_MONETARY_ARITHMETIC_EXPRESSION.search(masked_source_text):
         return True
     for match in _ARITHMETIC_EXPRESSION.finditer(masked_source_text):
         title_prefix = masked_source_text[max(0, match.start() - 120) : match.start()]
@@ -6278,7 +6301,12 @@ def _analyze_rulespec_payload(
         recall_map = _NumericRecallSourceMap(list(range(len(source_text))))
         unrepresented_recall_text = authoritative_numeric_recall_text(
             _mask_numeric_spans(
-                source_text, represented_annual_spans | represented_measurement_spans
+                source_text,
+                represented_annual_spans
+                | represented_measurement_spans
+                # Full-source locators must be established before another
+                # offset-preserving mask prevents exact layout recognition.
+                | set(form_numeric_locator_spans(source_text)),
             ),
             corpus_citation_path=corpus_citation_path,
             _source_map=recall_map,
@@ -22751,7 +22779,11 @@ def _printed_operation_context(
     proof_sources: Mapping[str, str | None] | None = None,
 ) -> _PrintedOperationContext | None:
     structure = _unconflicted_printed_rows(
-        source_text, branches, corpus_citation_path=citation_path, allow_detached=True
+        source_text,
+        branches,
+        corpus_citation_path=citation_path,
+        allow_detached=True,
+        allow_multipage=True,
     )
     return (
         _PrintedOperationContext(
@@ -22786,9 +22818,12 @@ def _unconflicted_printed_rows(
     *,
     corpus_citation_path: str = "",
     allow_detached: bool = False,
+    allow_multipage: bool = False,
 ) -> PrintedRowStructure | None:
     """Printed groups never supersede existing source ownership boundaries."""
-    evidence = recognize_printed_rows(source_text, allow_detached=allow_detached)
+    evidence = recognize_printed_rows(
+        source_text, allow_detached=allow_detached, allow_multipage=allow_multipage
+    )
     if evidence is None:
         return None
     labels = bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
@@ -23495,6 +23530,7 @@ def _source_clause_spans(
         branches,
         corpus_citation_path=corpus_citation_path,
         allow_detached=True,
+        allow_multipage=True,
     )
     bare_labels = (
         bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
@@ -32533,6 +32569,7 @@ def _source_exception_branches(
         branches,
         corpus_citation_path=corpus_citation_path,
         allow_detached=True,
+        allow_multipage=True,
     )
     header_spans = (
         ()
