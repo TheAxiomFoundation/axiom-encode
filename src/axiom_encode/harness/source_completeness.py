@@ -43,9 +43,25 @@ from axiom_encode.bare_structure import (
     bare_outline,
     mask_bare_labels,
 )
+from axiom_encode.bound_form_structure import (
+    BoundFormStructure,
+    printed_form_header_condition_span,
+    recognize_bound_form_structure,
+)
+from axiom_encode.bound_schedule_structure import (
+    BoundScheduleStructure,
+    recognize_bound_schedule_structure,
+)
 from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check
 from axiom_encode.form_numeric_structure import form_numeric_locator_spans
 from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.harness.bound_form_operands import (
+    OrderedFormBinding,
+    bind_ordered_form,
+    observed_form_frame,
+)
+from axiom_encode.harness.bound_schedule_execution import observe_schedule
+from axiom_encode.harness.bound_schedule_operands import ScheduleBinding, bind_schedule
 from axiom_encode.harness.imported_export_evidence import ResolvedImportedExport
 from axiom_encode.harness.manual_locator_metadata import (
     MANUAL_CONTENTS_HEADINGS,
@@ -5083,10 +5099,44 @@ def _source_imperative_arithmetic_operations(
     return tuple(operations)
 
 
+def _is_informational_url_referral(source_text: str) -> bool:
+    """Recognize a complete information-only sentence, never mask a URL fragment.
+
+    The closed prose grammar cannot own an arithmetic or conditional suffix.
+    URL punctuation is inert only within this whole referral; numeric recall
+    and the raw source text/offsets remain unchanged.
+    """
+
+    if len(source_text) > 1024:
+        return False
+    domain_label = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+    url = (
+        r"(?:https?://)?"
+        + domain_label
+        + r"(?:\."
+        + domain_label
+        + r")*\.[a-z]{2,63}"
+        + r"(?:/[a-z0-9_~](?:[a-z0-9_~-]*[a-z0-9_~])?)*"
+    )
+    return (
+        re.fullmatch(
+            r"\s*For more information"
+            r"(?: about these credits(?:, including credit eligibility requirements)?)?"
+            r", go to " + url + r"\.\s*",
+            re.sub(r"[ \t\r\n]+", " ", source_text),
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
+
+
 def source_states_explicit_computation(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> bool:
     """Return whether text states a computation rather than only a scalar."""
+
+    if _is_informational_url_referral(source_text):
+        return False
 
     # A parenthesized cross-reference can contain title punctuation that looks
     # arithmetic to the generic expression recognizer (for example
@@ -5817,6 +5867,7 @@ def _analyze_rulespec_payload(
         for rule in payload.get("rules", [])
         if isinstance(rule, dict) and str(rule.get("name") or "").strip()
     }
+    execution_test_cases = test_cases
     test_cases = _typed_numeric_expected_cases(test_cases, named_rules)
     test_cases = _typed_date_cases(test_cases, payload)
     deferred_clauses: list[SourceStructureBranch] = []
@@ -5896,8 +5947,30 @@ def _analyze_rulespec_payload(
         is not None
         else RepaymentAlternativeCoverage()
     )
+    from .child_credit_evidence import _child_credit_context
+
+    child_credit = _child_credit_context(
+        source_text,
+        corpus_citation_path,
+        content,
+        execution_evidence,
+        execution_test_cases,
+        raw_source=raw_source_text,
+    )
+    from .retirement_transfer_evidence import _retirement_transfer_context
+
+    retirement_transfer = _retirement_transfer_context(
+        source_text,
+        corpus_citation_path,
+        content,
+        execution_evidence,
+        execution_test_cases,
+        raw_source=raw_source_text,
+    )
     source_condition_issues = _opaque_same_source_condition_input_issues(
         payload,
+        child_credit=child_credit,
+        retirement_transfer=retirement_transfer,
         consumer_content=content,
         source_text=source_text,
         care_source_text=raw_source_text,
@@ -5909,6 +5982,9 @@ def _analyze_rulespec_payload(
         certified_country=certified_country,
         repayment_alternatives=repayment_alternatives,
         test_cases=test_cases,
+        execution_evidence=execution_evidence,
+        source_context=source_context,
+        execution_test_cases=execution_test_cases,
     )
     issues.extend(source_condition_issues)
     from axiom_encode.harness.worksheet_operation_evidence import (
@@ -6041,6 +6117,9 @@ def _analyze_rulespec_payload(
         corpus_citation_path,
         consumer_content=content,
         proof_sources=source_context,
+        root_relative=execution_evidence.root_relative
+        if execution_evidence is not None
+        else None,
     )
     all_formula_branches = _source_formula_branches(
         source_text,
@@ -6165,6 +6244,25 @@ def _analyze_rulespec_payload(
             )
         )
 
+    bound_form = _unconflicted_bound_form(source_text, branches, corpus_citation_path)
+    from .student_loan_schedule_evidence import _student_loan_context
+
+    student_loan = _student_loan_context(
+        source_text,
+        corpus_citation_path,
+        content,
+        execution_evidence,
+        execution_test_cases,
+    )
+    represented_form_spans = (
+        (
+            {bound_form.column_count_span, bound_form.entry_count_span}
+            if isinstance(bound_form, BoundScheduleStructure)
+            else {bound_form.table.column_count_span, bound_form.table.entry_count_span}
+        )
+        if bound_form is not None
+        else set()
+    )
     represented_annual_spans: set[tuple[int, int]] = set(
         certified_operations.annual_spans
     )
@@ -6199,6 +6297,7 @@ def _analyze_rulespec_payload(
         companion_issues.extend(
             _companion_test_issues(
                 principal_rules,
+                execution_test_cases=execution_test_cases,
                 execution_evidence=execution_evidence,
                 referral_context=referral_context,
                 floor_imported_exports=imported_export_bindings,
@@ -6256,6 +6355,52 @@ def _analyze_rulespec_payload(
             )
         )
 
+    if (
+        printed_operations is not None
+        and printed_operations.ordered_binding is not None
+        and execution_evidence is not None
+        and not any(
+            getattr(issue, "check", None) == CHECK_TESTS_FORMULA_BRANCH_UNWITNESSED.id
+            for issue in companion_issues
+        )
+        and (
+            observe_schedule(
+                printed_operations.ordered_binding,
+                execution_evidence,
+                content,
+                execution_test_cases,
+            )
+            is not None
+            if isinstance(printed_operations.ordered_binding, ScheduleBinding)
+            else observed_form_frame(
+                printed_operations.ordered_binding,
+                execution_evidence,
+                content,
+                execution_test_cases,
+            )
+        )
+    ):
+        # Header ownership is numeric only, after ordinary row witnesses and
+        # one actual complete selected-frame observation. Conditions stay raw.
+        represented_form_spans.add(
+            printed_operations.ordered_binding.form.header_year_span
+            if isinstance(printed_operations.ordered_binding, ScheduleBinding)
+            else printed_operations.ordered_binding.form.header.year_span
+        )
+        if isinstance(printed_operations.ordered_binding, ScheduleBinding):
+            wrapper_year = printed_operations.ordered_binding.form.wrapper_year_span
+            if wrapper_year is not None:
+                # The exact title wrapper repeats the physical header year;
+                # source re-binding and complete observed frame prove both.
+                represented_form_spans.add(wrapper_year)
+
+    if student_loan is not None:
+        represented_form_spans.update(student_loan.numeric_spans())
+    if child_credit is not None:
+        represented_form_spans.update(child_credit.numeric_spans())
+    if retirement_transfer is not None:
+        represented_form_spans.update(retirement_transfer.numeric_spans())
+
     numeric_recall_text = authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path
     )
@@ -6268,10 +6413,17 @@ def _analyze_rulespec_payload(
         )
     )
     unrepresented_occurrences = source_occurrences
-    if represented_annual_spans or represented_measurement_spans:
+    if (
+        represented_annual_spans
+        or represented_measurement_spans
+        or represented_form_spans
+    ):
         unrepresented_recall_text = authoritative_numeric_recall_text(
             _mask_numeric_spans(
-                source_text, represented_annual_spans | represented_measurement_spans
+                source_text,
+                represented_annual_spans
+                | represented_measurement_spans
+                | represented_form_spans,
             ),
             corpus_citation_path=corpus_citation_path,
         )
@@ -19656,6 +19808,8 @@ CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED = declare_check(
 def _opaque_same_source_condition_input_issues(
     payload: Mapping[str, Any],
     *,
+    child_credit: Any = None,
+    retirement_transfer: Any = None,
     source_text: str,
     consumer_content: str | None = None,
     branches: Sequence[SourceStructureBranch],
@@ -19667,10 +19821,42 @@ def _opaque_same_source_condition_input_issues(
     certified_country: Any = None,
     repayment_alternatives: RepaymentAlternativeCoverage | None = None,
     test_cases: Sequence[object] | None = None,
+    execution_evidence: SameCaseEvidence | None = None,
+    source_context: Mapping[str, str | None] | None = None,
+    execution_test_cases: Sequence[object] | None = None,
 ) -> list[str]:
     """Reject terminal selectors that collapse explicit same-source fact gates."""
 
     inputs = payload.get("inputs")
+    schedule_binding = None
+    raw_schedule = (source_context or {}).get(corpus_citation_path)
+    if (
+        consumer_content is not None
+        and execution_evidence is not None
+        and isinstance(raw_schedule, str)
+        and raw_schedule.rstrip() == source_text
+    ):
+        schedule = recognize_bound_schedule_structure(
+            raw_schedule, corpus_citation_path
+        )
+        candidate = (
+            bind_schedule(
+                schedule,
+                consumer_content,
+                source_context or {},
+                root_relative=execution_evidence.root_relative,
+            )
+            if schedule is not None
+            else None
+        )
+        if (
+            candidate is not None
+            and observe_schedule(
+                candidate, execution_evidence, consumer_content, execution_test_cases
+            )
+            is not None
+        ):
+            schedule_binding = candidate
     declared_inputs = {
         str(item.get("name") or "").strip()
         for item in inputs or ()
@@ -19751,10 +19937,34 @@ def _opaque_same_source_condition_input_issues(
     ) -> tuple[frozenset[str], ...]:
         key = (formula, include_result_leaves)
         if key not in selector_cache:
-            selector_cache[key] = _formula_control_selector_name_groups(
+            groups = _formula_control_selector_name_groups(
                 formula,
                 include_result_leaves=include_result_leaves,
             )
+            # Exact reserved names in scalar comparison operands are engine
+            # context, never caller facts. Bare Judgment names have different
+            # lowering semantics; mixed/unsupported positions remain closed.
+            expression = _parse_formula_expression(formula)
+            context_names: set[str] = set()
+            if expression is not None:
+                scalar_nodes = {
+                    id(operand)
+                    for node in ast.walk(expression)
+                    if isinstance(node, ast.Compare)
+                    for operand in (node.left, *node.comparators)
+                    if isinstance(operand, ast.Name)
+                }
+                for name in ("period_start", "period_end"):
+                    occurrences = [
+                        node
+                        for node in ast.walk(expression)
+                        if isinstance(node, ast.Name) and node.id == name
+                    ]
+                    if occurrences and all(
+                        id(node) in scalar_nodes for node in occurrences
+                    ):
+                        context_names.add(name)
+            selector_cache[key] = tuple(group - context_names for group in groups)
         return selector_cache[key]
 
     def source_clause_gates(
@@ -20143,6 +20353,9 @@ def _opaque_same_source_condition_input_issues(
                 tuple[tuple[frozenset[str], frozenset[str]], ...],
             ] = {}
             reversed_negative_gate_keys: set[tuple[tuple[str, ...], int, int]] = set()
+            schedule_role_sets: dict[
+                tuple[tuple[str, ...], int, int], frozenset[str]
+            ] = {}
             ambiguous_ownership = False
             for excerpt in excerpts:
                 owned_clauses, ambiguous = _source_condition_clauses_owned_by_excerpt(
@@ -20153,6 +20366,29 @@ def _opaque_same_source_condition_input_issues(
                     corpus_citation_path=corpus_citation_path,
                     narrow_conjunctive_excerpt=len(excerpts) == 1,
                 )
+                if (
+                    schedule_binding is not None
+                    and not ambiguous
+                    and version_index == 0
+                ):
+                    medical = schedule_binding.conditions.medical
+                    roles = dict(schedule_binding.roles)
+                    if (
+                        rule_name in {roles["medical"], roles["spouse_address"]}
+                        and excerpt == raw_schedule[slice(*medical.span)]
+                    ):
+                        # The complete raw reporting paragraph, exact typed AST
+                        # and actual role blockers establish its own antecedent.
+                        # Neighbouring captions/residence duties are not gates
+                        # of this permission and remain in ordinary discovery.
+                        owned_clauses = (
+                            _SourceConditionClause((), *medical.span, excerpt),
+                        )
+                        inputs_by_role = dict(schedule_binding.input_roles)
+                        schedule_role_sets[((), *medical.span)] = frozenset(
+                            inputs_by_role[r]
+                            for r in ("relationship", "separate", "medical", "date")
+                        )
                 factual_parent = _source_owned_residence_parent_clause(
                     excerpt,
                     rule=rule,
@@ -20179,6 +20415,23 @@ def _opaque_same_source_condition_input_issues(
                     )
                 )
                 for clause in condition_clauses:
+                    if (
+                        retirement_transfer is not None
+                        and retirement_transfer.owns_gate(
+                            rule_name,
+                            version_index,
+                            formula,
+                            start,
+                            end,
+                            clause,
+                            ambiguous,
+                        )
+                    ):
+                        continue
+                    if child_credit is not None and child_credit.owns_refund_condition(
+                        rule_name, version_index, formula, start, end, clause, ambiguous
+                    ):
+                        continue
                     if (
                         repayment_alternatives is not None
                         and consumer_content is not None
@@ -20238,6 +20491,16 @@ def _opaque_same_source_condition_input_issues(
                     ):
                         continue
                     gates = source_clause_gates(clause)
+                    schedule_roles = schedule_role_sets.get(
+                        (clause.branch_path, clause.start, clause.end)
+                    )
+                    if schedule_roles is not None:
+                        # Preserve one factual gate per independently bound
+                        # role; period_end supplies no additional fact credit.
+                        gates = tuple(
+                            (frozenset(), frozenset({name}))
+                            for name in sorted(schedule_roles)
+                        )
                     if len(gates) < 2:
                         continue
                     excerpt_has_gates = True
@@ -20313,7 +20576,7 @@ def _opaque_same_source_condition_input_issues(
                     _TerminalGateAlternative(frozenset(), start, end, False),
                 )
             ordinary_gate_sets = tuple(
-                gates
+                (key, gates)
                 for key, gates in gate_sets.items()
                 if key not in reversed_negative_gate_keys
             )
@@ -20322,13 +20585,15 @@ def _opaque_same_source_condition_input_issues(
                 for choice in terminal_choices
                 if not choice.resolved
                 or any(
-                    not _terminal_names_corroborate_source_gates(
+                    (choice.names != schedule_role_sets[key])
+                    if key in schedule_role_sets
+                    else not _terminal_names_corroborate_source_gates(
                         choice.names,
                         gates,
                         terminal_evidence=terminal_evidence,
                         neutral_polarity_imports=frozenset(imported_names),
                     )
-                    for gates in ordinary_gate_sets
+                    for key, gates in ordinary_gate_sets
                 )
             ]
             # A negative output implementing ``No ... eligible unless A and B``
@@ -20723,6 +20988,7 @@ def _negative_local_input_clamp_test_issues(
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     numeric_value_is_grounded: NumericGroundingPredicate,
     printed_operations: _PrintedOperationContext | None = None,
+    retirement_transfer: Any = None,
 ) -> list[str]:
     """Require negative evidence for direct max(0, local_input) clamps."""
 
@@ -21128,6 +21394,10 @@ def _negative_local_input_clamp_test_issues(
             continue
         context_cases = temporal_context_cases(owner)
         for input_name in sorted(clamped_inputs):
+            if retirement_transfer is not None and retirement_transfer.clamp_witnessed(
+                owner, rule, input_name
+            ):
+                continue
             if context_cases is None:
                 missing_clamps.add((owner, input_name))
                 continue
@@ -21351,10 +21621,40 @@ def _companion_test_issues(
     partnership_content: str | None = None,
     printed_operations: _PrintedOperationContext | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    execution_test_cases: Sequence[object] | None = None,
     floor_imported_exports: Sequence[ResolvedImportedExport] = (),
     floor_source_context: Mapping[str, str | None] | None = None,
     referral_context: Any = None,
 ) -> list[str]:
+    from .student_loan_schedule_evidence import _student_loan_context
+
+    student_loan = _student_loan_context(
+        source_text,
+        corpus_citation_path,
+        partnership_content,
+        execution_evidence,
+        execution_test_cases,
+    )
+    from .child_credit_evidence import _child_credit_context
+
+    child_credit = _child_credit_context(
+        source_text,
+        corpus_citation_path,
+        partnership_content,
+        execution_evidence,
+        execution_test_cases,
+        raw_source=raw_source_text,
+    )
+    from .retirement_transfer_evidence import _retirement_transfer_context
+
+    retirement_transfer = _retirement_transfer_context(
+        source_text,
+        corpus_citation_path,
+        partnership_content,
+        execution_evidence,
+        execution_test_cases,
+        raw_source=raw_source_text,
+    )
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
     if not cases:
@@ -21408,6 +21708,7 @@ def _companion_test_issues(
     issues.extend(
         _negative_local_input_clamp_test_issues(
             principal_rules,
+            retirement_transfer=retirement_transfer,
             printed_operations=printed_operations,
             parameter_rules=parameter_rules,
             principal_formula_clause_rules=principal_formula_clause_rules,
@@ -21445,8 +21746,29 @@ def _companion_test_issues(
         for branch in branches
         if not _path_is_deferred(branch.path, deferred_paths)
     ]
+    student_formula_branches = tuple(
+        branch
+        for branch in formula_branches
+        if student_loan is not None and student_loan.formula_owned(branch)
+    )
+    child_formula_branches = tuple(
+        b
+        for b in formula_branches
+        if child_credit is not None and child_credit.formula_owned(b)
+    )
+    retirement_formula_branches = tuple(
+        b
+        for b in formula_branches
+        if retirement_transfer is not None and retirement_transfer.formula_owned(b)
+    )
     missing_formula_branches = _unwitnessed_formula_branches(
-        formula_branches,
+        tuple(
+            branch
+            for branch in formula_branches
+            if branch not in student_formula_branches
+            and branch not in child_formula_branches
+            and branch not in retirement_formula_branches
+        ),
         execution_evidence=execution_evidence,
         execution_content=partnership_content,
         printed_operations=printed_operations,
@@ -21471,6 +21793,26 @@ def _companion_test_issues(
         dependency_cache=formula_dependency_cache,
         execution_cache=formula_execution_cache,
     )
+    if student_loan is not None:
+        missing_formula_branches = (
+            *missing_formula_branches,
+            *_unmatched_evidence_obligations(
+                {
+                    branch: student_loan.witnesses(branch)
+                    for branch in student_formula_branches
+                }
+            ),
+        )
+    if child_credit is not None:
+        missing_formula_branches = (
+            *missing_formula_branches,
+            *child_credit.unmatched(child_formula_branches),
+        )
+    if retirement_transfer is not None:
+        missing_formula_branches = (
+            *missing_formula_branches,
+            *retirement_transfer.unmatched(retirement_formula_branches),
+        )
     if measurement_roles is not None:
         # These exact source operations are not necessarily formula branches in
         # the generic inventory. Validate them with the same ordinary witness;
@@ -21702,6 +22044,58 @@ def _companion_test_issues(
         numeric_limits_only=_is_us_manual_citation_path(corpus_citation_path),
         corpus_citation_path=corpus_citation_path,
     )
+    if student_loan is not None:
+        # These source-owned duties stay explicit even if generic discovery
+        # regards a guide referral or an enclosure command as non-conditional.
+        for role in ("enclosure", "guide_referral"):
+            start, end = student_loan.span(role)
+            if not any((b.start, b.end) == (start, end) for b in exception_branches):
+                exception_branches = (
+                    *exception_branches,
+                    SourceStructureBranch(
+                        (),
+                        "exception-clause",
+                        "source unit",
+                        source_text[start:end],
+                        start,
+                        end,
+                    ),
+                )
+    if child_credit is not None:
+        for role in ("volunteer", "paper_attachment", "receipts"):
+            start, end = child_credit.owned_spans()[role]
+            if not any((b.start, b.end) == (start, end) for b in exception_branches):
+                exception_branches = (
+                    *exception_branches,
+                    SourceStructureBranch(
+                        (),
+                        "exception-clause",
+                        "source unit",
+                        source_text[start:end],
+                        start,
+                        end,
+                    ),
+                )
+    if retirement_transfer is not None:
+        for role in (
+            "enclosure",
+            "identification",
+            "recipient_income_duty",
+            "recipient_withholding_duty",
+        ):
+            start, end = retirement_transfer.owned_spans()[role]
+            if not any((b.start, b.end) == (start, end) for b in exception_branches):
+                exception_branches = (
+                    *exception_branches,
+                    SourceStructureBranch(
+                        (),
+                        "exception-clause",
+                        "source unit",
+                        source_text[start:end],
+                        start,
+                        end,
+                    ),
+                )
     if exception_branches:
         independently_covered_paths = {
             path
@@ -21712,7 +22106,19 @@ def _companion_test_issues(
         paired_exception_branches = tuple(
             branch
             for branch in exception_branches
-            if _source_exception_requires_paired_witness(
+            if (
+                student_loan is not None
+                and student_loan.branch_role(branch) is not None
+            )
+            or (
+                child_credit is not None
+                and child_credit.branch_role(branch) is not None
+            )
+            or (
+                retirement_transfer is not None
+                and retirement_transfer.branch_role(branch) is not None
+            )
+            or _source_exception_requires_paired_witness(
                 branch.text,
                 branch_path=branch.path,
                 independently_covered_paths=independently_covered_paths,
@@ -21729,8 +22135,30 @@ def _companion_test_issues(
             formula_environment=formula_environment,
             calendar_date_declarations=calendar_date_declarations,
         )
+        student_exception_branches = tuple(
+            branch
+            for branch in paired_exception_branches
+            if student_loan is not None and student_loan.branch_role(branch) is not None
+        )
+        child_exception_branches = tuple(
+            b
+            for b in paired_exception_branches
+            if child_credit is not None and child_credit.branch_role(b) is not None
+        )
+        retirement_exception_branches = tuple(
+            b
+            for b in paired_exception_branches
+            if retirement_transfer is not None
+            and retirement_transfer.branch_role(b) is not None
+        )
         missing_exception_branches = _unwitnessed_exception_branches(
-            paired_exception_branches,
+            tuple(
+                branch
+                for branch in paired_exception_branches
+                if branch not in student_exception_branches
+                and branch not in child_exception_branches
+                and branch not in retirement_exception_branches
+            ),
             certified_composition=certified_composition,
             certified_replacement=certified_replacement,
             certified_paths=certified_paths,
@@ -21747,6 +22175,32 @@ def _companion_test_issues(
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
+        if (
+            missing_exception_branches
+            and execution_evidence is not None
+            and partnership_content is not None
+            and printed_operations is not None
+            and printed_operations.ordered_binding is not None
+        ):
+            from .bound_form_operands import observed_form_condition_witnesses
+            from .bound_schedule_execution import observed_schedule_condition_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                (
+                    observed_schedule_condition_witnesses
+                    if isinstance(printed_operations.ordered_binding, ScheduleBinding)
+                    else observed_form_condition_witnesses
+                )(
+                    printed_operations.ordered_binding,
+                    execution_evidence,
+                    partnership_content,
+                    execution_test_cases,
+                    missing_exception_branches,
+                    source_text=source_text,
+                    corpus_citation_path=corpus_citation_path,
+                    principal_rules=principal_rules,
+                )
+            )
         if execution_evidence is not None and partnership_content is not None:
             from .floor_retained_referral_evidence import (
                 witnesses as referral_witnesses,
@@ -21921,6 +22375,29 @@ def _companion_test_issues(
         if partnership is not None:
             missing_exception_branches = partnership.unmatched(
                 missing_exception_branches
+            )
+        if student_loan is not None:
+            # Owned obligations never enter generic candidate allocation or its
+            # fallback chains. Missing/stale observation cannot borrow a guide
+            # or enclosure token to erase a historical-provider obligation.
+            missing_exception_branches = (
+                *missing_exception_branches,
+                *_unmatched_evidence_obligations(
+                    {
+                        branch: student_loan.witnesses(branch)
+                        for branch in student_exception_branches
+                    }
+                ),
+            )
+        if child_credit is not None:
+            missing_exception_branches = (
+                *missing_exception_branches,
+                *child_credit.unmatched(child_exception_branches),
+            )
+        if retirement_transfer is not None:
+            missing_exception_branches = (
+                *missing_exception_branches,
+                *retirement_transfer.unmatched(retirement_exception_branches),
             )
         if missing_exception_branches:
             unsupported_row_outputs = [
@@ -22168,10 +22645,12 @@ class _PrintedArithmeticProjection:
 class _PrintedOperationContext:
     source_text: str
     citation_path: str
-    structure: PrintedRowStructure
+    structure: PrintedRowStructure | None
     source_branches: tuple[SourceStructureBranch, ...] = ()
     consumer_content: str = ""
     proof_sources: tuple[tuple[str, str | None], ...] = ()
+    bound_form: BoundFormStructure | BoundScheduleStructure | None = None
+    ordered_binding: OrderedFormBinding | ScheduleBinding | None = None
 
     def local_operands_bind(
         self,
@@ -22191,7 +22670,12 @@ class _PrintedOperationContext:
             _source,
         )
 
-        if rule is None or principal_rules is None or case is None:
+        if (
+            self.structure is None
+            or rule is None
+            or principal_rules is None
+            or case is None
+        ):
             return False
         payload = _payload(self.consumer_content)
         if payload is None:
@@ -22425,6 +22909,8 @@ class _PrintedOperationContext:
         return _PrintedArithmeticProjection("".join(projected), spans)
 
     def operation_kinds(self, clause: SourceStructureBranch) -> frozenset[str] | None:
+        if self.structure is None:
+            return None
         if self.source_text[clause.start : clause.end] != clause.text:
             return None
         if any(
@@ -22434,6 +22920,8 @@ class _PrintedOperationContext:
         return None
 
     def covers(self, clause: SourceStructureBranch, excerpt: str) -> bool:
+        if self.structure is None:
+            return False
         if not excerpt or self.source_text.count(excerpt) != 1:
             return False
         start = self.source_text.index(excerpt)
@@ -22453,9 +22941,27 @@ def _printed_operation_context(
     *,
     consumer_content: str = "",
     proof_sources: Mapping[str, str | None] | None = None,
+    root_relative: str | None = None,
 ) -> _PrintedOperationContext | None:
     structure = _unconflicted_printed_rows(
         source_text, branches, corpus_citation_path=citation_path
+    )
+    raw_form_source = (proof_sources or {}).get(citation_path)
+    form = _unconflicted_bound_form(
+        raw_form_source
+        if isinstance(raw_form_source, str) and raw_form_source.rstrip() == source_text
+        else source_text,
+        branches,
+        citation_path,
+    )
+    binding = (
+        (
+            bind_schedule
+            if isinstance(form, BoundScheduleStructure)
+            else bind_ordered_form
+        )(form, consumer_content, proof_sources or {}, root_relative=root_relative)
+        if form is not None
+        else None
     )
     return (
         _PrintedOperationContext(
@@ -22465,8 +22971,10 @@ def _printed_operation_context(
             tuple(branches),
             consumer_content,
             tuple(proof_sources.items()) if proof_sources is not None else (),
+            form,
+            binding,
         )
-        if structure is not None
+        if structure is not None or form is not None
         else None
     )
 
@@ -22482,6 +22990,37 @@ def _printed_operation_proof(
         and context.citation_path == citation_path.strip("/").casefold()
         and context.covers(clause, excerpt)
     )
+
+
+def _unconflicted_bound_form(source_text, branches, citation):
+    structure = recognize_bound_form_structure(source_text, citation)
+    if structure is None:
+        structure = recognize_bound_schedule_structure(source_text, citation)
+    if structure is None:
+        return None
+    labels = bare_outline(source_text, corpus_citation_path=citation) or ()
+    points = {
+        *(point for branch in branches for point in (branch.start, branch.end)),
+        *(point for label in labels for point in (label.start, label.marker_end)),
+        *(start for start, _term in bare_definition_headers(source_text, labels)),
+    }
+    owned = (
+        (
+            structure.header_span,
+            structure.note_span,
+            *(row.span for row in structure.rows),
+        )
+        if isinstance(structure, BoundScheduleStructure)
+        else (
+            structure.header.span,
+            structure.table.note_span,
+            *structure.table.field_spans,
+            *(row.span for row in structure.rows),
+        )
+    )
+    if any(a < point < b for a, b in owned for point in points):
+        return None
+    return structure
 
 
 def _unconflicted_printed_rows(
@@ -22590,6 +23129,17 @@ def _source_formula_branches(
         ),
         start=1,
     ):
+        schedule = (
+            printed_operations.bound_form if printed_operations is not None else None
+        )
+        if isinstance(schedule, BoundScheduleStructure) and schedule.bound(
+            source_text, corpus_citation_path
+        ):
+            caption_span = schedule.entered_table_caption_span()
+            if caption_span == (start, end):
+                # This classifies only exact field headings as non-computational;
+                # applicability and document obligations still see the raw text.
+                continue
         if _span_is_deferred(
             start,
             end,
@@ -23195,6 +23745,8 @@ def _source_clause_spans(
     printed_rows = _unconflicted_printed_rows(
         source_text, branches, corpus_citation_path=corpus_citation_path
     )
+    bound_form = _unconflicted_bound_form(source_text, branches, corpus_citation_path)
+    bound_rows = tuple(row.span for row in bound_form.rows) if bound_form else ()
     bare_labels = (
         bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
     )
@@ -23210,6 +23762,7 @@ def _source_clause_spans(
         match
         for match in boundary.finditer(boundary_text)
         if not _source_clause_boundary_splits_state_code_citation(source_text, match)
+        and not any(a < match.end() < b for a, b in bound_rows)
         and not (
             match.group() == "."
             and re.search(r"(?<!\w)\d+\.$", source_text[: match.end()])
@@ -23278,6 +23831,19 @@ def _source_clause_spans(
             point
             for point in printed_rows.boundaries
             if not any(a < point < b for a, b in printed_rows.atomic_spans)
+        )
+    if bound_form is not None:
+        # Only rows and the transcriber note gain boundaries; preamble and all
+        # separated prose remain ordinary clauses and condition obligations.
+        split_points.update(
+            point
+            for span in (
+                *bound_rows,
+                bound_form.note_span
+                if isinstance(bound_form, BoundScheduleStructure)
+                else bound_form.table.note_span,
+            )
+            for point in span
         )
     for start, end in zip(sorted(split_points), sorted(split_points)[1:]):
         raw = boundary_text[start:end]
@@ -26301,6 +26867,25 @@ def _formula_execution_matches_source_branch(
 ) -> bool:
     """Bind a reached leaf to numeric evidence in its exact source formula."""
 
+    # Row segmentation is not an operand certificate. A recognized form row
+    # must satisfy the ordered source/AST gate before any generic witness path.
+    if printed_operations is not None and printed_operations.bound_form is not None:
+        form = printed_operations.bound_form
+        if any(
+            a < branch.end and branch.start < b
+            for a, b in (row.span for row in form.rows)
+        ):
+            binding = printed_operations.ordered_binding
+            if binding is None or not binding.matches(
+                content=printed_operations.consumer_content,
+                branch=branch,
+                rule=source_rule,
+                principal_rules=principal_rules,
+                case=case,
+                leaf=execution.leaf,
+                trace=execution.trace,
+            ):
+                return False
     projection = (
         printed_operations.operation_projection(
             branch, source_text=source_text, citation_path=corpus_citation_path
@@ -32356,13 +32941,24 @@ def _source_exception_or_applicability_matches(
 ) -> tuple[re.Match[str], ...]:
     """Return ordered, de-duplicated negative and positive condition cues."""
 
+    raw_source = source_text if raw_source_text is None else raw_source_text
+    header_cue = None
+    if raw_source == source_text:
+        header_cue = printed_form_header_condition_span(raw_source)
+    elif raw_source.strip() == source_text:
+        raw_cue = printed_form_header_condition_span(raw_source)
+        if raw_cue is not None:
+            offset = len(raw_source) - len(raw_source.lstrip())
+            header_cue = (raw_cue[0] - offset, raw_cue[1] - offset)
+
     matches = tuple(
         match
         for match in (
             *_EXCEPTION_LANGUAGE.finditer(source_text),
             *_APPLICABILITY_LANGUAGE.finditer(source_text),
         )
-        if not _is_concessive_condition_cue(source_text, match)
+        if match.span() != header_cue
+        and not _is_concessive_condition_cue(source_text, match)
         and not _is_coordinated_parenthetical_if_any_cue(
             source_text, match, raw_source_text=raw_source_text
         )
