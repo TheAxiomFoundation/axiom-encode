@@ -4,7 +4,10 @@
 ``(i)`` has ``(ii)`` as its next sibling and a lettered ``(i)`` has ``(j)``, so
 the recognizer reads ``(i)`` as roman when the next marker at its level is
 ``(ii)``. A child ``(A)`` can follow either reading, so after ``(A)`` the
-recognizer looks past the children of ``(i)`` for that marker.
+recognizer looks past the children of ``(i)`` for that marker, counting every
+label of each marker. The reference filter can drop a marker between ``(i)``
+and ``(ii)``, so ``(ii)`` counts only when the unfiltered markers also put it
+next.
 """
 
 import pytest
@@ -17,6 +20,7 @@ from axiom_encode.harness.source_completeness import recognize_source_structure
 _CITATION = "us/regulation/12/1006/14"
 _OREGON_CITATION = "us-or/statute/316/680"
 _NZ_CITATION = "nz/act/2007/97/section/YA1"
+_WYOMING_CITATION = "us-wy/statute/39/13/103"
 
 # 12 CFR 1006.14(h), as the corpus serves it to the encoder.
 _PROHIBITED_MEDIA = (
@@ -111,6 +115,69 @@ def test_roman_items_take_the_level_below_their_parent():
         ("h", "2", "i", "a", "1", "i", "a"),
         ("h", "2", "i", "a", "1", "i", "b"),
         ("h", "2", "i", "a", "1", "ii"),
+        ("h", "2", "i", "a", "2"),
+        ("h", "2", "i", "b"),
+        ("h", "2", "ii"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("item_i", "paths_i"),
+    (
+        (
+            "(i)(A) Duty A.\n\n(B) Duty B.",
+            [("h", "2", "i"), ("h", "2", "i", "a"), ("h", "2", "i", "b")],
+        ),
+        (
+            "(i)(A)(1) Duty one.\n\n(2) Duty two.\n\n(B) Duty B.",
+            [
+                ("h", "2", "i"),
+                ("h", "2", "i", "a"),
+                ("h", "2", "i", "a", "1"),
+                ("h", "2", "i", "a", "2"),
+                ("h", "2", "i", "b"),
+            ],
+        ),
+    ),
+)
+def test_roman_item_fused_with_its_first_child_nests_under_h_2(
+    item_i: str, paths_i: list[tuple[str, ...]]
+):
+    text = _lettered(*"abcdefg") + (
+        f"\n\n(h) Duty h—(1) Duty one.\n\n(2) Duty two:\n\n{item_i}\n\n(ii) Duty ii."
+    )
+
+    assert _paths(text) == [
+        *_A_TO_G,
+        ("h",),
+        ("h", "1"),
+        ("h", "2"),
+        *paths_i,
+        ("h", "2", "ii"),
+    ]
+
+
+def test_a_nested_roman_v_does_not_end_the_search_for_ii():
+    # (v) reads as a letter or a roman numeral. Here it is the fifth roman item
+    # under (h)(2)(i)(A)(1), and the search runs past it to (ii).
+    text = _lettered(*"abcdefg") + (
+        "\n\n(h) Duty h—(1) Duty one.\n\n(2) Duty two:\n\n(i) Duty i:\n\n"
+        "(A) Duty A:\n\n(1) Duty one:\n\n"
+        + "\n\n".join(
+            f"({item}) Item {item}." for item in ("i", "ii", "iii", "iv", "v")
+        )
+        + "\n\n(2) Duty two.\n\n(B) Duty B.\n\n(ii) Duty ii."
+    )
+
+    assert _paths(text) == [
+        *_A_TO_G,
+        ("h",),
+        ("h", "1"),
+        ("h", "2"),
+        ("h", "2", "i"),
+        ("h", "2", "i", "a"),
+        ("h", "2", "i", "a", "1"),
+        *[("h", "2", "i", "a", "1", item) for item in ("i", "ii", "iii", "iv", "v")],
         ("h", "2", "i", "a", "2"),
         ("h", "2", "i", "b"),
         ("h", "2", "ii"),
@@ -245,6 +312,119 @@ def test_new_zealand_subparagraphs_under_h_nest_under_h(
     ]
 
 
+def test_oregon_paragraph_i_with_roman_items_under_A_stays_a_paragraph():
+    # The (ii) under (A) pairs with the (i) under (A), so (j) stands next.
+    text = (
+        "(1) Duty one:\n\n"
+        + _lettered(*"abcdefgh")
+        + "\n\n(i) Duty i:\n\n(A) Duty A:\n\n(i) Duty A i.\n\n(ii) Duty A ii.\n\n"
+        "(B) Duty B.\n\n(j) Duty j.\n\n(2) Duty two."
+    )
+
+    assert _paths(text, _OREGON_CITATION) == [
+        ("1",),
+        *_under("1", [*_A_TO_G, ("h",)]),
+        ("1", "i"),
+        ("1", "i", "a"),
+        ("1", "i", "a", "i"),
+        ("1", "i", "a", "ii"),
+        ("1", "i", "b"),
+        ("1", "j"),
+        ("2",),
+    ]
+
+
+@pytest.mark.parametrize(
+    "paragraph_i",
+    (
+        "(i) Duty i:\n\n(A)(i) Duty A i.",
+        "(i) Duty i:\n\n(A) (i) Duty A i.",
+        "(i)(A)(i) Duty A i.",
+    ),
+)
+def test_oregon_paragraph_i_stays_a_paragraph_when_A_fuses_with_its_first_item(
+    paragraph_i: str,
+):
+    # The (i) inside the fused marker pairs with the (ii) after it.
+    text = (
+        "(1) Duty one:\n\n"
+        + _lettered(*"abcdefgh")
+        + f"\n\n{paragraph_i}\n\n(ii) Duty A ii.\n\n(B) Duty B.\n\n"
+        "(j) Duty j.\n\n(2) Duty two."
+    )
+
+    assert _paths(text, _OREGON_CITATION) == [
+        ("1",),
+        *_under("1", [*_A_TO_G, ("h",)]),
+        ("1", "i"),
+        ("1", "i", "a"),
+        ("1", "i", "a", "i"),
+        ("1", "i", "a", "ii"),
+        ("1", "i", "b"),
+        ("1", "j"),
+        ("2",),
+    ]
+
+
+def test_paragraph_i_whose_capital_fuses_with_a_numbered_item_stays_a_paragraph():
+    # A drafter skipped the numbered level, and (A) fuses with its own (1)(i).
+    text = _lettered(*"abcdefgh") + (
+        "\n\n(i) Duty i:\n\n(A)(1)(i) Duty.\n\n(ii) Duty.\n\n(2) Duty.\n\n"
+        "(B) Duty B.\n\n(j) Duty j."
+    )
+
+    assert _paths(text) == [
+        *_A_TO_G,
+        ("h",),
+        ("i",),
+        ("i", "a"),
+        ("i", "a", "1"),
+        ("i", "a", "1", "i"),
+        ("i", "a", "1", "ii"),
+        ("i", "a", "2"),
+        ("i", "b"),
+        ("j",),
+    ]
+
+
+_INLINE_DEFINITIONS = (
+    "\n\n(i) Definitions. In this section: (i) X means x; (ii) Y means y."
+    "\n\n(j) Duty j."
+)
+
+
+@pytest.mark.parametrize(
+    ("text", "citation"),
+    (
+        (_lettered(*"abcdefgh") + _INLINE_DEFINITIONS, _CITATION),
+        (
+            _lettered(*"abcdefg")
+            + "\n\n(h) Duty h—(1) Duty one.\n\n(2) Duty two."
+            + _INLINE_DEFINITIONS,
+            _CITATION,
+        ),
+        # Wyoming drafts (a)(i)(A)(I), so a subsection's paragraphs are roman.
+        (
+            _lettered(*"abcdefgh")
+            + '\n\n(i) As used in this section: (i) "X" means x; (ii) "Y" means y.'
+            + "\n\n(j) Duty j.",
+            _WYOMING_CITATION,
+        ),
+    ),
+)
+def test_paragraph_i_stays_a_paragraph_when_the_filter_drops_its_inline_i(
+    text: str, citation: str
+):
+    # The reference filter drops the inline (i) after "this section:" and
+    # keeps the (ii), so only the unfiltered markers show (i) before (ii).
+    paths = _paths(text, citation)
+
+    assert [path for path in paths if len(path) == 1] == [
+        (letter,) for letter in "abcdefghij"
+    ]
+    assert not [path for path in paths if path[0] == "h" and path[-1] in _ROMAN]
+
+
 @pytest.mark.parametrize(
     ("after_i", "expected"),
     (
@@ -260,6 +440,10 @@ def test_new_zealand_subparagraphs_under_h_nest_under_h(
         # Any other lower-case letter does.
         ("(A) a.\n(B) b.\n(k) c.\n(ii) d.", None),
         ("(A) a.\n(B) b.", None),
+        # Every label of a marker counts, so a fused (i) pairs as well.
+        ("(A)(i) p.\n(ii) q.\n(B) b.\n(j) c.", "j"),
+        ("(A)(i) p.\n(ii) q.\n(B) b.\n(ii) c.", "ii"),
+        ("(A) a:\n(1)(i) p.\n(ii) q.\n(B) b.\n(j) c.", "j"),
     ),
 )
 def test_next_label_beside_i(after_i: str, expected: str | None):
@@ -270,6 +454,23 @@ def test_next_label_beside_i(after_i: str, expected: str | None):
     )
 
     assert completeness_module._next_label_beside_i(matches, 1) == expected
+
+
+@pytest.mark.parametrize(
+    ("leading", "expected"),
+    ((("i",), "j"), ((), "ii"), (("1", "i"), "j")),
+)
+def test_next_label_beside_i_reads_the_labels_after_A_first(
+    leading: tuple[str, ...], expected: str
+):
+    # In "(i)(A)(i)", the labels after (A) open the children of (A).
+    matches = tuple(
+        completeness_module._PARENTHESIZED_OUTLINE_MARKER.finditer(
+            "(i)(A)(i) p.\n(ii) q.\n(B) b.\n(j) c."
+        )
+    )
+
+    assert completeness_module._next_label_beside_i(matches, 1, leading) == expected
 
 
 @pytest.mark.parametrize(
@@ -298,6 +499,8 @@ def test_only_ii_reads_i_as_roman(label: str | None, opens: bool):
 # roman numeral such as (v) or (x), and only (i) after (h) has two readings.
 _CFR_LEVELS = ("lower-alpha", "numeric", "roman", "upper-alpha")
 _NZ_LEVELS = ("numeric", "lower-alpha", "roman", "upper-alpha")
+_OREGON_LEVELS = ("numeric", "lower-alpha", "upper-alpha", "roman")
+_ATTACHMENTS = ("colon", "dash", "fused")
 _ROMAN = ("i", "ii", "iii")
 _ALPHABET = "abcdefghijklmnopqrstuvwxyz"
 _WORDS = ("alpha", "beta", "gamma", "delta")
@@ -314,23 +517,28 @@ def _label(category: str, index: int) -> str:
 
 
 def _render(nodes: list, levels: tuple[str, ...]) -> tuple[str, list[tuple[str, ...]]]:
-    """Render ``(index, attached, children)`` nodes and list their paths.
+    """Render ``(index, attachment, children)`` nodes and list their paths.
 
-    A parent either ends its line with a colon or attaches its first child
-    after a dash, as in "(h) Prohibited communication media—(1) In general."
+    A parent ends its line with a colon, attaches its first child after a
+    dash, as in "(h) Prohibited communication media—(1) In general.", or,
+    below the first level, carries no text and fuses with its first child,
+    as in "(A)(i) Duty for delta."
     """
 
     expected: list[tuple[str, ...]] = []
 
     def render(nodes: list, level: int, path: tuple[str, ...]) -> list[str]:
         lines: list[str] = []
-        for index, attached, children in nodes:
+        for index, attachment, children in nodes:
             label = _label(levels[level], index)
             node_path = (*path, label.lower())
             expected.append(node_path)
             head = f"({label}) Duty for {_WORDS[level]}"
             child_lines = render(children, level + 1, node_path)
-            if children and attached:
+            if children and attachment == "fused" and level > 0:
+                lines.append(f"({label}){child_lines[0]}")
+                lines.extend(child_lines[1:])
+            elif children and attachment == "dash":
                 lines.append(f"{head}—{child_lines[0]}")
                 lines.extend(child_lines[1:])
             else:
@@ -350,19 +558,19 @@ def _outlines(draw, *, max_paragraphs: int):
 
     budget = draw(st.integers(0, 40))
 
-    def build(level: int) -> list[tuple[int, bool, list]]:
+    attachments = st.sampled_from(_ATTACHMENTS)
+
+    def build(level: int) -> list[tuple[int, str, list]]:
         nonlocal budget
         if level >= len(_CFR_LEVELS) or budget < 2:
             return []
         count = draw(st.sampled_from((0, 0, 0, 2, 2, 3)))
         if count:
             budget -= count
-        return [
-            (index, draw(st.booleans()), build(level + 1)) for index in range(count)
-        ]
+        return [(index, draw(attachments), build(level + 1)) for index in range(count)]
 
     paragraphs = draw(st.integers(2, max_paragraphs))
-    tree = [(index, draw(st.booleans()), build(1)) for index in range(paragraphs)]
+    tree = [(index, draw(attachments), build(1)) for index in range(paragraphs)]
     return _render(tree, _CFR_LEVELS)
 
 
@@ -378,8 +586,9 @@ def _outlines_past_i(draw, *, levels: tuple[str, ...]):
 
     lettered = levels.index("lower-alpha")
     budget = draw(st.integers(0, 24))
+    attachments = st.sampled_from(_ATTACHMENTS)
 
-    def build(level: int, forced_depth: int = 0) -> list[tuple[int, bool, list]]:
+    def build(level: int, forced_depth: int = 0) -> list[tuple[int, str, list]]:
         nonlocal budget
         if level >= len(levels) or (budget < 2 and not forced_depth):
             return []
@@ -388,7 +597,7 @@ def _outlines_past_i(draw, *, levels: tuple[str, ...]):
         return [
             (
                 index,
-                draw(st.booleans()),
+                draw(attachments),
                 build(level + 1, forced_depth - 1 if index == 0 else 0),
             )
             for index in range(count)
@@ -397,12 +606,12 @@ def _outlines_past_i(draw, *, levels: tuple[str, ...]):
     paragraphs = [
         (
             index,
-            draw(st.booleans()),
+            draw(attachments),
             build(lettered + 1, draw(st.integers(1, 3)) if index in (7, 8) else 0),
         )
         for index in range(draw(st.integers(9, 12)))
     ]
-    tree = [(0, False, paragraphs), (1, False, [])] if lettered else paragraphs
+    tree = [(0, "colon", paragraphs), (1, "colon", [])] if lettered else paragraphs
     return _render(tree, levels)
 
 
@@ -428,3 +637,11 @@ def test_generated_new_zealand_outlines_past_i_parse_back_to_their_paths(outline
     text, expected = outline
 
     assert _paths(text, _NZ_CITATION) == expected
+
+
+@settings(max_examples=300, deadline=None)
+@given(_outlines_past_i(levels=_OREGON_LEVELS))
+def test_generated_oregon_outlines_past_i_parse_back_to_their_paths(outline):
+    text, expected = outline
+
+    assert _paths(text, _OREGON_CITATION) == expected

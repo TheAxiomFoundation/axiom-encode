@@ -3413,6 +3413,16 @@ def _qualified_parenthesized_legal_outline_markers(
     )
     if not matches:
         return ()
+    cue_matches = tuple(
+        heapq.merge(
+            line_matches,
+            all_inline_matches,
+            key=lambda match: match.start("marker"),
+        )
+    )
+    cue_index = {
+        match.start("marker"): index for index, match in enumerate(cue_matches)
+    }
 
     first_labels = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", matches[0].group("marker")))
     outline_levels = (
@@ -3438,10 +3448,19 @@ def _qualified_parenthesized_legal_outline_markers(
                 if label_index + 1 < len(raw_labels)
                 else _first_parenthesized_outline_label(matches, match_index + 1)
             )
-            if label_index == 0 and raw_label == "i" and following_label == "A":
-                # (A) opens children under either reading of (i), so look
-                # past them to the next marker at the level of (i).
-                following_label = _next_label_beside_i(matches, match_index + 1)
+            if label_index == 0 and raw_label == "i":
+                following_label = _label_beside_i(
+                    matches, match_index + 1, raw_labels[1:]
+                )
+                if following_label == "ii":
+                    # The reference filter can drop an inline (i) and keep the
+                    # (ii) after it, so (ii) counts only when the unfiltered
+                    # markers also put it next.
+                    unfiltered_label = _label_beside_i(
+                        cue_matches, cue_index[marker_start] + 1, raw_labels[1:]
+                    )
+                    if unfiltered_label != "ii":
+                        following_label = unfiltered_label
             level, category = _parenthesized_legal_outline_level(
                 raw_label,
                 active=active,
@@ -3693,37 +3712,71 @@ def _first_parenthesized_outline_label(
     return labels[0] if labels else None
 
 
+def _label_beside_i(
+    matches: Sequence[re.Match[str]],
+    start: int,
+    labels_after_i: Sequence[str],
+) -> str | None:
+    """Return the label that decides how to read an ``(i)`` that opens a marker.
+
+    ``labels_after_i`` holds the labels after ``(i)`` in its own marker, and
+    ``start`` indexes the next marker. That label is usually the next one.
+    But ``(A)`` opens children under either reading of ``(i)``, so after
+    ``(A)`` the scan looks past them to the next marker at the level of
+    ``(i)``. A fused marker such as ``(i)(A)(i)`` carries the first of those
+    children, so the scan starts with the labels after ``(A)``.
+    """
+
+    following_label = (
+        labels_after_i[0]
+        if labels_after_i
+        else _first_parenthesized_outline_label(matches, start)
+    )
+    if following_label == "A":
+        return _next_label_beside_i(matches, start, labels_after_i[1:])
+    return following_label
+
+
 def _next_label_beside_i(
     matches: Sequence[re.Match[str]],
     start: int,
+    leading: Sequence[str] = (),
 ) -> str | None:
     """Return ``(ii)`` or ``(j)``, whichever next stands at the level of an ``(i)``.
 
-    The scan starts inside the children of ``(i)``. Each nested ``(i)`` pairs
-    with a later ``(ii)``, so only an unpaired ``(ii)`` or ``(j)`` counts. A
-    lower-case letter that is neither ``(j)`` nor a roman numeral ends the
-    scan: the outline has moved past the place where either could stand.
+    The scan starts inside the children of ``(i)``: first ``leading``, the
+    labels that follow ``(A)`` in the marker of ``(i)``, then every label of
+    each marker from ``start`` on. Each nested ``(i)`` pairs with a later
+    ``(ii)``, so only an unpaired ``(ii)`` or ``(j)`` counts. A lower-case
+    letter that is neither ``(j)`` nor a roman numeral ends the scan: the
+    outline has moved past the place where either could stand.
     """
 
     unpaired = 0
-    for match in matches[start:]:
-        labels = re.findall(r"\(([A-Za-z0-9]+)\)", match.group("marker"))
+    label_runs = itertools.chain(
+        (tuple(leading),),
+        (
+            tuple(re.findall(r"\(([A-Za-z0-9]+)\)", matches[index].group("marker")))
+            for index in range(start, len(matches))
+        ),
+    )
+    for labels in label_runs:
         if not labels or not all(
             _is_parenthesized_outline_label(label) for label in labels
         ):
             continue
-        label = labels[0]
-        if label == "i":
-            unpaired += 1
-        elif label == "ii":
-            if not unpaired:
-                return label
-            unpaired -= 1
-        elif label == "j":
-            if not unpaired:
-                return label
-        elif _parenthesized_legal_outline_categories(label) == ("lower-alpha",):
-            return None
+        for label in labels:
+            if label == "i":
+                unpaired += 1
+            elif label == "ii":
+                if not unpaired:
+                    return label
+                unpaired -= 1
+            elif label == "j":
+                if not unpaired:
+                    return label
+            elif _parenthesized_legal_outline_categories(label) == ("lower-alpha",):
+                return None
     return None
 
 
