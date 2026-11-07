@@ -38,6 +38,11 @@ from tests.test_cli import (
     _bind_test_corpus_release,
 )
 from tests.test_cli import TestGuardGenerated as _GuardFixtures
+from tests.test_reviewed_candidate_promotion_workflow import (
+    _classify,
+    _guard,
+    _promotion_dispatch,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/targeted-signed-reencode.yml"
@@ -70,7 +75,12 @@ def test_dispatch_uses_existing_source_input_and_same_protected_authority() -> N
     trigger = workflow.get("on", workflow.get(True))
     assert len(trigger["workflow_dispatch"]["inputs"]) == 25
     assert set(trigger) == {"workflow_dispatch"}
-    assert workflow["jobs"]["encode"]["environment"] == "production-signing"
+    encode = workflow["jobs"]["encode"]
+    assert encode["environment"] == "apply-signing"
+    assert "approve_generation" in encode["needs"]
+    assert workflow["jobs"]["approve_generation"]["environment"] == (
+        "generation-approval"
+    )
     request = _step("Resolve retired source metadata migration request")
     assert request["env"]["ATOMIC_SOURCE_JSON"] == "${{ inputs.source_bundle_json }}"
     assert request["env"]["RULESPEC_REF"] == "${{ inputs.rulespec_ref }}"
@@ -104,6 +114,22 @@ def test_dispatch_uses_existing_source_input_and_same_protected_authority() -> N
     assert "OPENAI_API_KEY" not in command
     assert "SUPABASE" not in command
     assert "--dry-run" not in command
+
+
+def test_migration_plan_waits_for_generation_approval(tmp_path: Path) -> None:
+    result, output = _classify(tmp_path, json.dumps(_plan()))
+    assert result.returncode == 0, result.stderr
+    assert output == "is_promotion=false\n"
+
+    # A plan that also claims promotion skips approval but stops at the
+    # signing job's first step, before checkout.
+    flagged = json.dumps({**_plan(), "reviewed_candidate_promotion": True})
+    result, output = _classify(tmp_path, flagged)
+    assert result.returncode == 0, result.stderr
+    assert output == "is_promotion=true\n"
+    guarded = _guard(tmp_path, {**_promotion_dispatch(), "source_bundle_json": flagged})
+    assert guarded.returncode != 0
+    assert "exact v5 promotion contract" in guarded.stderr
 
 
 @pytest.mark.parametrize(

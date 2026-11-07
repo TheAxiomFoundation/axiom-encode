@@ -245,6 +245,10 @@ The targeted workflow selects this mode with an exact
 `reviewed_candidate_promotion` member is `true`. All source, refresh, import,
 repair, dependency, migration, and queue inputs must be empty. Pull-request
 publication remains limited to an allowlisted reviewed-head/base-branch pair.
+The workflow rejects mixed promotion inputs before checkout or any network or
+model operation in the signing job. Promotion copies the reviewed primary and
+companion, runs deterministic overlay validation with model reviewers disabled,
+and signs only a new manifest; it does not call a model.
 
 ## Platform hardening
 
@@ -420,9 +424,11 @@ execution path are unchanged.
 
 Production signed re-encodes run centrally through
 [`targeted-signed-reencode.yml`](../.github/workflows/targeted-signed-reencode.yml)
-in `TheAxiomFoundation/axiom-encode`. Its signing job requires approval through
-the `production-signing` environment. The apply private key belongs only in that
-protected environment; do not configure ungated repository or organization
+in `TheAxiomFoundation/axiom-encode`. Its signing job signs in the
+`apply-signing` environment, and every run except a reviewed-candidate promotion
+first needs approval through `generation-approval` (see
+[Targeted workflow approval](#targeted-workflow-approval)). The apply private key
+belongs only in `apply-signing`; do not configure repository or organization
 copies or pass signing keys from jurisdiction repositories.
 
 The ungated apply-signing and caller App keys were removed during the October
@@ -483,11 +489,74 @@ event-name binding (refusing `pull_request*` beneath the allowlist) and
 workflow-ref allowlist (pinned to `@refs/heads/main`) enforce this a second time,
 independently of the YAML.
 
+### Targeted workflow approval
+
+In `.github/workflows/targeted-signed-reencode.yml`, the secret-free
+`classify_run` job recognizes a promotion only when `source_bundle_json` parses
+to an object with the boolean `reviewed_candidate_promotion: true`. Generation
+runs must complete `approve_generation` in the `generation-approval`
+environment. That job has no checkout and no secrets. It fails unless the
+`generation-approval` environment has at least one required reviewer, because
+GitHub creates a missing environment without protection rules. It then records
+the run attempt it approved. Reviewed-candidate promotions skip it.
+
+The `encode` job signs in the `apply-signing` environment, which holds the
+apply key and the repository token. It requires successful generation approval
+recorded in the same run attempt, or a classified promotion with approval
+skipped. "Re-run failed jobs" keeps the earlier approval job and its outputs, so
+a re-run generation attempt skips signing; use "Re-run all jobs" to request a
+new approval. Cancellation, failed-attempt budget, main-branch dispatch, and
+queue-actor restrictions still apply. Its first step refuses any promotion that
+includes review findings, repair replay, dependents, legacy paths, source or
+refresh bundles, signed import inputs, or any queue input.
+
+**Why a new environment.** GitHub re-runs a workflow run with the commit and
+workflow file of the original run, and allows re-runs for 30 days. Earlier
+revisions of this workflow have no `approve_generation` job and sign in
+`production-signing`. If `production-signing` kept the key without its required
+reviewers, re-running an old generation run would sign with no human approval.
+So the key lives only in `apply-signing`, which no earlier revision names;
+`production-signing` keeps its required reviewers and holds no key. A test pins
+that this workflow never names `production-signing`.
+
+After the change merges and the settings below are applied, **anyone who can
+dispatch this workflow on main can sign allowlisted, reviewed candidates
+without human approval**. The reviewed-head and publication-base allowlists
+(`REVIEWED_RULESPEC_REFS` and `REVIEWED_RULESPEC_PR_BASES` in
+`src/axiom_encode/prepare_signed_backfill.py`) and this workflow change only
+through main. Branch protection decides who that is: anyone who can merge to
+main, and any administrator who can bypass its protection, controls what
+`apply-signing` signs, because workflow code on main can read the key
+directly. When main requires no approving review and has no code owners for
+these files, a single writer can change them unreviewed. Generation still
+requires a human approval in each attempt of this workflow, but that gate
+holds only while the workflow on main keeps it.
+
+Settings, in this order:
+
+1. Before the change merges, create `generation-approval` with required
+   reviewers `@MaxGhenis` and `@PavelMakarchuk`, a deployment branch rule for
+   `main` only, administrator bypass off, and no secrets.
+2. Before the change merges, create `apply-signing` with a deployment branch
+   rule for `main` only, no required reviewers, and administrator bypass off.
+   Add the secrets `AXIOM_ENCODE_APPLY_SIGNING_KEY` (the apply key) and
+   `AXIOM_REPO_TOKEN` (a token with contents and pull-request write on the
+   RuleSpec repositories and read on axiom-corpus, axiom-rules-engine and
+   axiom-compose).
+3. After the change merges, delete both secrets from `production-signing` and
+   keep its required reviewers, so no earlier workflow revision can reach the
+   key, with or without approval.
+
+These controls and labels are documented in GitHub's
+[environment configuration instructions](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
+The workflow change does not modify environment settings or secrets.
+
 ### Threat model
 
 - **Who can trigger it.** Only an actor who can dispatch the main-branch
   workflow — i.e. a repository collaborator — can request signing, which still
-  requires the protected environment approval. A fork contributor
+  requires a `generation-approval` reviewer unless the run is an allowlisted
+  reviewed-candidate promotion. A fork contributor
   cannot: their PR neither receives the secret nor matches the pinned workflow
   ref / permitted event.
 - **What the context binding is (and is not).** The `GITHUB_*` values and the
@@ -495,8 +564,9 @@ independently of the YAML.
   **defense-in-depth against misconfiguration** (an accidental `pull_request`
   trigger, or invoking the signer from the wrong workflow), not a cryptographic
   authentication of the runner. The primary boundary is external to this code:
-  the private key is held in the approval-gated `production-signing` environment,
-  and the workflow is restricted to `workflow_dispatch` on main. An
+  the private key lives in the `apply-signing` environment, which deploys only
+  from main, generation runs need a `generation-approval` reviewer, and the
+  workflow is restricted to `workflow_dispatch` on main. An
   actor who could actually forge `GITHUB_*` would have to be able to edit the
   main-branch workflow — a trusted collaborator who can already dispatch it and
   request signing approval. The binding therefore never widens who can
@@ -662,5 +732,5 @@ owner changes either active signing identity.
 
 The active public root is published as the `AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY`
 Actions variable, which the workflows provision into the supervisors' root-owned
-trust file. The active private seed is the `production-signing` environment's
+trust file. The active private seed is the `apply-signing` environment's
 signing secret.
