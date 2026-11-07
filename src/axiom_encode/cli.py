@@ -54371,6 +54371,20 @@ def _formula_without_string_literals(formula: str) -> str:
     )
 
 
+def _formula_without_comments(formula: str) -> str:
+    """Drop each ``#`` comment and blank each string literal, in one pass.
+
+    Like the rules engine's tokenizer, the pass reads left to right, so a
+    ``#`` inside a string starts no comment and a quote inside a comment
+    opens no string.
+    """
+    return re.sub(
+        rf"({_RULESPEC_STRING_LITERAL_RE})|#[^\n]*",
+        lambda match: " " * len(match.group(1)) if match.group(1) else "",
+        formula,
+    )
+
+
 def _formula_identifiers(formula: str) -> set[str]:
     return (
         set(
@@ -58010,21 +58024,78 @@ def _parse_test_input_assignment_issue(issue: str) -> tuple[str, set[str]] | Non
     return match["case"].strip(), missing_inputs
 
 
+# Declared input dtypes, grouped by the test value each one takes: tests give
+# Boolean and Judgment inputs true or false, numeric inputs numbers, and text
+# inputs strings. The rules engine reads Money, Rate and float as Decimal and
+# int as Integer, and the encoder's eval dtypes add Count, Float and String.
+# Date, and any dtype outside these groups, leaves the choice to the name and
+# formula heuristics.
+_DECLARED_BOOLEAN_INPUT_DTYPES = frozenset({"bool", "boolean", "judgment"})
+_DECLARED_NUMERIC_INPUT_DTYPES = frozenset(
+    {"count", "decimal", "float", "int", "integer", "money", "rate"}
+)
+_DECLARED_TEXT_INPUT_DTYPES = frozenset({"string", "text"})
+_DECLARED_INPUT_KIND_DEFAULTS: dict[str, bool | int | str] = {
+    "boolean": False,
+    "numeric": 0,
+    "text": "",
+}
+
+
+def _declared_input_dtype_kind(
+    input_name: str, *, rules_payload: dict[str, object]
+) -> str | None:
+    """Return "boolean", "numeric" or "text" from the module's own declaration.
+
+    A module's `inputs` list states each input's dtype, so a generated test
+    value must take that type whatever the input's name suggests. Returns None
+    when the module declares no input of that name, declares it more than once,
+    or gives it a dtype outside the three groups.
+    """
+    inputs = rules_payload.get("inputs")
+    if not isinstance(inputs, list):
+        return None
+    kinds: list[str | None] = []
+    for entry in inputs:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("name") or "").strip() != input_name:
+            continue
+        dtype = str(entry.get("dtype") or "").strip().lower()
+        if dtype in _DECLARED_BOOLEAN_INPUT_DTYPES:
+            kinds.append("boolean")
+        elif dtype in _DECLARED_NUMERIC_INPUT_DTYPES:
+            kinds.append("numeric")
+        elif dtype in _DECLARED_TEXT_INPUT_DTYPES:
+            kinds.append("text")
+        else:
+            kinds.append(None)
+    if len(kinds) != 1:
+        return None
+    return kinds[0]
+
+
 def _default_generated_test_input_value(
     input_name: str,
     *,
     rules_payload: dict[str, object],
     prefer_positive_counts: bool = False,
 ) -> bool | int | str:
-    if _factual_input_appears_string_selector(input_name, rules_payload=rules_payload):
+    declared = _declared_input_dtype_kind(input_name, rules_payload=rules_payload)
+    if declared == "boolean":
+        return False
+    if declared == "text":
         return ""
-    if _factual_input_appears_numeric(input_name, rules_payload=rules_payload):
-        if prefer_positive_counts and _factual_input_name_looks_positive_count(
-            input_name
+    if declared is None:
+        if _factual_input_appears_string_selector(
+            input_name, rules_payload=rules_payload
         ):
-            return 1
-        return 0
-    return False
+            return ""
+        if not _factual_input_appears_numeric(input_name, rules_payload=rules_payload):
+            return False
+    if prefer_positive_counts and _factual_input_name_looks_positive_count(input_name):
+        return 1
+    return 0
 
 
 def _factual_input_appears_string_selector(
@@ -58048,7 +58119,7 @@ def _factual_input_appears_string_selector(
     string_membership = re.compile(
         rf"""
         \b{re.escape(input_name)}\b\s+(?:not\s+)?in\s*
-        [\[\(\{{][^\]\)\}}]*{_RULESPEC_STRING_LITERAL_RE}
+        [\[\(\{{][^\]\)\}}]*{string_literal}
         """,
         re.VERBOSE,
     )
@@ -58086,6 +58157,9 @@ def _factual_input_name_looks_positive_count(input_name: str) -> bool:
 def _factual_input_appears_numeric(
     input_name: str, *, rules_payload: dict[str, object]
 ) -> bool:
+    declared = _declared_input_dtype_kind(input_name, rules_payload=rules_payload)
+    if declared is not None:
+        return declared == "numeric"
     if _factual_input_appears_string_selector(
         input_name,
         rules_payload=rules_payload,
@@ -58104,18 +58178,35 @@ def _factual_input_appears_numeric(
             rf"|(?:[+\-*/]\s*)\b{re.escape(input_name)}\b)"
         )
         boolean_context = re.compile(
-            rf"(\bif\s+{re.escape(input_name)}\s*:"
+            rf"(\b(?:if|elif)\s+{re.escape(input_name)}\s*:"
             rf"|\bnot\s+{re.escape(input_name)}\b"
             rf"|\b{re.escape(input_name)}\b\s+(?:and|or)\b"
             rf"|\b(?:and|or)\s+{re.escape(input_name)}\b)"
         )
+        # A rule with a numeric dtype that returns the input bare, as its whole
+        # formula or as one branch's value, uses it as a number. So does a
+        # numeric function that takes it as an argument. Both checks read the
+        # formula without its comments (see `_formula_without_comments`).
+        bare_numeric_value = re.compile(
+            rf"(?:\A|:)[ \t]*(?:\n[ \t]*)?{re.escape(input_name)}[ \t]*"
+            rf"(?=\Z|\n|else\b|elif\b)"
+        )
+        numeric_call_argument = re.compile(
+            rf"\b(?:min|max|abs|round|floor|ceil)\s*\([^()]*\b{re.escape(input_name)}\b"
+        )
         formula_hits: list[str] = []
+        numeric_rule_formula_hits: list[str] = []
+        formula_code: list[str] = []
         for rule in rules:
             if not isinstance(rule, dict):
                 continue
             versions = rule.get("versions")
             if not isinstance(versions, list):
                 continue
+            rule_is_numeric = (
+                str(rule.get("dtype") or "").strip().lower()
+                in _DECLARED_NUMERIC_INPUT_DTYPES
+            )
             for version in versions:
                 if not isinstance(version, dict):
                     continue
@@ -58123,6 +58214,10 @@ def _factual_input_appears_numeric(
                 if not isinstance(formula, str) or not pattern.search(formula):
                     continue
                 formula_hits.append(formula)
+                code = _formula_without_comments(formula)
+                formula_code.append(code)
+                if rule_is_numeric:
+                    numeric_rule_formula_hits.append(code)
         if any(
             _string_positive_assignment_for_expression(
                 input_name=input_name,
@@ -58136,6 +58231,10 @@ def _factual_input_appears_numeric(
             return True
         if any(boolean_context.search(formula) for formula in formula_hits):
             return False
+        if any(
+            bare_numeric_value.search(code) for code in numeric_rule_formula_hits
+        ) or any(numeric_call_argument.search(code) for code in formula_code):
+            return True
 
     if _factual_input_name_looks_positive_count(input_name):
         return True
@@ -67572,10 +67671,18 @@ def _complete_missing_dependent_test_inputs(
         repo_path=overlay_repo,
     )
     target_input_names: set[str] = set()
+    target_payloads: dict[str, dict[str, object]] = {}
     with contextlib.suppress(OSError, ValueError, yaml.YAMLError):
+        target_content = target_file.read_text()
         target_input_names = _local_factual_input_names_from_rules_content(
-            target_file.read_text()
+            target_content
         )
+        target_payload = yaml.safe_load(target_content)
+        if isinstance(target_payload, dict):
+            target_payloads[target_ref] = target_payload
+    declared_default = _declared_input_default_resolver(
+        repo_path=overlay_repo, known_payloads=target_payloads
+    )
     changed: list[Path] = []
     for validated_file, validation in validations:
         if validated_file == target_file:
@@ -67632,6 +67739,7 @@ def _complete_missing_dependent_test_inputs(
                 baseline_inputs=baseline_inputs,
                 imported_inputs=imported_inputs,
                 target_input_names=target_input_names,
+                declared_default=declared_default,
             ):
                 updated = _insert_input_default_in_test_cases(
                     updated,
@@ -67678,22 +67786,30 @@ def _complete_missing_imported_test_inputs(
         return True
     current_base = _rulespec_base_for_file(rules_file, repo_path=repo_path)
     local_input_refs: dict[str, list[str]] = {}
+    local_payloads: dict[str, dict[str, object]] = {}
     if current_base:
         with contextlib.suppress(OSError, ValueError, yaml.YAMLError):
+            rules_content = rules_file.read_text()
             for input_name in sorted(
-                _local_factual_input_names_from_rules_content(rules_file.read_text())
+                _local_factual_input_names_from_rules_content(rules_content)
             ):
                 _append_unique_input_ref(
                     local_input_refs,
                     input_name,
                     f"{current_base}#input.{input_name}",
                 )
+            rules_payload = yaml.safe_load(rules_content)
+            if isinstance(rules_payload, dict):
+                local_payloads[current_base] = rules_payload
     imported_inputs = _merge_imported_input_refs_by_name(
         local_input_refs,
         _imported_input_refs_by_name(rules_file, repo_path=repo_path),
     )
     if not imported_inputs:
         return False
+    declared_default = _declared_input_default_resolver(
+        repo_path=repo_path, known_payloads=local_payloads
+    )
 
     content = test_file.read_text()
     updated = content
@@ -67703,7 +67819,9 @@ def _complete_missing_imported_test_inputs(
             updated = _insert_input_default_in_test_cases(
                 updated,
                 input_ref,
-                _infer_missing_input_default(input_name),
+                _missing_input_default(
+                    input_name, input_ref, declared_default=declared_default
+                ),
                 relation_row_anchor_bases=relation_row_anchor_bases,
             )
     for assignment in missing_assignments:
@@ -67718,16 +67836,19 @@ def _complete_missing_imported_test_inputs(
             input_names = sorted(imported_inputs)
         for input_name in input_names:
             for input_ref in imported_inputs.get(input_name, []):
+                default = _missing_input_default(
+                    input_name, input_ref, declared_default=declared_default
+                )
                 updated = _insert_input_default_in_relation_rows_for_test_cases(
                     updated,
                     input_ref=input_ref,
-                    value=_infer_missing_input_default(input_name),
+                    value=default,
                     relation_row_anchor_bases=relation_row_anchor_bases,
                 )
                 updated = _insert_input_default_in_table_entity_rows(
                     updated,
                     input_ref=input_ref,
-                    value=_infer_missing_input_default(input_name),
+                    value=default,
                     case_name=assignment["case"],
                     entity_id=entity_id,
                 )
@@ -68115,6 +68236,64 @@ def _load_test_input_baseline(test_path: Path) -> dict[str, object]:
     return {}
 
 
+DeclaredInputDefault = Callable[[str], bool | int | str | None]
+
+
+def _declared_input_default_resolver(
+    *,
+    repo_path: Path,
+    known_payloads: Mapping[str, dict[str, object]] | None = None,
+) -> DeclaredInputDefault:
+    """Return a lookup from an input ref to the default its declared dtype takes.
+
+    The lookup reads each referenced module once, from `known_payloads` when it
+    holds the ref's base and from the repo otherwise. It returns None when no
+    module in the repo answers to the base, the path resolver refuses the ref,
+    the module doesn't parse, or it declares no single dtype group for the
+    input; the caller then falls back to the name guess.
+    """
+    payloads: dict[str, dict[str, object] | None] = dict(known_payloads or {})
+
+    def lookup(input_ref: str) -> bool | int | str | None:
+        base, separator, input_name = input_ref.partition("#input.")
+        input_name = input_name.strip()
+        if not separator or not input_name:
+            return None
+        if base not in payloads:
+            payload: dict[str, object] | None = None
+            # UnsafeRulespecContextPath is a ValueError: a refused ref is never read.
+            with contextlib.suppress(OSError, ValueError, yaml.YAMLError):
+                module_file = _import_base_to_repo_file(base, repo_path=repo_path)
+                if module_file is not None:
+                    loaded = yaml.safe_load(module_file.read_text())
+                    if isinstance(loaded, dict):
+                        payload = loaded
+            payloads[base] = payload
+        payload = payloads[base]
+        if payload is None:
+            return None
+        kind = _declared_input_dtype_kind(input_name, rules_payload=payload)
+        if kind is None:
+            return None
+        return _DECLARED_INPUT_KIND_DEFAULTS[kind]
+
+    return lookup
+
+
+def _missing_input_default(
+    input_name: str,
+    input_ref: str,
+    *,
+    declared_default: DeclaredInputDefault | None = None,
+) -> object:
+    """The value a filled-in test input takes: its declared dtype's, else a guess."""
+    if declared_default is not None:
+        value = declared_default(input_ref)
+        if value is not None:
+            return value
+    return _infer_missing_input_default(input_name)
+
+
 def _default_refs_for_missing_input(
     input_name: str,
     *,
@@ -68122,6 +68301,7 @@ def _default_refs_for_missing_input(
     baseline_inputs: dict[str, object],
     imported_inputs: dict[str, list[str]] | None = None,
     target_input_names: set[str] | None = None,
+    declared_default: DeclaredInputDefault | None = None,
 ) -> list[tuple[str, object]]:
     suffix = f"#input.{input_name}"
     matches = [
@@ -68132,15 +68312,26 @@ def _default_refs_for_missing_input(
     if matches:
         return matches
     imported_matches = [
-        (reference, _infer_missing_input_default(input_name))
+        (
+            reference,
+            _missing_input_default(
+                input_name, reference, declared_default=declared_default
+            ),
+        )
         for reference in (imported_inputs or {}).get(input_name, [])
     ]
     if imported_matches:
         return imported_matches
     if target_input_names is not None and input_name not in target_input_names:
         return []
+    target_input_ref = f"{target_ref}#input.{input_name}"
     return [
-        (f"{target_ref}#input.{input_name}", _infer_missing_input_default(input_name))
+        (
+            target_input_ref,
+            _missing_input_default(
+                input_name, target_input_ref, declared_default=declared_default
+            ),
+        )
     ]
 
 
