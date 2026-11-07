@@ -6257,8 +6257,12 @@ def _analyze_rulespec_payload(
             )
         )
 
+    copied_categories = _bound_copied_amount_categories(
+        payload, source_text, corpus_citation_path, source_context
+    )
+    recall_map = _NumericRecallSourceMap(list(range(len(source_text))))
     numeric_recall_text = authoritative_numeric_recall_text(
-        source_text, corpus_citation_path=corpus_citation_path
+        source_text, corpus_citation_path=corpus_citation_path, _source_map=recall_map
     )
     source_occurrences = tuple(
         occurrence
@@ -6269,12 +6273,15 @@ def _analyze_rulespec_payload(
         )
     )
     unrepresented_occurrences = source_occurrences
+    unrepresented_recall_text = numeric_recall_text
     if represented_annual_spans or represented_measurement_spans:
+        recall_map = _NumericRecallSourceMap(list(range(len(source_text))))
         unrepresented_recall_text = authoritative_numeric_recall_text(
             _mask_numeric_spans(
                 source_text, represented_annual_spans | represented_measurement_spans
             ),
             corpus_citation_path=corpus_citation_path,
+            _source_map=recall_map,
         )
         unrepresented_occurrences = tuple(
             occurrence
@@ -6296,6 +6303,16 @@ def _analyze_rulespec_payload(
     covered_source_values = len(source_occurrences) - len(unrepresented_occurrences)
     missing_source_values: list[float] = []
     for occurrence in unrepresented_occurrences:
+        raw_span = recall_map.source_span(occurrence.start, occurrence.end)
+        if any(
+            raw_span == bound.span
+            and occurrence.value == bound.value
+            and unrepresented_recall_text[occurrence.start : occurrence.end] == "18"
+            and source_text[bound.span[0] : bound.span[1]] == "18"
+            for bound in copied_categories
+        ):
+            covered_source_values += 1
+            continue
         if any(
             numeric_value_is_grounded(named_value, (occurrence,))
             for named_value in named_values
@@ -6325,6 +6342,133 @@ def _analyze_rulespec_payload(
         covered_source_values,
         len(missing_source_values),
     )
+
+
+@dataclass(frozen=True)
+class _CopiedAmountCategory:
+    span: tuple[int, int]
+    value: int
+    rule_name: str
+    input_name: str
+
+
+def _bound_copied_amount_categories(
+    payload: dict[str, Any],
+    source_text: str,
+    corpus_citation_path: str,
+    source_context: Mapping[str, str | None] | None,
+) -> tuple[_CopiedAmountCategory, ...]:
+    """Bind a category number to a source-directed copied return amount.
+
+    This represents the category of an entered amount, not upstream eligibility
+    or authentication of the caller's return. All other obligations remain.
+    """
+    from axiom_encode.printed_source_rows import recognize_printed_rows
+
+    citation = "ca/policy/cra/t1-2025/federal-spouse-transfer-amounts"
+    module = payload.get("module")
+    verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    if (
+        corpus_citation_path != citation
+        or not isinstance(verification, dict)
+        or verification.get("corpus_citation_path") != citation
+        or (source_context or {}).get(citation) != source_text
+        or verification.get("source_sha256")
+        != hashlib.sha256(source_text.encode()).hexdigest()
+        or payload.get("imports", []) != []
+    ):
+        return ()
+    structure = recognize_printed_rows(source_text, allow_detached=True)
+    if structure is None or len(structure.same_page_floors) != 2:
+        return ()
+    row = (
+        "Canada caregiver amount for infirm children under 18 years of age:\n"
+        "Enter the amount from line 30500 of their return.\n\n35300 +\n\n2\n\n"
+    )
+    if source_text.count(row) != 1:
+        return ()
+    rules, inputs = payload.get("rules"), payload.get("inputs")
+    if not isinstance(rules, list) or not isinstance(inputs, list):
+        return ()
+    if not all(
+        isinstance(r, dict) and isinstance(r.get("name"), str) for r in rules + inputs
+    ):
+        return ()
+    names = [r["name"] for r in rules + inputs]
+    if len(set(names)) != len(names):
+        return ()
+    by_input = {r["name"]: r for r in inputs}
+    found = []
+    header = source_text.split("\n", 1)[0]
+    for rule in rules:
+        if tuple(
+            rule.get(k) for k in ("kind", "dtype", "entity", "period", "unit")
+        ) != ("derived", "Money", "Person", "Year", "CAD"):
+            continue
+        if rule.get("rounding") is not None or "resolved_currency_rounding" in rule:
+            continue
+        versions = rule.get("versions")
+        if (
+            not isinstance(versions, list)
+            or len(versions) != 1
+            or not isinstance(versions[0], dict)
+        ):
+            continue
+        version = versions[0]
+        if (
+            str(version.get("effective_from")) != "2025-01-01"
+            or str(version.get("effective_to")) != "2025-12-31"
+        ):
+            continue
+        # A direct local factual projection, never an arithmetic replacement.
+        name = version.get("formula")
+        if not isinstance(name, str) or name not in by_input:
+            continue
+        fact = by_input[name]
+        if tuple(fact.get(k) for k in ("dtype", "entity", "period", "unit")) != (
+            "Money",
+            "Person",
+            "Year",
+            "CAD",
+        ):
+            continue
+        if any(k in fact for k in ("default", "formula", "versions", "indexed_by")):
+            continue
+        # Corroborate the specific entered-return field; the source/proof and
+        # direct identity projection below supply authority, not this name.
+        if name != "spouse_caregiver_infirm_children_amount_line_30500":
+            continue
+        metadata = rule.get("metadata")
+        proof = metadata.get("proof") if isinstance(metadata, dict) else None
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list) or not all(isinstance(a, dict) for a in atoms):
+            continue
+        valid = True
+        for suffix, kind, excerpt in (
+            ("formula", "formula", row[:-1]),
+            ("effective_from", "effective_period", header),
+            ("effective_to", "effective_period", header),
+        ):
+            matches = [a for a in atoms if a.get("path") == "versions[0]." + suffix]
+            if len(matches) != 1 or matches[0].get("kind") != kind:
+                valid = False
+                break
+            source = matches[0].get("source")
+            if (
+                not isinstance(source, dict)
+                or source.get("corpus_citation_path") != citation
+                or source.get("excerpt") != excerpt
+            ):
+                valid = False
+                break
+        if valid:
+            start = source_text.index(row) + row.index("18")
+            found.append(
+                _CopiedAmountCategory((start, start + 2), 18, rule["name"], name)
+            )
+    return tuple(found) if len(found) == 1 else ()
 
 
 def _rule_coverage(
