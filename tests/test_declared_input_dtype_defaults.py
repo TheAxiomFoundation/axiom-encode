@@ -25,6 +25,7 @@ from axiom_encode.cli import (
     _default_generated_test_input_value,
     _default_refs_for_missing_input,
     _factual_input_appears_numeric,
+    _formula_without_comments,
     _import_base_to_repo_file,
     _infer_missing_input_default,
     _missing_input_default,
@@ -403,6 +404,52 @@ class TestUndeclaredBareNumericValues:
         value = _default_generated_test_input_value("transfers", rules_payload=payload)
 
         assert _same_value(value, 0)
+
+    def test_a_quote_inside_a_comment_hides_no_code(self):
+        # The comment ends with its line, so its quote opens no string that
+        # could swallow the min call on the next line.
+        formula = (
+            '# the 2" margin rule\n'
+            "min(fifty_dollar_cap, unauthorized_transfers_before_notice)"
+            ' + (if kind == "a": 0 else: 0)'
+        )
+
+        value = _default_generated_test_input_value(
+            "unauthorized_transfers_before_notice",
+            rules_payload=_module(formula=formula),
+        )
+
+        assert "unauthorized_transfers_before_notice" in _formula_without_comments(
+            formula
+        )
+        assert _same_value(value, 0)
+
+    def test_apostrophes_in_two_comments_hide_no_code(self):
+        formula = (
+            "if notified_flag:  # consumer's notice\n"
+            "    unauthorized_transfers_before_notice\n"
+            "else:  # bank's case\n"
+            "    0"
+        )
+
+        assert "unauthorized_transfers_before_notice" in _formula_without_comments(
+            formula
+        )
+
+    def test_a_min_call_inside_a_comment_is_not_numeric(self):
+        payload = _module(
+            formula=(
+                "0  # min(fifty_dollar_cap, unauthorized_transfers_before_notice)"
+                " once the cap applies"
+            )
+        )
+
+        assert (
+            _factual_input_appears_numeric(
+                "unauthorized_transfers_before_notice", rules_payload=payload
+            )
+            is False
+        )
 
 
 class TestMissingInputDefaults:

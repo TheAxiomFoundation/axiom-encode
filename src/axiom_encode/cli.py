@@ -54372,11 +54372,17 @@ def _formula_without_string_literals(formula: str) -> str:
 
 
 def _formula_without_comments(formula: str) -> str:
-    """Drop each ``#`` comment, as the rules engine's tokenizer does.
+    """Drop each ``#`` comment and blank each string literal, in one pass.
 
-    String literals are blanked first, so a ``#`` inside one starts no comment.
+    Like the rules engine's tokenizer, the pass reads left to right, so a
+    ``#`` inside a string starts no comment and a quote inside a comment
+    opens no string.
     """
-    return re.sub(r"#[^\n]*", "", _formula_without_string_literals(formula))
+    return re.sub(
+        rf"({_RULESPEC_STRING_LITERAL_RE})|#[^\n]*",
+        lambda match: " " * len(match.group(1)) if match.group(1) else "",
+        formula,
+    )
 
 
 def _formula_identifiers(formula: str) -> set[str]:
@@ -58180,7 +58186,7 @@ def _factual_input_appears_numeric(
         # A rule with a numeric dtype that returns the input bare, as its whole
         # formula or as one branch's value, uses it as a number. So does a
         # numeric function that takes it as an argument. Both checks read the
-        # formula without its comments, as the rules engine does.
+        # formula without its comments (see `_formula_without_comments`).
         bare_numeric_value = re.compile(
             rf"(?:\A|:)[ \t]*(?:\n[ \t]*)?{re.escape(input_name)}[ \t]*"
             rf"(?=\Z|\n|else\b|elif\b)"
