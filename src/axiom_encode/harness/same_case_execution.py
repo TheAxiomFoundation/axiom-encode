@@ -385,6 +385,8 @@ class ExecutionCapture:
     _capital_gift_refusals: list = field(default_factory=list, init=False, repr=False)
     _investment_adjustment_owned: bool = field(default=False, init=False, repr=False)
     _investment_adjustment_context: Any = field(default=None, init=False, repr=False)
+    _mhrtc_owned: bool = field(default=False, init=False, repr=False)
+    _mhrtc_context: Any = field(default=None, init=False, repr=False)
     _investment_adjustment_refusals: list = field(
         default_factory=list, init=False, repr=False
     )
@@ -411,6 +413,10 @@ class ExecutionCapture:
             return False
 
     def compiled(self, artifact: Path) -> None:
+        if self._mhrtc_owned:
+            from .mhrtc_capture import clear
+
+            clear(self)
         self.records.clear()
         self._capital_gift_refusals.clear()
         self._investment_adjustment_refusals.clear()
@@ -462,7 +468,11 @@ class ExecutionCapture:
             return
         if not strict_explain_metadata(request, response):
             return
-        if self._capital_gift_owned or self._investment_adjustment_owned:
+        if (
+            self._capital_gift_owned
+            or self._investment_adjustment_owned
+            or self._mhrtc_owned
+        ):
             from .scoped_execution import adapter
 
             selected = adapter(self)
@@ -526,7 +536,11 @@ class ExecutionCapture:
             tuple(self.records),
             self.overlay_origin,
         )
-        if self._capital_gift_owned or self._investment_adjustment_owned:
+        if (
+            self._capital_gift_owned
+            or self._investment_adjustment_owned
+            or self._mhrtc_owned
+        ):
             from .scoped_execution import adapter
 
             selected = adapter(self)
@@ -609,6 +623,13 @@ class SameCaseEvidence:
             return None
         payload = _payload(content.encode())
         imports = payload.get("imports", [])
+        if not imports:
+            from .mhrtc_program_contract import POLICY_PATH
+
+            if self.root_relative == POLICY_PATH:
+                # Expired or detached MHRtC records remain private-only. Ordinary
+                # local replay still returns its empty imported-value mapping.
+                return None
         aliases = [x.rsplit("#", 1)[-1] for x in imports]
         local = {r.get("name") for r in payload.get("rules", [])} | {
             i.get("name") for i in payload.get("inputs", [])

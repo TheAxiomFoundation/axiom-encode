@@ -109,6 +109,18 @@
       "why": "A parameter-only module cannot compute what the source states."
     },
     {
+      "category": "complete-source-unit:mhrtc-evidence",
+      "cause": "encoder_output",
+      "fix": "Correct the closed source-bound program and complete factual companion, then rerun ordinary validation with the authenticated release and receipted pinned engine; do not weaken predicates or substitute generic witnesses.",
+      "gate": "ci",
+      "id": "complete-source-unit:mhrtc-evidence/missing",
+      "requires": "Every exact MHRtC source occurrence and supplemental role has complete fresh private principal, parameter and auxiliary evidence.",
+      "severity": "important",
+      "site": "axiom_encode/harness/source_completeness.py:analyze_complete_source_unit",
+      "title": "MHRtC lacks complete private source execution evidence",
+      "why": "Generic scalar assertions, missing or duplicated inventories, and stale or detached execution cannot establish the source-bound joint conditions."
+    },
+    {
       "category": "complete-source-unit:numeric-recall",
       "cause": "encoder_output",
       "fix": "Add a parameter (or bind the value in an existing one) for the missing value, grounded in the source text. `module.summary` does not count.",
@@ -433,6 +445,6 @@
       "why": "An expected-error label alone cannot prove that a source restriction rejected the intended principal computation."
     }
   ],
-  "registry_sha256": "74e6247ad84ec34ab2b65c815c3db84d5fbb3cb9996917dd8ceca4ace29750c2",
+  "registry_sha256": "676de41df0e24bdefd5b6feed115a4f4ffc25d0df5504df82430b6a3d1eee4b7",
   "schema": "axiom-encode/check-registry/v1"
 }
