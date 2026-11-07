@@ -397,6 +397,18 @@
       "why": "A proof atom ties a rule to the exact source words it implements. An excerpt that is not in the cited provision, or not in the rule's own subsection, proves nothing and can hide an invented value or condition."
     },
     {
+      "category": "tests:companion-relations",
+      "cause": "encoder_output",
+      "fix": "Assert a compiled derived query output in this case, or remove `relations` if the case only checks parameters.",
+      "gate": "tests",
+      "id": "tests:companion-relations/derived-query-required",
+      "requires": "Each companion case containing `relations`, including an empty list, asserts at least one compiled derived query output.",
+      "severity": "important",
+      "site": "axiom_encode/harness/validator_pipeline.py:_run_rulespec_test_cases",
+      "title": "Explicit companion relations have no derived query output",
+      "why": "Explicit relation edges need a derived query's root entity; a parameter-only case cannot execute the supplied graph."
+    },
+    {
       "category": "tests:scoped-execution",
       "cause": "encoder_output",
       "fix": "Correct the companion's factual cases and matching positive/refusal pairs, then rerun the whole module with the authenticated source and pinned engine. Keep failed records instead of borrowing older results.",
@@ -421,6 +433,6 @@
       "why": "An expected-error label alone cannot prove that a source restriction rejected the intended principal computation."
     }
   ],
-  "registry_sha256": "40f3f59f463ad66eeb983cff283a35d63587be7f50b96863497fc16501684c03",
+  "registry_sha256": "74e6247ad84ec34ab2b65c815c3db84d5fbb3cb9996917dd8ceca4ace29750c2",
   "schema": "axiom-encode/check-registry/v1"
 }
