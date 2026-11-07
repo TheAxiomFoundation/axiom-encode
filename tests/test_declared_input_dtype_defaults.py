@@ -25,6 +25,7 @@ from axiom_encode.cli import (
     _default_generated_test_input_value,
     _default_refs_for_missing_input,
     _factual_input_appears_numeric,
+    _factual_input_appears_string_selector,
     _formula_without_comments,
     _import_base_to_repo_file,
     _infer_missing_input_default,
@@ -432,8 +433,55 @@ class TestUndeclaredBareNumericValues:
             "    0"
         )
 
+        value = _default_generated_test_input_value(
+            "unauthorized_transfers_before_notice",
+            rules_payload=_module(formula=formula),
+        )
+
         assert "unauthorized_transfers_before_notice" in _formula_without_comments(
             formula
+        )
+        assert _same_value(value, 0)
+
+    def test_a_single_quoted_literal_elsewhere_makes_no_input_a_string(self):
+        # Another rule's 'a' says nothing about this input, so the min call
+        # still marks it numeric.
+        payload = _module(
+            formula="min(fifty_dollar_cap, unauthorized_transfers_before_notice)"
+        )
+        payload["rules"].append(
+            {
+                "name": "transfer_label",
+                "kind": "derived",
+                "dtype": "String",
+                "versions": [{"formula": "if code == 'a': 'card' else: 'other'"}],
+            }
+        )
+
+        value = _default_generated_test_input_value(
+            "unauthorized_transfers_before_notice", rules_payload=payload
+        )
+
+        assert not _factual_input_appears_string_selector(
+            "unauthorized_transfers_before_notice", rules_payload=payload
+        )
+        assert _same_value(value, 0)
+
+    @pytest.mark.parametrize(
+        "formula",
+        (
+            "if transfer_kind in ('card', 'wire'): 1 else: 0",
+            'if transfer_kind in ["card"]: 1 else: 0',
+            "if transfer_kind not in {'card'}: 1 else: 0",
+        ),
+    )
+    def test_membership_in_a_list_of_strings_marks_a_string_selector(
+        self, formula: str
+    ):
+        payload = _module(formula=formula)
+
+        assert _factual_input_appears_string_selector(
+            "transfer_kind", rules_payload=payload
         )
 
     def test_a_min_call_inside_a_comment_is_not_numeric(self):

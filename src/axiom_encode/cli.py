@@ -58119,7 +58119,7 @@ def _factual_input_appears_string_selector(
     string_membership = re.compile(
         rf"""
         \b{re.escape(input_name)}\b\s+(?:not\s+)?in\s*
-        [\[\(\{{][^\]\)\}}]*{_RULESPEC_STRING_LITERAL_RE}
+        [\[\(\{{][^\]\)\}}]*{string_literal}
         """,
         re.VERBOSE,
     )
