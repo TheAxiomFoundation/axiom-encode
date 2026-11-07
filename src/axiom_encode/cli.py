@@ -120,6 +120,7 @@ from .checks import (
     ISSUE_SCHEMA_VERSION as VALIDATION_ISSUE_SCHEMA_VERSION,
 )
 from .checks import (
+    ValidationIssue,
     issues_from_document,
     registry_document,
     retype,
@@ -675,6 +676,10 @@ _REVIEWED_CANDIDATE_MANIFEST_FIELDS = frozenset(
         "signature",
     }
 )
+_REVIEWED_REPAIR_MANIFEST_FIELDS = (
+    _REVIEWED_CANDIDATE_MANIFEST_FIELDS - {"reviewed_rulespec_ref"}
+) | {"reviewed_repair"}
+APPLIED_ENCODING_REVIEWED_REPAIR_TOOL = "axiom-encode apply-reviewed-repair"
 _RETIRE_APPLY_MANIFEST_FIELDS = frozenset(
     {
         "schema_version",
@@ -798,6 +803,7 @@ _APPLIED_MANIFEST_SCHEMA_VARIANTS = {
     "model": (_MODEL_APPLY_MANIFEST_FIELDS,),
     "codex model": (_MODEL_APPLY_MANIFEST_FIELDS, _MODEL_CODEX_APPLY_MANIFEST_FIELDS),
     "reviewed candidate promotion": (_REVIEWED_CANDIDATE_MANIFEST_FIELDS,),
+    "reviewed repair": (_REVIEWED_REPAIR_MANIFEST_FIELDS,),
     "retirement": (_RETIRE_APPLY_MANIFEST_FIELDS,),
     "unreceipted retirement": (_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS,),
     "path migration": (_PATH_MIGRATION_APPLY_MANIFEST_FIELDS,),
@@ -866,6 +872,17 @@ _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES = {
         | {
             "citation",
             "reviewed_rulespec_ref",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+        },
+    ),
+    _REVIEWED_REPAIR_MANIFEST_FIELDS: (
+        frozenset({"run_id"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "citation",
+            "reviewed_repair",
             "applied_files",
             "source_attestation",
             "validation_execution",
@@ -2784,6 +2801,25 @@ def main():
         help="Optional protected workflow run identifier recorded in the manifest",
     )
 
+    reviewed_repair_parser = subparsers.add_parser(
+        "apply-reviewed-repair",
+        help="Validate and sign an exact code-reviewed repair package without a model",
+    )
+    for option in (
+        "repo",
+        "patch-checkout",
+        "corpus-path",
+        "seed-rulespec",
+        "seed-tests",
+        "seed-archive",
+    ):
+        reviewed_repair_parser.add_argument("--" + option, type=Path, required=True)
+    reviewed_repair_parser.add_argument(
+        "--axiom-rules-engine-path", dest="axiom_rules_path", type=Path, required=True
+    )
+    for option in ("patch-id", "source-bundle-json", "run-id"):
+        reviewed_repair_parser.add_argument("--" + option, required=True)
+
     promote_reviewed_candidate_parser = subparsers.add_parser(
         "promote-reviewed-candidate",
         help=(
@@ -4185,6 +4221,10 @@ def main():
         cmd_stage_signed_backfill(args)
     elif args.command == "refresh-applied-manifest":
         cmd_refresh_applied_manifest(args)
+    elif args.command == "apply-reviewed-repair":
+        from .reviewed_repair_patch import apply_reviewed_repair
+
+        apply_reviewed_repair(args)
     elif args.command == "promote-reviewed-candidate":
         cmd_promote_reviewed_candidate(args)
     elif args.command == "signed-import-inventory":
@@ -25484,6 +25524,7 @@ def _guard_base_manifest_claims(
             APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
             APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
             APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+            APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
         }
     ):
         return set(), [f"{label} has no allowlisted tool/backend contract"]
@@ -27183,6 +27224,7 @@ def _applied_manifest_counts_as_generated(payload: dict, *, depth: int = 0) -> b
         APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
         APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
         APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+        APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
     }
 
 
@@ -27309,7 +27351,12 @@ def _applied_manifest_source_attestation_issues(
 
     reviewed_candidate = (
         backend == ""
-        and payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+        and isinstance(tool, str)
+        and tool
+        in {
+            APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+            APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
+        }
     )
     generated_backend = (
         backend in APPLIED_ENCODING_GENERATED_BACKENDS or reviewed_candidate
@@ -27785,6 +27832,20 @@ def _applied_manifest_tool_execution_issues(
                 f"{manifest_label} model backend must not claim deterministic execution"
             )
         return issues
+    if backend is None and tool == APPLIED_ENCODING_REVIEWED_REPAIR_TOOL:
+        from .reviewed_repair_patch import CHECK_REPAIR_BINDING, verify_repair_binding
+
+        try:
+            verify_repair_binding(payload.get("reviewed_repair"))
+        except (ValueError, TypeError, RecursionError) as exc:
+            issues.append(
+                ValidationIssue(
+                    f"{manifest_label} reviewed repair reconstruction refused: {exc}",
+                    check=CHECK_REPAIR_BINDING,
+                )
+            )
+        check_producer("reviewed repair")
+        return issues
     if backend is None and tool == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL:
         reviewed_ref = payload.get("reviewed_rulespec_ref")
         if (
@@ -28016,6 +28077,10 @@ def _applied_manifest_exact_schema_issues(
         expected_fields = _MODEL_APPLY_MANIFEST_FIELDS
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
         contract = "model"
+    elif backend is None and tool == APPLIED_ENCODING_REVIEWED_REPAIR_TOOL:
+        expected_fields = _REVIEWED_REPAIR_MANIFEST_FIELDS
+        expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
+        contract = "reviewed repair"
     elif backend is None and tool == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL:
         expected_fields = _REVIEWED_CANDIDATE_MANIFEST_FIELDS
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
@@ -31689,7 +31754,14 @@ def _load_verified_applied_encoding_manifest_payload(
     if (
         isinstance(backend, str)
         and backend in APPLIED_ENCODING_ENCODER_BACKENDS
-        or payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+        or (
+            isinstance(payload.get("tool"), str)
+            and payload["tool"]
+            in {
+                APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+                APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
+            }
+        )
     ) and expected_encoder_identity is not None:
         issues.extend(
             _model_apply_validation_execution_issues(
@@ -31699,6 +31771,27 @@ def _load_verified_applied_encoding_manifest_payload(
                 expected_encoder_identity=expected_encoder_identity,
             )
         )
+    if payload.get("tool") == APPLIED_ENCODING_REVIEWED_REPAIR_TOOL:
+        from .reviewed_repair_patch import (
+            CHECK_REPAIR_LINEAGE,
+            verify_manifest_reconstruction,
+        )
+
+        try:
+            verify_manifest_reconstruction(payload, repo_path, manifest_label)
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            subprocess.CalledProcessError,
+            RecursionError,
+        ) as exc:
+            issues.append(
+                ValidationIssue(
+                    f"{manifest_label} reviewed repair lineage refused: {exc}",
+                    check=CHECK_REPAIR_LINEAGE,
+                )
+            )
     if payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != expected_waiver_set_sha256:
         historical_retirement_waiver_matches = False
         recorded_base = payload.get("base_commit")
@@ -59274,6 +59367,34 @@ def _generated_rulespec_yaml_nonparser_issue(
 def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> None:
     """Mechanically bind model output to the resolver's full stored source body."""
 
+    from .reviewed_repair_patch import ReviewedRepairResult, verify_repair_binding
+
+    if isinstance(result, ReviewedRepairResult):
+        package, postimage = verify_repair_binding(result.review_binding)
+        if output_file.read_bytes() != postimage[0]:
+            raise RuntimeError(
+                "Reviewed repair RuleSpec differs from registered postimage"
+            )
+        payload = _safe_load_unique_keys(output_file.read_text())
+        module = payload.get("module") if isinstance(payload, dict) else None
+        verification = (
+            module.get("source_verification") if isinstance(module, dict) else None
+        )
+        attestation = _generated_result_source_attestation(result)
+        if (
+            attestation is None
+            or not isinstance(verification, dict)
+            or result.citation != package.manifest["citation"]
+        ):
+            raise RuntimeError("Reviewed repair lacks bound source identity")
+        issues = _source_attestation_structure_issues(attestation)
+        issues.extend(_source_attestation_binding_issues(attestation, verification))
+        if issues:
+            raise RuntimeError(
+                "Reviewed repair source binding failed: " + "; ".join(issues)
+            )
+        return
+
     backend = str(getattr(result, "backend", "") or "").strip().lower()
     if backend not in APPLIED_ENCODING_ENCODER_BACKENDS:
         return
@@ -59514,6 +59635,35 @@ def _canonical_apply_relative_path(raw_path: Path) -> Path:
 
 def _apply_result_metadata(result) -> dict[str, object]:
     """Return the exact result-owned fields admitted by overlay validation."""
+
+    from .reviewed_repair_patch import TOOL, ReviewedRepairResult, verify_repair_binding
+
+    if isinstance(result, ReviewedRepairResult):
+        package, _postimage = verify_repair_binding(result.review_binding)
+        if (
+            result.tool != TOOL
+            or result.runner != "reviewed-repair"
+            or result.backend is not None
+            or result.model is not None
+            or result.generation_prompt_sha256 is not None
+            or result.trace_file is not None
+            or result.citation != package.manifest["citation"]
+        ):
+            raise RuntimeError(
+                "Reviewed repair result has invalid non-model provenance"
+            )
+        return {
+            "tool": TOOL,
+            "citation": result.citation,
+            "runner": result.runner,
+            "backend": None,
+            "model": None,
+            "generation_prompt_sha256": None,
+            "codex_cli_version": None,
+            "codex_cli_sha256": None,
+            "source_attestation": copy.deepcopy(result.source_attestation),
+            "reviewed_repair": copy.deepcopy(result.review_binding),
+        }
 
     tool = getattr(result, "tool", None)
     if not isinstance(tool, str) or not tool.strip():
@@ -63874,12 +64024,20 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
     # changes modules the stamp returns early on (other backends, non-mapping
     # payloads, reviewed-candidate promotions) and the companion tests, which
     # the stamp never writes.
-    if vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None:
+    from .reviewed_repair_patch import ReviewedRepairResult
+
+    if (
+        not isinstance(result, ReviewedRepairResult)
+        and vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None
+    ):
         _rewrite_generated_yaml_without_non_ascii_escapes(
             output_file,
             contained_in=generated_root,
         )
-    if vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is not True:
+    if (
+        not isinstance(result, ReviewedRepairResult)
+        and vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is not True
+    ):
         _rewrite_generated_yaml_without_non_ascii_escapes(
             output_test,
             contained_in=generated_root,
