@@ -18715,10 +18715,22 @@ def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, in
     boundaries.extend(
         match.start() for match in _SOURCE_INDEPENDENT_CONDITION_BOUNDARY.finditer(text)
     )
+    # An exact proof may include the printed label after punctuation. That
+    # label is an additional end boundary, not a new start: later proofs must
+    # retain the existing leading label and inherited proposition context.
+    row_ends = [
+        match.end()
+        for match in re.finditer(
+            r"[.!?](?:[ \t]+[1-9]\d{0,2}|"
+            r"\([1-9]\d?\)[ \t]+[–−-][ \t]+[1-9]\d{0,2})"
+            r"(?=[ \t]*\r?\n[ \t]*[A-Z])",
+            text,
+        )
+    ]
     ordered = sorted(set(boundaries))
     return (
         max(position for position in ordered if position <= start),
-        min(position for position in ordered if position >= end),
+        min(position for position in (*ordered, *row_ends) if position >= end),
     )
 
 
