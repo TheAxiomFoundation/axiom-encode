@@ -2366,11 +2366,20 @@ NEGATIVE_POLE_NAMES = (
     "debt_collector_shall_not_communicate_at_place_of_employment",
     "debt_collector_cannot_communicate_at_place_of_employment",
     "employment_place_communication_prohibited_due_to_employer_policy",
+    "employment_place_communication_restricted",
+    "employment_place_communication_unlawful",
+    "employment_place_communication_illegal",
+    "employment_place_communication_impermissible",
+    "employment_place_communication_blocked",
+    "employment_place_communication_ban_applies",
+    "no_employment_place_communication_allowed",
 )
 POSITIVE_POLE_NAMES = (
     "debt_collector_may_communicate_at_place_of_employment",
     "employment_place_communication_permitted",
     "employment_place_communication_not_barred",
+    "employment_place_communication_lawful",
+    "employment_place_communication_unrestricted",
 )
 UNREAD_POLE_NAMES = (
     "employment_place_communication",
@@ -2672,6 +2681,12 @@ ADVISES = (
         ("debt_collector_must_not_communicate_further", True),
         ("debt_collector_may_communicate_further", False),
         ("further_communication_permitted", False),
+        ("further_communication_restricted", True),
+        ("further_communication_unlawful", True),
+        ("further_communication_impermissible", True),
+        ("further_communication_ban_applies", True),
+        ("further_communication_lawful", False),
+        ("further_communication_unrestricted", False),
         ("further_communication_status", None),
     ],
 )
@@ -3247,6 +3262,758 @@ def test_requirement_of_a_clause_without_boundaries_grows_linearly():
 
         return lowest_work(
             lambda: completeness_module._source_exception_effect_requirement(clause),
+            check,
+            setup=completeness_module.re.purge,
+        )
+
+    assert_linear_growth(work(100), work(1_000), input_ratio=10)
+
+
+# Names that negate their predicate with "no".  Each rulespec name below is an
+# output on a rulespec origin/main: the rulespec-us-sc SNAP manual page-68
+# rule, and rules of the rulespec-us AZ, CO, NC and federal 7 CFR 246.7
+# modules.
+NO_NEGATED_NAMES = (
+    "no_medical_deduction_allowed_at_annual_recertification",
+    "no_deduction_allowed_for_unamortized_balance",
+    "no_unamortized_balance_deduction_permitted",
+    "no_earned_income_credit_allowed_for_subsequent_year",
+    "no_interview_required_during_24_month_certification_period",
+    "household_no_deduction_allowed",
+    "individual_no_longer_eligible_to_participate",
+    "household_no_longer_categorically_eligible",
+    "na_tba_no_longer_eligible",
+    "status_no_longer_independently_eligible_for_fns",
+    "pregnant_applicant_no_longer_categorically_eligible_without_requested_"
+    "documentation",
+    "mixed_fs_household_not_categorically_eligible_for_food_stamp_benefits",
+    "not_treated_as_eligible_under_section_1382h",
+)
+# A "no" inside a noun phrase negates nothing (the first eight are rulespec-us
+# AZ, CA, CO, NC and SC rules), "no more than" states a limit, and "no
+# longer" before a disqualifying status lifts it.
+NO_IN_NOUN_PHRASE_NAMES = (
+    "eligible_no_pay_case_jobs_program_supportive_services_eligible",
+    "eligible_no_pay_case_ccsd_services_eligible",
+    "eligible_no_pay_case_renewal_interview_required",
+    "participation_termination_and_no_further_benefits_required",
+    "household_fault_second_period_denial_new_application_and_no_lost_benefits_"
+    "required",
+    "written_no_ipv_decision_notice_required",
+    "shelter_expense_with_no_scheduled_interval_averaging_allowed",
+    "denied_joint_tanf_or_ssi_snap_application_no_new_snap_application_required",
+    "no_more_than_two_vehicles_allowed",
+    "household_no_longer_ineligible",
+)
+
+
+@pytest.mark.parametrize("name", NO_NEGATED_NAMES)
+def test_no_that_opens_the_subject_negates_the_name(name: str):
+    """A "no" that opens the predicate's subject reverses the predicate.
+
+    Invariant: "no" as the name's first word, or after a subject noun
+    (``household_no_deduction_allowed``), negates the predicate its subject
+    takes, as "not" does; so does "no_longer", and "not" or "no_longer"
+    reaches the predicate across bridge words ("categorically",
+    "independently", "treated as").
+    """
+
+    assert _name_pole(name) is True
+
+
+@pytest.mark.parametrize("name", NO_IN_NOUN_PHRASE_NAMES)
+def test_no_inside_a_noun_phrase_negates_nothing(name: str):
+    """A "no" inside a noun phrase leaves the predicate's pole.
+
+    Invariant: after a modifier, a preposition or "and"
+    (``shelter_expense_with_no_scheduled_interval_averaging_allowed``), "no"
+    belongs to a noun phrase, and the predicate reads as positive; "no more
+    than" states a limit.
+    """
+
+    assert _name_pole(name) is False
+
+
+# 26 U.S.C. 32(k)(2) and 24(g)(2), whose texts match after their headings.
+CREDIT_RECERTIFICATION = (
+    "In the case of a taxpayer who is denied credit under this section for any "
+    "taxable year as a result of the deficiency procedures under subchapter B of "
+    "chapter 63, no credit shall be allowed under this section for any "
+    "subsequent taxable year unless the taxpayer provides such information as "
+    "the Secretary may require to demonstrate eligibility for such credit"
+)
+CHILD_CREDIT_RECERTIFICATION = (
+    "(2) Taxpayers making improper prior claims In the case of a taxpayer who is "
+    "denied credit under this section for any taxable year as a result of the "
+    "deficiency procedures under subchapter B of chapter 63, no credit shall be "
+    "allowed under this section for any subsequent taxable year unless the "
+    "taxpayer provides such information as the Secretary may require to "
+    "demonstrate eligibility for such credit"
+)
+PROVIDES_INFORMATION = "taxpayer_provides_required_eligibility_information"
+
+
+@pytest.mark.parametrize(
+    ("clause", "selector", "output", "switches_on"),
+    [
+        pytest.param(
+            "No deduction shall be allowed for the unamortized balance of such "
+            "account if such mortgage is satisfied before the end of its term",
+            "mortgage_satisfied_before_end_of_term",
+            "no_deduction_allowed_for_unamortized_balance",
+            True,
+            id="26-usc-163-h-5-F",
+        ),
+        pytest.param(
+            "No deduction shall be allowed for the unamortized balance of such "
+            "account if such mortgage is satisfied before the end of its term",
+            "mortgage_satisfied_before_end_of_term",
+            "no_unamortized_balance_deduction_permitted",
+            True,
+            id="26-usc-163-h-5-F-permitted",
+        ),
+        pytest.param(
+            CREDIT_RECERTIFICATION,
+            PROVIDES_INFORMATION,
+            "no_earned_income_credit_allowed_for_subsequent_year",
+            False,
+            id="26-usc-32-k-2",
+        ),
+        # rulespec-us-sc policies/dss/snap-policy-manual/page-68.yaml: the
+        # merged rule's name and its excerpt, verbatim.
+        pytest.param(
+            "If the amount of medical expenses incurred and verified is $35.00 or "
+            "less per month, no medical deduction will be allowed",
+            "verified_medical_expenses_at_or_below_threshold",
+            "no_medical_deduction_allowed_at_annual_recertification",
+            True,
+            id="sc-snap-manual-page-68",
+        ),
+        pytest.param(
+            "No individual shall be eligible to participate in the program if the "
+            "individual is enrolled in an institution of higher education",
+            "individual_enrolled_in_higher_education",
+            "individual_no_longer_eligible_to_participate",
+            True,
+            id="no-individual-eligible-if",
+        ),
+    ],
+)
+def test_a_name_negated_by_no_pairs_only_when_faithful(
+    clause: str, selector: str, output: str, switches_on: bool
+):
+    """Polarity agreement for "No ... shall be allowed" provisions.
+
+    Invariant: the clause demands ``exclude`` of an "if" condition and
+    ``enable`` of an "unless" condition, and a name that negates with "no"
+    reads as negative, so the faithful pair passes and its inversion fails.
+    Reading the name as positive would invert both.
+    """
+
+    on = {"selector": selector, "formula": selector, "active": True}
+    off = {"selector": selector, "formula": f"not {selector}", "active": False}
+    faithful, inverted = (on, off) if switches_on else (off, on)
+
+    assert not _missing_paired_witness(clause, output=output, **faithful)
+    assert _missing_paired_witness(clause, output=output, **inverted)
+
+
+NO_NOUNS = (
+    "allotment",
+    "balance",
+    "benefit",
+    "communication",
+    "credit",
+    "deduction",
+    "earned",
+    "exemption",
+    "income",
+    "interest",
+    "interview",
+    "medical",
+    "payment",
+    "penalty",
+    "refund",
+    "verification",
+)
+
+
+def _description_pole(description: str) -> bool | None:
+    return completeness_module._rule_output_polarity(
+        {"name": "rule_output", "dtype": "Judgment", "description": description},
+        fallback_name="rule_output",
+    )
+
+
+@settings(max_examples=200, deadline=None, derandomize=True)
+@given(
+    nouns=st.lists(st.sampled_from(NO_NOUNS), min_size=1, max_size=3),
+    modal=st.sampled_from(("shall", "will", "may")),
+    predicate=st.sampled_from(("allowed", "eligible", "entitled", "qualified")),
+    tail=st.sampled_from(
+        (
+            ("", ""),
+            (" for the taxable year", "_for_taxable_year"),
+            (" at annual recertification", "_at_annual_recertification"),
+        )
+    ),
+    negated=st.booleans(),
+)
+def test_a_no_name_reads_the_pole_of_its_no_description(
+    nouns: list[str],
+    modal: str,
+    predicate: str,
+    tail: tuple[str, str],
+    negated: bool,
+):
+    """Differential: "No <noun> shall be allowed" and ``no_<noun>_allowed`` agree.
+
+    Invariant: the description reader and the name reader give the same pole
+    for one claim, negative with "No" and positive without it.
+    """
+
+    noun = " ".join(nouns)
+    description_tail, name_tail = tail
+    description = (
+        f"{'No' if negated else 'The'} {noun} {modal} be {predicate}{description_tail}."
+    )
+    name = f"{'no_' if negated else ''}{'_'.join(nouns)}_{predicate}{name_tail}"
+
+    assert _description_pole(description) is negated
+    assert _name_pole(name) is negated
+
+
+# Round-2 review sentences A2 and A4, 7 U.S.C. 2026(b)(1)(B)(iii)(II) and 42
+# CFR 435.919(f)(4)(iii)(B)(1): a prohibition outside the clause that the
+# paired condition qualifies.
+ELIGIBLE_WITHOUT_VERIFICATION = (
+    "A household is eligible if its income falls below the limit, and the State "
+    "agency must not require the household to provide further verification"
+)
+REFUND_WITHOUT_INTEREST = (
+    "An individual is entitled to a refund if the individual overpaid, and the "
+    "agency shall not charge interest on the refund"
+)
+DEEMED_WAIVER_APPROVAL = (
+    "If the Secretary does not provide a response in accordance with clause (i), "
+    "the waiver shall be considered approved, unless the approval is "
+    "specifically prohibited by this chapter"
+)
+MEDICAID_REINSTATEMENT = (
+    "The agency must reinstate coverage back to the date of termination without "
+    "requiring the individual to provide additional information to verify their "
+    "eligibility, unless the agency has other information available to it that "
+    "indicates the beneficiary may not meet all eligibility requirements"
+)
+
+
+@pytest.mark.parametrize(
+    ("clause", "states"),
+    [
+        (ELIGIBLE_WITHOUT_VERIFICATION, False),
+        (REFUND_WITHOUT_INTEREST, False),
+        (DEEMED_WAIVER_APPROVAL, False),
+        (MEDICAID_REINSTATEMENT, False),
+        (CREDIT_RECERTIFICATION, False),
+        (CHILD_CREDIT_RECERTIFICATION, False),
+        (
+            "Unless the agency is prohibited from paying, the household is eligible "
+            "for the payment.",
+            False,
+        ),
+        (
+            "If the consumer objects in writing, a debt collector must not "
+            "communicate with the consumer, but the debt collector may send a "
+            "notice.",
+            True,
+        ),
+        (
+            "Unless the consumer consents, a debt collector must not communicate "
+            "with the consumer at work.",
+            True,
+        ),
+        (
+            "A debt collector must not communicate with the consumer, except that "
+            "the debt collector may communicate if the consumer consents.",
+            True,
+        ),
+        # 7 CFR 273.9(d)(6)(iii)(H): the commas of the condition's own list
+        # come before its main clause.
+        (
+            "If a household lives with and shares heating or cooling expenses "
+            "with another individual, another household, or both, the State "
+            "agency shall not prorate the standard utility allowance among the "
+            "household and the other individual, household, or both.",
+            True,
+        ),
+        (
+            "If the household applies, and the agency approves, the agency shall "
+            "not prorate the allotment.",
+            True,
+        ),
+        # 12 U.S.C. 1467a(c)(2): the paired "shall not apply" is the clause's
+        # own predicate, so the whole sentence is the clause.
+        (
+            "The prohibitions of subparagraphs (B) and (C) of paragraph (1) shall "
+            "not apply to the following business activities of any savings and "
+            "loan holding company or any subsidiary (of such company) which is "
+            "not a savings association:",
+            True,
+        ),
+        # 42 U.S.C. 1397gg(f): a colon ends the leading phrase.
+        (
+            "(f) Limitation of waiver authority Notwithstanding subsection "
+            "(e)(2)(A) and section 1315(a) of this title: (1) The Secretary may "
+            "not approve a waiver, experimental, pilot, or demonstration project "
+            "that would allow funds made available under this subchapter to be "
+            "used to provide child health assistance or other health benefits "
+            "coverage to a nonpregnant childless adult.",
+            True,
+        ),
+        (
+            "If the household applies, the household is eligible, and the agency "
+            "shall not prorate the allotment.",
+            False,
+        ),
+        (
+            "If the household fails to comply, the agency shall terminate the "
+            "allotment, but the agency shall not prorate past benefits.",
+            False,
+        ),
+        (
+            "If the household refuses, the household becomes ineligible, and the "
+            "agency shall not prorate the allotment.",
+            False,
+        ),
+        (
+            "The household is eligible. If the household applies, the agency "
+            "shall not prorate the allotment.",
+            True,
+        ),
+        (
+            "If the household applies, the household is eligible. The agency "
+            "shall not prorate the allotment.",
+            False,
+        ),
+        # A branch that is only an "except that" proviso: its own prohibition
+        # is the clause.
+        (
+            "except that the State agency shall not prorate the allowance among "
+            "the household, the individual, or both.",
+            True,
+        ),
+    ],
+)
+def test_only_the_clause_the_condition_qualifies_sets_a_prohibition_demand(
+    clause: str, states: bool
+):
+    """The demand comes from the clause the paired condition qualifies.
+
+    Invariant: a trailing condition qualifies the words before it in its
+    sentence, and a leading one the main clause after its comma, up to any
+    coordinate clause; a prohibition in the condition's own words or in a
+    coordinate clause sets no prohibition demand.  A comma inside the
+    condition's own list ends no condition.
+    """
+
+    assert completeness_module._source_clause_states_prohibition(clause) is states
+
+
+@pytest.mark.parametrize(
+    ("clause", "selector", "output", "switches_on"),
+    [
+        *(
+            pytest.param(
+                ELIGIBLE_WITHOUT_VERIFICATION,
+                "income_falls_below_limit",
+                output,
+                True,
+                id=f"a2-{output}",
+            )
+            for output in (
+                "household_meets_income_test",
+                "household_qualifies_for_snap",
+                "household_snap_eligibility",
+            )
+        ),
+        *(
+            pytest.param(
+                REFUND_WITHOUT_INTEREST,
+                "individual_overpaid",
+                output,
+                True,
+                id=f"a4-{output}",
+            )
+            for output in ("individual_receives_refund", "refund_due")
+        ),
+        *(
+            pytest.param(
+                DEEMED_WAIVER_APPROVAL,
+                "approval_specifically_prohibited_by_chapter",
+                output,
+                False,
+                id=f"7-usc-2026-{output}",
+            )
+            for output in (
+                "waiver_considered_approved",
+                "waiver_deemed_approved",
+                "waiver_approval_status",
+            )
+        ),
+        *(
+            pytest.param(
+                MEDICAID_REINSTATEMENT,
+                "agency_has_information_beneficiary_may_not_meet_requirements",
+                output,
+                False,
+                id=f"42-cfr-435-919-{output}",
+            )
+            for output in (
+                "coverage_reinstated_to_termination_date",
+                "agency_reinstates_coverage",
+            )
+        ),
+        *(
+            pytest.param(
+                clause,
+                PROVIDES_INFORMATION,
+                output,
+                True,
+                id=f"{label}-{output}",
+            )
+            for label, clause, output in (
+                (
+                    "26-usc-32-k-2",
+                    CREDIT_RECERTIFICATION,
+                    "eitc_recertification_requirement_met",
+                ),
+                (
+                    "26-usc-32-k-2",
+                    CREDIT_RECERTIFICATION,
+                    "earned_income_credit_for_subsequent_year",
+                ),
+                (
+                    "26-usc-24-g-2",
+                    CHILD_CREDIT_RECERTIFICATION,
+                    "child_tax_credit_for_subsequent_year",
+                ),
+            )
+        ),
+    ],
+)
+def test_an_unread_output_keeps_its_direction_outside_a_prohibition(
+    clause: str, selector: str, output: str, switches_on: bool
+):
+    """Polarity agreement for outputs that state no pole beside a prohibition.
+
+    Invariant: when the clause the paired condition qualifies states no
+    prohibition, an output that states no pole reads as positive, so the
+    faithful pair passes and its inversion fails, though the sentence
+    elsewhere states a prohibition: in a coordinate clause after the
+    condition (A2, A4), inside the condition (7 U.S.C. 2026, 42 CFR 435.919),
+    or as "may require" in an "unless" clause, which states none (26 U.S.C.
+    32(k)(2), 24(g)(2)).
+    """
+
+    on = {"selector": selector, "formula": selector, "active": True}
+    off = {"selector": selector, "formula": f"not {selector}", "active": False}
+    faithful, inverted = (on, off) if switches_on else (off, on)
+
+    assert not _missing_paired_witness(clause, output=output, **faithful)
+    assert _missing_paired_witness(clause, output=output, **inverted)
+
+
+@pytest.mark.parametrize(
+    ("name", "pole"),
+    [
+        # rulespec origin/main outputs.
+        ("multiple_household_or_county_participation_bar_applies", True),
+        ("snap_benefit_increase_blocked_for_pa_household", True),
+        ("parent_or_caretaker_relative_blocked_by_dependent_child", True),
+        ("childcare_assistance_not_blocked_by_other_government_funding", False),
+        ("abawd_sanction_blocks_eligibility_reestablishment", True),
+        ("section_6_precludes_universal_credit_entitlement", True),
+        ("cash_payment_agreement_prevents_recoupment", True),
+        ("federal_qc_completed_review_refusal_no_longer_bars_eligibility", False),
+        ("property_operation_costs_do_not_bar_payments", False),
+        ("stated_property_qualification_does_not_preclude_taxation", False),
+        ("no_top_or_dor_indicator_blocks_after_appeal_period_review", False),
+        ("disclosure_restricted_to_direct_program_administration_or_enforcement", True),
+        ("willful_cigarette_tax_evasion_is_unlawful", True),
+        ("shelter_operation_length_and_resident_count_unrestricted", False),
+        ("application_denied_for_missed_interview", True),
+        ("cooperating_client_not_denied_for_third_party_refusal", False),
+        ("rehearing_application_deemed_denied", True),
+        # A barring word that names something else states no pole.
+        (
+            "no_participant_has_disqualification_that_blocks_expanded_categorical_"
+            "eligibility",
+            None,
+        ),
+        ("paragraph_1_home_equity_bar_exception_applies", None),
+        ("child_care_development_block_grant_provider_payment_counted", None),
+        ("top_dor_block_removal_request_procedure_satisfied", None),
+        ("supported_living_restricted_or_blind_rate", None),
+        ("unlawful_dismissal_protection", None),
+        ("illegal_alien_status", None),
+        ("snap_income_source_terminated", None),
+        ("verification_request_allows_minimum_time_to_prevent_interruption", None),
+        ("battered_noncitizen_not_subject_to_five_year_ban", None),
+    ],
+)
+def test_output_pole_from_a_barring_word(name: str, pole: bool | None):
+    """Bars, bans, blocks, restrictions and lawfulness state a pole.
+
+    Invariant: "restricted", "unlawful", "illegal", "impermissible",
+    "blocked" and "denied" as the predicate read as negative, "lawful" and
+    "unrestricted" as positive; a bar or ban that applies reads as
+    negative; a barring verb between its subject and object reads as
+    negative and, negated, as positive.  A barring word that modifies a
+    noun, opens a relative clause or names a grant states no pole, and
+    "terminated", which names facts as often as actions, states none.
+    """
+
+    assert _name_pole(name) is pole
+
+
+# 106 CMR 366.300, as rulespec-us encodes it.
+BENEFITS_CONTINUE = (
+    "A household's SNAP benefits shall not continue beyond the certification "
+    "period, unless the household has been recertified"
+)
+RECERTIFIED = "household_has_been_recertified"
+
+
+@pytest.mark.parametrize(
+    ("output", "switches_on"),
+    [
+        ("household_snap_benefits_continue", True),
+        ("snap_benefits_continue_beyond_certification_period", True),
+        ("household_snap_benefits_do_not_continue", False),
+        ("household_benefit_continuation", None),
+    ],
+)
+def test_a_name_that_repeats_the_barred_verb_names_the_permission(
+    output: str, switches_on: bool | None
+):
+    """Polarity agreement for a name built from the verb the clause bars.
+
+    Invariant: "shall not continue ... unless" bars continuing, so
+    ``household_snap_benefits_continue`` names the permission the
+    recertification restores: the faithful pair switches it on, and the
+    inversion fails; with "not" the name names the prohibition.  A noun
+    form (``household_benefit_continuation``) states no pole, so either
+    pair passes.
+    """
+
+    on = {"selector": RECERTIFIED, "formula": RECERTIFIED, "active": True}
+    off = {"selector": RECERTIFIED, "formula": f"not {RECERTIFIED}", "active": False}
+    if switches_on is None:
+        assert not _missing_paired_witness(BENEFITS_CONTINUE, output=output, **on)
+        assert not _missing_paired_witness(BENEFITS_CONTINUE, output=output, **off)
+        return
+    faithful, inverted = (on, off) if switches_on else (off, on)
+
+    assert not _missing_paired_witness(BENEFITS_CONTINUE, output=output, **faithful)
+    assert _missing_paired_witness(BENEFITS_CONTINUE, output=output, **inverted)
+
+
+@pytest.mark.parametrize(
+    ("name", "verbs", "pole"),
+    [
+        ("household_snap_benefits_continue", {"continue"}, False),
+        ("benefits_do_not_continue", {"continue"}, True),
+        ("benefits_never_continue_after_period", {"continue"}, True),
+        ("no_interest_accrues", {"accrue"}, True),
+        (
+            "interest_accrues_before_requested_substantiation_received",
+            {"accrue"},
+            False,
+        ),
+        ("appointment_does_not_satisfy_directory_condition", {"satisfy"}, True),
+        ("agency_notifies_before_hearing", {"notify"}, False),
+        ("agency_notifies_before_hearing", set(), None),
+        ("property_tax_exempt", {"tax"}, None),
+        ("household_benefit_continuation", {"continue"}, None),
+        ("benefits_end_unless_household_continues", {"continue"}, None),
+    ],
+)
+def test_barred_verb_pole_needs_the_verb_as_the_predicate(
+    name: str, verbs: set[str], pole: bool | None
+):
+    """A name states a barred verb's pole only through its predicate.
+
+    Invariant: the verb, or its "-s" form, ending the claim or followed by a
+    preposition reads as the permission, and after "not" or "never" as the
+    prohibition; "no" opening its subject negates it.  A verb form inside
+    the name's condition, a noun use and a name without the verb state no
+    pole.
+    """
+
+    assert (
+        completeness_module._name_barred_verb_polarity(name, frozenset(verbs)) is pole
+    )
+
+
+NO_SUBJECT_LATER_MODALS = (
+    "No credit shall be allowed unless the taxpayer provides such information as "
+    "the Secretary may require.",
+    "No credit shall be allowed unless the taxpayer provides such forms as the "
+    "agency may prescribe.",
+    "No payment shall be made to a State unless the State provides such "
+    "assurances as the Secretary may require.",
+    CREDIT_RECERTIFICATION + ".",
+    CHILD_CREDIT_RECERTIFICATION + ".",
+)
+
+
+@pytest.mark.parametrize("text", NO_SUBJECT_LATER_MODALS)
+def test_a_modal_in_a_later_unless_clause_has_no_no_subject(text: str):
+    """No-subject guard: the subject of "No" ends at a verb or a condition cue.
+
+    Invariant: in "No credit shall be allowed unless the taxpayer provides
+    such information as the Secretary may require" (26 U.S.C. 32(k)(2)),
+    "shall" and "unless" end the subject of "No", so "may require" is no
+    prohibition, and the clause states none.
+    """
+
+    modal = text.rindex(" may ") + 1
+
+    assert not completeness_module._source_modal_has_no_subject(text, modal)
+    assert not [
+        match.group(0)
+        for match in completeness_module._source_modal_prohibition_matches(text)
+        if match.group(0).casefold().startswith("may")
+    ]
+
+
+@settings(max_examples=150, deadline=None, derandomize=True)
+@given(
+    noun=st.sampled_from(("credit", "payment", "deduction", "individual", "grant")),
+    stop=st.sampled_from(
+        (
+            "unless",
+            "if",
+            "when",
+            "where",
+            "before",
+            "but",
+            "is",
+            "are",
+            "was",
+            "were",
+            "has",
+            "have",
+            "had",
+            "does",
+            "do",
+            "did",
+            "shall",
+            "should",
+            "must",
+            "will",
+            "would",
+            "can",
+            "cannot",
+            "could",
+            "might",
+        )
+    ),
+    modal=st.sampled_from(("may", "shall", "must")),
+)
+def test_the_subject_of_no_ends_at_its_first_verb_or_cue(
+    noun: str, stop: str, modal: str
+):
+    """No-subject guard over the stop words its docstring names.
+
+    Invariant: an auxiliary or modal verb, a condition cue or "but" after
+    "No <noun>" ends its subject, so a later modal has no "No" subject; the
+    same modal right after "No <noun>" has one.
+    """
+
+    text = f"No {noun} {stop} the agency {modal} prescribe such forms."
+    modal_start = text.index(f" {modal} prescribe") + 1
+
+    assert not completeness_module._source_modal_has_no_subject(text, modal_start)
+    direct = f"No {noun} {modal} prescribe such forms."
+    assert completeness_module._source_modal_has_no_subject(direct, len(noun) + 4)
+
+
+@pytest.mark.parametrize(
+    ("name", "repeats"),
+    [
+        ("no_{}deduction_allowed", "medical_"),
+        ("household_{}not_eligible", "member_"),
+        ("{}benefits_continue", "household_"),
+        ("{}applies", "bar_"),
+    ],
+    ids=["opening-no", "negator", "no-predicate", "bar-nouns"],
+)
+def test_name_pole_reading_grows_linearly(name: str, repeats: str):
+    """Reading a name's pole stays linear in the name's length.
+
+    Invariant: the scan for a "no" that opens the subject, the scan for a
+    predicate word and the check after each bar or prohibition noun read each
+    word a bounded number of times.
+    """
+
+    expected = completeness_module._name_output_polarity(
+        name.format(repeats), judgment=True
+    )
+
+    def work(count: int):
+        text = name.format(repeats * count)
+
+        def check(pole) -> None:
+            assert pole is expected
+
+        return lowest_work(
+            lambda: completeness_module._name_output_polarity(text, judgment=True),
+            check,
+        )
+
+    assert_linear_growth(work(250), work(2_500), input_ratio=10)
+
+
+@pytest.mark.parametrize(
+    ("head", "repeated", "tail"),
+    [
+        (
+            "A debt collector must not communicate with ",
+            "the prohibitions and ",
+            "the consumer if the consumer objects.",
+        ),
+        (
+            "If a household shares heating expenses with another individual, ",
+            "another household, or ",
+            "both, the State agency shall not prorate the standard.",
+        ),
+        (
+            "If the consumer objects, a debt collector must not communicate with ",
+            "the prohibitions and ",
+            "the consumer, but the debt collector may send a notice.",
+        ),
+    ],
+    ids=["trailing", "leading-list", "leading-coordinate"],
+)
+def test_prohibition_demand_of_a_long_clause_grows_linearly(
+    head: str, repeated: str, tail: str
+):
+    """Finding the clause a condition qualifies stays linear in its length.
+
+    Invariant: a clause of thousands of characters, with its condition
+    trailing, leading with a long list, or leading before a coordinate
+    clause, still states its prohibition, with work linear in its length.
+    """
+
+    def work(repeats: int):
+        clause = head + repeated * repeats + tail
+
+        def check(states: bool) -> None:
+            assert states is True
+
+        return lowest_work(
+            lambda: completeness_module._source_clause_states_prohibition(clause),
             check,
             setup=completeness_module.re.purge,
         )
