@@ -2091,6 +2091,7 @@ jobs:
               axiom-producer-review-guidance-ref:v1:*)
                 if [ "$output_lane" != target ] || [ "$citation" != "$CITATION" ]; then
                   echo "producer guidance requires the primary target lane" >&2
+                  /opt/axiom-verification/python/bin/python -I -m axiom_encode.infra_checks record infra:encode-producer-guidance-routing "producer guidance requires the primary target lane" || true
                   exit 1
                 fi
                 args+=(--producer-review-guidance-ref "${review_finding#axiom-producer-review-guidance-ref:v1:}"
@@ -2098,6 +2099,7 @@ jobs:
                 ;;
               axiom-producer-review-guidance-ref:*)
                 echo "unsupported producer guidance input version" >&2
+                /opt/axiom-verification/python/bin/python -I -m axiom_encode.infra_checks record infra:encode-producer-guidance-routing "unsupported producer guidance input version" || true
                 exit 1
                 ;;
               *)

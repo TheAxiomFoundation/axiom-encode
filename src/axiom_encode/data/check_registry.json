@@ -265,6 +265,18 @@
       "why": "Companion tests are the executed evidence that the encoding behaves as the source says. A source-stated output, branch, boundary, exception or rounding rule without a test can be wrong without any gate noticing."
     },
     {
+      "category": "infra:encode-producer-guidance-routing",
+      "cause": "infra",
+      "fix": "Use the supported v1 descriptor for the sole primary target, and remove dependent or unsupported-version guidance routing before dispatch.",
+      "gate": "workflow",
+      "id": "infra:encode-producer-guidance-routing",
+      "requires": "The supported v1 producer guidance descriptor is used only for the exact primary target lane.",
+      "severity": "important",
+      "site": ".github/workflows/targeted-signed-reencode.yml:Encode, review, validate, and apply",
+      "title": "Producer guidance is outside the supported primary generation route",
+      "why": "The workflow refuses a dispatch whose inputs it cannot bind to one exact, authenticated transaction. Nothing was encoded, so the encoder output is not at fault and a retry with the same inputs fails the same way."
+    },
+    {
       "category": "infra:fetch-pinned-corpus-provision-objects",
       "cause": "infra",
       "fix": "Check the signed release object's provision artifact paths and the axiom-corpus ref; publish or pin a release whose corpus checkout has `.axiom/corpus-locks` or `data/corpus/provisions`, then retry. If the message names the R2 corpus read credentials, grant this repository access to the organization's `R2_CORPUS_READ_*` secrets.",
@@ -349,6 +361,30 @@
       "why": "Signed provenance names exact commits. A branch name or a moved ref would sign work against code nobody reviewed."
     },
     {
+      "category": "producer-guidance:manifest-binding",
+      "cause": "encoder_output",
+      "fix": "Inspect the cited manifest and guidance context; regenerate against the reviewed immutable producer and authenticated source after correcting the mismatch.",
+      "gate": "guard-generated",
+      "id": "producer-guidance:manifest-binding",
+      "requires": "The verified manifest and context bind the exact immutable guidance descriptor.",
+      "severity": "important",
+      "site": "axiom_encode/cli.py:_load_applied_encoding_manifest_entries",
+      "title": "Verified manifest guidance must match the protected source and producer",
+      "why": "A valid signature alone does not establish that the candidate used the requested guidance and source."
+    },
+    {
+      "category": "producer-guidance:primary-manifest",
+      "cause": "encoder_output",
+      "fix": "Inspect the changed manifests and the exact primary citation; correct the transaction rather than reusing an unrelated record.",
+      "gate": "guard-generated",
+      "id": "producer-guidance:primary-manifest",
+      "requires": "The ordinary changed-file guard produces exactly one verified guidance record.",
+      "severity": "important",
+      "site": "axiom_encode/cli.py:cmd_guard_generated",
+      "title": "Guidance must bind exactly one verified primary manifest",
+      "why": "Missing or duplicate primary records cannot bind the reviewed guidance to one signed transaction."
+    },
+    {
       "category": "proof:source-evidence",
       "cause": "encoder_output",
       "fix": "Copy a short contiguous excerpt verbatim from the cited provision (no ellipsis, paraphrase or joined fragments), or cite the provision that holds the text.",
@@ -373,6 +409,6 @@
       "why": "A proof atom ties a rule to the exact source words it implements. An excerpt that is not in the cited provision, or not in the rule's own subsection, proves nothing and can hide an invented value or condition."
     }
   ],
-  "registry_sha256": "03a2bf3ee1428a84788d8085b5802ca62bdce38e5bba00e1b88f3d7fa7104a11",
+  "registry_sha256": "7415caf7351f1de2417959f188297d3c656e5512aefef2ded7b558c137a6d6c5",
   "schema": "axiom-encode/check-registry/v1"
 }

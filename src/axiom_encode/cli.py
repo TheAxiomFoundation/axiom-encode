@@ -120,6 +120,7 @@ from .checks import (
     ISSUE_SCHEMA_VERSION as VALIDATION_ISSUE_SCHEMA_VERSION,
 )
 from .checks import (
+    ValidationIssue,
     issues_from_document,
     registry_document,
     retype,
@@ -470,6 +471,8 @@ from .oracles.policyengine.pending import (
 )
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
 from .producer_review_guidance import (
+    GUIDANCE_MANIFEST_BINDING_CHECK,
+    GUIDANCE_PRIMARY_MANIFEST_CHECK,
     ProducerGuidanceVerificationRequest,
     verify_guidance_for_verified_manifest,
 )
@@ -8551,7 +8554,12 @@ def cmd_guard_generated(args):
     )
     if guidance_request is not None and not issues and len(guidance_records) != 1:
         issues.append(
-            "producer guidance requires exactly one verified primary manifest"
+            ValidationIssue(
+                "producer guidance requires exactly one verified primary manifest",
+                check=GUIDANCE_PRIMARY_MANIFEST_CHECK,
+                expected=1,
+                found=len(guidance_records),
+            )
         )
     payload = {"repo": str(repo_path), "passed": not issues, "issues": issues}
     if guidance_request is not None and not issues:
@@ -32128,7 +32136,12 @@ def _load_applied_encoding_manifest_entries(
                 )
             except (ValueError, RuntimeError, OSError) as exc:
                 issues.append(
-                    f"{manifest_path} producer guidance verification failed: {exc}"
+                    ValidationIssue(
+                        f"{manifest_path} producer guidance verification failed: {exc}",
+                        check=GUIDANCE_MANIFEST_BINDING_CHECK,
+                        expected="exact verified guidance binding",
+                        found=str(exc),
+                    )
                 )
             else:
                 assert producer_guidance_records is not None

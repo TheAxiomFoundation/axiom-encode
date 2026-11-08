@@ -35,6 +35,14 @@ _INPUT_WHY = (
 #: One definition per refusing workflow step. ``site`` names the step.
 INFRA_CHECK_DEFINITIONS: tuple[dict[str, str], ...] = (
     {
+        "id": "infra:encode-producer-guidance-routing",
+        "title": "Producer guidance is outside the supported primary generation route",
+        "requires": "The supported v1 producer guidance descriptor is used only for the exact primary target lane.",
+        "why": _INPUT_WHY,
+        "fix": "Use the supported v1 descriptor for the sole primary target, and remove dependent or unsupported-version guidance routing before dispatch.",
+        "site": f"{_WORKFLOW}:Encode, review, validate, and apply",
+    },
+    {
         "id": "infra:require-corpus-read-credentials",
         "title": "The corpus read credentials are not available to this repository",
         "requires": (

@@ -17,6 +17,29 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from .checks import declare_check
+
+GUIDANCE_PRIMARY_MANIFEST_CHECK = declare_check(
+    "producer-guidance:primary-manifest",
+    title="Guidance must bind exactly one verified primary manifest",
+    requires="The ordinary changed-file guard produces exactly one verified guidance record.",
+    why="Missing or duplicate primary records cannot bind the reviewed guidance to one signed transaction.",
+    fix="Inspect the changed manifests and the exact primary citation; correct the transaction rather than reusing an unrelated record.",
+    cause="encoder_output",
+    gate="guard-generated",
+    site="axiom_encode/cli.py:cmd_guard_generated",
+)
+GUIDANCE_MANIFEST_BINDING_CHECK = declare_check(
+    "producer-guidance:manifest-binding",
+    title="Verified manifest guidance must match the protected source and producer",
+    requires="The verified manifest and context bind the exact immutable guidance descriptor.",
+    why="A valid signature alone does not establish that the candidate used the requested guidance and source.",
+    fix="Inspect the cited manifest and guidance context; regenerate against the reviewed immutable producer and authenticated source after correcting the mismatch.",
+    cause="encoder_output",
+    gate="guard-generated",
+    site="axiom_encode/cli.py:_load_applied_encoding_manifest_entries",
+)
+
 MAX_GUIDANCE_BYTES = 512 * 1024
 MAX_DESCRIPTOR_BYTES = 4096
 _SHA40 = re.compile(r"[0-9a-f]{40}\Z")

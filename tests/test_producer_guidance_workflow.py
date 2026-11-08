@@ -91,7 +91,11 @@ def test_actual_pointer_branch_preserves_suffix_without_inline_file(tmp_path):
 def test_actual_branch_refuses_wrong_version_or_lane(tmp_path, finding, lane):
     result = execute_branch(tmp_path, finding, lane=lane)
     assert result.returncode != 0
-    assert result.stdout == b""
+    assert b"\0" not in result.stdout
+    assert all(
+        line.startswith(b"::error title=infra%3Aencode-producer-guidance-routing::")
+        for line in result.stdout.splitlines()
+    )
 
 
 def test_actual_packaging_context_read_rejects_self_consistent_stale_bytes():
@@ -138,3 +142,63 @@ def test_actual_packaging_initial_snapshot_is_guard_bound():
     }
     with pytest.raises(SystemExit, match="initial apply manifest snapshot"):
         exec(compile(snippet, "workflow-manifest-recheck", "exec"), scope)
+
+
+@pytest.mark.parametrize(
+    "finding,lane",
+    [
+        ("axiom-producer-review-guidance-ref:v1:{}", "dependent"),
+        ("axiom-producer-review-guidance-ref:v2:{}", "target"),
+    ],
+)
+@pytest.mark.parametrize("reporter_works", [True, False])
+def test_refusal_records_typed_issue_but_never_depends_on_reporter(
+    tmp_path, finding, lane, reporter_works
+):
+    import json
+    import shlex
+    import sys
+
+    trusted = (
+        "/opt/axiom-verification/python/bin/python -I -m axiom_encode.infra_checks"
+    )
+    branch = generation_branch()
+    assert branch.count(trusted) == 2
+    # Execute the exact branch with only the protected installation location
+    # substituted by the same stdlib-only reporter implementation. This tests
+    # refusal/reporting behavior, not local protected-runtime provenance.
+    module = WORKFLOW.parents[2] / "src/axiom_encode/infra_checks.py"
+    reporter = (
+        shlex.join([sys.executable, "-I", str(module)])
+        if reporter_works
+        else "/usr/bin/false"
+    )
+    branch = branch.replace(trusted, reporter)
+    env = {
+        **os.environ,
+        "TEST_FINDING": finding,
+        "TEST_LANE": lane,
+        "RUNNER_TEMP": str(tmp_path),
+        "CITATION": "ca/policy/example",
+        "AXIOM_INFRA_ISSUES_FILE": str(tmp_path / "issues.jsonl"),
+    }
+    command = (
+        'set -euo pipefail\nargs=()\nreview_finding="$TEST_FINDING"\ncitation="$CITATION"\noutput_lane="$TEST_LANE"\n'
+        + branch
+        + "\ntouch MUST_NOT_RUN\n"
+    )
+    result = subprocess.run(
+        ["bash", "-c", command], env=env, cwd=tmp_path, capture_output=True
+    )
+    assert result.returncode == 1
+    assert not (tmp_path / "MUST_NOT_RUN").exists()
+    if reporter_works:
+        records = [
+            json.loads(line)
+            for line in (tmp_path / "issues.jsonl").read_text().splitlines()
+        ]
+        assert len(records) == 1
+        assert records[0]["check"] == "infra:encode-producer-guidance-routing"
+        assert records[0]["cause"] == "infra"
+    else:
+        assert not (tmp_path / "issues.jsonl").exists()
