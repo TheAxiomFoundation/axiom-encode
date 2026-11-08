@@ -100,7 +100,20 @@ def test_only_reviewed_source_callers_opt_in():
                     for k in call.keywords
                 ):
                     found.add((p.name, node.name))
-    assert found == {("form_numeric_structure.py", "form_numeric_locator_spans")} | {
+    assert found == {
+        ("form_numeric_structure.py", "form_numeric_locator_spans"),
+        ("local_fraction_site_evidence.py", "fraction_site"),
+        ("local_vehicle_date_evidence.py", "vehicle_date_role_binding"),
+        ("local_prior_form_evidence.py", "prior_form_reference_binding"),
+        ("local_pair_source_evidence.py", "bind_pair_role"),
+        ("local_pair_source_evidence.py", "bind_signed_role"),
+        ("local_pair_source_evidence.py", "reserves_signed_copy_branch"),
+        ("local_pair_source_evidence.py", "reserves_chart_duty"),
+        ("local_pair_source_evidence.py", "bind_remaining_chart_role"),
+        ("local_pair_source_evidence.py", "bind_expense_group"),
+        ("local_pair_source_evidence.py", "reserves_expense_group"),
+        ("local_pair_source_evidence.py", "reserves_chart_line1"),
+    } | {
         ("source_completeness.py", name)
         for name in [
             "recognize_source_structure",

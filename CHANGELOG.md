@@ -1,3 +1,7 @@
+## 0.2.2416
+
+- Bind source-validation witnesses to authenticated local-relation compilation and complete-case executions. Preserve provider identities, source ownership, and full-input comparisons; require all controls for multi-part T936 Chart A and expense obligations before accepting one whole-obligation witness. Generic fallback and unverified saved-record evidence cannot discharge these obligations.
+
 ## 0.2.2344
 
 - Integrate the independently reviewed nested-condition and physical-alternative source checks; refresh encoder version provenance for the combined tree.

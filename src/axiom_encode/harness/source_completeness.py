@@ -5607,6 +5607,7 @@ def analyze_complete_source_unit(
     resolved_dependency_outputs: Sequence[str] = (),
     source_context: Mapping[str, str | None] | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    local_relation_context: object | None = None,
     referral_context: Any = None,
 ) -> CompleteSourceUnitAnalysis:
     """Analyze one artifact against its authoritative, resolver-owned body."""
@@ -5639,6 +5640,7 @@ def analyze_complete_source_unit(
                 payload,
                 content=content,
                 execution_evidence=execution_evidence,
+                local_relation_context=local_relation_context,
                 referral_context=referral_context,
                 source_text=source_text,
                 raw_source_text=authoritative_source_text,
@@ -5804,6 +5806,7 @@ def _analyze_rulespec_payload(
     source_context: Mapping[str, str | None] | None = None,
     raw_source_text: str | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    local_relation_context: object | None = None,
     referral_context: Any = None,
 ) -> CompleteSourceUnitAnalysis:
     if execution_evidence is not None and not execution_evidence.bound(
@@ -6236,6 +6239,7 @@ def _analyze_rulespec_payload(
             _companion_test_issues(
                 principal_rules,
                 execution_evidence=execution_evidence,
+                local_relation_context=local_relation_context,
                 referral_context=referral_context,
                 floor_imported_exports=imported_export_bindings,
                 floor_source_context=imported_proof_source_context,
@@ -6345,6 +6349,28 @@ def _analyze_rulespec_payload(
     missing_source_values: list[float] = []
     for occurrence in unrepresented_occurrences:
         raw_span = recall_map.source_span(occurrence.start, occurrence.end)
+        if local_relation_context is not None:
+            from .local_relation_source_evidence import (
+                prior_form_year_occurrence,
+                vehicle_year_occurrence,
+            )
+
+            if any(
+                check(
+                    local_relation_context,
+                    content=content,
+                    cases=test_cases,
+                    source_text=source_text,
+                    citation=corpus_citation_path,
+                    raw_span=raw_span,
+                    occurrence=occurrence,
+                    recall_text=unrepresented_recall_text,
+                    recall_map=recall_map,
+                )
+                for check in (vehicle_year_occurrence, prior_form_year_occurrence)
+            ):
+                covered_source_values += 1
+                continue
         if any(
             raw_span == bound.span
             and occurrence.value == bound.value
@@ -21653,6 +21679,7 @@ def _companion_test_issues(
     partnership_content: str | None = None,
     printed_operations: _PrintedOperationContext | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    local_relation_context: object | None = None,
     floor_imported_exports: Sequence[ResolvedImportedExport] = (),
     floor_source_context: Mapping[str, str | None] | None = None,
     local_floor_source_context: Mapping[str, str | None] | None = None,
@@ -21751,6 +21778,7 @@ def _companion_test_issues(
     missing_formula_branches = _unwitnessed_formula_branches(
         formula_branches,
         execution_evidence=execution_evidence,
+        local_relation_context=local_relation_context,
         execution_content=partnership_content,
         printed_operations=printed_operations,
         operand_declarations={
@@ -22032,8 +22060,61 @@ def _companion_test_issues(
             formula_environment=formula_environment,
             calendar_date_declarations=calendar_date_declarations,
         )
+        if local_relation_context is not None and partnership_content is not None:
+            from .local_relation_source_evidence import (
+                boolean_pair_witnesses,
+                numeric_pair_witnesses,
+            )
+
+            toggled_exception_selectors.update(
+                numeric_pair_witnesses(
+                    local_relation_context,
+                    content=partnership_content,
+                    cases=cases,
+                    principal_rules=principal_rules,
+                    source_text=source_text,
+                    citation=corpus_citation_path,
+                )
+            )
+            toggled_exception_selectors.update(
+                boolean_pair_witnesses(
+                    local_relation_context,
+                    content=partnership_content,
+                    cases=cases,
+                    principal_rules=principal_rules,
+                    source_text=source_text,
+                    citation=corpus_citation_path,
+                )
+            )
+        from .local_pair_source_evidence import (
+            reserves_chart_duty,
+            reserves_chart_line1,
+            reserves_expense_group,
+            reserves_signed_copy_branch,
+        )
+
+        # These source-owned duties require their respective complete evidence.
+        # Reserve them independently of candidate validity or runtime context.
+        reserved_signed_branches = tuple(
+            branch
+            for branch in paired_exception_branches
+            if reserves_signed_copy_branch(branch, source_text, corpus_citation_path)
+            or reserves_chart_duty(branch, source_text, corpus_citation_path)
+            or reserves_chart_line1(branch, source_text, corpus_citation_path)
+            or reserves_expense_group(branch, source_text, corpus_citation_path)
+        )
+        ordinary_exception_branches = tuple(
+            branch
+            for branch in paired_exception_branches
+            if not (
+                reserves_signed_copy_branch(branch, source_text, corpus_citation_path)
+                or reserves_chart_duty(branch, source_text, corpus_citation_path)
+                or reserves_chart_line1(branch, source_text, corpus_citation_path)
+                or reserves_expense_group(branch, source_text, corpus_citation_path)
+            )
+        )
         missing_exception_branches = _unwitnessed_exception_branches(
-            paired_exception_branches,
+            ordinary_exception_branches,
             certified_composition=certified_composition,
             certified_replacement=certified_replacement,
             certified_paths=certified_paths,
@@ -22051,6 +22132,23 @@ def _companion_test_issues(
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
+        if local_relation_context is not None and partnership_content is not None:
+            from .local_relation_source_evidence import paired_branch_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: paired_branch_witnesses(
+                        local_relation_context,
+                        branch,
+                        content=partnership_content,
+                        cases=cases,
+                        principal_rules=principal_rules,
+                        source_text=source_text,
+                        citation=corpus_citation_path,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
         if execution_evidence is not None and partnership_content is not None:
             from .floor_retained_referral_evidence import (
                 witnesses as referral_witnesses,
@@ -22258,6 +22356,79 @@ def _companion_test_issues(
         if partnership is not None:
             missing_exception_branches = partnership.unmatched(
                 missing_exception_branches
+            )
+        # No generic or imported fallback may discharge the reserved duty.
+        missing_exception_branches = (
+            *missing_exception_branches,
+            *reserved_signed_branches,
+        )
+        if local_relation_context is not None and partnership_content is not None:
+            from .local_relation_source_evidence import signed_branch_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: signed_branch_witnesses(
+                        local_relation_context,
+                        branch,
+                        content=partnership_content,
+                        cases=cases,
+                        principal_rules=principal_rules,
+                        source_text=source_text,
+                        citation=corpus_citation_path,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
+        if local_relation_context is not None and partnership_content is not None:
+            from .local_relation_source_evidence import chart_duty_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: chart_duty_witnesses(
+                        local_relation_context,
+                        branch,
+                        content=partnership_content,
+                        cases=cases,
+                        principal_rules=principal_rules,
+                        source_text=source_text,
+                        citation=corpus_citation_path,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
+        if local_relation_context is not None and partnership_content is not None:
+            from .local_relation_source_evidence import remaining_chart_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: remaining_chart_witnesses(
+                        local_relation_context,
+                        branch,
+                        content=partnership_content,
+                        cases=cases,
+                        principal_rules=principal_rules,
+                        source_text=source_text,
+                        citation=corpus_citation_path,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
+        if local_relation_context is not None and partnership_content is not None:
+            from .local_relation_source_evidence import expense_group_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: expense_group_witnesses(
+                        local_relation_context,
+                        branch,
+                        content=partnership_content,
+                        cases=cases,
+                        principal_rules=principal_rules,
+                        source_text=source_text,
+                        citation=corpus_citation_path,
+                    )
+                    for branch in missing_exception_branches
+                }
             )
         if missing_exception_branches:
             unsupported_row_outputs = [
@@ -23749,6 +23920,7 @@ def _unwitnessed_formula_branches(
     certified_replacement: BoundWorksheetReplacement | None = None,
     printed_operations: _PrintedOperationContext | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    local_relation_context: object | None = None,
     execution_content: str | None = None,
 ) -> tuple[SourceStructureBranch, ...]:
     """Consume each executed rule/case witness for at most one source formula."""
@@ -23799,6 +23971,45 @@ def _unwitnessed_formula_branches(
                     numeric_value_is_grounded=numeric_value_is_grounded,
                     formula_environment=formula_environment,
                 )
+            )
+    if local_relation_context is not None and execution_content is not None:
+        from .local_relation_source_evidence import (
+            apply_operation_replacements,
+        )
+        from .local_relation_source_evidence import (
+            formula_witnesses as local_formula_witnesses,
+        )
+
+        for branch in branches:
+            replacement_tokens: list[object] = []
+            candidate_witnesses[branch].update(
+                local_formula_witnesses(
+                    local_relation_context,
+                    branch,
+                    _replacement_tokens=replacement_tokens,
+                    content=execution_content,
+                    printed_operations=printed_operations,
+                    operand_declarations=operand_declarations,
+                    certified_replacement=certified_replacement,
+                    source_text=source_text,
+                    represented_annual_spans=represented_annual_spans,
+                    measurement_roles=measurement_roles,
+                    represented_measurement_spans=represented_measurement_spans,
+                    measurement_witnesses=measurement_witnesses,
+                    corpus_citation_path=corpus_citation_path,
+                    principal_rules=principal_rules,
+                    rule_names=principal_formula_clause_rules[branch],
+                    asserted_by_rule=asserted_by_rule,
+                    extract_numeric_occurrences=extract_numeric_occurrences,
+                    numeric_value_is_grounded=numeric_value_is_grounded,
+                    formula_environment=formula_environment,
+                )
+            )
+            apply_operation_replacements(
+                local_relation_context,
+                branch,
+                candidate_witnesses[branch],
+                replacement_tokens,
             )
     return _unmatched_evidence_obligations(candidate_witnesses)
 
@@ -24011,7 +24222,9 @@ def _annual_form_source_evidence(
     if not source_text or source_text[branch.start : branch.end] != branch.text:
         return ()
     structure = recognize_printed_rows(source_text, allow_multipage=True)
-    if structure is None or not structure.annual_form_year_roles:
+    if structure is None or not (
+        structure.annual_form_year_roles or structure.annual_form_as_of_roles
+    ):
         return ()
     raw_period = case.get("period")
     if isinstance(raw_period, dict):
@@ -24058,7 +24271,28 @@ def _annual_form_source_evidence(
     atoms = tuple(_rule_source_excerpt_atoms(rule))
     version = rule["versions"][selected]
     result = []
-    for role in structure.annual_form_year_roles:
+    for role in (*structure.annual_form_year_roles, *structure.annual_form_as_of_roles):
+        as_of_date = getattr(role, "as_of_date", None)
+        if as_of_date is not None:
+            # A cumulative year-end amount is not a generic date exemption.
+            # Its ordinary query must span that entire annual reporting frame.
+            report_year = as_of_date[:4]
+            if rule.get("period") != "Year" or as_of_date != f"{report_year}-12-31":
+                continue
+            if isinstance(raw_period, dict):
+                if (
+                    set(raw_period) != {"period_kind", "start", "end"}
+                    or raw_period.get("period_kind") != "tax_year"
+                    or str(raw_period["start"]) != f"{report_year}-01-01"
+                    or str(raw_period["end"]) != as_of_date
+                ):
+                    continue
+            elif raw_period not in (
+                report_year,
+                f"{report_year}-01",
+                f"{report_year}-01-01",
+            ):
+                continue
         start, end = role.year_span
         owner_start, owner_end = role.owner_span
         header_start, header_end = role.header_span
@@ -24612,6 +24846,7 @@ def _formula_branch_test_witnesses(
     operand_declarations: Mapping[str, dict[str, Any]] | None = None,
     certified_replacement: BoundWorksheetReplacement | None = None,
     printed_operations: _PrintedOperationContext | None = None,
+    local_corroboration: object | None = None,
 ) -> set[tuple[str, str]]:
     # A good execution must never hide another invalid source-owned version,
     # alternative, operand or alias after the closed credit demand removal.
@@ -24696,6 +24931,7 @@ def _formula_branch_test_witnesses(
                 interval=interval,
                 dependency_environment=dependency_environment,
                 require_corroborated_dependencies=True,
+                local_corroboration=local_corroboration,
                 annual_evidence=annual_evidence,
                 measurement_evidence=measurement_evidence,
                 formula_environment=formula_environment,
@@ -25434,8 +25670,15 @@ def _formula_execution_is_source_branch_witness(
     corpus_citation_path: str = "",
     certified_replacement: BoundWorksheetReplacement | None = None,
     printed_operations: _PrintedOperationContext | None = None,
+    local_corroboration: object | None = None,
 ) -> bool:
     """Return whether one resolved execution proves the exact source branch."""
+
+    from .local_relation_source_evidence import (
+        corroborated_dependencies,
+        corroborated_execution,
+        corroborates,
+    )
 
     execution_environment = _case_formula_identifier_environment(
         case,
@@ -25450,7 +25693,12 @@ def _formula_execution_is_source_branch_witness(
         return False
     if require_corroborated_dependencies and any(
         name not in dependency_environment
-        or _test_case_asserted_output_value(case, name) is _UNRESOLVED_CONDITION_VALUE
+        or (
+            _test_case_asserted_output_value(case, name) is _UNRESOLVED_CONDITION_VALUE
+            and not corroborates(
+                local_corroboration, case, name, dependency_environment[name]
+            )
+        )
         for name in _reached_local_formula_dependency_names(
             execution,
             case,
@@ -25519,12 +25767,19 @@ def _formula_execution_is_source_branch_witness(
             formula_environment=formula_environment,
             require_asserted_value=False,
         )
+        observed_environment = corroborated_dependencies(local_corroboration, case)
+        if observed_environment is not None:
+            independent_environment = observed_environment
         independent_execution = _case_formula_execution(
             rule,
             case,
             formula_environment=formula_environment,
             dependency_environment=independent_environment,
         )
+        if observed_environment is not None:
+            independent_execution = corroborated_execution(
+                local_corroboration, rule, case, formula_environment
+            )
         if independent_execution is None or not (
             _formula_execution_runtime_value(independent_execution)
             is not _UNRESOLVED_CONDITION_VALUE
@@ -25545,13 +25800,20 @@ def _formula_execution_is_source_branch_witness(
                 formula_environment=formula_environment,
                 dependency_environment=independent_environment,
             )
+            if observed_environment is not None:
+                replay = corroborated_execution(
+                    local_corroboration, dependency, case, formula_environment
+                )
             if replay is None or replay.currency_rounding is not None:
                 continue
             value = _formula_execution_runtime_value(replay)
             if value is _UNRESOLVED_CONDITION_VALUE or not (
                 _formula_runtime_values_equal(value, dependency_environment[name])
-                and _asserted_formula_runtime_values_equal(
-                    dependency, value, _test_case_asserted_output_value(case, name)
+                and (
+                    _asserted_formula_runtime_values_equal(
+                        dependency, value, _test_case_asserted_output_value(case, name)
+                    )
+                    or corroborates(local_corroboration, case, name, value)
                 )
             ):
                 continue

@@ -77,6 +77,16 @@ class AnnualFormYearRole:
 
 
 @dataclass(frozen=True)
+class AnnualFormAsOfRole:
+    """One whole recognized annual form's cumulative reporting cutoff."""
+
+    owner_span: tuple[int, int]
+    year_span: tuple[int, int]
+    header_span: tuple[int, int]
+    as_of_date: str
+
+
+@dataclass(frozen=True)
 class PrintedRowStructure:
     boundaries: tuple[int, ...]
     atomic_spans: tuple[tuple[int, int], ...]
@@ -90,6 +100,7 @@ class PrintedRowStructure:
     same_page_floors: tuple[SamePageFloor, ...] = ()
     note_marker_spans: tuple[tuple[int, int], ...] = ()
     annual_form_year_roles: tuple[AnnualFormYearRole, ...] = ()
+    annual_form_as_of_roles: tuple[AnnualFormAsOfRole, ...] = ()
 
 
 # Exact detached Schedule 2 transcription. Every record includes its literal
@@ -874,6 +885,20 @@ def _multipage_t936_rows(text: str) -> PrintedRowStructure | None:
         nonoperative_header_spans=tuple(records[role] for role in header_roles),
         numeric_locator_spans=tuple(sorted(locators)),
         annual_form_year_roles=tuple(annual_roles),
+        annual_form_as_of_roles=(
+            AnnualFormAsOfRole(
+                records["part3_finalC"],
+                (
+                    records["part3_finalC"][0]
+                    + text[slice(*records["part3_finalC"])].index("2025"),
+                    records["part3_finalC"][0]
+                    + text[slice(*records["part3_finalC"])].index("2025")
+                    + 4,
+                ),
+                (records["header"][0], text.index("\n")),
+                "2025-12-31",
+            ),
+        ),
         note_marker_spans=tuple(
             (records[role][0], records[role][0] + 3) for role in ("note1", "note2")
         ),

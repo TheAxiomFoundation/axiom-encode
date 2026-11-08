@@ -181,3 +181,157 @@ def test_matching_result_cannot_hide_wrong_operation():
     assert tentative  # The annual role is provisional, never sufficient.
     assert not found
     assert not covered
+
+
+def as_of_fixture():
+    # Source-role unit fixture; this does not mint runtime provenance.
+    header = SOURCE[: SOURCE.index("\n")]
+    owner = SOURCE[6332:6408]
+    rule = {
+        "name": "cnil",
+        "kind": "derived",
+        "dtype": "Money",
+        "unit": "CAD",
+        "entity": "Person",
+        "period": "Year",
+        "versions": [
+            {
+                "effective_from": "2025-01-01",
+                "effective_to": "2025-12-31",
+                "formula": "max(0, expenses - income)",
+            }
+        ],
+        "metadata": {
+            "proof": {
+                "atoms": [
+                    {
+                        "path": "versions[0]." + field,
+                        "kind": kind,
+                        "source": {
+                            "corpus_citation_path": CITATION,
+                            "excerpt": excerpt,
+                        },
+                    }
+                    for field, kind, excerpt in (
+                        ("formula", "formula", owner),
+                        ("effective_from", "effective_period", header),
+                        ("effective_to", "effective_period", header),
+                    )
+                ]
+            }
+        },
+    }
+    return rule, {
+        "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31",
+        },
+        "input": {"expenses": 200, "income": 100},
+        "output": {"cnil": 100},
+    }
+
+
+def as_of_evaluate(rule, case, source=SOURCE):
+    start, end = 6332, 6408
+    branch = c.SourceStructureBranch(
+        (), "formula-clause", "cnil", source[start:end], start, end
+    )
+    execution = c._case_formula_execution(
+        rule, case, formula_environment={}, dependency_environment={}
+    )
+    tentative = c._annual_form_source_evidence(
+        rule,
+        case=case,
+        execution=execution,
+        branch=branch,
+        source_text=source,
+        corpus_citation_path=CITATION,
+    )
+    covered = set()
+    found = c._formula_branch_test_witnesses(
+        branch,
+        corpus_citation_path=CITATION,
+        principal_rules={"cnil": rule},
+        rule_names={"cnil"},
+        asserted_by_rule={"cnil": [case]},
+        extract_numeric_occurrences=partial(
+            v.extract_typed_numeric_occurrences_from_text, profile="legacy"
+        ),
+        numeric_value_is_grounded=v.numeric_value_is_grounded,
+        formula_environment={},
+        dependency_cache={},
+        execution_cache={},
+        source_text=source,
+        represented_annual_spans=covered,
+    )
+    return tentative, found, covered
+
+
+@pytest.mark.parametrize(
+    "period",
+    [
+        "2025",
+        "2025-01",
+        "2025-01-01",
+        {"period_kind": "tax_year", "start": "2025-01-01", "end": "2025-12-31"},
+    ],
+)
+def test_as_of_reporting_role_requires_full_annual_query(period):
+    rule, case = as_of_fixture()
+    case["period"] = period
+    tentative, found, covered = as_of_evaluate(rule, case)
+    assert tentative and found
+    assert covered == {(6400, 6404)}
+    structure = recognize_printed_rows(SOURCE, allow_multipage=True)
+    assert len(structure.annual_form_year_roles) == 6
+    assert len(structure.annual_form_as_of_roles) == 1
+    assert structure.annual_form_as_of_roles[0].as_of_date == "2025-12-31"
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "midyear",
+        "month_kind",
+        "partial_year",
+        "wrong_day",
+        "wrong_month",
+        "different_year",
+        "monthly_rule",
+        "wrong_expected",
+        "wrong_operation",
+        "wrong_owner",
+        "wrong_header",
+    ],
+)
+def test_as_of_role_does_not_hide_changed_cutoff_or_calculation(change):
+    rule, case = as_of_fixture()
+    source = SOURCE
+    if change == "midyear":
+        case["period"] = "2025-06-01"
+    elif change == "month_kind":
+        case["period"]["period_kind"] = "month"
+    elif change == "partial_year":
+        case["period"]["end"] = "2025-06-30"
+    elif change == "wrong_day":
+        source = source.replace("CNIL to December 31", "CNIL to December 30")
+    elif change == "wrong_month":
+        source = source.replace("CNIL to December 31", "CNIL to November 30")
+    elif change == "different_year":
+        source = source.replace(
+            "CNIL to December 31, 2025", "CNIL to December 31, 2024"
+        )
+    elif change == "monthly_rule":
+        rule["period"] = "Month"
+    elif change == "wrong_expected":
+        case["output"]["cnil"] = 101
+    elif change == "wrong_operation":
+        rule["versions"][0]["formula"] = "max(0, expenses + income)"
+        case["output"]["cnil"] = 300
+    elif change == "wrong_owner":
+        rule["metadata"]["proof"]["atoms"][0]["source"]["excerpt"] = SOURCE[1835:1898]
+    else:
+        rule["metadata"]["proof"]["atoms"][1]["source"]["excerpt"] = "2025"
+    _, found, covered = as_of_evaluate(rule, case, source)
+    assert not found and not covered
