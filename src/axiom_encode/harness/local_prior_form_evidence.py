@@ -30,6 +30,7 @@ def prior_form_reference_binding(
     of earlier tax returns. Current-year tax rules do not recompute old totals.
     """
     from . import source_completeness as s
+    from .local_pair_source_evidence import matches_expected_formula
 
     try:
         if (
@@ -151,7 +152,7 @@ def prior_form_reference_binding(
         expected = f"if {selector}:\n  {copy_input}\nelse:\n  " + " + ".join(
             annual_inputs
         )
-        if v.get("formula", "").strip() != expected:
+        if not matches_expected_formula(v.get("formula"), expected):
             return None
         atoms = set(s._rule_source_excerpt_atoms(r))
         required = [

@@ -41,6 +41,7 @@ def vehicle_date_role_binding(
     exact source-map occurrence before using a returned descriptor.
     """
     from . import source_completeness as s
+    from .local_pair_source_evidence import matches_expected_formula
 
     try:
         period = case.get("period")
@@ -256,7 +257,7 @@ def vehicle_date_role_binding(
         expected = "if t936_asset_is_timber_resource:\n  0\nelif t936_asset_is_zero_emission_passenger_vehicle and t936_zepv_cost_excluded == true:\n  0\nelif t936_asset_is_ordinary_passenger_vehicle and t936_ordinary_vehicle_cost_excluded == true:\n  0\nelse:\n  t936_asset_uncollectible_portion"
         if (
             pv is None
-            or pv.get("formula", "").strip() != expected
+            or not matches_expected_formula(pv.get("formula"), expected)
             or by_name[principal].get("unit") != "CAD"
         ):
             return None

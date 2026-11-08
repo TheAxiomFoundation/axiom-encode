@@ -1611,6 +1611,35 @@ def chart_duty_witnesses(
         return set()
 
 
+def _ordered_conditional_path(trace, selectors: tuple[str, ...], choice: int) -> bool:
+    """Recognize flat or exact nested arms after a complete static source bind.
+
+    This does not rewrite captured traces or grant evidence on its own. Callers
+    retain exact authored formulas, reached leaves, custody and freshness.
+    """
+    if type(choice) is not int or not 0 <= choice <= len(selectors) or not selectors:
+        return False
+    if any(type(step.choice) is not int for step in trace):
+        return False
+    if len(trace) == 1:
+        step = trace[0]
+        if (
+            step.kind == "if"
+            and step.choice == choice
+            and step.selectors == selectors[: choice + 1]
+        ):
+            return True
+    expected_length = min(choice + 1, len(selectors))
+    if len(trace) != expected_length:
+        return False
+    return all(
+        step.kind == "if"
+        and step.selectors == (selectors[index],)
+        and step.choice == (0 if index == choice else 1)
+        for index, step in enumerate(trace)
+    )
+
+
 def remaining_chart_witnesses(
     context: object | None,
     branch: Any,
@@ -1711,14 +1740,7 @@ def remaining_chart_witnesses(
             selectors = (
                 (f"{raw} == 0", f"{row14} == 0") if principal == row20 else (selector,)
             )
-            prefix = selectors[: choice + 1]
-            trace = endpoint[4].trace
-            return (
-                len(trace) == 1
-                and trace[0].kind == "if"
-                and trace[0].choice == choice
-                and trace[0].selectors == prefix
-            )
+            return _ordered_conditional_path(endpoint[4].trace, selectors, choice)
 
         def amount(endpoint, name):
             return _exact_engine_decimal(
@@ -1993,9 +2015,14 @@ def expense_group_witnesses(
             return _exact_engine_decimal({**e[2]["input"], **e[3]}.get(name))
 
         def arm(e, choice):
-            trace = e[4].trace
-            return (
-                len(trace) == 1 and trace[0].kind == "if" and trace[0].choice == choice
+            return _ordered_conditional_path(
+                e[4].trace,
+                (
+                    timber,
+                    f"{zflag} and {zepv} == true",
+                    f"{oflag} and {ordinary} == true",
+                ),
+                choice,
             )
 
         roles = {}

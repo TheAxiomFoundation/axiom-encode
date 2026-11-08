@@ -265,6 +265,29 @@ def _tree(expression: str) -> str:
     return ast.dump(ast.parse(expression), include_attributes=False)
 
 
+def matches_expected_formula(
+    authored: object, expected: str, *, ast_equivalent: bool = False
+) -> bool:
+    """Recognize an internal source formula and its exact materializer spelling.
+
+    Only the trusted expected formula is rendered. Authored text is never
+    repaired or stripped on the alternate path; all ordered branches remain
+    part of the exact comparison. This grants no runtime evidence.
+    """
+    if type(authored) is not str or type(expected) is not str:
+        return False
+    from .validator_pipeline import _repair_else_if_formula
+
+    if authored == _repair_else_if_formula(expected):
+        return True
+    if not ast_equivalent:
+        return authored.strip() == expected
+    try:
+        return _tree(authored) == _tree(expected)
+    except (SyntaxError, TypeError, ValueError):
+        return False
+
+
 def bind_pair_role(
     policy: dict, branch: Any, source_text: str, citation: str, principal: str
 ) -> PairRole | None:
@@ -358,7 +381,9 @@ def bind_pair_role(
                 "2025-12-31",
             ) or set(v) != {"effective_from", "effective_to", "formula"}:
                 return None
-            if _tree(v["formula"]) != _tree(spec["formula"]):
+            if not matches_expected_formula(
+                v["formula"], spec["formula"], ast_equivalent=True
+            ):
                 return None
             atoms = r["metadata"]["proof"]["atoms"]
             obligations = [
@@ -380,7 +405,9 @@ def bind_pair_role(
                     return None
             # All expression references must be explicit typed declarations.
             # Their underlying source obligations remain independently checked.
-            for n in ast.walk(ast.parse(v["formula"])):
+            # The expected AST is used only after the complete authored spelling
+            # has matched above, including its materializer representation.
+            for n in ast.walk(ast.parse(spec["formula"])):
                 if not isinstance(n, ast.Name) or n.id in ("max", "min"):
                     continue
                 d = by_name[n.id]
@@ -556,7 +583,9 @@ def bind_signed_role(
             ) != ("2025-01-01", "2025-12-31"):
                 return None
             _, expected, owned = _SIGNED_PROFILES[name]
-            if _tree(v["formula"]) != _tree(expected):
+            if not matches_expected_formula(
+                v["formula"], expected, ast_equivalent=True
+            ):
                 return None
             obligations = [("formula", "formula", text) for text in owned] + [
                 (field, "effective_period", header)
