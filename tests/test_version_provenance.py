@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import random
 import shutil
 import subprocess
@@ -6,12 +7,14 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 from axiom_encode import cli, version_provenance
 from axiom_encode.ci_parity import encoder_version_at_pin
 from axiom_encode.cli import _latest_axiom_encode_version_commit
 
 SCRIPT = Path(version_provenance.__file__)
+ROOT = Path(__file__).parents[1]
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -397,3 +400,302 @@ def test_the_three_copies_of_the_rule_agree_on_random_histories(
                 _commit(repo, f"{action} {step}")
             verdicts = _verdicts(repo, monkeypatch, root / "home")
             assert len(verdicts) == 1, (seed, step, action, verdicts)
+
+
+# --- axiom-encode#2051 review round 5: the tests from the review -------------
+def _encoder_and_dependency_change(repo: Path) -> str:
+    (repo / "src/axiom_encode/cli.py").write_text("MARKER = 1\n")
+    with (repo / "pyproject.toml").open("a") as pyproject:
+        pyproject.write('dependencies = ["requests"]\n')
+    return _commit(repo, "encoder and dependency change, no bump")
+
+
+@pytest.mark.parametrize("rewrite", ["replace-graft", "grafts-file"])
+def test_rewrite_of_an_unversioned_commit_that_edits_a_version_file(
+    repo: Path, rewrite: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    unversioned = _encoder_and_dependency_change(repo)
+    if rewrite == "replace-graft":
+        _git(repo, "replace", "--graft", unversioned)
+    else:
+        (repo / ".git/info").mkdir(exist_ok=True)
+        (repo / ".git/info/grafts").write_text(f"{unversioned}\n")
+    assert version_provenance.unversioned_changes(repo, unversioned)
+    assert _verdicts(repo, monkeypatch, tmp_path / "home") == {True}
+
+
+def test_ambient_git_dir_does_not_change_the_apply_guard(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    unversioned = _encoder_and_dependency_change(repo)
+    copy = tmp_path / "copy"
+    shutil.copytree(repo, copy)
+    _git(copy, "replace", "--graft", unversioned)
+    monkeypatch.setenv("GIT_DIR", str(copy / ".git"))
+    assert _verdicts(repo, monkeypatch, tmp_path / "home") == {True}
+
+
+def test_the_apply_guard_refuses_a_shallow_clone(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    _write_version(repo, "0.2.11")
+    _commit(repo, "bump")
+    _change_encoder(repo, 1)
+    shallow = tmp_path / "shallow"
+    _git(tmp_path, "clone", "-q", "--depth", "1", f"file://{repo}", str(shallow))
+    with pytest.raises(ValueError, match="shallow"):
+        version_provenance.unversioned_changes(shallow)
+    monkeypatch.setattr(cli, "__version__", "0.2.11")
+    with pytest.raises(RuntimeError):
+        cli._require_axiom_encode_version_provenance(shallow)
+
+
+def test_a_lowered_version_never_reissues_a_used_number(repo: Path):
+    base = _git(repo, "rev-parse", "HEAD")
+    # A PR opened before the change, with its own hand bump to 0.2.11.
+    _git(repo, "checkout", "-qb", "pr-x", base)
+    (repo / "src/axiom_encode/x.py").write_text("X = 1\n")
+    _write_version(repo, "0.2.11")
+    _commit(repo, "PR X: encoder change and hand bump to 0.2.11")
+    _git(repo, "checkout", "-q", "main")
+    # The change lands at 0.2.11, an encoder PR lands with no bump, the bot bumps.
+    (repo / "src/axiom_encode/v.py").write_text("V = 1\n")
+    _write_version(repo, "0.2.11")
+    _commit(repo, "hand bump to 0.2.11")
+    (repo / "src/axiom_encode/d.py").write_text("D = 1\n")
+    _commit(repo, "PR D lands with no bump")
+    assert version_provenance.bump(repo) == "0.2.12"
+    _commit(repo, "Bump encoder version to 0.2.12")
+    # PR X merges main, keeps its own version lines, and lands.
+    _git(repo, "checkout", "-q", "pr-x")
+    _git(repo, "merge", "-q", "-X", "ours", "--no-edit", "main")
+    _git(repo, "checkout", "-q", "main")
+    _git(
+        repo,
+        "merge",
+        "-q",
+        "--no-ff",
+        "pr-x",
+        "-m",
+        "Merge pull request #9 from org/pr-x",
+    )
+    assert version_provenance.versions_at(repo, "HEAD")["pyproject"] == "0.2.11"
+    assert version_provenance.bump(repo) not in {"0.2.11", "0.2.12"}
+
+
+def test_two_encoder_trees_never_share_a_version(repo: Path):
+    (repo / "src/axiom_encode/d.py").write_text("D = 1\n")
+    unversioned = _commit(repo, "PR D lands with no bump")
+    # A PR branched from the unversioned main bumps by hand and adds a dependency.
+    _git(repo, "checkout", "-qb", "pr-x", unversioned)
+    (repo / "src/axiom_encode/x.py").write_text("X = 1\n")
+    _write_version(repo, "0.2.11")
+    with (repo / "uv.lock").open("a") as lock:
+        lock.write('\n[[package]]\nname = "requests"\nversion = "2.32.5"\n')
+    _commit(repo, "PR X: encoder change, dependency and hand bump to 0.2.11")
+    _git(repo, "checkout", "-q", "main")
+    assert version_provenance.bump(repo) == "0.2.11"
+    bot = _commit(repo, "Bump encoder version to 0.2.11")
+    _git(
+        repo,
+        "merge",
+        "-q",
+        "--no-ff",
+        "pr-x",
+        "-m",
+        "Merge pull request #9 from org/pr-x",
+    )
+    landed = _git(repo, "rev-parse", "HEAD")
+    assert version_provenance.versions_at(repo, landed)["pyproject"] == "0.2.11"
+    assert _git(repo, "rev-parse", f"{bot}:src/axiom_encode") != _git(
+        repo, "rev-parse", f"{landed}:src/axiom_encode"
+    )
+    assert version_provenance.unversioned_changes(repo, landed)
+
+
+def test_a_version_file_edit_that_keeps_the_version_is_not_a_bump(repo: Path):
+    _encoder_and_dependency_change(repo)
+    assert version_provenance.unversioned_changes(repo) == [
+        "pyproject.toml",
+        "src/axiom_encode/cli.py",
+    ]
+
+
+def test_ambient_git_dir_cannot_move_head(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    versioned = _git(repo, "rev-parse", "HEAD")
+    _change_encoder(repo, 1)
+    copy = tmp_path / "copy"
+    shutil.copytree(repo, copy)
+    _git(copy, "checkout", "-q", "--detach", versioned)
+    monkeypatch.setenv("GIT_DIR", str(copy / ".git"))
+    assert version_provenance.unversioned_changes(repo) == ["src/axiom_encode/cli.py"]
+
+
+# --- The pull-request check: only the bump App picks versions ----------------
+
+
+def _bump_workflow_on(repo: Path) -> str:
+    (repo / ".github/workflows").mkdir(parents=True, exist_ok=True)
+    (repo / version_provenance.BUMP_WORKFLOW).write_text("name: bump\n")
+    return _commit(repo, "add the bump workflow")
+
+
+def _hand_bump(repo: Path, base: str, version: str) -> str:
+    _git(repo, "checkout", "-qb", f"hand-{version}", base)
+    (repo / "src/axiom_encode/x.py").write_text("X = 1\n")
+    _write_version(repo, version)
+    return _commit(repo, f"hand bump to {version}")
+
+
+def _reason(repo: Path, base: str, ref: str, author: str, head_repo: str = "o/r"):
+    return version_provenance.hand_picked_version(
+        repo, base, ref, author=author, head_repository=head_repo, repository="o/r"
+    )
+
+
+def test_a_hand_bump_is_refused_once_the_bump_workflow_is_on_main(repo: Path):
+    base = _bump_workflow_on(repo)
+    head = _hand_bump(repo, base, "0.2.11")
+    assert "assigned after merge" in _reason(repo, base, head, "someone")
+    # A fork's pull request is never the App's, whatever its author name says.
+    assert _reason(repo, base, head, version_provenance.BUMP_APP_LOGIN, "fork/r")
+    assert _reason(repo, base, head, version_provenance.BUMP_APP_LOGIN) is None
+
+
+def test_a_pull_request_that_keeps_the_version_passes(repo: Path):
+    base = _bump_workflow_on(repo)
+    _git(repo, "checkout", "-qb", "feature", base)
+    (repo / "src/axiom_encode/x.py").write_text("X = 1\n")
+    head = _commit(repo, "encoder change, no bump")
+    assert _reason(repo, base, head, "someone") is None
+
+
+def test_hand_bumps_still_pass_before_the_bump_workflow_lands(repo: Path):
+    base = _git(repo, "rev-parse", "HEAD")
+    head = _hand_bump(repo, base, "0.2.11")
+    assert _reason(repo, base, head, "someone") is None
+
+
+def test_the_pull_request_command_exits_1_on_a_hand_bump(repo: Path):
+    base = _bump_workflow_on(repo)
+    head = _hand_bump(repo, base, "0.2.11")
+    common = ["--repo", str(repo), "--base", base, "--ref", head, "--repository", "o/r"]
+    refused = _run_script(
+        "pull-request", *common, "--author", "someone", "--head-repository", "o/r"
+    )
+    assert refused.returncode == 1
+    assert "assigned after merge" in refused.stderr
+    allowed = _run_script(
+        "pull-request",
+        *common,
+        "--author",
+        version_provenance.BUMP_APP_LOGIN,
+        "--head-repository",
+        "o/r",
+    )
+    assert allowed.returncode == 0, allowed.stderr
+
+
+def test_ci_runs_the_pull_request_check_in_a_required_job():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    lint = workflow["jobs"]["lint"]
+    assert lint["steps"][0]["with"]["fetch-depth"] == 2
+    step = next(
+        s
+        for s in lint["steps"]
+        if s.get("name") == "Refuse a hand-picked encoder version"
+    )
+    assert step["if"] == "github.event_name == 'pull_request'"
+    assert "version_provenance.py pull-request" in step["run"]
+    assert "--base HEAD^1" in step["run"]
+    assert step["env"]["PR_AUTHOR"] == "${{ github.event.pull_request.user.login }}"
+
+
+def test_history_rewrites_are_off_in_every_copy_of_the_rule():
+    # No test forges a commit-graph file, so pin the settings that turn the
+    # commit graph, replace refs and grafts off.
+    environment = version_provenance._git_environment()
+    keys = {
+        environment[f"GIT_CONFIG_KEY_{i}"]: environment[f"GIT_CONFIG_VALUE_{i}"]
+        for i in range(int(environment["GIT_CONFIG_COUNT"]))
+    }
+    assert keys["core.commitGraph"] == "false"
+    assert environment["GIT_NO_REPLACE_OBJECTS"] == "1"
+    assert environment["GIT_GRAFT_FILE"] == os.devnull
+    flags = provisioner._HARDENED_GIT_FLAGS
+    assert "core.commitGraph=false" in flags
+    assert (
+        provisioner._hardened_git_environment(Path("/nonexistent"))["GIT_GRAFT_FILE"]
+        == os.devnull
+    )
+
+
+# --- All three copies apply the two first-parent rules ------------------------
+
+
+def _land_lowered_version(repo: Path) -> None:
+    """Main bumps to 0.2.12; a merge then keeps a branch's hand bump to 0.2.11."""
+    base = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "checkout", "-qb", "pr-x", base)
+    (repo / "src/axiom_encode/x.py").write_text("X = 1\n")
+    _write_version(repo, "0.2.11")
+    _commit(repo, "PR X: encoder change and hand bump to 0.2.11")
+    _git(repo, "checkout", "-q", "main")
+    _write_version(repo, "0.2.12")
+    _commit(repo, "main bumps to 0.2.12")
+    _git(repo, "merge", "-q", "-X", "theirs", "--no-ff", "pr-x", "-m", "merge pr-x")
+
+
+def test_a_head_below_a_version_main_declared_needs_a_bump_in_every_copy(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    _land_lowered_version(repo)
+    head = _git(repo, "rev-parse", "HEAD")
+    assert version_provenance.versions_at(repo, head)["pyproject"] == "0.2.11"
+    # Only rule 1 decides here: the merge is where main reached 0.2.11 and
+    # no encoder file changed after the branch's own bump.
+    bump = version_provenance.latest_version_commit(repo, head)
+    assert version_provenance._changed_since(repo, bump, head) == []
+    history = version_provenance.first_parent_versions(repo, head)
+    assert version_provenance._first_parent_arrival(history, "0.2.11") == head
+    assert version_provenance.unversioned_changes(repo) == sorted(
+        version_provenance.VERSION_FILES
+    )
+    assert _verdicts(repo, monkeypatch, tmp_path / "home") == {True}
+    assert version_provenance.bump(repo) == "0.2.13"
+
+
+def test_two_encoder_trees_on_one_version_need_a_bump_in_every_copy(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    (repo / "src/axiom_encode/d.py").write_text("D = 1\n")
+    unversioned = _commit(repo, "PR D lands with no bump")
+    _git(repo, "checkout", "-qb", "pr-x", unversioned)
+    (repo / "src/axiom_encode/x.py").write_text("X = 1\n")
+    _write_version(repo, "0.2.11")
+    with (repo / "uv.lock").open("a") as lock:
+        lock.write('\n[[package]]\nname = "requests"\nversion = "2.32.5"\n')
+    _commit(repo, "PR X: encoder change, dependency and hand bump to 0.2.11")
+    _git(repo, "checkout", "-q", "main")
+    version_provenance.bump(repo)
+    _commit(repo, "Bump encoder version to 0.2.11")
+    _git(repo, "merge", "-q", "--no-ff", "pr-x", "-m", "merge pr-x")
+
+    assert _verdicts(repo, monkeypatch, tmp_path / "home") == {True}
+
+
+def test_cat_file_output_after_a_non_blob_is_still_read(repo: Path):
+    # pyproject.toml as a directory at one commit: its tree content must be
+    # skipped, so the next commit's version still reads right.
+    first = _git(repo, "rev-parse", "HEAD")
+    (repo / "pyproject.toml").unlink()
+    (repo / "pyproject.toml").mkdir()
+    (repo / "pyproject.toml/x").write_text("x\n")
+    odd = _commit(repo, "pyproject.toml as a directory")
+    assert version_provenance._pyproject_versions(repo, [odd, first, "f" * 40]) == [
+        None,
+        "0.2.10",
+        None,
+    ]

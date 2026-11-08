@@ -43,6 +43,9 @@ _LOCK_VERSION = re.compile(
     r'(?ms)^\[\[package\]\]\s*^name\s*=\s*"axiom-encode"\s*^version\s*=\s*"([^"]+)"'
 )
 _BUMP_BRANCH = "automation/encoder-version-"
+# The bump workflow's GitHub App, as a pull request's author login.
+BUMP_APP_LOGIN = "axiom-encoder-version-bump[bot]"
+BUMP_WORKFLOW = ".github/workflows/encoder-version-bump.yml"
 _PR_MERGE = re.compile(r"^Merge pull request #(\d+) from \S+?/(\S+)$")
 
 
@@ -137,8 +140,10 @@ def _first_parent(repo: Path, commit: str) -> str | None:
 def latest_version_commit(repo: Path, ref: str = "HEAD") -> str | None:
     """The latest commit reachable from ``ref`` that increased the version.
 
-    Same rule as ``cli._latest_axiom_encode_version_commit``: prefer the bump
-    to the version ``ref`` declares, else the latest increase of any kind.
+    Same choice as ``cli._latest_axiom_encode_version_commit`` and the
+    provisioner: prefer the bump to the version ``ref`` declares, else the
+    latest increase of any kind. ``main_history_changes`` adds two rules on
+    ``ref``'s first-parent history that all three copies apply.
     """
     ref_version = versions_at(repo, ref).get("pyproject")
     if not ref_version:
@@ -157,6 +162,70 @@ def latest_version_commit(repo: Path, ref: str = "HEAD") -> str | None:
         if current.get("pyproject") == ref_version:
             return commit
     return fallback
+
+
+def _pyproject_versions(repo: Path, commits: list[str]) -> list[str | None]:
+    """The pyproject version at each commit, read in one ``git cat-file`` run."""
+    if not commits:
+        return []
+    completed = subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "--batch"],
+        input="".join(f"{commit}:pyproject.toml\n" for commit in commits).encode(),
+        capture_output=True,
+        check=True,
+        env=_git_environment(),
+    )
+    data, offset, versions = completed.stdout, 0, []
+    for _ in commits:
+        end = data.index(b"\n", offset)
+        header = data[offset:end].decode().split()
+        offset = end + 1
+        if len(header) != 3:  # "<object> missing": no content follows
+            versions.append(None)
+            continue
+        size = int(header[2])
+        content = data[offset : offset + size]
+        offset += size + 1  # every object's content, a blob or not, then LF
+        if header[1] != "blob":
+            versions.append(None)
+            continue
+        versions.append(_first(_PYPROJECT_VERSION, content.decode("utf-8", "replace")))
+    return versions
+
+
+def first_parent_versions(
+    repo: Path, ref: str = "HEAD"
+) -> list[tuple[str, str | None]]:
+    """``(commit, version)`` for each first-parent commit of ``ref`` that changed
+    pyproject.toml against its first parent, newest first.
+
+    This is the version history of ``main`` itself: a merged branch's own
+    commits are not on it, and a merge counts as one change to the version
+    that ``main`` declares.
+    """
+    commits = _git(
+        repo, "log", "--first-parent", "--format=%H", ref, "--", "pyproject.toml"
+    ).split()
+    return list(zip(commits, _pyproject_versions(repo, commits)))
+
+
+def _highest(versions: list[str | None]) -> str | None:
+    numeric = [(key, v) for v in versions if v and (key := _numeric(v)) is not None]
+    return max(numeric)[1] if numeric else None
+
+
+def _first_parent_arrival(
+    history: list[tuple[str, str | None]], version: str
+) -> str | None:
+    """The newest first-parent commit at which ``main`` came to declare
+    ``version``: the commits after it run under that version."""
+    for index, (commit, declared) in enumerate(history):
+        if declared != version:
+            continue
+        older = history[index + 1][1] if index + 1 < len(history) else None
+        if older != version:
+            return commit
+    return None
 
 
 def is_versioned_path(path: str) -> bool:
@@ -183,6 +252,39 @@ def unversioned_changes(repo: Path, ref: str = "HEAD") -> list[str]:
     bump = latest_version_commit(repo, ref)
     if bump is None:
         raise ValueError(f"no committed encoder version bump is reachable from {ref}")
+    changed = set(_changed_since(repo, bump, ref))
+    changed.update(main_history_changes(repo, ref, bump, versions["pyproject"]))
+    return sorted(changed)
+
+
+def main_history_changes(repo: Path, ref: str, bump: str, version: str) -> set[str]:
+    """What else needs a bump, judged on ``ref``'s first-parent history.
+
+    One version must name one encoder state on main as well (axiom-encode#2051
+    review). Two cases need a bump beyond the latest-bump rule, both from
+    hand-picked versions. The ``--apply`` guard and the provisioner apply the
+    same two rules.
+
+    1. The head declares a version below one that main already declared, for
+       example a merge that kept a pull request's older hand bump. Its number
+       may already name another state: the version files need a bump.
+    2. Main reached this version at another commit than ``bump``, for example
+       the bump workflow's commit when a merged branch carries its own hand
+       bump to the same number. Encoder changes after that commit run under a
+       number that already names the commit's state.
+    """
+    changed: set[str] = set()
+    history = first_parent_versions(repo, ref)
+    highest = _highest([declared for _, declared in history])
+    if highest is not None and _numeric(highest) > (_numeric(version) or ()):
+        changed.update(VERSION_FILES)
+    arrival = _first_parent_arrival(history, version)
+    if arrival is not None and arrival != bump:
+        changed.update(_changed_since(repo, arrival, ref))
+    return changed
+
+
+def _changed_since(repo: Path, base: str, ref: str) -> list[str]:
     changed = _git(
         repo,
         "diff",
@@ -190,10 +292,42 @@ def unversioned_changes(repo: Path, ref: str = "HEAD") -> list[str]:
         "--no-renames",
         "--diff-filter=ACDMRT",
         "-z",
-        bump,
+        base,
         ref,
     ).split("\0")
     return [path for path in changed if path and is_versioned_path(path)]
+
+
+def hand_picked_version(
+    repo: Path,
+    base: str,
+    ref: str,
+    *,
+    author: str,
+    head_repository: str,
+    repository: str,
+) -> str | None:
+    """Why a pull request may not change the encoder version, or None.
+
+    Only the bump workflow's App picks versions once that workflow is on the
+    base branch. A pull request from anyone else must leave the version lines
+    of ``base`` as they are: a hand bump can land below or beside a number the
+    workflow already used. The author decides, not the branch name, which
+    anyone can choose; a fork's pull request never counts as the App's.
+    """
+    if show_file(repo, base, BUMP_WORKFLOW) is None:
+        return None  # Before axiom-encode#2048 lands, pull requests still bump.
+    if author == BUMP_APP_LOGIN and head_repository == repository:
+        return None
+    before, after = versions_at(repo, base), versions_at(repo, ref)
+    if before == after:
+        return None
+    return (
+        f"this pull request changes the encoder version ({before['pyproject']} "
+        f"to {after['pyproject']}); versions are assigned after merge by "
+        f"{BUMP_WORKFLOW} (axiom-encode#2048). Take the base branch's "
+        "pyproject.toml, src/axiom_encode/__init__.py and uv.lock version lines."
+    )
 
 
 def next_version(version: str) -> str:
@@ -246,7 +380,10 @@ def bump(repo: Path, ref: str = "HEAD") -> str:
     current = versions_at(repo, ref)["pyproject"]
     if not current:
         raise ValueError(f"pyproject.toml declares no version at {ref}")
-    version = next_version(current)
+    # One more than the highest version main has ever declared, so a merge
+    # that lowered the version never makes the bump reissue a used number.
+    highest = _highest([current, *(v for _, v in first_parent_versions(repo, ref))])
+    version = next_version(highest or current)
     _replace_once(repo / "pyproject.toml", _PYPROJECT_VERSION, version)
     _replace_once(repo / "src/axiom_encode/__init__.py", _PACKAGE_VERSION, version)
     _replace_once(repo / "uv.lock", _LOCK_VERSION, version)
@@ -275,10 +412,34 @@ def main(argv: list[str] | None = None) -> int:
     )
     do_bump.add_argument("--repo", type=Path, default=Path("."))
     do_bump.add_argument("--ref", default="HEAD")
+    pull_request = sub.add_parser(
+        "pull-request",
+        help="exit 1 when a pull request not opened by the bump App changes "
+        "the encoder version",
+    )
+    pull_request.add_argument("--repo", type=Path, default=Path("."))
+    pull_request.add_argument("--base", required=True)
+    pull_request.add_argument("--ref", default="HEAD")
+    pull_request.add_argument("--author", required=True)
+    pull_request.add_argument("--head-repository", required=True)
+    pull_request.add_argument("--repository", required=True)
     args = parser.parse_args(argv)
 
     if args.command == "bump":
         print(bump(args.repo, args.ref))
+        return 0
+    if args.command == "pull-request":
+        reason = hand_picked_version(
+            args.repo,
+            args.base,
+            args.ref,
+            author=args.author,
+            head_repository=args.head_repository,
+            repository=args.repository,
+        )
+        if reason:
+            print(f"encoder version provenance: {reason}", file=sys.stderr)
+            return 1
         return 0
     try:
         changes = unversioned_changes(args.repo, args.ref)

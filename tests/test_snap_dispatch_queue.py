@@ -1565,3 +1565,27 @@ def test_workflow_saves_state_even_when_the_tick_fails():
     steps = {step["name"]: step for step in _workflow()["jobs"]["queue"]["steps"]}
 
     assert steps["Save queue state"]["if"].startswith("${{ always()")
+
+
+def test_the_tick_command_holds_every_item_on_an_unversioned_encoder(
+    tmp_path, monkeypatch
+):
+    # main() hands the checkout's version refusal to tick (axiom-encode#2048).
+    github = FakeGitHub()
+    path = tmp_path / "queues" / "us-snap-test.json"
+    q.write_state(path, _state(["us-or/p/1", "us-or/p/2"]))
+    monkeypatch.setattr(q, "ApiGitHub", lambda _token: github)
+    monkeypatch.setattr(q, "_now", lambda: NOW)
+    monkeypatch.setattr(q.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        q, "unversioned_encoder_refusal", lambda _root: "src/axiom_encode/cli.py"
+    )
+    monkeypatch.setenv("GH_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", ENCODER_REPO)
+    summary = tmp_path / "summary.md"
+
+    q.main(["tick", "--state-dir", str(tmp_path), "--summary", str(summary)])
+
+    saved = q.load_state(path)
+    assert [item["status"] for item in saved["items"]] == ["pending", "pending"]
+    assert "post-merge bump" in summary.read_text()

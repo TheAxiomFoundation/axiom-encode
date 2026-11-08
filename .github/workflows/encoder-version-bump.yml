@@ -110,6 +110,12 @@ jobs:
         run: |
           set -euo pipefail
           remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # Only this repository's pull requests that the App opened count as
+          # bump pull requests. `gh pr list --head` matches the branch name
+          # alone, so a fork's pull request (or anyone's) can carry the same
+          # name; the App must never close, hold for or auto-merge one of those.
+          # gh reports the App's login as app/<slug>; GraphQL as the bare slug.
+          own='(.isCrossRepository | not) and .author.login == "app/axiom-encoder-version-bump"'
           # A bump pull request already in the merge queue stays there: closing
           # it would restart its wait each time main moves. Its merge pushes to
           # main and runs this workflow again, which bumps the commits after it.
@@ -117,16 +123,17 @@ jobs:
           # of this workflow opens a new one.
           queued="$(gh api graphql \
             -f owner="${GITHUB_REPOSITORY%%/*}" -f name="${GITHUB_REPOSITORY#*/}" \
-            -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { mergeQueue(branch: "main") { entries(first: 100) { nodes { pullRequest { headRefName } } } } } }' \
-            --jq '[.data.repository.mergeQueue.entries.nodes[]?.pullRequest.headRefName // "" | select(startswith("automation/encoder-version-"))] | length')"
+            -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { mergeQueue(branch: "main") { entries(first: 100) { nodes { pullRequest { headRefName isCrossRepository author { login } } } } } } }' \
+            --jq '[.data.repository.mergeQueue.entries.nodes[]?.pullRequest // empty | select(.isCrossRepository == false and (.author.login // "") == "axiom-encoder-version-bump" and ((.headRefName // "") | startswith("automation/encoder-version-")))] | length')"
           if [ "$queued" != "0" ]; then
             echo "::notice::An encoder version bump pull request is in the merge queue; its merge runs this workflow again."
             exit 0
           fi
           # A newer main supersedes any other bump pull request still open: this
           # one covers every commit since the last bump, so close the older ones.
-          gh pr list --repo "$GITHUB_REPOSITORY" --state open --json number,headRefName \
-            --jq '.[] | select(.headRefName | startswith("automation/encoder-version-")) | "\(.number) \(.headRefName)"' |
+          gh pr list --repo "$GITHUB_REPOSITORY" --state open \
+            --json number,headRefName,isCrossRepository,author \
+            --jq ".[] | select(${own} and (.headRefName | startswith(\"automation/encoder-version-\"))) | \"\(.number) \(.headRefName)\"" |
             while read -r number head; do
               if [ "$head" != "$BRANCH" ]; then
                 gh pr close "$number" --repo "$GITHUB_REPOSITORY" --delete-branch \
@@ -140,6 +147,7 @@ jobs:
           existing="$(git ls-remote --heads "$remote" "refs/heads/${BRANCH}" | cut -f1)"
           if [ -z "$existing" ]; then
             git push "$remote" "HEAD:refs/heads/${BRANCH}"
+            bump_sha="$(git rev-parse HEAD)"
           else
             git fetch --no-tags -q "$remote" "refs/heads/${BRANCH}"
             if [ "$(git rev-parse "${existing}^@")" != "$BASE_SHA" ] ||
@@ -148,14 +156,23 @@ jobs:
               exit 1
             fi
             echo "Reusing ${BRANCH} at ${existing}."
+            bump_sha="$existing"
           fi
           url="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --head "$BRANCH" \
-            --json url --jq '.[0].url // empty')"
+            --json url,isCrossRepository,author --jq "[.[] | select(${own})][0].url // empty")"
           if [ -z "$url" ]; then
             url="$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
               --title "Bump encoder version to ${VERSION}" \
               --body "Automated encoder version bump for main at ${BASE_SHA} (axiom-encode#2048). It changes only the version files and CHANGELOG.md. Re-encodes refuse main until this merges.")"
           fi
+          # Auto-merge only the commit this run built or verified: the queue can
+          # then merge nothing else under this pull request.
+          head_sha="$(gh pr view "$url" --repo "$GITHUB_REPOSITORY" \
+            --json headRefOid,isCrossRepository,author --jq "select(${own}) | .headRefOid")"
+          if [ "$head_sha" != "$bump_sha" ]; then
+            echo "::error::${url} is not the App's pull request for ${bump_sha} (head: ${head_sha:-none}); inspect it before a rerun."
+            exit 1
+          fi
           if [ "$(gh pr view "$url" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '.autoMergeRequest == null')" = "true" ]; then
-            gh pr merge "$url" --repo "$GITHUB_REPOSITORY" --auto --merge
+            gh pr merge "$url" --repo "$GITHUB_REPOSITORY" --auto --merge --match-head-commit "$bump_sha"
           fi
