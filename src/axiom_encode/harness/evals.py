@@ -79,6 +79,10 @@ from axiom_encode.legacy_replacement_overlay import (
     scope_canonical_replacement_overlay,
     stage_legacy_replacement_overlay,
 )
+from axiom_encode.producer_review_guidance import (
+    MAX_GUIDANCE_BYTES,
+    ProducerReviewGuidance,
+)
 from axiom_encode.prompts.encoder import (
     INTERPRETATIONS_PROTOCOL,
     SOURCE_SCOPE_PROTOCOL,
@@ -1770,8 +1774,20 @@ def run_model_eval(
     accept_valid_retry_candidate: bool = False,
     codex_reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
     axiom_rules_engine_ref: str | None = None,
+    producer_review_guidance: ProducerReviewGuidance | None = None,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
+    if producer_review_guidance is not None:
+        if (
+            len(citations) != 1
+            or len(runner_specs) != 1
+            or review_findings_paths
+            or not require_complete_source_unit
+            or legacy_replacement is not None
+            or repair_candidate_tests_only
+            or accept_valid_retry_candidate
+        ):
+            raise ValueError("producer guidance requires a single ordinary full-source target")
     validate_codex_reasoning_effort(codex_reasoning_effort)
     _validate_eval_oracle_runtime(oracle, policyengine_runtime, policy_path)
     if target_relative_output is not None and len(citations) != 1:
@@ -1848,6 +1864,8 @@ def run_model_eval(
                         source_unit=source_unit,
                         rulespec_dependency_roots=rulespec_dependency_roots,
                         review_findings_paths=review_findings_paths or [],
+                        **({"producer_review_guidance": producer_review_guidance}
+                           if producer_review_guidance is not None else {}),
                         require_complete_source_unit=require_complete_source_unit,
                         target_relative_output=target_relative_output,
                         validation_retry_feedback=validation_retry_feedback,
@@ -6982,8 +7000,34 @@ def prepare_eval_workspace(
     review_findings_paths: list[Path] | None = None,
     target_relative_output: Path | None = None,
     review_contract: Mapping[str, object] | None = None,
+    producer_review_guidance: ProducerReviewGuidance | None = None,
 ) -> EvalWorkspace:
     """Create an isolated workspace bundle for a single eval."""
+    if producer_review_guidance is not None:
+        if review_findings_paths:
+            raise ValueError("producer guidance and review findings are mutually exclusive")
+        guidance = producer_review_guidance
+        if not isinstance(guidance.content, bytes) or not 0 < len(guidance.content) <= MAX_GUIDANCE_BYTES:
+            raise ValueError("producer guidance content size is invalid")
+        try:
+            guidance_text = guidance.content.decode("utf-8", errors="strict")
+        except UnicodeError as exc:
+            raise ValueError("producer guidance content is not UTF-8") from exc
+        if (
+            guidance_text.startswith("\ufeff")
+            or not guidance_text.endswith("\n")
+            or guidance_text.endswith("\n\n")
+            or not guidance_text.strip()
+            or any((ord(c) < 32 and c not in "\n\t") or ord(c) == 127 for c in guidance_text)
+        ):
+            raise ValueError("producer guidance content is not normalized")
+        source_digest = hashlib.sha256(
+            source_text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+        ).hexdigest()
+        if guidance.citation != citation or guidance.source_sha256 != source_digest:
+            raise ValueError("producer guidance does not match the workspace source")
+        if hashlib.sha256(guidance.content).hexdigest() != guidance.content_sha256:
+            raise ValueError("producer guidance content digest mismatch")
     slug = _slugify(citation)
     workspace_root = (
         Path(output_root) / "_eval_workspaces" / runner.name / slug / "workspace"
@@ -7077,6 +7121,26 @@ def prepare_eval_workspace(
                 ).hexdigest(),
             }
         )
+
+    if producer_review_guidance is not None:
+        guidance = producer_review_guidance
+        workspace_relative_path = Path("review-findings/01-producer-guidance.txt")
+        workspace_path = workspace_root / workspace_relative_path
+        workspace_path.parent.mkdir(parents=True, exist_ok=True)
+        workspace_path.write_bytes(guidance.content)
+        context_file = EvalContextFile(
+            source_path=f"git:{guidance.producer_commit}:{guidance.path}",
+            workspace_path=str(workspace_relative_path),
+            import_path=str(workspace_relative_path),
+            kind="mandatory_review_findings",
+            label="producer-guidance.txt",
+        )
+        review_findings_files.append(context_file)
+        review_findings_evidence.append({
+            **asdict(context_file),
+            "content": guidance_text,
+            "sha256": guidance.content_sha256,
+        })
 
     context_files: list[EvalContextFile] = []
     context_root = workspace_root / "context"
@@ -7215,6 +7279,17 @@ def prepare_eval_workspace(
         ],
         "review_findings_files": review_findings_evidence,
     }
+    if producer_review_guidance is not None:
+        guidance = producer_review_guidance
+        manifest_payload["producer_review_guidance"] = {
+            "producer_commit": guidance.producer_commit,
+            "path": guidance.path,
+            "blob_sha256": guidance.blob_sha256,
+            "size_bytes": guidance.size_bytes,
+            "citation": guidance.citation,
+            "source_sha256": guidance.source_sha256,
+            "content_sha256": guidance.content_sha256,
+        }
     if review_contract is not None:
         manifest_payload["review_contract"] = dict(review_contract)
     if rendered_context.dropped_amendment_documents:
@@ -10229,6 +10304,7 @@ def _run_single_eval(
     accept_valid_retry_candidate: bool = False,
     axiom_compose_path: Path | None = None,
     axiom_rules_engine_ref: str | None = None,
+    producer_review_guidance: ProducerReviewGuidance | None = None,
 ) -> EvalResult:
     if (
         accept_valid_retry_candidate
@@ -10301,6 +10377,8 @@ def _run_single_eval(
         amendment_documents=source_unit.amendment_documents,
         extra_context_paths=extra_context_paths,
         review_findings_paths=review_findings_paths,
+        **({"producer_review_guidance": producer_review_guidance}
+           if producer_review_guidance is not None else {}),
         target_relative_output=target_relative_output,
         review_contract=review_contract,
     )

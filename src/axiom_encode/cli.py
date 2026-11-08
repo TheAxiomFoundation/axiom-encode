@@ -469,6 +469,10 @@ from .oracles.policyengine.pending import (
     sync_repo_pending,
 )
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
+from .producer_review_guidance import (
+    ProducerGuidanceVerificationRequest,
+    verify_guidance_for_verified_manifest,
+)
 from .program_scope import ProgramScopeError, sync_program_scope
 from .proof_hash_migration import (
     apply_proof_hash_cascade,
@@ -2715,6 +2719,9 @@ def main():
     guard_generated_parser.add_argument(
         "--json", action="store_true", help="Output guard result as JSON"
     )
+    guard_generated_parser.add_argument("--producer-review-guidance-ref")
+    guard_generated_parser.add_argument("--producer-review-guidance-citation")
+    guard_generated_parser.add_argument("--producer-review-guidance-context-root", type=Path)
     guard_generated_parser.add_argument(
         "--candidate-status",
         action="store_true",
@@ -3350,6 +3357,14 @@ def main():
             "Independent-review findings that the generated encoding must address "
             "without narrowing unaffected source-backed behavior (repeatable)"
         ),
+    )
+    encode_parser.add_argument(
+        "--producer-review-guidance-ref",
+        help="Closed immutable producer guidance descriptor, bound to the full authenticated source",
+    )
+    encode_parser.add_argument(
+        "--producer-review-guidance-checkout", type=Path,
+        help="Explicit encoder checkout matching the protected running producer identity",
     )
     encode_parser.add_argument(
         "--review-contract-json",
@@ -8471,6 +8486,31 @@ def cmd_guard_generated(args):
             )
         if not args.json:
             print(json.dumps(candidate_status, indent=2, sort_keys=True), flush=True)
+    guidance_request = None
+    guidance_records: list[dict[str, object]] = []
+    descriptor = getattr(args, "producer_review_guidance_ref", None)
+    guidance_citation = getattr(args, "producer_review_guidance_citation", None)
+    context_root = getattr(args, "producer_review_guidance_context_root", None)
+    if any(value is not None for value in (descriptor, guidance_citation, context_root)):
+        if (
+            not descriptor or not guidance_citation or context_root is None
+            or getattr(args, "expected_encoder_checkout", None) is None
+            or not args.json or all_files or getattr(args, "retrospective", False)
+            or args.head_ref != "HEAD"
+        ):
+            raise ValueError("guidance verification requires a complete ordinary current guard request")
+        require_canonical_corpus_citation_path(guidance_citation)
+        running = _current_guard_encoder_execution_identity()
+        checkout = _read_only_guard_encoder_execution_identity(args.expected_encoder_checkout)
+        if any(running.get(field) != checkout.get(field) for field in ("repository", "commit", "version")):
+            raise ValueError("guidance guard checkout does not match the running producer")
+        guidance_request = ProducerGuidanceVerificationRequest(
+            descriptor_text=descriptor,
+            encoder_checkout=Path(args.expected_encoder_checkout),
+            producer_commit=running["commit"],
+            citation=guidance_citation,
+            context_root=_resolve_explicit_existing_directory(context_root, label="guidance context root"),
+        )
     issues = guard_generated_change_issues(
         repo_path,
         corpus_path=Path(args.corpus_path),
@@ -8480,8 +8520,15 @@ def cmd_guard_generated(args):
         all_files=all_files,
         retrospective=bool(getattr(args, "retrospective", False)),
         expected_encoder_checkout=getattr(args, "expected_encoder_checkout", None),
+        **({"producer_guidance_request": guidance_request,
+            "producer_guidance_records": guidance_records}
+           if guidance_request is not None else {}),
     )
+    if guidance_request is not None and not issues and len(guidance_records) != 1:
+        issues.append("producer guidance requires exactly one verified primary manifest")
     payload = {"repo": str(repo_path), "passed": not issues, "issues": issues}
+    if guidance_request is not None and not issues:
+        payload["producer_review_guidance"] = guidance_records[0]
     if candidate_status is not None and args.json:
         payload["candidate_status"] = candidate_status
     if args.json:
@@ -24501,6 +24548,8 @@ def guard_generated_change_issues(
     all_files: bool = False,
     retrospective: bool = False,
     expected_encoder_checkout: Path | None = None,
+    producer_guidance_request: ProducerGuidanceVerificationRequest | None = None,
+    producer_guidance_records: list[dict[str, object]] | None = None,
 ) -> list[str]:
     """Return issues for changes not bound to the signed local release.
 
@@ -24509,6 +24558,10 @@ def guard_generated_change_issues(
     An unreceipted retirement whose receipt or deleted paths change must prove
     exact unowned bytes at this change's base, not just its recorded base.
     """
+    if (producer_guidance_request is None) != (producer_guidance_records is None):
+        return ["producer guidance request and result sink must be paired"]
+    if producer_guidance_request is not None and (all_files or retrospective or head_ref != "HEAD"):
+        return ["producer guidance requires the current ordinary changed-file guard"]
     repo_path = Path(repo_path).resolve()
     try:
         base_ref, head_ref = _resolve_guard_git_refs(
@@ -24750,6 +24803,9 @@ def guard_generated_change_issues(
         retirement_changed_paths=retirement_changed_paths,
         retirement_base_ref=base_ref or head_ref,
         base_tree_cache=base_tree_cache,
+        **({"producer_guidance_request": producer_guidance_request,
+            "producer_guidance_records": producer_guidance_records}
+           if producer_guidance_request is not None else {}),
     )
     manifest_issues.extend(
         _guard_changed_manifest_coverage_issues(
@@ -31954,6 +32010,8 @@ def _load_applied_encoding_manifest_entries(
     retirement_changed_paths: set[str] | None = None,
     retirement_base_ref: str | None = None,
     base_tree_cache: dict[str, _GuardBaseReceiptTree] | None = None,
+    producer_guidance_request: ProducerGuidanceVerificationRequest | None = None,
+    producer_guidance_records: list[dict[str, object]] | None = None,
 ) -> tuple[dict[str, set[str]], list[str]]:
     entries: dict[str, set[str]] = defaultdict(set)
     issues: list[str] = []
@@ -31986,6 +32044,13 @@ def _load_applied_encoding_manifest_entries(
     if path_migration_receipt_proof_cache is None:
         path_migration_receipt_proof_cache = {}
 
+    if producer_guidance_request is not None and (
+        producer_guidance_records is None
+        or local_corpus_release is None
+        or expected_encoder_identity.get("commit") != producer_guidance_request.producer_commit
+    ):
+        return entries, ["producer guidance lacks the exact verified producer/source context"]
+
     for manifest_path in manifest_paths:
         payload, root_prefix, _manifest_sha256, manifest_issues = (
             _load_verified_applied_encoding_manifest_payload(
@@ -32009,6 +32074,24 @@ def _load_applied_encoding_manifest_entries(
         issues.extend(manifest_issues)
         if payload is None or root_prefix is None:
             continue
+        if (
+            producer_guidance_request is not None
+            and payload.get("citation") == producer_guidance_request.citation
+        ):
+            try:
+                if manifest_issues or _manifest_sha256 is None:
+                    raise ValueError("guidance manifest has unresolved verification issues")
+                record = verify_guidance_for_verified_manifest(
+                    producer_guidance_request,
+                    manifest_path=manifest_path,
+                    manifest_sha256=_manifest_sha256,
+                    verified_payload=payload,
+                )
+            except (ValueError, RuntimeError, OSError) as exc:
+                issues.append(f"{manifest_path} producer guidance verification failed: {exc}")
+            else:
+                assert producer_guidance_records is not None
+                producer_guidance_records.append(record)
         applied_files = payload["applied_files"]
         assert isinstance(applied_files, list)
         if (
@@ -33086,8 +33169,70 @@ def cmd_encode(args):
         return _cmd_encode_under_current_trust(args)
 
 
+def _validate_encode_producer_guidance_request(args) -> None:
+    descriptor = getattr(args, "producer_review_guidance_ref", None)
+    checkout = getattr(args, "producer_review_guidance_checkout", None)
+    if descriptor is None and checkout is None:
+        return
+    if not descriptor or checkout is None:
+        raise ValueError("producer guidance descriptor and checkout must be supplied together")
+    if (
+        getattr(args, "apply", False) is not True
+        or getattr(args, "require_complete_source_unit", False) is not True
+        or getattr(args, "backend", None) != "openai"
+        or any(getattr(args, field, None) for field in (
+            "review_findings", "repair_candidate_root", "repair_candidate_path",
+            "repair_candidate_rulespec_sha256", "repair_candidate_tests_sha256",
+            "repair_candidate_tests_only", "replace_legacy_rulespec_path",
+            "legacy_dependent_rulespec_path", "legacy_exact_dependent_rulespec_path",
+            "legacy_retained_successor_rulespec_path", "scheduled_dependent_rulespec_path",
+            "apply_target_only", "skip_reviewers",
+        ))
+    ):
+        raise ValueError("producer guidance requires ordinary full-source protected generation")
+
+
+def _resolve_encode_producer_review_guidance(
+    descriptor_text: str,
+    *,
+    encoder_checkout: Path,
+    citation: str,
+    source_unit,
+    corpus_release: LocalCorpusRelease,
+):
+    """Bind guidance to the existing protected producer and source checks.
+
+    This helper cannot make an arbitrary checkout or source object authoritative.
+    Both identities are independently checked before the immutable blob is read.
+    """
+    from .corpus_resolver import require_canonical_corpus_citation_path
+    from .harness.evals import _validate_corpus_source_unit
+    from .producer_review_guidance import read_producer_review_guidance
+
+    running = _current_guard_encoder_execution_identity()
+    checkout = _read_only_guard_encoder_execution_identity(encoder_checkout)
+    fields = ("repository", "commit", "version")
+    if any(running.get(field) != checkout.get(field) for field in fields):
+        raise ValueError("guidance checkout does not match the running protected producer")
+    _validate_corpus_source_unit(source_unit, corpus_release, target_identifier=citation)
+    require_canonical_corpus_citation_path(citation)
+    if source_unit.requested != citation or source_unit.citation_path != citation:
+        raise ValueError("producer guidance requires an exact source citation without fallback")
+    if source_unit.amendment_request:
+        raise ValueError("producer guidance does not support amendment requests")
+    source_bytes = source_unit.body.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+    return read_producer_review_guidance(
+        descriptor_text,
+        encoder_repo=encoder_checkout,
+        expected_producer_sha=running["commit"],
+        citation=citation,
+        authenticated_source_sha256=hashlib.sha256(source_bytes).hexdigest(),
+    )
+
+
 def _cmd_encode_under_current_trust(args):
     """Encode with the exact caller-authorized RuleSpec dependency roots."""
+    _validate_encode_producer_guidance_request(args)
     engine_ref = getattr(args, "axiom_rules_engine_ref", None)
     if engine_ref is not None:
         require_engine_ref_sha(engine_ref, description="axiom_rules_engine_ref")
@@ -37493,6 +37638,18 @@ def _run_encode_attempt(
             ),
         )
 
+    _validate_encode_producer_guidance_request(args)
+    producer_review_guidance = None
+    if getattr(args, "producer_review_guidance_ref", None) is not None:
+        if replacement_target is not None and replacement_target.retired_source_admission is not None:
+            raise ValueError("producer guidance does not support retired-source replacement")
+        producer_review_guidance = _resolve_encode_producer_review_guidance(
+            args.producer_review_guidance_ref,
+            encoder_checkout=args.producer_review_guidance_checkout,
+            citation=args.citation,
+            source_unit=source_unit,
+            corpus_release=corpus_release,
+        )
     skip_reviewers = bool(getattr(args, "skip_reviewers", False))
     policyengine_rule_hint = getattr(args, "policyengine_rule_hint", None)
     review_findings_paths = [
@@ -37536,6 +37693,8 @@ def _run_encode_attempt(
         mode=args.mode,
         extra_context_paths=extra_context_paths,
         review_findings_paths=review_findings_paths,
+        **({"producer_review_guidance": producer_review_guidance}
+           if producer_review_guidance is not None else {}),
         include_tests=True,
         skip_reviewers=skip_reviewers,
         reviewers_require_deterministic_pass=True,

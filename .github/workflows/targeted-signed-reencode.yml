@@ -31,7 +31,7 @@ on:
         required: true
         type: string
       review_finding:
-        description: Validator or independent-review finding to address
+        description: 'Inline finding, or axiom-producer-review-guidance-ref:v1: followed by an immutable producer descriptor JSON'
         required: false
         type: string
       repair_run_id:
@@ -544,6 +544,18 @@ jobs:
           sudo chown -R 0:0 /opt/axiom-compose-verification
           sudo chmod -R go-w /opt/axiom-compose-verification
           /opt/axiom-compose-verification/axiom-compose --help > /dev/null
+
+      - name: Validate producer guidance transport mode
+        run: |
+          set -euo pipefail
+          axiom-encode/.venv/bin/python - <<'PYGUIDANCE'
+          import json
+          import os
+          from pathlib import Path
+          from axiom_encode.producer_review_guidance import validate_workflow_guidance_input
+          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          validate_workflow_guidance_input(event["inputs"], producer_commit=os.environ["GITHUB_SHA"])
+          PYGUIDANCE
 
       - name: Validate optional authenticated corpus transport request
         id: corpus_artifact_transport
@@ -2075,12 +2087,28 @@ jobs:
                 args+=(--required-import-rulespec-path "$required_import_path")
               done < "$RUNNER_TEMP/required-import-rulespec-paths.txt"
             fi
-            if [ -n "$review_finding" ]; then
-              review_finding_dir="$(mktemp -d "$RUNNER_TEMP/axiom-targeted-review-finding.XXXXXX")"
-              review_finding_path="$review_finding_dir/review-finding.txt"
-              printf '%s\n' "$review_finding" > "$review_finding_path"
-              args+=(--review-findings "$review_finding_path")
-            fi
+            case "$review_finding" in
+              axiom-producer-review-guidance-ref:v1:*)
+                if [ "$output_lane" != target ] || [ "$citation" != "$CITATION" ]; then
+                  echo "producer guidance requires the primary target lane" >&2
+                  exit 1
+                fi
+                args+=(--producer-review-guidance-ref "${review_finding#axiom-producer-review-guidance-ref:v1:}"
+                       --producer-review-guidance-checkout "$GITHUB_WORKSPACE/axiom-encode")
+                ;;
+              axiom-producer-review-guidance-ref:*)
+                echo "unsupported producer guidance input version" >&2
+                exit 1
+                ;;
+              *)
+                if [ -n "$review_finding" ]; then
+                  review_finding_dir="$(mktemp -d "$RUNNER_TEMP/axiom-targeted-review-finding.XXXXXX")"
+                  review_finding_path="$review_finding_dir/review-finding.txt"
+                  printf '%s\n' "$review_finding" > "$review_finding_path"
+                  args+=(--review-findings "$review_finding_path")
+                fi
+                ;;
+            esac
             if [ "$deferred_output_contracts_json" != "[]" ] || \
                [ "$required_test_cases_json" != "[]" ]; then
               review_contract_json="$(
@@ -3201,7 +3229,19 @@ jobs:
         env:
           RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          REVIEW_FINDING: ${{ inputs.review_finding }}
+          CITATION: ${{ inputs.citation }}
         run: |
+          set -euo pipefail
+          guidance_guard_args=()
+          case "$REVIEW_FINDING" in
+            axiom-producer-review-guidance-ref:v1:*)
+              guidance_guard_args+=(--producer-review-guidance-ref "${REVIEW_FINDING#axiom-producer-review-guidance-ref:v1:}"
+                --producer-review-guidance-citation "$CITATION"
+                --producer-review-guidance-context-root "$RUNNER_TEMP/generated/target")
+              ;;
+            axiom-producer-review-guidance-ref:*) exit 1 ;;
+          esac
           set +e
           /opt/axiom-verification/axiom-encode-signing-supervisor \
             --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
@@ -3213,7 +3253,7 @@ jobs:
             --corpus-path "$GITHUB_WORKSPACE/axiom-corpus" \
             --expected-encoder-checkout "$GITHUB_WORKSPACE/axiom-encode" \
             --base-ref "$RULESPEC_REF" \
-            --json > "$RUNNER_TEMP/guard-generated.json"
+            --json "${guidance_guard_args[@]}" > "$RUNNER_TEMP/guard-generated.json"
           guard_status="$?"
           set -e
           if [ "$guard_status" -ne 0 ]; then
@@ -3420,6 +3460,23 @@ jobs:
               canonical_destination,
               rewrite_exact_references,
           )
+
+          from axiom_encode.producer_review_guidance import (
+              validate_workflow_guidance_input,
+              verify_packaged_producer_guidance,
+          )
+          original_event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          original_guidance_inputs = original_event["inputs"]
+          primary_guidance_descriptor = validate_workflow_guidance_input(
+              original_guidance_inputs, producer_commit=os.environ["GITHUB_SHA"]
+          )
+          guidance_guard_payload = None
+          if primary_guidance_descriptor is not None:
+              guidance_guard_payload = json.loads(read_bounded_regular_file(
+                  Path(os.environ["RUNNER_TEMP"]),
+                  Path(os.environ["RUNNER_TEMP"]) / "guard-generated.json",
+                  label="protected guidance guard result", max_bytes=16 * 1024 * 1024,
+              ))
 
           def git_paths(*args):
               output = subprocess.check_output(
@@ -3695,15 +3752,14 @@ jobs:
               expected_citations.add(second_dependent_citation)
 
           matches = {}
+          initial_manifest_digests = {}
           for relative_path in sorted(manifest_paths):
-              payload = json.loads(
-                  read_bounded_regular(
-                      os.environ["RULESPEC_CHECKOUT"],
-                      relative_path,
-                      label="changed apply manifest",
-                      max_bytes=1024 * 1024,
-                  ).decode("utf-8")
+              initial_manifest_bytes = read_bounded_regular(
+                  os.environ["RULESPEC_CHECKOUT"], relative_path,
+                  label="changed apply manifest", max_bytes=1024 * 1024,
               )
+              initial_manifest_digests[relative_path] = hashlib.sha256(initial_manifest_bytes).hexdigest()
+              payload = json.loads(initial_manifest_bytes.decode("utf-8"))
               effective = payload
               if (
                   payload.get("tool")
@@ -3891,6 +3947,9 @@ jobs:
               relative_path, applied_manifest, evidence_manifest = (
                   citation_matches[0]
               )
+              if primary_guidance_descriptor is not None:
+                  if initial_manifest_digests[relative_path] != guidance_guard_payload["producer_review_guidance"]["manifest_sha256"]:
+                      raise SystemExit("initial apply manifest snapshot differs from protected guidance guard")
               manifest_path = Path(os.environ["RULESPEC_CHECKOUT"]) / relative_path
               if canonical_refresh_items:
                   applied_files = applied_manifest.get("applied_files")
@@ -4557,6 +4616,23 @@ jobs:
                       }
                   )
                   continue
+              if primary_guidance_descriptor is not None:
+                  if lane != "target" or citation != original_guidance_inputs["citation"]:
+                      raise SystemExit("producer guidance packaging requires the sole primary target")
+                  guidance_content = verify_packaged_producer_guidance(
+                      original_inputs=original_guidance_inputs,
+                      producer_commit=os.environ["GITHUB_SHA"],
+                      encoder_checkout=Path(os.environ["GITHUB_WORKSPACE"]) / "axiom-encode",
+                      context_root=generated_root / "target",
+                      manifest_path=relative_path.as_posix(),
+                      manifest_bytes=read_bounded_regular_file(
+                          Path(os.environ["RULESPEC_CHECKOUT"]), manifest_path,
+                          label="packaged guidance apply manifest", max_bytes=1024 * 1024,
+                      ),
+                      guard_payload=guidance_guard_payload,
+                  )
+                  expected_review_finding = guidance_content[:-1]
+
               context_path = Path(evidence_manifest["context_manifest_file"]).resolve()
               try:
                   context_path.relative_to(generated_root / lane)
@@ -4571,6 +4647,8 @@ jobs:
                   max_bytes=16 * 1024 * 1024,
               )
               context_digest = hashlib.sha256(context_bytes).hexdigest()
+              if primary_guidance_descriptor is not None and context_digest != guidance_guard_payload["producer_review_guidance"]["context_manifest_sha256"]:
+                  raise SystemExit("packaged context bytes differ from protected guidance guard")
               if context_digest != evidence_manifest.get(
                   "context_manifest_sha256"
               ):
@@ -4669,19 +4747,19 @@ jobs:
               source_admission = package_retired_source_evidence(
                   generated_root, lane, Path(sys.argv[1]).parent
               )
+              packaged_manifest_bytes = read_bounded_regular(
+                  os.environ["RULESPEC_CHECKOUT"], relative_path,
+                  label="packaged apply manifest", max_bytes=1024 * 1024,
+              )
+              packaged_manifest_digest = hashlib.sha256(packaged_manifest_bytes).hexdigest()
+              if primary_guidance_descriptor is not None and packaged_manifest_digest != guidance_guard_payload["producer_review_guidance"]["manifest_sha256"]:
+                  raise SystemExit("apply manifest changed after protected guidance verification")
               applied_inventory.append(
                   {
                       "citation": citation,
                       **({"source_admission": source_admission} if source_admission is not None else {}),
                       "path": relative_path.as_posix(),
-                      "sha256": hashlib.sha256(
-                          read_bounded_regular(
-                              os.environ["RULESPEC_CHECKOUT"],
-                              relative_path,
-                              label="packaged apply manifest",
-                              max_bytes=1024 * 1024,
-                          )
-                      ).hexdigest(),
+                      "sha256": packaged_manifest_digest,
                   }
               )
           Path(sys.argv[2]).write_text(
