@@ -37,7 +37,11 @@ installed. The repository workflows stage it from ``uv.lock``: ``uv export
 --locked`` hash-pinned registry distributions installed with ``--require-hashes
 --no-deps``, then the commit-pinned ``axiom-oracles`` git dependency and the
 project itself with ``--no-deps``, then a diff against the ``uv sync --locked``
-environment (enforced by ``tests/test_verification_site_packages_lock.py``).
+environment. The issue233 Canada diagnostic passes instead the purelib of a
+``uv sync --frozen`` environment that nothing else in its job changes.
+``tests/test_verification_site_packages_lock.py`` enforces both forms, reads
+``--site-packages`` with this script's own argument parser, and rejects any
+command between staging and provisioning that names the staged tree.
 ``uv.lock`` does not pin build backends, so the sdists it pins, the git
 dependency and the project are built with whatever backend versions the index
 serves at run time; when the ``--encoder-*`` attestation arguments are given,
@@ -2096,7 +2100,9 @@ def provision(
             shutil.rmtree(encoder_staging, ignore_errors=True)
 
 
-if __name__ == "__main__":
+def _argument_parser() -> argparse.ArgumentParser:
+    """What ``__main__`` parses. tests/test_verification_site_packages_lock.py
+    reads workflow calls with it, so it checks the values this script acts on."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--destination", type=Path, required=True)
     parser.add_argument("--supervisor", type=Path, required=True)
@@ -2181,7 +2187,11 @@ if __name__ == "__main__":
         "invariant) before its src/axiom_encode is archived into the runtime. Must "
         "have full history (fetch-depth: 0) for the version-bump check.",
     )
-    args = parser.parse_args()
+    return parser
+
+
+if __name__ == "__main__":
+    args = _argument_parser().parse_args()
     provision(
         args.destination.resolve(),
         args.supervisor.resolve(),

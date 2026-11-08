@@ -1,29 +1,52 @@
 """Every trusted runtime's site-packages must be exactly a uv lock.
 
 ``scripts/provision_verification_supervisor.py`` copies a caller-staged
-``--site-packages`` tree into the signer's trusted Python import root. A
-resolving ``uv pip install --target ... ".[api]"`` ignores ``uv.lock`` and
-floats every ``>=`` dependency to the index's latest at run time: targeted run
-36174590343 logged ``claude-agent-sdk==0.1.47`` in the locked ``.venv`` and
-``claude-agent-sdk==0.2.159`` in the verification tree of the same job.
+``--site-packages`` tree into the signer's trusted Python import root, and
+``scripts/provision_axiom_compose_runtime.py`` does the same for the
+axiom-compose runtime. A resolving ``uv pip install --target ... ".[api]"``
+ignores ``uv.lock`` and floats every ``>=`` dependency to the index's latest at
+run time: targeted run 36174590343 logged ``claude-agent-sdk==0.1.47`` in the
+locked ``.venv`` and ``claude-agent-sdk==0.2.159`` in the verification tree of
+the same job.
 
-Commands are found with ``tests/workflow_shell.py``, so ``pip3``,
-``python -m pip``, ``sudo``/``env``/``bash -c``/``eval`` wrappers, attached
-``-tDIR`` and ``--target=DIR`` are all seen. Every ``--target`` install in a
-workflow (except the provisioner's selftest) must be a ``uv pip install
---no-deps`` of either a hash-pinned ``uv export --locked`` output written in the
-same step (with ``--require-hashes``), the commit-pinned ``axiom-oracles`` git
-requirement, or the project itself. That covers the verification tree and the
-axiom-compose runtime ``targeted-signed-reencode.yml`` stages from
-axiom-compose's lock. Every production provision must consume either that
-staged tree or the purelib of a ``uv sync --locked``/``--frozen`` environment
-nothing else installs into. The staging steps are then executed against a fake
-``uv`` to prove their fail-closed paths.
+Commands are found with ``tests/workflow_shell.py`` through the toolchain
+test's reader, which also follows the reviewed signed-encode ``advance.sh``
+script. So ``pip3``, ``python -m pip``, ``"$VAR" -m pip``, the
+``sudo``/``env``/``bash -c``/``eval`` wrappers, attached ``-tDIR``,
+``--target=DIR`` and redirections are all seen. In every workflow except the
+provisioner's selftest:
+
+- pip installs and uninstalls nothing. It ignores ``uv.lock``, and
+  ``PIP_TARGET`` or a pip config file can aim it at a tree the command never
+  names.
+- ``uv pip uninstall`` never runs.
+- Every ``--target`` install is a ``uv pip install --no-deps`` of a hash-pinned
+  ``uv export --locked`` output written in the same step (with
+  ``--require-hashes``), the commit-pinned ``axiom-oracles`` requirement, or
+  the project.
+- Outside the verification staging steps, which must equal the canonical block
+  line for line, two commands may name a protected tree: its locked install
+  and its provisioner. No other command, assignment or redirection does.
+- Every provision of the verification supervisor resolves, with the
+  provisioner's own argument parser, a ``--site-packages`` that is the staged
+  tree or the purelib of a ``uv sync --locked``/``--frozen`` environment that
+  nothing in the job changes.
+
+The staging steps are then executed against a fake ``uv`` to prove their
+fail-closed paths. As in ``test_workflow_toolchain_pins.py``, the threat model
+is an accidental regression written in ordinary shell. A command that reaches a
+tree without naming it (a glob over ``$RUNNER_TEMP``, a path assembled in a
+variable) is out of reach.
 """
 
 from __future__ import annotations
 
+import argparse
+import contextlib
 import copy
+import functools
+import importlib.util
+import io
 import json
 import os
 import re
@@ -31,11 +54,13 @@ import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 import yaml
 
 from tests import workflow_shell
+from tests.test_workflow_toolchain_pins import _script_commands
 from tests.workflow_shell import Command
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,7 +68,6 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 UV_OPTIONS = workflow_shell.load_uv_options()
 PIP = re.compile(r"pip[0-9.]*")
 PYTHON = re.compile(r"python[0-9.]*t?")
-PROVISIONER = "provision_verification_supervisor.py"
 
 # The provisioner's own selftest stages a throwaway tree (pyyaml plus hostile
 # startup-hook fixtures) under a stand-in supervisor with test-only trust roots;
@@ -51,6 +75,14 @@ PROVISIONER = "provision_verification_supervisor.py"
 EXEMPT_WORKFLOWS = frozenset({"provision-selftest.yml"})
 
 SITE_PACKAGES = "$RUNNER_TEMP/axiom-verification-site-packages"
+VERIFICATION_PROVISIONER = "provision_verification_supervisor.py"
+COMPOSE_PROVISIONER = "provision_axiom_compose_runtime.py"
+# Each protected tree, by the directory name every spelling of its path
+# contains, and the provisioner that consumes it.
+PROTECTED_TREES = {
+    "axiom-verification-site-packages": VERIFICATION_PROVISIONER,
+    "axiom-compose-site-packages": COMPOSE_PROVISIONER,
+}
 ORACLES_PATTERN = (
     r"axiom-oracles @ git\+https://github\.com/TheAxiomFoundation/"
     r"axiom-oracles@[0-9a-f]{40}"
@@ -60,37 +92,22 @@ LOCKED_GIT_LINE = (
     "axiom-oracles@e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
 )
 
-# workflow -> (interpreter the staged tree is installed for, extra flag, sync)
-STAGING = {
-    "bulk-encode.yml": (
-        ".venv/bin/python",
-        "--extra api",
-        "uv sync --locked --python 3.13 --extra api --no-dev",
-    ),
-    "golden-regeneration.yml": (
-        ".venv/bin/python",
-        "--extra api",
-        "uv sync --locked --python 3.13 --extra api --no-dev",
-    ),
-    "targeted-signed-reencode.yml": (
-        ".venv/bin/python",
-        "--extra api",
-        "uv sync --locked --python 3.13 --extra api --no-dev",
-    ),
-    "signed-apply-reusable.yml": (
-        '"$PYBIN"',
-        "",
-        'uv sync --locked --no-dev --python "$PYBIN"',
-    ),
-}
+# The workflows that stage the verification tree, all with the same block.
+STAGING = ("bulk-encode.yml", "golden-regeneration.yml", "targeted-signed-reencode.yml")
 # Non-vacuity: every --target install the discovery must see. Each staging
 # workflow has three (locked set, git requirement, project); targeted also
 # stages the axiom-compose runtime.
 EXPECTED_TARGET_INSTALLS = {
     "bulk-encode.yml": 3,
     "golden-regeneration.yml": 3,
-    "signed-apply-reusable.yml": 3,
     "targeted-signed-reencode.yml": 4,
+}
+# Non-vacuity: the commands outside staging that name each protected tree. The
+# verification tree's are the provisions of the three staging workflows; the
+# compose runtime's are its install and its provision.
+EXPECTED_TREE_CONSUMERS = {
+    "axiom-verification-site-packages": 3,
+    "axiom-compose-site-packages": 2,
 }
 # Provisions whose --site-packages is the purelib of a locked project
 # environment, keyed by workflow -> that environment's interpreter.
@@ -115,29 +132,33 @@ def _logical_lines(script: str) -> list[str]:
     return lines
 
 
-def _load_workflows() -> dict[str, dict]:
-    return {
-        path.name: yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-        for path in sorted(WORKFLOWS.glob("*.yml"))
-    }
+@functools.cache
+def _parsed_workflows(directory: Path) -> tuple[tuple[str, dict], ...]:
+    # GitHub runs both extensions from .github/workflows.
+    paths = sorted(p for p in directory.iterdir() if p.suffix in {".yml", ".yaml"})
+    return tuple((p.name, yaml.safe_load(p.read_text(encoding="utf-8"))) for p in paths)
+
+
+def _load_workflows(directory: Path = WORKFLOWS) -> dict[str, dict]:
+    """Every workflow in ``directory``, as a copy a test may edit."""
+    return copy.deepcopy(dict(_parsed_workflows(directory)))
 
 
 def _steps(workflows: dict[str, dict]):
     for name, workflow in workflows.items():
         for job_name, job in (workflow.get("jobs") or {}).items():
-            for index, step in enumerate(job.get("steps", [])):
+            for index, step in enumerate(job.get("steps") or []):
                 if "run" in step:
                     yield name, job_name, index, step
 
 
-def _commands(script: str) -> list[Command]:
-    return workflow_shell.expand(workflow_shell.commands(script), UV_OPTIONS)
+def _commands(name: str, job: str, script: str) -> list[Command]:
+    return list(_script_commands(script, name, job))
 
 
 def _runs_pip(command: Command) -> bool:
     """Whether ``command`` runs pip: directly, as ``python -m pip``, or as
-    ``"$PYBIN" -m pip`` (an interpreter named by a variable, the form the
-    signed-apply workflow used to stage its tree unlocked)."""
+    ``"$PYBIN" -m pip`` (an interpreter named by a variable)."""
     if not command.words:
         return False
     if PIP.fullmatch(command.program):
@@ -148,62 +169,22 @@ def _runs_pip(command: Command) -> bool:
     )
 
 
-def _pip_names_a_target(words: tuple[str, ...]) -> bool:
-    """``-t DIR``, ``-tDIR``, a short cluster such as ``-qt DIR``, or ``--target``.
-
-    A short cluster that merely contains ``t`` in an attached value
-    (``-rrequirements.txt``) also counts; for pip that only fails closed.
-    """
-    return any(
-        word == "--target"
-        or word.startswith("--target=")
-        or (word.startswith("-") and not word.startswith("--") and "t" in word[1:])
-        for word in words
-    )
-
-
 def _uv_arguments(
     command: Command,
-) -> tuple[str, dict[str, list[str]], list[str]] | None:
-    """A uv call as (subcommand, {canonical option: values}, positionals)."""
+) -> tuple[str, dict[str, list[str]], tuple[str, ...]] | None:
+    """A uv call as (subcommand, {long option: values}, positionals).
+
+    The values and positionals are the ones the shared reader parsed, so what
+    ``uv run`` launches stays out of them and a global option's value is never
+    taken for the subcommand.
+    """
     invocation = workflow_shell.uv_invocation(command, UV_OPTIONS)
     if invocation is None or not invocation.subcommand:
         return None
-    table = UV_OPTIONS["commands"][invocation.subcommand]
-    words = list(command.words[1:])
-    sub = invocation.subcommand.split()
-    index = next(i for i in range(len(words)) if words[i : i + len(sub)] == sub)
-    index += len(sub)
     values: dict[str, list[str]] = defaultdict(list)
-    positionals: list[str] = []
-    while index < len(words):
-        arg = words[index]
-        if arg == "--":
-            positionals.extend(words[index + 1 :])
-            break
-        if arg.startswith("--"):
-            name, has_value, value = arg.partition("=")
-            name = table.get("aliases", {}).get(name, name)
-            if name in table["valued"] and not has_value:
-                index += 1
-                value = words[index]
-            values[name].append(value)
-        elif arg.startswith("-") and arg != "-":
-            for offset, letter in enumerate(arg[1:], start=1):
-                name = "-" + letter
-                canonical = table.get("short", {}).get(name, name)
-                if name in table["valued"]:
-                    value = arg[offset + 1 :]
-                    if not value:
-                        index += 1
-                        value = words[index]
-                    values[canonical].append(value)
-                    break
-                values[canonical].append("")
-        else:
-            positionals.append(arg)
-        index += 1
-    return invocation.subcommand, dict(values), positionals
+    for name, value in invocation.values:
+        values[name].append(value)
+    return invocation.subcommand, dict(values), invocation.positionals
 
 
 def _locked_exports(commands: list[Command]) -> set[str]:
@@ -232,24 +213,28 @@ def _target_install_violations(
         if name in exempt:
             continue
         where = f"{name}:{job}[{index}]"
-        commands = _commands(step["run"])
+        commands = _commands(name, job, step["run"])
         exported = _locked_exports(commands)
         for command in commands:
-            if _runs_pip(command) and "install" in command.words:
-                install = command.words.index("install")
-                if _pip_names_a_target(command.words[install + 1 :]):
-                    found[name] += 1
-                    violations.append(f"{where}: pip ignores uv.lock: {command.line}")
+            if _runs_pip(command):
+                if {"install", "uninstall"} & set(command.words):
+                    violations.append(
+                        f"{where}: pip changes a tree outside uv.lock: {command.line}"
+                    )
                 continue
             parsed = _uv_arguments(command)
+            if parsed is None:
+                continue
+            subcommand, values, positionals = parsed
+            if subcommand == "pip uninstall":
+                violations.append(f"{where}: removes packages: {command.line}")
+                continue
             if (
-                parsed is None
-                or parsed[0] not in {"pip install", "pip sync"}
-                or "--target" not in parsed[1]
+                subcommand not in {"pip install", "pip sync"}
+                or "--target" not in values
             ):
                 continue
             found[name] += 1
-            subcommand, values, positionals = parsed
             problem = None
             requirements = values.get("--requirements", [])
             if subcommand != "pip install":
@@ -263,7 +248,7 @@ def _target_install_violations(
                 problem = "installs outside the exported requirement set"
             elif requirements:
                 if positionals:
-                    problem = f"mixes {positionals} with requirement files"
+                    problem = f"mixes {list(positionals)} with requirement files"
                 elif "--require-hashes" not in values:
                     problem = "installs a requirement file without --require-hashes"
                 elif not set(requirements) <= exported:
@@ -271,56 +256,95 @@ def _target_install_violations(
                         f"{requirements} is not a hash-pinned `uv export --locked` "
                         "output written in this step"
                     )
-            elif positionals == ["$oracles"]:
+            elif positionals == ("$oracles",):
                 if f"grep -xE '{ORACLES_PATTERN}'" not in step["run"]:
                     problem = "$oracles is not the commit-pinned axiom-oracles line"
-            elif positionals != ["."]:
-                problem = f"installs unpinned requirements {positionals}"
+            elif positionals != (".",):
+                problem = f"installs unpinned requirements {list(positionals)}"
             if problem:
                 violations.append(f"{where}: {problem}: {command.line}")
     return violations, dict(found)
 
 
-def _option_value(words: tuple[str, ...], option: str) -> str | None:
-    for index, word in enumerate(words):
-        if word == option and index + 1 < len(words):
-            return words[index + 1]
-        if word.startswith(option + "="):
-            return word.split("=", 1)[1]
+def _script_module(name: str) -> ModuleType:
+    """``scripts/<name>.py``, loaded the way its sibling imports expect."""
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(
+            name, ROOT / "scripts" / f"{name}.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
+
+
+@functools.cache
+def _parser(script: str) -> argparse.ArgumentParser:
+    # The compose provisioner imports the verification provisioner by name.
+    _script_module("provision_verification_supervisor")
+    return _script_module(script.removesuffix(".py"))._argument_parser()
+
+
+def _provision(command: Command) -> tuple[str, argparse.Namespace | None] | None:
+    """The provisioner ``command`` runs and the arguments its own parser
+    resolves (None if the parser refuses them), or None for any other command."""
+    for index, word in enumerate(command.words):
+        for script in PROTECTED_TREES.values():
+            stem = script.removesuffix(".py")
+            if word.rsplit("/", 1)[-1] == script or word in {stem, f"scripts.{stem}"}:
+                try:
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        args = _parser(script).parse_args(
+                            list(command.words[index + 1 :])
+                        )
+                except SystemExit:
+                    return script, None
+                return script, args
     return None
 
 
-def _installs_anything(commands: list[Command]) -> bool:
+def _changes_an_environment(commands: list[Command]) -> bool:
     for command in commands:
-        if _runs_pip(command) and "install" in command.words:
+        if _runs_pip(command) and {"install", "uninstall"} & set(command.words):
             return True
         parsed = _uv_arguments(command)
-        if parsed is not None and parsed[0] in {"pip install", "pip sync", "add"}:
+        if parsed is not None and parsed[0] in {
+            "pip install",
+            "pip sync",
+            "pip uninstall",
+            "add",
+            "remove",
+        }:
             return True
     return False
 
 
-def _provision_violations(workflows: dict[str, dict]) -> tuple[list[str], int]:
+def _provision_violations(
+    workflows: dict[str, dict], exempt: frozenset[str] = EXEMPT_WORKFLOWS
+) -> tuple[list[str], int]:
     violations: list[str] = []
     provisions = 0
     steps = list(_steps(workflows))
     for name, job, index, step in steps:
-        if name in EXEMPT_WORKFLOWS:
+        if name in exempt:
             continue
         run = step["run"]
-        for command in _commands(run):
-            if not any(word.endswith(PROVISIONER) for word in command.words):
+        for command in _commands(name, job, run):
+            provision = _provision(command)
+            if provision is None or provision[0] != VERIFICATION_PROVISIONER:
                 continue
             provisions += 1
             where = f"{name}:{job}[{index}]"
-            site = _option_value(command.words, "--site-packages")
-            job_steps = [s for n, j, i, s in steps if n == name and j == job]
-            earlier = [
-                s for n, j, i, s in steps if n == name and j == job and i < index
-            ]
-            if site in {SITE_PACKAGES, "$staged"}:
-                if site == "$staged" and f'staged="{SITE_PACKAGES}"' not in run:
-                    violations.append(f"{where}: $staged is not {SITE_PACKAGES}")
+            args = provision[1]
+            if args is None:
+                violations.append(f"{where}: the provisioner refuses its arguments")
+                continue
+            # argparse keeps the last --site-packages and accepts abbreviations
+            # such as --site-pack; this is the value the provisioner acts on.
+            site = str(args.site_packages)
+            job_steps = [(i, s) for n, j, i, s in steps if n == name and j == job]
+            earlier = [s for i, s in job_steps if i < index]
+            if site == SITE_PACKAGES:
                 if not any(
                     f'site_packages="{SITE_PACKAGES}"' in s["run"] for s in earlier
                 ):
@@ -330,7 +354,7 @@ def _provision_violations(workflows: dict[str, dict]) -> tuple[list[str], int]:
                 synced = [
                     parsed
                     for s in earlier
-                    for c in _commands(s["run"])
+                    for c in _commands(name, job, s["run"])
                     if (parsed := _uv_arguments(c)) is not None
                     and parsed[0] == "sync"
                     and parsed[1].keys() & {"--locked", "--frozen"}
@@ -343,11 +367,91 @@ def _provision_violations(workflows: dict[str, dict]) -> tuple[list[str], int]:
                     violations.append(f"{where}: $site is not {python}'s purelib")
                 if not synced:
                     violations.append(f"{where}: no `uv sync --locked|--frozen`")
-                if any(_installs_anything(_commands(s["run"])) for s in job_steps):
-                    violations.append(f"{where}: the job installs into the tree")
+                if any(
+                    _changes_an_environment(_commands(name, job, s["run"]))
+                    for _, s in job_steps
+                ):
+                    violations.append(
+                        f"{where}: the job changes the locked environment"
+                    )
             else:
                 violations.append(f"{where}: --site-packages {site} is not locked")
     return violations, provisions
+
+
+def _is_verification_staging(name: str, step: dict) -> bool:
+    return name in STAGING and f'site_packages="{SITE_PACKAGES}"' in step["run"]
+
+
+def _tree_mentions(command: Command, tree: str) -> list[tuple[str, str]]:
+    """Where ``command`` names ``tree``, as (word|assignment|redirect, text)."""
+    return [
+        *(("word", word) for word in command.words if tree in word),
+        *(("assignment", text) for text in command.assignments if tree in text),
+        *(("redirect", target) for _, target in command.redirects if tree in target),
+    ]
+
+
+def _consumes(command: Command, tree: str) -> bool:
+    """Whether ``command`` is ``tree``'s locked install or its provisioner, and
+    names the tree there and nowhere else."""
+    mentions = _tree_mentions(command, tree)
+    if len(mentions) != 1 or mentions[0][0] != "word":
+        return False
+    path = f"$RUNNER_TEMP/{tree}"
+    parsed = _uv_arguments(command)
+    if parsed is not None:
+        subcommand, values, _ = parsed
+        return subcommand == "pip install" and values.get("--target", [""])[-1] == path
+    provision = _provision(command)
+    return (
+        provision is not None
+        and provision[0] == PROTECTED_TREES[tree]
+        and provision[1] is not None
+        and str(provision[1].site_packages) == path
+    )
+
+
+def _tree_violations(
+    workflows: dict[str, dict], exempt: frozenset[str] = EXEMPT_WORKFLOWS
+) -> tuple[list[str], dict[str, int]]:
+    violations: list[str] = []
+    consumers: dict[str, int] = defaultdict(int)
+    for name, job, index, step in _steps(workflows):
+        if name in exempt or _is_verification_staging(name, step):
+            continue
+        where = f"{name}:{job}[{index}]"
+        for command in _commands(name, job, step["run"]):
+            for tree in PROTECTED_TREES:
+                if not _tree_mentions(command, tree):
+                    continue
+                if _consumes(command, tree):
+                    consumers[tree] += 1
+                else:
+                    violations.append(
+                        f"{where}: names {tree} outside its staging, locked "
+                        f"install and provisioner: {command.line}"
+                    )
+    return violations, dict(consumers)
+
+
+@functools.cache
+def _baseline() -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+    workflows = _load_workflows()
+    return (
+        frozenset(_target_install_violations(workflows)[0]),
+        frozenset(_tree_violations(workflows)[0]),
+        frozenset(_provision_violations(workflows)[0]),
+    )
+
+
+def _new_violations(workflows: dict[str, dict]) -> set[str]:
+    targets, trees, provisions = _baseline()
+    return (
+        (set(_target_install_violations(workflows)[0]) - targets)
+        | (set(_tree_violations(workflows)[0]) - trees)
+        | (set(_provision_violations(workflows)[0]) - provisions)
+    )
 
 
 def _staging_step(workflow: str, workflows: dict[str, dict] | None = None) -> dict:
@@ -364,25 +468,36 @@ def _provision_step(workflow: str, workflows: dict[str, dict]) -> dict:
     steps = [
         step
         for name, _job, _index, step in _steps(workflows)
-        if name == workflow and PROVISIONER in step["run"]
+        if name == workflow and VERIFICATION_PROVISIONER in step["run"]
     ]
     assert len(steps) == 1, f"{workflow}: expected one provision step, got {steps}"
     return steps[0]
 
 
-def _canonical_staging(python: str, extra: str, sync: str) -> list[str]:
-    extra = f" {extra}" if extra else ""
-    install = f'uv pip install --python {python} --target "$site_packages"'
+def _compose_step(workflows: dict[str, dict]) -> dict:
+    steps = [
+        step
+        for name, _job, _index, step in _steps(workflows)
+        if name == "targeted-signed-reencode.yml"
+        and "axiom-compose-site-packages" in step["run"]
+        and "uv export" in step["run"]
+    ]
+    assert len(steps) == 1, steps
+    return steps[0]
+
+
+def _canonical_staging() -> list[str]:
+    install = 'uv pip install --python .venv/bin/python --target "$site_packages"'
     return [
         "set -euo pipefail",
-        sync,
+        "uv sync --locked --python 3.13 --extra api --no-dev",
         f'site_packages="{SITE_PACKAGES}"',
         'locked="$RUNNER_TEMP/axiom-verification-locked-requirements.txt"',
         'rm -rf "$site_packages"',
-        f"uv export --locked --no-dev{extra} --no-emit-project"
+        "uv export --locked --no-dev --extra api --no-emit-project"
         " --no-emit-package axiom-oracles --format requirements-txt"
         ' --output-file "$locked"',
-        f'oracles="$(uv export --locked --no-dev{extra} --no-emit-project'
+        'oracles="$(uv export --locked --no-dev --extra api --no-emit-project'
         " --no-hashes --no-annotate --no-header --format requirements-txt"
         f" | grep -xE '{ORACLES_PATTERN}')\"",
         f'{install} --require-hashes --no-deps -r "$locked"',
@@ -390,7 +505,7 @@ def _canonical_staging(python: str, extra: str, sync: str) -> list[str]:
         f"{install} --no-deps .",
         "uv pip freeze --python .venv/bin/python --exclude-editable"
         ' > "$RUNNER_TEMP/axiom-verification-locked.freeze"',
-        f'uv pip freeze --python {python} --target "$site_packages"'
+        'uv pip freeze --python .venv/bin/python --target "$site_packages"'
         ' --exclude axiom-encode > "$RUNNER_TEMP/axiom-verification-staged.freeze"',
         'test -s "$RUNNER_TEMP/axiom-verification-locked.freeze"',
         'diff -u "$RUNNER_TEMP/axiom-verification-locked.freeze"'
@@ -414,17 +529,9 @@ def test_the_selftest_exemption_is_still_needed():
         assert violations, f"{workflow} no longer needs its exemption"
 
 
-@pytest.mark.parametrize("workflow", sorted(STAGING))
+@pytest.mark.parametrize("workflow", STAGING)
 def test_staging_step_is_exactly_the_locked_install(workflow):
-    lines = _logical_lines(_staging_step(workflow)["run"])
-
-    if workflow == "signed-apply-reusable.yml":
-        # The interpreter the tree is installed for must be the toolcache
-        # python the provisioner copies.
-        assert lines[0] == "set -euo pipefail"
-        assert lines[1] == 'case "$PYBIN" in'
-        del lines[1 : lines.index("esac") + 1]
-    assert lines == _canonical_staging(*STAGING[workflow])
+    assert _logical_lines(_staging_step(workflow)["run"]) == _canonical_staging()
 
 
 def test_every_production_provision_consumes_a_locked_tree():
@@ -434,12 +541,46 @@ def test_every_production_provision_consumes_a_locked_tree():
     assert provisions == len(STAGING) + len(LOCKED_VENV_PROVISIONS)
 
 
-# Unlocked installs a later edit could add after staging. Each must be caught.
+def test_only_their_installs_and_provisioners_name_the_protected_trees():
+    violations, consumers = _tree_violations(_load_workflows())
+
+    assert violations == []
+    assert consumers == EXPECTED_TREE_CONSUMERS
+
+
+def test_workflows_with_either_extension_are_audited(tmp_path):
+    for name in ("added.yml", "added.yaml"):
+        (tmp_path / name).write_text(
+            yaml.safe_dump(
+                {
+                    "jobs": {
+                        "stage": {
+                            "steps": [
+                                {"run": f'uv pip install --target "{SITE_PACKAGES}" .'}
+                            ]
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    violations, found = _target_install_violations(_load_workflows(tmp_path))
+
+    assert found == {"added.yaml": 1, "added.yml": 1}
+    assert len(violations) == 2
+
+
+# Installs and removals a later edit could add after staging. Each must be caught.
 UNLOCKED_INSTALLS = {
     "pip3": f'pip3 install --upgrade --target "{SITE_PACKAGES}" ".[api]"',
     "python-m-pip-attached-t": f'python -m pip install -t"{SITE_PACKAGES}" .',
     "versioned-python-target-eq": "python3.13 -m pip install --target=/opt/x requests",
     "pip-short-cluster": f'pip install -qt "{SITE_PACKAGES}" requests',
+    "pip-target-from-the-environment": (
+        f'PIP_TARGET="{SITE_PACKAGES}" "$PYBIN" -m pip install --upgrade claude-agent-sdk'
+    ),
+    "pip-uninstall": "python3 -m pip uninstall -y requests",
     "uv-resolving": f'uv pip install --target "{SITE_PACKAGES}" ".[api]"',
     "uv-attached-t-unpinned": f'uv pip install -t"{SITE_PACKAGES}" --no-deps requests',
     "uv-requirements-without-hashes": (
@@ -451,16 +592,17 @@ UNLOCKED_INSTALLS = {
     ),
     "uv-editable": f'uv pip install --target "{SITE_PACKAGES}" --no-deps -e .',
     "uv-pip-sync": f'uv pip sync --target "{SITE_PACKAGES}" requirements.txt',
+    "uv-uninstall": f'uv pip uninstall --target "{SITE_PACKAGES}" requests',
     "eval-pip": f"eval 'pip install --target \"{SITE_PACKAGES}\" requests'",
     "variable-interpreter": f'"$PYBIN" -m pip install --quiet --target "{SITE_PACKAGES}" .',
 }
 
 
-@pytest.mark.parametrize("workflow", sorted(STAGING))
+@pytest.mark.parametrize("workflow", STAGING)
 @pytest.mark.parametrize("mutation", sorted(UNLOCKED_INSTALLS))
 @pytest.mark.parametrize("placement", ["end-of-staging", "start-of-provision"])
 def test_an_unlocked_install_after_staging_is_rejected(workflow, mutation, placement):
-    workflows = copy.deepcopy(_load_workflows())
+    workflows = _load_workflows()
     line = UNLOCKED_INSTALLS[mutation]
     if placement == "end-of-staging":
         step = _staging_step(workflow, workflows)
@@ -475,19 +617,59 @@ def test_an_unlocked_install_after_staging_is_rejected(workflow, mutation, place
     assert set(violations) - set(baseline), f"{line!r} was not caught"
 
 
+# Writes into a protected tree that name it without installing anything.
+TREE_WRITES = {
+    "remove-a-package": f'rm -rf "{SITE_PACKAGES}/requests"',
+    "braced-runner-temp": (
+        'rm -rf "${RUNNER_TEMP}/axiom-verification-site-packages/requests"'
+    ),
+    "copy-in": f'cp evil.py "{SITE_PACKAGES}/"',
+    "redirect-into": f'echo "import os" > "{SITE_PACKAGES}/evil.pth"',
+    "redirect-only": f'> "{SITE_PACKAGES}/requests/__init__.py"',
+    "exec-redirect": f'exec 3> "{SITE_PACKAGES}/evil.pth"',
+    "alias": f'tree="{SITE_PACKAGES}"',
+    "export-to-later-steps": f'echo "TREE={SITE_PACKAGES}" >> "$GITHUB_ENV"',
+    "second-mention-in-the-provision": (
+        f"sudo .venv/bin/python scripts/{VERIFICATION_PROVISIONER} --site-packages "
+        f'"{SITE_PACKAGES}" --destination "{SITE_PACKAGES}/copy"'
+    ),
+}
+
+
+@pytest.mark.parametrize("workflow", STAGING)
+@pytest.mark.parametrize("mutation", sorted(TREE_WRITES))
+def test_a_write_into_the_staged_tree_is_rejected(workflow, mutation):
+    workflows = _load_workflows()
+    step = _provision_step(workflow, workflows)
+    step["run"] = f"{TREE_WRITES[mutation]}\n{step['run']}"
+
+    assert _new_violations(workflows), f"{TREE_WRITES[mutation]!r} was not caught"
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'rm -rf "$RUNNER_TEMP/axiom-compose-site-packages/yaml"',
+        'cp evil.pth "$RUNNER_TEMP/axiom-compose-site-packages/"',
+        'uv pip uninstall --target "$RUNNER_TEMP/axiom-compose-site-packages" pyyaml',
+    ],
+)
+def test_a_write_into_the_compose_runtime_is_rejected(line):
+    workflows = _load_workflows()
+    step = _compose_step(workflows)
+    # Between the locked install and the provision.
+    marker = "sudo rm -rf /opt/axiom-compose-verification\n"
+    assert step["run"].count(marker) == 1
+    step["run"] = step["run"].replace(marker, f"{line}\n{marker}")
+
+    assert _new_violations(workflows), f"{line!r} was not caught"
+
+
 def test_the_compose_runtime_install_must_stay_hash_required():
-    workflows = copy.deepcopy(_load_workflows())
-    targeted = workflows["targeted-signed-reencode.yml"]
-    steps = [
-        step
-        for job in targeted["jobs"].values()
-        for step in job["steps"]
-        if "axiom-compose-site-packages" in step.get("run", "")
-        and "uv export" in step["run"]
-    ]
-    assert len(steps) == 1
-    assert "--require-hashes --no-deps" in steps[0]["run"]
-    steps[0]["run"] = steps[0]["run"].replace("--require-hashes --no-deps ", "")
+    workflows = _load_workflows()
+    step = _compose_step(workflows)
+    assert "--require-hashes --no-deps" in step["run"]
+    step["run"] = step["run"].replace("--require-hashes --no-deps ", "")
 
     violations, _ = _target_install_violations(workflows)
 
@@ -500,29 +682,110 @@ def test_the_compose_runtime_install_must_stay_hash_required():
         'uv pip install --python "$python_path" requests',
         'pip install --prefix "$GITHUB_WORKSPACE/axiom-encode/.venv" requests',
         "(cd axiom-encode && uv add requests)",
+        'uv pip uninstall --python "$python_path" pyyaml',
+        '"$python_path" -m pip uninstall -y pyyaml',
+        "(cd axiom-encode && uv remove pyyaml)",
     ],
 )
-def test_a_locked_venv_provision_rejects_any_install_into_the_job(mutation):
-    workflows = copy.deepcopy(_load_workflows())
+def test_a_locked_venv_provision_rejects_any_change_to_the_environment(mutation):
+    workflows = _load_workflows()
     name = next(iter(LOCKED_VENV_PROVISIONS))
     step = _provision_step(name, workflows)
     step["run"] = f"{mutation}\n{step['run']}"
 
     violations, _ = _provision_violations(workflows)
 
-    assert any("installs into the tree" in v for v in violations), violations
+    assert any("changes the locked environment" in v for v in violations), violations
 
 
-def test_a_provision_of_an_unlocked_tree_is_rejected():
-    workflows = copy.deepcopy(_load_workflows())
+@pytest.mark.parametrize(
+    ("arguments", "caught"),
+    [
+        pytest.param(
+            f'--site-packages "{SITE_PACKAGES}"',
+            '--site-packages "$RUNNER_TEMP/other"',
+            id="replaced",
+        ),
+        pytest.param(
+            f'--site-packages "{SITE_PACKAGES}"',
+            f'--site-packages "{SITE_PACKAGES}" --site-packages "$RUNNER_TEMP/other"',
+            id="a-later-duplicate-wins",
+        ),
+        pytest.param(
+            f'--site-packages "{SITE_PACKAGES}"',
+            f'--site-packages "{SITE_PACKAGES}" --site-pack "$RUNNER_TEMP/other"',
+            id="an-abbreviation-wins",
+        ),
+        pytest.param(
+            f'--site-packages "{SITE_PACKAGES}"',
+            f'--site-packages "{SITE_PACKAGES}" --site-packages=$RUNNER_TEMP/other',
+            id="an-attached-duplicate-wins",
+        ),
+    ],
+)
+def test_a_provision_of_an_unlocked_tree_is_rejected(arguments, caught):
+    workflows = _load_workflows()
     step = _provision_step("bulk-encode.yml", workflows)
-    step["run"] = step["run"].replace(
-        f'--site-packages "{SITE_PACKAGES}"', '--site-packages "$RUNNER_TEMP/other"'
-    )
+    assert step["run"].count(arguments) == 1
+    step["run"] = step["run"].replace(arguments, caught)
 
     violations, _ = _provision_violations(workflows)
 
-    assert any("$RUNNER_TEMP/other is not locked" in v for v in violations)
+    assert any("$RUNNER_TEMP/other is not locked" in v for v in violations), violations
+
+
+def test_a_provision_uses_the_value_its_parser_keeps():
+    # An earlier, discarded --site-packages is harmless: argparse keeps the last.
+    workflows = _load_workflows()
+    step = _provision_step("bulk-encode.yml", workflows)
+    locked = f'--site-packages "{SITE_PACKAGES}"'
+    step["run"] = step["run"].replace(
+        locked, f'--site-packages "$RUNNER_TEMP/other" {locked}'
+    )
+
+    violations, provisions = _provision_violations(workflows)
+
+    assert violations == []
+    assert provisions == len(STAGING) + len(LOCKED_VENV_PROVISIONS)
+
+
+@pytest.mark.parametrize(
+    ("script", "expected"),
+    [
+        pytest.param(
+            "uv run --frozen --no-sync python -c 'print(1)' --python",
+            ("run", {"--frozen": [""], "--no-sync": [""]}, ()),
+            id="launched-arguments-stay-with-the-launched-command",
+        ),
+        pytest.param(
+            'uv --directory export export --locked --output-file "$f"',
+            (
+                "export",
+                {"--directory": ["export"], "--locked": [""], "--output-file": ["$f"]},
+                (),
+            ),
+            id="a-global-value-is-not-the-subcommand",
+        ),
+        pytest.param(
+            'uv pip install -qt"$t" --no-deps -r a -rb -- c',
+            (
+                "pip install",
+                {
+                    "--quiet": [""],
+                    "--target": ["$t"],
+                    "--no-deps": [""],
+                    "--requirements": ["a", "b"],
+                },
+                ("c",),
+            ),
+            id="clusters-attached-values-and-double-dash",
+        ),
+    ],
+)
+def test_uv_arguments_come_from_the_shared_parser(script, expected):
+    (command, *_) = workflow_shell.commands(script)
+
+    assert _uv_arguments(command) == expected
 
 
 FAKE_UV = """\
@@ -561,7 +824,6 @@ def _run_staging_step(
     fake_uv = bin_dir / "uv"
     fake_uv.write_text(f"#!{sys.executable}\n{FAKE_UV}", encoding="utf-8")
     fake_uv.chmod(0o755)
-    toolcache = tmp_path / "toolcache"
     runner_temp = tmp_path / "runner-temp"
     runner_temp.mkdir()
     log = tmp_path / "uv-argv.jsonl"
@@ -569,8 +831,6 @@ def _run_staging_step(
         **os.environ,
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
         "RUNNER_TEMP": str(runner_temp),
-        "RUNNER_TOOL_CACHE": str(toolcache),
-        "PYBIN": f"{toolcache}/Python/3.14.4/x64/bin/python",
         "FAKE_UV_LOG": str(log),
         "FAKE_UNHASHED_EXPORT": (
             unhashed_export
@@ -598,25 +858,18 @@ def _run_staging_step(
     return result, calls, runner_temp
 
 
-@pytest.mark.parametrize("workflow", sorted(STAGING))
+@pytest.mark.parametrize("workflow", STAGING)
 def test_staging_step_runs_the_locked_sequence(tmp_path, workflow):
     result, calls, runner_temp = _run_staging_step(tmp_path, workflow)
 
     assert result.returncode == 0, result.stderr
-    python, extra, sync = STAGING[workflow]
-    python = python.replace(
-        '"$PYBIN"', f"{tmp_path}/toolcache/Python/3.14.4/x64/bin/python"
-    )
-    extra_args = extra.split()
     site_packages = str(runner_temp / "axiom-verification-site-packages")
     locked = str(runner_temp / "axiom-verification-locked-requirements.txt")
+    python = ".venv/bin/python"
     install = ["pip", "install", "--python", python, "--target", site_packages]
-    export = ["export", "--locked", "--no-dev", *extra_args, "--no-emit-project"]
-    sync_argv = sync.split()[1:]
-    if "$PYBIN" in sync:
-        sync_argv[sync_argv.index('"$PYBIN"')] = python
+    export = ["export", "--locked", "--no-dev", "--extra", "api", "--no-emit-project"]
     assert calls == [
-        sync_argv,
+        ["sync", "--locked", "--python", "3.13", "--extra", "api", "--no-dev"],
         [
             *export,
             "--no-emit-package",
@@ -637,7 +890,7 @@ def test_staging_step_runs_the_locked_sequence(tmp_path, workflow):
         [*install, "--require-hashes", "--no-deps", "-r", locked],
         [*install, "--no-deps", LOCKED_GIT_LINE],
         [*install, "--no-deps", "."],
-        ["pip", "freeze", "--python", ".venv/bin/python", "--exclude-editable"],
+        ["pip", "freeze", "--python", python, "--exclude-editable"],
         [
             "pip",
             "freeze",
@@ -651,7 +904,7 @@ def test_staging_step_runs_the_locked_sequence(tmp_path, workflow):
     ]
 
 
-@pytest.mark.parametrize("workflow", sorted(STAGING))
+@pytest.mark.parametrize("workflow", STAGING)
 @pytest.mark.parametrize(
     "unhashed_export",
     [
@@ -679,7 +932,7 @@ def test_staging_step_refuses_an_unpinned_git_dependency(
     assert not any(call[:2] == ["pip", "install"] for call in calls)
 
 
-@pytest.mark.parametrize("workflow", sorted(STAGING))
+@pytest.mark.parametrize("workflow", STAGING)
 def test_staging_step_fails_when_the_staged_tree_drifts_from_the_lock(
     tmp_path, workflow
 ):
@@ -691,29 +944,9 @@ def test_staging_step_fails_when_the_staged_tree_drifts_from_the_lock(
     assert calls[-1][:2] == ["pip", "freeze"]
 
 
-@pytest.mark.parametrize("workflow", sorted(STAGING))
+@pytest.mark.parametrize("workflow", STAGING)
 def test_staging_step_fails_when_the_lock_cannot_be_exported(tmp_path, workflow):
     result, calls, _ = _run_staging_step(tmp_path, workflow, export_fails=True)
 
     assert result.returncode != 0
     assert not any(call[:2] == ["pip", "install"] for call in calls)
-
-
-def test_signed_apply_staging_refuses_a_non_toolcache_interpreter(tmp_path):
-    step = _staging_step("signed-apply-reusable.yml")
-    result = subprocess.run(
-        ["/bin/bash", "-e", "-c", step["run"]],
-        cwd=tmp_path,
-        env={
-            **os.environ,
-            "RUNNER_TEMP": str(tmp_path),
-            "RUNNER_TOOL_CACHE": str(tmp_path / "toolcache"),
-            "PYBIN": "/usr/bin/python3",
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 1
-    assert "resolved interpreter is not the toolcache python" in result.stdout
