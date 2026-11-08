@@ -2255,6 +2255,41 @@ _ENGLISH_LEGAL_CITATION = re.compile(
     r"\d+(?:\.\d+)*(?:\s*(?:through|to|[-–—]|and|,)\s*\d+(?:\.\d+)*)*",
     flags=re.IGNORECASE,
 )
+# A coordinated list of titled references, as UK instruments print them:
+# "regulation 15 (persons not entitled to council tax reduction: absentees),
+# regulation 16 (...) or 19 (...)". _ENGLISH_LEGAL_CITATION removes each
+# keyword-led item, but the title after an item ends its number list, so a
+# keyword-less item such as that 19 stayed behind as an amount. A title opens
+# with a letter, so "(3)" or "(10%)" never reads as one, and it may hold one
+# nested pair ("(... to whom regulation 14(6) does not apply)"). A parenthesis
+# that only spells out a number ("19 (nineteen) weeks") restates an amount, so
+# it is no title. Every item must carry its own title: in "regulation 15
+# (absentees) or 19 weeks" the 19 stays.
+_ENGLISH_REFERENCE_KEYWORD = (
+    r"(?:articles?|sections?|secs?\.?|regulations?|paragraphs?|"
+    r"sub-?paragraphs?|subsections?|parts?|chapters?|schedules?)"
+)
+_ENGLISH_NUMBER_WORD = (
+    r"(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+    r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+    r"thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million)"
+)
+_ENGLISH_REFERENCE_TITLE = (
+    r"\((?=[^\W\d_])"
+    rf"(?!{_ENGLISH_NUMBER_WORD}(?:[\s-]+(?:{_ENGLISH_NUMBER_WORD}|and))*\s*\))"
+    r"(?:[^()]|\([^()]*\))*\)"
+)
+_ENGLISH_TITLED_REFERENCE_ITEM = rf"\d+[A-Za-z]*[^\S\r\n]*{_ENGLISH_REFERENCE_TITLE}"
+_ENGLISH_TITLED_REFERENCE_LIST = re.compile(
+    rf"\b{_ENGLISH_REFERENCE_KEYWORD}\s+{_ENGLISH_TITLED_REFERENCE_ITEM}"
+    r"(?:\s*(?:,\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)"
+    rf"(?:{_ENGLISH_REFERENCE_KEYWORD}\s+)?{_ENGLISH_TITLED_REFERENCE_ITEM})+",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_TITLED_REFERENCE_ITEM_TITLE = re.compile(
+    rf"\d+[A-Za-z]*[^\S\r\n]*(?P<title>{_ENGLISH_REFERENCE_TITLE})",
+    flags=re.IGNORECASE,
+)
 # A complete parenthesis containing only a Statutes at Large volume/page
 # reference is bibliographic metadata. Do not accept dollar signs, ranges,
 # additional text, or a citation split across lines.
@@ -15983,6 +16018,28 @@ def _irs_page_locator_numeric_recall_spans(
         yield line.span("page")
 
 
+def _blank_titled_reference_list(match: re.Match[str]) -> str:
+    """Keep each title of a titled reference list and blank the rest in place.
+
+    The item numbers leave the recall text. A title can state an amount of its
+    own ("regulation 15 (persons aged 65 or over) or 19 (...)"), so the titles
+    stay as written. The keywords go with the numbers: a keyword left before a
+    one-word title such as "(absentees)" reads as a reference to a lettered
+    subdivision, and the extractor's structural pass would carry it on through
+    the list and into a following untitled quantity ("... or 7 persons").
+    """
+    matched = match.group(0)
+    kept = [" "] * len(matched)
+    keyword = re.match(rf"{_ENGLISH_REFERENCE_KEYWORD}\s+", matched, re.IGNORECASE)
+    position = keyword.end() if keyword is not None else 0
+    # Each item consumes its whole title, so the next search starts past any
+    # number inside a title ("regulation 14(6)") and lands on the next item.
+    for item in _ENGLISH_TITLED_REFERENCE_ITEM_TITLE.finditer(matched, position):
+        start, end = item.span("title")
+        kept[start:end] = matched[start:end]
+    return "".join(kept)
+
+
 def authoritative_numeric_recall_text(
     source_text: str,
     *,
@@ -16199,6 +16256,9 @@ def authoritative_numeric_recall_text(
     cleaned = sub(_BFH_DECISION_NUMERIC_RECALL_CITATION, "", cleaned)
     cleaned = sub(_GERMAN_LEGAL_CITATION, "", cleaned)
     cleaned = sub(_TITLE_SUFFIX_LEGAL_CITATION, "", cleaned)
+    # Before _ENGLISH_LEGAL_CITATION removes "regulation 15", the keyword that
+    # anchors the rest of a titled list.
+    cleaned = sub(_ENGLISH_TITLED_REFERENCE_LIST, _blank_titled_reference_list, cleaned)
     cleaned = sub(_ENGLISH_LEGAL_CITATION, "", cleaned)
     cleaned = sub(_STRUCTURAL_REFERENCE, "", cleaned)
     cleaned = sub(
