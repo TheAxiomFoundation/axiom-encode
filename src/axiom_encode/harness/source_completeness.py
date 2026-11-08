@@ -37065,21 +37065,6 @@ _NAME_NO_COMPARATIVES = frozenset(
         "sooner",
     }
 )
-# Words that end the subject a leading "no" opens: another predicate, a
-# modal, a negator, or a relative pronoun whose clause has its own
-# predicate.
-_NAME_NO_SUBJECT_ENDS = (
-    _NAME_POSITIVE_PREDICATES
-    | _NAME_PROHIBITION_PARTICIPLES
-    | _NAME_NEGATIVE_STATUSES
-    | _NAME_NEGATIVE_PREDICATES
-    | _NAME_LAWFUL_PREDICATES
-    | _NAME_BARRING_VERBS
-    | _NAME_BARRING_VERB_BASES
-    | _NAME_MODALS
-    | _NAME_NEGATORS
-    | {"cannot", "that", "which", "who"}
-)
 
 
 def _name_output_polarity(name: str, *, judgment: bool) -> bool | None:
@@ -37089,13 +37074,13 @@ def _name_output_polarity(name: str, *, judgment: bool) -> bool | None:
     after its first word (``communication_barred_unless_consumer_consents``).
     A modal in the claim is its predicate (``_name_modal_polarity``).
     Without one, the claim's last predicate word decides
-    (``_name_predicate_pole``), reversed by a negator before it, "no" that
-    opens its subject included (``no_medical_deduction_allowed``).  A
-    prohibition, restriction, bar or ban that applies
-    (``place_of_employment_prohibition_applies``,
+    (``_name_predicate_pole``).  Either is reversed by a negator, "no" that
+    opens its subject included (``no_medical_deduction_allowed``,
+    ``no_credit_shall_be_allowed``).  A prohibition, restriction, bar or ban
+    that applies (``place_of_employment_prohibition_applies``,
     ``participation_bar_applies``) reads as negative, and one that does not
-    apply as positive.  A Judgment
-    or Boolean output that opens with a prohibition participle states it
+    apply as positive.  A Judgment or Boolean output that opens with a
+    prohibition participle states it
     (``prohibited_employment_place_communication``).  A claim that states no
     pole reads as negative when the name carries a disqualifying status
     (``_name_carries_disqualifying_status``), and any other name states no
@@ -37174,14 +37159,18 @@ def _name_modal_polarity(tokens: Sequence[str]) -> tuple[bool, bool | None]:
     read as negative; ``may_communicate`` and ``must_notify`` grant or
     oblige, so they read as positive.  A negated modal before an entitlement
     denies it (``must_not_be_allowed``), and before a prohibition lifts it
-    (``must_not_be_barred``).  A modal before a verb whose clause reading
-    sets no direction (``may_deny``, ``may_not_exceed``,
-    ``shall_not_constitute``) states no pole, and neither does a modal of
-    outcome (``will_receive``).  Voice does not change the pole: a passive
-    participle reads as its verb (``case_must_be_closed`` as
-    ``must_close``, ``application_must_not_be_denied`` as ``must_not_deny``),
-    and after "be" an eligibility determination reads as the status it
-    determines (``must_be_found_eligible``,
+    (``must_not_be_barred``).  A "no" that opens the modal's subject
+    (``_name_no_opens_subject``) negates the modal as a "not" after it does,
+    so ``no_credit_shall_be_allowed`` reads as ``credit_shall_not_be_allowed``
+    and ``no_household_may_not_participate`` as ``household_may_participate``.
+    A modal before a verb whose clause reading sets no direction
+    (``may_deny``, ``may_not_exceed``, ``shall_not_constitute``) states no
+    pole, and neither does a modal of outcome (``will_receive``).  Voice does
+    not change the pole: a passive participle reads as its verb
+    (``case_must_be_closed`` as ``must_close``,
+    ``application_must_not_be_denied`` as ``must_not_deny``), and after "be"
+    an eligibility determination reads as the status it determines
+    (``must_be_found_eligible``,
     ``cannot_be_considered_categorically_eligible``).
     """
 
@@ -37193,6 +37182,7 @@ def _name_modal_polarity(tokens: Sequence[str]) -> tuple[bool, bool | None]:
             rest = tokens[index + 1 + int(negated) :]
         else:
             continue
+        negated = negated != _name_no_opens_subject(tokens, index)
         position = 0
         passive = False
         while position < len(rest) and rest[position] in _NAME_MODAL_SKIPPED_WORDS:
@@ -37321,15 +37311,8 @@ def _name_predicate_negated(tokens: Sequence[str], index: int) -> bool:
     "not", "never" or "no_longer" reverses it across up to
     ``_NAME_NEGATION_BRIDGE_LIMIT`` bridge words (``not_barred``,
     ``not_determined_eligible``, ``no_longer_categorically_eligible``,
-    ``review_refusal_no_longer_bars_eligibility``).  A "no" that opens the
-    predicate's subject, as the name's first word or after a subject noun,
-    reverses it too (``no_medical_deduction_allowed``,
-    ``household_no_deduction_allowed``,
-    ``no_top_or_dor_indicator_blocks_submission``), unless a word of
-    ``_NAME_NO_SUBJECT_ENDS`` stands between them.  Any other "no" sits
-    inside a noun phrase and negates nothing
-    (``shelter_expense_with_no_scheduled_interval_averaging_allowed``), and a
-    "no" before a comparative states a limit (``no_more_than_two_allowed``).
+    ``review_refusal_no_longer_bars_eligibility``), and so does a "no" that
+    opens the word's subject (``_name_no_opens_subject``).
     """
 
     if index and tokens[index - 1] in _NAME_NEGATORS:
@@ -37347,21 +37330,33 @@ def _name_predicate_negated(tokens: Sequence[str], index: int) -> bool:
         return True
     if position >= 1 and tokens[position] == "longer" and tokens[position - 1] == "no":
         return True
-    for position in range(index - 1, -1, -1):
-        word = tokens[position]
-        if word == "no":
-            if (
-                position + 1 < len(tokens)
-                and tokens[position + 1] in _NAME_NO_COMPARATIVES
-            ):
-                return False
-            return (
-                not position
-                or tokens[position - 1] in _SOURCE_SELECTOR_GENERIC_ENTITY_TOKENS
-            )
-        if word in _NAME_NO_SUBJECT_ENDS:
-            return False
-    return False
+    return _name_no_opens_subject(tokens, index)
+
+
+def _name_no_opens_subject(tokens: Sequence[str], index: int) -> bool:
+    """Say whether a "no" opens the subject of the word at ``index``.
+
+    A "no" before the word opens its subject when it is the name's first
+    word or follows a subject noun, whatever the subject holds after it
+    (``no_medical_deduction_allowed``, ``household_no_deduction_allowed``,
+    ``no_eligible_household_allowed``,
+    ``no_household_that_receives_tanf_eligible``,
+    ``no_household_with_no_income_allowed``,
+    ``no_top_or_dor_indicator_blocks_submission``).  Any other "no" sits
+    inside a noun phrase and opens nothing
+    (``shelter_expense_with_no_scheduled_interval_averaging_allowed``), and a
+    "no" before a comparative states a limit (``no_more_than_two_allowed``).
+    """
+
+    return any(
+        tokens[position] == "no"
+        and (
+            not position
+            or tokens[position - 1] in _SOURCE_SELECTOR_GENERIC_ENTITY_TOKENS
+        )
+        and tokens[position + 1] not in _NAME_NO_COMPARATIVES
+        for position in range(index)
+    )
 
 
 def _name_barred_verb_polarity(name: str, verbs: frozenset[str]) -> bool | None:
@@ -38888,8 +38883,8 @@ def _exception_witness_satisfies_requirement(
     the output states no pole, a name that repeats a verb the clause bars
     (``barred_verbs``) states its pole through that verb
     (``_name_barred_verb_polarity``); any other such output can name the
-    prohibition or the permission, so either direction meets it.  Without that demand an output that states no pole
-    reads as positive.
+    prohibition or the permission, so either direction meets it.  Without
+    that demand an output that states no pole reads as positive.
     """
 
     if requirement == "zero":

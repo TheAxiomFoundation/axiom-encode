@@ -2263,7 +2263,10 @@ def test_permission_pair_passes_only_when_faithful(lead_in: str):
         ("prohibited_transaction_amount", False),
         ("prohibited_item_count", False),
         ("communication_not_prohibited", False),
+        ("communication_non_prohibited", False),
         ("non_prohibited_communication", False),
+        ("household_non_eligible", True),
+        ("applicant_un_qualified", True),
         ("prohibition_does_not_apply", False),
         ("prohibition_exception_applies", False),
         ("paragraph_b_4_exception_applies", False),
@@ -2279,7 +2282,10 @@ def test_output_name_polarity(name: str, negative: bool):
     ``employment_place_communication_prohibited`` (12 CFR 1006.6(b)(3)) and a
     name stating that a prohibition applies read as negative.  "prohibited"
     before the noun it modifies (``prohibited_transaction_amount``), a negated
-    prohibition and an exception that applies read as non-negative.
+    prohibition and an exception that applies read as non-negative.  "not",
+    "non" or "un" just before the predicate reverses it, so
+    ``communication_non_prohibited`` reads as non-negative and
+    ``household_non_eligible`` as negative.
     """
 
     assert (
@@ -3289,9 +3295,10 @@ NO_NEGATED_NAMES = (
     "mixed_fs_household_not_categorically_eligible_for_food_stamp_benefits",
     "not_treated_as_eligible_under_section_1382h",
 )
-# A "no" inside a noun phrase negates nothing (the first eight are rulespec-us
-# AZ, CA, CO, NC and SC rules), "no more than" states a limit, and "no
-# longer" before a disqualifying status lifts it.
+# A "no" after a modifier or a preposition sits inside a noun phrase, and one
+# after "and" opens a later conjunct; neither opens the predicate's subject
+# (the first seven are rulespec-us AZ, CA, CO and SC rules).  "no more than"
+# states a limit, and "no longer" before a disqualifying status lifts it.
 NO_IN_NOUN_PHRASE_NAMES = (
     "eligible_no_pay_case_jobs_program_supportive_services_eligible",
     "eligible_no_pay_case_ccsd_services_eligible",
@@ -3301,7 +3308,6 @@ NO_IN_NOUN_PHRASE_NAMES = (
     "required",
     "written_no_ipv_decision_notice_required",
     "shelter_expense_with_no_scheduled_interval_averaging_allowed",
-    "denied_joint_tanf_or_ssi_snap_application_no_new_snap_application_required",
     "no_more_than_two_vehicles_allowed",
     "household_no_longer_ineligible",
 )
@@ -3323,15 +3329,75 @@ def test_no_that_opens_the_subject_negates_the_name(name: str):
 
 @pytest.mark.parametrize("name", NO_IN_NOUN_PHRASE_NAMES)
 def test_no_inside_a_noun_phrase_negates_nothing(name: str):
-    """A "no" inside a noun phrase leaves the predicate's pole.
+    """A "no" that opens no subject leaves the predicate's pole.
 
     Invariant: after a modifier, a preposition or "and"
     (``shelter_expense_with_no_scheduled_interval_averaging_allowed``), "no"
-    belongs to a noun phrase, and the predicate reads as positive; "no more
-    than" states a limit.
+    opens no subject of the predicate, so the predicate reads as positive;
+    "no more than" states a limit.
     """
 
     assert _name_pole(name) is False
+
+
+@pytest.mark.parametrize(
+    ("name", "pole"),
+    [
+        ("no_eligible_household_allowed", True),
+        ("no_ineligible_member_allowed", True),
+        ("no_restricted_communication_allowed", True),
+        ("no_household_that_receives_tanf_eligible", True),
+        ("no_person_who_is_eligible_denied", False),
+        ("no_eligible_household_denied", False),
+        ("no_qualified_alien_barred", False),
+        ("no_household_with_no_income_allowed", True),
+        ("no_household_with_no_more_than_two_vehicles_allowed", True),
+    ],
+)
+def test_a_no_subject_keeps_its_negation_past_its_own_words(name: str, pole: bool):
+    """A "no" that opens the subject reaches the predicate past the subject.
+
+    Invariant: a predicate word that modifies the subject
+    (``no_eligible_household_allowed``), sits in its relative clause
+    (``no_person_who_is_eligible_denied``) or follows a "no" of its own
+    (``no_household_with_no_income_allowed``) leaves the subject open, so the
+    opening "no" still reverses the predicate, as the descriptions "No
+    eligible household shall be allowed." and "No person who is eligible
+    shall be denied benefits." read.
+    """
+
+    assert _name_pole(name) is pole
+
+
+@pytest.mark.parametrize(
+    ("name", "pole"),
+    [
+        ("no_household_may_participate", True),
+        ("no_debt_collector_may_communicate_with_consumer", True),
+        ("no_individual_shall_be_eligible", True),
+        ("no_credit_shall_be_allowed_for_subsequent_year", True),
+        ("household_no_member_may_participate", True),
+        ("no_member_may_be_barred", False),
+        ("no_household_may_not_participate", False),
+        # A "no" that opens no subject leaves the modal's pole.
+        ("household_with_no_income_may_participate", False),
+        ("no_later_than_day_30_agency_must_notify", False),
+        ("no_agency_may_deny_application", None),
+    ],
+)
+def test_a_no_that_opens_the_subject_of_a_modal_negates_it(
+    name: str, pole: bool | None
+):
+    """A "no" before a modal's subject negates the modal as "not" after it does.
+
+    Invariant: ``no_household_may_participate`` reads as
+    ``household_may_not_participate`` and ``no_household_may_not_participate``
+    as ``household_may_participate``, as the description "No household may
+    participate." reads; a modal that states no pole (``may_deny``) states
+    none after a "no" either.
+    """
+
+    assert _name_pole(name) is pole
 
 
 # 26 U.S.C. 32(k)(2) and 24(g)(2), whose texts match after their headings.
@@ -3445,8 +3511,21 @@ def _description_pole(description: str) -> bool | None:
     )
 
 
+# Predicate words that can modify the noun a "No" opens.
+NO_SUBJECT_MODIFIERS = (
+    "",
+    "eligible",
+    "ineligible",
+    "qualified",
+    "restricted",
+    "denied",
+    "prohibited",
+)
+
+
 @settings(max_examples=200, deadline=None, derandomize=True)
 @given(
+    modifier=st.sampled_from(NO_SUBJECT_MODIFIERS),
     nouns=st.lists(st.sampled_from(NO_NOUNS), min_size=1, max_size=3),
     modal=st.sampled_from(("shall", "will", "may")),
     predicate=st.sampled_from(("allowed", "eligible", "entitled", "qualified")),
@@ -3457,27 +3536,35 @@ def _description_pole(description: str) -> bool | None:
             (" at annual recertification", "_at_annual_recertification"),
         )
     ),
+    name_keeps_modal=st.booleans(),
     negated=st.booleans(),
 )
 def test_a_no_name_reads_the_pole_of_its_no_description(
+    modifier: str,
     nouns: list[str],
     modal: str,
     predicate: str,
     tail: tuple[str, str],
+    name_keeps_modal: bool,
     negated: bool,
 ):
     """Differential: "No <noun> shall be allowed" and ``no_<noun>_allowed`` agree.
 
     Invariant: the description reader and the name reader give the same pole
-    for one claim, negative with "No" and positive without it.
+    for one claim, negative with "No" and positive without it, whether or not
+    a predicate word modifies the noun ("No eligible credit shall be
+    allowed") and whether or not the name keeps the modal
+    (``no_credit_shall_be_allowed``).
     """
 
-    noun = " ".join(nouns)
+    subject = [modifier, *nouns] if modifier else nouns
     description_tail, name_tail = tail
     description = (
-        f"{'No' if negated else 'The'} {noun} {modal} be {predicate}{description_tail}."
+        f"{'No' if negated else 'The'} {' '.join(subject)} {modal} be "
+        f"{predicate}{description_tail}."
     )
-    name = f"{'no_' if negated else ''}{'_'.join(nouns)}_{predicate}{name_tail}"
+    verb = [modal, "be", predicate] if name_keeps_modal else [predicate]
+    name = f"{'no_' if negated else ''}{'_'.join([*subject, *verb])}{name_tail}"
 
     assert _description_pole(description) is negated
     assert _name_pole(name) is negated
@@ -3759,6 +3846,9 @@ def test_an_unread_output_keeps_its_direction_outside_a_prohibition(
         ("snap_income_source_terminated", None),
         ("verification_request_allows_minimum_time_to_prevent_interruption", None),
         ("battered_noncitizen_not_subject_to_five_year_ban", None),
+        # A barring word that ends the name is a noun.
+        ("household_has_active_bans", None),
+        ("eligible_census_blocks", None),
     ],
 )
 def test_output_pole_from_a_barring_word(name: str, pole: bool | None):
@@ -3769,8 +3859,9 @@ def test_output_pole_from_a_barring_word(name: str, pole: bool | None):
     "unrestricted" as positive; a bar or ban that applies reads as
     negative; a barring verb between its subject and object reads as
     negative and, negated, as positive.  A barring word that modifies a
-    noun, opens a relative clause or names a grant states no pole, and
-    "terminated", which names facts as often as actions, states none.
+    noun, opens a relative clause, ends the name or names a grant states no
+    pole, and "terminated", which names facts as often as actions, states
+    none.
     """
 
     assert _name_pole(name) is pole
@@ -3940,16 +4031,22 @@ def test_the_subject_of_no_ends_at_its_first_verb_or_cue(
 
 
 @pytest.mark.parametrize(
-    ("name", "repeats"),
+    ("name", "repeats", "counts"),
     [
-        ("no_{}deduction_allowed", "medical_"),
-        ("household_{}not_eligible", "member_"),
-        ("{}benefits_continue", "household_"),
-        ("{}applies", "bar_"),
+        ("no_{}deduction_allowed", "medical_", (250, 2_500)),
+        ("no_{}household_may_participate", "eligible_", (250, 2_500)),
+        ("household_{}not_eligible", "member_", (250, 2_500)),
+        ("{}benefits_continue", "household_", (250, 2_500)),
+        # Copying the rest of the name after each noun would cost a pointer
+        # per word per noun, which only a long name separates from the
+        # linear work.
+        ("{}applies", "bar_", (1_000, 20_000)),
     ],
-    ids=["opening-no", "negator", "no-predicate", "bar-nouns"],
+    ids=["opening-no", "modal-no", "negator", "no-predicate", "bar-nouns"],
 )
-def test_name_pole_reading_grows_linearly(name: str, repeats: str):
+def test_name_pole_reading_grows_linearly(
+    name: str, repeats: str, counts: tuple[int, int]
+):
     """Reading a name's pole stays linear in the name's length.
 
     Invariant: the scan for a "no" that opens the subject, the scan for a
@@ -3972,7 +4069,8 @@ def test_name_pole_reading_grows_linearly(name: str, repeats: str):
             check,
         )
 
-    assert_linear_growth(work(250), work(2_500), input_ratio=10)
+    small, large = counts
+    assert_linear_growth(work(small), work(large), input_ratio=large / small)
 
 
 @pytest.mark.parametrize(
