@@ -30647,6 +30647,79 @@ rules:
             not in repaired
         )
 
+    def test_complete_missing_dependent_test_inputs_uses_declared_money_dtype(
+        self, tmp_path
+    ):
+        # The name carries no numeric word, so the name guess alone says false.
+        repo = tmp_path / "rulespec-us" / "us"
+        target_file = repo / "regulations/12-cfr/1005/6.yaml"
+        dependent_file = repo / "regulations/12-cfr/1005/11.yaml"
+        test_file = repo / "regulations/12-cfr/1005/11.test.yaml"
+        target_file.parent.mkdir(parents=True)
+        target_file.write_text(
+            """format: rulespec/v1
+inputs:
+  - name: state_law_or_agreement_imposes_less_liability
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: liability_under_this_section
+    entity: Person
+    dtype: Money
+    period: Month
+rules:
+  - name: state_law_or_agreement_liability
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if state_law_or_agreement_imposes_less_liability: min(50, liability_under_this_section) else: liability_under_this_section
+"""
+        )
+        dependent_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:regulations/12-cfr/1005/6#state_law_or_agreement_liability
+rules: []
+"""
+        )
+        test_file.write_text(
+            """- name: dependent_case
+  input:
+    us:regulations/12-cfr/1005/6#input.state_law_or_agreement_imposes_less_liability: false
+  output:
+    us:regulations/12-cfr/1005/11#provisional_credit: 0
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `dependent_case` execution failed: missing input "
+                        "`liability_under_this_section` for entity `case-1` over "
+                        "2026-10-01..2026-10-31"
+                    )
+                )
+            }
+        )
+
+        changed = _complete_missing_dependent_test_inputs(
+            overlay_repo=repo,
+            relative_output=Path("regulations/12-cfr/1005/6.yaml"),
+            validations=[(dependent_file, validation)],
+        )
+
+        assert changed == [test_file]
+        repaired = test_file.read_text()
+        assert (
+            "us:regulations/12-cfr/1005/6#input.liability_under_this_section: 0"
+            in repaired
+        )
+        assert "liability_under_this_section: false" not in repaired
+
     def test_complete_missing_dependent_test_inputs_uses_dependent_import_ref(
         self, tmp_path
     ):
@@ -33266,6 +33339,121 @@ rules:
             "us:statutes/26/151#input.household_size",
         ]
         assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
+    def test_encode_apply_wrong_typed_repair_keeps_declared_money_values(
+        self, capsys, tmp_path
+    ):
+        # A 12 CFR 1005.6 shape: the generated case's `false` triggers the
+        # repair, which must turn it into 0 and leave the model's numbers
+        # alone. `transfers_that_were_preventable` reads as boolean to the name
+        # guess, so only its Money declaration keeps the model's 200.
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "151.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+inputs:
+  - name: consumer_notified_within_two_business_days
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: unauthorized_transfers_before_notice
+    entity: Person
+    dtype: Money
+    period: Month
+  - name: transfers_that_were_preventable
+    entity: Person
+    dtype: Money
+    period: Month
+rules:
+  - name: timely_notice_liability
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if consumer_notified_within_two_business_days:
+            min(50, unauthorized_transfers_before_notice)
+          else:
+            min(500, min(50, unauthorized_transfers_before_notice) + transfers_that_were_preventable)
+"""
+        )
+        test_file = output_file.with_name("151.test.yaml")
+        test_file.write_text(
+            """- name: timely_notice_limits_transfers
+  period: 2026-10
+  input:
+    us:statutes/26/151#input.consumer_notified_within_two_business_days: true
+    us:statutes/26/151#input.unauthorized_transfers_before_notice: 100
+    us:statutes/26/151#input.transfers_that_were_preventable: 200
+  output:
+    us:statutes/26/151#timely_notice_liability: 50
+- name: auto_zero_timely_notice_liability
+  period: 2026-10
+  input:
+    us:statutes/26/151#input.consumer_notified_within_two_business_days: false
+    us:statutes/26/151#input.unauthorized_transfers_before_notice: false
+    us:statutes/26/151#input.transfers_that_were_preventable: false
+  output:
+    us:statutes/26/151#timely_notice_liability: 0
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/151.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/151.yaml: ci: Test case "
+                            "`auto_zero_timely_notice_liability` execution failed: "
+                            "type mismatch: expected numeric scalar"
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ),
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        test_payload = yaml.safe_load(test_file.read_text())
+        transfers = "us:statutes/26/151#input.unauthorized_transfers_before_notice"
+        preventable = "us:statutes/26/151#input.transfers_that_were_preventable"
+        notified = "us:statutes/26/151#input.consumer_notified_within_two_business_days"
+        for ref, model_number in ((transfers, 100), (preventable, 200)):
+            model_value = test_payload[0]["input"][ref]
+            repaired_value = test_payload[1]["input"][ref]
+            assert model_value == model_number and not isinstance(model_value, bool)
+            assert repaired_value == 0 and not isinstance(repaired_value, bool)
+        assert test_payload[1]["input"][notified] is False
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert sorted(run.outcome["auto_repaired_wrong_typed_test_inputs"]) == sorted(
+            f"auto_zero_timely_notice_liability:{ref}"
+            for ref in (transfers, preventable)
+        )
         assert run.outcome["status"] == "apply_applied"
 
     def test_size_named_string_selector_is_not_numeric(self):
@@ -48096,6 +48284,82 @@ rules: []
         assert (
             updated.count("us:statutes/26/1/h#input.investment_income_amount: 0") == 2
         )
+
+    def test_complete_missing_imported_test_inputs_uses_declared_money_dtype(
+        self, tmp_path
+    ):
+        # The name carries no numeric word, so the name guess alone says false.
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        imported = policy_repo / "regulations/12-cfr/1005/6.yaml"
+        dependent = policy_repo / "regulations/12-cfr/1005/11.yaml"
+        dependent_test = policy_repo / "regulations/12-cfr/1005/11.test.yaml"
+        imported.parent.mkdir(parents=True)
+        _write_test_rulespec_toolchain(policy_repo)
+        imported.write_text(
+            """format: rulespec/v1
+inputs:
+  - name: consumer_notified_within_two_business_days
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: unauthorized_transfers_before_notice
+    entity: Person
+    dtype: Money
+    period: Month
+rules:
+  - name: timely_notice_liability
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if consumer_notified_within_two_business_days:
+            min(50, unauthorized_transfers_before_notice)
+          else: 0
+"""
+        )
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:regulations/12-cfr/1005/6#timely_notice_liability
+rules: []
+"""
+        )
+        dependent_test.write_text(
+            """- name: case_one
+  input:
+    us:regulations/12-cfr/1005/6#input.consumer_notified_within_two_business_days: true
+  output:
+    us:regulations/12-cfr/1005/11#provisional_credit: 0
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `case_one` execution failed: "
+                        "missing input `unauthorized_transfers_before_notice`"
+                    )
+                )
+            }
+        )
+
+        changed = _complete_missing_imported_test_inputs(
+            rules_file=dependent,
+            test_file=dependent_test,
+            repo_path=policy_repo,
+            validation=validation,
+        )
+
+        assert changed is True
+        updated = dependent_test.read_text()
+        assert (
+            "us:regulations/12-cfr/1005/6#input.unauthorized_transfers_before_notice: 0"
+            in updated
+        )
+        assert "unauthorized_transfers_before_notice: false" not in updated
 
     def test_complete_missing_imported_test_inputs_adds_deferred_import_defaults(
         self, tmp_path
