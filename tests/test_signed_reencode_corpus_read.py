@@ -281,6 +281,7 @@ def test_the_preflight_records_the_message_it_prints(tmp_path):
     assert len(args) == 4
     assert result.stderr == args[3] + "\n"
     assert "R2_CORPUS_READ_ACCESS_KEY_ID" in args[3]
+    assert "R2_CORPUS_READ_SECRET_ACCESS_KEY" in args[3]
 
 
 def test_the_fetch_refusal_records_the_message_it_prints(tmp_path):
@@ -303,4 +304,5 @@ def test_the_fetch_refusal_records_the_message_it_prints(tmp_path):
     assert len(args) == 4
     assert result.stderr == args[3] + "\n"
     assert "R2_CORPUS_READ_ACCESS_KEY_ID" in args[3]
+    assert "R2_CORPUS_READ_SECRET_ACCESS_KEY" in args[3]
     assert not marker.exists()
