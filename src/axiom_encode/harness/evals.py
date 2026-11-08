@@ -1787,7 +1787,9 @@ def run_model_eval(
             or repair_candidate_tests_only
             or accept_valid_retry_candidate
         ):
-            raise ValueError("producer guidance requires a single ordinary full-source target")
+            raise ValueError(
+                "producer guidance requires a single ordinary full-source target"
+            )
     validate_codex_reasoning_effort(codex_reasoning_effort)
     _validate_eval_oracle_runtime(oracle, policyengine_runtime, policy_path)
     if target_relative_output is not None and len(citations) != 1:
@@ -1864,8 +1866,11 @@ def run_model_eval(
                         source_unit=source_unit,
                         rulespec_dependency_roots=rulespec_dependency_roots,
                         review_findings_paths=review_findings_paths or [],
-                        **({"producer_review_guidance": producer_review_guidance}
-                           if producer_review_guidance is not None else {}),
+                        **(
+                            {"producer_review_guidance": producer_review_guidance}
+                            if producer_review_guidance is not None
+                            else {}
+                        ),
                         require_complete_source_unit=require_complete_source_unit,
                         target_relative_output=target_relative_output,
                         validation_retry_feedback=validation_retry_feedback,
@@ -7005,9 +7010,14 @@ def prepare_eval_workspace(
     """Create an isolated workspace bundle for a single eval."""
     if producer_review_guidance is not None:
         if review_findings_paths:
-            raise ValueError("producer guidance and review findings are mutually exclusive")
+            raise ValueError(
+                "producer guidance and review findings are mutually exclusive"
+            )
         guidance = producer_review_guidance
-        if not isinstance(guidance.content, bytes) or not 0 < len(guidance.content) <= MAX_GUIDANCE_BYTES:
+        if (
+            not isinstance(guidance.content, bytes)
+            or not 0 < len(guidance.content) <= MAX_GUIDANCE_BYTES
+        ):
             raise ValueError("producer guidance content size is invalid")
         try:
             guidance_text = guidance.content.decode("utf-8", errors="strict")
@@ -7018,7 +7028,10 @@ def prepare_eval_workspace(
             or not guidance_text.endswith("\n")
             or guidance_text.endswith("\n\n")
             or not guidance_text.strip()
-            or any((ord(c) < 32 and c not in "\n\t") or ord(c) == 127 for c in guidance_text)
+            or any(
+                (ord(c) < 32 and c not in "\n\t") or ord(c) == 127
+                for c in guidance_text
+            )
         ):
             raise ValueError("producer guidance content is not normalized")
         source_digest = hashlib.sha256(
@@ -7136,11 +7149,13 @@ def prepare_eval_workspace(
             label="producer-guidance.txt",
         )
         review_findings_files.append(context_file)
-        review_findings_evidence.append({
-            **asdict(context_file),
-            "content": guidance_text,
-            "sha256": guidance.content_sha256,
-        })
+        review_findings_evidence.append(
+            {
+                **asdict(context_file),
+                "content": guidance_text,
+                "sha256": guidance.content_sha256,
+            }
+        )
 
     context_files: list[EvalContextFile] = []
     context_root = workspace_root / "context"
@@ -10377,8 +10392,11 @@ def _run_single_eval(
         amendment_documents=source_unit.amendment_documents,
         extra_context_paths=extra_context_paths,
         review_findings_paths=review_findings_paths,
-        **({"producer_review_guidance": producer_review_guidance}
-           if producer_review_guidance is not None else {}),
+        **(
+            {"producer_review_guidance": producer_review_guidance}
+            if producer_review_guidance is not None
+            else {}
+        ),
         target_relative_output=target_relative_output,
         review_contract=review_contract,
     )

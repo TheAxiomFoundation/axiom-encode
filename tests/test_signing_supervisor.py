@@ -75,7 +75,9 @@ def _run_targeted_inline_package(*args, **kwargs):
         "citation": env["CITATION"],
         "review_finding": env.get("REVIEW_FINDING", ""),
     }
-    assert not inputs["review_finding"].startswith("axiom-producer-review-guidance-ref:")
+    assert not inputs["review_finding"].startswith(
+        "axiom-producer-review-guidance-ref:"
+    )
     event_path.write_text(json.dumps({"inputs": inputs}), encoding="utf-8")
     env["GITHUB_EVENT_PATH"] = str(event_path)
     env["GITHUB_SHA"] = "a" * 40

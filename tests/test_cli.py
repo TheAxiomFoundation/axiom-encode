@@ -14370,8 +14370,12 @@ class TestCmdEncode:
         args.mode = overrides.get("mode", "repo-augmented")
         args.allow_context = overrides.get("allow_context", [])
         args.review_findings = overrides.get("review_findings", [])
-        args.producer_review_guidance_ref = overrides.get("producer_review_guidance_ref", None)
-        args.producer_review_guidance_checkout = overrides.get("producer_review_guidance_checkout", None)
+        args.producer_review_guidance_ref = overrides.get(
+            "producer_review_guidance_ref", None
+        )
+        args.producer_review_guidance_checkout = overrides.get(
+            "producer_review_guidance_checkout", None
+        )
         args.review_contract_json = overrides.get("review_contract_json", None)
         args.repair_candidate_root = overrides.get("repair_candidate_root", None)
         args.repair_candidate_path = overrides.get("repair_candidate_path", None)

@@ -77,7 +77,10 @@ def _strict_json(raw: bytes, limit: int) -> dict:
         text = raw.decode("utf-8", errors="strict")
         _normalized_text(text, terminal_lf=True)
         value = json.loads(
-            text, object_pairs_hook=pairs, parse_constant=constant, parse_float=finite_float
+            text,
+            object_pairs_hook=pairs,
+            parse_constant=constant,
+            parse_float=finite_float,
         )
     except (UnicodeError, RecursionError, json.JSONDecodeError) as exc:
         raise ValueError("invalid guidance JSON") from exc
@@ -94,7 +97,11 @@ def _git(repo: Path, *args: str) -> bytes:
         stderr=subprocess.PIPE,
         timeout=15,
         env={
-            **{key: value for key, value in os.environ.items() if not key.startswith("GIT_")},
+            **{
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("GIT_")
+            },
             "GIT_NO_REPLACE_OBJECTS": "1",
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_NO_LAZY_FETCH": "1",
@@ -112,7 +119,9 @@ def _regular_blob(repo: Path, commit: str, path: str, size: int) -> bytes:
     # Use the protected Git broker's existing tree-size grammar. In particular,
     # cat-file -s and global options before -C are not admitted by that broker.
     parts = PurePosixPath(path).parts
-    prefixes = {"/".join(parts[:index]).encode("ascii") for index in range(1, len(parts) + 1)}
+    prefixes = {
+        "/".join(parts[:index]).encode("ascii") for index in range(1, len(parts) + 1)
+    }
     entries = {}
     listing = _git(repo, "ls-tree", "-r", "-t", "-l", "-z", "--full-tree", commit)
     if len(listing) > 8 * 1024 * 1024 or listing.count(b"\0") > 100_000:
@@ -166,7 +175,9 @@ def parse_producer_guidance_descriptor(descriptor_text: str) -> dict:
         raise ValueError("unexpected guidance descriptor fields")
     if descriptor["schema"] != "axiom-encode/producer-review-finding-ref/v1":
         raise ValueError("unsupported guidance descriptor schema")
-    if type(descriptor["producer_commit"]) is not str or not _SHA40.fullmatch(descriptor["producer_commit"]):
+    if type(descriptor["producer_commit"]) is not str or not _SHA40.fullmatch(
+        descriptor["producer_commit"]
+    ):
         raise ValueError("guidance producer must be an immutable commit")
     path = descriptor["path"]
     if (
@@ -195,7 +206,7 @@ def producer_guidance_descriptor_from_review_finding(value: str) -> str | None:
         return None
     if not value.startswith(GUIDANCE_INPUT_PREFIX):
         raise ValueError("unsupported producer guidance input version")
-    descriptor_text = value[len(GUIDANCE_INPUT_PREFIX):]
+    descriptor_text = value[len(GUIDANCE_INPUT_PREFIX) :]
     parse_producer_guidance_descriptor(descriptor_text)
     return descriptor_text
 
@@ -292,7 +303,10 @@ def verify_guidance_for_verified_manifest(
     ):
         raise ValueError("guidance requires the exact ordinary model-apply manifest")
     producer = verified_payload.get("axiom_encode_git")
-    if not isinstance(producer, dict) or producer.get("commit") != request.producer_commit:
+    if (
+        not isinstance(producer, dict)
+        or producer.get("commit") != request.producer_commit
+    ):
         raise ValueError("guidance signed producer does not match the request")
     source = verified_payload.get("source_attestation")
     if not isinstance(source, dict) or any(
@@ -309,10 +323,16 @@ def verify_guidance_for_verified_manifest(
     )
     context_path = verified_payload.get("context_manifest_file")
     context_digest = verified_payload.get("context_manifest_sha256")
-    if not isinstance(context_path, str) or not context_path or not isinstance(context_digest, str):
+    if (
+        not isinstance(context_path, str)
+        or not context_path
+        or not isinstance(context_digest, str)
+    ):
         raise ValueError("guidance signed context binding is missing")
     context_bytes = read_bounded_regular_file(
-        request.context_root, Path(context_path), label="verified guidance context",
+        request.context_root,
+        Path(context_path),
+        label="verified guidance context",
         max_bytes=16 * 1024 * 1024,
     )
     if hashlib.sha256(context_bytes).hexdigest() != context_digest:
@@ -327,16 +347,24 @@ def verify_guidance_for_verified_manifest(
         "source_sha256": guidance.source_sha256,
         "content_sha256": guidance.content_sha256,
     }
-    if context.get("citation") != request.citation or context.get("producer_review_guidance") != expected_binding:
-        raise ValueError("guidance context identity does not match the immutable producer blob")
+    if (
+        context.get("citation") != request.citation
+        or context.get("producer_review_guidance") != expected_binding
+    ):
+        raise ValueError(
+            "guidance context identity does not match the immutable producer blob"
+        )
     findings = context.get("review_findings_files")
     if (
-        not isinstance(findings, list) or len(findings) != 1
+        not isinstance(findings, list)
+        or len(findings) != 1
         or not isinstance(findings[0], dict)
         or findings[0].get("content") != guidance.content.decode("utf-8")
         or findings[0].get("sha256") != guidance.content_sha256
     ):
-        raise ValueError("guidance context does not contain the exact mandatory finding")
+        raise ValueError(
+            "guidance context does not contain the exact mandatory finding"
+        )
     return {
         "schema": "axiom-encode/verified-producer-guidance/v1",
         "manifest_path": manifest_path,
@@ -346,13 +374,17 @@ def verify_guidance_for_verified_manifest(
     }
 
 
-def validate_workflow_guidance_input(inputs: dict, *, producer_commit: str) -> str | None:
+def validate_workflow_guidance_input(
+    inputs: dict, *, producer_commit: str
+) -> str | None:
     """Parse the original dispatch inputs without changing ordinary inline mode."""
     for field in ("dependent_review_finding", "second_dependent_review_finding"):
         value = inputs.get(field, "")
         if isinstance(value, str) and value.startswith(GUIDANCE_INPUT_NAMESPACE):
             raise ValueError("producer guidance references are primary-only")
-    descriptor_text = producer_guidance_descriptor_from_review_finding(inputs.get("review_finding", ""))
+    descriptor_text = producer_guidance_descriptor_from_review_finding(
+        inputs.get("review_finding", "")
+    )
     if descriptor_text is None:
         return None
     from .corpus_resolver import require_canonical_corpus_citation_path
@@ -363,26 +395,42 @@ def validate_workflow_guidance_input(inputs: dict, *, producer_commit: str) -> s
         raise ValueError("guidance descriptor must name this workflow producer commit")
     require_canonical_corpus_citation_path(inputs.get("citation", ""))
     forbidden = (
-        "queue_id", "queue_item_id", "queue_manifest_sha256", "queue_item_generation_sha256",
-        "queue_dispatcher_run_id", "repair_run_id", "replace_legacy_rulespec_path",
-        "legacy_exact_dependent_rulespec_path", "second_legacy_exact_dependent_rulespec_path",
-        "dependent_citation", "second_dependent_citation", "dependent_review_finding",
+        "queue_id",
+        "queue_item_id",
+        "queue_manifest_sha256",
+        "queue_item_generation_sha256",
+        "queue_dispatcher_run_id",
+        "repair_run_id",
+        "replace_legacy_rulespec_path",
+        "legacy_exact_dependent_rulespec_path",
+        "second_legacy_exact_dependent_rulespec_path",
+        "dependent_citation",
+        "second_dependent_citation",
+        "dependent_review_finding",
         "second_dependent_review_finding",
     )
     if any(inputs.get(key) not in (None, "") for key in forbidden):
-        raise ValueError("producer guidance cannot mix queue, repair, legacy or dependent lanes")
-    for key in ("existing_signed_imports_json", "legacy_retained_successor_rulespec_paths_json"):
+        raise ValueError(
+            "producer guidance cannot mix queue, repair, legacy or dependent lanes"
+        )
+    for key in (
+        "existing_signed_imports_json",
+        "legacy_retained_successor_rulespec_paths_json",
+    ):
         if json.loads(inputs.get(key) or "[]") != []:
             raise ValueError("producer guidance cannot add import or successor lanes")
     atomic = split_atomic_source_input(inputs.get("source_bundle_json") or "[]")
     if (
-        atomic["source_bundle"] != [] or atomic["canonical_refresh_bundle"] != []
+        atomic["source_bundle"] != []
+        or atomic["canonical_refresh_bundle"] != []
         or atomic["require_complete_source_unit"] is not True
         or atomic.get("manifest_only_refresh", False)
         or atomic.get("reviewed_candidate_promotion", False)
         or atomic.get("repair_mode") is not None
     ):
-        raise ValueError("producer guidance requires an ordinary single full-source target")
+        raise ValueError(
+            "producer guidance requires an ordinary single full-source target"
+        )
     return descriptor_text
 
 
@@ -401,11 +449,15 @@ def verify_packaged_producer_guidance(
     The caller supplies the run-local result of the protected guard, not an
     artifact's claimed status. This adds no signature or source authority.
     """
-    descriptor = validate_workflow_guidance_input(original_inputs, producer_commit=producer_commit)
+    descriptor = validate_workflow_guidance_input(
+        original_inputs, producer_commit=producer_commit
+    )
     if descriptor is None:
         raise ValueError("packaged guidance requires the original tagged event input")
     if guard_payload.get("passed") is not True or guard_payload.get("issues") != []:
-        raise ValueError("packaged guidance requires the successful complete protected guard")
+        raise ValueError(
+            "packaged guidance requires the successful complete protected guard"
+        )
     record = guard_payload.get("producer_review_guidance")
     if not isinstance(record, dict) or (
         record.get("manifest_path") != manifest_path
@@ -414,16 +466,27 @@ def verify_packaged_producer_guidance(
         raise ValueError("packaged manifest differs from the verified guard bytes")
     payload = _strict_json(manifest_bytes, 1024 * 1024)
     request = ProducerGuidanceVerificationRequest(
-        descriptor, encoder_checkout, producer_commit, original_inputs["citation"], context_root,
+        descriptor,
+        encoder_checkout,
+        producer_commit,
+        original_inputs["citation"],
+        context_root,
     )
     rebound = verify_guidance_for_verified_manifest(
-        request, manifest_path=manifest_path,
-        manifest_sha256=record["manifest_sha256"], verified_payload=payload,
+        request,
+        manifest_path=manifest_path,
+        manifest_sha256=record["manifest_sha256"],
+        verified_payload=payload,
     )
     if rebound != record:
-        raise ValueError("packaged guidance binding differs from the protected guard record")
+        raise ValueError(
+            "packaged guidance binding differs from the protected guard record"
+        )
     guidance = read_producer_review_guidance(
-        descriptor, encoder_repo=encoder_checkout, expected_producer_sha=producer_commit,
-        citation=request.citation, authenticated_source_sha256=record["source_sha256"],
+        descriptor,
+        encoder_repo=encoder_checkout,
+        expected_producer_sha=producer_commit,
+        citation=request.citation,
+        authenticated_source_sha256=record["source_sha256"],
     )
     return guidance.content.decode("utf-8")
