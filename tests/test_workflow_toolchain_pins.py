@@ -1338,7 +1338,7 @@ def test_setup_uv_takes_only_a_version():
         and not (
             set(step.get("with") or {}) == {"version"}
             or (
-                set(step["with"]) == {"version", "enable-cache"}
+                set(step.get("with") or {}) == {"version", "enable-cache"}
                 and step["with"]["enable-cache"] == "false"
             )
         )
