@@ -31,6 +31,8 @@ from axiom_oracles.bridges.snap_populace import (
     project_income_resource_inputs,
     project_jurisdiction_household_inputs,
 )
+from hypothesis import HealthCheck, example, given, settings
+from hypothesis import strategies as st
 
 from axiom_encode import __version__ as AXIOM_ENCODE_TEST_VERSION
 from axiom_encode.cli import (
@@ -42,6 +44,7 @@ from axiom_encode.cli import (
     _REPLACEMENT_OVERLAY_SCOPE_ATTR,
     _REQUIRED_TEST_CASE_CONTRACTS_ATTR,
     _REVIEWED_CANDIDATE_PROMOTION_ATTR,
+    APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL,
     APPLIED_ENCODING_MANIFEST_SCHEMA,
     APPLIED_ENCODING_MODEL_TOOL,
     APPLIED_ENCODING_OFFICIAL_REPOSITORY,
@@ -58,6 +61,7 @@ from axiom_encode.cli import (
     _applied_encoding_manifest_signature_issue,
     _applied_encoding_manifest_verifier,
     _applied_manifest_paths_for_files,
+    _applied_manifest_snapshot_exists,
     _applied_manifest_source_attestation_issues,
     _apply_encoder_execution_identity,
     _apply_generated_encoding_result,
@@ -98,16 +102,19 @@ from axiom_encode.cli import (
     _generated_test_period_for_rule,
     _git_changed_files,
     _grounded_formula_literal_for_scalar_expression,
+    _guard_manifest_waiver_set_identity,
     _has_zero_output_test,
     _historical_manifest_refresh_inputs,
     _hoist_nested_test_tables,
     _immutable_planned_rulespec_digest_issue,
     _import_base_to_repo_file,
+    _in_place_replacement_post_waiver_dependent_manifests,
     _infer_missing_input_default,
     _inline_medicaid_magi_income_helpers,
     _insert_false_input_default,
     _install_apply_transaction,
     _install_eval_suite_revalidation_transaction,
+    _is_unambiguously_absent_repo_path,
     _latest_axiom_encode_version_commit,
     _legacy_replacement_pending_paths,
     _load_verified_applied_encoding_manifest_payload,
@@ -232,6 +239,7 @@ from axiom_encode.cli import (
     _try_repair_generated_computed_output_test_inputs_for_apply,
     _try_repair_generated_conditional_vacuity_tests_for_apply,
     _try_repair_generated_day_period_test_shorthands_for_apply,
+    _try_repair_generated_deferred_canonical_citations_for_apply,
     _try_repair_generated_delegated_policy_settings_for_apply,
     _try_repair_generated_embedded_scalar_literals_for_apply,
     _try_repair_generated_empty_test_outputs_for_apply,
@@ -368,6 +376,7 @@ from tests.release_object_fixtures import (
     TEST_RELEASE_PUBLIC_KEY,
     bind_test_corpus_release,
 )
+from tests.scaling import assert_linear_growth, lowest_work
 from tests.signing_broker_fixtures import SigningBrokerFixture
 
 APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV = "AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY"
@@ -849,15 +858,18 @@ def _test_eval_suite_report_payload(
     *,
     corpus_citation_path: str = "us/statute/7/2017",
     oracle: str = "none",
+    backend: str = "codex",
+    model: str = "gpt",
 ) -> dict:
     """Build one complete report payload whose nested evidence can be attacked."""
 
     manifest_path = tmp_path / "suite.yaml"
+    runner_spec = f"codex-gpt={backend}:{model}"
     oracle_line = f"    oracle: {oracle}\n" if oracle != "none" else ""
     manifest_path.write_text(
         "name: CLI admission parity\n"
         "runners:\n"
-        "  - codex-gpt=codex:gpt\n"
+        f"  - {runner_spec}\n"
         "gates:\n"
         "  min_cases: 1\n"
         "  min_success_rate: 1.0\n"
@@ -898,8 +910,8 @@ def _test_eval_suite_report_payload(
         {
             "citation": corpus_citation_path,
             "runner": "codex-gpt",
-            "backend": "codex",
-            "model": "gpt",
+            "backend": backend,
+            "model": model,
             "mode": manifest.mode,
             "success": True,
             "duration_ms": 1000,
@@ -912,7 +924,7 @@ def _test_eval_suite_report_payload(
     )
     verified = _fake_verified_eval_suite_artifacts(
         manifest=manifest,
-        effective_runners=["codex-gpt=codex:gpt"],
+        effective_runners=[runner_spec],
         results=[result],
     )
     verified["run_state"]["manifest"].update(
@@ -921,7 +933,7 @@ def _test_eval_suite_report_payload(
     verified_result = _eval_result_from_payload(_bind_eval_result_payload(result))
     return _build_eval_suite_payload(
         manifest=manifest,
-        effective_runners=["codex-gpt=codex:gpt"],
+        effective_runners=[runner_spec],
         results=[verified_result],
         readiness={"codex-gpt": summarize_readiness([verified_result], manifest.gates)},
         run_state=verified["run_state"],
@@ -1029,6 +1041,14 @@ def test_cli_eval_suite_payload_is_admitted_by_eval_board(tmp_path, oracle):
 @pytest.mark.parametrize("oracle", ["none", "policyengine"])
 def test_cli_report_validator_admits_cli_eval_suite_payload(tmp_path, oracle):
     payload = _test_eval_suite_report_payload(tmp_path, oracle=oracle)
+
+    assert _validated_eval_suite_report_payload(payload) == payload
+
+
+def test_cli_report_validator_admits_claude_api_runner_payload(tmp_path):
+    payload = _test_eval_suite_report_payload(
+        tmp_path, backend="claude-api", model="claude-opus-5-5"
+    )
 
     assert _validated_eval_suite_report_payload(payload) == payload
 
@@ -1483,6 +1503,7 @@ def _manifest_refresh_command_args(tmp_path, repo):
     return SimpleNamespace(
         repo=repo,
         axiom_rules_path=axiom_rules,
+        axiom_rules_engine_ref="a" * 40,
         corpus_path=corpus,
         rulespec_dependency_root=[],
         rulespec_path="us/statutes/7/2015/f.yaml",
@@ -1490,18 +1511,45 @@ def _manifest_refresh_command_args(tmp_path, repo):
     )
 
 
-def _manifest_refresh_source_unit():
+def _manifest_refresh_source_unit(*, amendment_documents=()):
     return SimpleNamespace(
         body="authoritative source text\n",
+        amendment_documents=amendment_documents,
         source_attestation={
             "requested_corpus_citation_path": "us/statute/7/2015/f",
         },
     )
 
 
+@pytest.mark.parametrize("engine_ref", [None, "main", "A" * 40, "a" * 39])
+def test_refresh_applied_manifest_rejects_unpinned_engine_before_signing(
+    tmp_path, engine_ref
+):
+    repo, *_ = _manifest_refresh_repo(tmp_path)
+    args = _manifest_refresh_command_args(tmp_path, repo)
+    args.axiom_rules_engine_ref = engine_ref
+    with patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer:
+        with pytest.raises(ValueError, match="full lowercase engine commit SHA"):
+            cmd_refresh_applied_manifest(args)
+        signer.assert_not_called()
+
+
 def test_refresh_applied_manifest_command_changes_only_manifest(tmp_path, capsys):
     repo, rule, companion, manifest = _manifest_refresh_repo(tmp_path)
     args = _manifest_refresh_command_args(tmp_path, repo)
+    amendment = CorpusAmendmentDocument(
+        citation_path="us/statute/119/54/15",
+        title="Section 2015 amended",
+        expression_date="2026-10-21",
+        metadata={
+            "commencement_date": "2027-04-01",
+            "commencement_citation_path": "us/statute/119/54/2",
+        },
+        body="In section 2015, replace the rate with 305.",
+        match_tier="structured",
+    )
+    source_unit = _manifest_refresh_source_unit(amendment_documents=(amendment,))
+
     original_rule = rule.read_bytes()
     original_companion = companion.read_bytes()
     original_manifest = manifest.read_bytes()
@@ -1531,12 +1579,12 @@ def test_refresh_applied_manifest_command_changes_only_manifest(tmp_path, capsys
         ),
         patch(
             "axiom_encode.cli.resolve_corpus_source_unit",
-            return_value=_manifest_refresh_source_unit(),
+            return_value=source_unit,
         ),
         patch(
             "axiom_encode.cli._run_generated_encoding_overlay_validation",
             return_value=(True, [], []),
-        ),
+        ) as overlay_mock,
         patch(
             "axiom_encode.cli._apply_generated_encoding_result",
             side_effect=apply_refresh,
@@ -1544,6 +1592,13 @@ def test_refresh_applied_manifest_command_changes_only_manifest(tmp_path, capsys
     ):
         signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
         cmd_refresh_applied_manifest(args)
+
+    overlay_mock.assert_called_once()
+    assert overlay_mock.call_args.kwargs["axiom_rules_engine_ref"] == "a" * 40
+    assert overlay_mock.call_args.kwargs["amendment_documents"] == (amendment,)
+    assert overlay_mock.call_args.kwargs["amendment_source_texts"] == {
+        amendment.citation_path: amendment.body,
+    }
 
     assert rule.read_bytes() == original_rule
     assert companion.read_bytes() == original_companion
@@ -1556,6 +1611,46 @@ def test_refresh_applied_manifest_command_changes_only_manifest(tmp_path, capsys
         in capsys.readouterr().out
     )
     apply_mock.assert_called_once()
+
+
+def test_refresh_wrong_engine_pin_fails_before_apply_or_signing(tmp_path):
+    from axiom_encode.engine_binding import EngineBindingError
+
+    repo, rule, companion, manifest = _manifest_refresh_repo(tmp_path)
+    args = _manifest_refresh_command_args(tmp_path, repo)
+    originals = tuple(path.read_bytes() for path in (rule, companion, manifest))
+    args.axiom_rules_path.rmdir()
+    _init_test_git_repo(args.axiom_rules_path)
+    _git(args.axiom_rules_path, "commit", "--allow-empty", "-m", "different engine")
+    with (
+        patch("axiom_encode.cli._recover_apply_transaction"),
+        patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
+        patch(
+            "axiom_encode.cli.load_rulespec_local_corpus_release", return_value=object()
+        ),
+        patch(
+            "axiom_encode.cli._manifest_primary_source_verifications",
+            return_value=([], "rulespec-us/us"),
+        ),
+        patch(
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=_manifest_refresh_source_unit(),
+        ),
+        patch("axiom_encode.cli._apply_generated_encoding_result") as apply_mock,
+        patch("axiom_encode.cli._sign_applied_encoding_manifest") as sign_mock,
+        patch("axiom_encode.cli.ValidatorPipeline") as pipeline,
+        pytest.raises(
+            EngineBindingError,
+            match="Apply engine binding revision must match engine checkout HEAD",
+        ),
+    ):
+        signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
+        cmd_refresh_applied_manifest(args)
+    pipeline.assert_not_called()
+    apply_mock.assert_not_called()
+    sign_mock.assert_not_called()
+    assert tuple(path.read_bytes() for path in (rule, companion, manifest)) == originals
+    assert _git(repo, "status", "--short").stdout == ""
 
 
 @pytest.mark.parametrize("failure_kind", ["supplemental", "mutated"])
@@ -1705,7 +1800,32 @@ def test_manifest_refresh_rejects_unsigned_manifest_mutation(tmp_path):
         )
 
 
-def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
+def _write_reviewed_rulespec_records(
+    root: Path, *records: tuple[str, str, dict | None]
+) -> Path:
+    """Write strict admission records ``(country, sha, binding)`` below root."""
+
+    root.mkdir(parents=True, exist_ok=True)
+    for country, sha, binding in records:
+        path = root / country / f"{sha}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema": "axiom-encode/reviewed-rulespec-admission/v1",
+            "country": country,
+            "rulespec_ref": sha,
+            "pr_base_branch": None,
+            "base_sha": None,
+            "rulespec_pr": None,
+            "purpose": "Test admission.",
+            "binding": binding,
+            "declared": None,
+        }
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        path.chmod(0o644)
+    return root
+
+
+def _reviewed_candidate_checkout(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     repo = tmp_path / "rulespec-us"
     _init_test_git_repo(repo)
     rule = repo / "us/statutes/7/2015/f.yaml"
@@ -1727,7 +1847,40 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
         check=True,
         capture_output=True,
     )
-    reviewed_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    return repo, rule, companion, _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+
+def _reviewed_candidate_binding(rule: Path, companion: Path, **overrides) -> dict:
+    binding = {
+        "citation": "us/statute/7/2015/f",
+        "rulespec_path": "us/statutes/7/2015/f.yaml",
+        "rulespec_sha256": _sha256_file(rule),
+        "companion_sha256": _sha256_file(companion),
+    }
+    binding.update(overrides)
+    return binding
+
+
+@pytest.mark.parametrize("admission", ["bound", "unbound-legacy"])
+def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admission):
+    repo, rule, companion, reviewed_ref = _reviewed_candidate_checkout(tmp_path)
+    binding = (
+        _reviewed_candidate_binding(rule, companion) if admission == "bound" else None
+    )
+    legacy_refs = frozenset({("us", reviewed_ref)}) if binding is None else frozenset()
+    amendment = CorpusAmendmentDocument(
+        citation_path="us/statute/119/54/15",
+        title="Section 2015 amended",
+        expression_date="2026-10-21",
+        metadata={
+            "commencement_date": "2027-04-01",
+            "commencement_citation_path": "us/statute/119/54/2",
+        },
+        body="In section 2015, replace the rate with 305.",
+        match_tier="structured",
+    )
+    source_unit = _manifest_refresh_source_unit(amendment_documents=(amendment,))
+
     original_rule = rule.read_bytes()
     original_companion = companion.read_bytes()
     args = SimpleNamespace(
@@ -1739,6 +1892,9 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
         citation="us/statute/7/2015/f",
         reviewed_rulespec_ref=reviewed_ref,
         run_id="promotion-test-run",
+    )
+    record_root = _write_reviewed_rulespec_records(
+        tmp_path / "reviewed-rulespec-refs", ("us", reviewed_ref, binding)
     )
     args.axiom_rules_path.mkdir()
     args.corpus_path.mkdir()
@@ -1769,8 +1925,13 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
     }
     with (
         patch(
-            "axiom_encode.prepare_signed_backfill.REVIEWED_RULESPEC_REFS",
-            frozenset({("us", reviewed_ref)}),
+            "axiom_encode.cli._promotion_reviewed_rulespec_record_root",
+            return_value=record_root,
+        ),
+        patch(
+            "axiom_encode.prepare_signed_backfill."
+            "UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS",
+            legacy_refs,
         ),
         patch("axiom_encode.cli._recover_apply_transaction"),
         patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
@@ -1784,12 +1945,12 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
         ),
         patch(
             "axiom_encode.cli.resolve_corpus_source_unit",
-            return_value=_manifest_refresh_source_unit(),
+            return_value=source_unit,
         ),
         patch(
             "axiom_encode.cli._run_generated_encoding_overlay_validation",
             side_effect=validate,
-        ),
+        ) as overlay_mock,
         patch(
             "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
             return_value=provenance,
@@ -1814,6 +1975,12 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
     ):
         signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
         cmd_promote_reviewed_candidate(args)
+
+    overlay_mock.assert_called_once()
+    assert overlay_mock.call_args.kwargs["amendment_documents"] == (amendment,)
+    assert overlay_mock.call_args.kwargs["amendment_source_texts"] == {
+        amendment.citation_path: amendment.body,
+    }
 
     manifest = repo / _applied_encoding_manifest_path(Path("us/statutes/7/2015/f.yaml"))
     payload = json.loads(manifest.read_text())
@@ -1874,6 +2041,86 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
     assert "promoted reviewed candidate" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(
+    ("defect", "message"),
+    [
+        ("citation", "citation or path differs from its admission record"),
+        ("path", "citation or path differs from its admission record"),
+        ("rulespec_sha256", "bytes differ from its admission record binding"),
+        ("companion_sha256", "bytes differ from its admission record binding"),
+        ("unbound", "has no promotion binding"),
+    ],
+)
+def test_promote_reviewed_candidate_refuses_record_binding_mismatch_before_signer(
+    tmp_path, defect, message
+):
+    repo, rule, companion, reviewed_ref = _reviewed_candidate_checkout(tmp_path)
+    binding = {
+        "citation": _reviewed_candidate_binding(
+            rule, companion, citation="us/statute/7/2015/g"
+        ),
+        "path": _reviewed_candidate_binding(
+            rule, companion, rulespec_path="us/statutes/7/2015/g.yaml"
+        ),
+        "rulespec_sha256": _reviewed_candidate_binding(
+            rule, companion, rulespec_sha256="0" * 64
+        ),
+        "companion_sha256": _reviewed_candidate_binding(
+            rule, companion, companion_sha256="0" * 64
+        ),
+        # A post-migration record without a binding is not promotable.
+        "unbound": None,
+    }[defect]
+    args = SimpleNamespace(
+        repo=repo,
+        axiom_rules_path=tmp_path,
+        corpus_path=tmp_path,
+        rulespec_dependency_root=[],
+        rulespec_path="us/statutes/7/2015/f.yaml",
+        citation="us/statute/7/2015/f",
+        reviewed_rulespec_ref=reviewed_ref,
+        run_id=None,
+    )
+    record_root = _write_reviewed_rulespec_records(
+        tmp_path / "reviewed-rulespec-refs", ("us", reviewed_ref, binding)
+    )
+    # Move the module's mtime so that a plain `git status` would refresh the
+    # index; the refusal must leave .git/index byte-identical.
+    module = repo / "us/statutes/7/2015/f.yaml"
+    module_stat = module.stat()
+    os.utime(
+        module, ns=(module_stat.st_atime_ns, module_stat.st_mtime_ns + 5_000_000_000)
+    )
+    index_before = (repo / ".git" / "index").read_bytes()
+
+    with (
+        patch(
+            "axiom_encode.cli._promotion_reviewed_rulespec_record_root",
+            return_value=record_root,
+        ),
+        patch("axiom_encode.cli._recover_apply_transaction") as recover,
+        patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
+        patch("axiom_encode.cli._run_generated_encoding_overlay_validation") as overlay,
+        patch(
+            "axiom_encode.cli.subprocess.check_output",
+            wraps=subprocess.check_output,
+        ) as check_output,
+        pytest.raises(ValueError, match=message),
+    ):
+        cmd_promote_reviewed_candidate(args)
+    # The protected runtime's trusted git wrapper admits only
+    # `git [-C <repo>] <command> ...`, so no global option may precede it.
+    for git_call in check_output.call_args_list:
+        argv = list(git_call.args[0])
+        if argv[:1] == ["git"]:
+            assert argv[1] == "-C" and not argv[3].startswith("-"), argv
+    signer_context.assert_not_called()
+    overlay.assert_not_called()
+    recover.assert_not_called()
+    assert not (repo / ".axiom").exists()
+    assert (repo / ".git" / "index").read_bytes() == index_before
+
+
 def test_promote_reviewed_candidate_rejects_unallowlisted_ref(tmp_path):
     repo = tmp_path / "rulespec-us"
     _init_test_git_repo(repo)
@@ -1894,15 +2141,136 @@ def test_promote_reviewed_candidate_rejects_unallowlisted_ref(tmp_path):
         reviewed_rulespec_ref=reviewed_ref,
         run_id=None,
     )
+    # Admitted for another country and another commit only.
+    record_root = _write_reviewed_rulespec_records(
+        tmp_path / "reviewed-rulespec-refs",
+        ("ca", reviewed_ref, None),
+        ("us", "f" * 40, None),
+    )
 
     with (
         patch(
-            "axiom_encode.prepare_signed_backfill.REVIEWED_RULESPEC_REFS",
-            frozenset(),
+            "axiom_encode.cli._promotion_reviewed_rulespec_record_root",
+            return_value=record_root,
         ),
+        patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
         pytest.raises(ValueError, match="not explicitly allowlisted"),
     ):
         cmd_promote_reviewed_candidate(args)
+    signer_context.assert_not_called()
+
+
+@pytest.mark.parametrize("defect", ["none", "missing", "non-canonical", "symlink"])
+def test_promote_reviewed_candidate_refuses_unsafe_record_root(tmp_path, defect):
+    repo = tmp_path / "rulespec-us"
+    _init_test_git_repo(repo)
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "empty reviewed head"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    reviewed_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    root = _write_reviewed_rulespec_records(
+        tmp_path / "records", ("us", reviewed_ref, None)
+    )
+    if defect == "none":
+        root = None
+    elif defect == "missing":
+        shutil.rmtree(root)
+    elif defect == "non-canonical":
+        record = root / "us" / f"{reviewed_ref}.json"
+        record.write_text(json.dumps(json.loads(record.read_text())) + "\n")
+    else:
+        link = tmp_path / "linked-records"
+        link.symlink_to(root, target_is_directory=True)
+        root = link
+    args = SimpleNamespace(
+        repo=repo,
+        axiom_rules_path=tmp_path,
+        corpus_path=tmp_path,
+        rulespec_dependency_root=[],
+        rulespec_path="us/statutes/7/2015/f.yaml",
+        citation="us/statute/7/2015/f",
+        reviewed_rulespec_ref=reviewed_ref,
+        run_id=None,
+    )
+
+    with (
+        patch(
+            "axiom_encode.cli._promotion_reviewed_rulespec_record_root",
+            return_value=root,
+        ),
+        patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
+        pytest.raises(ValueError, match="record"),
+    ):
+        cmd_promote_reviewed_candidate(args)
+    signer_context.assert_not_called()
+
+
+def test_promote_reviewed_candidate_rejects_caller_supplied_record_root():
+    """Admission records are never taken from a command-line path."""
+
+    parser_args = [
+        "promote-reviewed-candidate",
+        "--repo",
+        "rulespec-us",
+        "--rulespec-path",
+        "us/statutes/7/2015/f.yaml",
+        "--citation",
+        "us/statute/7/2015/f",
+        "--reviewed-rulespec-ref",
+        "a" * 40,
+        "--reviewed-rulespec-refs-root",
+        "/tmp/caller-records",
+        "--axiom-rules-engine-path",
+        "engine",
+        "--corpus-path",
+        "corpus",
+    ]
+    with (
+        patch.object(sys, "argv", ["axiom-encode", *parser_args]),
+        patch("axiom_encode.cli.cmd_promote_reviewed_candidate") as command,
+        pytest.raises(SystemExit),
+    ):
+        main()
+    command.assert_not_called()
+
+
+def test_promotion_record_root_uses_attested_runtime_prefix(tmp_path, monkeypatch):
+    from axiom_encode.cli import _promotion_reviewed_rulespec_record_root
+
+    runtime = tmp_path / "opt" / "python"
+    monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_RUNTIME", "1")
+    with patch(
+        "axiom_encode.cli._load_trusted_runtime_attestation",
+        return_value={"path": str(runtime / "runtime-attestation.json")},
+    ):
+        assert _promotion_reviewed_rulespec_record_root() == (
+            runtime / "reviewed-rulespec-refs"
+        )
+    with (
+        patch(
+            "axiom_encode.cli._load_trusted_runtime_attestation",
+            side_effect=RuntimeError("runtime attestation is unreadable"),
+        ),
+        pytest.raises(RuntimeError, match="unreadable"),
+    ):
+        _promotion_reviewed_rulespec_record_root()
+
+
+def test_promotion_record_root_outside_runtime_is_checkout_or_none(monkeypatch):
+    from axiom_encode.cli import _promotion_reviewed_rulespec_record_root
+
+    monkeypatch.delenv("AXIOM_ENCODE_TRUSTED_RUNTIME", raising=False)
+    assert _promotion_reviewed_rulespec_record_root() == (
+        Path(__file__).resolve().parents[1] / "data" / "reviewed-rulespec-refs"
+    )
+    with patch(
+        "axiom_encode.prepare_signed_backfill._checkout_reviewed_rulespec_record_root",
+        return_value=None,
+    ):
+        assert _promotion_reviewed_rulespec_record_root() is None
 
 
 def test_apply_manifest_environment_public_key_cannot_replace_protected_broker(
@@ -2749,6 +3117,27 @@ def _init_test_git_repo(repo: Path) -> None:
     _git(repo, "config", "user.name", "Test User")
 
 
+@pytest.mark.parametrize("ancestor_kind", ["symlink", "regularfile"])
+def test_manifest_base_snapshot_refuses_ambiguous_deleted_ancestor(
+    tmp_path, ancestor_kind
+):
+    repo = tmp_path / "rulespec-us"
+    _init_test_git_repo(repo)
+    ancestor = repo / "us/statutes/deleted"
+    ancestor.parent.mkdir(parents=True)
+    if ancestor_kind == "symlink":
+        ancestor.symlink_to("missing-directory", target_is_directory=True)
+    else:
+        ancestor.write_text("this is not a directory\n")
+    deleted = ancestor / "example.yaml"
+    assert not _is_unambiguously_absent_repo_path(repo, deleted.relative_to(repo))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "ambiguous deleted ancestor")
+    base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    assert _applied_manifest_snapshot_exists(repo, deleted, base_commit=base)
+
+
 def _init_encoder_identity_checkout(
     repo: Path,
     *,
@@ -3334,6 +3723,25 @@ class TestMain:
         assert args.backend == "codex"
         assert args.model == "gpt-6.1-sol"
         assert args.escalation_model == "gpt-6.1-sol"
+
+    @pytest.mark.parametrize("engine_ref", [None, "a" * 40])
+    def test_encode_parser_preserves_optional_engine_revision(self, engine_ref):
+        argv = [
+            "axiom_encode",
+            "encode",
+            "26 USC 1",
+            "--corpus-path",
+            "/tmp/axiom-corpus",
+            "--axiom-rules-engine-path",
+            "/tmp/axiom-rules-engine",
+            "--policy-repo-path",
+            "/tmp/rulespec-us",
+        ]
+        if engine_ref is not None:
+            argv += ["--axiom-rules-engine-ref", engine_ref]
+        with patch("sys.argv", argv), patch("axiom_encode.cli.cmd_encode") as command:
+            main()
+        assert command.call_args.args[0].axiom_rules_engine_ref == engine_ref
 
     def test_no_command_shows_help_and_exits(self):
         """main() with no command should print help and exit 1."""
@@ -6539,6 +6947,56 @@ class TestCmdValidate:
         assert exc_info.value.code == 0
         assert "Result: ✓ PASSED" in capsys.readouterr().out
 
+    def test_validate_reports_interpretation_finding_from_shared_pipeline(
+        self, capsys, tmp_path
+    ):
+        from axiom_encode.harness import validator_pipeline
+
+        rulespec_file = self._module(tmp_path, "interpretations.yaml")
+        rulespec_file.write_text(
+            "format: rulespec/v1\nmodule:\n  interpretations: invalid\nrules: []\n"
+        )
+        args = SimpleNamespace(
+            files=[rulespec_file],
+            corpus_path=self.corpus_path,
+            axiom_rules_path=self.axiom_rules_path,
+            rulespec_dependency_root=[],
+            json=True,
+            skip_reviewers=True,
+            oracle=None,
+            min_match=0.95,
+            require_oracle_classification=False,
+        )
+
+        class InterpretationPipeline(validator_pipeline.ValidatorPipeline):
+            def _validate_with_authoritative_roots(
+                self, rulespec_file, skip_reviewers=False
+            ):
+                issues = validator_pipeline.find_rulespec_proof_issues(
+                    rulespec_file.read_text(), source_texts={}
+                )
+                return validator_pipeline.PipelineResult(
+                    results={
+                        "ci": validator_pipeline.ValidationResult(
+                            "ci",
+                            not issues,
+                            issues=issues,
+                            error=issues[0] if issues else None,
+                        )
+                    },
+                    total_duration_ms=0,
+                    all_passed=not issues,
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", InterpretationPipeline),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_validate(args)
+
+        assert exc_info.value.code == 1
+        assert "module.interpretations must be a list" in capsys.readouterr().out
+
     def test_policyengine_oracle_requires_explicit_runtime_root(
         self, tmp_path, monkeypatch
     ):
@@ -8278,6 +8736,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [IncomeComponent, Household]
   - name: household_income
     kind: derived
     entity: Household
@@ -9171,6 +9630,63 @@ $533 with 2 children
     )
 
     assert repaired == "$533 with 2 children"
+
+
+def test_closest_exact_source_excerpt_keeps_parenthesized_numeric_heading():
+    source_text = (
+        Path(__file__).parent
+        / "fixtures/source_completeness/fns_snap_fy2026_cola_memo_page_3.txt"
+    ).read_text()
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired == "(165 Percent of Poverty Level)"
+
+
+def test_closest_exact_source_excerpt_retains_governing_parenthetical_condition():
+    source_text = (
+        "(a) If the household has an elderly member, use the higher limit "
+        "(165 Percent of Poverty Level)."
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired == source_text
+
+
+def test_closest_exact_source_excerpt_rejects_long_governing_condition():
+    source_text = (
+        "(a) If the household has an elderly member and "
+        + "the household meets the additional eligibility requirements and " * 8
+        + "has qualifying income, use the higher limit "
+        "(165 Percent of Poverty Level)."
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_does_not_wrap_partial_parenthetical():
+    repaired = _closest_exact_source_excerpt(
+        source_text="(165 Percent of Poverty Level for Guam)",
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired == "(165 Percent of Poverty Level for Guam)"
 
 
 def test_closest_exact_source_excerpt_rejects_unrelated_numeric_text():
@@ -13849,6 +14365,7 @@ class TestCmdEncode:
         args.corpus_path = corpus_path
         args.corpus_release = corpus_release
         args.axiom_rules_path = overrides.get("axiom_rules_path", axiom_rules_path)
+        args.axiom_rules_engine_ref = overrides.get("axiom_rules_engine_ref", None)
         args.policy_repo_path = policy_repo_path
         args.mode = overrides.get("mode", "repo-augmented")
         args.allow_context = overrides.get("allow_context", [])
@@ -13978,6 +14495,48 @@ class TestCmdEncode:
         # Neither attempt reported a provider-billed cost, so it stays unknown.
         assert persisted.actual_cost_usd is None
 
+    def test_final_try_records_overlay_rejection_typed_issues(self, tmp_path):
+        from axiom_encode.checks import IssueSubject, ValidationIssue
+        from axiom_encode.cli import _log_eval_result
+        from axiom_encode.harness.evals import EvalArtifactMetrics
+
+        # The standalone validators passed; the overlay then rejected the
+        # candidate with an issue the eval metrics never saw.
+        result = self._make_eval_result(True)
+        result.metrics = EvalArtifactMetrics(
+            compile_pass=True,
+            compile_issues=[],
+            ci_pass=True,
+            ci_issues=[],
+            embedded_source_present=True,
+            grounded_numeric_count=0,
+            ungrounded_numeric_count=0,
+            grounding=[],
+        )
+        overlay_issue = ValidationIssue(
+            "[complete-source-unit:tests] Principal output `x` is never "
+            "asserted by a companion test.",
+            check="complete-source-unit:tests/output-unasserted",
+            subject=IssueSubject(citation="us/statutes/26/1/j/2", rule="x"),
+            expected="at least one asserting companion case",
+            found="no case asserts it",
+        )
+        db_path = tmp_path / "encodings.db"
+
+        run = _log_eval_result(
+            result,
+            db_path=db_path,
+            log_issue=False,
+            final_attempt_success=False,
+            final_attempt_error=str(overlay_issue),
+            final_attempt_issues=(overlay_issue,),
+        )
+
+        final_try = EncodingDB(db_path).get_run(run.id).iterations[-1]
+        document = final_try.errors[0].issue_document
+        assert document is not None and document["typed"] == 1
+        assert document["issues"][0]["fingerprint"] == overlay_issue.fingerprint
+
     def test_attempt_cost_sum_requires_recorded_usage_and_finite_cost(self):
         from axiom_encode.cli import _sum_attempt_cost
 
@@ -14059,8 +14618,14 @@ class TestCmdEncode:
         policy_repo_path: Path,
         corpus_path: Path,
         supplemental_files: dict[Path, str] | None = None,
+        rewrite_non_ascii_escapes: bool = False,
     ) -> None:
-        """Bind direct apply-unit fixtures to the same overlay snapshot contract."""
+        """Bind direct apply-unit fixtures to the same overlay snapshot contract.
+
+        With ``rewrite_non_ascii_escapes``, the module also goes through the
+        escape rewrite that overlay validation runs between its stamp and its
+        snapshot.
+        """
 
         trace_path = Path(str(getattr(result, "trace_file", "") or ""))
         if not trace_path.is_file():
@@ -14072,6 +14637,11 @@ class TestCmdEncode:
             result,
             Path(result.output_file),
         )
+        if rewrite_non_ascii_escapes:
+            _rewrite_generated_yaml_without_non_ascii_escapes(
+                Path(result.output_file),
+                contained_in=output_root / str(result.runner),
+            )
         from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
         with patch.dict(
@@ -14197,6 +14767,337 @@ class TestCmdEncode:
             mock_validate,
             mock_apply,
         )
+
+    def test_encode_declared_engine_pin_reaches_generation_and_overlay(self, tmp_path):
+        pin = "a" * 40
+        args = self._make_args(
+            tmp_path, apply=True, sync=False, axiom_rules_engine_ref=pin
+        )
+        with patch("axiom_encode.cli._pinned_apply_engine_binding") as binding:
+            code, _, _, generation, overlay, applied = (
+                self._run_validator_escalation_case(args, [True])
+            )
+        assert code == 0
+        binding.assert_called_once_with(args.axiom_rules_path, pin)
+        assert generation.call_args.kwargs["axiom_rules_engine_ref"] == pin
+        assert overlay.call_args.kwargs["axiom_rules_engine_ref"] == pin
+        applied.assert_called_once()
+
+    @pytest.mark.parametrize("pin", ["main", "a" * 39, "g" * 40, ""])
+    def test_encode_malformed_engine_pin_precedes_signing_and_generation(
+        self, tmp_path, pin
+    ):
+        args = self._make_args(tmp_path, apply=True, axiom_rules_engine_ref=pin)
+        with (
+            patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer,
+            patch("axiom_encode.cli.run_model_eval") as generate,
+        ):
+            with pytest.raises(
+                ValueError,
+                match="axiom_rules_engine_ref must be a full lowercase 40-hex",
+            ):
+                cmd_encode(args)
+        signer.assert_not_called()
+        generate.assert_not_called()
+
+    @pytest.mark.parametrize("pin", ["main", "a" * 39, "g" * 40, ""])
+    def test_retry_entry_rejects_malformed_engine_pin_before_binding(
+        self, tmp_path, pin
+    ):
+        from axiom_encode import cli as cli_module
+
+        args = self._make_args(tmp_path, apply=True, axiom_rules_engine_ref=pin)
+        config = cli_module._EncodeEscalationConfig(
+            enabled=False,
+            initial_model="test-model",
+            escalation_model="test-model",
+            escalate_after=1,
+        )
+        signer = MagicMock(spec=cli_module.SigningBroker)
+        with (
+            patch(
+                "axiom_encode.cli._pinned_apply_engine_binding",
+                wraps=cli_module._pinned_apply_engine_binding,
+            ) as binding,
+            patch("axiom_encode.cli.run_model_eval") as generate,
+        ):
+            with pytest.raises(
+                ValueError,
+                match="axiom_rules_engine_ref must be a full lowercase 40-hex",
+            ):
+                cli_module._run_encode_attempts_with_retries(
+                    args,
+                    config=config,
+                    live_run=MagicMock(),
+                    apply_signing_broker=signer,
+                )
+        # Binding can build an engine: reject malformed refs before entering it.
+        # The spy wraps the real binding, whose own validation is left intact.
+        binding.assert_not_called()
+        generate.assert_not_called()
+        assert signer.mock_calls == []
+
+    _FR_CITATION = "us/rulemaking/federal-register/2026-02-25/2026-03829"
+
+    def _write_policy_module(
+        self, args, relative: str, citation: str | None, *, plural=()
+    ) -> None:
+        path = args.policy_repo_path / "us" / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = ["format: rulespec/v1", "module:", "  source_verification:"]
+        if citation is not None:
+            lines.append(f"    corpus_citation_path: {citation}")
+        if plural:
+            lines.append("    corpus_citation_paths:")
+            lines.extend(f"    - {item}" for item in plural)
+        lines.append("rules: []")
+        path.write_text("\n".join(lines) + "\n")
+
+    def test_encode_federal_register_target_without_explicit_output_refuses(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path, citation=self._FR_CITATION)
+        self._write_policy_module(
+            args, "policies/cbp/de-minimis/postal-flat-rate.yaml", self._FR_CITATION
+        )
+        self._write_policy_module(
+            args,
+            "policies/usitc/overlays/termination.yaml",
+            "us/rulemaking/federal-register/2026-02-25/2026-03832",
+        )
+        with (
+            patch("axiom_encode.cli.run_model_eval") as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(ValueError) as refused:
+                cmd_encode(args)
+
+        message = str(refused.value)
+        assert "has no default RuleSpec path" in message
+        assert "--replace-rulespec-path" in message
+        assert "us/policies/<agency>/<subject>.yaml" in message
+        # Only the module whose own source is this document is listed.
+        assert (
+            "Modules whose source_verification corpus_citation_path is this "
+            "document: us/policies/cbp/de-minimis/postal-flat-rate.yaml."
+        ) in message
+        assert "termination.yaml" not in message
+        assert "decides whether it accepts that module" in message
+        # No claim about what the flag can or cannot take.
+        assert "can take" not in message and "cannot take" not in message
+        generate.assert_not_called()
+
+    def test_encode_federal_register_refusal_lists_list_and_page_citations(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path, citation=self._FR_CITATION)
+        # A composition module citing the document in its plural list.
+        self._write_policy_module(
+            args,
+            "policies/cbp/us-tariff-duty-composition.yaml",
+            None,
+            plural=(
+                "us/rulemaking/federal-register/2026-02-25/2026-03824",
+                self._FR_CITATION,
+            ),
+        )
+        # A module citing one page of the document.
+        self._write_policy_module(
+            args,
+            "policies/cbp/de-minimis/page-module.yaml",
+            f"{self._FR_CITATION}/page-3",
+        )
+        # A plural-only module, which --replace-rulespec-path can admit.
+        self._write_policy_module(
+            args,
+            "policies/cbp/plural-only.yaml",
+            None,
+            plural=(self._FR_CITATION,),
+        )
+        # A singular module whose plural list also names another document.
+        self._write_policy_module(
+            args,
+            "policies/cbp/singular-and-list.yaml",
+            self._FR_CITATION,
+            plural=("us/rulemaking/federal-register/2026-02-25/2026-03824",),
+        )
+        # A companion test file is never a module, whatever it carries.
+        self._write_policy_module(
+            args,
+            "policies/cbp/de-minimis/postal-flat-rate.test.yaml",
+            self._FR_CITATION,
+        )
+        with (
+            patch("axiom_encode.cli.run_model_eval") as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(ValueError) as refused:
+                cmd_encode(args)
+
+        message = str(refused.value)
+        assert (
+            "Modules whose source_verification corpus_citation_path is this "
+            "document: us/policies/cbp/singular-and-list.yaml."
+        ) in message
+        assert (
+            "Modules that cite this document in corpus_citation_paths or cite "
+            "one of its pages: us/policies/cbp/de-minimis/page-module.yaml, "
+            "us/policies/cbp/plural-only.yaml, "
+            "us/policies/cbp/us-tariff-duty-composition.yaml."
+        ) in message
+        assert "decides whether it accepts that module" in message
+        assert "can take" not in message and "cannot take" not in message
+        assert "exactly one citation path" not in message
+        assert "postal-flat-rate.test.yaml" not in message
+        assert "found no module" not in message
+        generate.assert_not_called()
+
+    def test_encode_federal_register_listing_ignores_sibling_prefixes(self, tmp_path):
+        page_1 = "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-1"
+        args = self._make_args(tmp_path, citation=page_1)
+        # page-10 shares page-1 as a string prefix but is a sibling, not a page.
+        self._write_policy_module(
+            args, "policies/cbp/annex-ii-page-10.yaml", page_1 + "0"
+        )
+        self._write_policy_module(
+            args, "policies/cbp/annex-ii-page-1-part.yaml", f"{page_1}/part-a"
+        )
+        with (
+            patch("axiom_encode.cli.run_model_eval") as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(ValueError) as refused:
+                cmd_encode(args)
+
+        message = str(refused.value)
+        assert "us/policies/cbp/annex-ii-page-1-part.yaml" in message
+        assert "annex-ii-page-10.yaml" not in message
+        generate.assert_not_called()
+
+    def test_encode_federal_register_refusal_says_when_no_module_names_it(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path, citation=self._FR_CITATION)
+        with (
+            patch("axiom_encode.cli.run_model_eval") as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(
+                ValueError,
+                match=r"A scan of us/policies/ in this checkout found no module",
+            ):
+                cmd_encode(args)
+        generate.assert_not_called()
+
+    def test_encode_federal_register_target_through_real_replace_flag(self, tmp_path):
+        # The real --replace-rulespec-path check, against an existing Federal
+        # Register module whose one citation is the requested document.
+        from axiom_encode import cli as cli_module
+
+        relative = "policies/cbp/de-minimis/postal-flat-rate.yaml"
+        args = self._make_args(
+            tmp_path,
+            citation=self._FR_CITATION,
+            apply=True,
+            replace_rulespec_path=Path("us") / relative,
+        )
+        self._write_policy_module(args, relative, self._FR_CITATION)
+
+        class _Stop(Exception):
+            pass
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", side_effect=_Stop) as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(_Stop):
+                cli_module._run_encode_attempt(
+                    args,
+                    model="test-model",
+                    apply_signing_broker=MagicMock(spec=cli_module.SigningBroker),
+                )
+
+        generate.assert_called_once()
+        assert generate.call_args.kwargs["target_relative_output"] == Path(relative)
+
+    def test_encode_federal_register_target_with_explicit_output_proceeds(
+        self, tmp_path
+    ):
+        from axiom_encode import cli as cli_module
+
+        args = self._make_args(tmp_path, citation=self._FR_CITATION)
+        explicit = Path("policies/cbp/de-minimis/postal-flat-rate.yaml")
+
+        class _Stop(Exception):
+            pass
+
+        with (
+            patch(
+                "axiom_encode.cli._resolve_encode_replacement_target",
+                return_value=cli_module._EncodeReplacementTarget(
+                    relative_output=explicit, context_paths=()
+                ),
+            ),
+            patch("axiom_encode.cli.run_model_eval", side_effect=_Stop) as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(_Stop):
+                cli_module._run_encode_attempt(args, model="test-model")
+
+        generate.assert_called_once()
+        assert generate.call_args.kwargs["target_relative_output"] == explicit
+
+    @pytest.mark.parametrize(
+        "citation",
+        ("26 USC 1(j)(2)", "us/statute/26/1/j/2", "us/regulation/7/273/4"),
+    )
+    def test_encode_statute_and_regulation_targets_keep_default_paths(
+        self, tmp_path, citation
+    ):
+        args = self._make_args(tmp_path, citation=citation)
+
+        class _Stop(Exception):
+            pass
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", side_effect=_Stop) as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            from axiom_encode import cli as cli_module
+
+            with pytest.raises(_Stop):
+                cli_module._run_encode_attempt(args, model="test-model")
+
+        generate.assert_called_once()
+        assert generate.call_args.kwargs["target_relative_output"] is None
 
     def test_encode_success(self, capsys, tmp_path):
         args = self._make_args(tmp_path)
@@ -16644,9 +17545,12 @@ rules:
         "admission",
         [None, {"contract": "retired-source-containment/v1", "sources": []}],
     )
+    @pytest.mark.parametrize("seed_baseline", [False, True])
     def test_encode_plumbs_existing_replacement_target_to_model_eval(
-        self, tmp_path, admission
+        self, tmp_path, admission, seed_baseline
     ):
+        from axiom_encode.harness.evals import ValidationRetryCandidate
+
         args = self._make_args(
             tmp_path,
             citation="us-nc/statute/105/105-153.7",
@@ -16662,11 +17566,19 @@ rules:
             / "pilot_liability_pipeline.yaml"
         )
         companion = target.with_name("pilot_liability_pipeline.test.yaml")
+        baseline = (
+            ValidationRetryCandidate(
+                "rules: []\n", "[]\n", context_role="replacement_baseline"
+            )
+            if seed_baseline and admission is None
+            else None
+        )
         replacement = SimpleNamespace(
             relative_output=Path("policies/income_tax/pilot_liability_pipeline.yaml"),
             context_paths=(target, companion),
             legacy_replacement=None,
             retired_source_admission=admission,
+            baseline=baseline,
         )
 
         with patch(
@@ -16684,6 +17596,8 @@ rules:
             Path("policies/income_tax/pilot_liability_pipeline.yaml")
         )
         assert mock_run.call_args.kwargs["replacement_overlay_scope"] is True
+        assert mock_run.call_args.kwargs["validation_retry_candidate"] is baseline
+        assert mock_run.call_args.kwargs["accept_valid_retry_candidate"] is False
         assert mock_run.call_args.kwargs["extra_context_paths"] == [
             target,
             companion,
@@ -17580,6 +18494,328 @@ rules:
             else set()
         )
 
+    def test_in_place_source_bound_dependent_completes_signed_transaction(
+        self, tmp_path: Path
+    ) -> None:
+        from axiom_encode.cli import _resolve_legacy_replacement_contract
+        from axiom_encode.prepare_signed_backfill import (
+            authorized_changed_paths,
+            stage_authorized_changes,
+        )
+        from axiom_encode.toolchain import load_rulespec_local_corpus_release
+
+        checkout = tmp_path / "rulespec-us"
+        content_root = checkout / "us-az"
+        primary_rel = Path("us-az/policies/des/faa5/expanded.yaml")
+        dependent_rel = Path("us-az/policies/des/faa5/benefit.yaml")
+        primary = checkout / primary_rel
+        dependent = checkout / dependent_rel
+        primary.parent.mkdir(parents=True)
+        primary.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            "    corpus_citation_path: us-az/manual/des/faa5/block-4\n"
+            "rules:\n"
+            "  - name: limit\n"
+            "    kind: parameter\n"
+            "    dtype: Rate\n"
+            "    versions:\n"
+            "      - effective_from: '0001-01-01'\n"
+            "        formula: '1.85'\n"
+        )
+        primary.with_name("expanded.test.yaml").write_text("[]\n")
+        old_hash = hashlib.sha256(primary.read_bytes()).hexdigest()
+        import_target = "us-az:policies/des/faa5/expanded#limit"
+
+        def dependent_body(digest: str, rate: str) -> str:
+            return (
+                "format: rulespec/v1\n"
+                "module:\n"
+                "  source_verification:\n"
+                "    corpus_citation_path: us-az/manual/des/faa5/block-5\n"
+                "imports:\n"
+                f"  - {import_target}\n"
+                "rules:\n"
+                "  - name: benefit_limit\n"
+                "    kind: derived\n"
+                "    dtype: Rate\n"
+                "    metadata:\n"
+                "      proof:\n"
+                "        atoms:\n"
+                "          - kind: import\n"
+                "            import:\n"
+                f"              target: {import_target}\n"
+                f"              hash: sha256:{digest}\n"
+                "    versions:\n"
+                "      - effective_from: '0001-01-01'\n"
+                f"        formula: '{rate}'\n"
+            )
+
+        dependent.write_text(dependent_body(old_hash, "1.85"))
+        dependent.with_name("benefit.test.yaml").write_text("[]\n")
+        old_manifest = (
+            checkout / "us-az/.axiom/encoding-manifests/policies/des/faa5/expanded.json"
+        )
+        new_manifest = (
+            checkout / ".axiom/encoding-manifests/us-az/policies/des/faa5/expanded.json"
+        )
+        old_manifest.parent.mkdir(parents=True)
+        old_manifest.write_text(
+            json.dumps(
+                {
+                    "schema_version": "axiom-encode/applied-rulespec/v1",
+                    "tool": "axiom-encode sign-applied-files",
+                    "backend": "manual",
+                    "runner": "manual-attestation",
+                    "applied_files": [
+                        {
+                            "path": path.relative_to(checkout).as_posix(),
+                            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                        }
+                        for path in (primary, primary.with_name("expanded.test.yaml"))
+                    ],
+                    "signature": {
+                        "algorithm": "hmac-sha256",
+                        "key_id": "axiom-encode-apply-v1",
+                        "value": "untrusted-historical-evidence",
+                    },
+                }
+            )
+            + "\n"
+        )
+        primary_citation = "us-az/manual/des/faa5/block-4"
+        dependent_citation = "us-az/manual/des/faa5/block-5"
+        corpus_path = _bind_test_repair_corpus_sources(
+            checkout,
+            tmp_path,
+            citation_paths=(primary_citation, dependent_citation),
+        )
+        _git(checkout, "init", "-b", "main")
+        _git(checkout, "config", "user.email", "test@example.com")
+        _git(checkout, "config", "user.name", "Test User")
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-m", "legacy source-bound pair")
+        with patch.dict(
+            os.environ, {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY}
+        ):
+            release = load_rulespec_local_corpus_release(content_root, corpus_path)
+        contract = _resolve_legacy_replacement_contract(
+            source_raw=primary_rel,
+            destination_raw=primary_rel,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=resolve_corpus_source_unit(primary_citation, release),
+            corpus_release=release,
+            scheduled_dependent_paths=(dependent_rel,),
+        )
+        assert contract.scheduled_dependents[0].source_citation == dependent_citation
+        assert contract.legacy_manifest.path == old_manifest.relative_to(checkout)
+
+        output_root = tmp_path / "out"
+
+        def apply(citation: str, relative: Path, body: str, *, legacy=False) -> None:
+            generated = output_root / "codex-test-model" / relative
+            generated.parent.mkdir(parents=True, exist_ok=True)
+            generated.write_text(body)
+            generated.with_suffix(".test.yaml").write_text("[]\n")
+            result = self._make_eval_result(True)
+            result.citation = citation
+            result.output_file = str(generated)
+            result.trace_file = str(tmp_path / (relative.stem + "-trace.json"))
+            Path(result.trace_file).write_text("{}\n")
+            source_text = "authoritative test source"
+            source_file = tmp_path / (relative.stem + "-source.txt")
+            source_file.write_text(source_text)
+            source_unit = resolve_corpus_source_unit(citation, release)
+            result.source_attestation = {
+                **source_unit.source_attestation,
+                "generation_input_sha256": hashlib.sha256(
+                    source_text.encode()
+                ).hexdigest(),
+            }
+            context = tmp_path / (relative.stem + "-context.json")
+            context.write_text(
+                json.dumps(
+                    {
+                        "source_text_file": source_file.name,
+                        "source_metadata": {
+                            "source_attestation": result.source_attestation
+                        },
+                    }
+                )
+                + "\n"
+            )
+            result.context_manifest_file = str(context)
+            result.context_manifest_sha256 = hashlib.sha256(
+                context.read_bytes()
+            ).hexdigest()
+            result.generation_prompt_sha256 = "prompt-sha"
+            if legacy:
+                result._axiom_legacy_replacement_contract = contract
+            self._record_apply_validation(
+                result,
+                output_root=output_root,
+                policy_repo_path=content_root,
+                corpus_path=corpus_path,
+            )
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64
+                    },
+                ),
+                patch(
+                    "axiom_encode.cli._git_repo_provenance",
+                    return_value={
+                        "root": "/repo/axiom-encode",
+                        "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                        "dirty_tracked": False,
+                    },
+                ),
+                patch(
+                    "axiom_encode.cli._require_axiom_encode_version_provenance",
+                    return_value={
+                        "version": AXIOM_ENCODE_TEST_VERSION,
+                        "version_commit": "f" * 40,
+                        "identity_source": "git",
+                    },
+                ),
+            ):
+                _apply_generated_encoding_result(
+                    result,
+                    output_root=output_root,
+                    policy_repo_path=content_root,
+                    corpus_path=corpus_path,
+                    run_id="source-bound-pair",
+                    signing_broker=TEST_APPLY_SIGNING_BROKER,
+                )
+
+        apply(
+            primary_citation,
+            Path(*primary_rel.parts[1:]),
+            primary.read_text().replace("'1.85'", "'2.0'"),
+            legacy=True,
+        )
+        new_hash = hashlib.sha256(primary.read_bytes()).hexdigest()
+        assert new_hash != old_hash
+        apply(
+            dependent_citation,
+            Path(*dependent_rel.parts[1:]),
+            dependent_body(new_hash, "2.0"),
+        )
+        authorized = authorized_changed_paths(checkout, corpus_root=corpus_path)
+        assert primary_rel in authorized
+        assert dependent_rel in authorized
+        assert not old_manifest.exists()
+        assert new_manifest.exists()
+        waiver_sha256 = hashlib.sha256(
+            (checkout / "known-validation-gaps.yaml").read_bytes()
+        ).hexdigest()
+        verified, _root, _digest, issues = (
+            _load_verified_applied_encoding_manifest_payload(
+                checkout,
+                new_manifest.relative_to(checkout).as_posix(),
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                expected_waiver_set_sha256=waiver_sha256,
+                expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
+                local_corpus_release=release,
+            )
+        )
+        assert issues == [], "\n".join(issues)
+        assert verified is not None
+
+        dependent_manifest = (
+            checkout / ".axiom/encoding-manifests/us-az/policies/des/faa5/benefit.json"
+        )
+
+        def pending_state() -> list[str]:
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: (
+                            TEST_APPLY_PUBLIC_KEY_B64
+                        ),
+                        "AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY,
+                    },
+                ),
+                patch(
+                    "axiom_encode.cli._applied_encoding_manifest_verifier",
+                    return_value=TEST_APPLY_SIGNING_BROKER,
+                ),
+            ):
+                return _legacy_replacement_pending_paths(
+                    checkout, local_corpus_release=release
+                )
+
+        clean_dependent_manifest = dependent_manifest.read_bytes()
+        tampered = json.loads(clean_dependent_manifest)
+        tampered["source_attestation"]["generation_input_sha256"] = "0" * 64
+        _sign_applied_encoding_manifest(tampered, TEST_APPLY_SIGNING_BROKER)
+        dependent_manifest.write_text(json.dumps(tampered) + "\n")
+        with pytest.raises(ValueError, match="source attestation differs"):
+            authorized_changed_paths(checkout, corpus_root=corpus_path)
+        assert pending_state()
+        dependent_manifest.write_bytes(clean_dependent_manifest)
+
+        clean_dependent = dependent.read_bytes()
+        dependent.write_bytes(
+            clean_dependent.replace(new_hash.encode(), old_hash.encode())
+        )
+        stale_proof = json.loads(clean_dependent_manifest)
+        for item in stale_proof["applied_files"]:
+            if item.get("path") == dependent_rel.as_posix():
+                item["sha256"] = hashlib.sha256(dependent.read_bytes()).hexdigest()
+        _sign_applied_encoding_manifest(stale_proof, TEST_APPLY_SIGNING_BROKER)
+        dependent_manifest.write_text(json.dumps(stale_proof) + "\n")
+        with pytest.raises(ValueError, match="primary proof hash differs"):
+            authorized_changed_paths(checkout, corpus_root=corpus_path)
+        assert pending_state()
+        dependent.write_bytes(clean_dependent)
+        dependent_manifest.write_bytes(clean_dependent_manifest)
+
+        stage_authorized_changes(checkout, corpus_root=corpus_path)
+        staged = set(
+            _git(checkout, "diff", "--cached", "--name-only").stdout.splitlines()
+        )
+        assert primary_rel.as_posix() in staged
+        assert dependent_rel.as_posix() in staged
+        assert old_manifest.relative_to(checkout).as_posix() in staged
+        assert new_manifest.relative_to(checkout).as_posix() in staged
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: (
+                        TEST_APPLY_PUBLIC_KEY_B64
+                    ),
+                    "AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._read_only_guard_encoder_execution_identity",
+                return_value=TEST_PINNED_ENCODER_IDENTITY,
+            ),
+            patch(
+                "axiom_encode.cli._applied_encoding_manifest_verifier",
+                return_value=TEST_APPLY_SIGNING_BROKER,
+            ),
+        ):
+            assert (
+                _legacy_replacement_pending_paths(
+                    checkout, local_corpus_release=release
+                )
+                == []
+            )
+            census = _manifest_census(
+                checkout,
+                roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+                local_corpus_release=release,
+            )
+        assert dependent_rel.as_posix() not in census["unmanifested_paths"]
+
     @pytest.mark.parametrize("dependent_owner", ["manual", "generated"])
     def test_apply_atomically_migrates_exact_legacy_dependent(
         self,
@@ -17589,6 +18825,12 @@ rules:
         from axiom_encode.cli import _resolve_legacy_replacement_contract
         from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
+        # The identity fixture advertises this synthetic engine as a Git checkout.
+        engine = tmp_path / "axiom-rules-engine"
+        _git(engine, "init")
+        _git(engine, "config", "user.email", "test@example.com")
+        _git(engine, "config", "user.name", "Test User")
+        _git(engine, "commit", "--allow-empty", "-m", "synthetic engine HEAD")
         output_root = tmp_path / "out"
         checkout = tmp_path / "rulespec-us"
         content_root = checkout / "us-la"
@@ -19157,6 +20399,27 @@ rules:
 
         assert journal_path.exists()
 
+    @pytest.mark.parametrize(
+        "manifest_tail",
+        ["policies/foo.json", "policies/des/faa5/expanded.json"],
+    )
+    def test_apply_transaction_historical_manifest_is_deletion_only(
+        self, tmp_path, manifest_tail
+    ):
+        from axiom_encode.cli import _apply_transaction_target_relative_path
+
+        checkout = tmp_path / "rulespec-us"
+        (checkout / "us-az/policies").mkdir(parents=True)
+        historical = checkout / "us-az/.axiom/encoding-manifests" / manifest_tail
+        with pytest.raises(RuntimeError, match="outside the canonical"):
+            _apply_transaction_target_relative_path(checkout, historical)
+        assert (
+            _apply_transaction_target_relative_path(
+                checkout, historical, historical_manifest_deletion=True
+            )
+            == historical.relative_to(checkout).as_posix()
+        )
+
     def test_apply_transaction_rejects_duplicate_journal_keys(self, tmp_path):
         checkout = tmp_path / "rulespec-us"
         (checkout / "us").mkdir(parents=True)
@@ -19589,7 +20852,12 @@ cli._install_apply_transaction(
                     "identity_source": "git",
                 },
             ),
-            pytest.raises(RuntimeError, match="changed after overlay validation"),
+            pytest.raises(
+                RuntimeError,
+                match=(
+                    r"changed after overlay validation \(changed: output\.sha256\)$"
+                ),
+            ),
         ):
             _apply_generated_encoding_result(
                 result,
@@ -19793,8 +21061,14 @@ cli._install_apply_transaction(
         )
         if mutated_input == "rulespec":
             imported.write_text("format: rulespec/v1\nrules: []\n# mutated\n")
+            changed_field = (
+                r'validation_execution\.policy_content_files\["statutes/26/2\.yaml"\]'
+            )
         else:
             engine_input.write_text("mutated engine bytes\n")
+            changed_field = (
+                r"validation_execution\.axiom_rules_identity\.working_tree_sha256"
+            )
 
         with (
             patch.dict(
@@ -19817,7 +21091,12 @@ cli._install_apply_transaction(
                     "identity_source": "git",
                 },
             ),
-            pytest.raises(RuntimeError, match="changed after overlay validation"),
+            pytest.raises(
+                RuntimeError,
+                match=(
+                    r"changed after overlay validation \(changed: [^)]*" + changed_field
+                ),
+            ),
         ):
             _apply_generated_encoding_result(
                 result,
@@ -19918,6 +21197,80 @@ rules: []
                 manifest_payload, TEST_APPLY_SIGNING_BROKER
             )
             == "has an invalid encoder apply manifest signature"
+        )
+
+    def test_apply_accepts_validated_module_holding_a_byte_order_mark(self, tmp_path):
+        # Overlay validation stamps the module, rewrites its non-ASCII escapes
+        # and records the bytes; apply stamps again and compares. PyYAML's
+        # emitter writes U+FEFF only as `\uFEFF`, so the rewrite must leave
+        # that escape alone for the second stamp to reproduce the recorded
+        # bytes. A New Zealand section citing "72(1)<U+FEFF>(a)" hit this.
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes" / "26" / "1.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            '  summary: "Under section 72(1)\\uFEFF(a), \\u05D0 applies."\n'
+            "  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1\n"
+            "rules: []\n"
+        )
+        policy_repo.mkdir(parents=True)
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.generation_prompt_sha256 = None
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            policy_repo,
+            tmp_path,
+        )
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo / "us",
+            corpus_path=corpus_path,
+            rewrite_non_ascii_escapes=True,
+        )
+        validated = generated.read_text(encoding="utf-8")
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                    "identity_source": "git",
+                },
+            ),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo / "us",
+                corpus_path=corpus_path,
+            )
+
+        target = policy_repo / "us/statutes/26/1.yaml"
+        assert target.read_text(encoding="utf-8") == validated
+        assert "\\uFEFF" in validated
+        assert "\ufeff" not in validated
+        assert "\u05d0" in validated
+        assert (
+            yaml.safe_load(validated)["module"]["summary"]
+            == "Under section 72(1)\ufeff(a), \u05d0 applies."
         )
 
     def test_apply_accepts_crlf_source_digest_from_generation_workspace(self, tmp_path):
@@ -21478,6 +22831,9 @@ rules: []
         assert mock_overlay.call_args.kwargs["amendment_source_texts"] == {
             amendment_citation: amendment_sentence,
         }
+        assert mock_overlay.call_args.kwargs["amendment_documents"] == (
+            visible_amendment,
+        )
 
     def test_encode_apply_auto_repairs_nonnegative_taxable_income_floor(
         self, capsys, tmp_path
@@ -21807,6 +23163,195 @@ module:
 
         assert repaired == ["module.source_verification.values"]
         assert rules_file.read_text() == prefix
+
+    def test_deferred_citation_repair_uses_exact_diagnostic_and_source_root(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: us:regulations/7-cfr/273/10/a/1#application_month
+      reason: >-
+        7 CFR 273.10(a)(1) requires the application date and certification
+        history; neither input is available in this calculation.
+rules: []
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(runner="codex-test-model", output_file=str(rules_file))
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "identifies source branch (a) (`a/1`) but its deferral does not "
+            "name an exact missing dependency, input, or runtime capability. "
+            "For this rejected current-source branch, the literal canonical "
+            "citation required in `reason` is `us/regulation/7/273/10(a)(1)`"
+        )
+
+        assert _try_repair_generated_deferred_canonical_citations_for_apply(
+            result, output_root=output_root, issues=[issue]
+        ) == ["module.deferred_outputs[0].reason"]
+        assert rules_file.read_text() == original.replace(
+            "7 CFR 273.10(a)(1)", "us/regulation/7/273/10(a)(1)"
+        )
+        assert (
+            _try_repair_generated_deferred_canonical_citations_for_apply(
+                result, output_root=output_root, issues=[issue]
+            )
+            == []
+        )
+
+    @pytest.mark.parametrize(
+        "citation,output",
+        [
+            (
+                "us/regulation/7/273/11(a)(1)",
+                "us:regulations/7-cfr/273/10/a/1#application_month",
+            ),
+            (
+                "us/regulation/7/273/10(a)(1)",
+                "us:regulations/7-cfr/273/10/c#application_month",
+            ),
+        ],
+    )
+    def test_deferred_citation_repair_refuses_other_source_or_branch(
+        self, tmp_path, citation, output
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: {output}
+      reason: 7 CFR 273.10(a)(1) requires application facts.
+rules: []
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(runner="codex-test-model", output_file=str(rules_file))
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "literal canonical citation required in `reason` is "
+            f"`{citation}`"
+        )
+
+        assert (
+            _try_repair_generated_deferred_canonical_citations_for_apply(
+                result, output_root=output_root, issues=[issue]
+            )
+            == []
+        )
+        assert rules_file.read_text() == original
+
+    @pytest.mark.parametrize(
+        "reason,expected_reason,repaired",
+        [
+            (
+                "17 CFR 273.10(a)(1) requires application facts.",
+                "17 CFR 273.10(a)(1) requires application facts.",
+                False,
+            ),
+            (
+                "17 CFR 273.10(a)(1) differs; 7 CFR 273.10(a)(1) "
+                "requires application facts.",
+                "17 CFR 273.10(a)(1) differs; "
+                "us/regulation/7/273/10(a)(1) requires application facts.",
+                True,
+            ),
+        ],
+    )
+    def test_deferred_citation_repair_preserves_other_cfr_titles(
+        self, tmp_path, reason, expected_reason, repaired
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: us:regulations/7-cfr/273/10/a/1#application_month
+      reason: {reason}
+rules: []
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(runner="codex-test-model", output_file=str(rules_file))
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "literal canonical citation required in `reason` is "
+            "`us/regulation/7/273/10(a)(1)`"
+        )
+
+        result_paths = _try_repair_generated_deferred_canonical_citations_for_apply(
+            result, output_root=output_root, issues=[issue]
+        )
+
+        assert result_paths == (
+            ["module.deferred_outputs[0].reason"] if repaired else []
+        )
+        assert rules_file.read_text() == original.replace(reason, expected_reason)
+
+    def test_encode_apply_revalidates_after_deferred_citation_repair(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        rules_file = (
+            tmp_path / "out" / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: us:regulations/7-cfr/273/10/a/1#application_month
+      reason: 7 CFR 273.10(a)(1) requires the application date.
+rules: []
+"""
+        )
+        result.output_file = str(rules_file)
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "literal canonical citation required in `reason` is "
+            "`us/regulation/7/273/10(a)(1)`"
+        )
+        applied_file = args.policy_repo_path / "regulations/7-cfr/273/10.yaml"
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[(False, [issue], {}), (True, [], {})],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        assert "us/regulation/7/273/10(a)(1) requires" in rules_file.read_text()
+        assert "apply=auto_repaired_deferred_canonical_citations:" in (
+            capsys.readouterr().out
+        )
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_deferred_canonical_citations"] == [
+            "module.deferred_outputs[0].reason"
+        ]
 
     def test_encode_apply_removes_empty_deferred_source_values(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)
@@ -24540,45 +26085,83 @@ rules:
         )
         assert target.read_text(encoding="utf-8") == original
 
-    def test_generated_yaml_unescape_compares_alias_graphs_in_linear_time(self):
-        # Each level aliases the previous one twice: a path-by-path comparison
-        # is exponential in the depth, a node-pair comparison is linear.
-        import time
-
+    @staticmethod
+    def _alias_graph_text(depth, tag=None):
+        # Each level aliases the previous one twice, so a path-by-path
+        # comparison is exponential in depth.
         lines = ["a0: &a0 [0]"]
-        for level in range(1, 33):
-            lines.append(f"a{level}: &a{level} [*a{level - 1}, *a{level - 1}]")
+        for level in range(1, depth + 1):
+            if tag is None:
+                lines.append(f"a{level}: &a{level} [*a{level - 1}, *a{level - 1}]")
+            else:
+                lines.append(
+                    f"a{level}: &a{level} {tag} "
+                    f"[{{x: *a{level - 1}}}, {{y: *a{level - 1}}}]"
+                )
         lines.append('summary: "\\u05d0"')
-        text = "\n".join(lines) + "\n"
-        started = time.perf_counter()
-        rewritten = _unescape_non_ascii_yaml_escapes(text)
-        assert time.perf_counter() - started < 2.0
+        return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _alias_rewrite_with_bounded_work(monkeypatch, text, depth):
+        import axiom_encode.cli as cli_module
+
+        calls = 0
+        compare = cli_module._yaml_documents_equivalent
+
+        def counted_compare(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            # Stop as soon as the work bound is crossed, so a missing memo
+            # cannot turn the deep case into an exponential suite hang.
+            assert calls <= 8 * (depth + 1)
+            return compare(*args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(cli_module, "_yaml_documents_equivalent", counted_compare)
+            rewritten = _unescape_non_ascii_yaml_escapes(text)
+        assert 0 < calls <= 8 * (depth + 1)
         assert rewritten is not None
         assert "א" in rewritten
+        return rewritten
+
+    def _assert_alias_rewrite_is_linear_in_depth(self, monkeypatch, tag=None):
+        # The call budget at a shallow depth stops a comparator without its
+        # memo first. Native equality inside C (a tuple's own ==, say) follows
+        # every alias path beyond that counter, so the whole rewrite of native
+        # SafeLoader output must grow linearly between two finite depths
+        # before the original depth 32 runs as an output check.
+        self._alias_rewrite_with_bounded_work(
+            monkeypatch, self._alias_graph_text(12, tag), 12
+        )
+
+        def work(depth):
+            text = self._alias_graph_text(depth, tag)
+
+            def check(rewritten):
+                assert rewritten is not None
+                assert "א" in rewritten
+
+            return lowest_work(lambda: _unescape_non_ascii_yaml_escapes(text), check)
+
+        assert_linear_growth(work(12), work(24), input_ratio=2)
+        self._alias_rewrite_with_bounded_work(
+            monkeypatch, self._alias_graph_text(32, tag), 32
+        )
+
+    def test_generated_yaml_unescape_compares_alias_graphs_in_linear_time(
+        self, monkeypatch
+    ):
+        self._assert_alias_rewrite_is_linear_in_depth(monkeypatch)
 
     @pytest.mark.parametrize("tag", ["!!omap", "!!pairs"])
     def test_generated_yaml_unescape_compares_tuple_alias_graphs_in_linear_time(
-        self, tag
+        self, monkeypatch, tag
     ):
         # The safe loader builds !!omap and !!pairs as lists of tuples. A
         # tuple compared by Python's own equality walks every alias path
         # again -- depths 22, 24 and 26 took 0.16, 0.67 and 2.68 seconds --
         # so it is a node of the memoized comparison like a list.
-        import time
-
-        lines = ["a0: &a0 [0]"]
-        for level in range(1, 33):
-            lines.append(
-                f"a{level}: &a{level} {tag} "
-                f"[{{x: *a{level - 1}}}, {{y: *a{level - 1}}}]"
-            )
-        lines.append('summary: "\\u05d0"')
-        text = "\n".join(lines) + "\n"
-        started = time.perf_counter()
-        rewritten = _unescape_non_ascii_yaml_escapes(text)
-        assert time.perf_counter() - started < 2.0
-        assert rewritten is not None
-        assert "א" in rewritten
+        self._assert_alias_rewrite_is_linear_in_depth(monkeypatch, tag)
 
     def test_generated_yaml_unescape_declines_a_document_its_constructor_rejects(self):
         # An unquoted date that does not exist raises ValueError from the
@@ -29062,6 +30645,79 @@ rules:
             not in repaired
         )
 
+    def test_complete_missing_dependent_test_inputs_uses_declared_money_dtype(
+        self, tmp_path
+    ):
+        # The name carries no numeric word, so the name guess alone says false.
+        repo = tmp_path / "rulespec-us" / "us"
+        target_file = repo / "regulations/12-cfr/1005/6.yaml"
+        dependent_file = repo / "regulations/12-cfr/1005/11.yaml"
+        test_file = repo / "regulations/12-cfr/1005/11.test.yaml"
+        target_file.parent.mkdir(parents=True)
+        target_file.write_text(
+            """format: rulespec/v1
+inputs:
+  - name: state_law_or_agreement_imposes_less_liability
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: liability_under_this_section
+    entity: Person
+    dtype: Money
+    period: Month
+rules:
+  - name: state_law_or_agreement_liability
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if state_law_or_agreement_imposes_less_liability: min(50, liability_under_this_section) else: liability_under_this_section
+"""
+        )
+        dependent_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:regulations/12-cfr/1005/6#state_law_or_agreement_liability
+rules: []
+"""
+        )
+        test_file.write_text(
+            """- name: dependent_case
+  input:
+    us:regulations/12-cfr/1005/6#input.state_law_or_agreement_imposes_less_liability: false
+  output:
+    us:regulations/12-cfr/1005/11#provisional_credit: 0
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `dependent_case` execution failed: missing input "
+                        "`liability_under_this_section` for entity `case-1` over "
+                        "2026-10-01..2026-10-31"
+                    )
+                )
+            }
+        )
+
+        changed = _complete_missing_dependent_test_inputs(
+            overlay_repo=repo,
+            relative_output=Path("regulations/12-cfr/1005/6.yaml"),
+            validations=[(dependent_file, validation)],
+        )
+
+        assert changed == [test_file]
+        repaired = test_file.read_text()
+        assert (
+            "us:regulations/12-cfr/1005/6#input.liability_under_this_section: 0"
+            in repaired
+        )
+        assert "liability_under_this_section: false" not in repaired
+
     def test_complete_missing_dependent_test_inputs_uses_dependent_import_ref(
         self, tmp_path
     ):
@@ -31681,6 +33337,121 @@ rules:
             "us:statutes/26/151#input.household_size",
         ]
         assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
+    def test_encode_apply_wrong_typed_repair_keeps_declared_money_values(
+        self, capsys, tmp_path
+    ):
+        # A 12 CFR 1005.6 shape: the generated case's `false` triggers the
+        # repair, which must turn it into 0 and leave the model's numbers
+        # alone. `transfers_that_were_preventable` reads as boolean to the name
+        # guess, so only its Money declaration keeps the model's 200.
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "151.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+inputs:
+  - name: consumer_notified_within_two_business_days
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: unauthorized_transfers_before_notice
+    entity: Person
+    dtype: Money
+    period: Month
+  - name: transfers_that_were_preventable
+    entity: Person
+    dtype: Money
+    period: Month
+rules:
+  - name: timely_notice_liability
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if consumer_notified_within_two_business_days:
+            min(50, unauthorized_transfers_before_notice)
+          else:
+            min(500, min(50, unauthorized_transfers_before_notice) + transfers_that_were_preventable)
+"""
+        )
+        test_file = output_file.with_name("151.test.yaml")
+        test_file.write_text(
+            """- name: timely_notice_limits_transfers
+  period: 2026-10
+  input:
+    us:statutes/26/151#input.consumer_notified_within_two_business_days: true
+    us:statutes/26/151#input.unauthorized_transfers_before_notice: 100
+    us:statutes/26/151#input.transfers_that_were_preventable: 200
+  output:
+    us:statutes/26/151#timely_notice_liability: 50
+- name: auto_zero_timely_notice_liability
+  period: 2026-10
+  input:
+    us:statutes/26/151#input.consumer_notified_within_two_business_days: false
+    us:statutes/26/151#input.unauthorized_transfers_before_notice: false
+    us:statutes/26/151#input.transfers_that_were_preventable: false
+  output:
+    us:statutes/26/151#timely_notice_liability: 0
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/151.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/151.yaml: ci: Test case "
+                            "`auto_zero_timely_notice_liability` execution failed: "
+                            "type mismatch: expected numeric scalar"
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ),
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        test_payload = yaml.safe_load(test_file.read_text())
+        transfers = "us:statutes/26/151#input.unauthorized_transfers_before_notice"
+        preventable = "us:statutes/26/151#input.transfers_that_were_preventable"
+        notified = "us:statutes/26/151#input.consumer_notified_within_two_business_days"
+        for ref, model_number in ((transfers, 100), (preventable, 200)):
+            model_value = test_payload[0]["input"][ref]
+            repaired_value = test_payload[1]["input"][ref]
+            assert model_value == model_number and not isinstance(model_value, bool)
+            assert repaired_value == 0 and not isinstance(repaired_value, bool)
+        assert test_payload[1]["input"][notified] is False
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert sorted(run.outcome["auto_repaired_wrong_typed_test_inputs"]) == sorted(
+            f"auto_zero_timely_notice_liability:{ref}"
+            for ref in (transfers, preventable)
+        )
         assert run.outcome["status"] == "apply_applied"
 
     def test_size_named_string_selector_is_not_numeric(self):
@@ -42518,6 +44289,10 @@ class TestGuardGenerated:
 
     @pytest.fixture(autouse=True)
     def _rulespec_toolchain(self, monkeypatch, tmp_path):
+        _git(tmp_path, "init")
+        _git(tmp_path, "config", "user.email", "test@example.com")
+        _git(tmp_path, "config", "user.name", "Test User")
+        _git(tmp_path, "commit", "--allow-empty", "-m", "guard checkout HEAD")
         release = _bind_test_corpus_release(
             tmp_path,
             tmp_path / "axiom-corpus",
@@ -42761,6 +44536,8 @@ class TestGuardGenerated:
         base_waiver_text: str,
         head_waiver_text: str = TEST_VALIDATION_WAIVER_TEXT,
         delete_rule: bool = False,
+        unchanged_importer: str | None = None,
+        importer_ref: str = "us:regulations/example",
     ) -> tuple[Path, str]:
         repo = self._canonical_guard_repo(tmp_path)
         _git(repo, "init")
@@ -42770,6 +44547,12 @@ class TestGuardGenerated:
         rule = repo / relative
         self._source_backed_rule(rule)
         rule.write_text(rule.read_text() + "# protected-base version\n")
+        if unchanged_importer is not None:
+            importer = repo / unchanged_importer
+            self._source_backed_rule(importer)
+            importer.write_text(
+                importer.read_text() + f"imports:\n  - {importer_ref}\n"
+            )
         waiver = repo / "known-validation-gaps.yaml"
         waiver.write_text(base_waiver_text)
         _write_test_rulespec_toolchain(
@@ -43024,6 +44807,95 @@ class TestGuardGenerated:
         )
         assert "us/statutes/26/1.yaml" not in forged_coverage
         assert "us/policies/example.yaml" not in forged_coverage
+
+    @pytest.mark.parametrize(
+        "live_change",
+        ["delete_receipt", "edit_receipt", "delete_postimage", "restore_source"],
+    )
+    def test_path_migration_owner_verifies_at_base_despite_live_evidence_changes(
+        self, tmp_path, monkeypatch, live_change
+    ):
+        repo, plan, _head = self._path_migration_repo(tmp_path)
+        self._enable_path_migration(monkeypatch)
+        cmd_migrate_rulespec_paths(
+            SimpleNamespace(
+                policy_repo_path=repo, corpus_path=self.corpus_path, plan=plan
+            )
+        )
+        manifest_path = ".axiom/encoding-manifests/us/statutes/26/1.json"
+        manifest = json.loads((repo / manifest_path).read_text())
+        receipt = repo / manifest["migration"]["receipt_path"]
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "commit signed path migration")
+        base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        if live_change == "delete_receipt":
+            receipt.unlink()
+        elif live_change == "edit_receipt":
+            receipt.write_text("{}\n")
+        elif live_change == "delete_postimage":
+            (repo / "us/statutes/26/1.yaml").unlink()
+        else:
+            (repo / "us/statutes/26:1.yaml").write_text("unowned live file\n")
+        proof_cache = {}
+        verified, _root, _digest, issues = (
+            _load_verified_applied_encoding_manifest_payload(
+                repo,
+                manifest_path,
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                expected_waiver_set_sha256=TEST_VALIDATION_WAIVER_SHA256,
+                local_corpus_release=self.corpus_release,
+                expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
+                path_migration_receipt_proof_cache=proof_cache,
+                base_commit=base,
+            )
+        )
+        assert issues == []
+        assert verified == manifest
+        _payload, _root, _digest, live_issues = (
+            _load_verified_applied_encoding_manifest_payload(
+                repo,
+                manifest_path,
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                expected_waiver_set_sha256=TEST_VALIDATION_WAIVER_SHA256,
+                local_corpus_release=self.corpus_release,
+                expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
+                path_migration_receipt_proof_cache=proof_cache,
+            )
+        )
+        assert live_issues
+
+    def test_path_migration_owner_refuses_receipt_supplied_only_by_live_checkout(
+        self, tmp_path, monkeypatch
+    ):
+        repo, plan, _head = self._path_migration_repo(tmp_path)
+        self._enable_path_migration(monkeypatch)
+        cmd_migrate_rulespec_paths(
+            SimpleNamespace(
+                policy_repo_path=repo, corpus_path=self.corpus_path, plan=plan
+            )
+        )
+        manifest_path = ".axiom/encoding-manifests/us/statutes/26/1.json"
+        manifest = json.loads((repo / manifest_path).read_text())
+        receipt = repo / manifest["migration"]["receipt_path"]
+        receipt_raw = receipt.read_bytes()
+        receipt.unlink()
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "commit owner without its receipt")
+        base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        receipt.write_bytes(receipt_raw)
+        verified, _root, _digest, issues = (
+            _load_verified_applied_encoding_manifest_payload(
+                repo,
+                manifest_path,
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                expected_waiver_set_sha256=TEST_VALIDATION_WAIVER_SHA256,
+                local_corpus_release=self.corpus_release,
+                expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
+                base_commit=base,
+            )
+        )
+        assert verified is None
+        assert any("cannot be read safely" in issue for issue in issues)
 
     def test_path_migration_recomputes_signed_dependent_rewrite_from_base(
         self,
@@ -43450,6 +45322,514 @@ class TestGuardGenerated:
         assert len(issues) == 1
         assert "RuleSpec corpus/toolchain binding is invalid" in issues[0]
 
+    def _receipt_only_manifest(
+        self,
+        repo: Path,
+        *,
+        fault: str = "valid",
+        stem: str = "example",
+        manifest_relative: str | None = None,
+    ) -> tuple[str, str]:
+        relative = f"us/regulations/{stem}.yaml"
+        rule = repo / relative
+        self._source_backed_rule(rule)
+        payload = self._model_manifest(
+            [{"path": relative, "sha256": _sha256_file(rule)}]
+        )
+        if fault == "unsigned":
+            payload.pop("signature")
+        elif fault == "schema":
+            payload["legacy_compatibility"] = True
+            _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        elif fault == "tampered":
+            payload["model"] = "changed after signing"
+        elif fault == "stale":
+            payload["applied_files"][0]["sha256"] = "f" * 64
+            _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        elif fault == "provenance":
+            payload["source_attestation"]["corpus_release_content_sha256"] = "f" * 64
+            _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        else:
+            assert fault == "valid"
+        manifest_relative = manifest_relative or (
+            f".axiom/encoding-manifests/us/regulations/{stem}.json"
+        )
+        manifest = repo / manifest_relative
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(json.dumps(payload) + "\n")
+        return relative, manifest_relative
+
+    @pytest.mark.parametrize(
+        "manifest_relative",
+        [
+            ".axiom/encoding-manifests/example.json",
+            ".axiom/encoding-manifests/us/regulations/example.json",
+            ".axiom/encoding-manifests/uk/policies/example.json",
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("fault", "expected_issue"),
+        [
+            ("unsigned", "missing an encoder apply manifest signature"),
+            ("schema", "exact model"),
+            ("tampered", "invalid encoder apply manifest signature"),
+            ("stale", "stale sha256"),
+            ("provenance", "source_attestation.corpus_release_content_sha256"),
+        ],
+    )
+    def test_receipt_only_addition_is_verified(
+        self, tmp_path, manifest_relative, fault, expected_issue
+    ):
+        self._receipt_only_manifest(
+            tmp_path, fault=fault, manifest_relative=manifest_relative
+        )
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[manifest_relative],
+        )
+
+        assert any(expected_issue in issue for issue in issues), issues
+
+    @pytest.mark.parametrize(
+        "fault",
+        [
+            "none",
+            "changed_alias",
+            "new_alias",
+            "current_hash",
+            "mixed_hash",
+            "extra_claim",
+            "duplicate_path",
+            "duplicate_key",
+            "unknown_authority",
+            "unsigned_owner",
+            "tampered_owner",
+            "changed_rule",
+            "deleted_rule",
+            "alias_symlink",
+            "alias_executable",
+            "all_files",
+            "missing_base_rule",
+            "missing_base_owner",
+            "partial_head",
+            "missing_head",
+        ],
+    )
+    def test_refresh_with_unchanged_obsolete_alias(self, tmp_path, fault):
+        relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        alias = tmp_path / ".axiom/encoding-manifests/regulations/example.json"
+        alias.parent.mkdir(parents=True, exist_ok=True)
+        alias_payload = {
+            "schema_version": "axiom-encode/applied-rulespec/v1",
+            "backend": "manual",
+            "tool": "axiom-encode sign-applied-files",
+            "applied_files": [{"path": relative, "sha256": "e" * 64}],
+        }
+        if fault == "current_hash":
+            alias_payload["applied_files"][0]["sha256"] = _sha256_file(
+                tmp_path / relative
+            )
+        elif fault == "mixed_hash":
+            alias_payload["applied_files"].append(
+                {"path": relative, "sha256": _sha256_file(tmp_path / relative)}
+            )
+        elif fault == "extra_claim":
+            alias_payload["applied_files"].append(
+                {"path": "us/regulations/other.yaml", "sha256": "d" * 64}
+            )
+        elif fault == "duplicate_path":
+            alias_payload["applied_files"] *= 2
+        elif fault == "unknown_authority":
+            alias_payload["replacement"] = {"approved": True}
+        alias.write_text(json.dumps(alias_payload) + "\n")
+        if fault == "duplicate_key":
+            alias.write_text(
+                alias.read_text().replace(
+                    '"backend": "manual"', '"backend": "codex", "backend": "manual"'
+                )
+            )
+        if fault == "alias_executable":
+            alias.chmod(0o755)
+        saved_rule = (tmp_path / relative).read_bytes()
+        saved_manifest = (tmp_path / manifest_relative).read_bytes()
+        if fault == "missing_base_rule":
+            (tmp_path / relative).unlink()
+        elif fault == "missing_base_owner":
+            (tmp_path / manifest_relative).unlink()
+        _git(tmp_path, "add", ".")
+        _git(tmp_path, "commit", "-m", "canonical receipt and obsolete alias")
+        base_ref = _git(tmp_path, "rev-parse", "HEAD").stdout.strip()
+        (tmp_path / relative).write_bytes(saved_rule)
+        (tmp_path / manifest_relative).write_bytes(saved_manifest)
+        manifest = tmp_path / manifest_relative
+        payload = json.loads(manifest.read_text())
+        payload["model"] = "refreshed canonical model receipt"
+        if fault == "partial_head":
+            payload["applied_files"] = []
+        _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        if fault == "unsigned_owner":
+            payload.pop("signature")
+        elif fault == "tampered_owner":
+            payload["model"] = "changed after signing"
+        manifest.write_text(json.dumps(payload) + "\n")
+        if fault == "missing_head":
+            manifest.unlink()
+        if fault == "changed_alias":
+            alias.write_text(alias.read_text() + " ")
+        elif fault == "new_alias":
+            alias.rename(alias.with_name("new.json"))
+        elif fault == "alias_symlink":
+            original = tmp_path / "old-receipt.txt"
+            alias.rename(original)
+            alias.symlink_to(original)
+        elif fault == "changed_rule":
+            rule = tmp_path / relative
+            rule.write_text(rule.read_text() + "# changed\n")
+        elif fault == "deleted_rule":
+            (tmp_path / relative).unlink()
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            base_ref=base_ref,
+            changed_files=[manifest_relative],
+            all_files=fault == "all_files",
+        )
+        if fault == "missing_base_owner":
+            # A newly added valid receipt follows existing addition admission;
+            # it cannot establish the preserved-base alias exception.
+            from axiom_encode.cli import _guard_unchanged_obsolete_manual_alias
+
+            assert not _guard_unchanged_obsolete_manual_alias(
+                tmp_path,
+                manifest_path=alias.relative_to(tmp_path).as_posix(),
+                raw=alias.read_bytes(),
+                payload=alias_payload,
+                base_ref=base_ref,
+                roots=("us",),
+                base_tree_cache={},
+                preserved_claims={},
+            )
+        elif fault == "none":
+            assert issues == [], issues
+        else:
+            assert issues, fault
+
+    def test_receipt_only_minimal_unsigned_addition_is_rejected(self, tmp_path):
+        relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        (tmp_path / manifest_relative).write_text(
+            json.dumps(
+                {
+                    "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                    "applied_files": [
+                        {"path": relative, "sha256": _sha256_file(tmp_path / relative)}
+                    ],
+                }
+            )
+        )
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[manifest_relative],
+        )
+
+        assert any("missing an encoder apply manifest signature" in i for i in issues)
+
+    def test_receipt_only_existing_signature_cannot_authorize_changed_bytes(
+        self, tmp_path
+    ):
+        _relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        assert (
+            guard_generated_change_issues(
+                tmp_path,
+                corpus_path=self.corpus_path,
+                changed_files=[manifest_relative],
+            )
+            == []
+        )
+        _git(tmp_path, "init")
+        _git(tmp_path, "config", "user.email", "test@example.com")
+        _git(tmp_path, "config", "user.name", "Test User")
+        _git(tmp_path, "add", ".")
+        _git(tmp_path, "commit", "-m", "initialize signed receipt")
+        manifest = tmp_path / manifest_relative
+        payload = json.loads(manifest.read_text())
+        payload["model"] = "changed after signing"
+        manifest.write_text(json.dumps(payload) + "\n")
+
+        issues = guard_generated_change_issues(
+            tmp_path, corpus_path=self.corpus_path, base_ref="HEAD"
+        )
+
+        assert any("invalid encoder apply manifest signature" in i for i in issues)
+
+    def test_receipt_only_retirement_verifies_nested_signature(self, tmp_path):
+        relative = "us/regulations/retired.yaml"
+        manifest_relative = ".axiom/encoding-manifests/us/regulations/retired.json"
+        payload = self._retirement_manifest([relative])
+        payload["retired_manifest"]["model"] = "changed after signing"
+        _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        manifest = tmp_path / manifest_relative
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(json.dumps(payload) + "\n")
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[manifest_relative],
+        )
+
+        assert any("retired_manifest has an invalid" in issue for issue in issues)
+
+    @pytest.mark.parametrize("symlink_kind", ["manifest", "ancestor"])
+    def test_receipt_only_dangling_symlink_is_verified(self, tmp_path, symlink_kind):
+        _relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        manifest = tmp_path / manifest_relative
+        manifest.unlink()
+        if symlink_kind == "manifest":
+            manifest.symlink_to(tmp_path / "missing.json")
+        else:
+            manifest.parent.rmdir()
+            manifest.parent.symlink_to(tmp_path / "missing-directory")
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[manifest_relative],
+        )
+
+        assert any("cannot be read safely" in issue for issue in issues), issues
+
+    @pytest.mark.parametrize(
+        "symlink_kind", ["manifest", "ancestor", "existing_target"]
+    )
+    def test_mixed_change_verifies_unsafe_receipt(self, tmp_path, symlink_kind):
+        relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        unsafe_relative = ".axiom/encoding-manifests/unsafe/example.json"
+        unsafe_manifest = tmp_path / unsafe_relative
+        unsafe_manifest.parent.parent.mkdir(parents=True, exist_ok=True)
+        if symlink_kind == "ancestor":
+            unsafe_manifest.parent.symlink_to(tmp_path / "missing-directory")
+        else:
+            unsafe_manifest.parent.mkdir()
+            target = (
+                tmp_path / manifest_relative
+                if symlink_kind == "existing_target"
+                else tmp_path / "missing.json"
+            )
+            unsafe_manifest.symlink_to(target)
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[relative, manifest_relative, unsafe_relative],
+        )
+
+        assert any("cannot be read safely" in issue for issue in issues), issues
+
+    @pytest.mark.parametrize("all_files", [False, True])
+    def test_git_discovered_mixed_change_verifies_dangling_receipt(
+        self, tmp_path, all_files
+    ):
+        _git(tmp_path, "init")
+        _git(tmp_path, "config", "user.email", "test@example.com")
+        _git(tmp_path, "config", "user.name", "Test User")
+        _git(tmp_path, "add", ".")
+        _git(tmp_path, "commit", "-m", "initialize guard checkout")
+        self._receipt_only_manifest(tmp_path)
+        unsafe_manifest = tmp_path / ".axiom/encoding-manifests/dangling.json"
+        unsafe_manifest.symlink_to(tmp_path / "missing.json")
+        _git(tmp_path, "add", ".")
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            base_ref="HEAD",
+            all_files=all_files,
+        )
+
+        assert any("cannot be read safely" in issue for issue in issues), issues
+
+    def test_receipt_only_deletion_requires_an_inspectable_base(
+        self, tmp_path, monkeypatch
+    ):
+        _relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        (tmp_path / manifest_relative).unlink()
+        # The shared fixture initialises Git without a commit; this case is the
+        # Git-less checkout, whose base receipt cannot be inspected.
+        shutil.rmtree(tmp_path / ".git", ignore_errors=True)
+
+        def unexpected_verification(*_args, **_kwargs):
+            pytest.fail("an uninspectable base must fail before manifest verification")
+
+        monkeypatch.setattr(
+            "axiom_encode.cli._read_only_guard_encoder_execution_identity",
+            unexpected_verification,
+        )
+        monkeypatch.setattr(
+            "axiom_encode.cli._applied_encoding_manifest_verifier",
+            unexpected_verification,
+        )
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[manifest_relative],
+        )
+        assert any("cannot inspect its immutable base receipt" in i for i in issues)
+
+    @settings(
+        max_examples=40,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    @example(changes=[("manifest", "unsigned")])
+    @example(changes=[("manifest", "valid")])
+    @example(changes=[("both_dangling", "valid")])
+    @example(changes=[("deleted", "valid")])
+    @example(changes=[("rename", "valid")])
+    @example(changes=[("aux_migration", "tampered")])
+    @example(changes=[("aux_legacy", "unsigned")])
+    @example(
+        changes=[
+            ("manifest", "valid"),
+            ("both", "tampered"),
+            ("other", "schema"),
+            ("deleted", "stale"),
+        ]
+    )
+    @given(
+        changes=st.lists(
+            st.tuples(
+                st.sampled_from(
+                    [
+                        "module",
+                        "manifest",
+                        "both",
+                        "other",
+                        "deleted",
+                        "rename",
+                        "symlink",
+                        "dangling",
+                        "ancestor",
+                        "both_dangling",
+                        "aux_migration",
+                        "aux_legacy",
+                        "aux_deleted",
+                    ]
+                ),
+                st.sampled_from(
+                    ["valid", "unsigned", "schema", "tampered", "stale", "provenance"]
+                ),
+            ),
+            max_size=5,
+        )
+    )
+    def test_changed_manifest_verification_invariant(self, tmp_path, changes):
+        """Changed receipts are verified and base ownership cannot disappear."""
+        # Hypothesis shares the fixture between examples. Give each example
+        # an isolated Git base so deletions and renames have real base claims.
+        with tempfile.TemporaryDirectory(dir=tmp_path.parent) as temporary:
+            repo = Path(temporary) / "rulespec-us"
+            shutil.copytree(tmp_path / ".axiom", repo / ".axiom")
+            shutil.copyfile(
+                tmp_path / "known-validation-gaps.yaml",
+                repo / "known-validation-gaps.yaml",
+            )
+            self._check_changed_receipt_invariant(repo, changes)
+
+    def _check_changed_receipt_invariant(self, repo, changes):
+        changed: list[str] = []
+        expected_manifests: set[str] = set()
+        expected_rejection = False
+        base_pairs = [
+            self._receipt_only_manifest(repo, stem=f"property_{index}")
+            for index in range(len(changes))
+        ]
+        _git(repo, "init")
+        _git(repo, "config", "user.email", "test@example.com")
+        _git(repo, "config", "user.name", "Test User")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "--allow-empty", "-m", "initialize provenance base")
+        for index, (kind, fault) in enumerate(changes):
+            relative, base_manifest_relative = base_pairs[index]
+            manifest_relative = base_manifest_relative
+            if kind == "rename":
+                manifest_relative = f".axiom/encoding-manifests/renamed_{index}.json"
+                (repo / base_manifest_relative).unlink()
+                changed.append(base_manifest_relative)
+            relative, manifest_relative = self._receipt_only_manifest(
+                repo,
+                stem=f"property_{index}",
+                fault=fault,
+                manifest_relative=manifest_relative,
+            )
+            if kind in {"module", "both", "both_dangling"}:
+                changed.append(relative)
+            if kind in {"manifest", "both", "rename"}:
+                changed.append(manifest_relative)
+                expected_manifests.add(manifest_relative)
+                expected_rejection |= fault != "valid"
+            elif kind == "deleted":
+                (repo / manifest_relative).unlink()
+                changed.append(manifest_relative)
+                expected_rejection = True
+            elif kind in {"symlink", "dangling", "ancestor", "both_dangling"}:
+                unsafe_relative = (
+                    f".axiom/encoding-manifests/unsafe_{index}/receipt.json"
+                )
+                unsafe = repo / unsafe_relative
+                if kind == "ancestor":
+                    unsafe.parent.symlink_to(repo / "missing-directory")
+                else:
+                    unsafe.parent.mkdir()
+                    unsafe.symlink_to(
+                        repo / manifest_relative
+                        if kind == "symlink"
+                        else repo / "missing.json"
+                    )
+                changed.append(unsafe_relative)
+                expected_manifests.add(unsafe_relative)
+                if kind == "both_dangling":
+                    changed.append(manifest_relative)
+                    expected_manifests.add(manifest_relative)
+                expected_rejection = True
+            elif kind in {"aux_migration", "aux_legacy", "aux_deleted"}:
+                tree = (
+                    "legacy-replacements" if kind == "aux_legacy" else "path-migrations"
+                )
+                auxiliary_relative = f".axiom/{tree}/property_{index}.json"
+                auxiliary = repo / auxiliary_relative
+                auxiliary.parent.mkdir(parents=True, exist_ok=True)
+                auxiliary.write_text("{}\n")
+                if kind == "aux_deleted":
+                    _git(repo, "add", auxiliary_relative)
+                    _git(repo, "commit", "-m", "add auxiliary base receipt")
+                    auxiliary.unlink()
+                changed.append(auxiliary_relative)
+                expected_rejection = True
+            elif kind == "other":
+                changed.append(f"docs/property_{index}.md")
+            expected_rejection |= kind == "module"
+
+        with patch(
+            "axiom_encode.cli._load_verified_applied_encoding_manifest_payload",
+            wraps=_load_verified_applied_encoding_manifest_payload,
+        ) as loader:
+            issues = guard_generated_change_issues(
+                repo,
+                corpus_path=self.corpus_path,
+                base_ref="HEAD",
+                changed_files=changed,
+            )
+
+        assert bool(issues) == expected_rejection, issues
+        # Base preservation and auxiliary checks may also load unchanged
+        # owners. Every changed surviving manifest must still reach the loader.
+        assert expected_manifests <= {call.args[1] for call in loader.call_args_list}
+
     def test_base_guard_includes_committed_and_worktree_changes(self, tmp_path):
         repo = self._canonical_guard_repo(tmp_path)
         _git(repo, "init")
@@ -43800,6 +46180,45 @@ class TestGuardGenerated:
 
         assert issues == []
 
+    def test_accepts_post_apply_retirement_of_unchanged_direct_importer(self, tmp_path):
+        importer = "us-co/regulations/example.yaml"
+        repo, base_ref = self._waiver_retirement_repo(
+            tmp_path,
+            base_waiver_text=(
+                "validate_failures:\n" + self._waiver_entry_text(importer)
+            ),
+            unchanged_importer=importer,
+        )
+
+        issues = guard_generated_change_issues(
+            repo,
+            corpus_path=self.corpus_path,
+            base_ref=base_ref,
+            head_ref="HEAD",
+        )
+
+        assert issues == []
+
+    def test_rejects_retirement_of_unchanged_unrelated_importer(self, tmp_path):
+        importer = "us-co/regulations/example.yaml"
+        repo, base_ref = self._waiver_retirement_repo(
+            tmp_path,
+            base_waiver_text=(
+                "validate_failures:\n" + self._waiver_entry_text(importer)
+            ),
+            unchanged_importer=importer,
+            importer_ref="us:regulations/other",
+        )
+
+        issues = guard_generated_change_issues(
+            repo,
+            corpus_path=self.corpus_path,
+            base_ref=base_ref,
+            head_ref="HEAD",
+        )
+
+        assert any("unchanged direct importers" in issue for issue in issues)
+
     def test_accepts_pending_waiver_retirement_with_matching_deletion(self, tmp_path):
         relative = "us/regulations/example.yaml"
         repo, base_ref = self._waiver_retirement_repo(
@@ -43918,6 +46337,119 @@ class TestGuardGenerated:
             repo,
             [(Path(relative), [rule])],
             corpus_path=self.corpus_path,
+        )
+
+    @pytest.mark.parametrize(
+        ("mutation", "expected_post_migration"),
+        [
+            (None, True),
+            ("missing_dependent_manifest", False),
+            ("wrong_waiver_transition", False),
+            ("wrong_toolchain_transition", False),
+            ("not_in_place", False),
+            ("missing_target_manifest", False),
+            ("wrong_model_manifest_path", False),
+        ],
+    )
+    def test_in_place_replacement_scheduled_dependent_uses_post_waiver_identity(
+        self, tmp_path, mutation, expected_post_migration
+    ):
+        target = "us/regulations/example.yaml"
+        dependent = "us/regulations/dependent.yaml"
+        repo, base_ref = self._waiver_retirement_repo(
+            tmp_path,
+            base_waiver_text=("validate_failures:\n" + self._waiver_entry_text(target)),
+        )
+        base_waiver = _git(
+            repo, "show", f"{base_ref}:known-validation-gaps.yaml"
+        ).stdout.encode()
+        base_sha256 = hashlib.sha256(base_waiver).hexdigest()
+        current_sha256 = _sha256_file(repo / "known-validation-gaps.yaml")
+        toolchain_sha256 = _sha256_file(repo / ".axiom/toolchain.toml")
+        receipt = {
+            "tool": APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL,
+            "validation_waiver_set_sha256": current_sha256,
+            "replacement": {
+                "source": target,
+                "destination": target,
+                "model_manifest_path": (
+                    ".axiom/encoding-manifests/us/regulations/example.json"
+                ),
+                "scheduled_dependents": [
+                    {
+                        "primary": dependent,
+                        "source_citation": "us/manual/example/block-5",
+                    }
+                ],
+                "metadata_reconciliations": [
+                    {
+                        "path": "known-validation-gaps.yaml",
+                        "before_sha256": base_sha256,
+                        "after_sha256": current_sha256,
+                    },
+                    {
+                        "path": ".axiom/toolchain.toml",
+                        "after_sha256": toolchain_sha256,
+                    },
+                ],
+            },
+        }
+        if mutation == "wrong_waiver_transition":
+            receipt["replacement"]["metadata_reconciliations"][0]["after_sha256"] = (
+                "0" * 64
+            )
+        elif mutation == "wrong_toolchain_transition":
+            receipt["replacement"]["metadata_reconciliations"][1]["after_sha256"] = (
+                "0" * 64
+            )
+        elif mutation == "not_in_place":
+            receipt["replacement"]["destination"] = dependent
+        elif mutation == "wrong_model_manifest_path":
+            receipt["replacement"]["model_manifest_path"] = (
+                ".axiom/encoding-manifests/us/regulations/unrelated.json"
+            )
+        target_manifest = repo / ".axiom/encoding-manifests/us/regulations/example.json"
+        target_manifest.parent.mkdir(parents=True, exist_ok=True)
+        target_manifest.write_text(
+            json.dumps({"tool": APPLIED_ENCODING_MODEL_TOOL}) + "\n"
+        )
+        receipt_path = repo / ".axiom/legacy-replacements/example.json"
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(json.dumps(receipt) + "\n")
+        changed = [
+            target,
+            dependent,
+            "known-validation-gaps.yaml",
+            ".axiom/toolchain.toml",
+            receipt_path.relative_to(repo).as_posix(),
+        ]
+        if mutation != "missing_target_manifest":
+            changed.append(target_manifest.relative_to(repo).as_posix())
+        if mutation != "missing_dependent_manifest":
+            changed.append(".axiom/encoding-manifests/us/regulations/dependent.json")
+        expected, issues = _guard_manifest_waiver_set_identity(
+            repo,
+            base_ref=base_ref,
+            head_ref="HEAD",
+            changed=changed,
+            protected=[target, dependent],
+            roots=("regulations",),
+            current_waiver_set_sha256=current_sha256,
+        )
+        assert issues == []
+        assert expected == base_sha256
+        post_waiver_manifests = _in_place_replacement_post_waiver_dependent_manifests(
+            repo,
+            changed=set(changed),
+            protected={target, dependent},
+            roots=("regulations",),
+            base_waiver_sha256=base_sha256,
+            current_waiver_sha256=current_sha256,
+        )
+        assert post_waiver_manifests == (
+            frozenset({".axiom/encoding-manifests/us/regulations/dependent.json"})
+            if expected_post_migration
+            else frozenset()
         )
 
     @pytest.mark.parametrize(
@@ -45015,6 +47547,12 @@ rules: []
         ]
 
     def test_tolerates_manifest_deleted_in_same_change(self, tmp_path):
+        # Establish that the omitted stale receipt had no base ownership.
+        _git(tmp_path, "init")
+        _git(tmp_path, "config", "user.email", "test@example.com")
+        _git(tmp_path, "config", "user.name", "Test User")
+        _git(tmp_path, "add", ".")
+        _git(tmp_path, "commit", "-m", "initialize provenance base")
         manifest = tmp_path / ".axiom/encoding-manifests/us/regulations/removal.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = self._retirement_manifest(["us/regulations/example.yaml"])
@@ -45027,6 +47565,7 @@ rules: []
             issues = guard_generated_change_issues(
                 tmp_path,
                 corpus_path=self.corpus_path,
+                base_ref="HEAD",
                 changed_files=[
                     "us/regulations/example.yaml",
                     ".axiom/encoding-manifests/us/regulations/removal.json",
@@ -45299,7 +47838,7 @@ rules: []
     def test_guard_generated_command_exits_nonzero_for_manual_change(
         self, capsys, tmp_path
     ):
-        repo = tmp_path / "rulespec-us"
+        repo = tmp_path
         release = _bind_test_corpus_release(
             repo,
             tmp_path / "canonical-axiom-corpus",
@@ -45743,6 +48282,82 @@ rules: []
         assert (
             updated.count("us:statutes/26/1/h#input.investment_income_amount: 0") == 2
         )
+
+    def test_complete_missing_imported_test_inputs_uses_declared_money_dtype(
+        self, tmp_path
+    ):
+        # The name carries no numeric word, so the name guess alone says false.
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        imported = policy_repo / "regulations/12-cfr/1005/6.yaml"
+        dependent = policy_repo / "regulations/12-cfr/1005/11.yaml"
+        dependent_test = policy_repo / "regulations/12-cfr/1005/11.test.yaml"
+        imported.parent.mkdir(parents=True)
+        _write_test_rulespec_toolchain(policy_repo)
+        imported.write_text(
+            """format: rulespec/v1
+inputs:
+  - name: consumer_notified_within_two_business_days
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: unauthorized_transfers_before_notice
+    entity: Person
+    dtype: Money
+    period: Month
+rules:
+  - name: timely_notice_liability
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if consumer_notified_within_two_business_days:
+            min(50, unauthorized_transfers_before_notice)
+          else: 0
+"""
+        )
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:regulations/12-cfr/1005/6#timely_notice_liability
+rules: []
+"""
+        )
+        dependent_test.write_text(
+            """- name: case_one
+  input:
+    us:regulations/12-cfr/1005/6#input.consumer_notified_within_two_business_days: true
+  output:
+    us:regulations/12-cfr/1005/11#provisional_credit: 0
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `case_one` execution failed: "
+                        "missing input `unauthorized_transfers_before_notice`"
+                    )
+                )
+            }
+        )
+
+        changed = _complete_missing_imported_test_inputs(
+            rules_file=dependent,
+            test_file=dependent_test,
+            repo_path=policy_repo,
+            validation=validation,
+        )
+
+        assert changed is True
+        updated = dependent_test.read_text()
+        assert (
+            "us:regulations/12-cfr/1005/6#input.unauthorized_transfers_before_notice: 0"
+            in updated
+        )
+        assert "unauthorized_transfers_before_notice: false" not in updated
 
     def test_complete_missing_imported_test_inputs_adds_deferred_import_defaults(
         self, tmp_path
@@ -47540,8 +50155,9 @@ rules:
             APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
         )
 
+    @pytest.mark.parametrize("engine_ref", [None, "a" * 40])
     def test_reviewed_candidate_promotion_runs_real_overlay_without_rewriting(
-        self, tmp_path
+        self, tmp_path, engine_ref
     ):
         citation = "us/regulation/7/273/4"
         source_sha256 = "d" * 64
@@ -47596,20 +50212,41 @@ rules:
             hashlib.sha256(original).hexdigest(),
         )
 
+        binding = (
+            {"ref": engine_ref, "binary": str(tmp_path / "engine"), "sha256": "b" * 64}
+            if engine_ref
+            else None
+        )
+        execution = {"axiom_rules_engine_binding": binding} if binding else {}
         validation = SimpleNamespace(all_passed=True, results={})
         with (
-            patch("axiom_encode.cli.ValidatorPipeline", MagicMock()),
+            patch("axiom_encode.cli.ValidatorPipeline", MagicMock()) as pipeline,
             patch(
                 "axiom_encode.cli._validate_overlay_files",
                 return_value=[(generated, validation)],
             ),
-            patch("axiom_encode.cli._record_successful_apply_validation") as record,
+            patch(
+                "axiom_encode.cli._pinned_apply_engine_binding", return_value=binding
+            ),
+            patch(
+                "axiom_encode.cli._apply_validation_execution_identity",
+                return_value=execution,
+            ),
+            patch(
+                "axiom_encode.cli._build_apply_validation_snapshot",
+                return_value={"validation_execution": execution},
+            ),
+            patch(
+                "axiom_encode.cli._record_successful_apply_validation",
+                wraps=_record_successful_apply_validation,
+            ) as record,
         ):
             ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
                 result,
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
+                axiom_rules_engine_ref=engine_ref,
                 local_corpus_release=MagicMock(),
                 validate_dependents=False,
             )
@@ -47620,6 +50257,12 @@ rules:
         assert generated.read_bytes() == original
         assert generated_companion.read_bytes() == companion_original
         record.assert_called_once()
+        assert record.call_args.kwargs["axiom_rules_engine_ref"] == engine_ref
+        assert record.call_args.kwargs["expected_engine_binding"] == binding
+        assert pipeline.call_args.kwargs["axiom_rules_engine_ref"] == engine_ref
+        assert getattr(result, "_axiom_apply_validation_snapshot") == {
+            "validation_execution": execution
+        }
 
     def test_reviewed_candidate_tool_requires_explicit_promotion_mode(self):
         result = SimpleNamespace(
@@ -48094,6 +50737,138 @@ rules: []
         assert observed_pipeline_kwargs[0]["amendment_source_texts"] == {
             amendment_citation: amendment_sentence,
         }
+
+    @pytest.mark.parametrize("repair_timing", [False, True])
+    def test_standalone_amendment_timing_failure_cannot_be_rescued_by_apply_overlay(
+        self, tmp_path, repair_timing
+    ):
+        import axiom_encode.cli as cli_module
+        from axiom_encode.harness.amendment_timing import amendment_timing_issues
+        from axiom_encode.harness.validator_pipeline import (
+            ValidationResult,
+            ValidatorPipeline,
+        )
+
+        principal = "nz/statute/act/public/2018/0032/schedule/4/part/8"
+        amendment = "nz/statute/act/public/2026/0054/section/15"
+        document = CorpusAmendmentDocument(
+            citation_path=amendment,
+            title="Schedule 4 amended",
+            expression_date="2026-10-21",
+            metadata={
+                "commencement_date": "2027-04-01",
+                "commencement_citation_path": (
+                    "nz/statute/act/public/2026/0054/section/2"
+                ),
+            },
+            body="In Schedule 4, replace the rate with 305.",
+            match_tier="structured",
+        )
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-nz/nz"
+        relative = Path("statutes/act/public/2018/0032/schedule/4/part/8.yaml")
+        generated = output_root / "codex-test-model" / relative
+        generated.parent.mkdir(parents=True)
+        policy_repo.mkdir(parents=True)
+        payload = {
+            "format": "rulespec/v1",
+            "rules": [
+                {
+                    "name": "winter_energy_payment_rate",
+                    "kind": "parameter",
+                    "metadata": {
+                        "proof": {
+                            "atoms": [
+                                {
+                                    "path": "versions[0].formula",
+                                    "source": {"corpus_citation_path": amendment},
+                                }
+                            ]
+                        }
+                    },
+                    "versions": [
+                        {
+                            "effective_from": (
+                                "2027-04-01" if repair_timing else "0001-01-01"
+                            ),
+                            "formula": 305,
+                        }
+                    ],
+                }
+            ],
+        }
+        generated.write_text(yaml.safe_dump(payload))
+        result = SimpleNamespace(
+            success=False,
+            error="Generated RuleSpec failed compile validation",
+            output_file=str(generated),
+            runner="codex-test-model",
+            backend="codex",
+            citation=principal,
+        )
+        assert cli_module._can_attempt_apply(result)
+        assert bool(amendment_timing_issues(generated.read_text(), (document,))) is (
+            not repair_timing
+        )
+
+        def passing_ci_with_optional_repair(_pipeline, rules_file):
+            # Model an apply-time repair after the pipeline's initial timing
+            # check: admission must still inspect the final overlay bytes.
+            if repair_timing:
+                repaired = yaml.safe_load(rules_file.read_text())
+                repaired["rules"][0]["versions"][0]["effective_from"] = "0001-01-01"
+                rules_file.write_text(yaml.safe_dump(repaired))
+            return ValidationResult(validator_name="ci", passed=True)
+
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult(validator_name="compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                autospec=True,
+                side_effect=passing_ci_with_optional_repair,
+            ),
+            patch.object(cli_module, "_stamp_generated_source_attestation_for_apply"),
+            patch.object(
+                cli_module, "_generated_result_source_metadata", return_value={}
+            ),
+            patch.object(
+                cli_module, "_generated_result_source_attestation", return_value={}
+            ),
+            patch.object(
+                cli_module,
+                "_stamp_matching_supplemental_source_attestations",
+                side_effect=lambda mapping, **_kwargs: mapping,
+            ),
+            patch.object(cli_module, "_record_successful_apply_validation") as record,
+        ):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus", citation_path=principal
+                ),
+                validate_dependents=False,
+                amendment_source_texts={amendment: document.body},
+                amendment_documents=(document,),
+            )
+
+        assert ok is False
+        assert any(
+            "effective_from 0001-01-01 predates commencement 2027-04-01" in issue
+            for issue in issues
+        )
+        if not repair_timing:
+            assert any(": amendment_timing: " in issue for issue in issues)
+        assert supplemental == {}
+        record.assert_not_called()
+        assert getattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR) is None
 
     def test_standalone_contract_failure_cannot_be_rescued_by_apply_overlay(
         self, tmp_path
@@ -49036,6 +51811,83 @@ rules: []
             "36B.yaml",
         )
 
+    def test_external_proved_rules_are_carried_forward_before_overlay_validation(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
+        generated = output_root / "codex-test-model" / "statutes/26/36B.yaml"
+        generated.parent.mkdir(parents=True)
+        scalar = {
+            "name": "legacy_scalar",
+            "kind": "parameter",
+            "dtype": "Integer",
+            "versions": [{"effective_from": "2026-01-01", "formula": "30"}],
+        }
+        applies = {
+            "name": "legacy_applies",
+            "kind": "condition",
+            "versions": [{"effective_from": "2026-01-01", "formula": "true"}],
+        }
+        generated.write_text(
+            yaml.safe_dump(
+                {
+                    "format": "rulespec/v1",
+                    "rules": [
+                        {
+                            "name": "legacy_scalar",
+                            "kind": "parameter",
+                            "dtype": "Integer",
+                            "versions": [
+                                {"effective_from": "2026-01-01", "formula": "60"}
+                            ],
+                        },
+                        {"name": "new_rule", "kind": "condition"},
+                    ],
+                }
+            )
+        )
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                rules = yaml.safe_load(Path(path).read_text())["rules"]
+                assert rules == [
+                    scalar,
+                    {"name": "new_rule", "kind": "condition"},
+                    applies,
+                ]
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._record_successful_apply_validation"),
+        ):
+            ok, issues, _ = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
+                retired_source_admission={
+                    "required_unchanged_rules": [scalar, applies]
+                },
+            )
+        assert ok is True
+        assert issues == []
+        assert yaml.safe_load(generated.read_text())["rules"] == [
+            scalar,
+            {"name": "new_rule", "kind": "condition"},
+            applies,
+        ]
+
     def test_external_scalar_preservation_is_checked_after_overlay_repairs(
         self, tmp_path
     ):
@@ -49105,6 +51957,54 @@ rules: []
         )
         assert supplemental == {}
         record.assert_not_called()
+
+    def test_external_carry_forward_does_not_modify_immutable_candidate(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
+        generated = output_root / "codex-test-model" / "statutes/26/36B.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            yaml.safe_dump(
+                {
+                    "format": "rulespec/v1",
+                    "rules": [{"name": "legacy_scalar", "kind": "parameter"}],
+                }
+            )
+        )
+        original_bytes = generated.read_bytes()
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
+        setattr(
+            result,
+            _IMMUTABLE_RULESPEC_SHA256_ATTR,
+            hashlib.sha256(original_bytes).hexdigest(),
+        )
+        with patch("axiom_encode.cli.ValidatorPipeline") as pipeline:
+            ok, issues, _ = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
+                retired_source_admission={
+                    "required_unchanged_rules": [
+                        {
+                            "name": "legacy_scalar",
+                            "kind": "parameter",
+                            "versions": [{"formula": "30"}],
+                        }
+                    ]
+                },
+            )
+        assert not ok
+        assert any(
+            "preserve the entire legacy scalar rule" in issue for issue in issues
+        )
+        assert generated.read_bytes() == original_bytes
+        pipeline.assert_not_called()
 
     def test_apply_overlay_dependency_alias_copies_when_canonical_name_differs(
         self, tmp_path
@@ -49202,6 +52102,51 @@ rules: []
         assert issues == []
         assert supplemental == {}
         assert seen_require_policy_proofs == [True]
+
+    def test_apply_overlay_blocks_interpretation_shape_through_shared_pipeline(
+        self, tmp_path
+    ):
+        from axiom_encode.harness import validator_pipeline
+
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        generated = output_root / "codex-test-model" / "statutes/7/2014/a.yaml"
+        generated.parent.mkdir(parents=True)
+        policy_repo.mkdir(parents=True)
+        content = (
+            "format: rulespec/v1\nmodule:\n  interpretations: invalid\nrules: []\n"
+        )
+        generated.write_text(content)
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
+
+        class CompilationStubPipeline(validator_pipeline.ValidatorPipeline):
+            def _run_compile_check(self, rulespec_file):
+                return validator_pipeline.ValidationResult("compile", True)
+
+            def _compile_rulespec_to_artifact(self, rulespec_file, output_path):
+                return (
+                    subprocess.CompletedProcess(["axiom-rules-engine"], 0, "", ""),
+                    {"program": {"parameters": [], "derived": [], "relations": []}},
+                )
+
+        with patch("axiom_encode.cli.ValidatorPipeline", CompilationStubPipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
+            )
+
+        assert not ok
+        assert any("module.interpretations must be a list" in issue for issue in issues)
+        assert generated.read_text() == content
+        assert supplemental == {}
+        assert not (policy_repo / "statutes/7/2014/a.yaml").exists()
 
     def test_repair_medicaid_optional_senior_composition_updates_rule_and_tests(
         self,
@@ -51948,9 +54893,13 @@ class TestCmdCalibrationEdgeCases:
 class TestProgramsRootExcludedFromAtomicGuard:
     """Declarative ProgramSpecs never enter encoder manifest/signing surfaces."""
 
+    def _init_guard_checkout(self, checkout):
+        _init_test_git_repo(checkout)
+        _git(checkout, "commit", "--allow-empty", "-m", "guard checkout HEAD")
+
     def test_canonical_program_file_is_not_an_atomic_guard_target(self, tmp_path):
         checkout = tmp_path / "rulespec-uk"
-        checkout.mkdir()
+        self._init_guard_checkout(checkout)
         corpus_path = _bind_test_corpus_release(
             checkout,
             tmp_path / "axiom-corpus",
@@ -51969,7 +54918,7 @@ class TestProgramsRootExcludedFromAtomicGuard:
 
     def test_program_file_cannot_be_forced_into_atomic_guard_roots(self, tmp_path):
         checkout = tmp_path / "rulespec-us"
-        checkout.mkdir()
+        self._init_guard_checkout(checkout)
         corpus_path = _bind_test_corpus_release(
             checkout,
             tmp_path / "axiom-corpus",
@@ -51989,6 +54938,7 @@ class TestProgramsRootExcludedFromAtomicGuard:
 
     def test_guard_command_ignores_repository_root_programs(self, capsys, tmp_path):
         checkout = tmp_path / "rulespec-us"
+        self._init_guard_checkout(checkout)
         release = _bind_test_corpus_release(
             checkout,
             tmp_path / "axiom-corpus",
@@ -53082,3 +56032,55 @@ def test_apply_collision_rejects_unauthorized_noncanonical_or_nondirect_refineme
             relative_output=relative_output,
             rules_repo_path=content_root,
         )
+
+
+def test_apply_repair_reads_unassigned_facts_from_real_validator_issue(tmp_path):
+    from axiom_encode.cli import _fill_missing_test_input_assignments
+    from axiom_encode.harness.validator_pipeline import (
+        find_test_input_assignment_issues,
+    )
+
+    rules_file = tmp_path / "4.yaml"
+    test_file = tmp_path / "4.test.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: fact_one and fact_two
+"""
+    )
+    test_file.write_text(
+        """- name: relation_only
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/4#relation.person: [true]
+  output:
+    us:regulations/7-cfr/273/4#eligible: holds
+"""
+    )
+    issues = find_test_input_assignment_issues(
+        rules_file.read_text(), yaml.safe_load(test_file.read_text())
+    )
+
+    repaired = _fill_missing_test_input_assignments(
+        rules_file=rules_file,
+        test_file=test_file,
+        policy_repo_path=tmp_path / "rulespec-us" / "us",
+        relative_output=Path("us/regulations/7-cfr/273/4.yaml"),
+        issues=issues,
+    )
+
+    assert repaired == ["relation_only"]
+    cases = yaml.safe_load(test_file.read_text())
+    assert cases[0]["input"]["us:regulations/7-cfr/273/4#input.fact_one"] is False
+    assert cases[0]["input"]["us:regulations/7-cfr/273/4#input.fact_two"] is False
+    assert find_test_input_assignment_issues(rules_file.read_text(), cases) == []

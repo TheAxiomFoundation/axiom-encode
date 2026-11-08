@@ -104,8 +104,46 @@ def _paired(issues):
     return [issue for issue in issues if "require paired positive/blocking" in issue]
 
 
+def _assert_no_issues(issues):
+    # The bare folio is not authenticated by the shared outline, but it equals
+    # the citation's own page index, so numeric recall does not demand it.
+    # Precise deferrals remain accepted.
+    assert not _paired(issues)
+    assert not any("[complete-source-unit:deferral]" in issue for issue in issues)
+    assert issues == []
+
+
 def test_real_precise_deferral_candidate_needs_no_paired_witnesses(evaluate):
-    assert evaluate() == []
+    _assert_no_issues(evaluate())
+
+
+def _fourteens(text):
+    return [
+        (item.raw, item.start, item.end)
+        for item in vp.extract_typed_numeric_inventory_occurrences_from_text(
+            text, profile="en-US"
+        )
+        if item.value == 14
+    ]
+
+
+@pytest.mark.parametrize(
+    ("citation", "folio_recalled"),
+    ((CITATION, False), ("us/guidance/irs/rev-proc-2025-32/page-13", True)),
+    ids=("page-index-folio", "unverified-folio"),
+)
+def test_folio_and_later_operative_same_value_recall(citation, folio_recalled):
+    _, _, body = _candidate()
+    source = body + "\nThe additional payment is 14 dollars."
+    assert sc.bare_outline(source) is None
+    operative = source.index("14 dollars")
+    assert _fourteens(source) == [("14", 0, 2), ("14", operative, operative + 2)]
+    recall = sc.authoritative_numeric_recall_text(source, corpus_citation_path=citation)
+    operative = recall.index("14 dollars")
+    assert _fourteens(recall) == [
+        *((("14", 0, 2),) if folio_recalled else ()),
+        ("14", operative, operative + 2),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -153,7 +191,7 @@ def test_precise_definition_deferrals_also_accept_canonical_branch_paths(evaluat
             record["output"] = record["output"].replace(
                 "/child-tax-credit#", "/page-14/06/1#"
             )
-    assert evaluate(payload) == []
+    _assert_no_issues(evaluate(payload))
 
 
 @pytest.mark.parametrize(

@@ -490,6 +490,164 @@ def _install_trusted_git_wrapper(
 ) -> Path:
     """Install a narrowly scoped Git command broker into the isolated PATH."""
 
+    snapshot_clone_code = r"""
+def snapshot_clone(options):
+    # This is a data-only clone for execution evidence, never a general Git transport.
+    import configparser
+    import pathlib
+    import shlex
+    import shutil
+    import stat
+    import tempfile
+
+    def directory_fd(raw):
+        path = pathlib.Path(raw)
+        if not path.is_absolute() or raw != os.path.normpath(raw) or raw != str(path):
+            refuse('snapshot clone requires normalized absolute local paths')
+        fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            for part in path.parts[1:]:
+                next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                os.close(fd)
+                fd = next_fd
+            return fd
+        except BaseException:
+            os.close(fd)
+            raise
+
+    def canonical(raw, exists=True):
+        path = pathlib.Path(raw)
+        if not path.is_absolute() or raw != os.path.normpath(raw) or raw != str(path):
+            refuse('snapshot clone requires normalized absolute local paths')
+        fd = directory_fd(raw if exists else str(path.parent))
+        os.close(fd)
+        if not exists and path.is_symlink():
+            refuse('snapshot clone rejects symlink destinations')
+        return path
+
+    def read_regular(path):
+        parent_fd = directory_fd(str(path.parent))
+        try:
+            before = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+            if not stat.S_ISREG(before.st_mode):
+                refuse('snapshot clone requires regular metadata files')
+            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent_fd)
+            with os.fdopen(fd, 'rb') as stream:
+                opened = os.fstat(stream.fileno())
+                data = stream.read()
+            after = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+            identity = lambda st: (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+            if identity(before) != identity(opened) or identity(before) != identity(after):
+                refuse('snapshot clone metadata changed while reading')
+            return data
+        finally:
+            os.close(parent_fd)
+
+    if cursor != 0 or len(options) != 5 or options[:3] != ['--no-local', '--no-hardlinks', '--no-checkout']:
+        refuse('snapshot clone requires the exact data-only invocation')
+    source = canonical(options[3])
+    destination = canonical(options[4], exists=False)
+    parent = canonical(str(destination.parent))
+    parent_stat = parent.stat()
+    if (not parent.name.startswith('axiom-execution-snapshot-')
+            or parent_stat.st_uid != os.geteuid()
+            or stat.S_IMODE(parent_stat.st_mode) != 0o700
+            or any(parent.iterdir())):
+        refuse('snapshot clone requires a fresh private snapshot directory')
+    if destination.exists() or destination.is_symlink():
+        refuse('snapshot clone destination must not exist')
+    if source == destination or source in destination.parents or destination in source.parents:
+        refuse('snapshot clone source and destination must be disjoint')
+    gitdir = canonical(str(source / '.git'))
+    if any((gitdir / name).exists() or (gitdir / name).is_symlink() for name in
+           ('commondir', 'objects/info/alternates', 'objects/info/http-alternates')):
+        refuse('snapshot clone rejects shared or alternate object stores')
+    # Reject every link/special file, including ignored config/hooks. Never follow them.
+    for directory, dirs, files in os.walk(gitdir, followlinks=False):
+        for name in dirs + files:
+            mode = pathlib.Path(directory, name).lstat().st_mode
+            if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+                refuse('snapshot clone rejects non-regular repository metadata')
+    config = configparser.RawConfigParser(strict=True)
+    try:
+        config.read_string(read_regular(gitdir / 'config').decode('utf-8'))
+        if config.get('core', 'repositoryformatversion') != '0' or any(
+            section.lower() == 'extensions' for section in config.sections()
+        ):
+            refuse('snapshot clone rejects unsupported repository formats')
+    except (ValueError, UnicodeError, configparser.Error):
+        refuse('snapshot clone cannot validate repository format')
+    source_identity = tuple((p.stat().st_dev, p.stat().st_ino) for p in (source, gitdir, parent))
+    head = read_regular(gitdir / 'HEAD')
+    with tempfile.TemporaryDirectory(prefix='axiom-sanitized-git-', dir=parent) as temp:
+        clean = pathlib.Path(temp) / 'source'
+        clean_git = clean / '.git'
+        clean_git.mkdir(parents=True)
+        # Only object/ref data is copied. Source config/includes, hooks and templates
+        # never reach Git or upload-pack. All native executables are the trusted Git.
+        for name in ('HEAD', 'packed-refs', 'shallow'):
+            path = gitdir / name
+            if path.exists():
+                (clean_git / name).write_bytes(read_regular(path))
+        for name in ('objects', 'refs'):
+            tree = canonical(str(gitdir / name))
+            for directory, dirs, files in os.walk(tree, followlinks=False):
+                target = clean_git / pathlib.Path(directory).relative_to(gitdir)
+                target.mkdir(parents=True, exist_ok=True)
+                for child in dirs:
+                    canonical(str(pathlib.Path(directory, child)))
+                for child in files:
+                    relative = (pathlib.Path(directory) / child).relative_to(gitdir).as_posix()
+                    if relative in ('objects/info/alternates', 'objects/info/http-alternates'):
+                        refuse('snapshot clone rejects late alternate object stores')
+                    (target / child).write_bytes(read_regular(pathlib.Path(directory, child)))
+        (clean_git / 'config').write_text('[core]\nrepositoryformatversion = 0\nbare = false\n')
+        if read_regular(gitdir / 'HEAD') != head or source_identity != tuple(
+            (p.stat().st_dev, p.stat().st_ino) for p in (source, gitdir, parent)
+        ):
+            refuse('snapshot clone origin changed')
+        if destination.exists() or destination.is_symlink():
+            refuse('snapshot clone destination appeared')
+        canonical(str(parent))
+        if (parent.stat().st_dev, parent.stat().st_ino) != source_identity[-1]:
+            refuse('snapshot clone parent changed')
+        if any((clean_git / name).exists() or (clean_git / name).is_symlink() for name in
+               ('commondir', 'objects/info/alternates', 'objects/info/http-alternates')):
+            refuse('snapshot clone sanitized metadata has external references')
+        destination.mkdir(mode=0o700)
+        destination_identity = (destination.stat().st_dev, destination.stat().st_ino)
+        try:
+            upload = shlex.join([git, '-c', 'core.hooksPath=/dev/null',
+                                'upload-pack'])
+            command = [*trusted, '-c', 'init.templateDir=', '-c', 'protocol.allow=never',
+                       '-c', 'protocol.file.allow=always', 'clone', '--no-local',
+                       '--no-hardlinks', '--no-checkout', '--template=',
+                       '--upload-pack=' + upload, '--', str(clean), str(destination)]
+            result = subprocess.run(command, capture_output=True, timeout=60)
+            if result.returncode:
+                refuse('snapshot clone failed: ' + result.stderr.decode('utf-8', errors='replace'))
+            # Do not leave the transient sanitized source as a misleading origin.
+            result = subprocess.run([*trusted, '-C', str(destination), 'remote', 'remove', 'origin'],
+                                    capture_output=True, timeout=10)
+            if result.returncode:
+                refuse('snapshot clone could not remove transient origin')
+            canonical(str(source))
+            canonical(str(gitdir))
+            canonical(str(parent))
+            canonical(str(destination))
+            if (destination.stat().st_dev, destination.stat().st_ino) != destination_identity:
+                refuse('snapshot clone destination changed')
+            if read_regular(gitdir / 'HEAD') != head or source_identity != tuple(
+                (p.stat().st_dev, p.stat().st_ino) for p in (source, gitdir, parent)
+            ):
+                refuse('snapshot clone source identity changed')
+        except BaseException:
+            if (not destination.is_symlink() and destination.is_dir()
+                    and (destination.stat().st_dev, destination.stat().st_ino) == destination_identity):
+                shutil.rmtree(destination)
+            raise
+    raise SystemExit(0)
+"""
     wrapper = tool_directory / "git"
     content = (
         f"#!{interpreter} -I\n"
@@ -504,7 +662,8 @@ def _install_trusted_git_wrapper(
         "def refuse(message):\n"
         "    sys.stderr.write(message + '\\n')\n"
         "    raise SystemExit(REFUSED)\n"
-        "args = sys.argv[1:]\n"
+        + snapshot_clone_code
+        + "args = sys.argv[1:]\n"
         "cursor = 0\n"
         "if args[:1] == ['-C']:\n"
         "    if len(args) < 3:\n"
@@ -514,7 +673,7 @@ def _install_trusted_git_wrapper(
         "    'add', 'cat-file', 'diff', 'for-each-ref', 'grep', 'log',\n"
         "    'ls-files', 'ls-tree', 'merge-base',\n"
         "    'remote', 'rev-list', 'rev-parse', 'show', 'show-ref', 'status',\n"
-        "    'symbolic-ref',\n"
+        "    'symbolic-ref', 'clone',\n"
         "}\n"
         "if cursor >= len(args) or args[cursor] not in allowed:\n"
         "    selected = args[cursor] if cursor < len(args) else '<missing>'\n"
@@ -569,8 +728,18 @@ def _install_trusted_git_wrapper(
         "            '--name-only', '--no-renames', '--diff-filter=ACDMRT', '-z'\n"
         "        ]\n"
         "        if options[:4] == changed_prefix:\n"
-        "            return len(options[4:]) in {1, 2} and all(\n"
-        "                safe_ref(value) for value in options[4:]\n"
+        "            revisions = options[4:]\n"
+        "            if revisions[:1] == ['--end-of-options']:\n"
+        "                return (\n"
+        "                    len(revisions) in {3, 4}\n"
+        "                    and revisions[-1] == '--'\n"
+        "                    and all(\n"
+        "                        safe_ref(value)\n"
+        "                        for value in revisions[1:-1]\n"
+        "                    )\n"
+        "                )\n"
+        "            return len(revisions) in {1, 2} and all(\n"
+        "                safe_ref(value) for value in revisions\n"
         "            )\n"
         "        return (\n"
         "            options[:2] == ['--name-only', '--diff-filter=ACMRT']\n"
@@ -597,6 +766,16 @@ def _install_trusted_git_wrapper(
         "            and options[option_cursor + 1] == '--'\n"
         "        )\n"
         "    if command == 'log':\n"
+        "        historical_prefix = [\n"
+        "            '--full-history', '-m', '--format=%H', '--no-renames',\n"
+        "        ]\n"
+        "        if options[:4] == historical_prefix:\n"
+        "            return (\n"
+        "                len(options) > 6\n"
+        "                and re.fullmatch(r'[0-9a-f]{40}\\.\\.[0-9a-f]{40}', options[4]) is not None\n"
+        "                and options[5] == '--'\n"
+        "                and all(safe_path(value) for value in options[6:])\n"
+        "            )\n"
         "        return options == [\n"
         "            '--format=%H', '--', 'pyproject.toml',\n"
         "            'src/axiom_encode/__init__.py', 'uv.lock',\n"
@@ -612,6 +791,22 @@ def _install_trusted_git_wrapper(
         "            and all(safe_path(value) for value in options[4:])\n"
         "        )\n"
         "    if command == 'ls-tree':\n"
+        "        for prefix, path_count in (\n"
+        "            (['-z', '--full-tree'], 1),\n"
+        "            (['-r', '-l', '-z', '--full-tree'], 0),\n"
+        "            (['-z'], 1),\n"
+        "            (['-r', '-z'], 0),\n"
+        "        ):\n"
+        "            boundary = len(prefix)\n"
+        "            if options[:boundary + 1] != [*prefix, '--']:\n"
+        "                continue\n"
+        "            return (\n"
+        "                len(options) == boundary + 2 + path_count\n"
+        "                and re.fullmatch(\n"
+        "                    r'[0-9a-f]{40}', options[boundary + 1]\n"
+        "                ) is not None\n"
+        "                and all(safe_path(value) for value in options[boundary + 2:])\n"
+        "            )\n"
         "        return (\n"
         "            len(options) == 5\n"
         "            and options[:2] == ['-z', '--full-tree']\n"
@@ -622,6 +817,10 @@ def _install_trusted_git_wrapper(
         "            len(options) == 5\n"
         "            and options[:4] == ['-r', '-l', '-z', '--full-tree']\n"
         "            and safe_ref(options[4])\n"
+        "        ) or (\n"
+        "            len(options) == 6\n"
+        "            and options[:5] == ['-r', '-t', '-l', '-z', '--full-tree']\n"
+        "            and safe_ref(options[5])\n"
         "        ) or (\n"
         "            len(options) == 4\n"
         "            and options[0] == '-z'\n"
@@ -660,11 +859,13 @@ def _install_trusted_git_wrapper(
         "            and options[:3] == ['--parents', '-n', '1']\n"
         "            and safe_ref(options[-1])\n"
         "        )\n"
+        "    if command == 'clone':\n"
+        "        return len(options) == 5 and options[:3] == ['--no-local', '--no-hardlinks', '--no-checkout']\n"
         "    if command == 'rev-parse':\n"
         "        if options in (\n"
         "            ['HEAD'], ['HEAD^{tree}'], ['--is-inside-work-tree'],\n"
         "            ['--show-prefix'],\n"
-        "            ['--show-toplevel'],\n"
+        "            ['--show-toplevel'], ['--show-toplevel', 'HEAD'],\n"
         "            ['--path-format=absolute', '--git-common-dir'],\n"
         "            ['--is-shallow-repository'],\n"
         "            ['--git-path', 'FETCH_HEAD'],\n"
@@ -682,11 +883,26 @@ def _install_trusted_git_wrapper(
         "            len(options) == 2\n"
         "            and options[0] == '--verify'\n"
         "            and safe_ref(options[1])\n"
+        "        ) or (\n"
+        "            len(options) == 3\n"
+        "            and options[:2] == ['--verify', '--end-of-options']\n"
+        "            and (\n"
+        "                safe_ref(options[2])\n"
+        "                or re.fullmatch(r'[0-9a-f]{40}\\^\\{tree\\}', options[2]) is not None\n"
+        "            )\n"
         "        )\n"
         "    if command == 'show':\n"
-        "        if len(options) != 1 or ':' not in options[0]:\n"
+        "        if options[:1] == ['--end-of-options']:\n"
+        "            if len(options) != 3 or options[-1] != '--':\n"
+        "                return False\n"
+        "            revision = options[1]\n"
+        "        elif len(options) == 1:\n"
+        "            revision = options[0]\n"
+        "        else:\n"
         "            return False\n"
-        "        ref, path = options[0].split(':', 1)\n"
+        "        if ':' not in revision:\n"
+        "            return False\n"
+        "        ref, path = revision.split(':', 1)\n"
         "        return safe_ref(ref) and safe_path(path)\n"
         "    if command == 'status':\n"
         "        return options in (\n"
@@ -727,6 +943,11 @@ def _install_trusted_git_wrapper(
         "    '-c', 'log.showSignature=false',\n"
         "    '-c', 'submodule.recurse=false',\n"
         "]\n"
+        "if command == 'clone':\n"
+        "    try:\n"
+        "        snapshot_clone(options)\n"
+        "    except (OSError, ValueError, subprocess.SubprocessError) as error:\n"
+        "        refuse(f'snapshot clone refused: {error}')\n"
         "def worktree_sensitive():\n"
         "    if command == 'add':\n"
         "        return True\n"
@@ -739,7 +960,14 @@ def _install_trusted_git_wrapper(
         "    prefix = [\n"
         "        '--name-only', '--no-renames', '--diff-filter=ACDMRT', '-z'\n"
         "    ]\n"
-        "    return options[:4] == prefix and len(options) == 5\n"
+        "    if options[:4] != prefix:\n"
+        "        return False\n"
+        "    revisions = options[4:]\n"
+        "    return len(revisions) == 1 or (\n"
+        "        len(revisions) == 3\n"
+        "        and revisions[0] == '--end-of-options'\n"
+        "        and revisions[-1] == '--'\n"
+        "    )\n"
         "def assert_safe_worktree_attributes():\n"
         "    repository = args[:cursor]\n"
         "    try:\n"
@@ -836,6 +1064,12 @@ _CODEX_CLI_PINS = {
         "member": "package/vendor/aarch64-apple-darwin/bin/codex",
         "archive_sha256": "36034ef21c4fd7992e3ca4d041dff869dbf8c5d742b68e5c9fad0c3636cf61ce",
         "sha256": "e89718aa1969bfc4a471277bdc4679a3a3529293de0a309909822dfd67ddb77a",
+    },
+    ("linux", "x64"): {
+        "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.0-linux-x64.tgz",
+        "member": "package/vendor/x86_64-unknown-linux-musl/bin/codex",
+        "archive_sha256": "27a80e1904c7337fe65d94f881779ba7700f42a8a87f3d06352b543b0115df98",
+        "sha256": "d2752c52353401f7f6efbfcea68796f4f7a3d3e4769f5d1da53fa49d4856b72f",
     },
 }
 
@@ -934,6 +1168,11 @@ def _install_pinned_codex_cli(
 
 
 _ENCODER_PACKAGE_PATHSPEC = "src/axiom_encode"
+# Code-owner-reviewed reviewed-RuleSpec admission records. They are data, not
+# encoder code: exported verbatim from the attested commit into the root-owned
+# runtime prefix, where promote-reviewed-candidate reads them.
+_REVIEWED_RULESPEC_REFS_PATHSPEC = "data/reviewed-rulespec-refs"
+_REVIEWED_RULESPEC_REFS_EXPORT = "reviewed-rulespec-refs"
 # Files whose in-tree version must agree for the encoder to declare one version,
 # and the paths whose change after a version bump is "unversioned encoder drift".
 # Mirrors the invariant cli.py enforces in Git mode.
@@ -1336,6 +1575,73 @@ def _export_encoder_package(
     return package
 
 
+def _export_reviewed_rulespec_refs(
+    trusted_git: Path, git_dir: Path, home: Path, commit: str, staging: Path
+) -> Path:
+    """Export the tracked admission records at ``commit`` with raw tree reads.
+
+    Only regular non-executable blobs are materialized (mode 0644); a symlink,
+    gitlink, executable or escaping path refuses provisioning. A commit without
+    records yields an empty directory, which admits no reviewed head. The
+    strict record loader validates layout and content at promotion time.
+    """
+
+    listing = _hardened_git(
+        trusted_git,
+        git_dir,
+        home,
+        "ls-tree",
+        "-r",
+        "-z",
+        commit,
+        "--",
+        _REVIEWED_RULESPEC_REFS_PATHSPEC,
+    )
+    export_root = staging / _REVIEWED_RULESPEC_REFS_EXPORT
+    export_root.mkdir(mode=0o755)
+    export_root.chmod(0o755)
+    resolved_root = export_root.resolve()
+    prefix = _REVIEWED_RULESPEC_REFS_PATHSPEC + "/"
+    for entry in (entry for entry in listing.split(b"\0") if entry):
+        meta, separator, raw_path = entry.partition(b"\t")
+        fields = meta.split(b" ")
+        if separator != b"\t" or len(fields) != 3:
+            raise SystemExit(
+                f"refusing to provision: malformed ls-tree entry: {entry!r}"
+            )
+        mode = fields[0].decode("ascii", "replace")
+        oid = fields[2].decode("ascii", "replace")
+        relative = os.fsdecode(raw_path)
+        if (
+            fields[1] != b"blob"
+            or mode != "100644"
+            or re.fullmatch(r"[0-9a-f]{40,64}", oid) is None
+            or not relative.startswith(prefix)
+        ):
+            raise SystemExit(
+                "refusing to provision: unsupported reviewed RuleSpec record "
+                f"tree entry {mode} {fields[1]!r} at {relative}"
+            )
+        parts = relative[len(prefix) :].split("/")
+        destination = export_root.joinpath(*parts)
+        if any(part in {"", ".", ".."} for part in parts) or not (
+            destination.resolve().is_relative_to(resolved_root)
+        ):
+            raise SystemExit(
+                "refusing to provision: reviewed RuleSpec record path escapes "
+                f"its root: {relative}"
+            )
+        blob = _hardened_git(trusted_git, git_dir, home, "cat-file", "blob", oid)
+        for parent in reversed(destination.relative_to(export_root).parents):
+            directory = export_root / parent
+            if not directory.exists():
+                directory.mkdir(mode=0o755)
+                directory.chmod(0o755)
+        destination.write_bytes(blob)
+        destination.chmod(0o644)
+    return export_root
+
+
 def _tree_hash_update(hasher: "hashlib._Hash", relative_path: str, raw: bytes) -> None:
     relative_bytes = relative_path.encode("utf-8")
     hasher.update(len(relative_bytes).to_bytes(8, "big"))
@@ -1569,6 +1875,7 @@ def _verify_and_export_encoder_snapshot(
     package = _export_encoder_package(
         trusted_git, git_dir, home, encoder_commit, staging
     )
+    _export_reviewed_rulespec_refs(trusted_git, git_dir, home, encoder_commit, staging)
     return declared_version, package
 
 
@@ -1577,6 +1884,8 @@ def _signing_trust_roots_payload(
     eval_root: str,
     corpus_release_root: str,
     retired_corpus_release_roots: tuple[str, ...] = (),
+    retired_apply_roots: tuple[str, ...] = (),
+    retired_apply_inventory: dict[str, object] | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "schema": "axiom-encode/signing-trust-roots/v2",
@@ -1591,7 +1900,60 @@ def _signing_trust_roots_payload(
             corpus_release_root,
             *retired_corpus_release_roots,
         ]
+    if bool(retired_apply_roots) != (retired_apply_inventory is not None):
+        raise SystemExit(
+            "retired apply roots and the frozen inventory must be supplied together"
+        )
+    if retired_apply_roots:
+        from axiom_encode.retired_apply import validate_retired_apply_inventory
+
+        try:
+            inventory = validate_retired_apply_inventory(retired_apply_inventory)
+        except ValueError as exc:
+            raise SystemExit(f"invalid retired apply frozen inventory: {exc}") from exc
+        if any(not root.strip() for root in retired_apply_roots):
+            raise SystemExit("retired apply roots must not be empty")
+        payload["schema"] = "axiom-encode/signing-trust-roots/v4"
+        payload["retired_apply_ed25519_public_keys"] = list(retired_apply_roots)
+        payload["retired_apply_inventory"] = inventory
     return payload
+
+
+def _load_retired_apply_inventory(path: Path) -> dict[str, object]:
+    """Read an owner-protected inventory only at supervisor provisioning time."""
+
+    if not path.is_absolute() or Path(os.path.abspath(path)) != path:
+        raise SystemExit("retired apply inventory path must be absolute and normalized")
+    for component in (path, *path.parents):
+        metadata = component.lstat()
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or metadata.st_uid != 0
+            or metadata.st_mode & 0o022
+        ):
+            raise SystemExit(
+                "retired apply inventory and its parents must be root-owned, non-writable, and free of symlinks"
+            )
+    if not path.is_file():
+        raise SystemExit("retired apply inventory must be a regular file")
+    if path.stat().st_size > 16 * 1024 * 1024:
+        raise SystemExit("retired apply inventory exceeds 16 MiB")
+
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON key {key!r}")
+            result[key] = value
+        return result
+
+    from axiom_encode.retired_apply import validate_retired_apply_inventory
+
+    try:
+        value = json.loads(path.read_bytes(), object_pairs_hook=unique_object)
+        return validate_retired_apply_inventory(value)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise SystemExit(f"invalid retired apply frozen inventory: {exc}") from exc
 
 
 def provision(
@@ -1611,11 +1973,26 @@ def provision(
     codex_cli_archive: Path | None = None,
     install_pinned_codex_cli: bool = False,
     retired_corpus_release_roots: tuple[str, ...] = (),
+    retired_apply_roots: tuple[str, ...] = (),
+    retired_apply_inventory_path: Path | None = None,
 ) -> None:
     if any(not root.strip() for root in retired_corpus_release_roots):
         raise SystemExit(
             "refusing to provision: retired corpus release roots must not be empty"
         )
+    retired_inventory = (
+        _load_retired_apply_inventory(retired_apply_inventory_path)
+        if retired_apply_inventory_path is not None
+        else None
+    )
+    trust_payload = _signing_trust_roots_payload(
+        apply_root,
+        eval_root,
+        corpus_release_root,
+        retired_corpus_release_roots,
+        retired_apply_roots,
+        retired_inventory,
+    )
     encoder_attestation_args = (
         encoder_origin_repository,
         encoder_commit,
@@ -1665,6 +2042,15 @@ def provision(
             # time via Path(__file__).parent) so the recorded tree digest binds
             # the executing bytes.
             package_tree_sha256 = _deterministic_package_tree_sha256(installed_package)
+            # Inside the runtime prefix, so the supervisor's trusted-tree checks
+            # (root-owned, no symlinks or special files) cover the records, and
+            # the CLI locates them from its own prefix rather than an argument.
+            assert encoder_staging is not None
+            shutil.copytree(
+                encoder_staging / _REVIEWED_RULESPEC_REFS_EXPORT,
+                runtime / _REVIEWED_RULESPEC_REFS_EXPORT,
+                symlinks=True,
+            )
         if sys.platform == "linux":
             if not patchelf:
                 patchelf = shutil.which("patchelf")
@@ -1688,12 +2074,6 @@ def provision(
         )
         launcher.chmod(0o755)
         trust = destination / "signing-trust-roots.json"
-        trust_payload = _signing_trust_roots_payload(
-            apply_root,
-            eval_root,
-            corpus_release_root,
-            retired_corpus_release_roots,
-        )
         trust.write_text(json.dumps(trust_payload, sort_keys=True) + "\n")
         trust.chmod(0o644)
         if provision_encoder:
@@ -1729,6 +2109,18 @@ if __name__ == "__main__":
         action="append",
         default=[],
         help="Retired verification-only corpus release root; repeat for each key.",
+    )
+    parser.add_argument(
+        "--retired-apply-root",
+        action="append",
+        default=[],
+        help="Retired verification-only apply root (raw base64); requires frozen inventory.",
+    )
+    parser.add_argument(
+        "--retired-apply-inventory",
+        type=Path,
+        default=None,
+        help="Owner-reviewed root-protected frozen inventory; copied inline into protected trust.",
     )
     parser.add_argument(
         "--install-pinned-codex-cli",
@@ -1809,4 +2201,6 @@ if __name__ == "__main__":
         else None,
         args.install_pinned_codex_cli,
         tuple(args.retired_corpus_release_root),
+        tuple(args.retired_apply_root),
+        args.retired_apply_inventory,
     )

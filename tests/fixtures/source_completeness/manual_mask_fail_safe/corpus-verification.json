@@ -1,0 +1,40 @@
+{
+  "all_final_source_and_baseline_package_hashes_verified": true,
+  "all_input_row_hashes_verified": true,
+  "all_ledger_keys_unique_complete": true,
+  "all_output_hashes_verified": true,
+  "complete": true,
+  "delta_rows": 661,
+  "files": 231,
+  "previous_records_read": 0,
+  "proof_counts": {
+    "different_recall_actual_both_profiles": 1821,
+    "equal_recall_actual_current_legacy_no_guard_divergence": 15927,
+    "equal_recall_guard_divergence_actual_both_legacy": 385,
+    "equal_recall_identical_en_us_and_no_legacy_guard_candidate": 50715
+  },
+  "recomputed_comparisons": {
+    "en-US": {
+      "added_occurrences": 525,
+      "added_typed": 525,
+      "changed_rows": 244,
+      "new_demands": 422,
+      "removed_demands": 0,
+      "removed_occurrences": 0,
+      "removed_typed": 0
+    },
+    "legacy": {
+      "added_occurrences": 1680,
+      "added_typed": 1680,
+      "changed_rows": 661,
+      "new_demands": 1008,
+      "removed_demands": 0,
+      "removed_occurrences": 0,
+      "removed_typed": 0
+    }
+  },
+  "rows": 68848,
+  "summary_sha256": "a2068d9e020882b2dfabafeb559e1a085516522047f2213f677818c99d25d104",
+  "verifier_sha256": "b59351daaa75ae19d0ea86c490b95c5a14b3d88960fcadf81eb2d9fed1f09cd7",
+  "zero_removed_demands_occurrences_or_typed_entries": true
+}

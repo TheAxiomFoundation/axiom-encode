@@ -1,0 +1,1380 @@
+You are participating in an encoding eval for uk/statute/2020/1/section/1.
+
+Author the output in Axiom RuleSpec YAML.
+Do not narrate your plan or describe what you will do before emitting the artifact.
+The response must begin with the requested RuleSpec artifact, not with prose.
+This is Axiom encoding work. Do not read, load, or apply PolicyEngine skills,
+PolicyEngine workflow docs, or PolicyEngine implementation guidance. PolicyEngine
+may be mentioned only as oracle/comparison data when explicitly supplied by this
+prompt. Use only the inline source, copied context files, RuleSpec/Axiom
+instructions in this prompt, and local Axiom/RuleSpec files.
+
+Primary legal authority:
+- `./source.txt` contains the complete source text for this target source unit.
+- Treat that source text as the only source of legal truth for this artifact.
+
+
+=== BEGIN SOURCE.TXT ===
+The annual allowance is £100.
+
+=== END SOURCE.TXT ===
+
+
+Context mode: `cold`.
+Context files are precedent and dependency context, not independent legal authority for new values:
+- inspect `context-0.txt`; import target `uk:context/0`; context hash `sha256:c5a335009b46b0edbd88cfef7908c28d90f54750c6703cb0ffab4d545a4a921a` (kind: precedent)
+
+
+You do not have filesystem tool access in this eval, so the relevant context files are also copied inline below.
+Inline context copies:
+=== FILE: context-0.txt ===
+context head
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+... [truncated]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Import and context rules:
+- Use the listed import target rather than the `./context/...` inspection path.
+- do not wrap import targets in quotes.
+- Every import path must point to a file that is actually copied into the workspace.
+- Top-level `imports:` entries must be scalar strings, never map entries like
+  `- target:` plus `symbols:`. Import a copied export as one exact string such
+  as `<jurisdiction>:<repo-path>#<exported_symbol>`.
+- If a copied context file already defines the exact symbol you need, import that exact symbol instead of inventing renamed locals that overlap with the copied file.
+- Copied context listings include exported symbols as `import_target#name`; use
+  those exact references in `imports:` and proof atoms when composing from context.
+- Copied context listings include local input slots as `import_target#input.name`.
+  When assigning inputs for an imported file, use only the input slots listed
+  for that imported file or listed for another imported dependency that is
+  actually needed by the compiled import graph. Never copy a `#input` key from
+  a sibling context test merely because that sibling imports the same file.
+- Never drop the jurisdiction prefix from copied context imports. If context
+  lists `us:statutes/26/24/h#some_output`, the top-level import and any proof
+  import target must use exactly `us:statutes/26/24/h#some_output`, not
+  `statutes/26/24/h#some_output`.
+- In formulas, reference imported exports by their bare local rule name after adding an `imports:` entry; never write an absolute `us:...#rule_name` reference inside a formula.
+- Treat copied current target files as context, not as general backward compatibility contracts. You may drop, rename, rebuild, or defer existing executable rules, tests, imports, and local factual inputs when the source text, schema, canonical imports, or validation guardrails require a cleaner encoding, except for surfaces explicitly listed above under `Exact-oracle replacement contract`.
+- An exact-oracle replacement contract is a narrow registry-owned exception: preserve its valid mapped names/public shapes and the listed valid explicit inputs while repairing their implementation. Prefix/fallback mappings and invalid legacy inputs create no preservation contract.
+- Never preserve, rename, or recreate a legacy local input if it conflicts with the current no-placeholder, no-bare-friendly-name, filing-status, temporal, import, or source-grounding rules. If an existing output cannot be represented faithfully without such a local input, defer that executable surface or leave it out of executable formulas.
+- When source text cites a section or subsection and a copied context file for
+  that citation is listed, import and use the listed exported symbol from that
+  context instead of creating a local `section_...` or `subsection_...`
+  placeholder.
+- If this target is an aggregate parent provision and copied child-fragment files
+  already encode subparagraphs, import those child outputs and compose them.
+  Do not redefine the child parameters, helper rules, or copied executable
+  outputs in the parent file.
+- Do not manufacture a parent-level `Judgment` output whose formula is only a
+  pass-through, conjunction, or disjunction of imported child `Judgment`
+  predicates. If a child paragraph already exports the exact predicate and the
+  parent source adds no distinct parent-level condition, keep that child text
+  documentary in `module.summary`, import the child predicate only where a real
+  parent formula consumes it, or defer the parent surface. Compose imported
+  child Judgments only when the requested source itself states a new named
+  parent condition or result that genuinely combines those child predicates with
+  source-stated local conditions.
+- If context contains a more specific child file under the current target path
+  that exports the exact scalar needed by this source, such as a `/rate`,
+  `/threshold`, `/amount`, `/cap`, or `/limit` file, treat that child file as
+  the canonical home for the scalar. Import the exact child export and use it
+  in the current formula; do not emit a duplicate local `parameter` with the
+  same value or name in the parent/composition file.
+- Before using any imported output in arithmetic, check the copied context
+  export's `dtype:`. An imported `dtype: Judgment` is a predicate, not a scalar
+  amount, rate, or base. Never multiply, add, subtract, divide, `min`, or `max`
+  a Judgment import as if it were Money, Rate, Count, or another numeric value.
+  If the current source states a numeric base such as wages, remuneration,
+  payments, or amounts attributable to a category and the copied import only
+  identifies whether an item is attributable to that category, encode the source-stated numeric base as a local amount fact, or as a relation-filtered
+  aggregate only when a compatible relation and numeric amount field are
+  present. If neither is available, defer the numeric output instead of using
+  the Judgment import as a placeholder scalar.
+- If a copied context file for this target or a same-program sibling contains a `kind: source_relation` record, preserve the legal/provenance edge unless `./source.txt` proves it wrong; executable formula changes are not a reason to drop source graph context.
+- Do not fabricate same-instrument imports or `statutes/...#symbol` paths unless that exact `path#symbol` import target is listed.
+- do not fabricate sibling-file imports for uncopied same-instrument provisions.
+- When a copied chart or parameter file supplies values, keep `.test.yaml` inputs and expected outputs consistent with the rows visible in that imported file; do not guess contradictory expectations for those imported values.
+- Do not invent degenerate placeholder rows like `number_of_children_in_assistance_unit: 0` plus `number_of_caretakers_in_assistance_unit: 0` unless that row is visible in the copied chart file.
+- Do not assert an exact zero imported standard, grant, or threshold unless that exact imported row is visible in the copied chart file.
+
+
+You do not have filesystem tool access in this eval; rely on the inline source and any inline context copies in this prompt.
+
+
+Interpretations:
+- When source provisions conflict, your reading departs from literal wording,
+  or any question has been put to the publisher, add one
+  `module.interpretations[]` entry per reading with `status: open`.
+- Include a unique kebab-case `id`, plain-word `question`, non-empty `texts`
+  (`corpus_citation_path` and verbatim `excerpt`), adopted `reading`, non-empty
+  `alternatives` (`id`, `reading`, optional `effect`), `basis`, and non-empty `affects`
+  naming local `rules[].name`; never name deferred outputs.
+- Every alternative requires a non-blank string `id` matching
+  `^[a-z0-9]+(-[a-z0-9]+)*$`, unique within its interpretation. Its only allowed
+  keys are `id`, `reading`, and `effect`; all strings must be non-blank.
+- Never invent `ruling` or `confirmation`. A repair may copy a recorded human
+  ruling supplied in mandatory review findings and set `status: ruled`; a
+  supplied publisher reply and recorded ruling permit `confirmed` or
+  `contradicted`. Attribute them to organisations, never people; use quoted real
+  YYYY-MM-DD dates and public https records. Keep private identifiers and local
+  paths out.
+- Interpretation texts document the reading; they do not count as proof atoms
+  or source coverage. A publisher-contradicted reading must be repaired: move
+  the old reading into `alternatives` and set the new reading's status.
+RuleSpec requirements:
+- The RuleSpec file must begin with `format: rulespec/v1`.
+- Include `module.summary: |-` with a concise exact audit excerpt, not the full source text when the source is more than a short paragraph. Corpus-backed validation reads the authoritative source from `corpus.provisions`; use the summary only to orient reviewers to the encoded provisions.
+- Do not emit `source_url`; RuleSpec source verification reads `corpus.provisions`, not raw PDFs or web pages.
+
+- Prefer the most authoritative supplied legal source for each atomic rule. If
+  another source is needed, encode it as its own corpus-bound atomic module and
+  import that module, or emit a typed deferral. Do not add source-audit metadata
+  to `module.source_verification`; its only fields are the singular
+  `corpus_citation_path` and optional `source_sha256` pin.
+- Include `module.proof_validation.required: true` and add
+  `metadata.proof.atoms` to every `parameter`, `derived`, and
+  `derived_relation` rule. Each atom must point to release-bound corpus source
+  text or an explicit imported RuleSpec export supporting that rule's
+  formula/value.
+- For source-backed proof atoms, `source.corpus_citation_path` is sufficient.
+  Add `source.excerpt` only for numeric amounts, rates, dates, or necessary
+  disambiguation; keep excerpts short and do not quote long definitions or
+  institutional descriptions.
+- For imported proof support, put `import:` at the proof atom top level
+  (for example `kind: import` plus `import.target: us:statutes/...#symbol`);
+  do not put imported RuleSpec targets under `source:`. Import proof atoms must
+  include `import.target`, `import.output`, and `import.hash` with the listed
+  context file `sha256:` hash. If no `sha256:` hash is listed for that import,
+  do not emit an import proof atom. When the imported proof target is in the
+  same RuleSpec file, use `hash: sha256:local`; never use `sha256:self`.
+- Proof atom `kind` must be one of: `amount`, `condition`, `definition`,
+  `default`, `effective_period`, `exception`, `formula`, `import`, `ordering`,
+  `parameter`, `parameter_table`, `predicate`, `table_cell`, or `unit`.
+- Use `rules:` as a list of rule objects. The filepath is the ID; do not add an `id:` field.
+- Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
+- Rule kinds are `parameter`, `derived`, `derived_relation`, `data_relation`, or `source_relation`. Use `parameter` for named source scalars when it fits the local schema, `derived` for entity-scoped outputs, `derived_relation` when source text defines a filtered legal membership relation, `data_relation` for runtime predicates, and `source_relation` for non-executable legal/provenance edges. The numeric invariant is the named concept: source-stated amounts, rates, thresholds, caps, limits, and table/grid cells should be named so consuming formulas can reference names instead of embedding literals.
+- This numeric invariant applies in mixed deferred or entity-unsupported provisions too. Defer the unsupported output under `module.deferred_outputs[]`, but keep any independent source-stated scalar legal values as `kind: parameter` rules rather than dropping them into prose.
+- Use `kind: parameter` with `indexed_by` and versioned `values` for source-stated numeric tables/scales keyed by household size, family size, income band, age band, or another row key. Do not encode those cells as `match` arms or numeric literals inside a derived formula. For source tables with interval/range row labels such as "at least / but less than" bands, do not create one scalar parameter per row, bound, or cell with names like `*_row_0_upper_*`, `*_row_3_rate`, or `*_lower_bound_band_9`. Define a source-backed band selector as a `derived` rule, store each substantive output column as a `kind: parameter` with `indexed_by: <band_selector>` and versioned `values`, and have the exported outputs look up the indexed table. Indexed table keys must be integer band ids such as `0`, `1`, and `2`; do not use decimal row thresholds like `1.33`, `2.5`, or strings such as `2_5_to_less_than_3_0` as lookup keys. Store source-stated row bounds as private named bound concepts or private indexed table/grid bound columns, and have the selector reference those names while returning integer band ids. If interpolation or clamping needs the active row bounds before native interval-table support exists, store lower/upper bounds as private indexed parameter columns and reference those names in derived formulas; do not repeat bound literals outside the selector. Preserve source row identity: open lower or upper interval cells are real rows, not defaults and not dropped rows; omit only the open side of the predicate.
+- Indexed parameter `values` keys must be integers. If a source table maps textual labels such as county names, program names, payment codes, provider classes, or other strings to an amount, rate, or numeric classification, do not put those strings under `values:` and do not set `indexed_by` to a text input. Instead encode a `derived` selector/result using string equality or `match` arms over the source-stated text labels, or encode source-stated boolean predicates for listed categories and combine them. Keep the text labels in proof excerpts/tests, not as parameter table keys. Do not use an `indexed_by` table with numeric keys merely to encode rows whose source keys are text labels; integer table keys are for real numeric bands or explicit source row numbers, not invented positions for code pairs like Federal Code/State OS Code.
+- For long source-stated text-label lists, do not emit one giant `or` chain or one giant `match` with every label. Large nested formula trees can exceed the compiled artifact parser's recursion limit. If a category list has more than about 25 text labels, split it into private source-backed `dtype: Judgment` helper predicates for chunks of that category (for example `zone_3_county_group_1`, `zone_3_county_group_2`), keep each helper formula to at most 25 text comparisons, and make the exported selector combine the helpers with a short conditional.
+- Do not treat the final interval row as open-ended unless the source row is actually open-ended. If the last source row has an upper bound, the selector must return an out-of-table sentinel above that bound and the principal output must handle that sentinel. Include a companion test above the final bounded row so the generated artifact cannot silently extend the table.
+- The out-of-table sentinel is not itself a source table row. Do not add sentinel entries to indexed parameter tables and do not clamp sentinel cases to the final table row's values. Handle the sentinel before table lookups, using the existing target's source-grounded out-of-range branch when repairing an existing artifact. Use a negative sentinel such as `-1`; do not use the next positive band id such as `6` merely because there are six legal rows, because that positive id is not source-stated and will fail numeric grounding.
+- Do not hard-code the final real band id in non-selector formulas merely to make the final row constant. If the final row's initial and final table values are the same, let the indexed interpolation formula produce that constant value; branch only on the out-of-table sentinel and on genuinely distinct source-stated first-row behavior.
+- For percentage interval row labels, bounds, rates, and ratio inputs, encode percent values as decimal ratios. For example, source text `133%` should be represented as `1.33`, and `60%` as `0.60`, not as percent-point values like `133` or `60`. When repairing an existing artifact, update companion tests to the same ratio scale instead of preserving old percent-point test inputs.
+- For interval-table repair of an existing target, keep the executable surface narrow: add indexed bound columns and update the existing source-faithful principal formula, but do not add extra exported derived rules that merely project table columns such as `initial_*` or `final_*` unless the source text makes those projections legal outputs in their own right. Reference indexed table columns directly from the principal formula when they are only helpers for interpolation.
+- Structural interval bounds that are only used by the selector should still be private implementation concepts, not public outputs. Prefer indexed bound columns or narrowly named private bound concepts over embedded selector literals; table/grid key indexes may remain as structural literals.
+- For source-stated rate or percentage tables whose column header names a legal
+  application such as "applicable percentage for section 3201(b)" or
+  "applicable percentage for sections 3211(b) and 3221(b)", name the exported
+  output after that statutory application. Do not append a consumer entity
+  suffix like `_for_tax_unit`, `_for_person`, or `_for_employer` unless the
+  source header itself states that entity.
+- A `kind: table_cell` proof atom must include `source.table.header`, `source.table.row`, and `source.table.column`. A `kind: parameter_table` proof atom with `source.table` must include `source.table.header`, `source.table.row_key`, and `source.table.column_key`; header-only `parameter_table` proof atoms are invalid. Example: `source: {table: {header: "credit percentage table", row_key: "qualifying_child_count", column_key: "credit_percentage"}}`. If you cannot identify table coordinates, use a direct proof kind such as `amount`, `parameter`, or `formula` instead of `table_cell` or `parameter_table`.
+- Every executable `parameter`, `derived`, and `derived_relation` rule must include a `source:`
+  field with the legal citation/span that directly supports that rule. Keep
+  `source:` short and local to the rule; use `module.source_verification` for
+  the corpus locator.
+- Use `kind: derived_relation` only when the source text explicitly defines
+  membership in a derived legal unit by filtering a source relation through a
+  stated predicate. "This source is about SNAP" is not enough. If the source
+  uses an existing structural entity such as `Household`, `TaxUnit`, `Employer`,
+  or `Person`, and merely references a program-specific concept without defining
+  who belongs to it, stay on the source-stated structural entity.
+- For source text that imposes an amount, tax, credit, or limitation on each,
+  every, or any employer, use `entity: Employer`. Do not default to `TaxUnit`
+  merely because the output is tax-related.
+- Keep the membership predicate as an ordinary source-backed rule, then define
+  the filtered entity under `derived_relation:` with `arity`, `source_relation`,
+  `entity`, `member_relation`, `slot_entities`, and a `versions[].formula` that
+  names the predicate.
+- Any rule that uses `entity: <filtered-entity>` such as `SnapUnit`, a MAGI
+  household, or a qualifying-child set requires the same file to either declare
+  that entity with a `kind: derived_relation` rule or import a RuleSpec file
+  that declares it. Filtered entities have no structural existence without that
+  dependency.
+Source-scope protocol:
+- Match each executable rule's `entity:` to the legal subject stated by the
+  supplied source text. If the source states an individual, member, claimant,
+  child, or other person-level disqualification, encode that person-scoped
+  rule as such; do not promote it to a household, unit, or top-level
+  eligibility boolean.
+- If the source states a household, unit, filing-unit, or tax-unit test, encode
+  that scope directly. If the same source also states member/person predicates
+  that feed that test, encode those predicates only as support for the
+  source-stated unit-level output.
+- In federal income tax provisions, "taxpayer" usually denotes the filing
+  taxpayer or tax unit when the current rule computes or limits a tax, credit,
+  deduction, household-income test, family-size test, joint-return condition,
+  spouse/dependent condition, or annual taxable-year amount. Keep those rules
+  at the filing-unit/tax-unit scope unless the source specifically makes an
+  individual, person, employee, child, dependent, or spouse the operative
+  lower-entity subject. Do not move an income-tax credit/deduction rule to
+  `Person` merely because the source uses the word "taxpayer".
+- When the source applies a cap, threshold, ceiling, reduction, "not exceed",
+  "lesser/greater of", or coordination rule to the amount of an individual,
+  person, member, taxpayer, employee, claimant, child, dependent, or spouse,
+  apply that limit at the source-stated lower entity before aggregating to a
+  household, unit, filing-unit, tax-unit, or family output. Do not sum a broad
+  relation and then cap the aggregate unless the source says the cap applies to
+  that aggregate unit.
+- When the source states a cap per one unit and per another unit, such as
+  "per taxpayer per beneficiary", preserve both dimensions. Do not apply one
+  per-unit cap to a single aggregate amount. If the schema or available inputs
+  cannot represent the per-unit relation and aggregate the capped results,
+  defer that executable output instead of approximating it with one cap.
+- When a tax, credit, deduction, contribution, or other amount is computed as a
+  rate or percentage of a legal base stated for each/every individual, person,
+  member, employee, claimant, child, dependent, or spouse, compute that base and
+  the rate-applied result at the source-stated lower entity before any unit
+  roll-up. A household, filing-unit, tax-unit, or family output may aggregate
+  those lower-entity results through an explicit relation; it must not multiply
+  a unit-level placeholder or aggregate base by the rate unless the source
+  defines the base on that unit.
+- For claim, overpayment, overissuance, repayment, recoupment, restitution, or
+  collection rules, treat phrases such as "may not collect more than the
+  amount of the claim", "cannot collect more than", and "limited to the claim"
+  as collectability caps. Encode the established gross claim, required offsets,
+  and collectible final amount as distinct outputs. The final collectible
+  amount must compose the computed claim and required offsets with the
+  collectability cap, not return a bare placeholder such as `claim_amount`.
+- Imported definitions do not override the current source's legal subject. If
+  the current source imposes a rate-applied amount on each/every individual,
+  person, employee, member, claimant, child, dependent, or spouse, declare this
+  file's rate-applied result at that lower entity even when the imported base
+  definition is currently encoded at a filing-unit, tax-unit, household, or
+  other unit boundary. Only add a unit-level roll-up when this source text
+  itself states that aggregate.
+- Do not compose a new unit-scope Money/Decimal formula from an imported
+  output whose copied source summary or proof defines the base as a
+  lower-entity amount, such as net earnings "derived by an individual",
+  self-employment income "of every individual", wages paid to an employee, or
+  earned income of an individual. Treat that import as stale aggregate context:
+  use an available lower-entity import, expose a lower-entity boundary input
+  for the named legal base and compute the current amount at that lower entity,
+  or defer the current executable output if the required lower-entity shape and
+  relation cannot be represented. Do not build a TaxUnit/Household formula on
+  top of the stale aggregate import.
+- If the only unavailable dependency for that lower-entity rate-applied result
+  is the value of a named legal base, keep the result executable by exposing a
+  local boundary input for that base instead of deferring the tax, credit,
+  deduction, contribution, or amount. Name the boundary input after the concise
+  legal base term used by the source when one exists, such as `wages`, rather
+  than expanding it into the whole surrounding phrase. Parenthetical
+  definitions, recipient/payment verbs, and contextual qualifiers such as
+  "received by", "paid by", or "with respect to" usually describe how the base
+  is used; do not fold them into the boundary input name when the source has a
+  shorter legal base noun.
+- Treat legal subject nouns as stronger evidence than nearby repository
+  context. When the source says "households in which all members",
+  "households with a member", or another household/unit-level condition stated
+  through member facts, the current eligibility/result belongs on the household
+  or unit; encode member facts as inputs or relation children only as needed to
+  evaluate that unit rule. In contrast, when the source's legal subject is an
+  "individual", "person", "employee", "member", "claimant", "child",
+  "dependent", or "spouse" rather than a unit described through those people,
+  use `entity: Person` for the current source's own amount, tax, credit,
+  deduction, contribution, limit, or eligibility result. Do not choose
+  `entity: TaxUnit`, `Household`, `Family`, or another aggregate entity merely
+  because an imported base amount or companion test is currently declared at
+  that aggregate entity.
+- Existing target or repository-precedent files are not entity-scope authority.
+  If copied context shows an older `TaxUnit`, `Household`, `Family`, or other
+  aggregate implementation but the supplied source text defines an amount,
+  tax, deduction, contribution, exclusion, threshold, or limit for an
+  individual, person, employee, member, claimant, child, dependent, or spouse,
+  treat the copied aggregate shape as a defect to repair. Re-scope the current
+  source's executable output to the source-stated lower entity, or defer it if
+  the needed lower-entity facts cannot be represented. Do not preserve the
+  aggregate entity just to keep old output names or tests compatible.
+- State agency/FNS performance reporting, quality-control sampling statistics,
+  error rates, liability amounts, waiver formulas, high-performance bonuses,
+  and similar administrative aggregates are not household benefit rules merely
+  because they mention household cases, allotments, or SNAP participation. Do
+  not put those outputs on `Household`, `Person`, `TaxUnit`, or another
+  benefit-unit entity. If the source states a State-agency administrative
+  amount, rate, liability, waiver, bonus, quality-control statistic, or
+  reporting measure, encode it on a source-stated administrative entity such as
+  `StateAgency`. If the source defines a national fiscal-year aggregate across
+  State agencies, use a source-stated administrative aggregate entity such as
+  `SnapQualityControlFiscalYear` and a relation to StateAgency rows when the
+  formula needs per-State-agency inputs. Introduce a new singular PascalCase
+  entity when the legal subject is outside the existing household/person/tax/
+  benefit-unit ontology and the source gives an executable formula using local
+  facts, parameters, imports, or relation inputs. Defer only when the legal
+  surface cannot be represented faithfully even with a source-stated entity and
+  semantic boundary inputs. Do not drop source-stated scalar legal values
+  solely because the surrounding administrative aggregate has deferred pieces.
+- Bonus award money and bonus-payment spending restrictions are part of that
+  administrative surface. If the source says bonus money may be used only for
+  SNAP-related expenses or may not be used for household benefits or incentive
+  payments, do not invent a household-benefit or generic `Payment` rule unless
+  the source is genuinely per payment. Prefer the source-stated administrative
+  entity, usually `StateAgency` or a narrow award/fund entity.
+- When a definition uses "taxpayer" but also says the amount is "of an
+  individual" or applies exclusions for services, income, payments, or statuses
+  of an individual/person/employee/member, encode those components on `Person`.
+  Add an aggregate rule only when the same source defines how those person
+  amounts roll up to a tax unit, household, family, or other unit. Do not let
+  the word "taxpayer" erase a source-stated individual/person subject.
+- When a self-employment, wage, net-earnings, compensation, remuneration, or
+  similar base definition says the amount is derived by, paid to, imposed on, or
+  computed for an individual, person, employee, member, claimant, child,
+  dependent, or spouse, encode downstream deductions, adjustments, taxes,
+  contributions, and rate-applied results on that lower entity unless the
+  requested source separately states a unit-level roll-up. Use a lower-entity
+  import when available, or expose a lower-entity boundary input named for the
+  source-stated legal base. Treat stale unit-scoped imports for that base as
+  context to repair, not as authority to create a new unit-scoped formula.
+  Companion tests should assert derived outputs that consume helper parameters;
+  do not assert raw helper `parameter` outputs as the only evidence that an
+  executable amount was encoded.
+- When a tax definition says "earned income of an individual shall be
+  computed" with exclusions for that individual's income, services, payments,
+  status, or self-employment amounts, keep those earned-income components on
+  `Person`. A filing-unit or tax-unit EITC rule may consume a separate
+  relation-backed roll-up, but the person-level computation must not be
+  replaced by one aggregated boundary input.
+- Phrases like "on the [base] of every individual/person/employee" identify
+  the entity of the current amount, tax, credit, deduction, contribution, or
+  limit. Encode the current result on the individual/person/employee first,
+  even if the imported base definition or its tests are unit-scoped.
+- When a source says an amount, tax, credit, deduction, contribution, payment,
+  or other numeric result is "treated as attributable to" a trade, business,
+  category, period, purpose, or person, preserve that treated-as-attributable
+  result as the same numeric amount and dtype unless the source separately
+  defines an eligibility or applicability test. Do not turn an amount-level
+  attribution rule into a boolean or `dtype: Judgment` predicate.
+- Do not create a roll-up, top-level program output, or connection merely
+  because downstream consumers want it, sibling/state files patched it, or the
+  program conventionally has such a concept. The output must be directly
+  supported by the supplied release-bound corpus text or an explicit imported
+  RuleSpec export.
+- Downstream convenience booleans that collapse a legal process into one
+  answer are not federal/source outputs unless the supplied source text itself
+  defines that collapsed test. Keep process simplifications out of RuleSpec
+  source encodings.
+- Before finalizing, compare the source's legal subject nouns and proof excerpts
+  against every executable `parameter`, `derived`, and `derived_relation`
+  rule's `entity:`. If the
+  scope does not match the source, rename/re-scope the rule, defer the blocked
+  output, or leave the phrase documentary; do not bridge the mismatch with an
+  opaque local fact or a made-up household/tax-unit proxy.
+- If `./source.txt` is a broad application, furnishing, administrative duty, or purpose clause without a computable policy condition, preserve it in `module.summary` but do not create an executable derived output just to paraphrase it. Encode only the concrete conditions, exceptions, parameters, and relations that affect computation.
+- Do not create an output for administrative clauses like "assistance shall be furnished to all eligible households who make application." Unless the source defines a calculable benefit, amount, condition, or exception, keep that text documentary in `module.summary`.
+- Do not encode a pure pass-through rule whose formula is only one local fact. If the source only names a preexisting fact without changing it, reference the upstream rule when available or leave the phrase documentary.
+- If a copied child-fragment file encodes a limitation, branch, amount, or
+  predicate needed by the requested parent provision, import the child output
+  and compose it. Do not copy the child formula or its factual inputs into the
+  parent file.
+- Do not create standalone small-number parameters just to restate prose such as "one-time" or "more than one consecutive month" when the number only qualifies a local factual condition. Encode the whole source-stated condition as a fact predicate or derived condition unless the scalar is an independent reusable amount, rate, threshold, cap, or limit.
+- Do not append citation or file suffixes like `_2014_a` to new local rule names; the file path is already the legal ID. Keep names concise and semantic unless a copied public interface must be preserved.
+- For a replacement target, only exact names listed by the Exact-oracle
+  replacement contract may retain the target path's year/legal-source identity.
+  New helper concepts must use concise semantic names instead of repeating that
+  identity as a prefix or suffix.
+- Rule names ending in the current path fragments, such as `_2_C`, `_b_1`,
+  `_d_2_C`, or `_2014_a`, are invalid.
+- If an existing copied output name violates the no-citation/path-suffix rule,
+  do not preserve it. Rename it to a concise semantic name and update the
+  companion tests.
+- Rule names must not collide with copied sibling files. For subparagraph/list
+  item child files, make the principal output name semantic to that branch
+  (for example `care_responsibility_exemption_applies`), not only the shared
+  parent consequence like `person_exempt_from_paragraph_1_work_requirements`.
+- If a source provision is headed "Definition of X", a successful executable
+  artifact must expose the final source-backed output `x` (normalized to the
+  local naming style, such as `surviving_spouse` or `head_of_household`). Helper,
+  limitation, and prerequisite predicates may support that output, but they do
+  not replace it. If X cannot be computed faithfully because upstream legal
+  definitions are missing, mark the module deferred with no executable rules
+  rather than applying a helper-only definition. This overrides the usual
+  mixed-provision instruction to keep independent helpers: a `Definition of X`
+  artifact without executable X is misleading and must be cleanly deferred.
+- If a definition applies an exclusion, cap, threshold, exception, or special
+  rule only "for purposes of", "in the case of", "with respect to", or "for the
+  tax imposed by" a specific downstream provision, do not collapse that
+  purpose-specific branch into one generic output for all downstream uses. Emit
+  source-backed purpose-specific outputs such as `x_for_section_1234_a` and keep
+  any broader `x` output free of that limited branch when the source supports a
+  broader meaning. Downstream provisions must import the output that matches
+  their cited purpose rather than using a stale local input or an over-broad
+  generic output.
+- If one purpose-specific exception, rate portion, or base branch is not
+  executable yet, do not export a generic `x_after_cap`, `x_included`,
+  `x_excluded`, `taxable_x`, or similar output that silently applies the
+  non-excepted branch to every downstream purpose. Either split the executable
+  surface into concrete purpose-scoped outputs and defer only the unresolved
+  purpose, or defer the generic surface entirely.
+- Do not use boundary inputs named like `applicable_base_for_current_purpose`,
+  `amount_for_current_context`, or `rate_under_current_use`. Those hide
+  purpose-specific legal mechanics from downstream importers. Use the concrete
+  source-stated purpose in the rule name and formula input, such as
+  `applicable_base_for_section_3201_a_non_hospital_insurance_rate_portion`, or
+  defer that purpose-specific surface.
+- When a child provision substitutes, increases, caps, or otherwise modifies a
+  sibling or parent output, give the replacement a branch-specific name such as
+  `_under_subsection_h`, `_after_temporary_amendment`, or another source-stated
+  modifier. Do not reuse sibling output names when the requested branch changes
+  the meaning.
+- Choose structural relations at the narrow legal subject stated by the source.
+  If the source grants an amount to the taxpayer, spouse, claimant, child, or
+  other role-limited person, do not aggregate over a broader household/tax-unit
+  relation unless the source says every member counts. Name the relation for the
+  role set that is legally counted, such as `taxpayer_or_spouse`, not merely for
+  the container entity. If a copied relation is legally too broad for the
+  requested source, rename it; relation names are not stable public outputs.
+  Never preserve or create `*_member_of_tax_unit` or `member_of_tax_unit` for a
+  source that counts only the taxpayer, spouse, qualified individual, claimant,
+  child, or dependent.
+- For any source that says "qualifying child", "dependent of the taxpayer", or
+  "with respect to such child", do not use `member_of_tax_unit`. Define a
+  role-scoped relation such as `dependent_of_tax_unit`,
+  `qualifying_child_of_tax_unit`, or `child_or_dependent_of_tax_unit`, and
+  aggregate over that relation.
+- If a generic role-scoped relation name is already exported by a copied
+  sibling file, do not reuse it. Make the relation source-specific instead of
+  reusing the sibling's generic relation name.
+- If the source computes an amount by reference to an entitlement, status,
+  amount, or test "under" another section, subsection, paragraph, regulation, or
+  document, do not inline that cross-reference's mechanics into this file unless
+  that cross-referenced source text is included and this file is the canonical
+  home for those mechanics. Import the existing RuleSpec target when present. If
+  the cross-reference is not yet encoded, expose a semantic input/count named
+  for the cross-reference itself, such as
+  `additional_standard_deduction_entitlement_count_under_subsection_f`, rather
+  than inventing the cross-referenced age, blindness, household, or membership
+  tests locally.
+- When a state, local, or downstream tax source consumes a completed federal
+  return amount, such as a deduction, credit, federal adjusted gross income,
+  federal taxable income, or itemized deductions already claimed on the federal
+  return, keep the current source executable from a neutral federal-return
+  amount input if no same-period imported RuleSpec output directly exports that
+  completed return line. Name that input for the completed return amount, not
+  for the legal citation pointer: for example use a name like
+  `federal_return_deduction_amount` or
+  `itemized_deductions_claimed_on_federal_return`, not
+  `section_<section>_*`, `*_under_section_<section>`, or
+  `*_allowed_under_section_<section>`. This rule applies only when the current
+  source merely adds, subtracts, caps, gates, or otherwise consumes the
+  completed upstream return amount; do not use it to restate upstream mechanics
+  that the current source does not provide.
+- When an unencoded cross-reference must be represented as a semantic local
+  input, name it after the legal status with an `_under_section_<section>` or
+  `_under_subsection_<subsection>` suffix. Do not start a local input with
+  `section_<section>_` or `subsection_<subsection>_`; those names are reserved
+  for imported legal outputs and will be treated as missing imports.
+  Cross-reference local inputs such as `_under_section_<section>`,
+  `_provided_in_section_<section>`, `_allowed_under_section_<section>`,
+  `_deduction_under_section_<section>`, or `_credit_allowed_under_section_<section>`
+  are only allowed for non-exception factual interfaces when the cited source is
+  not available as RuleSpec. If the citation appears in definition,
+  same-meaning, treated-as, rules-similar, exception, exclusion, `unless`,
+  `notwithstanding`, shall-not-apply, or not-treated-as logic and the cited
+  source is unavailable, do not invent a local cross-reference fact for the
+  cited mechanics. If the requested source itself states the operative effect
+  and only uses the citation to label a category, encode a source-named boundary
+  predicate for that category instead of deferring. This includes `within the
+  meaning of section ...` carve-outs and `described in section ...` category
+  labels where the current source states that the category is included,
+  excluded, or not treated in a specified way. Otherwise, if the dependency is
+  essential to the only requested executable concept, emit
+  `module.status: deferred` or `module.status: entity_not_supported` with
+  `rules: []`. In a mixed provision, omit or defer only the affected executable
+  surface and still encode independent source-backed outputs that do not require
+  the unavailable dependency. For each omitted/deferred executable output in a
+  mixed provision, add `module.deferred_outputs[]` with absolute RuleSpec
+  targets for `output`, a plain-language `reason`, and `source_values` entries
+  for any source-stated local parameters retained only for that deferred output.
+  If those scalar legal values are independently encoded as `kind: parameter`
+  rules in the same file, do not also demote them to prose or rely on
+  `source_values` instead.
+  Treat category membership phrases such as `person described in section X`,
+  `organization described in section X`, or `service described in section X` as
+  factual boundary predicates when the current source states the legal effect.
+  Use a source-named predicate like `organization_described_in_section_509_a_3`
+  plus any conditions stated in the current source. Do not defer merely because
+  the cited section is unavailable unless the current source requires computing
+  numeric amounts or legal mechanics from that section rather than testing
+  membership in the described category.
+  If a source says a rate, percentage, amount, applicable percentage, or
+  similar numeric term is determined under, in effect under, or equal to rates
+  from another section or subsection, do not model that numeric term as a local
+  input such as `tier_1_applicable_percentage`. Import the upstream output when
+  it exists; otherwise defer the affected output and name the cited legal
+  dependency in `reason`.
+  Before applying any imported rate to the current source's whole base, check
+  whether the cited source makes that rate thresholded, capped, base-limited, or
+  part of an amount formula that applies only above or below a specified amount.
+  If so, do not flatten the cited mechanics into `current_base * imported_rate`
+  or into a combined percentage that is later multiplied by the whole current
+  base. Import and compose the cited executable amount or the cited base,
+  threshold, cap, and excess-amount outputs faithfully. If the current schema
+  cannot pass the correct adjusted base into those cited mechanics, defer the
+  affected executable output and name the missing cited computation rather than
+  approximating it with a flat rate.
+  When the omitted output covers a specific subsection or subparagraph, the
+  `output` target path must include that source path segment, e.g.
+  `us:statutes/26/3201/a#tier_1_employee_tax`, not
+  `us:statutes/26/3201#tier_1_employee_tax`.
+  Only include `blocked_by` entries when you know the exact RuleSpec output with
+  a `#rule_fragment`. Do not list bare legal provisions, corpus paths, statute
+  sections, or guessed pseudo-targets in `blocked_by`; for example,
+  `us:statutes/us-ca/17000` is invalid. If the exact upstream RuleSpec output is
+  unknown, omit `blocked_by` and name the legal dependency in `reason`. Do not create
+  tests for deferred outputs. If a source-grounded overriding rule makes the
+  unavailable branch zero or unreachable for the encoded effective period,
+  encode that overriding branch instead of deferring the whole module. If that
+  section is present in repo context, import it and use its exported output
+  instead.
+- An import only resolves a cross-reference when the imported file exports the
+  actual referenced legal concept, amount, status, test, or definition needed by
+  the formula. Importing an adjacent upstream output only as proof, while the
+  formula still depends on a local `_under_section_...` or
+  `_in_effect_under_section_...` fact, does not satisfy the dependency. If the
+  listed context file for a cited source does not export the needed concept, do
+  not import an unrelated output from that file as a stand-in; encode the proper
+  upstream source slice first, split the unresolved branch, or emit a deferred
+  status when the requested file cannot compute faithfully without it.
+- When the requested source imposes a rate, tax, deduction, credit, cap, or
+  threshold on a legal term that is defined by an available upstream RuleSpec
+  file, import that upstream definition and use it in the formula. Do not leave
+  a same-named local input such as `x` merely because a copied target file used
+  `#input.x`. If the upstream definition has purpose-specific exports, select
+  the export matching the requested source's clause.
+- Every proof import must correspond to a symbol actually used by that rule's
+  formula. Do not add an import atom merely because the source text mentions an
+  exception or cross-reference that the formula excludes, subtracts around, or
+  otherwise handles without the imported output.
+- A cited context file with `module.status: entity_not_supported`,
+  `module.status: deferred`, or `rules: []` is not an executable dependency.
+  Do not preserve, rename, or recreate a local cross-reference input for that
+  cited source. If the current provision cannot compute faithfully without that
+  cited source, defer the affected executable surface; if a source-grounded
+  overriding rule makes the cited branch unreachable for the encoded effective
+  period, encode only that overriding branch and leave the unresolved branch out
+  of executable formulas.
+- Never introduce an import cycle. If a cited source directly or transitively
+  imports the current target module, do not import that source back into the
+  same module; keep a source-named boundary predicate or numeric boundary input
+  for that cyclic condition until the sources are split into acyclic subsection
+  modules. This applies to cross-referenced rates or parameters as well as
+  eligibility predicates: if importing a rate-bearing source would complete a
+  cycle with a foundational base definition, keep the rate as a source-named
+  boundary input and continue encoding the non-cyclic base formula.
+- Never create a derived rule whose formula references that same rule's name.
+  The derived rule name must be the legal conclusion or compliance output, while
+  required facts inside the formula must use distinct source-named local inputs.
+  For example, do not define `x_has_bona_fide_need` as
+  `x_has_bona_fide_need and other_conditions`; instead name the derived output
+  `x_arrangement_valid` and reference a separate factual input such as
+  `bona_fide_need_for_x_arrangement`.
+- When the requested source defines a base, net amount, includable amount, wage
+  base, income base, deduction base, or similar amount that a tax, contribution,
+  credit, or deduction section will consume, do not import that consumer section
+  only to use its rate parameters. If the requested source merely cites the
+  consumer section's rates for an adjustment to the base, keep that rate or rate
+  sum as a source-named numeric boundary input unless a non-cyclic standalone
+  rate table/source is available.
+- When a copied context file encodes a cited upstream source on a different
+  entity, import that upstream output and bridge entities with a structural
+  relation instead of replacing the import with a local cross-reference amount.
+  Do not replace a specific upstream output with a broad local input for all
+  amounts described by that upstream source.
+- If an upstream output is already executable, do not replace it with a local
+  placeholder fact or compatibility alias.
+- Do not encode simple unary factual inputs as `kind: data_relation` rules. If a formula needs a local true/false fact, reference a descriptive bare fact name in the formula, declare that fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`) with its `entity`, `dtype`, and `period`, and put that fact in tests as `<jurisdiction>:<path>#input.<fact>`.
+- Use `kind: data_relation` only for structural runtime predicates with explicit `data_relation.predicate`, `data_relation.arity`, and `data_relation.arguments`. The arguments list must declare one entity kind per tuple slot in tuple order; for person-to-household membership, use `arguments: [Person, Household]`. The engine rejects an executed relation that declares only `arity`.
+- If the requested source text includes a limitation, cap, exception, or
+  cross-referenced subparagraph that changes the final exported amount, the
+  final exported amount must apply that limitation. If a copied sibling/context
+  file already encodes the limitation, import it and compose with it instead of
+  duplicating or ignoring it.
+- When an exception or carve-out applies only to a source-stated category of an
+  otherwise qualifying payment, person, household, expense, or amount, gate that
+  exception with a predicate for the excepted category or use an input amount
+  whose name is explicitly scoped to that category. Do not subtract, disallow,
+  or reduce all qualifying branches merely because an exception amount input is
+  nonzero.
+- If the requested source itself enumerates qualifying or exception categories
+  and cites other laws only to define those category labels, encode each
+  source-stated category as its own boundary predicate and combine them into the
+  final rule. Do not defer the final exported output solely because cited title,
+  chapter, schedule, appointment, office, retirement-system, election,
+  covered-service, section-described supporting organization,
+  treated-as-trade-or-business, unrelated-trade-or-business, or other
+  within-meaning/described-in definitions are not encoded when the requested
+  source states the operative effect.
+- If the copied target file is already executable, do not let its old surface
+  force local placeholders or compatibility names. Rebuild, drop, or defer
+  individual outputs as needed. Prefer retaining or replacing source-backed
+  independent outputs that can be encoded without unresolved dependencies; use
+  top-level `module.status: deferred` or `module.status: entity_not_supported`
+  only when no executable rule in the requested source can be represented
+  faithfully.
+- If the requested source itself defines a legal status or test through
+  relationship, age, abode/residence, support, filing, income, or tie-breaker
+  conditions, encode those conditions as executable predicates with boundary
+  inputs for facts not defined in the source. Do not emit
+  `module.status: deferred` merely because some facts must be supplied by the
+  caller or because tie-breaker facts require relation inputs.
+- If the requested source defines an exclusion, inclusion, deduction, or credit
+  amount but depends on externally determined classifications, official
+  designations, statuses, event facts, or source-document categories, encode
+  the amount with boundary inputs for those facts instead of deferring.
+- If the source says an actor may not request something, is not entitled to
+  something, or is otherwise categorically prohibited, do not create a local
+  authorization escape-hatch input such as
+  `*_has_source_authorized_*_entitlement` to make the positive entitlement
+  hold. Encode the entitlement as a constant false Judgment or encode the
+  source-stated prohibition/not-entitled rule directly.
+- This includes exclusions conditioned on a reasonable belief that an item can
+  be excluded from income under another section. Do not defer solely because
+  the cited exclusion section is not encoded; model the source-stated
+  reasonable-belief condition as a local factual predicate and gate the
+  source-stated excluded amount with it.
+- If the requested source itself states a cap, threshold, exclusion, or base
+  formula that uses an externally determined official base, wage amount,
+  compensation amount, rate, status, or special-case fact that is not available
+  as copied RuleSpec context, keep the source-stated formula executable with
+  semantic local boundary inputs named for those legal values or facts instead
+  of deferring the whole output.
+- If a missing special rule or unavailable cited definition affects only one
+  subtype, carve-out, or branch, defer only that branch or expose a
+  source-named boundary input for that branch. Do not defer an unrelated
+  source-stated cap/base computation that can be executed from the source text.
+- For cross-reference boundary facts that remain local because the cited source
+  is not present in context at all, keep the legal pointer in the identifier.
+  If context for the cited source is present but unsupported, deferred, empty,
+  or missing the needed export, do not preserve, rename, or recreate the local
+  cross-reference fact; import a real export, defer the affected executable
+  surface, or encode a source-grounded overriding branch that avoids it.
+- When the requested source states its own amount, cap, threshold, or formula
+  but begins with an exception such as `except as otherwise provided in section
+  X` or `except as otherwise provided in subsection X` and the cited external
+  or parent source is not present in copied context at all, do not defer the
+  requested formula merely because section X may have unresolved effective
+  versions, ballot triggers, repeal facts, or program conditions. Encode the
+  requested source's own formula and represent the absent cross-reference
+  boundary with a source-named predicate such as
+  `subsection_x_does_not_displace_this_subsection`. Include a companion case
+  where the cross-reference boundary blocks the local output. If copied context
+  for the cited source is present but lacks the exact displacement predicate,
+  follow the copied-context rule above instead. This applies to cited external
+  or parent sources, not to uncopied sibling clauses; for sibling clause
+  exception phrases, follow the sibling-clause rule below and do not invent
+  local `clause_*` booleans.
+- When that output also composes an imported child or sibling result, check
+  that the imported file does not defer another branch, period, or purpose that
+  can affect the same final amount. Do not treat a missing deferred child branch
+  as zero by importing only the available branch result. Either scope the
+  executable output to the branch where the deferred child branch is impossible,
+  or defer the composite output and list the child deferred dependency.
+- Importing a child rate or threshold is not enough when the child file already
+  exports the executable tax, benefit, deduction, or eligibility result. For
+  aggregate parent sections, import the child result output itself and sum,
+  cap, select, or otherwise compose those imported results. Do not recompute a
+  child result locally from the child rate and the child factual inputs.
+- Do not create parallel statutory-dollar executable parameters when a copied
+  current-year authority already provides the applicable inflation-adjusted
+  parameter. Import the current-year authority unless the task is to encode the
+  inflation adjustment formula itself.
+- If a copied current-year authority exports the same concept or output name
+  that the requested statute formula would otherwise create, do not emit a
+  local executable duplicate with that name. Import and use the current-year
+  authority's output, keeping only statute-specific conditions or non-executable
+  `source_relation` records in the statute file.
+- If a current-year authority provides a directly rounded final amount table,
+  use that table for the final amount instead of recomputing the amount from
+  related rates and thresholds.
+- When source text says an exemption, exclusion, or adjustment applies
+  `to the extent` of an amount, do not model it as all-or-nothing zeroing such as
+  `if exempt_amount > 0: 0 else: tax`. Subtract or apportion the stated amount.
+  Emit `module.status: entity_not_supported` or `deferred` only when the current
+  requested source changes the basis that would need to be passed into an
+  already-imported child result and the schema cannot wire that adjusted basis
+  into the child. Do not defer a parent merely because an imported terminal
+  child output internally handled its own `to the extent` exclusion; import and
+  compose that terminal child output at the parent scope instead.
+- If the source has a cross-reference such as `For application of different
+  contribution bases ... see section X`, do not repair it by keeping tax,
+  amount, or rate-times-compensation formulas on the raw wage, compensation,
+  remuneration, or payment base. Import and compose the cited
+  base/cap/exclusion/excess outputs; if those cited base mechanics are missing,
+  purpose-specific, or deferred, add `module.deferred_outputs[]` for each
+  affected source subsection output.
+- Do not repair that case by importing child rates or thresholds and rebuilding
+  the child branch locally with an adjusted basis. That still re-encodes the
+  child branch and is invalid unless the schema can explicitly wire the
+  adjusted basis into the imported child result.
+- When the statute states pre-inflation base dollars that a current-year
+  authority adjusts, any local statute output must be named as a statutory/base
+  concept, not as the current-year value.
+- When the source rounds an inflation or cost-of-living increase, round the
+  increase before adding it to the base amount unless the source explicitly
+  says to round the final total. Companion tests must assert the rounded
+  increase plus the base, not the unrounded total. For example, with base
+  15750, adjustment 0.1, and a next-lower $50 multiple, the increase is 1550
+  and the total is 17300, not 17325.
+- Do not invent arbitrary entities. Use existing standard entities when they
+  match the source-stated legal subject. If the source states a legal subject
+  outside the standard benefit/tax/person ontology, introduce a narrow singular
+  PascalCase entity for that subject, such as `StateAgency` for State-agency
+  SNAP administration or `SnapQualityControlFiscalYear` for a national SNAP QC
+  fiscal-year aggregate. Do not use a generic `State`, row-index, or
+  household/person/tax-unit entity for administrative aggregates.
+- Standard `entity:` examples are `Payment`, `Person`, `TaxUnit`, `Household`, `Family`, `TanfUnit`, `SnapUnit`, `SPMUnit`, `Corporation`, `Business`, `Employer`, `Asset`, `StateAgency`.
+- Allowed `period:` values are `Year`, `Month`, `Week`, `Day`.
+- Allowed `dtype:` values are `Money`, `Rate`, `Boolean`, `Integer`, `Count`, `String`, `Decimal`, `Float`, or `Enum[Name]`.
+- Use `dtype: Judgment`, not `dtype: Boolean`, for legal eligibility, availability, applicability, entitlement, and other holds/not-holds style outputs, especially when the formula contains `not`.
+- Do not use `kind: parameter`, `dtype: Boolean` for date-versioned applicability flags. Use a numeric 1/0 indicator parameter with explicit comparisons, or fold the date effect into the rate, amount, or threshold parameter that consumes it.
+- Do not emit top-level `values` lookup tables outside `versions`. Source-backed indexed parameter tables may use `indexed_by` with versioned `values`; every executable derived output must use `versions[].formula`, and formulas must consume those tables with `table_name[index_expr]`, never bare `table_name`. Small non-reusable statutory bands can be expressed as explicit derived conditionals.
+- Do not create derived `dtype: Boolean` helper rules with logical formulas. Use `dtype: Judgment` for derived legal predicates, or leave simple local facts as factual `<jurisdiction>:<path>#input.<fact>` keys consumed by formulas and tests.
+- Use `unit: USD`, `unit: GBP`, or another explicit unit for money outputs when the source states a currency.
+- Put each rule's formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
+- Do not encode legal effective dates as `dtype: String` parameters or date
+  literal formulas such as `2025-01-01`. Axiom formulas have no date literal type.
+  Use `effective_from` metadata for version timing, or use a
+  source-stated semantic boolean predicate when a date window is a runtime
+  condition. Do not put the date or year value in the fact name; use names like
+  `taxable_year_begins_after_termination_date` or
+  `taxable_year_is_in_temporary_effective_window`, not
+  `taxable_year_begins_after_2024_and_before_2029` or
+  `taxable_year_begins_after_december_31_2021`.
+  Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`, or any
+  four-digit year in a runtime date-window fact name.
+  This overrides preservation of existing local input names: if a copied
+  formula uses a date-valued fact name, rename that fact consistently to a
+  semantic date-window predicate in formulas and tests.
+- Do not emit more than one `versions:` entry for `kind: derived`; the runtime does not yet support period-selecting versioned formulas. Use a single source-faithful conditional formula when the provision itself defines a temporal branch, or encode only the currently applicable provision after resolving the source context. When a derived result changes only because a base rate, threshold, cap, or additive adjustment changes over time, put the dated changes on named `parameter` or helper rules and keep the consuming `kind: derived` rule to one formula, such as `base_rate + temporary_adjustment + later_adjustment`.
+- Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
+  Do not write `else if` or `elif`; chain branches as `if condition: value else: if next_condition: next_value else: fallback`.
+- Function calls in formulas are expression syntax, not Python syntax. Do not
+  include trailing commas in calls such as `min(a, b)` or `max(0, x)`, and do
+  not write tuple-style expressions.
+- Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
+- Benefit, allotment, credit, deduction, allowance, and subsidy formulas must never emit negative money. When subtracting an income, contribution, or other reduction from a maximum amount, floor the result with `max(0, ...)` before applying downstream minimum-benefit or issuance branches. When a nonnegative credit, deduction, allowance, subsidy, or benefit is a percentage of `min(income, cap)` or similar, floor the income base at zero: use `rate * min(max(0, earned_income), cap)`, not `rate * min(earned_income, cap)`.
+- Outputs named `taxable_income` or ending in `_taxable_income` must also never be negative. Wrap the final selected branch at zero, including both sides of conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`, not `if condition: branch_a else: branch_b`.
+- Taxpayer elections such as electing to itemize deductions are legitimate
+  election-state inputs to the legal computation. Do not mark a taxable-income
+  rule unsupported merely because the taxpayer could optimize that election
+  outside the core RuleSpec runtime; encode the statutory branches keyed by the
+  election fact, and let oracle/comparison harnesses run multiple scenarios when
+  they need optimization.
+- If that reduction has rounding alternatives, every branch must be floored: use `if round_up: max(0, maximum - ceil(reduction)) else: max(0, floor(maximum - reduction))`, never `if round_up: maximum - ceil(reduction) else: floor(maximum - reduction)`.
+- US tax filing status is a derived legal classification, not a downstream
+  boundary fact. Do not create local `#input.filing_status` facts in a rule or
+  test. Encode the upstream filing-status source first, then import its absolute
+  RuleSpec output into downstream threshold, phaseout, deduction, and credit
+  rules. If an already-encoded upstream filing-status output is unavailable,
+  stop and encode that upstream source rather than synthesizing a local input.
+  Do not preserve existing `#input.filing_status` or `#input.tax_filing_status`
+  surfaces from copied target files; migrate them to upstream imports or
+  source-backed non-status leaf facts such as whether a joint or separate return
+  was actually made.
+- The shared US tax filing-status output remains a structural enum: 0 single,
+  1 joint return, 2 married filing separately, 3 head of household, and
+  4 surviving spouse / qualifying widow(er). Never encode US tax filing status
+  as string literals such as `"married_filing_jointly"` or as unbacked local
+  boolean facts such as `married_filing_jointly`, `head_of_household`, or
+  `surviving_spouse`. If a source provision itself defines a legal status or
+  return category, encode that source-backed output at its absolute RuleSpec
+  path and import it downstream. If a shared numeric filing-status output is
+  available, import it and use the structural enum in formulas when the source
+  supports that grouping, e.g.
+  `match filing_status: 1 => joint_amount; 4 => joint_amount; ...`. If the source
+  groups surviving spouse with joint return, every branch or match that handles
+  status 1 must also handle status 4 in that same branch with the same result.
+  If the source says only "joint return" without also naming surviving spouse
+  or qualifying widow(er), do not route status 4 to the joint-return branch;
+  status 4 falls under any "other case" branch unless the source states
+  otherwise.
+- Do not replace filing-status components with local status inputs such as
+  `taxpayer_is_surviving_spouse`, `surviving_spouse`, or `head_of_household`.
+  This also prohibits compound status predicates such as
+  `individual_is_not_married_and_is_not_surviving_spouse`.
+  Those are derived legal classifications; import their source-backed RuleSpec
+  outputs or defer the affected output until those upstream definitions exist.
+- If the source states a substitution, higher amount, increase, cap, or other
+  modifier amount, do not define the modifier as an unused scalar while
+  computing the affected numeric output without it. Use the modifier in the
+  affected formula, or defer that affected output until the upstream branch
+  condition can be encoded/imported. If you defer the affected output, list the
+  deferred output under `module.deferred_outputs[]` and list the absolute target
+  for the retained modifier parameter under that record's `source_values`. Include
+  `blocked_by` only for exact upstream RuleSpec outputs with `#rule_fragment`;
+  otherwise explain the unknown blocker in `reason`.
+  Do not solve this by deleting the affected numeric output while leaving the
+  modifier parameter stranded.
+- When the source says a value or amount "in excess of" a stated limit is
+  counted, included, deemed, or added, that is an executable excess formula.
+  Encode the limit as a named scalar and encode the affected numeric output as
+  `max(0, measured_value - limit)` or the source-stated equivalent, using a
+  local factual input for `measured_value` if no source-backed upstream measure
+  exists. Do not defer that excess output merely because a later aggregate
+  resource, income, or liability calculation is outside the source slice; defer
+  only the later aggregate if necessary.
+- When the source states a final effective legal amount and also explains that
+  amount as an increase by a percentage, inflation index, or cost-of-living
+  adjustment, do not encode the explanatory percentage or index as a standalone
+  scalar unless the source also supplies the prior base and the target formula
+  uses that calculation. Encode the final effective amount as the operative
+  scalar; keep the explanatory increase text in the summary or proof excerpt
+  rather than as an unused modifier parameter.
+- Supported relation aggregators are `len(relation)`,
+  `count_where(relation, predicate_fact)`, `sum(relation.amount_fact_or_derived)`, and
+  `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write
+  `sum(relation, expression)` or put arithmetic inside a relation field access.
+  `sum(relation.amount_fact)` sums supplied facts on related entities;
+  `sum(relation.local_derived)` evaluates that local derived rule for each related
+  entity and sums its results. Supply the derived rule's factual dependencies,
+  not precomputed values under its output name. Use `sum_where(...)` when the
+  source requires a filter; do not invent a predicate fact for an unfiltered sum.
+  To count two boolean conditions over the same relation, write two
+  `count_where(...)` calls and add them.
+- If a conditional is embedded inside arithmetic or another larger expression, wrap the whole conditional in parentheses, such as `amount + (if condition: extra else: 0)`. Do not write `amount + if condition: extra else: 0`.
+- When source text says an amount "shall not include" or excludes "the part in
+  excess of" a cap, the included amount is capped at that limit:
+  `min(source_amount, cap)`. The excluded excess is
+  `max(0, source_amount - cap)`, but do not return `source_amount - cap` or
+  `source_amount - remaining_cap` as the included amount.
+- Formula strings must use bare identifiers only. If an imported rule is listed
+  as `us:statutes/...#example_rule`, add that exact target to `imports:` but
+  reference `example_rule` inside formula text.
+- Axiom conditionals are expression syntax, not YAML syntax. Money/scalar formulas may use `if condition: value else: other`; do not use Python ternary syntax, `else if`, or `elif`.
+- `dtype: Judgment` formulas must not use `if ... else ...`. Write them as boolean expressions using `and`, `or`, `not`, comparisons, and parentheses. For example, encode `if exempt: net_ok else: net_ok and gross_ok` as `net_ok and (exempt or gross_ok)`.
+- When using negated conjuncts, write them as a multiline formula with each `not <predicate>` term on its own line joined by `and`, rather than one compact `not A and not B` line.
+- Do not use Python inline ternaries like `x if cond else y`.
+- Use chained `if condition: value else: other_value` expressions; do not use YAML-style `if:` / `then:` / `else:` blocks, `else if`, or `elif`.
+- Do not append a multiline conditional directly onto another expression, and do not use inline assignment syntax like `:=` inside formula blocks.
+- For `dtype: Rate`, encode percentages as decimal ratios like `0.60` or `0.40`, never as `%` literals and never as arithmetic like `25 / 100` unless the source itself states both numerator and denominator.
+- Do not simplify source-stated ratios or fractions into new decimal literals.
+  If the source states `20/200`, encode grounded numerator and denominator
+  parameters and compare with `20 / 200` or with those named parameters; do not
+  emit an ungrounded decimal such as `0.10`.
+- Use concrete ISO calendar dates like `2025-03-21` for day-level tests; do not use ISO week strings like `2025-W13`.
+- Any substantive numeric literal in a formula must either appear in `./source.txt` or be one of -1, 0, 1, 2, or 3.
+- Every substantive numeric occurrence in `./source.txt` must be represented by a named scalar definition in RuleSpec when it is a legal amount, rate, threshold, cap, or limit.
+- If you encode a substantive numeric literal, `module.summary` or the rule's proof excerpt
+  must include the exact source phrase containing that number. Do not omit a
+  subsection, table row, or clause that grounds an encoded
+  numeric amount, rate, threshold, cap, or limit.
+- Represent every substantive source amount, rate, threshold, cap, or limit as a named `parameter` rule, then reference that parameter from derived formulas.
+- If the same numeric value appears twice in materially different legal roles, including separate numbered exceptions or subparagraphs, give those roles distinct named scalars; otherwise reuse that named scalar everywhere the rule compares against or computes with that number.
+- Adjacent bracket thresholds repeated as both an upper bound and the next bracket's lower bound are separate source-stated legal roles; define distinct semantic scalars for those occurrences and use them in the branch conditions.
+- When a source says a subsection, paragraph, payment, credit, benefit,
+  eligibility path, or other output "shall not apply" or "does not apply",
+  the exported rule that says that target applies, is allowed, is included, or
+  is eligible must negate the exception. Do not expose the exception only as a
+  standalone helper while leaving the affected `*_applies`, eligibility,
+  inclusion, exclusion, or amount output true under the exception.
+- When that exception is encoded as a local derived helper, include a blocking
+  companion test asserting both that helper as `holds` and the directly affected
+  Judgment output as `not_holds`.
+- For scoped exceptions, include a control case proving a non-excepted
+  qualifying item is not reduced or blocked even when the exception amount or
+  exception fact is positive/nonzero, plus a case where the same exception
+  applies to the source-stated excepted category.
+- Preserve anaphoric scope in source predicates. If the source says "such
+  account", "such instrument", "through such account", "with respect to such
+  payment", or similar same-object language, the predicate name and companion
+  tests must keep that same-object relationship. Do not shorten it to broad
+  activity for the person, broker, household, or entity generally.
+- When a local formula has five or fewer independent source-stated boolean
+  gates joined by `and`, include one all-gates-positive case and enough negative
+  cases to toggle each gate at least once. Do not leave a source-stated gate
+  untested just because another negative case toggles a different gate.
+- Build those boolean-gate witnesses mechanically. First emit a minimal
+  all-gates-positive case whose `input:` contains exactly the local facts
+  reached by that one asserted principal output. Its `output:` must assert the
+  principal output plus every reached local derived dependency required for
+  corroboration, but no unrelated output. Clone the complete case once per
+  gate, changing exactly one input value and the expected principal output plus
+  any asserted reached dependency whose value also changes. Every member of the
+  pair must have identical input-key and output-key sets; put unrelated helper,
+  amount, and downstream-output demonstrations in separate cases.
+- If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
+- For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change.
+- Every local executable `kind: derived` or `kind: derived_relation` rule must
+  appear at least once under an `output:` block in the companion `.test.yaml`;
+  do not leave helper derived rules unasserted.
+- In modules with executable derived outputs, do not assert raw
+  `kind: parameter` rules directly in companion test `output:` blocks; cover
+  parameters through derived outputs that consume them. If a module contains
+  only parameters, emit one source-period snapshot case that asserts every
+  local parameter output directly.
+- Each `.test.yaml` case may assert derived outputs for only one entity type. If
+  a module defines outputs on multiple entities, create separate cases for each
+  entity pair, such as `Person`/`TaxUnit`, `Person`/`Employer`, or
+  `Employer`/`Payment`. For example:
+  `Person` cases set person facts at the top level and assert person outputs;
+  `TaxUnit` cases use relation rows to supply person facts and assert only
+  tax-unit outputs. Do not assert relation-child outputs in the parent entity's
+  case.
+- Do not collapse a list of cited exceptions or cross-reference carve-outs into one aggregate fact such as `sections_..._do_not_preclude...`. Encode or import each cited exception separately, then combine them in a helper if useful.
+- If `./source.txt` says someone is "aged 18 or over", "under 25", or similar, model the legal age predicate instead of inventing documentary age constants.
+- When source text uses amendment markup like `[old] new`, treat the bracketed value as superseded text. Encode the current unbracketed value/effective date unless the task explicitly asks for historical text.
+- If `./source.txt` makes an allowance, deduction, exemption, or eligibility branch conditional on billed, paid, incurred, anticipated, or other cost/expense facts, encode a positive fact predicate for that source-stated condition. Do not model availability solely as `not` other categories.
+- When the cost/expense fact only matters after exclusion predicates, exported amount/quantity formulas consumed by dependent modules must guard the exclusions before referencing the branch-specific fact, so excluded cases do not require that fact as an input. For example, the amount should use `if other_allowance_eligible: 0 else: if household_has_telephone_cost: amount else: 0` rather than `if telephone_eligible: amount else: 0` when `telephone_eligible` itself references the branch-specific telephone-cost input.
+- Phrases like `consists of the cost for X` or `available to households with X costs` require a positive fact for that cost/service. For example, a telephone allowance must depend on a fact for the household having or incurring the basic telephone-service cost before applying exclusions for other allowances.
+- In a jurisdiction-specific repo, phrases that merely identify the target jurisdiction usually describe the document's scope, not a new input variable. Do not add a state-residency input unless the provision itself is encoding a residency eligibility test.
+- If an encoded child paragraph depends on an operative parent condition, include the parent condition in `module.summary` only when it is part of the resolver-supplied canonical source unit; otherwise import a separately attested parent RuleSpec or defer the affected executable surface. Emit exactly one `module.source_verification.corpus_citation_path` and never emit `corpus_citation_paths`.
+- Do not create scalar variables for citation numbers, paragraph numbers, branch numbers, or source line labels.
+- Do not invent `dtype: String` variables just to restate the effective date.
+- Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables.
+- Do not create public outputs for structural table row labels, household-size row indexes, or branch numbers. When those labels are source-stated numeric bounds or grid cells, keep them as private named numeric concepts or indexed table/grid values; consuming formulas should reference names rather than embedding the policy literal.
+- If a source-stated scalar is needed to compute another local scalar, reference
+  the named scalar concept instead of repeating its literal value in a formula.
+  For example, if the source states a five-year period and a one-fifth fraction,
+  encode the period as `benefit_cost_rate_compensation_lookback_years = 5` and
+  the fraction as `1 / benefit_cost_rate_compensation_lookback_years`, not
+  `1 / 5`.
+- In a state-specific RuleSpec repository, if the source is a multi-state or
+  multi-jurisdiction table, encode only the row(s) for the target repository's
+  jurisdiction. Do not invent a fake `State` entity, row-index input, or
+  all-state table surface just to preserve every row. Defer any broader
+  all-state table output that cannot be represented faithfully.
+- If the source cannot be represented faithfully with the supported schema, emit `module.status: deferred` or `module.status: entity_not_supported` with `rules: []`; do not invent unsupported ontology.
+- Never emit `rules: []` without an explicit non-executable `module.status`. If the source has operative text, encode at least one source-backed rule instead of silently returning an empty module.
+- For deferred or entity-not-supported artifacts, leave the companion `.test.yaml` empty. Do not create tests for deferred outputs or assertions against deferred symbols.
+- If metadata or context names an absolute canonical target that this source `sets`, `amends`, `implements`, or `restates`, add a separate `kind: source_relation` record with `source_relation.type` and `source_relation.target`. Do not put source graph edges in executable rule metadata.
+- Preserve existing or copied `kind: source_relation` records unless `./source.txt` proves the legal/provenance edge is wrong.
+- For state-set standards, allowances, thresholds, or options implementing federal delegation, include `source_relation.value` pointing to the local executable RuleSpec output and `source_relation.basis.delegation` when context identifies the upstream delegated slot.
+- Federal provisions that authorize state agencies to set a value create the delegated slot; encode those source graph records with `source_relation.type: delegates`. Reserve `source_relation.type: sets` or `implements` for the state or implementing authority that fills that slot, and always include `source_relation.basis.delegation` for `sets` or `implements`.
+- When the source says a value is determined `in accordance with section X`, emit the upstream import instead of restating the concept locally when that import target is available.
+- When the source uses `except`, `unless`, or `subject to` with cited sections
+  or same-section subsections, do not create local `section_...` or
+  `subsection_...` inputs for those cited sources. Import the cited RuleSpec
+  source when it exists; if the target source is needed but unavailable, stop
+  with an explicit missing-upstream/dependency request instead of encoding an
+  opaque placeholder.
+- For opening scope phrases such as `except as provided in clause (ii)` that
+  point to a sibling clause outside the requested target and no copied context
+  supplies that sibling's executable output, do not invent a local boolean like
+  `clause_ii_provides_otherwise`. Keep the current target scoped to the
+  source-stated positive calculation, or defer only the final affected surface
+  if the sibling exception is essential to the requested output.
+- A pure `notwithstanding subsection ...` override does not require importing
+  the overridden subsection unless the formula actually needs that cited
+  subsection's computed output.
+- If the cited same-section subsection or sibling paragraph is supplied in context as a RuleSpec file, do not summarize it into a local fact like `person_meets_...requirements`. For operative `except`, `unless`, or `subject to` carve-outs that can change the requested output, a bare file-level import is not enough: import the exact `#rule_name` exported by the cited file and reference that bare symbol in the affected formula, usually negated or used as a branch guard. Validation rejects file-level imports for operative sibling carve-outs when the formula never uses a cited output.
+- If the cited sibling file is deferred, empty, unsupported, or missing a usable exported rule and the carve-out changes the result, defer the affected executable output or encode a source-grounded overriding branch that avoids the dependency. Do not emit a formula that ignores the carve-out, and do not invent a local boolean for the cited sibling source.
+- File-level imports without a `#symbol` fragment are acceptable only for non-operative provenance or boundary context, such as a pure `notwithstanding` override or a local source-stated override where the formula does not depend on the cited output. They are not acceptable for `except`, `unless`, or `subject to` formula carve-outs.
+- Example: if the requested source says `Subject to paragraph (c)` and copied context contains `regulations/.../c.yaml` exporting `cash_assistance_less_restrictive_methodologies_may_be_applied`, import `us:regulations/.../c#cash_assistance_less_restrictive_methodologies_may_be_applied` and include `cash_assistance_less_restrictive_methodologies_may_be_applied` in the affected formula and proof atoms. A formula that repeats only the positive paragraph requirements while omitting the cited paragraph's symbol is invalid.
+- Do not copy the body of a cited cross-reference provision into this module's `summary` or re-encode that cited provision locally. Keep this module scoped to the requested citation and import the cited provision instead.
+- Do not fabricate sibling-file imports, do not guess unavailable import targets, and do not invent `import` statements or `imports:` blocks for uncopied same-instrument provisions.
+- Before using any imported output in arithmetic, check the copied context
+  export's `dtype:`. An imported `dtype: Judgment` is a predicate, not a scalar
+  amount, rate, or base. Never multiply, add, subtract, divide, `min`, or `max`
+  a Judgment import as if it were Money, Rate, Count, or another numeric value.
+  If the current source states a numeric base such as wages, remuneration,
+  payments, or amounts attributable to a category and the copied import only
+  identifies whether an item is attributable to that category, encode the source-stated numeric base as a local amount fact, or as a relation-filtered
+  aggregate only when a compatible relation and numeric amount field are
+  present. If neither is available, defer the numeric output instead of using
+  the Judgment import as a placeholder scalar.
+- Before finalizing, do this self-check:
+  1. Numeric inventory: every source-stated legal amount, rate, threshold, cap,
+     or limit has a named local numeric concept or an exact imported concept
+     from context, and derived formulas reference that local or imported name
+     rather than an inline literal. For tables and grids, bounds and cells are
+     indexed numeric concepts; formulas may use structural integer keys only to
+     select from those concepts. If an exact same-path child scalar is available
+     in context, import it instead of duplicating it locally.
+  1a. Dependency inventory: no local derived rule formula references its own
+      rule name. If a legal phrase is both a required fact and a desired output,
+      rename the output to the conclusion and keep the required fact as a
+      distinct local input.
+  2. Test input inventory: for every local factual identifier referenced by a
+     local derived formula, every companion test case assigns the corresponding
+     `#input.<fact>` explicitly, including false facts. Do not rely on implicit
+     defaults. Source-boundary artifacts that contain only scalar parameters
+     may assert every canonical parameter output directly in one source-period
+     snapshot case. For other artifacts, do not assert raw `kind: parameter`
+     rules directly; assert derived outputs that consume the parameters instead.
+     A local `#input.<fact>` cannot have the same name as a local derived rule:
+     that name resolves to the computed rule, not an independently assignable
+     fact. In a `#relation.<name>` row, assign source-grounded factual child
+     inputs needed by the derived member rule; never put a fabricated
+     `#input.<derived_rule_name>` in the row or declare a duplicate input slot.
+     For imported modules, only assign imported `#input` or `#relation` keys
+     that exist in the current imported RuleSpec context. Do not preserve stale
+     imported test inputs from copied files. Do not stub imported derived
+     outputs as test inputs; imported derived outputs are computed. If the downstream
+     rule depends on an imported output, assign all current upstream factual
+     inputs and relations needed by that imported output, including false facts.
+     This does not override no-input guardrails: never assign prohibited derived
+     classifications such as any imported or local `#input.filing_status` or
+     `#input.tax_filing_status`. This prohibition is absolute even when the
+     value is a numeric enum and even when the key belongs to an imported
+     module. If an imported output cannot be exercised without those prohibited
+     test inputs, omit that assertion or encode the upstream filing-status
+     sources first.
+  3. Proof inventory: every proof atom uses only an allowed `kind`; imported
+     proof atoms include `import.target`, `import.output`, and `import.hash`;
+     textual support uses direct release-bound corpus source text.
+  4. Import inventory: every `imports:` entry is an exact copied/importable
+     RuleSpec target. Top-level `imports:` entries must be scalar strings; never
+     map entries like `- target:` plus `symbols:`. Do not guess sibling paths; if
+     required upstream context is missing, emit a typed missing-upstream/dependency
+     request instead.
+     Never drop the jurisdiction prefix from copied context imports: use
+     `us:statutes/...#symbol`, not `statutes/...#symbol`.
+
+Additional encoding guidance:
+- For UK legislation, do not invent custom provision-level entities like `Provision`, `Section`, or `Regulation`, and do not invent periods like `Instant`.
+- Prefer `Person` when the source states an amount or condition "in respect of" a child, qualifying young person, or other individual.
+- Use `Family` only when the encoded quantity is explicitly aggregate at claimant or benefit-unit level.
+- For UK rate leaves with one grounded monetary amount, encode the directly payable person-level or unit-level amount described by the text; do not collapse it into an unconditional family-level constant.
+- If the operative subject of the slice is an individual payment or `that payment`, preserve that payment-scoped subject in the principal output name and formula; do not silently broaden the rule into an unconditional claimant-level weekly amount or boolean that erases the payment-level trigger.
+- When the source slice genuinely operates on individual payments and the rule can be represented as per-payment rows, prefer `entity: Payment` over broadening the logic to `Person` or `Family`.
+- When the source slice genuinely operates on individual non-cash vouchers or other item-specific things rather than payments, prefer `entity: Asset` over broadening the logic to `Person` or `Family`.
+- For those payment-scoped leaves, use `status: entity_not_supported` only if even a `Payment`-scoped encoding would still fail to represent the statutory consequence faithfully.
+- For those item-scoped voucher/thing leaves, use `status: entity_not_supported` only if even an `Asset`-scoped encoding would still fail to represent the statutory consequence faithfully.
+- In `.test.yaml` for `entity: Payment` outputs, provide per-payment rows under `tables:` and assert the entity output as a row-ordered YAML list rather than flattening payment facts into scalar `input:` values.
+- In `.test.yaml` for `entity: Asset` outputs, provide per-item rows under `tables:` and assert the entity output as a row-ordered YAML list rather than flattening asset facts into scalar `input:` values.
+- In those `entity: Payment` tests, the `tables:` key should match the exact entity name `Payment:` rather than an inferred plural like `payments:`.
+- Use `status: entity_not_supported` for those payment-scoped slices only as a last resort when the supported schema truly cannot represent the statutory consequence faithfully. Do not prefer that fallback when a narrow, payment-scoped approximation can still encode the branch's actual legal effect.
+- For UK `dtype: Money` variables derived from sterling amounts, include `unit: GBP`.
+- If the source states a sterling amount in pence, encode it in pounds sterling as a decimal with `unit: GBP`; for example, `10 pence` should become `0.10`, not `10`.
+- For those pence-derived UK money scalars, emit the decimal literal directly; do not disguise it as arithmetic like `1 / 10` or `10 / 100`.
+- If the source states that a monetary amount or threshold is payable `per week`, `per month`, or `per year`, prefer a money variable with matching `period:` cadence rather than a day-level money variable, unless the principal output is instead a day-level boolean rule that merely depends on that money threshold.
+- For UK deemed-income or capital-band rules phrased like `£1 for each £500 in excess of £10,000`, treat `for each £500` as counting complete bands, not proportional fractions.
+- For those `for each £N in excess` rules, derive the band count with `floor(excess / band_size)` or an equivalent complete-band helper; do not use straight division that yields fractional weekly income such as `750 / 500 = 1.5`.
+- In `.test.yaml` for those complete-band money rules, include a non-exact-multiple excess case like `£750` above threshold so the tests expose any accidental fractional division.
+- For UK branch leaves like `(a)`, `(b)`, or `80A(2)(c)`, encode the branch identity in the output variable name. Do not reuse generic parent variable names like `child_benefit_weekly_rate`, `standard_minimum_guarantee`, or `benefit_cap` for a branch-specific leaf.
+- If the target text includes a deepest nested branch token like `(i)`, `(ii)`, `(iii)`, `(a)`, or `(b)`, the principal output variable must encode that deepest token, e.g. `qualifying_young_person_4A_1_b_i`, not just the parent branch like `qualifying_young_person_4A_1_b`.
+- For example, if the target source branch is `regulation-10-4-b`, a principal output like `assessed_amount_deemed_increase_10_4` is too generic; it must carry the branch token, e.g. `assessed_amount_deemed_increase_10_4_b`.
+- For atomic conjunctive branch slices that read like a lone limb ending in `and` or `or`, encode the limb-specific fact or limb-satisfaction condition itself; do not pretend to encode the whole parent consequence or all sibling limbs.
+- For those atomic conjunctive branch slices, prefer neutral factual names like `arrangements_contain_provision_for_date_on_which_increase_is_to_be_paid_10_4_b` or `..._10_4_b_satisfied`; avoid standalone normative names like `..._must_...` unless the source text itself uses `must`.
+- For those atomic conjunctive branch slices, do not make the principal output a bare input stub with no formula. Expose the raw fact as a `*_fact` input if needed, and make the principal branch-specific output a derived `*_satisfied` or equivalent variable so `.test.yaml` does not need to feed the asserted output back into `input:`.
+- When `./source.txt` includes parent intro context like `Where X, ...`, distinguish mere placement context from binding lead-in conjuncts. Do not automatically turn every parent intro into a separate applicability gate, but do preserve lead-in conditions when the branch text grammatically depends on them or when the source slice still states them as part of the operative condition.
+- If the copied source slice says `Where the Secretary of State is informed ... contains provision—` and the branch line then supplies one such provision, preserve both the `Secretary of State is informed` condition and the branch-specific provision; do not model only the final provision limb.
+- If the copied source slice says `This paragraph applies where the period which ... is a period of the same length ...` and branch `(b)` then says `ends on the first increased payment date`, preserve both conjuncts; do not drop the same-length requirement just because it appears in the lead-in text before the branch marker.
+- If the copied source slice says `where X, on Y` or similar, treat `X` and `Y` as a positive conjunction for this branch when the text means `where X, the relevant day is Y`. Do not rewrite that as material implication like `not X or Y`.
+- For example, if the source slice says `where the benefit is paid in arrears, on the last day of the benefit week`, the branch-specific `_satisfied` output should only be true when the benefit is paid in arrears and the current day is the last day of the benefit week.
+- For temporal branch leaves that specify the day on which a consequence occurs, preserve explicit trigger conditions from the parent clause when they state when the timing rule operates.
+- When RuleSpec lacks a native date-valued output for such a temporal leaf, model the statutory day as a fact-shaped boolean helper on `period: Day`, and derive the principal output from that helper plus any explicit trigger conditions stated in the source text.
+- For clauses like `before the date the claim was made or treated as made or, if there is a subsequent supersession under section 10 ..., before the date of the supersession`, preserve a single legally operative reference day rather than a loose OR over multiple possible dates.
+- In those claim-date clauses, if there is no supersession, model one canonical operative claim-date fact that covers the legally relevant `made or treated as made` date; do not encode separate `day_is_date_claim_was_made` and `day_is_date_claim_was_treated_as_made` facts and then combine them with `or`.
+- In `.test.yaml` for those claim-date clauses, include one no-supersession case for the operative claim date and one supersession case for the supersession date; do not rely on paired tests that separately assert `made` and `treated as made` as independent true branches of the same reference-day selector.
+- Do not convert relative temporal phrases like `the day following`, `the next following day`, `the first day of the next benefit week`, or `beginning with the day following ...` into invented numeric offset or ordinal scalars like `1`, `first_*_ordinal`, or `*_offset = 1` unless the source text itself states that number explicitly.
+- For comparative temporal thresholds like `less than one month apart`, `one month or more apart`, or `within one month`, prefer a direct fact-shaped boolean such as `last_two_payments_are_less_than_one_month_apart` over numeric helper scalars like `one_month_threshold = 1` or derived `*_in_months` measures.
+- In those comparative month-apart phrases, the `one month` comparator is not a standalone numeric scalar that needs its own RuleSpec rule for grounding. Satisfy grounding with the semantic boolean itself; do not invent `1`-valued threshold/count helpers just to mirror the word `one`.
+- When one slice repeatedly refers to the same legal period, such as `the period in respect of which a payment is made` and later `that period is three months`, keep one canonical fact or classification for that single period instead of inventing parallel free inputs like `*_in_weeks` and `*_in_months` that can contradict each other.
+- If a specific period category in the source text already implies a broader threshold in the same limb, such as `that period is three months` implying `exceeds a week`, do not require a second independent duration input just to re-prove the broader threshold.
+- For those comparative month-apart phrases, keep the legal month comparison semantic. Do not split it into calendar-part scalars, `*_month = 1`, or numeric duration thresholds that will trigger decomposed-date CI failures.
+- For clauses like `the claimant's regular pattern of work is such that he does not work the same hours every week`, preserve the full legally qualified predicate about the claimant's regular pattern of work. Do not shorten the branch to only `does not work the same hours every week`.
+- For lead-ins phrased like `Subject to paragraphs (3), (4) and (4A), ... includes—`, do not convert the cited paragraphs into a blanket negating gate such as `not (paragraph_3_applies or paragraph_4_applies or paragraph_4A_applies)` unless the copied source slice itself expressly states that direct exclusion.
+- In those `subject to ... includes—` leaves, the principal output should still encode the leaf-specific inclusion, amount, or classification from the branch text. Do not make a composite `subject_to_*_satisfied` or `paragraph_3_4_or_4A_applies` helper the main rule.
+- If the copied slice does not state the specific modifying effect of the cited paragraphs, do not guess it from paragraph numbers alone.
+- In that situation, expose a branch-specific fact gate showing whether the cited subject-to qualification permits this branch to count, and make the branch output depend on that gate rather than either ignoring the qualification or hard-coding `not (paragraph_3_applies or paragraph_4_applies or paragraph_4A_applies)`.
+- When that `subject to` lead-in cites multiple paragraphs, do not collapse all cited qualifications into one opaque helper like `paragraphs_3_4_and_4a_permit_*`.
+- Instead, preserve the cited structure with one paragraph-specific qualification input or import per cited paragraph, and combine those paragraph-level qualifications explicitly in the branch formula only if needed.
+- When canonical imports for those cited paragraphs are available in the workspace, import them. If they are not available, paragraph-specific local inputs are acceptable for an isolated slice artifact so long as their names preserve the cited paragraph numbers and the branch-specific legal effect.
+- For opening qualifiers like `Subject to regulation 17B(6)` or `subject to paragraph (4)`, treat the cited provision as a possible override or displacement of this slice, not as a freestanding positive permission gate.
+- In those `Subject to ...` leaves, if no canonical import is available for the cited override, model a local override/displacement boolean and make the principal consequence depend on that override being false.
+- Do not encode those `Subject to ...` qualifiers as helper names like `*_permits_*` or formulas that require the cited provision to be positively true before this slice operates.
+- When one branch enumerates multiple distinct payments or legal categories in the same limb, do not collapse them into a single `x_or_y` principal output just because the text joins them with `and` or `or`.
+- For example, if the source slice says `statutory sick pay and statutory maternity pay payable by the employer`, preserve those named payments distinctly rather than generating one combined `statutory_sick_pay_or_statutory_maternity_pay_*` output.
+- For statutory payment descriptions that say a payment is `payable` under an Act or by an employer, model payability as the legal fact. Do not replace `payable` with `receives` or `received` unless the source text itself says receipt.
+- If an expenses limb says the expenses are `incurred by the claimant`, preserve that claimant-incurred predicate explicitly. Do not collapse it into only an employer-made-payment fact.
+- For carve-outs phrased like `except where paragraph (b) applies`, treat the carve-out as displacing this slice. When the carve-out condition is true, this slice should evaluate false or be otherwise inoperative; do not treat the slice as automatically satisfied just because the exception applies.
+- For legislative carve-outs phrased like `Except where paragraph (2) and (4) apply`, do not assume the exception is displaced only when both cited paragraphs apply simultaneously.
+- Unless the copied source slice itself makes the cited paragraphs jointly necessary, preserve each cited paragraph as its own displacing condition and treat the slice as inoperative when any cited paragraph applies.
+- For exclusion-list leaves phrased like `all income is qualifying income except ... which is not to be treated as qualifying income`, do not collapse the principal output to an unconditional `true` or `false`. Encode either the excluded amount itself or a fact-sensitive classification that changes with the source-stated subject/input.
+- For positive conditional leaves phrased like `£20 is disregarded if ...`, `X is payable if ...`, or `benefit shall be treated as paid ...`, make the principal output explicitly depend on the source-stated condition.
+- For those positive conditional leaves, the inapplicable case should usually be `0` for `dtype: Money` or `false` for `dtype: Boolean`; do not use an unconditional amount or `else: true` unless `./source.txt` expressly states that inapplicable cases count as satisfied.
+- When a fixed supplement, allowance, or addition is payable only while an eligibility condition holds, do not leave that money output unconditional.
+- For those conditional amount leaves, do not collapse source-stated component facts into an opaque local input like `*_eligible_for_*`; prefer direct facts like `client_is_pregnant_parent` when the source names that fact.
+- For mandatory deeming clauses phrased like `the amount of that payment shall be treated as ...`, do not introduce a `*_fact` input for whether the statutory treatment holds. The slice itself establishes that treatment when its antecedent conditions are met.
+- For those deeming clauses, if the antecedent is not met, encode this slice as inoperative or false; do not use vacuous `else: true`.
+- For those amount-level deeming clauses, do not replace the amount-level legal effect with a `Person`/`Day` boolean stand-in just to stay within the schema.
+- If the current ontology cannot faithfully tie the deeming effect to the same payment amount referenced in the source slice, prefer `status: entity_not_supported` over a pseudo-boolean approximation.
+- For purpose-limited deeming clauses like `For the purposes of paragraph (9)(b), and for that purpose only, the amounts specified in paragraph (5) shall be treated as though they were earnings`, do not use `status: entity_not_supported` merely because the source points to paragraph-specific amounts.
+- In those purpose-limited deeming clauses, encode the narrow legal treatment as a purpose-specific boolean classification or amount placeholder keyed to the cited paragraphs, such as paragraph-(5) amounts treated as earnings for paragraph-(9)(b) only, rather than pretending to compute the whole downstream paragraph.
+- For one limb of a multi-limb determination introduced by `shall be determined—` and ending with `; or`, do not invent sibling outcomes for non-applicable cases with `else: 0`, `else: false`, or similar.
+- In those `... shall be determined — (i) ... ; or` limbs, encode only this limb's own applicability and branch-specific determination; leave other cases to sibling limbs instead of forcing a complete fallback result in this file.
+- In those determination limbs, if the source says the amount is determined `by reference to` some basis, keep a branch-specific money or rate output for that basis instead of collapsing the file to a pure applicability boolean.
+- In those determination limbs, do not invent sibling outcomes for inapplicable cases with `else: 0`, `else: false`, or a guessed fallback amount.
+- For those `by reference to` determination limbs, pair the branch-specific money or rate output with a separate applicability boolean when helpful, and have the branch-specific amount equal the referenced amount or average helper named for this limb's basis.
+- In those `by reference to` determination limbs, it is acceptable for false-case tests to assert only the applicability boolean and omit assertions about the branch-specific money or rate output, rather than forcing this file to guess a sibling limb's result.
+- When a `by reference to` determination limb qualifies its averaging basis with operative parenthetical text, preserve that qualification in the modeled basis itself rather than collapsing it into an unqualified average input.
+- For example, if the source says the complete cycle average includes periods in which the claimant does no work but disregards other absences, reflect those inclusion/disregard rules in the branch-specific basis helper or its supporting facts; do not replace the qualified basis with a generic `average_weekly_income_*` input that loses the legal treatment of no-work periods and absences.
+- For residual determination limbs phrased like `such other payments as may ... enable the claimant's average weekly income to be determined more accurately`, the money-valued basis only operates when both the residual case and the source-stated accuracy condition apply.
+- In those `such other payments` residual limbs, do not leave the branch money output unconditionally equal to the input average. Bind it to the branch applicability, typically with `if *_applies: average else: 0`, so the artifact does not yield a legal branch amount when the source condition is false.
+- For determination limbs that literally compute `the amount to be included` or another branch-specific included amount, do not leave that money output unconditional when the limb's own applicability can be false.
+- In those amount-included determination limbs, make the branch-specific money output depend on the limb applicability, typically with an explicit `else: 0`, so the file does not emit a legally operative included amount when paragraph-level exceptions or a different payment period displace the limb.
+- For analogous determination limbs whose branch-specific output is a `Count` or other non-Boolean basis selector, it is acceptable for that branch-specific output to remain unconditional while a separate `_applies` boolean carries the branch test.
+- In those branch-specific count or basis-selector outputs, do not write an inline conditional without `else` just to avoid a sibling fallback. Either keep the output unconditional and rely on the `_applies` boolean, or use a fully valid RuleSpec conditional with an explicit `else`.
+- For those branch-specific count or basis-selector outputs, negative tests should usually assert only the `_applies` boolean and omit the count output, rather than asserting that the limb still legally operates with `2`, `4`, or another branch-specific count when the branch is false.
+- Do not write negative tests for those count-selector limbs that expect the principal basis-count output to remain the active legal basis in cases where the source-stated branch condition is false.
+- If `./source.txt` contains only editorially omitted or repealed text shown by ellipses or dotted placeholders and no operative rule content for the target slice, a top-level `status: deferred` fallback is acceptable.
+- For those editorially omitted dotted-text slices, keep the embedded source/docstring showing the omission, emit no local rule blocks, and leave `.test.yaml` empty rather than inventing a guessed legal effect.
+- For pure cross-reference computational slices phrased like `the amounts specified in paragraph (10) shall be taken into account in accordance with paragraph (4) or, as the case may be, paragraph (10) of regulation 13 ...`, do not replace the cited computation with local boolean `*_route_is_satisfied` or `*_fact` placeholders.
+- In those pure cross-reference computational slices, import the actual cited canonical rule if it is present in the workspace.
+- If the cited canonical rule is absent and the local slice states `paragraph (4) or, as the case may be, paragraph (10)` or another explicit list of alternative cited treatments, do not emit a top-level `status: deferred` stub and do not collapse those cited alternatives into one generic treatment gate.
+- In those delegated-computation slices, preserve the distinct cited alternatives with paragraph-specific imports or local facts/amounts for each cited external treatment, and derive the principal output from the legally relevant alternative instead of a single catch-all `*_treatment_applies` boolean.
+- In those delegated-computation slices, do not invent an extra `no treatment applies` branch inside the parent antecedent when the source text says one of the cited alternatives governs `as the case may be`.
+- In those delegated-computation slices, do not make the cited route-selection flags part of whether the paragraph itself applies. For example, in regulation 17(11), self-employed earnings trigger the paragraph; regulation 13 paragraph (4) or paragraph (10) chooses the accounting route, not whether paragraph 17(11) applies at all.
+- In those `as the case may be` route-selection slices, do not encode the consequence as an unqualified `if paragraph_4_route: paragraph_4_amount else: paragraph_10_amount`. Paragraph (10) must be selected by a paragraph-(10) route fact/import or by a derived paragraph-(10) route helper before its amount is used.
+- Because `paragraph (4) or, as the case may be, paragraph (10)` states exhaustive alternatives, prefer a single mutually exclusive route selector or derive one route as the negation of the other inside the applicable paragraph. Do not expose two independent route booleans that allow both routes or neither route to be selected.
+- For regulation 17(11), a safe local-placeholder shape is: paragraph applies when the earnings are self-employed; `regulation_13_paragraph_4_route_selected` is the binary route input; paragraph-(10) route is derived as the applicable paragraph with not paragraph-(4) route; the amount uses paragraph-(4) when that route is selected and paragraph-(10) otherwise within the applicable paragraph.
+- Do not create an invalid-route output branch that returns `0` when paragraph 17(11) applies but local route flags are neither/both selected. Make invalid routing unrepresentable in the local model instead of converting it into a statutory zero amount.
+- In `.test.yaml` for those delegated-computation slices, include separate cases for the distinct cited alternatives, such as one regulation-13 paragraph-(4) path and one paragraph-(10) path, rather than only a generic applies/does-not-apply toggle.
+- In `.test.yaml` for those route-selection slices, avoid a false case that makes a self-employed-earner branch fail merely because neither local route flag was selected; that is an impossible or unresolved routing state, not a source-stated inapplicable case.
+- For residual sibling limbs phrased like `in any other case`, preserve that residual condition explicitly. Do not treat the shared parent triggers alone as sufficient for this limb.
+- In those `in any other case` limbs, model a local residual-case fact or applicability helper showing that no more specific sibling case applies, and make this limb depend on it.
+- In `.test.yaml` for those residual limbs, include a case where the parent conditions hold but the residual `other case` condition is false, so the branch remains inoperative.
+- In those determination limbs, do not reuse the parent provision's generic final-amount phrase as the principal money or rate output name when this file encodes only one basis for the determination.
+- Instead, name the principal money or rate output after this limb's own basis or method, such as determination by reference to average weekly income over a complete cycle, so the file does not claim to encode the whole parent calculation outside this limb.
+- For branch-specific `_satisfied` outputs tied to one sibling limb, if the branch-triggering condition itself is false, the branch-specific output should usually be `false`, not vacuously `true`; sibling limbs or parent rules handle the other cases.
+- For statutory phrases like `the claimant or, if he has a partner, his partner` or more generally `X or, if Y, Z`, treat the text as a genuine disjunction over possible satisfiers. The `if ...` clause limits the second disjunct; it does not switch the rule into partner-only substitution when `Y` is true.
+- For those claimant-or-partner disjunctions, preserve separate claimant and partner fact inputs and derive the branch as `claimant_fact or (claimant_has_partner and partner_fact)` or the equivalent grounded boolean formula. Do not encode it as `if claimant_has_partner: partner_fact else: claimant_fact`.
+- For disjunctive payment-description leaves phrased like `any X or Y, where condition A ... or, in respect of X, where condition B ...`, preserve the scope of the first qualifier across every antecedent payment type it grammatically modifies.
+- In those disjunctive payment-description leaves, do not narrow the first `where ...` clause to only the later-mentioned category just because a later `or, in respect of X, where ...` clause adds an additional path for one subcategory.
+- For example, if the source text says `any retired pay, pension or allowance granted in respect of disablement or any pension or allowance granted to a widow ... where such payment does not fall within paragraph (a) ... or, in respect of any retired pay or pension granted in respect of disablement, where such payment does not fall within paragraph (b) ...`, preserve the paragraph-(a) path for retired pay and pension as well as the widow/allowance categories, and treat the paragraph-(b) path as an additional route for retired pay or pension.
+- For payment-description leaves phrased like `royalties or other sums received as a consideration for the use of, or the right to use, ...`, preserve the consideration-for-use/right-to-use qualifier across both `royalties` and `other sums`; do not model `royalty` as a free-standing qualifying limb divorced from the IP-use consideration.
+- In those `royalties or other sums received as a consideration ...` leaves, a bare `payment_is_royalty` fact is too broad unless it is itself qualified to mean a royalty received as consideration for the stated use/right-to-use of the listed intellectual-property rights.
+- For definitional clauses phrased like `a person who is gainfully employed in Great Britain either under a contract of service, or in an office ...`, preserve the shared qualifying employment/office across each alternative limb.
+- In those `a person who is X either under A, or in B` definitions, do not decompose the rule into one free-standing `person_is_X` fact plus separate `under_A` and `in_B` facts that could be satisfied by different roles on the same day.
+- Instead, distribute the shared qualifier across the alternatives with branch-specific combined facts such as `person_is_X_under_A` and `person_is_X_in_B`, then define the principal output as the disjunction of those combined alternatives.
+- In `.test.yaml`, use helper/input names that expose the actual legal facts from the source text. Prefer names like `child_benefit_is_only_person`, `child_benefit_is_elder_or_eldest_person`, `claimant_has_partner`, `is_single_claimant`, `is_joint_claimant`, `resident_in_greater_london`, or `responsible_for_child_or_qualifying_young_person`.
+- In `.test.yaml`, avoid opaque placeholders like `*_condition`, `*_eligibility_flag`, or `family_has_partner` when a more direct legal-fact name is available from the source text.
+- In `.test.yaml` for those claimant-or-partner disjunctions, include a partnered case where only the claimant satisfies the source-stated condition; that case should still evaluate true.
+- In `.test.yaml`, do not feed the same legal period through contradictory units or categories, such as asserting that one payment period is both `3 months` and `3 weeks` via separate free inputs.
+- In `.test.yaml` for one determination limb of a larger multi-limb calculation, when the limb does not apply, assert the limb-specific applicability boolean and omit assertions that would force the principal money or rate output to equal a sibling limb's unknown result.
+- For whole-provision slices phrased like `Where X, Y must ...`, encode the triggered requirement itself. Include a `.test.yaml` case where `X` is false; unless `./source.txt` expressly says otherwise, the requirement should evaluate as satisfied or inapplicable rather than false in that case.
+- When a boolean output ultimately depends on a final fact-shaped input and the source text makes a meaningful false case possible, include a `.test.yaml` case where the applicability conditions hold but that final fact input is false.
+- In `.test.yaml`, choose periods on or after the explicit effective date in `./source.txt`.
+- Do not add speculative future-period tests that would rely on uprating, later amendments, or rates not stated in `./source.txt`.
+- In `.test.yaml`, do not use ISO week shorthands like `2025-W01`; for weekly UK rules use an explicit mapping such as `period_kind: benefit_week`, `start: YYYY-MM-DD`, and `end: YYYY-MM-DD`.
+- Reference RuleSpec rule names by bare name inside formulas. Do not write function-style calls like `some_variable(person, period)`.
+- For a single fixed-amount source slice, a base case is sufficient.
+- `./source.txt` is already a single table row or atomic branch with one grounded amount. Encode that branch-specific amount directly.
+- Use a descriptive legal variable name, not a path- or source-id-derived placeholder like `uksi_2013_...`.
+- For a one-row fixed-amount slice, do not invent a fresh `*_applies` helper or unrelated eligibility booleans unless the source text itself states them.
+- For a one-row fixed-amount slice, do not invent alternate zero-amount tests.
+- For a one-row fixed-amount slice, Do not emit `otherwise:`.
+- For a one-row fixed-amount slice, Do not emit `before YYYY-MM-DD: 0`.
+- For a one-row fixed-amount slice, Do not emit malformed date blocks like `from 0:`.
+- For a one-row fixed-amount slice, use exactly one grounded `effective_from: 'YYYY-MM-DD'` version unless `./source.txt` itself states multiple grounded dates or amounts.
+- For a one-row fixed-amount slice, the principal amount rule should usually be a grounded constant formula under a single `effective_from`; do not wrap it in a conditional formula unless `./source.txt` itself states a second grounded amount or branch inside the same row.
+- For a one-row fixed-amount slice, do not disguise the grounded amount as arithmetic like `2025 * 11 - 255`; emit the grounded constant directly.
+- In `.test.yaml` for a one-row fixed-amount slice, use boolean or fact-shaped helper inputs that mirror the row text.
+- Do not invent sample ages like `2`, `3`, `24`, or `25` just to witness a row condition; if the row says "aged under 25", prefer a helper like `claimant_aged_under_25`.
+- For a one-row fixed-amount slice with a single canonical subject, keep `.test.yaml` outputs scalar instead of nested wrappers like `{person: 1, value: ...}`.
+- For a one-row fixed-amount slice, every `.test.yaml` case should keep the row-defining conditions satisfied; do not negate them in alternate tests unless `./source.txt` states another grounded amount for that alternate branch.
+- For a one-row fixed-amount slice with `period: Year`, a base case is sufficient; do not synthesize an `effective_date_boundary` test.
+- For a one-row fixed-amount slice with non-annual periods, the allowed `.test.yaml` shapes are base case and effective-date boundary.
+- Add a later same-amount case only when `./source.txt` explicitly says the amount remains unchanged through that later date.
+- Do not include `alternate_branch_*` tests unless `./source.txt` states a second grounded amount.
+- Do not use thousands separators in RuleSpec numeric literals or `.test.yaml` outputs; write `2500`, not `2,500`.
+- If `./source.txt` is silent on effective dates, no supplied corpus metadata or amendment/commencement context supplies a date, and no copied precedent file provides a scaffold date, you may use `effective_from: '0001-01-01'` as a neutral scaffold date solely to satisfy RuleSpec syntax.
+- This fallback never applies to behavior derived from an amending provision. Use its authenticated commencement date on the principal rule's affected version; if the principal target or applicable commencement is missing, stop with an explicit unresolved-context blocker naming the missing evidence.
+- Treat that `0001-01-01` scaffold as a harness-only fallback, not as a claim about the true legal effective date.
+- Numeric grounding rules do not apply to the `0001-01-01` tokens inside that neutral scaffold date.
+
+Minimal RuleSpec shape:
+```yaml
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: <corpus citation path from this prompt>
+  summary: |-
+    <concise exact audit excerpt from the source text>
+rules:
+  - name: example_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    source: <legal citation/span>
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: <corpus citation path from this prompt>
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          451
+  - name: example_output
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: <legal citation/span>
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          if example_condition: example_amount else: 0
+```
+
+Derived membership shape:
+```yaml
+rules:
+  - name: snap_member_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.1(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          member_has_required_status
+          and not member_is_excluded_student
+  - name: snap_unit
+    kind: derived_relation
+    derived_relation:
+      arity: 2
+      source_relation: member_of_household
+      entity: SnapUnit
+      member_relation: members
+      slot_entities: [Person, Household]
+    source: 7 CFR 273.1(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: snap_member_eligible
+```
+
+
+
+Return exactly this two-file bundle and nothing else:
+=== FILE: statutes/2020/1/1.yaml ===
+<RuleSpec YAML>
+=== FILE: 1.test.yaml ===
+<YAML list of test cases>
+
+Test file rules:
+- `1.test.yaml` must be a YAML list beginning with `- name:` entries.
+- Use `period`, `input`, and `output` keys. Use concrete scalar values, not formula strings.
+- Do not use bare year periods like `2024`; they are ambiguous across jurisdictions.
+- For monthly outputs, use `period: YYYY-MM`.
+- Supported mapping `period_kind` values are `tax_year` and `custom`; never use `period_kind: calendar_year`.
+- For annual tax tests, use an explicit tax-year mapping such as `period: {period_kind: tax_year, start: '2024-01-01', end: '2024-12-31'}`.
+- For non-tax annual periods, use `period: {period_kind: custom, name: calendar_year, start: '2024-01-01', end: '2024-12-31'}`.
+- For `period: Day` outputs, use a custom day mapping such as `period: {period_kind: custom, name: day, start: '2024-01-15', end: '2024-01-15'}`; never use bare `YYYY-MM-DD` shorthand.
+- If an external oracle uses different public scenario inputs from the legal
+  RuleSpec facts needed under `input:`, keep the legal facts in `input:` and add
+  `oracle_inputs.<oracle>` with equivalent oracle-native inputs. Do not put
+  oracle-only scenario keys directly in `input:`.
+- Emit 1-4 cases unless a source-driven coverage rule below requires more. If
+  `module.status` is `deferred` or `entity_not_supported`, the test file may be
+  empty.
+- Never emit a concrete test case with `output: {}` or an empty `output` map.
+  If no executable output can be asserted, leave the test file empty instead of
+  adding placeholder cases.
+- The test file must contain YAML only; do not put prose or markdown fences in it.
+- Use factual predicates or quantities in `input:`, not the output variable being asserted.
+- Never assign an imported module's computed `#rule_name` output in `input:`. If this file imports that rule, the compiled program computes it. To make an imported output true, false, or equal a value, mirror the imported file's companion test pattern by setting its underlying `#input.<fact>` and `#relation.<name>` keys.
+- When a test is meant to exercise a threshold, cap, or boundary on an imported derived output, do not assume one upstream raw input equals that imported output. First compute the imported formula from the upstream inputs you set; if the upstream formula has deductions, rates, or offsets that make the exact boundary awkward, choose clearly below/above-boundary inputs instead of an exact boundary case.
+- Never turn an imported derived rule into a fabricated `#input.<same_rule_name>` key. For example, use `<jurisdiction>:<repo-path>#imported_judgment: holds` or `not_holds`, not `<jurisdiction>:<repo-path>#input.imported_judgment`.
+- Do not invent `#input` keys for imported files. Use only the bare fact names that the imported file's formulas actually reference, or mirror the imported file's companion `.test.yaml` input pattern when it is supplied in context. If that imported output is driven by an upstream structural relation, set the upstream `#relation.<name>` rows used by the companion test instead of creating a local input under the imported file.
+- A `#relation.<name>` input value must be a YAML list of row mappings. Never use a scalar row such as `- true`. Bad: `<jurisdiction>:<repo-path>#relation.member_of_household: [- true]`. Good: `<jurisdiction>:<repo-path>#relation.member_of_household:` followed by `- <jurisdiction>:<repo-path>#input.member_has_required_status: true`.
+- Put `#relation.<name>` test inputs under the test case's top-level `input:`, not inside `tables.<Entity>` rows. If a table-row entity output depends on a relation, write separate scalar cases with the row's scalar facts and relation list under `input:` instead of a row-ordered `tables` case.
+- Each `.test.yaml` case may assert derived outputs for only one entity type. If a module defines outputs on multiple entities, create separate cases for each entity pair, such as `Person`/`TaxUnit`, `Person`/`Employer`, or `Employer`/`Payment`. For example: `Person` cases set person facts at the top level and assert person outputs; `TaxUnit` cases use relation rows to supply person facts and assert only tax-unit outputs. Do not assert relation-child outputs in the parent entity's case.
+- Use `holds` and `not_holds` for actual `dtype: Judgment` rule keys in test inputs and outputs; do not use YAML booleans for Judgment rule values.
+- Use YAML booleans `true` and `false` for local factual `#input.<fact>` keys referenced directly by formulas.
+- Compute each expected `output:` value by evaluating the emitted RuleSpec
+  formula against the case inputs step by step. Do not guess expected outputs
+  from nearby statutory thresholds or caps. For formulas that combine a flat
+  threshold with a percentage of excess income, include the threshold amount,
+  the excess amount, and the percentage amount in the calculation reflected by
+  the scalar expected output.
+- For positive tests that expect a nonzero amount, `holds` Judgment, or other
+  affirmative result from a formula with source-stated age, income, resource,
+  duration, date, status, or other threshold gates, set every gate input on the
+  qualifying side of the threshold. For example, if the formula requires
+  `age >= age_threshold`, a case expecting the positive amount must set `age`
+  at least to `age_threshold`; use a separate negative case for below-threshold
+  inputs.
+- In mixed-output test cases, do not assert an output's affirmative or nonzero
+  result when any input in that same case intentionally falls on the
+  nonqualifying side of that output's threshold gate. Split the case instead:
+  one case for the blocked output and a separate all-gates-positive case for
+  unrelated affirmative outputs.
+- For proration, average, ratio, or percentage tests with a source-stated denominator, choose input amounts divisible by that denominator so expected outputs are exact decimals, not rounded approximations. For example, if the denominator is 365, use a base amount like 36500 so `36500 * 182 / 365 = 18200`; if an average divides by 6, use totals like 600 or 1800, not 700. Avoid exact equality boundaries for ratios or percentages; choose clearly below/above-boundary values so decimal precision cannot decide the test outcome.
+- Every test case must supply every factual `#input.<fact>` reached by its
+  selected formula branches, including false facts when read. Do not manufacture
+  defaults for unselected branches. Missing reached facts must fail execution;
+  exact required-case input maps must remain unchanged.
+- For every encoded `except`, `unless`, or `notwithstanding` carve-out,
+  including `subject to` carve-outs, include companion tests for the positive
+  path and the carve-out path so exclusions and override conditions cannot be
+  silently dropped.
+- When a complete source unit has many such controls, the source-driven
+  coverage rule overrides the 1-4 case default. Emit as many compact,
+  single-principal-output case pairs as required, keep each pair to the inputs
+  reached by that output, and vary only its controlling selector; do not
+  replace required pairs with one large omnibus case.
+- When a source says a subsection, paragraph, payment, credit, benefit,
+  eligibility path, or other output "shall not apply" or "does not apply",
+  the exported rule that says that target applies, is allowed, is included, or
+  is eligible must negate the exception. Do not expose the exception only as a
+  standalone helper while leaving the affected `*_applies`, eligibility,
+  inclusion, exclusion, or amount output true under the exception.
+- When that exception is encoded as a local derived helper, include a blocking
+  companion test asserting both that helper as `holds` and the directly affected
+  Judgment output as `not_holds`.
+- For scoped exceptions, include a control case proving a non-excepted
+  qualifying item is not reduced or blocked even when the exception amount or
+  exception fact is positive/nonzero, plus a case where the same exception
+  applies to the source-stated excepted category.
+- Preserve anaphoric scope in source predicates. If the source says "such
+  account", "such instrument", "through such account", "with respect to such
+  payment", or similar same-object language, the predicate name and companion
+  tests must keep that same-object relationship. Do not shorten it to broad
+  activity for the person, broker, household, or entity generally.
+- When a local formula has five or fewer independent source-stated boolean
+  gates joined by `and`, include one all-gates-positive case and enough negative
+  cases to toggle each gate at least once. Do not leave a source-stated gate
+  untested just because another negative case toggles a different gate.
+- Build those boolean-gate witnesses mechanically. First emit a minimal
+  all-gates-positive case whose `input:` contains exactly the local facts
+  reached by that one asserted principal output. Its `output:` must assert the
+  principal output plus every reached local derived dependency required for
+  corroboration, but no unrelated output. Clone the complete case once per
+  gate, changing exactly one input value and the expected principal output plus
+  any asserted reached dependency whose value also changes. Every member of the
+  pair must have identical input-key and output-key sets; put unrelated helper,
+  amount, and downstream-output demonstrations in separate cases.
+- If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
+- For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change.
+- Validation fails if a direct local `#input.*_exception_applies` or
+  `#input.*_exception_*` predicate is negated by an exported Judgment rule
+  without this paired positive/negative companion.
+- Do not collapse a list of cited exceptions or cross-reference carve-outs into one aggregate fact such as `sections_..._do_not_preclude...`. Encode or import each cited exception separately, then combine them in a helper if useful.
+- If context files import this target file or reference this target file's outputs, use that as a signal to repair the dependency graph, not as a requirement to preserve old names. Keep an old output only when it remains the cleanest source-faithful RuleSpec surface.
+- When a copied context file already exports the operative legal condition that the requested source consumes, import and use that canonical output. Do not recreate it as a local factual input merely because the requested source describes a person or household as entitled, eligible, qualified, allowed, or subject to that condition. Keep a local fact only when the requested source states a distinct operative fact that the context output does not represent.
+- Do not preserve existing factual input slots referenced by copied formulas or companion tests when a cleaner source-faithful encoding removes them. For names listed under invalid copied local inputs, do not preserve, rename, or recreate them.
+- When this source text itself names the operative factual disqualification,
+  exception, or eligibility condition, encode that named condition as a local
+  factual input even if the sentence cites another section for definitions or
+  compliance procedures. Do not defer the target output solely because the
+  cited section is absent when the source gives enough facts to evaluate the
+  branch as true or false.
+- For repo-backed artifacts, every `input:` and `output:` key must be a canonical
+  legal RuleSpec reference that resolves to an actual file and fragment; do not
+  use bare friendly keys or absolute-looking placeholders.
+- Do not add speculative future-period tests that rely on uprating or amendments not stated in `./source.txt`.
+
+
+
+
+Do not respond with summaries, markdown prose, or file-write confirmations.

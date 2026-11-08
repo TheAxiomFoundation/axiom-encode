@@ -19,6 +19,7 @@ import tarfile
 import textwrap
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -27,6 +28,7 @@ from hypothesis import strategies as st
 
 from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness import validator_pipeline as vp
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BASE_CITATION = "us/statute/26/21"
@@ -127,7 +129,7 @@ class _BaselineWorker:
         )
         try:
             self.pid_path.write_text(str(self.process.pid))
-            assert self._read_response(timeout=180) == {"ready": True}
+            assert self._read_response(timeout=HANG_TIMEOUT_SECONDS) == {"ready": True}
         except BaseException as error:
             try:
                 self.close()
@@ -135,7 +137,7 @@ class _BaselineWorker:
                 error.add_note(str(cleanup_error))
             raise
 
-    def _read_response(self, *, timeout=60):
+    def _read_response(self, *, timeout=HANG_TIMEOUT_SECONDS):
         deadline = time.monotonic() + timeout
         while b"\n" not in self.response_buffer:
             readable, _, _ = select.select(
@@ -148,6 +150,8 @@ class _BaselineWorker:
             chunk = os.read(self.process.stdout.fileno(), 65536)
             assert chunk, self.stderr_path.read_text()
             self.response_buffer += chunk
+            # A partial response is progress; bound inactivity, not total work.
+            deadline = time.monotonic() + timeout
         line, self.response_buffer = self.response_buffer.split(b"\n", 1)
         response = json.loads(line)
         assert "error" not in response, response.get("error")
@@ -177,15 +181,15 @@ class _BaselineWorker:
             except BrokenPipeError:
                 pass
             try:
-                self.process.wait(timeout=30)
+                self.process.wait(timeout=HANG_TIMEOUT_SECONDS)
             except subprocess.TimeoutExpired:
                 self.process.terminate()
                 try:
-                    self.process.wait(timeout=30)
+                    self.process.wait(timeout=HANG_TIMEOUT_SECONDS)
                 except subprocess.TimeoutExpired:
                     self.process.kill()
                     try:
-                        self.process.wait(timeout=60)
+                        self.process.wait(timeout=HANG_TIMEOUT_SECONDS)
                     except subprocess.TimeoutExpired:
                         raise RuntimeError(
                             f"Baseline worker {self.process.pid} did not exit after kill"
@@ -195,6 +199,62 @@ class _BaselineWorker:
             self.stderr.close()
             if self.process.poll() is not None:
                 self.pid_path.unlink(missing_ok=True)
+
+
+def test_baseline_worker_response_timeout_restarts_after_progress(monkeypatch):
+    worker = object.__new__(_BaselineWorker)
+    worker.process = SimpleNamespace(stdout=SimpleNamespace(fileno=lambda: 123))
+    worker.response_buffer = b""
+    clock = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    chunks = iter((b'{"result"', b": 1}\n"))
+    monkeypatch.setattr(os, "read", lambda *_: next(chunks))
+
+    def readable(inputs, _writes, _errors, remaining):
+        # Both chunks arrive four seconds after the preceding progress. Each
+        # select receives the full renewed budget despite eight seconds total.
+        assert remaining == 5, ("remaining inactivity budget", remaining)
+        clock[0] += 4
+        return inputs, [], []
+
+    monkeypatch.setattr(select, "select", readable)
+    assert worker._read_response(timeout=5) == {"result": 1}
+    assert clock[0] == 8
+
+
+def test_baseline_worker_response_timeout_rejects_inactivity(monkeypatch, tmp_path):
+    worker = object.__new__(_BaselineWorker)
+    worker.process = SimpleNamespace(
+        pid=123, stdout=SimpleNamespace(fileno=lambda: 123)
+    )
+    worker.stderr_path = tmp_path / "stderr"
+    worker.stderr_path.write_text("worker stalled")
+    worker.response_buffer = b""
+    clock = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(os, "read", lambda *_: b'{"result":')
+    selections = 0
+
+    def partial_then_stalled(inputs, _writes, _errors, remaining):
+        nonlocal selections
+        selections += 1
+        # Initial work gets five seconds. A partial response four seconds later
+        # must renew the full budget; the former total deadline leaves only one.
+        assert remaining == 5, ("remaining inactivity budget", remaining)
+        if selections == 1:
+            clock[0] = 4.0
+            return inputs, [], []
+        assert selections == 2
+        clock[0] += remaining
+        return [], [], []
+
+    monkeypatch.setattr(select, "select", partial_then_stalled)
+    with pytest.raises(AssertionError, match="response timed out after 5s") as error:
+        worker._read_response(timeout=5)
+
+    assert selections == 2
+    assert clock[0] == 9
+    assert "worker stalled" in str(error.value)
 
 
 @pytest.fixture(scope="module")
@@ -211,7 +271,7 @@ def baseline_worker(tmp_path_factory):
             stdout=archive,
             stderr=subprocess.PIPE,
             check=True,
-            timeout=60,
+            timeout=HANG_TIMEOUT_SECONDS,
         )
     with tarfile.open(archive_path) as archive:
         archive.extractall(export_root, filter="data")
@@ -962,7 +1022,13 @@ def _complete_source_obligations(module, complete_source_module, outline):
     )
     # Compare every completeness finding, branch, and numeric occurrence count,
     # including numeric recall, without sharing either implementation's results.
-    return dataclasses.asdict(result)
+    serialized = dataclasses.asdict(result)
+    # The pinned baseline predates this optional branch metadata. Fill only
+    # absent defaults so actual metadata values remain part of the comparison.
+    for branch in serialized["branches"]:
+        branch.setdefault("computation_chapeaux", ())
+        branch.setdefault("required_principal_output", None)
+    return serialized
 
 
 @given(outline=constructed_outlines())
