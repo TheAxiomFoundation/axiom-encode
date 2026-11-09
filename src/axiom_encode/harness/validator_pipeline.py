@@ -193,6 +193,7 @@ from .same_case_execution import (
 )
 from .source_completeness import (
     _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
+    _LINE_BREAK_CHARS,
     _is_us_manual_citation_path,
     _nested_outline_marker_spans,
     _qualified_parenthesized_legal_outline_markers,
@@ -1767,8 +1768,6 @@ _MONTH_NAME_BODY = (
     r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
     r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?"
 )
-# Every separator `str.splitlines` treats as a line boundary, not only `\n`.
-_LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
 _LINE_BREAK_CLASS = rf"[{_LINE_BREAK_CHARS}]"
 # Indentation the standalone-month guard recognises before a header line.
 _MAX_MONTH_HEADER_INDENT = 16
