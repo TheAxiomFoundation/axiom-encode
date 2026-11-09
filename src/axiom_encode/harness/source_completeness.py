@@ -6032,21 +6032,12 @@ def _analyze_rulespec_payload(
                     "atom on the affected principal formula when applicable), or "
                     "precisely defer the parent; do not invent a dummy output."
                 )
-        structure_issue = ValidationIssue(
+        structure_message = (
             "[complete-source-unit:structure] "
             f"Source branch {branch.label} at "
             f"{_branch_citation(corpus_citation_path, branch)} is neither "
             "encoded nor precisely deferred."
-            f"{covered_descendant_detail}",
-            check=CHECK_STRUCTURE_BRANCH_UNENCODED,
-            subject=_branch_subject(corpus_citation_path, branch),
-            expected="encoded or precisely deferred",
-            found=(
-                "only descendants covered"
-                if covered_descendant_detail
-                else "neither encoded nor deferred"
-            ),
-            evidence=branch.text,
+            f"{covered_descendant_detail}"
         )
         pending_deferral = max(
             (
@@ -6056,15 +6047,27 @@ def _analyze_rulespec_payload(
             ),
             default=None,
         )
-        if pending_deferral is None:
-            # Already a typed ValidationIssue (built above).
-            issues.extend((structure_issue,))
+        if pending_deferral is not None:
+            # An identical finding text is one finding, as the final
+            # de-duplication of the issue list makes it.
+            branches_behind_imprecise_deferral.setdefault(pending_deferral[1], {})[
+                structure_message
+            ] = branch
             continue
-        # An identical finding text is one finding, as the final
-        # de-duplication of the issue list makes it.
-        branches_behind_imprecise_deferral.setdefault(pending_deferral[1], {})[
-            structure_issue
-        ] = branch
+        issues.append(
+            ValidationIssue(
+                structure_message,
+                check=CHECK_STRUCTURE_BRANCH_UNENCODED,
+                subject=_branch_subject(corpus_citation_path, branch),
+                expected="encoded or precisely deferred",
+                found=(
+                    "only descendants covered"
+                    if covered_descendant_detail
+                    else "neither encoded nor deferred"
+                ),
+                evidence=branch.text,
+            )
+        )
     for finding_index, pending_branches in branches_behind_imprecise_deferral.items():
         issue_index = imprecise_deferral_issue_offset + finding_index
         issues[issue_index] = _with_branches_behind_imprecise_deferral(
