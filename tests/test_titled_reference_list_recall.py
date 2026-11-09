@@ -248,7 +248,7 @@ _NON_TITLE_OPENINGS = (
 
 @pytest.mark.parametrize("opening", _NON_TITLE_OPENINGS)
 def test_a_non_title_parenthesis_keeps_its_item(opening: str) -> None:
-    text = f"if regulation 15 (absentees) or 19 ({opening}) weeks have passed"
+    text = f"if regulation 15 (absentees) or 19 ({opening}) applies"
     with titled_list_pass_disabled():
         before = recall_values(text)
 
@@ -441,6 +441,20 @@ def test_a_word_led_parenthesis_with_no_unit_reads_as_a_title() -> None:
     # Intended limit: with no unit or number after it, any word-led parenthesis
     # outside the refused openings reads as a title.
     assert recall_values("section 5 (fees), 25 (individuals) and 50 (couples)") == []
+
+
+def test_a_reference_can_reach_past_a_heading_line_and_a_blanked_number() -> None:
+    # Intended limit: the heading line blanks, so the reference on the line before
+    # it continues through the title, which reads as a subdivision once its number
+    # goes, and through the numbers after the list.
+    text = (
+        "A person to whom Schedule 43(x) and\nPART 40 (absentees) or\n"
+        "37 (persons), 7 and 8"
+    )
+    with titled_list_pass_disabled():
+        assert recall_values(text) == [7.0, 8.0]
+
+    assert recall_values(text) == []
 
 
 _UNITS_AFTER_A_TITLE = (
