@@ -140,10 +140,12 @@ def test_validator_legacy_profile_requires_independent_resource_boundary(tmp_pat
         proof_source_texts={CITATION: source},
         test_cases=cases,
     )
-    assert issues == [
+    # The finding names the one missing boundary; its boundary details follow.
+    assert len(issues) == 1
+    assert issues[0].startswith(
         "[complete-source-unit:tests] Companion tests do not exercise every "
-        "source-stated boundary input; missing: (a)=50."
-    ]
+        "source-stated boundary input; missing: (a)=50. Boundary details:"
+    )
 
 
 @settings(max_examples=80, deadline=None, derandomize=True)
