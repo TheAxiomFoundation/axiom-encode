@@ -10,6 +10,12 @@
 # The workflow that signs with the apply key, and the reviewed-candidate
 # allowlist code and admission records it admits.
 /.github/workflows/targeted-signed-reencode.yml @PavelMakarchuk @MaxGhenis
+# The post-merge version bump (axiom-encode#2048): its workflow holds the
+# bump App's key, which can turn on auto-merge, and version_provenance gates the
+# bump and the re-encode workflow's early refusal. main requires no approving
+# review, so code-owner review is these files' only review.
+/.github/workflows/encoder-version-bump.yml @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/version_provenance.py @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/prepare_signed_backfill.py @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/reviewed_pr_admission.py @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/cli.py @PavelMakarchuk @MaxGhenis

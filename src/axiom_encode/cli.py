@@ -116,6 +116,7 @@ from axiom_encode.yaml_serialization import (
 )
 
 from . import validation_waivers as _validation_waivers
+from . import version_provenance as _version_provenance
 from .checks import (
     ISSUE_SCHEMA_VERSION as VALIDATION_ISSUE_SCHEMA_VERSION,
 )
@@ -32455,6 +32456,14 @@ def _require_axiom_encode_version_provenance(
 ) -> dict[str, str]:
     """Require encoder-affecting code changes to be behind a version bump."""
     repo = Path(repo_root)
+    # A shallow clone's boundary commit reads as a bump and hides every older
+    # change, so the rule needs full history, as in version_provenance and the
+    # provisioner (axiom-encode#2048).
+    if _git_name_only(repo, "rev-parse", "--is-shallow-repository") != ["false"]:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: the axiom-encode checkout is "
+            "shallow; the version-bump check needs full history."
+        )
     current_versions = _axiom_encode_versions_at_ref(repo, "HEAD")
     pyproject_version = current_versions.get("pyproject")
     package_version = current_versions.get("package")
@@ -32484,16 +32493,30 @@ def _require_axiom_encode_version_provenance(
             "bump was found; bump the encoder version before using --apply."
         )
 
-    changed_since_version = _git_name_only(
+    # Deletions and both sides of a move count, and -z keeps non-ASCII names
+    # unquoted, so no encoder change escapes the prefix test (axiom-encode#2048).
+    changed_since_version = _git_nul_paths(
         repo,
         "diff",
         "--name-only",
-        "--diff-filter=ACMRT",
-        f"{version_commit}..HEAD",
+        "--no-renames",
+        "--diff-filter=ACDMRT",
+        "-z",
+        version_commit,
+        "HEAD",
     )
-    unversioned_encoder_changes = [
-        path for path in changed_since_version if _is_axiom_encode_versioned_path(path)
-    ]
+    unversioned_encoder_changes = sorted(
+        {
+            path
+            for path in changed_since_version
+            if _is_axiom_encode_versioned_path(path)
+        }
+        # A version below one that main declared, or changes after main first
+        # reached this version at another commit (axiom-encode#2051 review).
+        | _version_provenance.main_history_changes(
+            repo, "HEAD", version_commit, pyproject_version
+        )
+    )
     if unversioned_encoder_changes:
         display = ", ".join(f"`{path}`" for path in unversioned_encoder_changes[:8])
         if len(unversioned_encoder_changes) > 8:
@@ -32570,10 +32593,22 @@ def _parse_numeric_version(version: str) -> tuple[int, ...] | None:
 def _git_first_parent(repo: Path, commit: str) -> str | None:
     try:
         line = subprocess.run(
-            ["git", "-C", str(repo), "rev-list", "--parents", "-n", "1", commit],
+            [
+                shutil.which("git") or "git",
+                "-C",
+                str(repo),
+                "rev-list",
+                "--parents",
+                "-n",
+                "1",
+                commit,
+            ],
             capture_output=True,
             check=True,
             text=True,
+            # Like the guard's other git reads: no replace refs, grafts, commit
+            # graph or ambient GIT_* values decide a commit's parent (#2048).
+            env=_read_only_git_environment(),
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return None
@@ -32629,15 +32664,35 @@ def _git_show_bytes(repo: Path, ref: str, path: str) -> bytes | None:
 def _git_name_only(repo: Path, *args: str) -> list[str]:
     try:
         completed = subprocess.run(
-            ["git", "-C", str(repo), *args],
+            [shutil.which("git") or "git", "-C", str(repo), *args],
             capture_output=True,
             check=True,
             text=True,
+            # No replace refs, grafts or commit-graph: a local history rewrite
+            # must not hide an unversioned encoder change (axiom-encode#2048).
+            env=_read_only_git_environment(),
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         stderr = getattr(exc, "stderr", "") or ""
         raise RuntimeError(stderr.strip() or "git provenance command failed") from exc
     return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+
+def _git_nul_paths(repo: Path, *args: str) -> list[str]:
+    try:
+        completed = subprocess.run(
+            [shutil.which("git") or "git", "-C", str(repo), *args],
+            capture_output=True,
+            check=True,
+            text=True,
+            # No replace refs, grafts or commit-graph: a local history rewrite
+            # must not hide an unversioned encoder change (axiom-encode#2048).
+            env=_read_only_git_environment(),
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        stderr = getattr(exc, "stderr", "") or ""
+        raise RuntimeError(stderr.strip() or "git provenance command failed") from exc
+    return [path for path in completed.stdout.split("\0") if path]
 
 
 def _extract_pyproject_version(content: str) -> str | None:
