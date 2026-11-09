@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "us",
+  "declared": null,
+  "pr_base_branch": "axiom/signed-backfill-us-38802732779-1",
+  "purpose": "Admit only the signed FY2026 income-standards head from rulespec-us PR1790 as a protected workflow base. Review is author-reported in PR comments, not a GitHub approval. This unbound record does not authorize reviewed-candidate module promotion or resolve the parent stack's validation failures.",
+  "rulespec_pr": 1790,
+  "rulespec_ref": "8eff74e39ca3ed50de3439b27de7c438a7b7bcda",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}
