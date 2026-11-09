@@ -544,15 +544,30 @@ def test_contents_page_numbers_and_revision_dates_are_locators():
 # -- cycle review: main's deferred contract and copied headings -------------
 
 
-@pytest.mark.parametrize("body", [". . . . . . .", "...", "…", " . . . \n . . . "])
-def test_an_ellipsis_placeholder_only_reports(body):
+@pytest.mark.parametrize(
+    ("body", "labels"),
+    [
+        (". . . . . . .", ()),
+        ("...", ()),
+        ("…", ()),
+        (" . . . \n . . . ", ()),
+        ("[...]", ()),
+        ("(...)", ()),
+        ("…...", ()),
+        ("* * *", ()),
+        # The usual form of an omitted paragraph, with its own marker as label.
+        ("(a) ...", ("(a)",)),
+        ("(2) . . . . .", ("(2)",)),
+    ],
+)
+def test_an_ellipsis_placeholder_only_reports(body, labels):
     """Main encodes an editorial omission as `status: deferred` on purpose.
 
     The prompt and the validator both accept that artifact, so the gate
     records the finding but does not stop the encode.
     """
 
-    result = evaluate_pre_encode_gate(_source(body))
+    result = evaluate_pre_encode_gate(_source(body, labels=labels))
 
     assert _checks(result) == [(CHECK_NO_OPERATIVE_TEXT, False)]
     assert not result.blocked
@@ -573,6 +588,24 @@ def test_an_ellipsis_placeholder_only_reports(body):
 def test_a_heading_that_copies_a_rule_body_does_not_block(body):
     assert check_no_operative_text(body, (body,), "us-or/manual/snap/a/1") is None
     assert not evaluate_pre_encode_gate(_source(body, labels=(body,))).blocked
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Eligible Students",
+        "Who May Apply",
+        "Income Is Counted",
+        "Part 5 — Benefits Not Payable",
+        "No fee",
+        "Income and deductions.",
+    ],
+)
+def test_a_heading_with_a_rule_word_still_blocks(body):
+    result = evaluate_pre_encode_gate(_source(body, labels=(body,)))
+
+    assert _checks(result) == [(CHECK_NO_OPERATIVE_TEXT, True)]
+    assert result.findings[0].failure_class == "selection"
 
 
 # -- order against the resolver's part-heading refusal (#2035) --------------

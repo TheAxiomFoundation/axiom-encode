@@ -215,7 +215,20 @@ _CORPUS_CONTENT_REASONS = frozenset(
 # the validator accept a `status: deferred` artifact for it, so the gate does
 # not stop it. A lone "." or an empty body stays an extraction gap and blocks.
 _ADVISORY_REASONS = frozenset({ELLIPSIS_BODY_REASON})
-_ELLIPSIS_BODY_RE = re.compile(r"^(?:\.\s*){3,}$|^(?:…\s*)+$")
+# An optional paragraph marker ("(a)", "2") and one omission mark: three or
+# more dots or asterisks ("...", ". . .", "* * *") or an ellipsis character,
+# optionally in brackets ("[...]", "(...)").
+_ELLIPSIS_BODY_RE = re.compile(
+    r"(?:\(?[A-Za-z0-9]{1,8}\)?\.?\s+)?[\[(]?\s*(?P<mark>[.…*][.…*\s]*)[\])]?"
+)
+
+
+def _is_ellipsis_placeholder(text: str) -> bool:
+    match = _ELLIPSIS_BODY_RE.fullmatch(text)
+    if match is None:
+        return False
+    mark = match.group("mark")
+    return "…" in mark or mark.count(".") >= 3 or mark.count("*") >= 3
 
 
 def _marker_key(value: str) -> str:
@@ -234,6 +247,21 @@ def _target_markers(citation_path: str) -> frozenset[str]:
     return frozenset(keys)
 
 
+def _reads_as_a_rule_sentence(body: str) -> bool:
+    """A sentence (3+ words, closing punctuation) with a rule word or amount.
+
+    Headings also use rule words ("Who May Apply", "Benefits Not Payable"),
+    so a rule word alone does not make a body a rule.
+    """
+
+    text = _normalize_space(body)
+    return (
+        len(text.split()) >= 3
+        and text[-1:] in {".", ";", "!"}
+        and has_rule_signal(text)
+    )
+
+
 def check_no_operative_text(
     body: str, labels: Sequence[str] = (), citation_path: str = ""
 ) -> str | None:
@@ -246,9 +274,9 @@ def check_no_operative_text(
     remaining = _normalize_space(body)
     if not remaining:
         return EMPTY_BODY_REASON
+    if _is_ellipsis_placeholder(remaining):
+        return ELLIPSIS_BODY_REASON
     if not any(character.isalnum() for character in remaining):
-        if _ELLIPSIS_BODY_RE.fullmatch(remaining):
-            return ELLIPSIS_BODY_REASON
         return PUNCTUATION_BODY_REASON
     label_found = False
     for label in sorted(
@@ -260,9 +288,9 @@ def check_no_operative_text(
     if not label_found:
         return None
     # A label can copy the body's own rule ("Applicants must be 18."), as when
-    # an extractor takes the heading from the first line. A body with a rule
-    # word, amount or rate is never judged heading-only.
-    if has_rule_signal(body):
+    # an extractor takes the heading from the first line. A body that reads as
+    # a sentence with a rule word, amount or rate is never judged heading-only.
+    if _reads_as_a_rule_sentence(body):
         return None
     remaining = _normalize_space(remaining).strip(_EDGE_PUNCTUATION)
     if not remaining:
