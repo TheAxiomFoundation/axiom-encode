@@ -9880,13 +9880,20 @@ def cmd_promote_reviewed_candidate(args):
                 if isinstance(validated_policy, dict)
                 else None
             )
-            payload[VALIDATION_WAIVER_BINDINGS_FIELD] = (
-                _build_applied_manifest_file_waiver_bindings(
-                    repo_path,
-                    covered_paths={relative.as_posix() for relative in before},
-                    validated_waiver_set_sha256=validated_waiver_set_sha256,
+            if _target_uses_per_file_waiver_bindings(repo_path):
+                payload[VALIDATION_WAIVER_BINDINGS_FIELD] = (
+                    _build_applied_manifest_file_waiver_bindings(
+                        repo_path,
+                        covered_paths={relative.as_posix() for relative in before},
+                        validated_waiver_set_sha256=validated_waiver_set_sha256,
+                    )
                 )
-            )
+            else:
+                # A pinned verifier admits only the repository waiver-set
+                # digest.
+                payload[VALIDATION_WAIVER_SET_SHA256_FIELD] = (
+                    verify_rulespec_validation_waiver_set(repo_path)
+                )
             _sign_applied_encoding_manifest(payload, signing_broker)
             manifest_bytes = (
                 json.dumps(payload, indent=2, sort_keys=True) + "\n"
@@ -9910,7 +9917,10 @@ def cmd_promote_reviewed_candidate(args):
                         manifest_path.relative_to(repo_path).as_posix(),
                         roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
                         signing_broker=signing_broker,
-                        expected_waiver_set_sha256=validated_waiver_set_sha256,
+                        expected_waiver_set_sha256=payload.get(
+                            VALIDATION_WAIVER_SET_SHA256_FIELD,
+                            validated_waiver_set_sha256,
+                        ),
                         local_corpus_release=local_corpus_release,
                         expected_encoder_identity=(
                             _current_guard_encoder_execution_identity()
@@ -27768,6 +27778,76 @@ def _nested_file_waiver_binding_issues(
         manifest_label=manifest_label,
         expected_waiver_set_sha256=expected_waiver_set_sha256,
         base_commit=base_commit,
+    )
+
+
+RULESPEC_WORKFLOW_TOOLCHAIN_RELATIVE = Path(".axiom/workflow-toolchain.toml")
+_WAIVER_SHAPE_PROTECTED_BASE_REFS = ("origin/main", "main")
+
+
+def _target_uses_per_file_waiver_bindings(policy_repo_path: Path) -> bool:
+    """Return whether new manifests for this RuleSpec repository bind per file.
+
+    A pinned verifier older than #2092 rejects the per-file field, so writers
+    keep the repository waiver-set digest unless the target repository's
+    protected base opts in with ``[workflow_toolchain] encoder_verifier =
+    "main"``. The value is read from the protected base commit's Git objects,
+    never from the working tree or a pull request head. An absent file, table
+    or key keeps the set-digest shape; a malformed value refuses to sign.
+    """
+
+    import tomllib
+
+    root = load_rulespec_toolchain(policy_repo_path).root
+    base: str | None = None
+    for ref in _WAIVER_SHAPE_PROTECTED_BASE_REFS:
+        try:
+            candidate = _rulespec_migration_git(
+                root, "rev-parse", "--verify", "--quiet", "--end-of-options", ref
+            ).strip()
+        except (OSError, RuntimeError):
+            continue
+        if re.fullmatch(r"[0-9a-f]{40}", candidate):
+            base = candidate
+            break
+    if base is None:
+        return False
+    prefix = _git_worktree_prefix(root)
+    relative = (
+        Path(prefix) / RULESPEC_WORKFLOW_TOOLCHAIN_RELATIVE
+        if prefix
+        else RULESPEC_WORKFLOW_TOOLCHAIN_RELATIVE
+    )
+    try:
+        listing = _rulespec_migration_git_bytes(
+            root, "ls-tree", "-z", "--full-tree", "--", base, relative.as_posix()
+        )
+        if not listing.strip(b"\0"):
+            return False
+        raw = _rulespec_migration_base_blob(root, base, relative)
+        table = tomllib.loads(raw.decode("utf-8")).get("workflow_toolchain")
+    except (OSError, RuntimeError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise RuntimeError(
+            "Cannot sign RuleSpec: the protected workflow toolchain of the target "
+            f"repository is unreadable: {exc}"
+        ) from exc
+    if table is None:
+        return False
+    if not isinstance(table, dict):
+        raise RuntimeError(
+            "Cannot sign RuleSpec: [workflow_toolchain] of the target repository "
+            "is not a table"
+        )
+    if "encoder_verifier" not in table:
+        return False
+    mode = table["encoder_verifier"]
+    if mode == "pinned":
+        return False
+    if mode == "main":
+        return True
+    raise RuntimeError(
+        "Cannot sign RuleSpec: [workflow_toolchain].encoder_verifier of the target "
+        "repository must be pinned or main"
     )
 
 
@@ -61999,13 +62079,6 @@ def _require_staged_manifest_matches_validation_snapshot(
         "runner": result_metadata.get("runner"),
         "backend": result_metadata.get("backend"),
         "model": result_metadata.get("model"),
-        VALIDATION_WAIVER_BINDINGS_FIELD: _staged_manifest_expected_waiver_bindings(
-            content_root,
-            covered_paths={item["path"] for item in expected_applied_files},
-            validated_waiver_set_sha256=policy_identity.get(
-                "validation_waiver_set_sha256"
-            ),
-        ),
         "generated_output_root": str(output_root),
         "generated_output_file": output.get("path"),
         "generated_output_sha256": output.get("sha256"),
@@ -62024,6 +62097,24 @@ def _require_staged_manifest_matches_validation_snapshot(
     if result_metadata.get("codex_cli_version") is not None:
         expected_fields["codex_cli_version"] = result_metadata["codex_cli_version"]
         expected_fields["codex_cli_sha256"] = result_metadata["codex_cli_sha256"]
+    # The writer chose the waiver shape from the target's protected base
+    # (#2092); either shape must describe the validated ledger exactly.
+    if VALIDATION_WAIVER_BINDINGS_FIELD in payload:
+        if VALIDATION_WAIVER_SET_SHA256_FIELD in payload:
+            raise RuntimeError("Staged apply manifest carries both waiver shapes")
+        expected_fields[VALIDATION_WAIVER_BINDINGS_FIELD] = (
+            _staged_manifest_expected_waiver_bindings(
+                content_root,
+                covered_paths={item["path"] for item in expected_applied_files},
+                validated_waiver_set_sha256=policy_identity.get(
+                    "validation_waiver_set_sha256"
+                ),
+            )
+        )
+    else:
+        expected_fields[VALIDATION_WAIVER_SET_SHA256_FIELD] = policy_identity.get(
+            "validation_waiver_set_sha256"
+        )
     mismatched = [
         field
         for field, expected in expected_fields.items()
@@ -64000,22 +64091,29 @@ def _write_applied_encoding_manifest(
         )
     payload["validation_execution"] = copy.deepcopy(validation_execution)
     validated_policy = validation_execution.get("policy_pre_apply")
-    payload[VALIDATION_WAIVER_BINDINGS_FIELD] = (
-        _build_applied_manifest_file_waiver_bindings(
-            policy_repo_path,
-            # Admission checks live files only; deleted entries carry no waiver.
-            covered_paths={
-                str(item["path"])
-                for item in payload["applied_files"]
-                if item.get("deleted") is not True
-            },
-            validated_waiver_set_sha256=(
-                validated_policy.get("validation_waiver_set_sha256")
-                if isinstance(validated_policy, dict)
-                else None
-            ),
+    if _target_uses_per_file_waiver_bindings(policy_repo_path):
+        payload[VALIDATION_WAIVER_BINDINGS_FIELD] = (
+            _build_applied_manifest_file_waiver_bindings(
+                policy_repo_path,
+                # Admission checks live files only; deleted entries carry no
+                # waiver.
+                covered_paths={
+                    str(item["path"])
+                    for item in payload["applied_files"]
+                    if item.get("deleted") is not True
+                },
+                validated_waiver_set_sha256=(
+                    validated_policy.get("validation_waiver_set_sha256")
+                    if isinstance(validated_policy, dict)
+                    else None
+                ),
+            )
         )
-    )
+    else:
+        # A pinned verifier admits only the repository waiver-set digest.
+        payload[VALIDATION_WAIVER_SET_SHA256_FIELD] = (
+            verify_rulespec_validation_waiver_set(policy_repo_path)
+        )
     _sign_applied_encoding_manifest(payload, signing_broker)
     manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return manifest_path

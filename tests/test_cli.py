@@ -1975,6 +1975,10 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admi
             return_value="c" * 64,
         ),
         patch(
+            "axiom_encode.cli._target_uses_per_file_waiver_bindings",
+            return_value=True,
+        ),
+        patch(
             "axiom_encode.cli._build_applied_manifest_file_waiver_bindings",
             return_value=waiver_bindings,
         ) as bindings_mock,
@@ -22188,7 +22192,10 @@ rules: []
                 Path("programs/us-sc/snap/fy-2026.yaml"),
             )
 
-    def test_write_applied_manifest_places_checkout_root_program_spec(self, tmp_path):
+    @pytest.mark.parametrize("per_file", [False, True])
+    def test_write_applied_manifest_places_checkout_root_program_spec(
+        self, tmp_path, per_file
+    ):
         checkout = tmp_path / "rulespec-us"
         (checkout / "us").mkdir(parents=True)
         relative_output = Path("programs/us-sc/snap/fy-2026.yaml")
@@ -22238,6 +22245,10 @@ rules: []
                 return_value="b" * 64,
             ),
             patch(
+                "axiom_encode.cli._target_uses_per_file_waiver_bindings",
+                return_value=per_file,
+            ),
+            patch(
                 "axiom_encode.cli._build_applied_manifest_file_waiver_bindings",
                 return_value={"schema": "test", "files": []},
             ),
@@ -22267,6 +22278,16 @@ rules: []
         assert payload["signature"]["value"]
         assert payload["context_manifest_file"] is None
         assert payload["context_manifest_sha256"] is None
+        # The target's protected verifier mode chooses the waiver shape (#2092).
+        if per_file:
+            assert payload["validation_waiver_bindings"] == {
+                "schema": "test",
+                "files": [],
+            }
+            assert "validation_waiver_set_sha256" not in payload
+        else:
+            assert payload["validation_waiver_set_sha256"] == "b" * 64
+            assert "validation_waiver_bindings" not in payload
 
     def test_resolve_applied_manifest_placement_always_uses_checkout_root(
         self, tmp_path

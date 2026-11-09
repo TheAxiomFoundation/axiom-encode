@@ -1464,8 +1464,9 @@ def test_model_run_id_naming_independent_pair_does_not_create_ownership(
         axiom_encode_git=_encoder_provenance(),
     )
     assert refreshed_manifest == owner_manifest
-    # Writers bind waivers per covered file (#2092).
-    expected_fields = cli._MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS
+    # The target repository has no protected encoder_verifier = "main", so
+    # the writer keeps the repository waiver-set digest (#2092).
+    expected_fields = cli._MODEL_APPLY_MANIFEST_FIELDS
     if backend == "codex":
         expected_fields |= {"codex_cli_version", "codex_cli_sha256"}
     assert set(json.loads(owner_manifest.read_text())) == expected_fields

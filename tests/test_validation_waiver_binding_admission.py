@@ -440,3 +440,74 @@ def test_nested_set_digest_manifests_need_no_bindings_check(frozen_repo):
         )
         == []
     )
+
+
+# Writers choose the waiver shape from the target repository's protected
+# base (#2092): a pinned verifier before #2092 rejects the per-file field.
+
+
+def _write_workflow_toolchain(fixture, text: str | None) -> None:
+    path = fixture.repo / cli.RULESPEC_WORKFLOW_TOOLCHAIN_RELATIVE
+    if text is None:
+        path.unlink(missing_ok=True)
+    else:
+        path.write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("text", "per_file"),
+    [
+        (None, False),
+        ("# no table\n", False),
+        ('[workflow_toolchain]\naxiom_encode_ref = "' + "a" * 40 + '"\n', False),
+        ('[workflow_toolchain]\nencoder_verifier = "pinned"\n', False),
+        ('[workflow_toolchain]\nencoder_verifier = "main"\n', True),
+    ],
+    ids=["absent-file", "absent-table", "absent-key", "pinned", "main"],
+)
+def test_writer_shape_follows_the_protected_base(frozen_repo, text, per_file):
+    _write_workflow_toolchain(frozen_repo, text)
+    if text is not None:
+        _commit(frozen_repo.repo, "protected workflow toolchain")
+    assert cli._target_uses_per_file_waiver_bindings(frozen_repo.repo) is per_file
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '[workflow_toolchain]\nencoder_verifier = "latest"\n',
+        "[workflow_toolchain]\nencoder_verifier = 1\n",
+        "workflow_toolchain = 3\n",
+        "[workflow_toolchain\n",
+    ],
+    ids=["unknown-mode", "not-a-string", "not-a-table", "invalid-toml"],
+)
+def test_writer_refuses_to_sign_on_a_malformed_protected_mode(frozen_repo, text):
+    _write_workflow_toolchain(frozen_repo, text)
+    _commit(frozen_repo.repo, "malformed protected workflow toolchain")
+    with pytest.raises(RuntimeError, match="Cannot sign RuleSpec"):
+        cli._target_uses_per_file_waiver_bindings(frozen_repo.repo)
+
+
+def test_writer_shape_ignores_the_working_tree_and_a_pull_request_head(
+    frozen_repo,
+):
+    _write_workflow_toolchain(
+        frozen_repo, '[workflow_toolchain]\nencoder_verifier = "pinned"\n'
+    )
+    _commit(frozen_repo.repo, "protected pinned mode")
+    _write_workflow_toolchain(
+        frozen_repo, '[workflow_toolchain]\nencoder_verifier = "main"\n'
+    )
+    # Uncommitted working-tree bytes do not opt in.
+    assert cli._target_uses_per_file_waiver_bindings(frozen_repo.repo) is False
+    # Nor does a feature branch head.
+    from tests.test_retired_apply_paths import _git
+
+    _git(frozen_repo.repo, "checkout", "-q", "-b", "feature")
+    _commit(frozen_repo.repo, "pull request opts in")
+    assert cli._target_uses_per_file_waiver_bindings(frozen_repo.repo) is False
+    # origin/main, the protected base, takes precedence over a local main.
+    head = _git(frozen_repo.repo, "rev-parse", "HEAD").strip()
+    _git(frozen_repo.repo, "update-ref", "refs/remotes/origin/main", head)
+    assert cli._target_uses_per_file_waiver_bindings(frozen_repo.repo) is True
