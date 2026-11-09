@@ -14932,7 +14932,7 @@ def _inline_pipe_table_rate_cell_spans(
         ]
         # A flattened row starts after a closing/opening pipe pair. Do not
         # silently discard an extra header cell to match the separator width.
-        # A previously validated table's closing pipe also bounds the search:
+        # The previous separator or accepted row also bounds the search:
         # intervening prose may precede a new header on this same source line.
         header_start = 0
         for index in range(len(header_pipes) - 1):
