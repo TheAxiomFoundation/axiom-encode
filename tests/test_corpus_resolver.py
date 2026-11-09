@@ -266,13 +266,19 @@ def test_scoped_parent_slice_drops_parent_source_history(tmp_path: Path):
             }
         ],
     )
-    source = resolve_local_corpus_source(parent, _release(tmp_path))
+    release = _release(tmp_path)
+    source = resolve_local_corpus_source(parent, release)
 
     scoped = scope_resolved_corpus_source(source, CITATION)
 
     assert scoped.body == "(e) Second rule."
     assert scoped.source_history == ()
     assert scoped.proof_evidence_text == scoped.body
+    assert scoped.selected_record.body == scoped.body
+    assert (
+        scoped.selected_record
+        == resolve_local_corpus_source(CITATION, release).selected_record
+    )
 
 
 def test_active_scope_beats_newer_inactive_duplicate(tmp_path: Path):
@@ -3181,7 +3187,12 @@ def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
         tmp_path,
         version,
         [
-            {"citation_path": CITATION, "body": None, "heading": "Parent"},
+            {
+                "citation_path": CITATION,
+                "body": None,
+                "heading": "Parent",
+                "metadata": {"amends": "principal document"},
+            },
             {
                 "citation_path": f"{CITATION}/2",
                 "body": "second",
@@ -3196,7 +3207,8 @@ def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
         ],
     )
 
-    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
+    release = _release(tmp_path)
+    resolved = resolve_local_corpus_source(CITATION, release)
 
     assert resolved.body == "First heading\n\nfirst\n\nsecond"
     assert [row.citation_path for row in resolved.component_rows] == [
@@ -3204,6 +3216,15 @@ def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
         f"{CITATION}/2",
     ]
     assert all(row.provision_file_sha256 for row in resolved.component_rows)
+    assert resolved.selected_record.row == resolved.row
+    assert resolved.selected_record.body == resolved.body
+    assert resolved.selected_record.heading == "Parent"
+    assert dict(resolved.selected_record.metadata) == {"amends": "principal document"}
+    records = list(iter_active_local_corpus_rows(release, include_bodyless=True))
+    selected = next(record for record in records if record.row == resolved.row)
+    assert selected.body == ""
+    assert selected.row.body_sha256 is None
+    assert selected.metadata == resolved.selected_record.metadata
 
 
 def test_metadata_parent_composes_descendants_in_hierarchy_preorder(tmp_path: Path):
@@ -3488,6 +3509,112 @@ def test_metadata_parent_rejects_bodyless_reserved_heading_leaf(tmp_path: Path):
 
     with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
         resolve_local_corpus_source(CITATION, _release(tmp_path))
+
+
+def test_explicit_reserved_regulation_leaf_does_not_block_parent_source(
+    tmp_path: Path,
+):
+    version = "2026-01-01-reserved-regulation"
+    parent = "us/regulation/106-cmr/364"
+    _write_selector(
+        tmp_path,
+        [{"jurisdiction": "us", "document_class": "regulation", "version": version}],
+    )
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {"citation_path": parent, "body": None},
+            {"citation_path": f"{parent}/710", "body": "Operative text.", "ordinal": 1},
+            {
+                "citation_path": f"{parent}/800",
+                "body": "",
+                "heading": "800 Reserved",
+                "metadata": {"status": "reserved", "section_label": "800"},
+                "ordinal": 2,
+            },
+        ],
+        document_class="regulation",
+    )
+
+    resolved = resolve_local_corpus_source(parent, _release(tmp_path))
+
+    assert resolved.body == "Operative text."
+    assert [row.citation_path for row in resolved.component_rows] == [f"{parent}/710"]
+    with pytest.raises(InvalidActiveCorpusSourceError, match="no body-bearing"):
+        resolve_local_corpus_source(f"{parent}/800", _release(tmp_path))
+
+
+@pytest.mark.parametrize(
+    ("heading", "metadata"),
+    [
+        ("800 Reserved", {"section_label": "800"}),
+        ("800 General", {"status": "reserved", "section_label": "800"}),
+        ("800 Reserved", {"status": "reserved", "section_label": "801"}),
+        ("All rights reserved", {"status": "reserved", "section_label": "800"}),
+        ("800 Reserved", {"status": [], "section_label": "800"}),
+    ],
+)
+def test_reserved_regulation_leaf_requires_explicit_consistent_status(
+    tmp_path: Path, heading: str, metadata: dict[str, object]
+):
+    version = "2026-01-01-bad-reserved-regulation"
+    parent = "us/regulation/106-cmr/364"
+    _write_selector(
+        tmp_path,
+        [{"jurisdiction": "us", "document_class": "regulation", "version": version}],
+    )
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {"citation_path": parent, "body": None},
+            {"citation_path": f"{parent}/710", "body": "Operative text."},
+            {
+                "citation_path": f"{parent}/800",
+                "body": "",
+                "heading": heading,
+                "metadata": metadata,
+            },
+        ],
+        document_class="regulation",
+    )
+
+    with pytest.raises(InvalidActiveCorpusSourceError):
+        resolve_local_corpus_source(parent, _release(tmp_path))
+
+
+@pytest.mark.parametrize("malformation", ["body", "list_body", "object_body", "child"])
+def test_reserved_regulation_leaf_cannot_hide_operative_text(
+    tmp_path: Path, malformation: str
+):
+    version = "2026-01-01-reserved-with-text"
+    parent = "us/regulation/106-cmr/364"
+    reserved = f"{parent}/800"
+    _write_selector(
+        tmp_path,
+        [{"jurisdiction": "us", "document_class": "regulation", "version": version}],
+    )
+    rows = [
+        {"citation_path": parent, "body": None},
+        {"citation_path": f"{parent}/710", "body": "Operative text."},
+        {
+            "citation_path": reserved,
+            "body": {
+                "body": "Unexpected body.",
+                "list_body": ["Unexpected body."],
+                "object_body": {"text": "Unexpected body."},
+            }.get(malformation),
+            "heading": "800 Reserved",
+            "metadata": {"status": "reserved", "section_label": "800"},
+        },
+    ]
+    if malformation == "child":
+        rows.append({"citation_path": f"{reserved}/1", "body": "Hidden child."})
+    _write_rows(tmp_path, version, rows, document_class="regulation")
+
+    with pytest.raises(InvalidActiveCorpusSourceError, match="malformed reserved"):
+        resolve_local_corpus_source(parent, _release(tmp_path))
 
 
 def test_metadata_parent_does_not_treat_generic_reserved_suffix_as_text(

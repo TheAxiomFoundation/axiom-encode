@@ -1,0 +1,1 @@
+Add a prompt-only `claude-api` Messages API runner for unsigned encode and eval commands, with full inline context, fail-closed artifacts and context overflow, usage accounting, subscription-only Claude CLI authentication, and optional advisory reviewers. Keep signed apply unavailable and mark its admission score not applicable.

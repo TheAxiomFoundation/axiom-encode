@@ -131,6 +131,41 @@ deployment input.
 Purpose-specific model/reviewer subprocess environments are separately rebuilt
 without the broker capability or parent-only service configuration.
 
+Retirement uses the apply signer as well. For a protected module whose primary
+and companion test have no manifest or receipt owner, select the explicit
+unreceipted route:
+
+```bash
+build/axiom-encode-signing-supervisor \
+  --apply-signer-fd 3 \
+  --trusted-signing-roots /etc/axiom/signing-trust-roots.json \
+  --trusted-python-runtime-root /opt/axiom/python \
+  --trusted-python-import-root \
+    /opt/axiom/python/lib/python3.13/site-packages \
+  --trusted-python-package-root \
+    /opt/axiom/python/lib/python3.13/site-packages/axiom_encode \
+  -- /opt/axiom/python/bin/axiom-encode retire \
+  uk-arun/policies/arun/council-tax-reduction.yaml \
+  --unreceipted \
+  --policy-repo-path /srv/rulespec-uk \
+  --corpus-path /srv/axiom-corpus \
+  --reason "superseded by section encodings after the corpus rebind"
+```
+
+Omit `--unreceipted` for the existing retirement of a module covered by a
+verified model apply manifest. The unreceipted route refuses any receipt owner
+for either file and signs a separate `axiom-encode retire-unreceipted` v5
+deletion receipt at the canonical mirrored manifest path. It binds both files'
+exact deleted bytes, its immutable retirement base, the reason, encoder identity,
+waiver-set identity, and generation time, without source or execution
+attestation. Verification replays that base's bytes and receipt inventory, so
+the verification checkout must retain its Git history. The diff guard also
+checks the pull request's protected base. It uses the same preflight and atomic
+transaction checks as receipted retirement.
+`guard-generated --all` without a base audits settled receipts as a snapshot and
+cannot detect a settled receipt reused for a deletion that already merged; pass
+`--all --base-ref <parent>` to audit that deletion.
+
 The Python client marks the broker descriptor non-inheritable immediately and
 closes it in fork children. It authenticates the actual peer using kernel socket
 credentials (a Linux `SO_PASSCRED`/`SCM_CREDENTIALS` challenge response from the
@@ -184,7 +219,9 @@ a completely clean canonical RuleSpec checkout, verifies the historical
 signature, requires that the manifest exclusively covers the exact tracked
 primary and companion bytes at `HEAD`, revalidates those bytes against the
 current engine and corpus release, and aborts if validation changes any
-RuleSpec byte. A successful run changes only the signed manifest.
+RuleSpec byte. The required `--axiom-rules-engine-ref` argument is a full
+lowercase commit SHA; validation must bind the engine to that revision. A
+successful run changes only the signed manifest.
 
 The targeted workflow selects this mode with an exact
 `axiom-encode/atomic-source-transaction/v4` envelope whose

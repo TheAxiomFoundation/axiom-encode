@@ -535,6 +535,101 @@ EXTERNAL = "us/guidance/example/conversion"
 EXTERNAL_DATE = "us/guidance/example/effective-date"
 
 
+def test_actual_signed_release_admits_plural_only_exact_primary_and_external_proof(
+    tmp_path,
+):
+    from axiom_encode.cli import _admit_retired_replacement_source_verification
+    from axiom_encode.harness.evals import resolve_corpus_source_unit
+    from tests.test_corpus_resolver import (
+        _release,
+        _scope,
+        _write_rows,
+        _write_selector,
+    )
+
+    root = tmp_path / "corpus"
+    _write_selector(
+        root,
+        [
+            _scope("test-primary"),
+            {
+                "jurisdiction": "us",
+                "document_class": "guidance",
+                "version": "test-external",
+            },
+        ],
+    )
+    _write_rows(
+        root,
+        "test-primary",
+        [
+            {
+                "id": "primary",
+                "citation_path": ROOT,
+                "body": "Work registration applies.",
+            }
+        ],
+    )
+    _write_rows(
+        root,
+        "test-external",
+        [
+            {
+                "id": "external",
+                "citation_path": EXTERNAL,
+                "body": "A member must comply with the work registration requirement.",
+            }
+        ],
+        document_class="guidance",
+    )
+    release = _release(root)
+    source = resolve_corpus_source_unit(ROOT, release)
+    content = yaml.safe_dump(
+        {
+            "module": {
+                "source_verification": {
+                    "corpus_citation_paths": [ROOT, EXTERNAL],
+                }
+            },
+            "rules": [
+                {
+                    "name": "member_work_registration_applies",
+                    "kind": "derived",
+                    "versions": [
+                        {
+                            "effective_from": "2025-10-01",
+                            "formula": "member_complied_with_work_registration",
+                        }
+                    ],
+                    "metadata": {
+                        "proof": {
+                            "atoms": [
+                                {
+                                    "path": "versions[0].formula",
+                                    "kind": "condition",
+                                    "source": {
+                                        "corpus_citation_path": EXTERNAL,
+                                        "excerpt": "must comply with the work registration requirement",
+                                    },
+                                }
+                            ]
+                        }
+                    },
+                }
+            ],
+        }
+    ).encode()
+    evidence = _admit_retired_replacement_source_verification(
+        content, source_unit=source, corpus_release=release
+    )
+    assert [
+        item["attestation"]["row"]["citation_path"] for item in evidence["sources"]
+    ] == [ROOT, EXTERNAL]
+    assert evidence["required_unchanged_rules"][0]["name"] == (
+        "member_work_registration_applies"
+    )
+
+
 def external_world(world):
     external = replace(
         world.resolved,
@@ -639,6 +734,69 @@ def test_external_derived_condition_retains_entire_legacy_rule(world):
     assert not external_parameter_preservation_issues(generated, admission)
     generated["rules"][0]["versions"][0]["formula"] = "True"
     assert external_parameter_preservation_issues(generated, admission)
+
+
+def test_plural_only_exact_primary_retains_external_proved_rule(exact_world):
+    import copy
+
+    from axiom_encode.legacy_external_parameters import (
+        external_parameter_preservation_issues,
+    )
+
+    world = external_derived_world(exact_world)
+    verification = world.payload["module"]["source_verification"]
+    del verification["corpus_citation_path"]
+    verification["corpus_citation_paths"] = [ROOT, EXTERNAL]
+    world.write()
+    before = world.target.read_bytes()
+
+    admission = world.run().retired_source_admission
+    assert admission["contract"] == "retired-source-external-preserved-rules/v1"
+    assert admission["required_unchanged_rules"] == world.payload["rules"]
+    assert [
+        item["attestation"]["requested_corpus_citation_path"]
+        for item in admission["sources"]
+    ] == [ROOT, EXTERNAL]
+    assert world.target.read_bytes() == before
+
+    generated = copy.deepcopy(world.payload)
+    del generated["module"]["source_verification"]["corpus_citation_paths"]
+    generated["module"]["source_verification"]["corpus_citation_path"] = ROOT
+    assert not external_parameter_preservation_issues(generated, admission)
+    generated["rules"][0]["versions"][0]["formula"] = "True"
+    assert external_parameter_preservation_issues(generated, admission)
+
+
+@pytest.mark.parametrize(
+    "change", ["missing_primary", "alias", "slice", "components", "empty_source"]
+)
+def test_plural_only_exact_primary_rejects_incomplete_source(exact_world, change):
+    world = external_derived_world(exact_world)
+    verification = world.payload["module"]["source_verification"]
+    del verification["corpus_citation_path"]
+    verification["corpus_citation_paths"] = [ROOT, EXTERNAL]
+    primary = world.sources[ROOT].resolved_source
+    if change == "missing_primary":
+        verification["corpus_citation_paths"] = [EXTERNAL]
+    elif change == "alias":
+        world.sources[ROOT] = world.unit(
+            replace(primary, citation_path=ROOT + "/alias")
+        )
+    elif change == "slice":
+        world.sources[ROOT] = world.unit(replace(primary, slice_required=True))
+    elif change == "components":
+        world.sources[ROOT] = world.unit(
+            replace(
+                primary, component_rows=(replace(primary.row, citation_path=CHILD),)
+            )
+        )
+    else:
+        world.sources[ROOT] = world.unit(replace(primary, body="", source_history=()))
+    world.write()
+    with pytest.raises(
+        ValueError, match="text-bearing primary row|complete composed parent"
+    ):
+        world.run()
 
 
 def test_external_derived_condition_and_effective_period_from_distinct_sources(world):
