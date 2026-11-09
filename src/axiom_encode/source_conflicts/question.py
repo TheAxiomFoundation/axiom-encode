@@ -35,6 +35,7 @@ from .link import (
     _ID,
     KINDS,
     LINK_FORMAT,
+    VALUE,
     Link,
     LinkError,
     _keys,
@@ -42,6 +43,7 @@ from .link import (
     _text,
     parse_link,
     read_document,
+    to_decimal,
 )
 
 QUESTION_FORMAT = "axiom-source-question/v1"
@@ -65,10 +67,11 @@ _TOP_KEYS = {
     "question": True,
     "entity": True,
     "period": True,
-    "facts": True,
+    "facts": False,
     "constraints": False,
     "answers": True,
     "sampling": False,
+    "tolerance": False,
 }
 _FACT_KEYS = {
     "kind": True,
@@ -295,7 +298,7 @@ def _pair_document(
     sides = {"a": encodings[a], "b": encodings[b]}
     used = _facts_of(sides["a"]) | _facts_of(sides["b"])
     facts: dict[str, Any] = {}
-    for name, fact in raw["facts"].items():
+    for name, fact in raw.get("facts", {}).items():
         if name not in used:
             continue
         entry = dict(fact)
@@ -341,6 +344,11 @@ def _pair_document(
         document["guards"] = guards
     if "sampling" in raw:
         document["sampling"] = raw["sampling"]
+    if "tolerance" in raw and all(
+        encoding["side"].get("combine") == VALUE for encoding in sides.values()
+    ):
+        # The tolerance is for pairs of numbers; a yes/no pair does not take it.
+        document["tolerance"] = raw["tolerance"]
     return document, tuple(dropped)
 
 
@@ -360,10 +368,15 @@ def parse_question(document: object) -> Question:
             "'us:medicaid/community-engagement-met-for-month'"
         )
     _text(raw.get("question"), "question", problems)
+    if "tolerance" in raw:
+        tolerance = to_decimal(raw["tolerance"])
+        if tolerance is None or tolerance < 0:
+            problems.append("tolerance must be a number that is not negative")
 
-    raw_facts = raw.get("facts")
-    if not isinstance(raw_facts, dict) or not raw_facts:
-        problems.append("facts must be a non-empty mapping")
+    # No fact is a valid question: each answer is a constant (a parameter).
+    raw_facts = raw.get("facts", {})
+    if not isinstance(raw_facts, dict):
+        problems.append("facts must be a mapping")
         raw_facts = {}
     fact_kinds: dict[str, str] = {}
     for name, fact in raw_facts.items():
@@ -599,11 +612,21 @@ def compare_question(
                 "conflict": record["conflict"],
                 "run": record["counts"]["run"],
                 "differ": record["counts"]["differ"],
+                **(
+                    {"values": record["comparison"]["values"]}
+                    if "values" in record.get("comparison", {})
+                    else {}
+                ),
                 "witness_groups": [
                     {
                         "direction": group["direction"],
                         "count": group["count"],
                         "conditions": group["conditions"],
+                        **(
+                            {"difference": group["difference"]}
+                            if "difference" in group
+                            else {}
+                        ),
                     }
                     for group in record["witness_groups"]
                 ],

@@ -25,7 +25,8 @@ from .expressions import Constraint, ExpressionError, parse_constraint
 LINK_FORMAT = "axiom-source-conflict-link/v1"
 SIDES = ("a", "b")
 KINDS = ("bool", "integer", "decimal")
-COMBINE = ("any", "all")
+COMBINE = ("any", "all", "value")
+VALUE = "value"
 DERIVED_OPERATORS = ("sum",)
 DEFAULT_MAX_COMBINATIONS = 20_000
 DEFAULT_SEED = 0
@@ -46,12 +47,13 @@ _TOP_KEYS = {
     "period": True,
     "a": True,
     "b": True,
-    "facts": True,
+    "facts": False,
     "derived": False,
     "fixed": False,
     "constraints": False,
     "guards": False,
     "sampling": False,
+    "tolerance": False,
 }
 _SIDE_KEYS = {
     "label": True,
@@ -106,7 +108,12 @@ def to_decimal(value: object) -> Decimal | None:
     if isinstance(value, int):
         return Decimal(value)
     if isinstance(value, float):
-        value = repr(value)
+        # repr can use an exponent (1e-05), which the text pattern refuses.
+        try:
+            number = Decimal(repr(value))
+        except InvalidOperation:
+            return None
+        return number if number.is_finite() else None
     if isinstance(value, str) and _NUMBER.fullmatch(value):
         try:
             return Decimal(value)
@@ -189,6 +196,7 @@ class Link:
     max_combinations: int
     seed: int
     sha256: str
+    tolerance: Decimal = Decimal(0)
 
 
 def _keys(
@@ -256,6 +264,11 @@ def _side(
     combine = raw.get("combine")
     if combine not in COMBINE:
         problems.append(f"{key}.combine must be one of {', '.join(COMBINE)}")
+    if combine == VALUE and len(outputs) > 1:
+        problems.append(
+            f"{key}.combine is 'value', which compares one number: {key}.outputs "
+            "must name exactly one rule"
+        )
     if label is None or module is None or not outputs or combine not in COMBINE:
         return None
     return Side(
@@ -394,9 +407,10 @@ def parse_link(document: object) -> Link:
     sides = {side: _side(side, raw, guards[side], problems) for side in SIDES}
 
     facts: dict[str, Fact] = {}
-    raw_facts = raw.get("facts")
-    if not isinstance(raw_facts, dict) or not raw_facts:
-        problems.append("facts must be a non-empty mapping")
+    # No fact is a valid link: two constants (parameters) are compared once.
+    raw_facts = raw.get("facts", {})
+    if not isinstance(raw_facts, dict):
+        problems.append("facts must be a mapping")
         raw_facts = {}
     for name, value in raw_facts.items():
         fact = _fact(str(name), value, problems)
@@ -498,6 +512,25 @@ def parse_link(document: object) -> Link:
             )
         )
 
+    combines = {side.combine for side in sides.values() if side is not None}
+    value_mode = combines == {VALUE}
+    if VALUE in combines and len(combines) > 1:
+        problems.append(
+            "a.combine and b.combine must both be 'value', or both be 'any' or 'all': "
+            "a number cannot be compared with a yes/no result"
+        )
+    tolerance = Decimal(0)
+    if "tolerance" in raw:
+        found = to_decimal(raw["tolerance"])
+        if found is None or found < 0:
+            problems.append("link.tolerance must be a number that is not negative")
+        elif not value_mode:
+            problems.append(
+                "link.tolerance applies only when both sides have combine 'value'"
+            )
+        else:
+            tolerance = found
+
     max_combinations, seed = DEFAULT_MAX_COMBINATIONS, DEFAULT_SEED
     if "sampling" in raw:
         sampling = _keys(raw["sampling"], _SAMPLING_KEYS, "sampling", problems) or {}
@@ -591,6 +624,9 @@ def parse_link(document: object) -> Link:
         "constraints": [{"rule": c.rule, "note": c.note} for c in constraints],
         "sampling": {"max_combinations": max_combinations, "seed": seed},
     }
+    if value_mode:
+        # Only a value link has this key, so the hash of a yes/no link is unchanged.
+        normalized["tolerance"] = canonical_decimal(tolerance)
     return Link(
         id=link_id,
         question=question,
@@ -604,6 +640,7 @@ def parse_link(document: object) -> Link:
         max_combinations=max_combinations,
         seed=seed,
         sha256=hashlib.sha256(_canonical(normalized).encode()).hexdigest(),
+        tolerance=tolerance,
     )
 
 

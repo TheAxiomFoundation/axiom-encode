@@ -79,6 +79,41 @@ class Artifact:
     def derived(self, rule_id: str) -> Mapping[str, Any] | None:
         return self._derived_by_id.get(rule_id)
 
+    def parameter(self, rule_id: str) -> Mapping[str, Any] | None:
+        for rule in self._parameters.values():
+            if rule.get("id") == rule_id:
+                return rule
+        return None
+
+    def parameter_number(self, rule_id: str) -> tuple[Decimal | None, str | None]:
+        """The one number of a parameter at the period start, or why there is none.
+
+        The engine does not give a parameter as an output, so the compare step
+        reads it from the artifact. Only a parameter with one value (no index)
+        can be compared.
+        """
+
+        rule = self.parameter(rule_id)
+        if rule is None:
+            return None, "is not a parameter of the compiled module"
+        version = self._effective(rule)
+        if version is None:
+            return None, f"has no value in force on {self.period_start}"
+        values = version.get("values") or {}
+        if rule.get("indexed_by") or list(values) != ["0"]:
+            return (
+                None,
+                "is a table (an indexed parameter); only one value can be compared",
+            )
+        value = _literal(values["0"]) if isinstance(values["0"], dict) else None
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, Decimal)
+            or not value.is_finite()
+        ):
+            return None, "is not a number"
+        return value, None
+
     def rule_id(self, name: str) -> str:
         rule = self._derived.get(name) or self._parameters.get(name) or {}
         return rule.get("id") or name
@@ -390,9 +425,19 @@ class Artifact:
         return memo[name]
 
     def thresholds(
-        self, derived_names: Iterable[str], fixed: Mapping[str, object]
+        self,
+        derived_names: Iterable[str],
+        fixed: Mapping[str, object],
+        *,
+        bounds: bool = False,
     ) -> list[Threshold]:
-        """Constants that the rules compare a fact-dependent value with."""
+        """Constants that the rules compare a fact-dependent value with.
+
+        A comparison gives one. With ``bounds``, so does a constant inside
+        ``min`` or ``max`` next to a fact-dependent value (a cap or a floor);
+        the compare step asks for these for a value link only, so the grid of
+        a yes/no link does not change.
+        """
 
         found: list[Threshold] = []
         memo: dict[str, Decimal | bool | None] = {}
@@ -402,6 +447,28 @@ class Artifact:
             if expression is None:
                 continue
             for node in self._walk(expression):
+                if node.get("kind") in ("min", "max"):
+                    if not bounds:
+                        continue
+                    # A cap or a floor: min(amount, 500) changes at 500.
+                    items = list(_children(node))
+                    folded = [self.fold(item, fixed, memo) for item in items]
+                    inputs: set[str] = set()
+                    for item, value in zip(items, folded):
+                        if value is None:
+                            inputs |= self._expression_inputs(item) - set(fixed)
+                    for value in folded:
+                        if (
+                            isinstance(value, Decimal)
+                            and not isinstance(value, bool)
+                            and inputs
+                        ):
+                            found.append(
+                                Threshold(
+                                    value, rule.get("id") or name, frozenset(inputs)
+                                )
+                            )
+                    continue
                 if node.get("kind") != "comparison":
                     continue
                 left, right = node.get("left"), node.get("right")

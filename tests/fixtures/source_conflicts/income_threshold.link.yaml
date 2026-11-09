@@ -1,0 +1,36 @@
+# Fixture link for tests/test_source_amounts.py: a statute and a regulation
+# that give the monthly income threshold as an amount.
+format: axiom-source-conflict-link/v1
+id: us:fixture-income-threshold-statute-vs-regulation
+question: What is the monthly income threshold?
+entity: Person
+period:
+  period_kind: month
+  start: "2027-01-01"
+  end: "2027-02-01"
+a:
+  label: Fixture statute 2 (a)
+  module: us/statutes/999/2/a.yaml
+  outputs:
+    - us:statutes/999/2/a#monthly_income_threshold
+  combine: value
+b:
+  label: Fixture regulation 3 (a)
+  module: us/regulations/99-cfr/1/3.yaml
+  outputs:
+    - us:regulations/99-cfr/1/3#income_threshold_for_month
+  combine: value
+facts:
+  state_wage:
+    kind: decimal
+    b: us:regulations/99-cfr/1/3#input.state_wage_rate
+  state_elects_own_wage:
+    kind: bool
+    b: us:regulations/99-cfr/1/3#input.state_elects_own_minimum_wage
+fixed:
+  us:statutes/999/2/a#input.federal_minimum_wage:
+    kind: decimal
+    value: "7.25"
+  us:regulations/99-cfr/1/3#input.federal_wage_rate:
+    kind: decimal
+    value: "7.25"

@@ -10,9 +10,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from .artifact import BOOL, NUMERIC, Artifact
-from .link import SIDES, Link
+from .link import SIDES, VALUE, Link
 
 _BOOL_DTYPES = ("judgment", "bool", "boolean")
+_NUMERIC_DTYPES = ("decimal", "integer", "money", "count", "rate")
 
 
 def _period_name(value: object) -> str:
@@ -62,16 +63,45 @@ def check_link(link: Link, artifacts: Mapping[str, Artifact]) -> list[str]:
         for group, names in (("outputs", spec.outputs), ("guards", spec.guards)):
             for name in names:
                 rule = artifact.derived(name)
+                if (
+                    rule is None
+                    and group == "outputs"
+                    and spec.combine == VALUE
+                    and artifact.parameter(name) is not None
+                ):
+                    # A parameter read from the artifact: no entity, no period.
+                    _, reason = artifact.parameter_number(name)
+                    if reason:
+                        problems.append(f"{side}.outputs: parameter '{name}' {reason}")
+                    continue
                 if rule is None:
                     problems.append(
-                        f"{side}.{group}: '{name}' is not a derived rule of the compiled "
+                        f"{side}.{group}: '{name}' is not a "
+                        + (
+                            "derived rule or parameter"
+                            if group == "outputs" and spec.combine == VALUE
+                            else "derived rule"
+                        )
+                        + " of the compiled "
                         f"module {spec.module}"
                     )
                     continue
-                if str(rule.get("dtype")).lower() not in _BOOL_DTYPES:
+                dtype = str(rule.get("dtype")).lower()
+                if group == "outputs" and spec.combine == VALUE:
+                    if dtype not in _NUMERIC_DTYPES:
+                        problems.append(
+                            f"{side}.outputs: '{name}' has dtype {rule.get('dtype')}; "
+                            "combine 'value' compares a number"
+                        )
+                elif dtype not in _BOOL_DTYPES:
                     problems.append(
-                        f"{side}.{group}: '{name}' has dtype {rule.get('dtype')}; the compare "
-                        "step combines yes/no rules only"
+                        f"{side}.{group}: '{name}' has dtype {rule.get('dtype')}; "
+                        + (
+                            "combine 'any' and 'all' take yes/no rules; use combine "
+                            "'value' to compare a number"
+                            if group == "outputs"
+                            else "a guard is a yes/no rule"
+                        )
                     )
                 if rule.get("entity") and rule["entity"] != link.entity:
                     problems.append(
@@ -148,6 +178,16 @@ def check_link(link: Link, artifacts: Mapping[str, Artifact]) -> list[str]:
                 problems.append(
                     f"{group}.{name}: not an input of either compiled module"
                 )
+    if all(link.sides[side].combine == VALUE for side in SIDES):
+        units = {
+            side: (artifacts[side].rule(link.sides[side].outputs[0]) or {}).get("unit")
+            for side in SIDES
+        }
+        if units["a"] and units["b"] and units["a"] != units["b"]:
+            problems.append(
+                f"the compared numbers have different units: {units['a']} on side a, "
+                f"{units['b']} on side b"
+            )
     if problems:
         raise LinkGateError(problems)
     return warnings

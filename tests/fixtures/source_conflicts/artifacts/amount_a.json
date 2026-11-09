@@ -1,0 +1,204 @@
+{
+ "artifact_format_version": 2,
+ "engine_version": "0.2.2",
+ "metadata": {
+  "evaluation_order": [
+   "monthly_income_threshold"
+  ],
+  "fast_path": {
+   "blockers": [],
+   "compatible": true,
+   "strategy": "generic_bulk"
+  },
+  "input_catalog": [
+   {
+    "canonical_request_name": "us:statutes/999/2/a#input.federal_minimum_wage",
+    "request_names": [
+     "us:statutes/999/2/a#input.federal_minimum_wage"
+    ],
+    "slot": "federal_minimum_wage"
+   }
+  ]
+ },
+ "program": {
+  "derived": [
+   {
+    "dtype": "decimal",
+    "entity": "Person",
+    "expr": {
+     "kind": "mul",
+     "left": {
+      "kind": "input",
+      "name": "federal_minimum_wage"
+     },
+     "right": {
+      "index": {
+       "kind": "literal",
+       "value": {
+        "kind": "integer",
+        "value": 0
+       }
+      },
+      "kind": "parameter_lookup",
+      "parameter": "threshold_hours"
+     }
+    },
+    "id": "us:statutes/999/2/a#monthly_income_threshold",
+    "name": "monthly_income_threshold",
+    "period": "Month",
+    "semantics": "scalar",
+    "source": "Fixture statute 2 (a)",
+    "source_url": null,
+    "unit": "USD",
+    "versions": [
+     {
+      "effective_from": "0001-01-01",
+      "expr": {
+       "kind": "mul",
+       "left": {
+        "kind": "input",
+        "name": "federal_minimum_wage"
+       },
+       "right": {
+        "index": {
+         "kind": "literal",
+         "value": {
+          "kind": "integer",
+          "value": 0
+         }
+        },
+        "kind": "parameter_lookup",
+        "parameter": "threshold_hours"
+       }
+      },
+      "semantics": "scalar"
+     }
+    ]
+   }
+  ],
+  "module": {
+   "summary": "Fixture statute for the source-conflict compare step, with an amount. The\nmonthly income threshold is the federal minimum wage multiplied by 80\nhours."
+  },
+  "parameters": [
+   {
+    "id": "us:statutes/999/2/a#threshold_hours",
+    "indexed_by": null,
+    "name": "threshold_hours",
+    "source": "Fixture statute 2 (a)",
+    "source_url": null,
+    "unit": null,
+    "versions": [
+     {
+      "effective_from": "0001-01-01",
+      "values": {
+       "0": {
+        "kind": "integer",
+        "value": 80
+       }
+      }
+     }
+    ]
+   }
+  ],
+  "relations": [],
+  "units": [
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "GBP"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "USD"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "EUR"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "CHF"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "NOK"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "GHS"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 0,
+    "name": "GHp"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "NGN"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 0,
+    "name": "UGX"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "ZMW"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "ETB"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 0,
+    "name": "RWF"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "TZS"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "DKK"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "AMD"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "ILS"
+   },
+   {
+    "kind": "count",
+    "name": "count"
+   },
+   {
+    "kind": "count",
+    "name": "person"
+   },
+   {
+    "kind": "ratio",
+    "name": "ratio"
+   },
+   {
+    "kind": "custom",
+    "label": "judgment",
+    "name": "status"
+   }
+  ]
+ }
+}
