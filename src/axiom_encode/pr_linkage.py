@@ -142,7 +142,10 @@ def _visible_lines(body: str, errors: list[str]) -> list[str]:
     hide following lines too, depending on paragraph rules this parser does
     not model, so an unclosed one is an error (fail closed). `<!--` and `-->`
     inside inline code spans are literal text. A fence (also after a list
-    marker) closes only on a bare fence line, as in CommonMark.
+    marker) closes on a bare fence line, or, in a list item, when a line
+    indented less than the item's content ends the item, as in CommonMark.
+    Known fail-closed limit: `- <!--` hides lines up to `-->` even where
+    GitHub ends the list item earlier; the check then reports a missing line.
     """
     lines: list[str] = []
     fence: tuple[str, int] | None = None  # (fence characters, content column)
