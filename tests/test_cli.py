@@ -1869,8 +1869,11 @@ def _reviewed_candidate_binding(rule: Path, companion: Path, **overrides) -> dic
     return binding
 
 
+@pytest.mark.parametrize("per_file", [True, False])
 @pytest.mark.parametrize("admission", ["bound", "unbound-legacy"])
-def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admission):
+def test_promote_reviewed_candidate_changes_only_manifest(
+    tmp_path, capsys, admission, per_file
+):
     repo, rule, companion, reviewed_ref = _reviewed_candidate_checkout(tmp_path)
     binding = (
         _reviewed_candidate_binding(rule, companion) if admission == "bound" else None
@@ -1976,7 +1979,7 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admi
         ),
         patch(
             "axiom_encode.cli._target_uses_per_file_waiver_bindings",
-            return_value=True,
+            return_value=per_file,
         ),
         patch(
             "axiom_encode.cli._build_applied_manifest_file_waiver_bindings",
@@ -1999,11 +2002,14 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admi
         signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
         cmd_promote_reviewed_candidate(args)
 
-    bindings_mock.assert_called_once()
-    assert bindings_mock.call_args.kwargs["covered_paths"] == {
-        "us/statutes/7/2015/f.yaml",
-        "us/statutes/7/2015/f.test.yaml",
-    }
+    if per_file:
+        bindings_mock.assert_called_once()
+        assert bindings_mock.call_args.kwargs["covered_paths"] == {
+            "us/statutes/7/2015/f.yaml",
+            "us/statutes/7/2015/f.test.yaml",
+        }
+    else:
+        bindings_mock.assert_not_called()
 
     overlay_mock.assert_called_once()
     assert overlay_mock.call_args.kwargs["amendment_documents"] == (amendment,)
@@ -2016,8 +2022,13 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admi
     assert payload["tool"] == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
     assert payload["reviewed_rulespec_ref"] == reviewed_ref
     assert payload["validation_execution"] == validation_execution
-    assert payload["validation_waiver_bindings"] == waiver_bindings
-    assert "validation_waiver_set_sha256" not in payload
+    if per_file:
+        assert payload["validation_waiver_bindings"] == waiver_bindings
+        assert "validation_waiver_set_sha256" not in payload
+    else:
+        # A pinned target keeps the repository waiver-set digest (#2092).
+        assert payload["validation_waiver_set_sha256"] == "c" * 64
+        assert "validation_waiver_bindings" not in payload
     assert rule.read_bytes() == original_rule
     assert companion.read_bytes() == original_companion
     assert _git(
