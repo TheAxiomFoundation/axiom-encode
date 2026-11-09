@@ -66,6 +66,7 @@ from axiom_encode.harness.partnership_reporting_evidence import (
     certify_partnership_reporting,
 )
 from axiom_encode.harness.proof_validator import (
+    WRAP_SPACE_FRAGMENT,
     _normalize_atom_path,
     _source_proof_evidence_spans,
 )
@@ -536,16 +537,32 @@ _GERMAN_CARDINAL_VALUES = {
 }
 _SLASH_CONJUNCTION = re.compile(r"\b(?:and\s*/\s*or|und\s*/\s*oder)\b", re.IGNORECASE)
 _VULGAR_FRACTION_CHARS = f"{chr(0xBC)}-{chr(0xBE)}{chr(0x2150)}-{chr(0x215E)}"
+# Every separator `str.splitlines` treats as a line boundary, not only `\n`.
+_LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
+_SAME_LINE_SPACE = rf"[^\S{_LINE_BREAK_CHARS}]"
 # A digit mixed percentage is one numeral. The slash of "2 6/7 per cent" divides
 # nothing, and its whole number, numerator and denominator state no amounts of
-# their own.
+# their own. The marker must be one after which the numeric extractor reads a
+# mixed number as a rate: "%" across spaces or one line wrap, or "percent",
+# "percentage", "per cent" or "per centum" after a space or a hyphen. The slash
+# mask and the collapse share it, so on a numeral written with "/" they agree:
+# where the mask hides the slash, the gate keeps none of the numeral's parts, and
+# where it leaves the slash, the collapse drops none of them. A numeral broken
+# across lines keeps its slash and its parts, and so does one before "per" and
+# "cent" on two lines. Danish and German corpora keep the parts, because the
+# extractor reads "2 6/7 %" there as separate numbers.
+_MIXED_PERCENTAGE_MARKER = (
+    rf"(?=(?:{WRAP_SPACE_FRAGMENT})*%|"
+    r"(?:\s+|-)(?:percent(?:age)?|per[ \t]+cent(?:um)?)\b)"
+)
 _DIGIT_MIXED_PERCENTAGE = re.compile(
-    r"(?<![\d/.,])\d+[^\S\r\n]+\d+/\d+(?=\s*(?:%|per\s*cent\b))",
+    rf"(?<![\d/.,])\d+{_SAME_LINE_SPACE}+\d+/\d+{_MIXED_PERCENTAGE_MARKER}",
     flags=re.IGNORECASE,
 )
-_DIGIT_MIXED_NUMERAL = re.compile(
-    rf"\d+(?:[^\S\r\n]+\d+[/{chr(0x2044)}]\d+|"
-    rf"[^\S\r\n]*[{_VULGAR_FRACTION_CHARS}])"
+_MIXED_PERCENTAGE = re.compile(
+    rf"(?<![\d/.,])\d+(?:{_SAME_LINE_SPACE}+\d+[/{chr(0x2044)}]\d+|"
+    rf"{_SAME_LINE_SPACE}*[{_VULGAR_FRACTION_CHARS}]){_MIXED_PERCENTAGE_MARKER}",
+    flags=re.IGNORECASE,
 )
 # Agency-manual typography that the arithmetic recognizer would otherwise read
 # as operators: a month/year date (every page header of the Oregon eligibility
@@ -2273,8 +2290,6 @@ _ENGLISH_LEGAL_CITATION = re.compile(
     r"\d+(?:\.\d+)*(?:\s*(?:through|to|[-–—]|and|,)\s*\d+(?:\.\d+)*)*",
     flags=re.IGNORECASE,
 )
-# Every separator `str.splitlines` treats as a line boundary, not only `\n`.
-_LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
 # A coordinated list of titled references, as UK instruments print them:
 # "regulation 15 (persons not entitled to council tax reduction: absentees),
 # regulation 16 (...) or 19 (...)". _ENGLISH_LEGAL_CITATION removes each
@@ -5201,9 +5216,7 @@ def source_states_explicit_computation(
         )
     )
     return bool(
-        _has_substantive_arithmetic_expression(
-            _without_digit_mixed_percentage_slashes(computation_text)
-        )
+        _has_substantive_arithmetic_expression(computation_text)
         or _source_imperative_arithmetic_operations(computation_text)
         or _COMPUTATION_LANGUAGE.search(computation_text)
         or _EXCESS_BOUND_TAX_RATE_LANGUAGE.search(computation_text)
@@ -5482,6 +5495,7 @@ def _without_manual_typography_operators(source_text: str) -> str:
 def _has_substantive_arithmetic_expression(source_text: str) -> bool:
     """Ignore prose conjunctions and year spans, retaining actual arithmetic."""
 
+    source_text = _without_digit_mixed_percentage_slashes(source_text)
     arithmetic_text = list(
         _without_slash_conjunction_operators(
             _without_manual_typography_operators(source_text)
@@ -24912,11 +24926,20 @@ def _formula_branch_computation_occurrences(
     )
     extracted_occurrences = tuple(extract_numeric_occurrences(recall_text))
     # The extractor reads "2 6/7 per cent" as one rate and also yields the 2, 6
-    # and 7 inside it. Those components state no computation of their own.
+    # and 7 inside it. Those components state no computation of their own. A
+    # rate may start before the numeral, at a hyphen the extractor reads as a
+    # minus sign ("-2 6/7 per cent").
+    mixed_percentages = tuple(
+        match.span() for match in _MIXED_PERCENTAGE.finditer(recall_text)
+    )
     mixed_percentage_spans = tuple(
         (occurrence.start, occurrence.end)
         for occurrence in extracted_occurrences
-        if occurrence.has_rate_context and _DIGIT_MIXED_NUMERAL.match(occurrence.raw)
+        if occurrence.has_rate_context
+        and any(
+            occurrence.start <= start and end <= occurrence.end
+            for start, end in mixed_percentages
+        )
     )
     source_occurrences = (
         tuple(

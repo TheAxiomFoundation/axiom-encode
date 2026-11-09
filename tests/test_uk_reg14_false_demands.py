@@ -2,45 +2,51 @@
 
 Signed re-encode run 41745442025 ended with refusals of regulation 14 of the
 Council Tax Reduction (Scotland) Regulations 2012 that came from three misreadings
-of its text. Each one meets every re-encode of the regulation, and council tax
-reduction schemes across the UK repeat the same wording.
+of its text. Each one recurs in every re-encode of the regulation, and council tax
+reduction schemes across the UK repeat the same wording. The gate read:
 
-* "amount B is 2 6/7 per cent of the difference" read as a division, because of
-  the slash, and as a computation over 2, 6 and 7 as well as the rate. No formula
-  can execute that.
-* "falls", which means "if" in German, read as a condition in "the day falls
-  within a week".
-* Condition words inside the title of another provision read as conditions of
-  this one: "regulation 57 (residents of a dwelling to whom regulation 14(6) does
-  not apply)".
+* "amount B is 2 6/7 per cent of the difference" as a division, because of the
+  slash, and as a computation over the 2, 6 and 7 inside the rate;
+* "falls", which German uses for "if", as a condition in "the day falls within a
+  week";
+* condition words inside the title of another provision as conditions of this
+  one, as in "regulation 57 (residents of a dwelling to whom regulation 14(6)
+  does not apply)".
 
 A fourth false refusal waited behind those three. The run's candidate stated
 amount B as the integer 1, and the gate computes 0.99999999999999995. The gate
-accepted that residue only against a decimal 1.0, so it lost amount B from each
-case and still demanded those pairs from a model that had every one.
+accepted that residue only against a decimal 1.0, so a model that tested every
+condition and stated amount B as 1 still drew a demand for paragraph (8)(b)'s
+case pair.
 
-Invariants pinned here:
+The tests below pin these invariants:
 
-* a digit mixed percentage of an amount yields one rate, (whole + numerator /
-  denominator) / 100, and its parts yield nothing;
-* its slash adds no division and no computation, and a real division in the same
-  text still counts;
+* outside Danish and German corpora, a digit mixed percentage yields one rate,
+  (whole + numerator / denominator) / 100, and its parts yield nothing;
+* its slash adds no division and no computation to operation kinds, stated
+  computations, rounding-only clauses or colon headings, and a real division in
+  the same text still counts;
 * the collapse removes only occurrences nested in a mixed percentage;
+* outside Danish and German corpora, the slash mask and the collapse agree on a
+  numeral written with "/": where the mask hides the slash the gate keeps none of
+  the numeral's parts, and where it leaves the slash the collapse drops none;
 * in a UK corpus the cue reader never returns "falls"; in every other corpus, and
   in text with no citation path, it does;
-* a condition word leaves only from inside a UK cross-reference's title. Operative
-  text, a parenthesis that opens with a limiting word, one with a full stop or
-  semicolon and space before a capital or an opening parenthesis, and every other
-  corpus keep their cues;
-* the cue filters only remove: the filtered cues are a subset of the unfiltered
+* the title filter drops a condition word only inside a UK cross-reference's
+  title. Operative text, a parenthesis that opens with a limiting word, one with a
+  full stop or semicolon and space before a capital or an opening parenthesis, and
+  every other corpus keep their cues;
+* the cue filters only remove: the filtered cues form a subset of the unfiltered
   cues, and the difference holds only the cues they target;
 * against a decimal runtime value, a Money assertion of a whole number below 2^53
   compares as its float does and as the test runner compares it; an integer
   runtime value against an integer assertion stays exact.
 
-Known gap, pinned by test_known_gap_limbs_with_no_cue_of_their_own: regulation
+test_known_gap_limbs_with_no_cue_of_their_own pins a known gap. Regulation
 14(3)(b) states a condition in wording no cue reads, so a model that drops it
-passes this gate.
+passes this gate. test_danish_and_german_extractors_keep_a_mixed_percentages_parts
+pins a known limit: in Danish and German corpora the numeric extractor reads
+`2 6/7 %` as separate numbers, so the gate keeps them while it reads no division.
 """
 
 from __future__ import annotations
@@ -93,25 +99,40 @@ OTHER_ENGLISH_CORPORA = (
     "nz/act/2007/97/MA1",
     "ca/statute/income-tax-act/118",
 )
+# Every separator str.splitlines treats as a line boundary.
+LINE_BREAKS = (
+    "\n",
+    "\r",
+    "\x0b",
+    "\x0c",
+    "\x1c",
+    "\x1d",
+    "\x1e",
+    "\x85",
+    chr(0x2028),
+    chr(0x2029),
+)
 
 
-def occurrences(text: str) -> tuple[sc.NumericOccurrenceLike, ...]:
+def occurrences(
+    text: str, extractor: sc.NumericOccurrenceExtractor = GROUNDING
+) -> tuple[sc.NumericOccurrenceLike, ...]:
     branch = sc.SourceStructureBranch(
         (), "formula-clause", "clause", text, 0, len(text)
     )
     return sc._formula_branch_computation_occurrences(
-        branch, interval=None, extract_numeric_occurrences=GROUNDING
+        branch, interval=None, extract_numeric_occurrences=extractor
     )
 
 
 @contextlib.contextmanager
 def mixed_percentage_collapse_disabled() -> Iterator[None]:
-    saved = sc._DIGIT_MIXED_NUMERAL
-    sc._DIGIT_MIXED_NUMERAL = _NEVER
+    saved = sc._MIXED_PERCENTAGE
+    sc._MIXED_PERCENTAGE = _NEVER
     try:
         yield
     finally:
-        sc._DIGIT_MIXED_NUMERAL = saved
+        sc._MIXED_PERCENTAGE = saved
 
 
 def cues(text: str, citation: str = "") -> list[tuple[int, int, str]]:
@@ -127,17 +148,21 @@ mixed_numbers = st.integers(min_value=2, max_value=20).flatmap(
         st.just(denominator),
     )
 )
-percent_markers = st.sampled_from([" per cent", " percent", "%"])
+percent_markers = st.sampled_from([" per cent", " percent", "%", " per centum"])
 
 
 @PROPERTY_SETTINGS
-@given(number=mixed_numbers, marker=percent_markers)
+@given(
+    number=mixed_numbers,
+    marker=percent_markers,
+    tail=st.sampled_from([" of the difference between A and C", " a year", ""]),
+)
 def test_digit_mixed_percentage_is_one_rate(
-    number: tuple[int, int, int], marker: str
+    number: tuple[int, int, int], marker: str, tail: str
 ) -> None:
     whole, numerator, denominator = number
     numeral = f"{whole} {numerator}/{denominator}{marker}"
-    text = f"amount B is {numeral} of the difference between A and C"
+    text = f"amount B is {numeral}{tail}."
     start = text.index(numeral)
     end = start + len(numeral)
     inside = [
@@ -189,18 +214,42 @@ def test_digit_and_worded_mixed_percentages_agree(words: str, digits: str) -> No
 @pytest.mark.parametrize(
     "text",
     [
-        "amount B is 2\n6/7 per cent of the difference",
         "amount B is 2 6 / 7 per cent of the difference",
-        "amount B is 2\n½ per cent of the difference",
+        "amount B is 1.5 3/4 per cent of the difference",
+        "amount B is 3/4 1/2 per cent of the difference",
+        "amount B is 2 6/7 per centimetre of the difference",
+        "amount B is 2 6/7 percentile of the difference",
+        *(f"amount B is 2{line}6/7 per cent of the difference" for line in LINE_BREAKS),
+        *(f"amount B is 2{line}½ per cent of the difference" for line in LINE_BREAKS),
     ],
 )
-def test_a_split_or_spaced_mixed_percentage_keeps_its_old_reading(text: str) -> None:
+def test_a_broken_or_spaced_mixed_percentage_keeps_its_old_reading(text: str) -> None:
     def reading() -> set[tuple[int, int, float]]:
         return {(item.start, item.end, item.value) for item in occurrences(text)}
 
     collapsed = reading()
     with mixed_percentage_collapse_disabled():
         assert collapsed == reading()
+    if "/" in text:
+        assert "divide" in sc._formula_operation_kinds(text)
+
+
+@pytest.mark.parametrize("before", ["-", "1-"])
+@pytest.mark.parametrize("marker", ["%", " per cent"])
+def test_a_mixed_percentage_after_a_hyphen_is_one_rate(
+    before: str, marker: str
+) -> None:
+    # The extractor reads some hyphens as a minus sign; either way the numeral is
+    # one rate, and the gate reads no division and no parts in it.
+    lead = f"amount B is {before}"
+    text = f"{lead}2 6/7{marker} of the difference"
+    start, end = len(lead), len(lead) + len("2 6/7")
+    assert "divide" not in sc._formula_operation_kinds(text)
+    inside = [
+        item for item in occurrences(text) if item.start < end and start < item.end
+    ]
+    assert len(inside) == 1
+    assert math.isclose(abs(inside[0].value), (2 + 6 / 7) / 100)
 
 
 def test_a_numeral_with_a_fraction_slash_has_no_parts() -> None:
@@ -245,14 +294,30 @@ def test_mixed_percentage_slash_is_no_division(
     [
         "2 6/7 %",
         "2 6/7 per  cent",
-        "2 6/7 per\ncent",
         "2  6/7 per cent",
         "2\t6/7%",
         "2 6/7 PER CENT",
+        "2 6/7 per centum",
+        "2 6/7 Per Centum",
+        "2 1/2 percentage points",
+        "2 6/7\nper cent",
+        "2 6/7\n%",
+        "2 6/7-per cent",
     ],
 )
-def test_a_mixed_percentage_may_space_or_capitalize_its_marker(numeral: str) -> None:
-    assert "divide" not in sc._formula_operation_kinds(f"{numeral} of the difference")
+def test_a_mixed_percentage_may_space_word_or_capitalize_its_marker(
+    numeral: str,
+) -> None:
+    text = f"amount B is {numeral} of the difference"
+    start = text.index(numeral)
+    digits = re.match(r"\d+\s+\d+/\d+", numeral)
+    assert digits is not None
+    end = start + digits.end()
+    assert "divide" not in sc._formula_operation_kinds(text)
+    assert not sc.source_states_explicit_computation(f"The rate is {numeral}.")
+    assert not [
+        item for item in occurrences(text) if start <= item.start and item.end <= end
+    ]
 
 
 @pytest.mark.parametrize(
@@ -268,9 +333,14 @@ def test_a_mixed_percentage_may_space_or_capitalize_its_marker(numeral: str) -> 
         "amount B is 3/4 1/2 per cent of the difference",
         "amount B is 1,5 3/4 per cent of the difference",
         "amount B is 2 6 / 7 per cent of the difference",
-        "amount B is 2\n6/7 per cent of the difference",
-        "amount B is 2 6/7 per centum of the difference",
         "amount B is 12/7 per cent of the difference",
+        "amount B is 2 6/7 per centimetre of the difference",
+        "amount B is 2 6/7 percentile of the difference",
+        "amount B is 2 6/7 per\ncent of the difference",
+        "amount B is 2 6/7percent of the difference",
+        "amount B is 2 6/7\n\n% of the difference",
+        "amount B is 2 6/7\x0c% of the difference",
+        *(f"amount B is 2{line}6/7 per cent of the difference" for line in LINE_BREAKS),
     ],
 )
 def test_other_slashes_stay_divisions(text: str) -> None:
@@ -311,12 +381,114 @@ def test_mixed_percentage_masking_keeps_offsets() -> None:
         "1.5 3/4 per cent",
         "1,5 3/4 per cent",
         "2 6 / 7 per cent",
-        "2\n6/7 per cent",
         "12/7 per cent",
+        "2 6/7 per centimetre",
+        "2 6/7 per\ncent",
+        "2 6/7percent",
+        "2 6/7\x0c%",
+        *(f"2{line}6/7 per cent" for line in LINE_BREAKS),
     ],
 )
 def test_the_mask_leaves_every_other_numeral_alone(text: str) -> None:
     assert sc._without_digit_mixed_percentage_slashes(text) == text
+
+
+WHOLE_FRACTION_GAPS = (" ", "  ", "\t", "\xa0", *LINE_BREAKS)
+MARKER_GAPS = ("", " ", "  ", "\t", "\xa0", "\r\n", "\n\n", "-", *LINE_BREAKS)
+MARKERS = (
+    "%",
+    "percent",
+    "per cent",
+    "per  cent",
+    "per\tcent",
+    "per\ncent",
+    "per\xa0cent",
+    "per-cent",
+    "per centum",
+    "Per Centum",
+    "percentage points",
+    "per centimetre",
+    "percentile",
+    "PER CENT",
+    "p.c.",
+    "pct",
+)
+BEFORE_NUMERAL = (
+    "",
+    "£",
+    "(",
+    "-",
+    "1-",
+    chr(0x2212),
+    f"1{chr(0x2013)}",
+    "1.",
+    "3/",
+    "1,",
+    "x ",
+)
+
+
+@PROPERTY_SETTINGS
+@given(
+    number=mixed_numbers,
+    before=st.sampled_from(BEFORE_NUMERAL),
+    gap=st.sampled_from(WHOLE_FRACTION_GAPS),
+    marker_gap=st.sampled_from(MARKER_GAPS),
+    marker=st.sampled_from(MARKERS),
+)
+def test_the_mask_and_the_collapse_agree(
+    number: tuple[int, int, int],
+    before: str,
+    gap: str,
+    marker_gap: str,
+    marker: str,
+) -> None:
+    # The slash mask reads text, and the collapse reads the occurrences of the
+    # extractor the gate passes it. Where the mask reads no division, no part of
+    # the numeral stays; where it reads one, the collapse drops nothing.
+    whole, numerator, denominator = number
+    digits = f"{whole}{gap}{numerator}/{denominator}"
+    lead = f"amount B is {before}"
+    text = f"{lead}{digits}{marker_gap}{marker} of the difference"
+    start, end = len(lead), len(lead) + len(digits)
+    collapsed = occurrences(text)
+    with mixed_percentage_collapse_disabled():
+        everything = occurrences(text)
+    if sc._without_digit_mixed_percentage_slashes(text) != text:
+        assert not [
+            item for item in collapsed if start <= item.start and item.end <= end
+        ]
+    else:
+        assert collapsed == everything
+
+
+@pytest.mark.parametrize("profile", ["de-DE", "da-DK"])
+def test_danish_and_german_extractors_keep_a_mixed_percentages_parts(
+    profile: str,
+) -> None:
+    text = "amount B is 2 6/7 % of the difference"
+    extractor = functools.partial(
+        vp.extract_typed_numeric_occurrences_from_text, profile=profile
+    )
+    assert "divide" not in sc._formula_operation_kinds(text)
+    assert 7.0 in {item.value for item in occurrences(text, extractor)}
+
+
+@PROPERTY_SETTINGS
+@given(number=mixed_numbers, marker=percent_markers)
+def test_every_arithmetic_reader_reads_a_mixed_percentage_as_one_rate(
+    number: tuple[int, int, int], marker: str
+) -> None:
+    whole, numerator, denominator = number
+    stated = f"The rate is {whole} {numerator}/{denominator}{marker}"
+    assert not sc._source_states_nonrounding_computation(f"{stated}.")
+    assert not sc._formula_clause_states_substantive_operation(f"{stated}.")
+    assert (
+        sc._rounding_only_direction(f"{stated}, rounded down to the nearest penny.")
+        == "downward"
+    )
+    assert sc._source_states_nonrounding_computation(f"{stated}, plus 4 / 5.")
+    assert sc._formula_clause_states_substantive_operation(f"{stated}, plus 4 / 5.")
 
 
 FALLS_CLAUSES = (
@@ -516,21 +688,7 @@ def test_a_parenthesis_left_open_keeps_its_cues(text: str) -> None:
     assert "if" in [item[2] for item in cues(text, CITATION)]
 
 
-@pytest.mark.parametrize(
-    "line_break",
-    (
-        "\n",
-        "\r",
-        "\x0b",
-        "\x0c",
-        "\x1c",
-        "\x1d",
-        "\x1e",
-        "\x85",
-        chr(0x2028),
-        chr(0x2029),
-    ),
-)
+@pytest.mark.parametrize("line_break", LINE_BREAKS)
 def test_a_parenthesis_after_a_line_break_keeps_its_cues(line_break: str) -> None:
     text = (
         f"See regulation 57{line_break}"
@@ -585,6 +743,19 @@ def test_a_long_or_spaced_parenthesis_on_a_number_is_no_subdivision(
     ],
 )
 def test_a_keyword_inside_a_word_or_touching_its_number_opens_no_title(
+    text: str,
+) -> None:
+    assert "if" in [item[2] for item in cues(text, CITATION)]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "under paragraph (2) (persons if absent) the amount applies",
+        "paragraph (3) (amount of reduction if a couple) applies",
+    ],
+)
+def test_a_reference_with_its_number_in_parentheses_opens_no_title(
     text: str,
 ) -> None:
     assert "if" in [item[2] for item in cues(text, CITATION)]
