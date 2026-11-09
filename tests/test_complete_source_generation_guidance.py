@@ -421,15 +421,17 @@ def test_typed_completeness_retry_feedback_has_one_repair_order():
     ) in normalized
 
     check_fixes = rendered.split("=== BEGIN CHECK FIXES", 1)[1]
-    for check_id in evals._COMPLETENESS_ENCODE_FIRST_CHECKS:
-        if check_id in check_ids:
-            assert check_fixes.count(f"- [{check_id}]") == 1
-    assert check_fixes.count(f"  Fix: {evals._COMPLETENESS_ENCODE_FIRST_FIX}") == len(
-        set(check_ids) & set(evals._COMPLETENESS_ENCODE_FIRST_CHECKS)
-    )
+    overrides = evals._COMPLETENESS_ENCODE_FIRST_FIXES
+    for check_id in set(check_ids) & set(overrides):
+        assert check_fixes.count(f"- [{check_id}]") == 1
+        assert f"  Fix: {overrides[check_id]}" in check_fixes
     # No declared encode-or-defer fix survives next to the encode-first order.
-    for check_id in evals._COMPLETENESS_ENCODE_FIRST_CHECKS:
+    for check_id in overrides:
         assert checks.get_check(check_id).fix not in check_fixes
+    # The subject lines name which subjects to repair, not how.
+    assert "per-subject lines name which subjects to repair; this order says how" in (
+        normalized
+    )
     # Other checks keep their declared fix, and every subject line stays.
     numeric_fix = checks.get_check("complete-source-unit:numeric-recall/value-unnamed")
     assert f"  Fix: {numeric_fix.fix}" in check_fixes
@@ -461,3 +463,61 @@ def test_check_fixes_keep_declared_text_without_completeness_guidance():
     assert rendered.endswith(evals._format_check_fix_feedback((issue,)))
     fix = checks.get_check("complete-source-unit:tests/output-unasserted").fix
     assert f"  Fix: {fix}" in rendered
+
+
+@pytest.mark.parametrize("check_id", sorted(evals._COMPLETENESS_ENCODE_FIRST_FIXES))
+def test_encode_first_fix_overrides(check_id):
+    """Each override keeps encoding first, names the deferral grounds, and is
+    used only when the completeness repair block renders."""
+
+    from axiom_encode.checks import IssueSubject, ValidationIssue, load_checks
+
+    load_checks()
+    category = check_id.split("/", 1)[0]
+    assert f"[{category}]" in evals._COMPLETENESS_REPAIR_CATEGORIES
+    override = evals._COMPLETENESS_ENCODE_FIRST_FIXES[check_id]
+    assert override.startswith(("Encode the", "Add a principal derived rule"))
+    assert "deferral ground listed" in override
+    assert "Completeness repair guidance above" in override or "there" in override
+
+    issue = ValidationIssue(
+        f"[{category}] finding.",
+        check=check_id,
+        subject=IssueSubject(citation="us/statutes/7/2020", branch="b"),
+        expected="x",
+        found="y",
+    )
+    declared = checks.get_check(check_id).fix
+    # Main's #1987 rendering, unchanged without overrides.
+    plain = evals._format_check_fix_feedback((issue,))
+    assert f"  Fix: {declared}" in plain
+    assert override not in plain
+    # The retry renders the override with the completeness block.
+    rendered = evals._format_validation_retry_feedback((issue,))
+    assert "Completeness repair:" in rendered
+    assert f"  Fix: {override}" in rendered
+    assert declared not in rendered
+
+
+def test_issue_fix_feedback_override_replaces_only_named_fix():
+    from axiom_encode.checks import IssueSubject, ValidationIssue, load_checks
+
+    load_checks()
+    issue = ValidationIssue(
+        "[complete-source-unit:tests] Principal output `x` is never asserted.",
+        check="complete-source-unit:tests/output-unasserted",
+        subject=IssueSubject(citation="us/statutes/7/2014/e", rule="x"),
+        expected="e",
+        found="f",
+    )
+    lines = checks.issue_fix_feedback((issue,))
+    assert checks.issue_fix_feedback((issue,), fix_overrides={}) == lines
+    assert (
+        checks.issue_fix_feedback((issue,), fix_overrides={"other/check": "Z"}) == lines
+    )
+    replaced = checks.issue_fix_feedback(
+        (issue,),
+        fix_overrides={"complete-source-unit:tests/output-unasserted": "Do Z."},
+    )
+    assert replaced[1] == "  Fix: Do Z."
+    assert replaced[0] == lines[0] and replaced[2:] == lines[2:]

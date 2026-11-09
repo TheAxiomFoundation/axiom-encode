@@ -11526,18 +11526,35 @@ def _complete_source_deferral_anchor(corpus_citation_path: str | None) -> str:
 
 # Typed completeness checks whose declared fix offers "encode or defer" (or
 # "reword the reason or encode"). When the completeness repair guidance renders,
-# their CHECK FIXES line points at that guidance so the retry has one order.
+# their CHECK FIXES line keeps the declared non-deferral content but puts
+# encoding first and points at that guidance, so the retry has one order.
 # Path-only and encode-only fixes keep their declared text.
-_COMPLETENESS_ENCODE_FIRST_CHECKS = (
-    "complete-source-unit:structure/branch-unencoded",
-    "complete-source-unit:formula-output/branch-without-output",
-    "complete-source-unit:formula-output/control-without-output",
-    "complete-source-unit:deferral/reason-imprecise",
-)
-_COMPLETENESS_ENCODE_FIRST_FIX = (
-    "Encode the branch, as the Completeness repair guidance above orders. Keep "
-    "or add a deferral only on one of the deferral grounds listed there."
-)
+_COMPLETENESS_ENCODE_FIRST_FIXES = {
+    "complete-source-unit:structure/branch-unencoded": (
+        "Encode the branch in a rule that cites it (source path or proof excerpt "
+        "from its own text), as the Completeness repair guidance above orders; "
+        "defer it only on a deferral ground listed there. Descendant citations "
+        "do not cover a substantive parent chapeau."
+    ),
+    "complete-source-unit:formula-output/branch-without-output": (
+        "Add a principal derived rule whose formula implements the branch and "
+        "whose source or formula proof cites the branch, or add the proof atom "
+        "the finding names to an existing output that already implements it; "
+        "defer the branch only on a deferral ground listed in the Completeness "
+        "repair guidance above."
+    ),
+    "complete-source-unit:formula-output/control-without-output": (
+        "Encode the control inside a principal derived rule that covers its "
+        "branch; defer the branch only on a deferral ground listed in the "
+        "Completeness repair guidance above."
+    ),
+    "complete-source-unit:deferral/reason-imprecise": (
+        "Encode the branch and remove the rejected deferral with "
+        "`repair_remove: true`, as the Completeness repair guidance above "
+        "orders. Keep a deferral only on a deferral ground listed there, with "
+        "a reason in that ground's form."
+    ),
+}
 
 
 _DEFERRAL_GROUNDS = """(1) the branch depends on the determination of another provision that
@@ -11596,7 +11613,7 @@ def _format_completeness_repair_guidance(deferral_anchor: str) -> str:
   not. A literal citation that a finding requires in `reason` applies only to a
   deferral that one of those grounds supports.
 - This order also governs the CHECK FIXES block below, when it is present: its
-  per-subject expected and found values name what to repair.
+  per-subject lines name which subjects to repair; this order says how.
 - A condition, exception, limitation, date or period test, status,
   classification, amount, or computation that the branch itself states is
   encodable even when its facts are not yet modeled. Declare each fact the
@@ -11708,9 +11725,7 @@ Deterministic validation feedback for the rejected candidate below:
         + _format_check_fix_feedback(
             typed_items,
             fix_overrides=(
-                dict.fromkeys(
-                    _COMPLETENESS_ENCODE_FIRST_CHECKS, _COMPLETENESS_ENCODE_FIRST_FIX
-                )
+                _COMPLETENESS_ENCODE_FIRST_FIXES
                 if completeness_repair_guidance
                 else None
             ),
