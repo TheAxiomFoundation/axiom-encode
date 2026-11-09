@@ -222,9 +222,15 @@ def test_repair_block_is_off_when_disabled():
     assert evals.json.dumps(_STRUCTURE_FINDING) in plain
 
 
-@pytest.mark.parametrize("complete", [False, True])
-def test_prompt_gates_repair_block_on_complete_source_mode(tmp_path, complete):
-    """Feedback loaded for a non-complete-source run keeps main's text."""
+@pytest.mark.parametrize(
+    ("complete", "tests_only", "expected"),
+    [(False, False, False), (True, False, True), (True, True, False)],
+)
+def test_prompt_gates_repair_block_on_complete_source_mode(
+    tmp_path, complete, tests_only, expected
+):
+    """Feedback loaded for a non-complete-source run keeps main's text, and a
+    tests-only repair, whose RuleSpec is immutable, gets no encode order."""
 
     prompt = evals._build_eval_prompt(
         citation="us/statute/26/2/a",
@@ -239,9 +245,10 @@ def test_prompt_gates_repair_block_on_complete_source_mode(tmp_path, complete):
         validation_retry_candidate=evals.ValidationRetryCandidate(
             "format: rulespec/v1\nrules: []\n", "cases: []\n"
         ),
+        repair_candidate_tests_only=tests_only,
     )
 
-    assert ("Completeness repair:" in prompt) is complete
+    assert ("Completeness repair:" in prompt) is expected
     assert evals.json.dumps(_STRUCTURE_FINDING) in prompt
 
 
@@ -333,6 +340,41 @@ def test_guidance_dependency_reason_form_is_accepted_by_validator():
 
     assert covered == {("a",)}
     assert issues == []
+
+
+def test_no_declared_deferral_fix_survives_next_to_the_repair_block():
+    """Every complete-source check whose declared fix offers a deferral is
+    overridden, so CHECK FIXES never offers one next to the encode-first order."""
+
+    markers = (
+        "defer the branch",
+        "deferred_outputs` entry",
+        "encode the branch instead",
+    )
+    offering_deferral = {
+        check_id
+        for check_id, check in checks.load_checks().items()
+        if check_id.startswith("complete-source-unit:")
+        and any(marker in check.fix for marker in markers)
+    }
+
+    assert "complete-source-unit:tests/rounding-unwitnessed" in offering_deferral
+    assert offering_deferral <= set(evals._COMPLETENESS_ENCODE_FIRST_FIXES)
+
+
+def test_plan_and_repair_block_limit_missing_input_wording_and_cover_leaves():
+    plan = _normalized(evals._format_branch_coverage_plan("us:statutes/7/2020"))
+    repair = _normalized(evals._format_completeness_repair_guidance("x"))
+
+    assert (
+        "that form serves only ground (3) below" in plan
+        and "proof excerpt of the rule that consumes it" not in plan
+    )
+    assert (
+        "A purpose, basis, or heading leaf is covered by citing it in the "
+        "`source:` of the rule that consumes it, not by an invented formula or "
+        "a deferral." in repair
+    )
 
 
 def test_guidance_agrees_with_validator_on_missing_input_reasons():
@@ -551,7 +593,9 @@ def test_encode_first_fix_overrides(check_id):
     load_checks()
     category = check_id.split("/", 1)[0]
     override = evals._COMPLETENESS_ENCODE_FIRST_FIXES[check_id]
-    assert override.startswith(("Encode the", "Add a principal derived rule", "Add "))
+    assert override.startswith(
+        ("Encode the", "Add a principal derived rule", "Add same-period")
+    )
     assert "deferral ground listed" in override
     assert "Completeness repair guidance above" in override or "there" in override
 

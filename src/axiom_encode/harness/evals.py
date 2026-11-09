@@ -11568,7 +11568,9 @@ _DEFERRAL_GROUNDS = """(1) the branch depends on the determination of another pr
   its own text cites, the cross-reference rules in this prompt call for a
   deferral rather than an import or a boundary input, and `reason` names that
   exact provision in the form `Cannot be computed until <provision> is
-  encoded.`, with no added relative clause; (2) the branch is a bare
+  encoded.`, with no added relative clause (for a Louisiana rate provided in
+  another R.S. section, the missing-export clause in the complete-source rules
+  is also accepted); (2) the branch is a bare
   repeal tombstone, in the repeal-tombstone form in the complete-source
   rules; or (3) the source is a statute or a U.S. federal regulation, the
   branch states only an administrative duty, such as a notice, filing,
@@ -11598,8 +11600,8 @@ def _format_branch_coverage_plan(deferral_anchor: str) -> str:
   Where the complete-source rules above ask a runtime-gap `reason` to name a
   missing input or runtime capability, that form serves only ground (3) below.
 - DEFER a branch only when {_DEFERRAL_GROUNDS}. A purpose, basis, or heading
-  leaf is covered by the `source:` or proof excerpt of the rule that consumes
-  it, not by a deferral. Write each deferred output as
+  leaf is covered by citing it in the `source:` of the rule that consumes it,
+  not by a deferral. Write each deferred output as
   `{deferral_anchor}/<marker>/<marker>#<name>` with slash-separated markers;
   never use parentheses such as `a(1)(A)`, another jurisdiction prefix, or the
   bare module path for a branch. Return only when every listed branch is
