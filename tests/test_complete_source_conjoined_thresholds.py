@@ -267,3 +267,35 @@ def test_each_conjoined_threshold_keeps_its_own_direction(text, expected):
 )
 def test_no_new_threshold_without_a_second_source_comparison(text):
     assert _new_thresholds(text) == []
+
+
+def test_a_bare_definition_demands_each_conjoined_threshold():
+    # A bare (New Zealand style) outline reads a `means` line as a definition
+    # branch, which _source_boundary_obligations demands; the dropped
+    # threshold of its conjoined condition is demanded too.
+    source = (
+        "qualifying benefit means—\n"
+        "a\na main benefit under this Act; or\n"
+        "b\na pension.\n"
+        "low-income household means a household whose income is less than 500 "
+        "dollars and whose assets are less than 300 dollars.\n"
+    )
+    branches = recognize_source_structure(source)
+    existing = completeness_module._source_boundary_obligations(
+        branches, source_text=source, extract_numeric_occurrences=EXTRACT
+    )
+    assert [branch.kind for branch, _occurrence in existing] == ["definition"]
+    new = completeness_module._source_conjoined_threshold_obligations(
+        branches,
+        branches=branches,
+        existing=existing,
+        extract_numeric_occurrences=EXTRACT,
+    )
+    assert [branch.kind for branch, *_rest in new] == ["definition"]
+    assert {occurrence.value for _branch, occurrence in existing} | {
+        occurrence.value for _branch, occurrence, *_rest in new
+    } == {300, 500}
+    assert all(
+        interval.lower is None and interval.upper_inclusive is False
+        for _branch, _occurrence, interval, _polarity in new
+    )

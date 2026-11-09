@@ -21643,8 +21643,10 @@ def _companion_test_issues(
         existing=boundary_obligations,
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
+    # Keyed by the branch object: a narrative formula clause can share its
+    # paragraph's path while its offsets are in its own first-line frame.
     conjoined_sources = {
-        (branch.path, boundary.start, boundary.end): (interval, polarity)
+        (id(branch), boundary.start, boundary.end): (interval, polarity)
         for branch, boundary, interval, polarity in conjoined_thresholds
     }
     missing_boundaries: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
@@ -21666,7 +21668,7 @@ def _companion_test_issues(
             source_bound_constant_occurrences=source_bound_constant_occurrences,
             extract_numeric_occurrences=extract_numeric_occurrences,
             source_interval_and_polarity=conjoined_sources.get(
-                (branch.path, boundary.start, boundary.end)
+                (id(branch), boundary.start, boundary.end)
             ),
         ):
             continue
@@ -39751,12 +39753,25 @@ def _source_conjoined_threshold_obligations(
     ] = []
     for branch in boundary_branches:
         if branch.kind not in {
+            "definition",
             "paragraph",
             "number",
             "letter",
             "sentence",
             "source-unit",
         }:
+            continue
+        if branch.kind == "definition" and any(
+            container.kind != "definition"
+            and container.path == branch.path
+            and container.start
+            <= branch.start
+            < container.start
+            + len(_source_branch_direct_text(container, branches=branches))
+            for container in branches
+        ):
+            # As in _source_boundary_obligations: a detached heading inside its
+            # structural owner's text is read once, on that owner.
             continue
         direct_text = authoritative_numeric_recall_text(
             _source_branch_direct_text(branch, branches=branches)
