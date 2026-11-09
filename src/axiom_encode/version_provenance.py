@@ -130,7 +130,7 @@ def versions_at(repo: Path, ref: str) -> dict[str, str | None]:
 
 def _numeric(version: str) -> tuple[int, ...] | None:
     parts = version.split(".")
-    if not parts or any(not part.isdigit() for part in parts):
+    if not parts or any(not part.isdecimal() for part in parts):
         return None
     return tuple(int(part) for part in parts)
 
