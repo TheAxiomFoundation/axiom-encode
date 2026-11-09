@@ -1121,7 +1121,9 @@ def python_program(words: tuple[str, ...]) -> tuple[str, int, bool] | None:
             return None
         if arg == "--" or not arg.startswith("-"):
             script = index + 1 if arg == "--" else index
-            return (words[script], script + 1, False) if script < len(words) else None
+            if script >= len(words) or words[script] == "-":
+                return None  # no program, or stdin
+            return words[script], script + 1, False
         if arg.startswith("--"):
             index += 2 if arg == "--check-hash-based-pycs" else 1
             continue

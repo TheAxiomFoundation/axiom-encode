@@ -1064,6 +1064,7 @@ def test_python_program_finds_the_module_the_interpreter_runs(tmp_path, options)
         ("python", "-Ic", "print(1)"),
         ("python", "-m"),
         ("python", "--"),
+        ("python", "--", "-", "a"),
         ("python", "-X", "utf8"),
     ],
 )
