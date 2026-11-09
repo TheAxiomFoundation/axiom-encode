@@ -14909,9 +14909,10 @@ def _inline_pipe_table_rate_cell_spans(
     rate_cells: list[tuple[int, int]] = []
     recognized = False
     previous_table_end = 0
+    separator_pattern = re.compile(r"\|(?:[ \t]*:?-{3,}:?[ \t]*\|){2,}")
     continuation_columns: frozenset[int] = frozenset()
     continuation_width: int | None = None
-    for separator in re.finditer(r"\|(?:[ \t]*:?-{3,}:?[ \t]*\|){2,}", line):
+    for separator in separator_pattern.finditer(line):
         width = separator.group().count("|") - 1
         header_end = separator.start()
         while header_end and line[header_end - 1].isspace():
@@ -14938,6 +14939,9 @@ def _inline_pipe_table_rate_cell_spans(
             if not line[header_pipes[index] + 1 : header_pipes[index + 1]].strip():
                 header_start = index + 1
         header_pipes = header_pipes[header_start:]
+        # A later header lies after this separator. Bounding the next search
+        # here keeps one long flattened line linear in its table count.
+        previous_table_end = separator.end()
         if len(header_pipes) != width + 1:
             continue
         headers = [
@@ -14978,23 +14982,31 @@ def _inline_pipe_table_rate_cell_spans(
             tail = cursor
             while tail < len(line) and line[tail].isspace():
                 tail += 1
-            if re.match(r"\|(?:[ \t]*:?-{3,}:?[ \t]*\|){2,}", line[tail:]):
+            if separator_pattern.match(line, tail):
                 break
             if tail < len(line) and line[tail] != "|":
                 next_pipe = line.find("|", tail)
                 # Prose between tables has words and punctuation, and the pipe
                 # after it opens a new header. A decimal or "(iv)" cell, or any
                 # text closed by a row-ending pipe, is an extra cell instead,
-                # which makes the row wider than its header.
-                gap = line[tail:next_pipe]
-                after = line[next_pipe + 1 :].lstrip()
-                if next_pipe >= 0 and (
-                    not after
-                    or after.startswith("|")
-                    or not re.search(r"[.!?()]", gap)
-                    or not re.search(r"[^\W\d_]{2,}", gap)
-                ):
-                    break
+                # which makes the row wider than its header. Trailing text
+                # without a closing pipe must still contain words: a bare
+                # "7.65" or "(a)" there is an unclosed extra cell.
+                if next_pipe < 0:
+                    if not re.search(r"[^\W\d_]{2,}", line[tail:]):
+                        break
+                else:
+                    gap = line[tail:next_pipe]
+                    after = next_pipe + 1
+                    while after < len(line) and line[after].isspace():
+                        after += 1
+                    if (
+                        after >= len(line)
+                        or line[after] == "|"
+                        or not re.search(r"[.!?()]", gap)
+                        or not re.search(r"[^\W\d_]{2,}", gap)
+                    ):
+                        break
             rate_cells.extend(row_cells[column] for column in sorted(columns))
             previous_table_end = cursor
         if cursor >= len(line):

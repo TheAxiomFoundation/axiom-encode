@@ -148,3 +148,35 @@ def test_inline_table_next_to_multiline_tables(source, grounded, ungrounded):
         assert not numeric_value_is_grounded(value, tokens), value
     for token in tokens:
         assert source[token.start : token.end] == token.raw
+
+
+@pytest.mark.parametrize("extra", ["7.65", "(a)", "3"])
+def test_unclosed_extra_inline_cell_is_not_a_rate_row(extra):
+    source = f"| Children | Percentage | | --- | --- | | 1 | 3 | {extra}"
+    tokens = _tokenize_numeric_occurrences_from_text(source, profile="en-US").grounding
+    assert not numeric_value_is_grounded(0.03, tokens)
+
+
+def test_rate_table_after_header_only_table_on_same_line():
+    source = (
+        "| A | B | | --- | --- | (2) Rates. "
+        "| Year | Percentage | | --- | --- | | 2021 | 5 |"
+    )
+    tokens = _tokenize_numeric_occurrences_from_text(source, profile="en-US").grounding
+    assert numeric_value_is_grounded(0.05, tokens)
+    assert not numeric_value_is_grounded(20.21, tokens)
+
+
+def test_many_header_only_inline_tables_scan_in_linear_time():
+    import time
+
+    from axiom_encode.harness.validator_pipeline import (
+        _inline_pipe_table_rate_cell_spans,
+    )
+
+    line = " ".join(
+        f"(x) Text. | A{i} | B | | --- | --- | (y) More text." for i in range(4000)
+    )
+    started = time.monotonic()
+    _inline_pipe_table_rate_cell_spans(line, profile="en-US")
+    assert time.monotonic() - started < 5
