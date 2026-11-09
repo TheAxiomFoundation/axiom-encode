@@ -21,9 +21,11 @@ import threading
 from base64 import b64decode, b64encode
 from binascii import Error as BinasciiError
 from collections.abc import Mapping
-from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Final, Protocol
+from typing import TYPE_CHECKING, Any, Final, Protocol
+
+if TYPE_CHECKING:
+    from axiom_encode.retired_apply import RetiredApplyInventory
 
 LEGACY_APPLY_SIGNING_KEY_ENV: Final = "AXIOM_ENCODE_APPLY_SIGNING_KEY"
 APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV: Final = "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY"
@@ -93,7 +95,7 @@ class SigningBroker(Protocol):
     def retired_apply_public_keys_raw(self) -> tuple[bytes, ...]: ...
 
     @property
-    def retired_apply_inventory(self) -> dict[str, object] | None: ...
+    def retired_apply_inventory(self) -> RetiredApplyInventory | None: ...
 
     @property
     def eval_public_key_raw(self) -> bytes | None: ...
@@ -119,7 +121,7 @@ class BrokerStatus:
     corpus_release_public_key_raw: bytes | None
     corpus_release_public_keys_raw: tuple[bytes, ...]
     retired_apply_public_keys_raw: tuple[bytes, ...] = ()
-    retired_apply_inventory: dict[str, object] | None = None
+    retired_apply_inventory: RetiredApplyInventory | None = None
 
 
 def scrub_private_signing_environment(
@@ -269,7 +271,7 @@ class SigningBrokerClient:
                 "corpus release trust roots"
             )
         retired_apply_public_keys_raw: tuple[bytes, ...] = ()
-        retired_apply_inventory: dict[str, object] | None = None
+        retired_apply_inventory: RetiredApplyInventory | None = None
         if has_retired_status:
             encoded_retired = status["retired_apply_public_keys"]
             if not isinstance(encoded_retired, list) or not encoded_retired:
@@ -286,10 +288,10 @@ class SigningBrokerClient:
                         "Signing broker returned conflicting retired apply roots"
                     )
                 protected_roots.add(public_key)
-            from axiom_encode.retired_apply import validate_retired_apply_inventory
+            from axiom_encode.retired_apply import RetiredApplyInventory
 
             try:
-                retired_apply_inventory = validate_retired_apply_inventory(
+                retired_apply_inventory = RetiredApplyInventory(
                     status["retired_apply_inventory"]
                 )
             except ValueError as exc:
@@ -357,8 +359,8 @@ class SigningBrokerClient:
         return self._status.retired_apply_public_keys_raw
 
     @property
-    def retired_apply_inventory(self) -> dict[str, object] | None:
-        return deepcopy(self._status.retired_apply_inventory)
+    def retired_apply_inventory(self) -> RetiredApplyInventory | None:
+        return self._status.retired_apply_inventory
 
     @property
     def eval_public_key_raw(self) -> bytes | None:

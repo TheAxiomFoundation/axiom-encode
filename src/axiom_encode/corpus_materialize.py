@@ -166,6 +166,12 @@ def remote_fetch_disabled() -> Iterator[None]:
         _REMOTE_FETCH_DISABLED.reset(token)
 
 
+def remote_fetch_is_disabled() -> bool:
+    """True inside :func:`remote_fetch_disabled` in the current context."""
+
+    return _REMOTE_FETCH_DISABLED.get()
+
+
 @dataclass
 class MaterializationReport:
     """What one materialization pass found, placed, left alone and could not place.

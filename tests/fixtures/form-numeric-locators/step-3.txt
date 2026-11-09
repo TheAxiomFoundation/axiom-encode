@@ -1,0 +1,67 @@
+Step 3 - Net income
+
+Line 34: Enter the amount from line 33 of the previous page. ^
+
+Line 20600: Pension adjustment (box 52 of all T4 slips and box 034 of all T4A slips) ^
+
+Line 35 and line 20700: Registered pension plan (RPP) deduction (box 20 of all T4 slips and box 032 of all T4A slips) ^
+
+Line 36 and 20800: RRSP deduction (complete Schedule 7 and attach receipts) ^
+
+Line 37 and 20805: FHSA deduction (complete Schedule 15 and attach receipts) ^
+
+Line 20810: Pooled registered pension plan (PRPP) employer contributions (amount from your PRPP contribution receipts) ^
+
+Line 38 and line 21000: Deduction for elected split-pension amount (complete Form T1032) ^
+
+Line 39 and line 21200: Annual union, professional, or like dues (receipts and box 44 of all T4 slips) ^
+
+Line 40 and line 21300: Universal child care benefit (UCCB) repayment (box 12 of all RC62 slips) ^
+
+Line 41 and line 21400: Child care expenses (complete Form T778) ^
+
+Line 42 and line 21500: Disability supports deduction (complete Form T929) ^
+
+Line 43: Business investment loss (see Guide T4037)
+Line 21699: Gross ^
+Line 21700: Allowable deduction ^
+
+Line 44 and line 21900: Moving expenses (complete Form T1-M) ^
+
+Line 45: Support payments made (go to canada.ca/taxes-support-payments)
+Line 21999: Total ^
+Line 22000: Allowable deduction ^
+
+Line 46 and line 22100: Carrying charges, interest expenses and other expenses (use Federal Worksheet) ^
+
+Line 47 and line 22200: Deduction for CPP or QPP contributions on self-employment income and other earnings (complete Schedule 8 or Form RC381, whichever applies) ^
+
+Line 48 and line 22215: Deduction for CPP or QPP enhanced contributions on employment income (complete Schedule 8 or Form RC381, whichever applies) (maximum $1,074.00) ^
+
+Line 49 and line 22400: Exploration and development expenses (complete Form T1229) ^
+
+Line 50 and line 22900: Other employment expenses (see Guide T4044) ^
+
+Line 51 and line 23100: Clergy residence deduction (complete Form T1223) ^
+
+Line 52 and line 23200: Other deductions ^
+(specify): ^
+
+Line 53 and line 23300: Add lines 35 to 52. = ^
+
+Line 54 and line 23400: Line 34 minus line 53 (if negative, show in brackets) Net income before adjustments = ^
+
+Social benefits repayment:
+
+Complete the chart for line 23500 using your Federal Worksheet if one or more of the following apply:
+
+- You entered an amount for EI and other benefits on line 11900 and the amount on line 23400 is more than $82,125
+
+- You entered an amount for OAS pension on line 11300 or net federal supplements paid on line 14600 and the amount on line 23400 is more than $93,454
+
+Line 55 and line 23500: If not, enter "0" on line 23500. ^
+
+Line 56 and line 23600: Line 54 minus line 55 (if negative, enter "0") If negative, you may have a non-capital loss (see Form T1A) and the negative amount is to be used for certain calculations (go to canada.ca/line-23600) Net income = ^
+
+5000-R (Page 5 of 8)
+

@@ -58,6 +58,16 @@ def _reader_callsites():
 
 CALLSITES = _reader_callsites()
 EXPECTED_CONSUMERS = {
+    ("floor_retained_referral_evidence", "_witnesses"): 1,
+    ("actual_repayment_boundary_evidence", "_witnesses"): 1,
+    ("printed_signed_format_evidence", "witnesses"): 1,
+    ("actual_floor_evidence", "witnesses"): 1,
+    ("actual_sparse_worksheet_evidence", "witnesses"): 1,
+    ("same_case_execution", "formula_witnesses"): 1,
+    ("reporting_route_evidence", "certify_reporting_routes"): 1,
+    ("partnership_reporting_evidence", "certify_partnership_reporting"): 1,
+    ("measurement_role_evidence", "evidence"): 1,
+    ("measurement_role_evidence", "_current_evidence"): 1,
     ("source_completeness", "_annual_source_evidence"): 1,
     ("source_completeness", "_formula_execution_is_source_branch_witness"): 2,
     ("source_completeness", "_unasserted_reached_formula_dependency_names"): 1,

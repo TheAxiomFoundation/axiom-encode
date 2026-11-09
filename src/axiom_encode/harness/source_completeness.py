@@ -9,10 +9,12 @@ from the source-unit admission policy implemented here.
 from __future__ import annotations
 
 import ast
+import bisect
 import calendar
 import contextlib
 import contextvars
 import copy
+import difflib
 import functools
 import hashlib
 import heapq
@@ -36,6 +38,15 @@ from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
 import yaml
 
+from axiom_encode.bare_structure import (
+    bare_definition_headers,
+    bare_outline,
+    mask_bare_labels,
+)
+from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check
+from axiom_encode.form_numeric_structure import form_numeric_locator_spans
+from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.harness.imported_export_evidence import ResolvedImportedExport
 from axiom_encode.harness.manual_locator_metadata import (
     MANUAL_CONTENTS_HEADINGS,
     MANUAL_SECTION_CAPTIONS,
@@ -45,16 +56,38 @@ from axiom_encode.harness.manual_locator_metadata import (
     REVIEWED_MANUAL_LOCATOR_SPANS,
     REVIEWED_MANUAL_REVISION_STAMPS,
 )
+from axiom_encode.harness.measurement_role_evidence import (
+    BoundMeasurementRoles,
+    ExecutedMeasurementWitness,
+    MeasurementSourceEvidence,
+    bind_measurement_roles,
+)
+from axiom_encode.harness.partnership_reporting_evidence import (
+    certify_partnership_reporting,
+)
 from axiom_encode.harness.proof_validator import (
     _normalize_atom_path,
     _source_proof_evidence_spans,
 )
+from axiom_encode.harness.repayment_alternative_evidence import (
+    RepaymentAlternativeCoverage,
+    certify_repayment_alternatives,
+)
+from axiom_encode.harness.reporting_route_evidence import certify_reporting_routes
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
+from axiom_encode.printed_source_rows import (
+    PrintedRowStructure,
+    recognize_printed_rows,
+)
 from axiom_encode.statute import (
     CitationParts,
     normalize_rulespec_path_segment,
     parse_usc_citation,
 )
+
+from .physical_allowance_conditions import read_physical_allowance_condition
+from .same_case_execution import SameCaseEvidence, formula_witnesses
+from .signed_condition_paths import signed_granting_paths
 
 if TYPE_CHECKING:
     from axiom_encode.harness.worksheet_composition_evidence import (
@@ -115,6 +148,9 @@ class _NumericOccurrenceView:
     requires_rate_context: bool
     is_word_number: bool
     alternative_values: tuple[float, ...]
+    # Carried through rebasing so a month number read from a month name keeps
+    # grounding only month comparisons (see validator_pipeline).
+    requires_month_context: bool = False
 
 
 NumericOccurrenceExtractor = Callable[[str], Sequence[NumericOccurrenceLike]]
@@ -136,6 +172,23 @@ class SourceStructureBranch:
     start: int
     end: int
     structural_numeric_spans: tuple[tuple[int, int], ...] = ()
+    computation_chapeaux: tuple[tuple[int, int, str], ...] = ()
+    required_principal_output: str | None = None
+
+    @property
+    def computation_chapeau(self) -> tuple[int, int, str] | None:
+        """The nearest authenticated cue, when a computation inherits context."""
+        return self.computation_chapeaux[-1] if self.computation_chapeaux else None
+
+    @property
+    def computation_text(self) -> str:
+        """Operation context, separate from the offset-preserving source excerpt."""
+        inherited = (
+            text
+            for start, end, text in self.computation_chapeaux
+            if not (self.start <= start and end <= self.end)
+        )
+        return "\n".join((*inherited, self.text))
 
 
 @dataclass(frozen=True)
@@ -247,6 +300,8 @@ class _TerminalGateEvidence:
     predicates: frozenset[str]
     polarity_conflict: bool
     explicit_name_polarities: frozenset[tuple[str, bool]] = frozenset()
+    numeric_income_amount: bool = False
+    affirmative_reason_evidence: bool = False
 
 
 @dataclass(frozen=True)
@@ -431,10 +486,15 @@ _INLINE_OUTLINE_EXPLICIT_REFERENCE_COMMAND = re.compile(
     r".{0,160}[:;.!?—]\s*$",
     flags=re.IGNORECASE | re.DOTALL,
 )
+_RECALL_UNIT_WORD = (
+    r"(?i:days?|weeks?|months?|years?|hours?|percent|members?|persons?|"
+    r"people|dollars?|cents?)"
+)
 _GLUED_SENTENCE_MARKER = re.compile(
     r"(?<![\w])(?P<label>[1-9]\d?)"
     r"(?![A-ZÄÖÜ](?:\d+)?\b)"
     r"(?!(?i:st|nd|rd|th)\b)"
+    rf"(?!{_RECALL_UNIT_WORD}\b|(?i:per[ \t\u00a0\u202f]+cent)\b)"
     r"(?=[A-ZÄÖÜ](?!:)(?![ \t]*[.:/\-\u2010-\u2015\u2212\ufe58\ufe63\uff0d]"
     r"[ \t]*\d))"
 )
@@ -527,7 +587,7 @@ _SYMBOLIC_ARITHMETIC_OPERAND = (
 )
 _WORDED_ARITHMETIC_EXPRESSION = re.compile(
     rf"{_SYMBOLIC_ARITHMETIC_OPERAND}\s+"
-    r"(?:plus|minus|mal|less(?!\s+than\b))\s+(?:the\s+)?"
+    r"(?:plus|minus|mal|less(?!\s+(?:than|often\s+than)\b))\s+(?:the\s+)?"
     r"(?!(?:beträgt|gilt|ist|sind|wird|werden|equals?|applies?)\b)"
     rf"{_SYMBOLIC_ARITHMETIC_OPERAND}",
     flags=re.IGNORECASE,
@@ -2228,12 +2288,115 @@ _BRACKETED_USC_ET_SEQ_CITATION_LIST = re.compile(
 # continuations keep the identifier's hyphenated shape and never take a range
 # that a unit word follows, so `policy 254, 3 members`, `policy 254, 10-15
 # days` and `policy 10-day notice` keep their values.
-_RECALL_UNIT_WORD = (
-    r"(?i:days?|weeks?|months?|years?|hours?|percent|members?|persons?|"
-    r"people|dollars?|cents?)"
-)
 _RECALL_UNIT_FOLLOWS = (
     rf"[ \t]*(?:%|-?(?:[A-Za-z]+[ \t-]+){{0,2}}{_RECALL_UNIT_WORD}\b)"
+)
+# Scan labels first, then prove their reference boundary. Arbitrary connectives
+# and quantity words cannot prove that a bare coordinated number is a locator.
+_NUMERIC_RECALL_IDENTIFIER_TRANSLATION = str.maketrans(
+    {
+        "\u00a0": " ",
+        "\u202f": " ",
+        "‘": "'",
+        "’": "'",
+        "“": '"',
+        "”": '"',
+        "−": "-",
+        "–": "-",
+        "—": "-",
+    }
+)
+# Keep locator readers ASCII: Unicode case folding must not prove unit suffixes.
+_ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR = (
+    r"(?<![A-Za-z])(?:[A-Za-z][ \t]*)?\d+[A-Za-z]?"
+    r"(?:[ \t]+[A-Za-z]\b)?(?:\([A-Za-z]\))*"
+    r"(?!\w|[.,]\d)"
+)
+_ENGLISH_SUBDIVISION_LOCATOR_TOKEN = re.compile(
+    _ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR, flags=re.ASCII
+)
+_ENGLISH_SUBDIVISION_NUMERIC_RECALL_CITATION = re.compile(
+    r"\b(?P<keyword>subdivisions?)[ \t]+(?P<labels>"
+    + _ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR
+    + r"(?:[ \t]*(?:,[ \t]*(?:(?:and|or)[ \t]+)?|"
+    r"(?:and|or|through|to)[ \t]+|[-–—][ \t]*)"
+    + _ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR
+    + r")*)",
+    flags=re.IGNORECASE | re.ASCII,
+)
+_ENGLISH_SUBDIVISION_STATUTORY_TAIL = re.compile(
+    r"[ \t]+of[ \t]+(?:(?:this|the|that)[ \t]+"
+    r"(?:section|subsection|paragraph|subdivision|act|code|chapter)\b|"
+    r"§[ \t]*\d+(?:[.-]\d+)*(?:\([A-Za-z0-9]+\))*)"
+    r"(?=[ \t]*(?:$|[,.;:](?!\d)|"
+    r"for[ \t]+(?:the[ \t]+same[ \t]+taxable[ \t]+year|taxpayers)\b))",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_SUBDIVISION_REFERENCE_BOUNDARY = re.compile(
+    r"[ \t]*(?:$|[.;:](?!\d)|"
+    r"(?:for[ \t]+the[ \t]+same[ \t]+taxable[ \t]+year|hereof|herein)"
+    r"(?=[ \t]*(?:$|[,.;:](?!\d)))|"
+    r",[ \t]*(?:claim\b|use\b|the[ \t]+(?:credit|tax|deduction|subtraction)\b|"
+    r"the[ \t]+following[ \t]+applies[ \t]*:|"
+    r'(?:"[A-Za-z][A-Za-z -]*"|“[A-Za-z][A-Za-z -]*”)[ \t]+'
+    r"(?:means?|includes?|refers?[ \t]+to)\b))",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_SUBDIVISION_QUANTITY_CLAUSE_BOUNDARY = re.compile(
+    # A comma alone cannot separate a locator from a shared quantity list.
+    # Prove a complete, independent quantity subject and finite predicate.
+    # Coordination stays ambiguous; a local comparison or range is one subject.
+    r"[ \t]*,[ \t]+\d+(?:\.\d+)?"
+    r"(?:[ \t]*(?:[-–—]|to\b|through\b)[ \t]*\d+(?:\.\d+)?)?"
+    r"(?:[ \t]+or[ \t]+(?:more|fewer|less|greater)\b)?[ \t]+"
+    # Bound positive proof work; longer or ambiguous clauses stay demanded.
+    r"(?:(?!(?:and|or)\b)[\w'’%-]+[ \t]+){0,32}"
+    r"(?:qualif(?:y|ies)|(?:must|shall|may|can|is|are)[ \t]+"
+    r"(?:(?!(?:and|or)\b)[A-Za-z][\w'’-]*[ \t]+){0,32}"
+    r"(?!(?:and|or)\b)[A-Za-z][\w'’-]*)"
+    r"(?=[ \t]*(?:$|[.;:](?!\d)))",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_SUBDIVISION_SINGLE_REFERENCE_PREDICATE = re.compile(
+    r"[ \t]+(?:(?:is|are)[ \t]+(?:required|applicable|authorized)|"
+    r"appl(?:y|ies)|provides?|authorizes?|governs?|requires?)\b(?!-)",
+    flags=re.IGNORECASE,
+)
+# The exact phrase can identify poverty-guideline geography. The span helper
+# also requires bare or definite reference syntax, retaining unknown units.
+_CONTIGUOUS_STATES_NUMERIC_RECALL_IDENTIFIER = re.compile(
+    r"(?<![\w.,])48(?=[ \t]+contiguous[ \t]+states\b)",
+    flags=re.IGNORECASE,
+)
+# A table column label that names a jurisdiction set, such as USDA's
+# `Household Size 48 States, District of Columbia, Guam, Virgin Islands`.
+# The capitalized `States` must be followed directly by a listed jurisdiction
+# (District of Columbia, D.C., DC, Guam or Virgin Islands); `48 States` alone,
+# `48 states` and `48 months` keep their demand. The span helper also requires
+# the column caption `Household Size` directly before it and the table's first
+# row (`1 $1,305`) after the column headers: in prose, even `The 48 States and
+# DC must approve ...` can state an operative count, and a row such as
+# `Maximum Household Size 48 States, ...` is not a header.
+_JURISDICTION_SET_LABEL_NUMERIC_RECALL_IDENTIFIER = re.compile(
+    r"(?<![\w.,])48(?= States[ \t]*(?:,|&|and\b)[ \t]*(?:the[ \t]+)?"
+    r"(?:District[ \t]+of[ \t]+Columbia\b|D\.[ \t]?C\.|DC\b|Guam\b|"
+    r"Virgin[ \t]+Islands\b))"
+)
+_JURISDICTION_SET_LABEL_CAPTION = re.compile(
+    r"(?<![\w$])Household[ \t]+Size\Z", re.IGNORECASE
+)
+# A qualifier before the caption (`Maximum Household Size 48 ...`, across any
+# whitespace) makes it a row label with an operative value.
+_JURISDICTION_SET_LABEL_CAPTION_QUALIFIER = re.compile(
+    r"\b(?:max(?:imum)?|min(?:imum)?|largest|smallest|total|average|eligible|"
+    r"limit|up[ \t]+to)\W*\Z",
+    re.IGNORECASE,
+)
+# Only column-header words (no digit, currency sign or second `Household`
+# caption, at most 200 characters) may separate the label from row
+# `1 $<amount>`.
+_JURISDICTION_SET_LABEL_FIRST_ROW = re.compile(
+    r"(?:(?!household)[^\d$]){0,200}?(?<!\S)1[ \t]+\$[ \t]*\d", re.IGNORECASE
 )
 _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
     r"\bWAC[ \t]+\d+-\d+-\d+[A-Za-z]?"
@@ -2258,15 +2421,63 @@ _NUMBERED_MANUAL_HEADING_LABEL = re.compile(
     r"Business|Calendar|Working)\b)"
     r"(?P<title>[A-Z][A-Za-z'’&()/-]*(?:[ \t,]+[A-Za-z'’&()/-]+){1,15})[ \t]*$)"
 )
+# A ZIP+4 extension. PDF extraction can split it after its hyphen
+# (`22314-\n1500`) or space it on the same line (`20001 - 3710;`, only
+# before punctuation, a line end or a telephone number: `22902 -2964
+# 434-970-3160`). A hyphen that opens a new line is a bullet
+# (`22314\n- 1500, ...`), never an extension.
+_US_ZIP_PLUS_FOUR_EXTENSION = (
+    r"(?:-[ \t]*(?:\r?\n[ \t]*)?\d{4}"
+    r"|[ \t]+-[ \t]*\d{4}(?=[ \t]*(?:[;,)]|\.(?!\d)|\r?\n|\Z)"
+    r"|[ \t]+(?:\(\d{3}\)[ \t]*|\d{3}[-.])\d{3}-\d{4}\b))(?![\d-])"
+)
 # Telephone numbers, post-office boxes, ZIP+4 codes and letter-prefixed form
-# numbers (`Schedule K-210`) on US forms and notices. PDF extraction can split
-# a ZIP+4 code at its hyphen.
+# numbers (`Schedule K-210`) on US forms and notices.
 _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL = re.compile(
     r"(?:\(\d{3}\)\s*|\b(?:1-)?\d{3}[-.])\d{3}-\d{4}\b"
     r"|\bP\.?\s*O\.?\s*Box\s+\d+\b"
-    r"|\b[A-Z]{2}\s+\d{5}\s*-\s*\d{4}\b"
+    rf"|\b[A-Z]{{2}}\s+\d{{5}}{_US_ZIP_PLUS_FOUR_EXTENSION}"
     r"|\b(?:Schedule|Form)[ \t]+[A-Z]{1,3}-\d+[A-Z]*(?:-\d+[A-Z]*)*\b"
 )
+# A complete US postal address: house number, capitalized street name and
+# street suffix, an optional directional and suite/room, then `City, ST
+# 12345[-6789]` with a USPS state code. Only the whole address is removed, so
+# its house number and ZIP code are never demanded. A number after a digit,
+# sign, decimal point or comma, or after a currency sign or `USD` across any
+# whitespace (`$1,320 Braddock Place ...`, see `_us_street_address_or_amount`),
+# is not a house number, and an address without the city/state/ZIP tail keeps
+# every number demanded.
+_US_STREET_ADDRESS_NUMERIC_RECALL = re.compile(
+    r"(?<![\w.,$¢£¥€₹₩+\-−])\d{1,6}"
+    r"\s+[A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,4}\s+"
+    r"(?:Avenue|Ave\.?|Boulevard|Blvd\.?|Center|Drive|Dr\.?|Lane|Ln\.?|Parkway|"
+    r"Pkwy\.?|Place|Pl\.?|Plaza|Road|Rd\.?|Street|St\.?|Way)(?![\w'’-])"
+    r"(?:,?\s+[NS]\.?[EW]\.?(?![\w'’-]))?"
+    r"(?:,\s*(?:Suite|Ste\.?|Room|Rm\.?)\s+(?=[A-Z]*\d)[A-Z\d]{1,6}(?:-\d{1,6})?"
+    r"(?![\w'’-]))?"
+    r",\s*[A-Za-z .'-]+,\s*"
+    r"(?:A[KLRSZ]|C[AOT]|D[CE]|FL|G[AU]|HI|I[ADLN]|K[SY]|LA|M[ADEINOPST]|"
+    r"N[CDEHJMVY]|O[HKR]|P[AR]|RI|S[CD]|T[NX]|UT|V[AIT]|W[AIVY])"
+    rf"\s+\d{{5}}(?:{_US_ZIP_PLUS_FOUR_EXTENSION})?(?!\d)"
+)
+_US_STREET_ADDRESS_CURRENCY_PREFIX = re.compile(r"(?:[$¢£¥€₹₩]|\b(?i:usd))\Z")
+
+
+def _us_street_address_or_amount(match: re.Match[str]) -> str:
+    """Remove a postal address unless its first number reads as an amount."""
+
+    before = match.start()
+    while before > 0 and (
+        match.string[before - 1].isspace() or match.string[before - 1] in "+-−–"
+    ):
+        before -= 1
+    if _US_STREET_ADDRESS_CURRENCY_PREFIX.search(
+        match.string, max(0, before - 4), before
+    ):
+        return match.group(0)
+    return ""
+
+
 # Paginated US manuals open each page with its page number and a revision
 # stamp: the Oregon Programs Eligibility Notebook reads `93 (07/2026) Chapter
 # 2:Eligibility ...` or `26 Chapter 1: Introduction ... (07/2026)`. These
@@ -2456,6 +2667,8 @@ _SESSION_LAW_SENTENCE_SEPARATOR = re.compile(
     rf"(?:{_SESSION_LAW_PUBLICATION})?{_SESSION_LAW_YEAR_CHAPTER})",
     flags=re.IGNORECASE,
 )
+_SESSION_LAW_PARAGRAPH_BREAK = re.compile(r"\r?\n[ \t]*\r?\n")
+_SESSION_LAW_CONTINUATION_WRAPPER = re.compile(r"(?:[('\"“‘][ \t]*){0,2}")
 # A validated citation can introduce body prose in an earlier paragraph.
 # The opening must be ordinary prose, currency or a number with a unit or
 # arithmetic operator, with finite history continuations excluded. Dates,
@@ -2484,6 +2697,12 @@ _SESSION_LAW_OPERATIVE_CONTINUATION = re.compile(
     r"[A-Za-z]+\b|\d+\s*[-+*/]\s*\d+\b)",
     flags=re.IGNORECASE,
 )
+# The same predicate anchored at a ``pos`` rather than the string start, so a
+# caller can match inside the source without copying the remaining suffix.
+_SESSION_LAW_OPERATIVE_CONTINUATION_AT = re.compile(
+    _SESSION_LAW_OPERATIVE_CONTINUATION.pattern.removeprefix("^"),
+    flags=_SESSION_LAW_OPERATIVE_CONTINUATION.flags,
+)
 _ALABAMA_TERMINAL_ACT_HISTORY_ENTRY = re.compile(
     r"\s*Acts?\s+"
     r"(?:"
@@ -2507,6 +2726,58 @@ _ALABAMA_TERMINAL_CODE_HISTORY_ENTRY = re.compile(
     r"§{1,2}\s*\d+(?:\s*(?:,|and|through|to|[-–—])\s*\d+)*"
     r"\s*\.?\s*",
     flags=re.IGNORECASE,
+)
+_ARMENIAN_AMENDMENT_HISTORY_DASH = (
+    r"[-\u058a\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d]"
+)
+# The one dot class, used for the article label's decimal point, the action's
+# optional period and both date separators. The encoder prompt names exactly
+# these characters.
+_ARMENIAN_AMENDMENT_HISTORY_DOT = r"[.\u2024]"
+# ASCII digits only, as the prompt's `DD.MM.YY` spells them. Matched against
+# the stripped body: no lazy quantifier and no trailing
+# whitespace run, so a long whitespace run cannot make the match quadratic.
+_ARMENIAN_AMENDMENT_HISTORY_ARTICLE = re.compile(
+    rf"[0-9]+(?:{_ARMENIAN_AMENDMENT_HISTORY_DOT}[0-9]+)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}"
+    r"(?:ին|րդ)\s+հոդվածը\s+(?P<history>\S.*)",
+    flags=re.DOTALL,
+)
+# Amendment-action abbreviations are matched case-insensitively, but the paired
+# `ՀՕ-N[-N]-Ն` law identifier is not: scope the case folding to the action
+# alternation so recognizing an uppercase action cannot also fold the
+# identifier's casing and admit a citation the prompt contract does not permit.
+_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN = (
+    rf"(?i:փոփ|լրաց|խմբ)(?:{_ARMENIAN_AMENDMENT_HISTORY_DOT})?"
+)
+_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN = (
+    rf"[0-9]{{2}}{_ARMENIAN_AMENDMENT_HISTORY_DOT}[0-9]{{2}}"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DOT}[0-9]{{2}}(?:[0-9]{{2}})?\s+Հ(?:Օ)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}[0-9]+(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}[0-9]+)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}Ն"
+)
+_ARMENIAN_AMENDMENT_HISTORY_ACTION = re.compile(
+    _ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN,
+)
+_ARMENIAN_AMENDMENT_HISTORY_CITATION = re.compile(
+    _ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN,
+)
+# Possessive: no action or citation token can begin with a separator character,
+# so giving separator characters back never enables a match. Committing to the
+# longest run keeps the sequence scan linear on adversarial separator runs.
+_ARMENIAN_AMENDMENT_HISTORY_SEPARATOR = r"[\s,;]++"
+_ARMENIAN_AMENDMENT_HISTORY_SEQUENCE = re.compile(
+    rf"\s*(?:{_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN}|"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN})(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_SEPARATOR}(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN}|"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN}))*\s*",
+)
+# One parenthetical alone on its line. Any parenthesis inside the body fails
+# the candidate, so nested ledgers are never consumed whole.
+_ARMENIAN_AMENDMENT_HISTORY_CANDIDATE = re.compile(
+    r"(?:^|\r?\n)[ \t]*\((?P<body>[^()]*)\)(?=[ \t]*(?:\r?\n|$))"
 )
 _FORMULA_IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 
@@ -2612,6 +2883,66 @@ def recognize_source_structure(
 
     if _IRS_REVENUE_PROCEDURE_CITATION.fullmatch(corpus_citation_path):
         return _irs_revenue_procedure_structure(source_text)
+
+    outline = bare_outline(source_text, corpus_citation_path=corpus_citation_path)
+    if outline:
+        masked = mask_bare_labels(source_text, outline)
+        branches = [
+            SourceStructureBranch(
+                # An unproven root (`label.proven` is false) keeps its outline
+                # path, but nothing proves its number names that subsection:
+                # its label stays an obligation and the resolver won't slice it.
+                tuple(part.lower() for part in label.path),
+                "paragraph" if label.token[0].isdigit() else "letter",
+                f"({label.token})",
+                masked[label.start : label.end],
+                label.start,
+                label.end,
+            )
+            for label in outline
+        ]
+        definitions = bare_definition_headers(source_text, outline)
+        for index, (start, term) in enumerate(definitions):
+            owner = max(
+                (label for label in outline if label.start <= start < label.end),
+                key=lambda label: (len(label.path), label.start),
+                default=None,
+            )
+            end = (
+                definitions[index + 1][0]
+                if index + 1 < len(definitions)
+                else len(source_text)
+            )
+            if owner is not None:
+                end = min(end, owner.end)
+            branches.append(
+                SourceStructureBranch(
+                    tuple(part.lower() for part in owner.path) if owner else (),
+                    "definition",
+                    term,
+                    masked[start:end],
+                    start,
+                    end,
+                )
+            )
+        prefix_end = min(branch.start for branch in branches)
+        if masked[:prefix_end].strip():
+            # A bare outline's unlabelled chapeau remains an active source
+            # branch: its thresholds and conditions are independent of the
+            # following child bodies. Keep offsets aligned with source text.
+            branches.append(
+                SourceStructureBranch(
+                    (),
+                    "source-unit",
+                    "source unit",
+                    masked[:prefix_end],
+                    0,
+                    prefix_end,
+                )
+            )
+        return tuple(
+            sorted(branches, key=lambda branch: (branch.start, len(branch.path)))
+        )
 
     branches: list[SourceStructureBranch] = []
     paragraph_segments: list[tuple[tuple[str, ...], int, int, str]] = []
@@ -5121,6 +5452,113 @@ def _has_substantive_arithmetic_expression(source_text: str) -> bool:
     return False
 
 
+_SITE_ANALYZE = (
+    "axiom_encode/harness/source_completeness.py:analyze_complete_source_unit"
+)
+
+CHECK_STRUCTURE_BRANCH_UNENCODED = declare_check(
+    "complete-source-unit:structure/branch-unencoded",
+    title="Source branch neither encoded nor precisely deferred",
+    requires=(
+        "Every operative branch of the authoritative source unit is cited by a "
+        "rule's `source:` or proof atom, or is listed in "
+        "`module.deferred_outputs` with a reason that names the exact missing "
+        "dependency."
+    ),
+    why=(
+        "A complete-source encoding claims the whole unit. A branch that is "
+        "neither encoded nor deferred is silently dropped law: the module "
+        "computes a result the source does not support."
+    ),
+    fix=(
+        "Encode the branch in a rule that cites it (source path or proof "
+        "excerpt from its own text), or add a precise "
+        "`module.deferred_outputs` entry for that branch. Descendant citations "
+        "do not cover a substantive parent chapeau."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+CHECK_FORMULA_BRANCH_WITHOUT_OUTPUT = declare_check(
+    "complete-source-unit:formula-output/branch-without-output",
+    title="Explicit source computation has no principal output",
+    requires=(
+        "Each source branch that states a computation is implemented by a "
+        "principal `derived` or `derived_relation` rule bound to that branch."
+    ),
+    why=(
+        "A computation stated only as parameters cannot be executed or tested; "
+        "consumers of the module get no computed amount."
+    ),
+    fix=(
+        "Add a principal derived rule whose formula implements the branch and "
+        "whose source or formula proof cites the branch, or precisely defer "
+        "the branch."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+CHECK_FORMULA_UNIT_WITHOUT_OUTPUT = declare_check(
+    "complete-source-unit:formula-output/unit-without-output",
+    title="Source unit states a computation but has no principal output",
+    requires=(
+        "A source unit that states an explicit computation has at least one "
+        "principal `derived` or `derived_relation` output."
+    ),
+    why="A parameter-only module cannot compute what the source states.",
+    fix=(
+        "Add the principal derived output that computes the source-stated "
+        "amount from its inputs and parameters."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+CHECK_FORMULA_CONTROL_WITHOUT_OUTPUT = declare_check(
+    "complete-source-unit:formula-output/control-without-output",
+    title="Source-stated control has no principal output",
+    requires=(
+        "Each source-stated control (a condition, limit or selection) is "
+        "implemented by a principal `derived` or `derived_relation` rule that "
+        "covers the control's branch."
+    ),
+    why=(
+        "A control encoded only as a parameter does not change any computed "
+        "result, so the module ignores a condition the law imposes."
+    ),
+    fix=(
+        "Encode the control inside a principal derived rule that covers its "
+        "branch, or precisely defer the branch."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+CHECK_NUMERIC_RECALL_VALUE_UNNAMED = declare_check(
+    "complete-source-unit:numeric-recall/value-unnamed",
+    title="Source numeric value has no named scalar",
+    requires=(
+        "Every numeric value in the authoritative source text is represented "
+        "by a named scalar (a parameter or a named constant) in the module."
+    ),
+    why=(
+        "A number the source states but the module does not name is either "
+        "dropped law or hidden inside a formula, where it cannot be grounded "
+        "or updated."
+    ),
+    fix=(
+        "Add a parameter (or bind the value in an existing one) for the "
+        "missing value, grounded in the source text. `module.summary` does not "
+        "count."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+
+
 def analyze_complete_source_unit(
     content: str,
     authoritative_source_text: str,
@@ -5135,8 +5573,12 @@ def analyze_complete_source_unit(
     artifact_numeric_bindings: Sequence[tuple[str, float]] | None = None,
     authenticated_same_act_aliases: Sequence[str] = (),
     imported_symbol_contents: Sequence[tuple[str, str]] = (),
+    imported_export_bindings: Sequence[ResolvedImportedExport] = (),
+    imported_proof_source_context: Mapping[str, str | None] | None = None,
     resolved_dependency_outputs: Sequence[str] = (),
     source_context: Mapping[str, str | None] | None = None,
+    execution_evidence: SameCaseEvidence | None = None,
+    referral_context: Any = None,
 ) -> CompleteSourceUnitAnalysis:
     """Analyze one artifact against its authoritative, resolver-owned body."""
 
@@ -5150,32 +5592,87 @@ def analyze_complete_source_unit(
             )
             return CompleteSourceUnitAnalysis((issue,), (), 0, 0, 0)
 
-        with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        try:
             payload = yaml.safe_load(content)
-            if isinstance(payload, dict) and payload.get("format") == "rulespec/v1":
-                return _analyze_rulespec_payload(
-                    payload,
-                    content=content,
-                    source_text=source_text,
-                    raw_source_text=authoritative_source_text,
-                    corpus_citation_path=corpus_citation_path,
-                    test_cases=test_cases,
-                    extract_numeric_occurrences=extract_numeric_occurrences,
-                    extract_numeric_grounding_occurrences=(
-                        extract_numeric_grounding_occurrences
-                        or extract_numeric_occurrences
-                    ),
-                    extract_named_scalars=extract_named_scalars,
-                    numeric_value_is_grounded=numeric_value_is_grounded,
-                    artifact_numeric_values=artifact_numeric_values,
-                    artifact_numeric_bindings=artifact_numeric_bindings,
-                    authenticated_same_act_aliases=authenticated_same_act_aliases,
-                    imported_symbol_contents=imported_symbol_contents,
-                    resolved_dependency_outputs=resolved_dependency_outputs,
-                    source_context=source_context,
-                )
+        except (yaml.YAMLError, TypeError, ValueError) as exc:
+            # PyYAML raises ValueError for an impossible timestamp such as
+            # `2026-02-30`, not a YAMLError.
+            return _unanalyzable_complete_source_unit(exc)
+        if not (isinstance(payload, dict) and payload.get("format") == "rulespec/v1"):
+            return _unanalyzable_complete_source_unit(
+                None, reason="the artifact is not a `format: rulespec/v1` mapping"
+            )
+        shape_problem = _rulespec_payload_shape_problem(payload)
+        if shape_problem is not None:
+            return _unanalyzable_complete_source_unit(None, reason=shape_problem)
+        try:
+            return _analyze_rulespec_payload(
+                payload,
+                content=content,
+                execution_evidence=execution_evidence,
+                referral_context=referral_context,
+                source_text=source_text,
+                raw_source_text=authoritative_source_text,
+                corpus_citation_path=corpus_citation_path,
+                test_cases=test_cases,
+                extract_numeric_occurrences=extract_numeric_occurrences,
+                extract_numeric_grounding_occurrences=(
+                    extract_numeric_grounding_occurrences or extract_numeric_occurrences
+                ),
+                extract_named_scalars=extract_named_scalars,
+                numeric_value_is_grounded=numeric_value_is_grounded,
+                artifact_numeric_values=artifact_numeric_values,
+                artifact_numeric_bindings=artifact_numeric_bindings,
+                authenticated_same_act_aliases=authenticated_same_act_aliases,
+                imported_symbol_contents=imported_symbol_contents,
+                imported_export_bindings=imported_export_bindings,
+                imported_proof_source_context=imported_proof_source_context,
+                resolved_dependency_outputs=resolved_dependency_outputs,
+                source_context=source_context,
+            )
+        except (yaml.YAMLError, TypeError, ValueError) as exc:
+            # A gate that cannot read its input must report it, never pass it.
+            return _unanalyzable_complete_source_unit(exc)
 
-        return CompleteSourceUnitAnalysis((), (), 0, 0, 0)
+
+def _rulespec_payload_shape_problem(payload: Mapping[str, Any]) -> str | None:
+    """Name a top-level shape this analysis cannot read, or return None.
+
+    Some malformed shapes do not raise: a bare string in `inputs` is skipped,
+    so the analysis would pass the artifact on what it could read (#1927).
+    Every RuleSpec file in this repository has `rules` as a list of mappings
+    and `inputs` as a list of mappings or one mapping; anything else is
+    reported instead of analysed.
+    """
+
+    if "rules" in payload:
+        rules = payload["rules"]
+        if not isinstance(rules, list) or not all(
+            isinstance(rule, dict) for rule in rules
+        ):
+            return "`rules` is not a list of mappings"
+    if "inputs" in payload:
+        inputs = payload["inputs"]
+        if not isinstance(inputs, dict) and (
+            not isinstance(inputs, list)
+            or not all(isinstance(item, dict) for item in inputs)
+        ):
+            return "`inputs` is not a mapping or a list of mappings"
+    return None
+
+
+def _unanalyzable_complete_source_unit(
+    exc: BaseException | None, *, reason: str | None = None
+) -> CompleteSourceUnitAnalysis:
+    """Fail closed when a payload cannot be analysed (issue #1927)."""
+
+    detail = reason or f"{type(exc).__name__}: {exc}"
+    issue = (
+        "[complete-source-unit:unanalyzable] The RuleSpec payload could not be "
+        f"analysed against its authoritative source ({detail}); fix the payload "
+        "shape before completeness can pass."
+    )
+    return CompleteSourceUnitAnalysis((issue,), (), 0, 0, 0)
 
 
 def _bind_currency_rounding_rules(payload: dict[str, Any]) -> dict[str, Any]:
@@ -5273,9 +5770,17 @@ def _analyze_rulespec_payload(
     authenticated_same_act_aliases: Sequence[str],
     imported_symbol_contents: Sequence[tuple[str, str]],
     resolved_dependency_outputs: Sequence[str],
+    imported_export_bindings: Sequence[ResolvedImportedExport] = (),
+    imported_proof_source_context: Mapping[str, str | None] | None = None,
     source_context: Mapping[str, str | None] | None = None,
     raw_source_text: str | None = None,
+    execution_evidence: SameCaseEvidence | None = None,
+    referral_context: Any = None,
 ) -> CompleteSourceUnitAnalysis:
+    if execution_evidence is not None and not execution_evidence.bound(
+        content, imported_export_bindings
+    ):
+        execution_evidence = None
     local_names = {
         str(rule.get("name") or "").strip()
         for rule in payload.get("rules", [])
@@ -5381,8 +5886,26 @@ def _analyze_rulespec_payload(
         source_text=source_text,
         corpus_citation_path=corpus_citation_path,
     )
+    repayment_alternatives = (
+        certify_repayment_alternatives(
+            content,
+            source_text=source_text,
+            raw_source_text=raw_source_text or source_text,
+            citation=corpus_citation_path,
+            source_context=imported_proof_source_context,
+            imported_exports=imported_export_bindings,
+            parse_branch=_parse_first_formula_branch_node,
+            parse_expression=_parse_formula_expression,
+        )
+        if _unconflicted_printed_rows(
+            source_text, branches, corpus_citation_path=corpus_citation_path
+        )
+        is not None
+        else RepaymentAlternativeCoverage()
+    )
     source_condition_issues = _opaque_same_source_condition_input_issues(
         payload,
+        consumer_content=content,
         source_text=source_text,
         care_source_text=raw_source_text,
         branches=branches,
@@ -5391,6 +5914,7 @@ def _analyze_rulespec_payload(
         certified_paths=certified_paths,
         certified_transfers=certified_transfers,
         certified_country=certified_country,
+        repayment_alternatives=repayment_alternatives,
         test_cases=test_cases,
     )
     issues.extend(source_condition_issues)
@@ -5495,11 +6019,22 @@ def _analyze_rulespec_payload(
                     "precisely defer the parent; do not invent a dummy output."
                 )
         issues.append(
-            "[complete-source-unit:structure] "
-            f"Source branch {branch.label} at "
-            f"{_branch_citation(corpus_citation_path, branch)} is neither "
-            "encoded nor precisely deferred."
-            f"{covered_descendant_detail}"
+            ValidationIssue(
+                "[complete-source-unit:structure] "
+                f"Source branch {branch.label} at "
+                f"{_branch_citation(corpus_citation_path, branch)} is neither "
+                "encoded nor precisely deferred."
+                f"{covered_descendant_detail}",
+                check=CHECK_STRUCTURE_BRANCH_UNENCODED,
+                subject=_branch_subject(corpus_citation_path, branch),
+                expected="encoded or precisely deferred",
+                found=(
+                    "only descendants covered"
+                    if covered_descendant_detail
+                    else "neither encoded nor deferred"
+                ),
+                evidence=branch.text,
+            )
         )
 
     active_branches = tuple(
@@ -5507,8 +6042,16 @@ def _analyze_rulespec_payload(
         for branch in branches
         if not _path_is_deferred(branch.path, deferred_paths)
     )
+    printed_operations = _printed_operation_context(
+        source_text,
+        branches,
+        corpus_citation_path,
+        consumer_content=content,
+        proof_sources=source_context,
+    )
     all_formula_branches = _source_formula_branches(
         source_text,
+        printed_operations=printed_operations,
         corpus_citation_path=corpus_citation_path,
         branches=branches,
         active_branches=branches,
@@ -5516,6 +6059,7 @@ def _analyze_rulespec_payload(
     )
     formula_branches = _source_formula_branches(
         source_text,
+        printed_operations=printed_operations,
         corpus_citation_path=corpus_citation_path,
         branches=branches,
         active_branches=active_branches,
@@ -5533,14 +6077,17 @@ def _analyze_rulespec_payload(
         numeric_exception_controls_only=_is_us_manual_citation_path(
             corpus_citation_path
         ),
+        corpus_citation_path=corpus_citation_path,
     )
     principal_formula_clause_rules = _principal_formula_clause_rules(
         formula_branches,
+        printed_operations=printed_operations,
         source_text=source_text,
         principal_rules=principal_rules,
         principal_rule_paths=principal_rule_paths,
         named_rules=named_rules,
         corpus_citation_path=corpus_citation_path,
+        deferred_paths=deferred_paths,
     )
     source_has_computation = source_states_explicit_computation(
         source_text, corpus_citation_path=corpus_citation_path
@@ -5564,50 +6111,75 @@ def _analyze_rulespec_payload(
                 if principal_formula_clause_rules[branch]:
                     continue
                 issues.append(
-                    "[complete-source-unit:formula-output] "
-                    f"Explicit source computation {branch.label} in "
-                    f"{_branch_citation(corpus_citation_path, branch)} has no "
-                    "principal derived/relation output (`derived` or "
-                    "`derived_relation`) and is not "
-                    "precisely deferred; parameter-only representation is invalid."
-                    + _formula_output_binding_feedback(
-                        branch,
-                        corpus_citation_path=corpus_citation_path,
-                        has_path_covering_principal=bool(
-                            _rules_covering_branch(
-                                branch,
-                                principal_rule_paths,
-                            )
+                    ValidationIssue(
+                        "[complete-source-unit:formula-output] "
+                        f"Explicit source computation {branch.label} in "
+                        f"{_branch_citation(corpus_citation_path, branch)} has no "
+                        "principal derived/relation output (`derived` or "
+                        "`derived_relation`) and is not "
+                        "precisely deferred; parameter-only representation is invalid."
+                        + _formula_output_binding_feedback(
+                            branch,
+                            corpus_citation_path=corpus_citation_path,
+                            has_path_covering_principal=bool(
+                                _rules_covering_branch(
+                                    branch,
+                                    principal_rule_paths,
+                                )
+                            ),
+                            same_owner_missing=missing_formula_branches_by_path[
+                                branch.path
+                            ],
                         ),
-                        same_owner_missing=missing_formula_branches_by_path[
-                            branch.path
-                        ],
+                        check=CHECK_FORMULA_BRANCH_WITHOUT_OUTPUT,
+                        subject=_branch_subject(corpus_citation_path, branch),
+                        expected="principal derived/relation output",
+                        found="no principal output bound to the branch",
+                        evidence=branch.text,
                     )
                 )
         elif not all_formula_branches and not _path_covered(
             (), principal_paths, deferred_paths
         ):
             issues.append(
-                "[complete-source-unit:formula-output] Explicit source computation "
-                "has no principal derived/relation output (`derived` or "
-                "`derived_relation`); "
-                "parameter-only representation is invalid."
+                ValidationIssue(
+                    "[complete-source-unit:formula-output] Explicit source computation "
+                    "has no principal derived/relation output (`derived` or "
+                    "`derived_relation`); "
+                    "parameter-only representation is invalid.",
+                    check=CHECK_FORMULA_UNIT_WITHOUT_OUTPUT,
+                    subject=IssueSubject(citation=corpus_citation_path),
+                    expected="principal derived/relation output",
+                    found="parameters only",
+                )
             )
     for branch in control_branches:
         if _rules_covering_branch(branch, principal_rule_paths):
             continue
         issues.append(
-            "[complete-source-unit:formula-output] Source-stated control "
-            f"{branch.label} in "
-            f"{_branch_citation(corpus_citation_path, branch)} has no "
-            "principal derived/relation output (`derived` or "
-            "`derived_relation`) and is not precisely deferred; "
-            "parameter-only representation is invalid."
+            ValidationIssue(
+                "[complete-source-unit:formula-output] Source-stated control "
+                f"{branch.label} in "
+                f"{_branch_citation(corpus_citation_path, branch)} has no "
+                "principal derived/relation output (`derived` or "
+                "`derived_relation`) and is not precisely deferred; "
+                "parameter-only representation is invalid.",
+                check=CHECK_FORMULA_CONTROL_WITHOUT_OUTPUT,
+                subject=_branch_subject(corpus_citation_path, branch),
+                expected="principal derived/relation output covering the control",
+                found="no principal output covers the branch",
+                evidence=branch.text,
+            )
         )
 
     represented_annual_spans: set[tuple[int, int]] = set(
         certified_operations.annual_spans
     )
+    measurement_roles = bind_measurement_roles(
+        payload, source_text, corpus_citation_path
+    )
+    represented_measurement_spans: set[tuple[int, int]] = set()
+    measurement_witnesses: set[ExecutedMeasurementWitness] = set()
     companion_issues: list[str] = []
     if principal_rules:
         imported_parameters = _resolved_imported_parameter_rules(
@@ -5634,9 +6206,18 @@ def _analyze_rulespec_payload(
         companion_issues.extend(
             _companion_test_issues(
                 principal_rules,
+                execution_evidence=execution_evidence,
+                referral_context=referral_context,
+                floor_imported_exports=imported_export_bindings,
+                floor_source_context=imported_proof_source_context,
+                printed_operations=printed_operations,
+                partnership_content=content,
                 certified_composition=certified_composition,
                 certified_replacement=certified_replacement,
                 represented_annual_spans=represented_annual_spans,
+                measurement_roles=measurement_roles,
+                represented_measurement_spans=represented_measurement_spans,
+                measurement_witnesses=measurement_witnesses,
                 certified_paths=certified_paths,
                 certified_operations=certified_operations,
                 certified_transfers=certified_transfers,
@@ -5694,9 +6275,11 @@ def _analyze_rulespec_payload(
         )
     )
     unrepresented_occurrences = source_occurrences
-    if represented_annual_spans:
+    if represented_annual_spans or represented_measurement_spans:
         unrepresented_recall_text = authoritative_numeric_recall_text(
-            _mask_numeric_spans(source_text, represented_annual_spans),
+            _mask_numeric_spans(
+                source_text, represented_annual_spans | represented_measurement_spans
+            ),
             corpus_citation_path=corpus_citation_path,
         )
         unrepresented_occurrences = tuple(
@@ -5728,9 +6311,15 @@ def _analyze_rulespec_payload(
             missing_source_values.append(float(occurrence.value))
     for value in sorted(set(missing_source_values)):
         issues.append(
-            "[complete-source-unit:numeric-recall] Authoritative corpus numeric "
-            f"value {value:g} has no named scalar representation. "
-            "`module.summary` is not consulted."
+            ValidationIssue(
+                "[complete-source-unit:numeric-recall] Authoritative corpus numeric "
+                f"value {value:g} has no named scalar representation. "
+                "`module.summary` is not consulted.",
+                check=CHECK_NUMERIC_RECALL_VALUE_UNNAMED,
+                subject=IssueSubject(citation=corpus_citation_path),
+                expected=f"named scalar for {value:g}",
+                found="no named scalar",
+            )
         )
 
     issues.extend(companion_issues)
@@ -5892,6 +6481,8 @@ def _principal_formula_clause_rules(
     principal_rule_paths: dict[str, set[tuple[str, ...]]],
     named_rules: dict[str, dict[str, Any]],
     corpus_citation_path: str,
+    deferred_paths: set[tuple[str, ...]] | None = None,
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> dict[SourceStructureBranch, set[str]]:
     """Bind each computation clause to principal output evidence.
 
@@ -5908,6 +6499,17 @@ def _principal_formula_clause_rules(
     clause_rules: dict[SourceStructureBranch, set[str]] = {}
     normalized_citation_path = corpus_citation_path.strip("/").lower()
     chart_heading_starts = frozenset(_work_chart_heading_starts(source_text))
+    bare_labels = (
+        bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
+    display_text = mask_bare_labels(source_text, bare_labels)
+    active_display = list(display_text)
+    for label in bare_labels:
+        if _path_is_deferred(
+            tuple(part.lower() for part in label.path), deferred_paths or set()
+        ):
+            active_display[label.start : label.end] = " " * (label.end - label.start)
+    active_display_text = "".join(active_display)
 
     @functools.cache
     def excerpt_spans(excerpt: str) -> tuple[tuple[int, int], ...]:
@@ -5920,7 +6522,12 @@ def _principal_formula_clause_rules(
             type(clause.start) is int
             and type(clause.end) is int
             and 0 <= clause.start < clause.end <= len(source_text)
-            and source_text[clause.start : clause.end] == clause.text
+            and clause.text
+            in (
+                source_text[clause.start : clause.end],
+                display_text[clause.start : clause.end],
+                active_display_text[clause.start : clause.end],
+            )
         ):
             return None
         if clause.start in chart_heading_starts:
@@ -5933,19 +6540,36 @@ def _principal_formula_clause_rules(
                 return clause.text[marker.end() :]
         return _strip_source_clause_marker(clause.text)
 
-    def excerpt_covers_clause(
-        excerpt: str, clause: SourceStructureBranch, body: str | None
-    ) -> bool:
+    def excerpt_covers_clause(excerpt: str, clause: SourceStructureBranch) -> bool:
+        body = clause_body(clause)
         if body is None:
             return False
         spans = excerpt_spans(excerpt)
         if len(spans) != 1:
             return False
         start, end = spans[0]
-        body_start = clause.end - len(body)
-        return (start <= body_start and clause.end <= end) or (
-            body_start <= start and end <= clause.end
-        )
+        # Use the same uniquely located raw proof for both the child and its
+        # inherited computation context. Only certified labels and accepted
+        # deferred bodies may differ from the physical source; concatenated
+        # computation text has no coordinates.
+        excerpt_text = _collapse_text(display_text[start:end])
+        contexts = [(clause, body)]
+        for cue_start, cue_end, cue in clause.computation_chapeaux:
+            context = replace(clause, start=cue_start, end=cue_end, text=cue)
+            if (context_body := clause_body(context)) is not None:
+                contexts.append((context, context_body))
+        for context, context_body in contexts:
+            clause_text = _collapse_text(context_body)
+            if not clause_text or not (
+                excerpt_text in clause_text or clause_text in excerpt_text
+            ):
+                continue
+            body_start = context.end - len(context_body)
+            if (start <= body_start and context.end <= end) or (
+                body_start <= start and end <= context.end
+            ):
+                return True
+        return False
 
     for clause in formula_branches:
         path_rules = set(_rules_covering_branch(clause, principal_rule_paths))
@@ -5964,8 +6588,6 @@ def _principal_formula_clause_rules(
             )
         }
         uses_ancestor_binding = not path_rules
-        body = clause_body(clause)
-        clause_text = _collapse_text(body) if body is not None else ""
         rounding_direction = _rounding_only_direction(clause.text)
         clause_rules[clause] = {
             rule_name
@@ -5978,11 +6600,14 @@ def _principal_formula_clause_rules(
                 )
             )
             or any(
-                (excerpt_text := _normalized_formula_clause_text(excerpt))
-                and excerpt_citation_path.strip("/").lower() == normalized_citation_path
-                and source_states_explicit_computation(excerpt)
-                and (excerpt_text in clause_text or clause_text in excerpt_text)
-                and excerpt_covers_clause(excerpt, clause, body)
+                excerpt_citation_path.strip("/").lower() == normalized_citation_path
+                and (
+                    source_states_explicit_computation(excerpt)
+                    or _printed_operation_proof(
+                        printed_operations, clause, excerpt, excerpt_citation_path
+                    )
+                )
+                and excerpt_covers_clause(excerpt, clause)
                 for excerpt_citation_path, excerpt in (
                     _formula_dependency_source_excerpts(
                         principal_rules[rule_name],
@@ -6031,6 +6656,22 @@ def _normalized_formula_clause_text(text: str) -> str:
 
     unmarked = _strip_source_clause_marker(text)
     return _collapse_text(unmarked)
+
+
+def _formula_source_excerpt_matches(
+    branch: SourceStructureBranch, excerpt: str
+) -> bool:
+    """Match physical child or authenticated chapeau proof, never virtual offsets."""
+    quoted = _normalized_formula_clause_text(excerpt)
+    if not quoted:
+        return False
+    texts = [branch.text]
+    texts.extend(text for _start, _end, text in branch.computation_chapeaux)
+    return any(
+        text and (text in quoted or quoted in text)
+        for original in texts
+        if (text := _normalized_formula_clause_text(original))
+    )
 
 
 def _strip_source_clause_marker(text: str) -> str:
@@ -6298,6 +6939,80 @@ def _deferral_anchor_bases(corpus_citation_path: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys((base, module_root)))
 
 
+_SITE_DEFERRED_COVERAGE = (
+    "axiom_encode/harness/source_completeness.py:_deferred_coverage"
+)
+_DEFERRAL_REQUIRES = (
+    "Each `module.deferred_outputs` entry names its source branch by the "
+    "canonical source anchor and a reason that names the exact missing "
+    "dependency, input or runtime capability."
+)
+_DEFERRAL_WHY = (
+    "A deferral is a recorded gap in the encoding. A gap that is vague, or "
+    "rooted at the wrong place, cannot be audited or closed later, and it can "
+    "hide law that the module should encode."
+)
+CHECK_DEFERRAL_NON_SOURCE_ROOT = declare_check(
+    "complete-source-unit:deferral/non-source-root",
+    title="Deferral output uses a non-source root",
+    requires=_DEFERRAL_REQUIRES,
+    why=_DEFERRAL_WHY,
+    fix=(
+        "Rewrite `module.deferred_outputs[N].output` to the canonical source "
+        "anchor shown as expected, keeping the `#<output>` fragment."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_DEFERRED_COVERAGE,
+)
+CHECK_DEFERRAL_COMPUTATION_DEFERRED = declare_check(
+    "complete-source-unit:deferral/computation-deferred",
+    title="Deferral cites a branch that states an explicit computation",
+    requires=(
+        "A branch that states an explicit computation is encoded, not deferred "
+        "as a runtime gap."
+    ),
+    why=(
+        "The source gives everything needed to compute the branch, so a "
+        "deferral drops law the encoder can encode."
+    ),
+    fix=(
+        "Remove the deferral. Declare the source-stated operative facts as "
+        "local RuleSpec inputs and encode the principal derived output."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_DEFERRED_COVERAGE,
+)
+CHECK_DEFERRAL_BRANCH_DROPPED_FROM_OUTPUT = declare_check(
+    "complete-source-unit:deferral/branch-dropped-from-output",
+    title="Deferral output is rooted at the source unit, not at its branch",
+    requires=_DEFERRAL_REQUIRES,
+    why=_DEFERRAL_WHY,
+    fix=(
+        "Keep the cited branch in the deferral output path, as in the expected "
+        "value; the reason can stay."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_DEFERRED_COVERAGE,
+)
+CHECK_DEFERRAL_REASON_IMPRECISE = declare_check(
+    "complete-source-unit:deferral/reason-imprecise",
+    title="Deferral reason does not name an exact missing dependency",
+    requires=_DEFERRAL_REQUIRES,
+    why=_DEFERRAL_WHY,
+    fix=(
+        "Name the exact missing dependency (a citation of the provision that "
+        "is not yet encoded), input or runtime capability in the deferral "
+        "`reason`, or encode the branch instead."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_DEFERRED_COVERAGE,
+)
+
+
 def _deferred_coverage(
     payload: dict[str, Any],
     *,
@@ -6377,11 +7092,21 @@ def _deferred_coverage(
                     f"{preferred_anchor}/{'/'.join(display_branch)}#{fragment}"
                 )
                 issues.append(
-                    "[complete-source-unit:deferral] "
-                    f"`module.deferred_outputs[{index}].output` uses non-source "
-                    f"root `{output_path}` for source branch "
-                    f"(`{'/'.join(display_branch)}`). Use the canonical source "
-                    f"anchor, for example `{corrected_output}`."
+                    ValidationIssue(
+                        "[complete-source-unit:deferral] "
+                        f"`module.deferred_outputs[{index}].output` uses non-source "
+                        f"root `{output_path}` for source branch "
+                        f"(`{'/'.join(display_branch)}`). Use the canonical source "
+                        f"anchor, for example `{corrected_output}`.",
+                        check=CHECK_DEFERRAL_NON_SOURCE_ROOT,
+                        subject=IssueSubject(
+                            citation=corpus_citation_path,
+                            branch="/".join(display_branch),
+                            field=f"module.deferred_outputs[{index}].output",
+                        ),
+                        expected=corrected_output,
+                        found=output_path,
+                    )
                 )
             continue
         reason = str(record.get("reason") or "").strip()
@@ -6544,12 +7269,22 @@ def _deferred_coverage(
                     )
                 )
                 issues.append(
-                    "[complete-source-unit:deferral] "
-                    f"`module.deferred_outputs[{index}]` cites exact source branch "
-                    f"(`{rendered_branch}`), but that branch states an explicit "
-                    "computation and cannot be deferred as a runtime gap. Declare "
-                    "the source-stated operative facts as local RuleSpec inputs and "
-                    "encode the principal derived output."
+                    ValidationIssue(
+                        "[complete-source-unit:deferral] "
+                        f"`module.deferred_outputs[{index}]` cites exact source branch "
+                        f"(`{rendered_branch}`), but that branch states an explicit "
+                        "computation and cannot be deferred as a runtime gap. Declare "
+                        "the source-stated operative facts as local RuleSpec inputs and "
+                        "encode the principal derived output.",
+                        check=CHECK_DEFERRAL_COMPUTATION_DEFERRED,
+                        subject=IssueSubject(
+                            citation=corpus_citation_path,
+                            branch=rendered_branch,
+                            field=f"module.deferred_outputs[{index}]",
+                        ),
+                        expected="encoded principal derived output",
+                        found="deferred as a runtime gap",
+                    )
                 )
                 continue
             cited_branch = (
@@ -6578,12 +7313,22 @@ def _deferred_coverage(
                         reason=reason,
                     )
                     issues.append(
-                        "[complete-source-unit:deferral] "
-                        f"`module.deferred_outputs[{index}].output` is rooted at the "
-                        f"source unit (`{output}`), but its otherwise precise reason "
-                        f"cites exact source branch (`{rendered_branch}`). Preserve "
-                        f"that branch in the output path, for example "
-                        f"`{corrected_output}`.\n{retry_shape}"
+                        ValidationIssue(
+                            "[complete-source-unit:deferral] "
+                            f"`module.deferred_outputs[{index}].output` is rooted at the "
+                            f"source unit (`{output}`), but its otherwise precise reason "
+                            f"cites exact source branch (`{rendered_branch}`). Preserve "
+                            f"that branch in the output path, for example "
+                            f"`{corrected_output}`.\n{retry_shape}",
+                            check=CHECK_DEFERRAL_BRANCH_DROPPED_FROM_OUTPUT,
+                            subject=IssueSubject(
+                                citation=corpus_citation_path,
+                                branch=rendered_branch,
+                                field=f"module.deferred_outputs[{index}].output",
+                            ),
+                            expected=corrected_output,
+                            found=output,
+                        )
                     )
                     continue
         precise = reason_is_precise_for(source_scope_text, path)
@@ -6598,11 +7343,21 @@ def _deferred_coverage(
                 reason=reason,
             )
             issues.append(
-                "[complete-source-unit:deferral] "
-                f"`module.deferred_outputs[{index}]` identifies source branch "
-                f"({branch_label}) (`{rendered_path}`) but its deferral does not "
-                "name an exact missing dependency, input, or runtime capability.\n"
-                f"{retry_shape}"
+                ValidationIssue(
+                    "[complete-source-unit:deferral] "
+                    f"`module.deferred_outputs[{index}]` identifies source branch "
+                    f"({branch_label}) (`{rendered_path}`) but its deferral does not "
+                    "name an exact missing dependency, input, or runtime capability.\n"
+                    f"{retry_shape}",
+                    check=CHECK_DEFERRAL_REASON_IMPRECISE,
+                    subject=IssueSubject(
+                        citation=corpus_citation_path,
+                        branch=rendered_path,
+                        field=f"module.deferred_outputs[{index}].reason",
+                    ),
+                    expected="reason naming an exact missing dependency",
+                    found=reason or "<empty reason>",
+                )
             )
     return covered, issues
 
@@ -6730,7 +7485,9 @@ def _resolved_definition_deferral_clauses(
         ):
             return ()
     clauses = []
-    for start, end, text in _source_clause_spans(source_text, branches=branches):
+    for start, end, text in _source_clause_spans(
+        source_text, branches=branches, corpus_citation_path=corpus_citation_path
+    ):
         if not (owner.start <= start and end <= owner.end):
             continue
         definition = re.match(
@@ -13229,6 +13986,11 @@ def _rulespec_target_base(corpus_citation_path: str) -> str:
         "policy": "policies",
         "form": "forms",
     }.get(document_class, f"{document_class}s")
+    if document_class == "rulemaking":
+        # Federal Register instruments land in the reserved
+        # policies/rulemaking/ output namespace (evals._RULEMAKING_OUTPUT_ROOT).
+        plural = "policies"
+        tail = ["rulemaking", *tail]
     if jurisdiction == "us-la" and plural == "statutes" and tail:
         title_section = tail[0].split(":")
         if len(title_section) == 2 and all(title_section):
@@ -13339,6 +14101,43 @@ def _branch_citation(
     return f"{citation}({branch.path[0]}) [{', '.join(components)}]"
 
 
+def _branch_subject(
+    corpus_citation_path: str,
+    branch: SourceStructureBranch,
+) -> IssueSubject:
+    """The typed-issue subject for a source branch.
+
+    Computations, rounding and exception clauses take their structural owner's
+    path, so two of them in one paragraph share ``branch`` and ``clause``. The
+    branch's character span in the authoritative source text keeps their
+    subjects (and fingerprints) distinct; it comes from the source, not the
+    artifact, so repairing one obligation leaves the other's identity as is.
+    """
+    return IssueSubject(
+        citation=corpus_citation_path,
+        branch="/".join(branch.path) or None,
+        clause=_branch_citation(corpus_citation_path, branch),
+        span=f"{branch.start}:{branch.end}",
+    )
+
+
+def _session_law_entry_dates_are_valid(entry: re.Match[str]) -> bool:
+    for qualifier in ("effective", "operative"):
+        month = entry.group(f"{qualifier}_month")
+        if month is None:
+            continue
+        month_number = tuple(calendar.month_abbr).index(month[:3].title())
+        try:
+            date(
+                int(entry.group(f"{qualifier}_year")),
+                month_number,
+                int(entry.group(f"{qualifier}_day")),
+            )
+        except ValueError:
+            return False
+    return True
+
+
 def _validated_session_law_history_entries(
     history: str,
 ) -> tuple[re.Match[str], ...] | None:
@@ -13348,27 +14147,123 @@ def _validated_session_law_history_entries(
     entries = []
     for part in normalized.split(";"):
         entry = _SESSION_LAW_ENTRY.fullmatch(part)
-        if entry is None:
+        if entry is None or not _session_law_entry_dates_are_valid(entry):
             return None
-        for qualifier in ("effective", "operative"):
-            month = entry.group(f"{qualifier}_month")
-            if month is None:
-                continue
-            month_number = tuple(calendar.month_abbr).index(month[:3].title())
-            try:
-                date(
-                    int(entry.group(f"{qualifier}_year")),
-                    month_number,
-                    int(entry.group(f"{qualifier}_day")),
-                )
-            except ValueError:
-                return None
         entries.append(entry)
     return tuple(entries)
 
 
+@dataclass(frozen=True)
+class _SessionLawSuffixSummary:
+    entry_count: int
+    has_action: bool
+
+
+class _SessionLawSuffixIndex:
+    """Validate the history suffix at any candidate start in linear total work.
+
+    ``summary(start)`` agrees with ``_validated_session_law_history_entries(
+    text[start:])`` (``None`` exactly when that is ``None``; otherwise its entry
+    count and whether any entry has an action). The text is normalized and split
+    once, and suffix validity is computed right to left, so each candidate costs
+    one bounded entry match instead of a pass over the remaining text (#1828).
+
+    The sentence separator consumes only a period and whitespace, and it needs a
+    digit before it, so no separator match can begin at or straddle a start
+    whose character is neither whitespace nor a period. Matches after such a
+    start are therefore the same in the whole text and in the suffix. A start
+    outside that shape falls back to validating its suffix directly.
+    """
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+        self._separator_starts: list[int] = []
+        self._separator_ends: list[int] = []
+        self._shifts: list[int] = []
+        pieces: list[str] = []
+        last = 0
+        shift = 0
+        for match in _SESSION_LAW_SENTENCE_SEPARATOR.finditer(text):
+            pieces.append(text[last : match.start()])
+            pieces.append("; ")
+            shift += 2 - (match.end() - match.start())
+            self._separator_starts.append(match.start())
+            self._separator_ends.append(match.end())
+            self._shifts.append(shift)
+            last = match.end()
+        pieces.append(text[last:])
+        normalized = "".join(pieces)
+        self._normalized = normalized
+        semicolons = [
+            index for index, character in enumerate(normalized) if character == ";"
+        ]
+        self._semicolons = semicolons
+        part_count = len(semicolons) + 1
+        # Suffix aggregates over whole parts k..end; index part_count is empty.
+        self._valid_from = [True] * (part_count + 1)
+        self._action_from = [False] * (part_count + 1)
+        for index in range(part_count - 1, -1, -1):
+            start = semicolons[index - 1] + 1 if index else 0
+            end = semicolons[index] if index < len(semicolons) else len(normalized)
+            entry = _SESSION_LAW_ENTRY.fullmatch(normalized, start, end)
+            valid = entry is not None and _session_law_entry_dates_are_valid(entry)
+            self._valid_from[index] = valid and self._valid_from[index + 1]
+            self._action_from[index] = (
+                bool(entry is not None and entry.group("action"))
+                or (self._action_from[index + 1])
+            )
+        self._part_count = part_count
+
+    def summary(self, start: int) -> _SessionLawSuffixSummary | None:
+        text = self._text
+        preceding = bisect.bisect_right(self._separator_ends, start)
+        straddles = preceding < len(self._separator_starts) and (
+            self._separator_starts[preceding] <= start
+        )
+        if (
+            start >= len(text)
+            or text[start].isspace()
+            or text[start] == "."
+            or (straddles)
+        ):
+            entries = _validated_session_law_history_entries(text[start:])
+            if entries is None:
+                return None
+            return _SessionLawSuffixSummary(
+                len(entries), any(entry.group("action") for entry in entries)
+            )
+        offset = start + (self._shifts[preceding - 1] if preceding else 0)
+        part = bisect.bisect_left(self._semicolons, offset)
+        end = (
+            self._semicolons[part]
+            if part < len(self._semicolons)
+            else len(self._normalized)
+        )
+        first = _SESSION_LAW_ENTRY.fullmatch(self._normalized, offset, end)
+        if (
+            first is None
+            or not _session_law_entry_dates_are_valid(first)
+            or not self._valid_from[part + 1]
+        ):
+            return None
+        return _SessionLawSuffixSummary(
+            1 + self._part_count - (part + 1),
+            bool(first.group("action")) or self._action_from[part + 1],
+        )
+
+
+def _whitespace_run_start(text: str, end: int, floor: int = 0) -> int:
+    """Where ``text[floor:end].rstrip()`` ends, without copying the prefix."""
+
+    while end > floor and text[end - 1].isspace():
+        end -= 1
+    return end
+
+
 def _operative_session_law_body_resume_offset(
-    source_text: str, candidate: re.Match[str]
+    source_text: str,
+    candidate: re.Match[str],
+    paragraph_break: re.Match[str] | None,
 ) -> int | None:
     """Keep a citation introducing body prose distinct from a later footer.
 
@@ -13377,35 +14272,48 @@ def _operative_session_law_body_resume_offset(
     history start or blank-line-delimited paragraph. The next candidate still
     owns validation of its entire suffix. A malformed first entry or explicit
     History chain cannot be bypassed this way.
+
+    ``paragraph_break`` is the first paragraph break at or after the candidate.
+    Every match below is bounded by the paragraph through ``pos``/``endpos``
+    instead of copying the suffix, so a candidate costs its own paragraph.
     """
 
     if (candidate.group("history_label") or "").lower() == "history":
         return None
-    suffix = source_text[candidate.start() :]
-    paragraph_break = re.search(r"\r?\n[ \t]*\r?\n", suffix)
-    paragraph = suffix[: paragraph_break.start()] if paragraph_break else suffix
-    entry = _SESSION_LAW_ENTRY.match(paragraph)
+    start = candidate.start()
+    paragraph_end = paragraph_break.start() if paragraph_break else len(source_text)
+    entry = _SESSION_LAW_ENTRY.match(source_text, start, paragraph_end)
     if entry is None or _validated_session_law_history_entries(entry.group()) is None:
         return None
-    continuation = paragraph[entry.end() :]
     # Structural markers inside parenthetical/quoted prose still fail the
     # predicate; the original body text, including its wrappers, is retained.
-    continuation = re.sub(r"^(?:[('\"“‘][ \t]*){0,2}", "", continuation)
-    if _SESSION_LAW_OPERATIVE_CONTINUATION.match(continuation) is None:
+    wrapper = _SESSION_LAW_CONTINUATION_WRAPPER.match(
+        source_text, entry.end(), paragraph_end
+    )
+    continuation_start = wrapper.end() if wrapper else entry.end()
+    if (
+        _SESSION_LAW_OPERATIVE_CONTINUATION_AT.match(
+            source_text, continuation_start, paragraph_end
+        )
+        is None
+    ):
         return None
-    for paragraph_candidate in _SESSION_LAW_TAIL_START.finditer(paragraph, entry.end()):
-        preceding = paragraph[: paragraph_candidate.start()].rstrip()
-        separator = paragraph[len(preceding) : paragraph_candidate.start()]
+    for paragraph_candidate in _SESSION_LAW_TAIL_START.finditer(
+        source_text, entry.end(), paragraph_end
+    ):
+        preceding_end = _whitespace_run_start(
+            source_text, paragraph_candidate.start(), start
+        )
         label = (paragraph_candidate.group("history_label") or "").lower()
         if (
             not label
-            and preceding
-            and "\n" not in separator
-            and preceding[-1] not in ".!?"
+            and preceding_end > start
+            and "\n" not in source_text[preceding_end : paragraph_candidate.start()]
+            and source_text[preceding_end - 1] not in ".!?"
         ):
             continue
-        return candidate.start() + paragraph_candidate.start()
-    return candidate.start() + paragraph_break.end() if paragraph_break else None
+        return paragraph_candidate.start()
+    return paragraph_break.end() if paragraph_break else None
 
 
 def _strip_terminal_session_law_history(source_text: str) -> str:
@@ -13414,6 +14322,9 @@ def _strip_terminal_session_law_history(source_text: str) -> str:
     A failed history entry cannot be bypassed by restarting at a later chapter
     or action in the same suffix. Source/provenance text itself is unchanged;
     this helper is used solely to construct computational recall text.
+
+    The text is normalized and scanned for paragraph breaks once, lazily, so the
+    work is linear in the text rather than text length times candidates (#1828).
     """
 
     terminal_parenthetical = re.search(
@@ -13432,24 +14343,40 @@ def _strip_terminal_session_law_history(source_text: str) -> str:
         ):
             return source_text[: terminal_parenthetical.start()].rstrip()
 
+    suffixes: _SessionLawSuffixIndex | None = None
+    paragraph_breaks: list[re.Match[str]] | None = None
+    paragraph_break_starts: list[int] = []
     retained_body_end = 0
     for candidate in _SESSION_LAW_TAIL_START.finditer(source_text):
-        if candidate.start() < retained_body_end:
+        start = candidate.start()
+        if start < retained_body_end:
             continue
-        prefix = source_text[: candidate.start()]
-        preceding = prefix.rstrip()
-        separator = prefix[len(preceding) :]
+        preceding_end = _whitespace_run_start(source_text, start)
         explicitly_labeled = candidate.group("history_label") is not None
-        strong_layout = not preceding or "\n" in separator
-        if not explicitly_labeled and not strong_layout and preceding[-1] not in ".!?":
+        strong_layout = not preceding_end or "\n" in source_text[preceding_end:start]
+        if (
+            not explicitly_labeled
+            and not strong_layout
+            and source_text[preceding_end - 1] not in ".!?"
+        ):
             continue
 
-        entries = _validated_session_law_history_entries(
-            source_text[candidate.start() :]
-        )
+        if suffixes is None:
+            suffixes = _SessionLawSuffixIndex(source_text)
+        entries = suffixes.summary(start)
         if entries is None:
+            if paragraph_breaks is None:
+                paragraph_breaks = list(
+                    _SESSION_LAW_PARAGRAPH_BREAK.finditer(source_text)
+                )
+                paragraph_break_starts = [match.start() for match in paragraph_breaks]
+            following = bisect.bisect_left(paragraph_break_starts, start)
             resume_offset = _operative_session_law_body_resume_offset(
-                source_text, candidate
+                source_text,
+                candidate,
+                paragraph_breaks[following]
+                if following < len(paragraph_breaks)
+                else None,
             )
             if resume_offset is not None:
                 retained_body_end = resume_offset
@@ -13461,14 +14388,82 @@ def _strip_terminal_session_law_history(source_text: str) -> str:
         if (
             not explicitly_labeled
             and not strong_layout
-            and (
-                len(entries) < 2 or not any(entry.group("action") for entry in entries)
-            )
+            and (entries.entry_count < 2 or not entries.has_action)
         ):
             continue
-        return prefix.rstrip()
+        return source_text[:preceding_end]
 
     return source_text
+
+
+def _armenian_amendment_history_numeric_recall_spans(
+    source_text: str,
+) -> Iterable[tuple[int, int]]:
+    """Yield spans of fully validated standalone ARLIS amendment-history ledgers.
+
+    Each span covers the body (the parentheses stay) of one parenthetical
+    that sits alone on its line at nesting depth zero and whose
+    body is an ordinal article label followed only by amendment actions and
+    paired ``DD.MM.YY[YY] Հ[Օ]-N[-N]-Ն`` citations. Every other parenthetical,
+    including nested, inline, operative or malformed ones, yields nothing and so
+    keeps all of its numbers as recall obligations. The spans are masked, never
+    deleted, so recall-text positions keep their source origins.
+    """
+
+    depth_before: list[int] | None = None
+
+    def parenthesis_depth_before(index: int) -> int:
+        # Built on the first candidate only: sources with no standalone
+        # parenthetical never pay to map the whole text.
+        nonlocal depth_before
+        if depth_before is None:
+            depth_before = []
+            depth = 0
+            for character in source_text:
+                depth_before.append(depth)
+                if character == "(":
+                    depth += 1
+                elif character == ")":
+                    depth = max(0, depth - 1)
+        return depth_before[index]
+
+    for candidate in _ARMENIAN_AMENDMENT_HISTORY_CANDIDATE.finditer(source_text):
+        opening = candidate.start("body") - 1
+        # A candidate whose opening parenthesis sits inside another
+        # parenthetical is nested, and the prompt contract keeps nested
+        # parentheticals as source content.
+        if parenthesis_depth_before(opening) != 0:
+            continue
+        article_history = _ARMENIAN_AMENDMENT_HISTORY_ARTICLE.fullmatch(
+            candidate.group("body").strip()
+        )
+        if article_history is None:
+            continue
+        history = article_history.group("history")
+        if (
+            _ARMENIAN_AMENDMENT_HISTORY_ACTION.search(history) is None
+            or _ARMENIAN_AMENDMENT_HISTORY_CITATION.search(history) is None
+            or _ARMENIAN_AMENDMENT_HISTORY_SEQUENCE.fullmatch(history) is None
+        ):
+            continue
+        # Blank the body only. Keeping both parentheses leaves the depth map
+        # unchanged and keeps a line break plus `(` between the lines around
+        # the ledger, so no later citation pattern that allows whitespace can
+        # join a reference word above to a number below.
+        yield candidate.start("body"), candidate.end("body")
+
+
+def mask_armenian_amendment_history(source_text: str) -> str:
+    """Mask fully validated standalone ARLIS ledgers in place with spaces.
+
+    The eval numeric-coverage metric uses this so it never demands a number
+    the encoder prompt tells the model to leave out. It applies only this
+    recognizer, so every other source number keeps its obligation.
+    """
+
+    return _mask_numeric_spans(
+        source_text, _armenian_amendment_history_numeric_recall_spans(source_text)
+    )
 
 
 def _spaced_german_sentence_label_spans(text: str) -> tuple[tuple[int, int], ...]:
@@ -13586,6 +14581,92 @@ def _is_us_manual_citation_path(corpus_citation_path: str) -> bool:
         _US_CORPUS_CITATION_PATH.match(corpus_citation_path)
         and "/manual/" in corpus_citation_path
     )
+
+
+# #1893's manual measurement names eligible/counted/excluded/deducted, but its
+# code defines only a broader federal administrative classifier. Keep this
+# explicit lexical shortlist independent of that classifier and of the gate:
+# eligibility, benefits/allotments/payments, counting/inclusion/exclusion,
+# deductions, sanctions/disqualification, termination/denial/approval,
+# reductions/increases and entitlement. Income/resources alone are deliberately
+# absent: they also occur in procedural verification instructions. This is
+# advice selection, not a determination that a sentence is operative.
+_MANUAL_OUTCOME_WORD = re.compile(
+    r"\b(?:ineligib\w*|eligib(?:le|ility)|benefits?|allotments?|payments?|"
+    r"paid|pay(?:s|ing)?|sanction\w*|disqualif\w*|terminat\w*|"
+    r"den(?:y|ies|ied|ying|ials?)|approv\w*|reduc\w*|increas\w*|entitle\w*|"
+    r"count(?:s|ed|ing|able)?|includ(?:e|es|ed|ing)|inclusions?|"
+    r"exclud(?:e|es|ed|ing)|exclusions?|deem(?:s|ed|ing)?|"
+    r"disregard(?:s|ed|ing)?|deduct(?:s|ed|ing|ions?)?)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def manual_outcome_exception_advice(
+    source_text: str,
+    *,
+    corpus_citation_path: str,
+) -> tuple[dict[str, Any], ...]:
+    """Identify optional manual conditions without changing completeness issues.
+
+    Reuse the gate's exception parser with its numeric-only filter disabled,
+    then select only the nonnumeric outcome-word sentences that filter drops.
+    Records depend only on the authoritative source, retain its character
+    offsets and digest for replay accounting, and stay in source order.
+    """
+
+    if not _is_us_manual_citation_path(corpus_citation_path):
+        return ()
+    body = source_text.strip()
+    if not body:
+        return ()
+    body_start = len(source_text) - len(source_text.lstrip())
+    with _us_manual_prose_scope(corpus_citation_path):
+        branches = recognize_source_structure(
+            body, corpus_citation_path=corpus_citation_path
+        )
+        formula_branches = _source_formula_branches(
+            body,
+            corpus_citation_path=corpus_citation_path,
+            branches=branches,
+            active_branches=branches,
+            deferred_paths=set(),
+        )
+        exceptions = _source_exception_branches(
+            body,
+            raw_source_text=source_text,
+            branches=branches,
+            active_branches=branches,
+            deferred_paths=set(),
+            formula_branches=formula_branches,
+            corpus_citation_path=corpus_citation_path,
+        )
+    source_sha256 = hashlib.sha256(source_text.encode()).hexdigest()
+    advice: list[dict[str, Any]] = []
+    for branch in sorted(exceptions, key=lambda item: (item.start, item.end)):
+        if _STATED_NUMERIC_LIMIT.search(branch.text) or not _MANUAL_OUTCOME_WORD.search(
+            branch.text
+        ):
+            continue
+        excerpt = _bounded_source_feedback_excerpt(branch.text)
+        start, end = body_start + branch.start, body_start + branch.end
+        advice.append(
+            {
+                "corpus_citation_path": corpus_citation_path,
+                "source_sha256": source_sha256,
+                "source_start": start,
+                "source_end": end,
+                "excerpt": excerpt,
+                "message": (
+                    "[non-blocking] Manual outcome advisory: "
+                    f"{corpus_citation_path} characters {start}:{end}: `{excerpt}` "
+                    "may state an operative condition worth encoding as a derived "
+                    "output with paired tests (positive and blocking). Encoding this "
+                    "condition is optional and is not required to pass validation."
+                ),
+            }
+        )
+    return tuple(advice)
 
 
 @contextlib.contextmanager
@@ -14683,24 +15764,300 @@ def _partition_condition_clause_at_rows(
     )
 
 
-def authoritative_numeric_recall_text(
-    source_text: str, *, corpus_citation_path: str = ""
-) -> str:
-    """Remove structural/citation ordinals, never substantive source values."""
+@dataclass
+class _NumericRecallSourceMap:
+    """Carry original character positions through recall substitutions.
 
+    Deleted citations shift later characters without changing their origins.
+    Rewritten text has no certified origin unless the substitution preserves
+    the character at the same position. Unknown origins must never authorize
+    the removal of a separate source obligation.
+    """
+
+    offsets: list[int | None]
+
+    def sub(
+        self,
+        pattern: str | re.Pattern[str],
+        replacement: str | Callable[[re.Match[str]], str],
+        text: str,
+        *,
+        flags: int = 0,
+    ) -> str:
+        offsets: list[int | None] = []
+        cursor = 0
+
+        def substitute(match: re.Match[str]) -> str:
+            nonlocal cursor
+            result = (
+                replacement(match)
+                if callable(replacement)
+                else match.expand(replacement)
+            )
+            offsets.extend(self.offsets[cursor : match.start()])
+            if len(result) == len(match.group()):
+                offsets.extend(
+                    self.offsets[match.start() + index]
+                    if character == text[match.start() + index]
+                    else None
+                    for index, character in enumerate(result)
+                )
+            else:
+                offsets.extend([None] * len(result))
+            cursor = match.end()
+            return result
+
+        result = re.sub(pattern, substitute, text, flags=flags)
+        offsets.extend(self.offsets[cursor:])
+        self.offsets = offsets
+        return result
+
+    def mask(self, text: str, spans: Iterable[tuple[int, int]]) -> str:
+        """Mask proven identifiers without certifying replacement characters."""
+
+        spans = tuple(spans)
+        for start, end in spans:
+            self.offsets[start:end] = [None] * (end - start)
+        return _mask_numeric_spans(text, spans)
+
+    def source_span(self, start: int, end: int) -> tuple[int, int] | None:
+        if not 0 <= start < end <= len(self.offsets):
+            return None
+        origin = self.offsets[start]
+        if origin is None or any(
+            offset != origin + index
+            for index, offset in enumerate(self.offsets[start:end])
+        ):
+            return None
+        return origin, origin + end - start
+
+
+def _english_subdivision_numeric_recall_spans(
+    source_text: str,
+) -> Iterable[tuple[int, int]]:
+    """Yield only digits in positively completed subdivision references."""
+
+    # Scan one-to-one typography variants, then mask the original digit spans.
+    # Lowercasing the entire source could expand characters and move offsets.
+    source_text = source_text.translate(_NUMERIC_RECALL_IDENTIFIER_TRANSLATION)
+    for citation in _ENGLISH_SUBDIVISION_NUMERIC_RECALL_CITATION.finditer(source_text):
+        labels = tuple(
+            _ENGLISH_SUBDIVISION_LOCATOR_TOKEN.finditer(
+                source_text, citation.start("labels"), citation.end("labels")
+            )
+        )
+        if not labels:
+            # An unrecognized label proves no locator; keep every demand.
+            continue
+        statutory_tail = _ENGLISH_SUBDIVISION_STATUTORY_TAIL.match(
+            source_text, citation.end()
+        )
+        complete = statutory_tail or _ENGLISH_SUBDIVISION_REFERENCE_BOUNDARY.match(
+            source_text, citation.end()
+        )
+        # A suffix letter can be a unit (`3 m`, `3m`, `15m a`). Parenthesized
+        # letters identify hierarchy; any unparenthesized suffix is ambiguous.
+        ambiguous_labels = {
+            label.span()
+            for label in labels
+            if re.search(
+                r"\d(?:[A-Za-z]|[ \t]+[A-Za-z])", label.group(), flags=re.ASCII
+            )
+        }
+        if ambiguous_labels:
+            complete = False
+        has_range = any(
+            re.search(
+                r"[-–—]|\b(?:to|through)\b",
+                source_text[left.end() : right.start()],
+                flags=re.IGNORECASE,
+            )
+            for left, right in zip(labels, labels[1:])
+        )
+        if has_range and not (
+            citation.group("keyword").lower() == "subdivisions" and statutory_tail
+        ):
+            # A range needs an explicit plural legal reference and its object.
+            complete = False
+        if complete:
+            selected = labels
+        elif (
+            citation.group("keyword").lower() == "subdivision"
+            and _ENGLISH_SUBDIVISION_QUANTITY_CLAUSE_BOUNDARY.match(
+                source_text, labels[0].end()
+            )
+        ):
+            # Only a positively completed new clause proves this boundary.
+            # A bare comma or a shared quantity suffix never proves a locator.
+            selected = labels[:1]
+        elif (
+            len(labels) == 1
+            and re.match(r"[A-Za-z]", labels[0].group())
+            and _ENGLISH_SUBDIVISION_SINGLE_REFERENCE_PREDICATE.match(
+                source_text, citation.end()
+            )
+        ):
+            selected = labels
+        else:
+            # In particular, `N of ...`, comparisons, units and coordinated
+            # rates supply no reference boundary. Ambiguous values stay.
+            continue
+        for label in selected:
+            if label.span() in ambiguous_labels:
+                continue
+            for number in re.finditer(r"\d+", label.group(0)):
+                yield label.start() + number.start(), label.start() + number.end()
+
+
+def _contiguous_states_numeric_recall_spans(
+    source_text: str,
+) -> Iterable[tuple[int, int]]:
+    """Prove bare/definite geography without guessing currency or unit tokens."""
+
+    source_text = source_text.translate(_NUMERIC_RECALL_IDENTIFIER_TRANSLATION)
+    for identifier in _CONTIGUOUS_STATES_NUMERIC_RECALL_IDENTIFIER.finditer(
+        source_text
+    ):
+        before = identifier.start()
+        while before > 0 and source_text[before - 1].isspace():
+            before -= 1
+        if before == 0 or re.search(
+            r"(?<!\w)the$", source_text[max(0, before - 4) : before], re.IGNORECASE
+        ):
+            yield identifier.span()
+    # The same geography as a table column label. Only the `Household Size`
+    # column caption may precede it (text start, `the`, a currency, sign,
+    # number or any other word keeps the 48 demanded), and the table's first
+    # household-size row must follow the column headers.
+    for identifier in _JURISDICTION_SET_LABEL_NUMERIC_RECALL_IDENTIFIER.finditer(
+        source_text
+    ):
+        before = identifier.start()
+        while before > 0 and source_text[before - 1].isspace():
+            before -= 1
+        caption = _JURISDICTION_SET_LABEL_CAPTION.search(
+            source_text, max(0, before - 32), before
+        )
+        if (
+            caption
+            and not _JURISDICTION_SET_LABEL_CAPTION_QUALIFIER.search(
+                source_text, max(0, caption.start() - 64), caption.start()
+            )
+            and _JURISDICTION_SET_LABEL_FIRST_ROW.match(source_text, identifier.end())
+        ):
+            yield identifier.span()
+
+
+_IRS_PAGED_GUIDANCE_CITATION = re.compile(
+    r"us/guidance/irs/(?:rev-proc|notice)-\d{4}-\d+/page-(?P<page>[1-9]\d{0,3})"
+)
+# The page number stands alone and a blank line separates it from the page
+# text. A single line break is not enough: an amount whose unit or qualifier
+# wraps onto the next line looks the same, so it stays demanded.
+_LEADING_PAGE_NUMBER_LINE = re.compile(
+    r"[ \t]*(?P<page>[0-9]{1,4})[ \t]*\r?\n[ \t]*\r?\n"
+)
+# Extra exclusion after the blank line: text that continues a quantity (`14\ndollars per
+# hour`, `14\r\npercent`, `14\ntaxable years`, `14\nto 18 years`) makes the
+# number an amount whose unit wrapped onto the next line, not a page number.
+# A unit may follow up to two modifier words (`U.S. dollars`, `consecutive
+# months`). A range or list word (`to`, `through`, `or`, `and`) counts only
+# before a number or a comparison word, so a page that opens with
+# `To qualify, ...` keeps its page number masked. A fraction glyph (`2\n½
+# months`, `9\n1/2 months`) completes a mixed number, and a hyphenated
+# duration (`3\nconsecutive 12-month periods`) counts as a unit.
+_LEADING_PAGE_NUMBER_QUANTITY_CONTINUATION = re.compile(
+    r"\s*(?:[%\u00a2\u00bc-\u00be\u2150-\u215e]"
+    r"|(?:[A-Za-z][A-Za-z.'\-]*\s+){0,2}"
+    r"(?:dollars?|cents?|usd|percent(?:age)?s?|per|seconds?|minutes?|hours?"
+    r"|days?|weeks?|months?|quarters?|years?|times|miles?)\b"
+    r"|(?:to|through|or|and)\s+"
+    r"(?:(?:(?:not|no)\s+)?(?:less|more|fewer|greater)\s+than\s+)?\$?\d"
+    r"|but\s+(?:(?:not|no)\s+)?(?:less|more|fewer|greater)\s+than\s+\$?\d"
+    r"|\d+\s*[/\u2044]\s*\d+"
+    r"|(?:[A-Za-z][A-Za-z.'\-]*\s+){0,2}\d+-(?:hour|day|week|month|quarter|year)s?\b"
+    r"|(?:or|and)\s+(?:more|less|fewer|greater|older|younger|over|under)\b)",
+    re.IGNORECASE,
+)
+
+
+def _irs_page_locator_numeric_recall_spans(
+    source_text: str, *, corpus_citation_path: str
+) -> Iterable[tuple[int, int]]:
+    """Prove an IRS PDF page's printed page number, never a leading amount.
+
+    Revenue procedure and notice pages start with the printed page number
+    alone on the first line, then a blank line. Only that exact shape, with
+    the number equal to the citation's own page index and the following text
+    not continuing a quantity, is a locator. Any other leading number,
+    including one followed by a single line break, stays demanded.
+    """
+
+    citation = _IRS_PAGED_GUIDANCE_CITATION.fullmatch(corpus_citation_path)
+    if citation is None:
+        return
+    line = _LEADING_PAGE_NUMBER_LINE.match(source_text)
+    if (
+        line is not None
+        and line.group("page") == citation.group("page")
+        and not _LEADING_PAGE_NUMBER_QUANTITY_CONTINUATION.match(
+            source_text, line.end()
+        )
+    ):
+        yield line.span("page")
+
+
+def authoritative_numeric_recall_text(
+    source_text: str,
+    *,
+    corpus_citation_path: str = "",
+    _source_map: _NumericRecallSourceMap | None = None,
+) -> str:
+    """Remove structural/citation ordinals, never substantive source values.
+
+    An optional map, initialized to the input character positions, follows
+    deletions without changing the returned recall text.
+    """
+
+    sub = re.sub if _source_map is None else _source_map.sub
+    mask = _mask_numeric_spans if _source_map is None else _source_map.mask
     source_text = _without_us_manual_locators(
         source_text, corpus_citation_path=corpus_citation_path
     )
-    source_text = _mask_numeric_spans(
-        source_text, _corroborated_form_output_label_spans(source_text)
+    source_text = mask(source_text, form_numeric_locator_spans(source_text))
+    # This mask runs before the context-sensitive recognizers below, so they
+    # see the text after the page number. For example, a page that starts with
+    # `48 contiguous states` after its page number is then read as geography.
+    source_text = mask(
+        source_text,
+        _irs_page_locator_numeric_recall_spans(
+            source_text, corpus_citation_path=corpus_citation_path
+        ),
     )
-    source_text = _mask_numeric_spans(
+    source_text = mask_bare_labels(
+        source_text, corpus_citation_path=corpus_citation_path
+    )
+    source_text = mask(
+        source_text, _english_subdivision_numeric_recall_spans(source_text)
+    )
+    source_text = mask(
+        source_text, _contiguous_states_numeric_recall_spans(source_text)
+    )
+    source_text = mask(source_text, _corroborated_form_output_label_spans(source_text))
+    source_text = mask(
         source_text,
         (row.span("label") for row in _worksheet_arithmetic_rows(source_text)),
     )
     cleaned = _mask_spaced_german_sentence_labels(
         _strip_terminal_session_law_history(source_text)
     )
+    if _source_map is not None:
+        # The preceding masks preserve positions; history cleanup only drops
+        # a terminal suffix. All subsequent deletions go through tracked sub.
+        del _source_map.offsets[len(cleaned) :]
+    # After the history cleanup, so a masked ledger (now blank) can never make
+    # an earlier session-law history chain look terminal and drop it.
+    cleaned = mask(cleaned, _armenian_amendment_history_numeric_recall_spans(cleaned))
     if _GLUED_SECTION_SENTENCE_MARKER.search(cleaned):
         # Strip only authenticated sentence labels, before removing the section
         # citation that distinguishes `2§ 64` from a substantive number 2.
@@ -14723,7 +16080,7 @@ def authoritative_numeric_recall_text(
         # extraction can flatten these headings onto the preceding paragraph.
         # Require both a paragraph/sentence boundary and a title ending in a
         # period; ordinary leading-dot decimals remain substantive values.
-        cleaned = re.sub(
+        cleaned = sub(
             r"(?P<boundary>^|(?<=[.!?])\s+|\n[ \t]*)"
             r"\.\d{2}(?=[ \t]+[A-Z][A-Za-z'-]*"
             r"(?:[ \t]+(?:[A-Z][A-Za-z'-]*|as|of|for|and|or|the|to|in)){1,15}\.)",
@@ -14776,37 +16133,38 @@ def authoritative_numeric_recall_text(
         return match.group(0)
 
     confirmed_footnote_markers: set[str] = set()
-    cleaned = re.sub(
+    cleaned = sub(
         r"(?P<label>\b[A-Za-z]{4,})(?P<marker>[1-9]\d?)(?=[,.;])",
         linked_footnote_reference,
         cleaned,
     )
-    cleaned = re.sub(
+    cleaned = sub(
         r"(?P<label>[A-Za-z][A-Za-z0-9.-]{2,})(?P<closing>\))"
         r"(?P<marker>[1-9]\d?)(?=\s+(?:was|were|is|are|has|have|had)\b)",
         linked_footnote_reference,
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = re.sub(
+    cleaned = sub(
         r"\b(?:Public\s+Law|P\.?\s*L\.?)\s+\d+\s*[-–—]\s*\d+\b",
         "",
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = re.sub(
+    cleaned = sub(
         r"\bPage\s+\d+(?:\s+of\s+\d+)?\b",
         "",
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = re.sub(
+    cleaned = sub(
         r"\b(Attachment)\s+[1-9]\d?\b",
         r"\1",
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = footnote_definition.sub(
+    cleaned = sub(
+        footnote_definition,
         lambda match: (
             f"{match.group('boundary')}{match.group('body')}"
             if match.group("marker") in confirmed_footnote_markers
@@ -14818,12 +16176,8 @@ def authoritative_numeric_recall_text(
         ),
         cleaned,
     )
-    cleaned = re.sub(
-        r"\b\d{1,6}\s+[A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,4}\s+"
-        r"(?:Avenue|Boulevard|Center|Drive|Lane|Place|Plaza|Road|Street|Way)\b"
-        r",\s*[A-Za-z .'-]+,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?",
-        "",
-        cleaned,
+    cleaned = sub(
+        _US_STREET_ADDRESS_NUMERIC_RECALL, _us_street_address_or_amount, cleaned
     )
     if _US_CORPUS_CITATION_PATH.match(corpus_citation_path):
         # US-only: a German line such as `1.000 Euro Freibetrag` would
@@ -14836,53 +16190,54 @@ def authoritative_numeric_recall_text(
         ):
             # USDA's FY 2026 tables use "48 States" as a geographic column
             # label. Its 48 is not a policy amount; keep nearby dollar cells.
-            cleaned = re.sub(
+            cleaned = sub(
                 r"(?<![$\w])48(?=\s+States\b)",
                 "  ",
                 cleaned,
                 flags=re.IGNORECASE,
             )
-        cleaned = _BRACKETED_USC_ET_SEQ_CITATION_LIST.sub("", cleaned)
-        cleaned = _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL.sub("", cleaned)
-        cleaned = _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION.sub("", cleaned)
-        cleaned = _STATUTES_AT_LARGE_NUMERIC_RECALL_CITATION.sub(
+        cleaned = sub(_BRACKETED_USC_ET_SEQ_CITATION_LIST, "", cleaned)
+        cleaned = sub(_US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL, "", cleaned)
+        cleaned = sub(_US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION, "", cleaned)
+        cleaned = sub(
+            _STATUTES_AT_LARGE_NUMERIC_RECALL_CITATION,
             # Keep punctuation and the bibliography marker between neighboring
             # values: spaces alone can turn `49(...)620` into grouped `49 620`.
             lambda match: re.sub(r"\d", " ", match.group(0)),
             cleaned,
         )
-    cleaned = re.sub(
+    cleaned = sub(
         r"\bDate:\s*\d{4}[./-]\d{1,2}[./-]\d{1,2}\s+\d{1,2}:\d{2}:\d{2}"
         r"\s+[+-]\d{2}(?:[':]?\d{2})?'?",
         "",
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = _LOUISIANA_SESSION_LAW_CITATION.sub("", cleaned)
-    cleaned = _LOUISIANA_RS_NUMERIC_RECALL_CITATION.sub("", cleaned)
+    cleaned = sub(_LOUISIANA_SESSION_LAW_CITATION, "", cleaned)
+    cleaned = sub(_LOUISIANA_RS_NUMERIC_RECALL_CITATION, "", cleaned)
     # Mask complete instrument identifiers before structural-reference cleanup
     # can remove `Nr. 375` and leave the misleading numeric remainder `/2014`.
     # Gazette parentheses must contain only the citation, never operative text.
-    cleaned = _EU_REGULATION_NUMERIC_RECALL_CITATION.sub("", cleaned)
-    cleaned = _GERMAN_GAZETTE_NUMERIC_RECALL_CITATION.sub("", cleaned)
-    cleaned = _BFH_DECISION_NUMERIC_RECALL_CITATION.sub("", cleaned)
-    cleaned = _GERMAN_LEGAL_CITATION.sub("", cleaned)
-    cleaned = _TITLE_SUFFIX_LEGAL_CITATION.sub("", cleaned)
-    cleaned = _ENGLISH_LEGAL_CITATION.sub("", cleaned)
-    cleaned = _STRUCTURAL_REFERENCE.sub("", cleaned)
-    cleaned = re.sub(
+    cleaned = sub(_EU_REGULATION_NUMERIC_RECALL_CITATION, "", cleaned)
+    cleaned = sub(_GERMAN_GAZETTE_NUMERIC_RECALL_CITATION, "", cleaned)
+    cleaned = sub(_BFH_DECISION_NUMERIC_RECALL_CITATION, "", cleaned)
+    cleaned = sub(_GERMAN_LEGAL_CITATION, "", cleaned)
+    cleaned = sub(_TITLE_SUFFIX_LEGAL_CITATION, "", cleaned)
+    cleaned = sub(_ENGLISH_LEGAL_CITATION, "", cleaned)
+    cleaned = sub(_STRUCTURAL_REFERENCE, "", cleaned)
+    cleaned = sub(
         r"(?m)^[ \t]*\((?:\d+[a-z]?|[a-z])\)(?:[ \t]+bis[ \t]+\(\d+[a-z]?\))?",
         "",
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = re.sub(
+    cleaned = sub(
         r"(?m)^[ \t]*\d+[a-z]?\.[ \t]+",
         "",
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = _GLUED_SENTENCE_MARKER.sub("", cleaned)
+    cleaned = sub(_GLUED_SENTENCE_MARKER, "", cleaned)
     return cleaned
 
 
@@ -15721,6 +17076,38 @@ def _source_gate_semantic_tokens(
         and normalized not in _SOURCE_GATE_STOPWORDS
         and len(normalized) > 1
     }
+    if "income" in tokens:
+        comparison_text = _normalized_source_gate_polarity_text(subject_text)
+        comparison_tokens = re.findall(r"[a-z]+", comparison_text)
+        comparison_tokens, wrapper_parity = _source_gate_unwrap_negation(
+            comparison_tokens
+        )
+        income_index = next(
+            index
+            for index, token in enumerate(comparison_tokens)
+            if _source_gate_normalized_token(token) == "income"
+        )
+        comparison_text = " ".join(comparison_tokens[income_index + 1 :])
+        upper = re.search(
+            r"\b(?:not\s+exceed(?:s|ed|ing)?|not\s+above|not\s+over|within|"
+            r"under|below|less\s+than|at\s+most|"
+            r"(?:no|not)\s+(?:more|greater)\s+than)\b",
+            comparison_text,
+        )
+        lower = re.search(
+            r"\b(?:not\s+within|not\s+under|not\s+below|"
+            r"(?:no|not)\s+less\s+than|"
+            r"exceed(?:s|ed|ing)?|above|over|more\s+than|greater\s+than|"
+            r"at\s+least)\b",
+            comparison_text,
+        )
+        if upper is not None or lower is not None:
+            upper_bound = upper is not None and (
+                lower is None or upper.start() <= lower.start()
+            )
+            if wrapper_parity:
+                upper_bound = not upper_bound
+            tokens.add("income_upper_bound" if upper_bound else "income_lower_bound")
     if "care" in tokens:
         tokens.update(_source_gate_care_action_tokens(text))
         tokens.update(_source_gate_care_expense_tokens(text))
@@ -16112,6 +17499,13 @@ def _source_gate_income_reading(
         blockers=_SOURCE_GATE_INCOME_BLOCKERS,
     ):
         return _SourceGatePredicateReading("income", None)
+    # An amount ceiling negates the comparison, not the existence of income.
+    # Treating "income does not exceed" as unknown existence makes a
+    # source-stated eligibility gate impossible to corroborate.
+    if tuple(tokens[index + 1 : index + 4]) == ("does", "not", "exceed"):
+        if wrapper_parity or out_of_window_negation:
+            return _SourceGatePredicateReading("income", None)
+        return _SourceGatePredicateReading("income", False)
     prefix_start = max(0, index - _SOURCE_GATE_PREDICATE_SCAN_LIMIT)
     if out_of_window_negation:
         return _SourceGatePredicateReading("income", None)
@@ -16520,6 +17914,231 @@ def _without_worksheet_imperative_consequent(body: str) -> str:
     return body
 
 
+_CETERIS_PARIBUS_PRONOUNS = {
+    "them": ("they", "their"),
+    "him": ("he", "his"),
+    "her": ("she", "her"),
+    "it": ("it", "its"),
+}
+_COUNTERFACTUAL_OBJECT = re.compile(
+    r"\bthat\s+would\s+(?:otherwise\s+)?apply\s+to\s+(?P<object>them|him|her|it)\s+$",
+    re.IGNORECASE,
+)
+_CETERIS_PARIBUS_BODY = re.compile(
+    r"\s+(?P<subject>they|he|she|it)\s+were\s+(?P<status>[^\W\d_][^(),;:.!?]*?)"
+    r"\s*\(\s*and\s+(?P<possessive>their|his|her|its)\s+other\s+circumstances"
+    r"\s+were\s+unchanged\s*\)\s*\.?\s*",
+    re.IGNORECASE,
+)
+# A bare status: an optional article and at most two lower-case words, such as
+# `single` or `a sole parent`. Anything longer may carry its own condition.
+_CETERIS_PARIBUS_STATUS = re.compile(r"(?:(?:a|an)\s+)?[a-z]+(?:[ -][a-z]+)?")
+# Words that would let the status state or qualify a condition of its own.
+# Participles (`having`, `excluding`) fall to the `-ing` check instead, and
+# `unless`/`except` to the trailing-exception cut that follows.
+_CETERIS_PARIBUS_STATUS_STOPWORDS = frozenset(
+    "provided if where wherever when whenever while whilst who whom whose which "
+    "that until because since after before with without "
+    "aged and or nor but yet plus as than for "
+    "under in on at by of to from not rather only also".split()
+)
+
+
+def _without_ceteris_paribus_clause(text: str, conditional: re.Match[str]) -> str:
+    """Drop the held-fixed clause of an owned counterfactual, else the body.
+
+    In "the rate that would apply to them if they were single (and their other
+    circumstances were unchanged)" the parenthesis keeps everything but the
+    named status as it is; it states no fact about anyone. Only that exact
+    shape qualifies: `that would apply to X` directly governs a subjunctive
+    `if X were <status>`, the pronouns agree, the status is a bare status of
+    at most an article and two words with no conjunction, subordinator,
+    preposition or participle, and the parenthesis ends the text.
+    """
+    body = conditional.group("body")
+    if conditional.group("cue").casefold() != "if":
+        return body
+    governing = _COUNTERFACTUAL_OBJECT.search(text[: conditional.start()])
+    hypothetical = _CETERIS_PARIBUS_BODY.fullmatch(body)
+    if governing is None or hypothetical is None:
+        return body
+    subject, possessive = _CETERIS_PARIBUS_PRONOUNS[governing["object"].casefold()]
+    if (
+        hypothetical["subject"].casefold() != subject
+        or hypothetical["possessive"].casefold() != possessive
+        or not _CETERIS_PARIBUS_STATUS.fullmatch(hypothetical["status"])
+        or any(
+            word in _CETERIS_PARIBUS_STATUS_STOPWORDS or word.endswith("ing")
+            for word in re.split(r"[ -]", hypothetical["status"])
+        )
+    ):
+        return body
+    return body[: hypothetical.start("status")] + hypothetical["status"]
+
+
+_SHARED_MEMBERSHIP_SUBJECT = (
+    r"(?:the\s+|payment\s+)?(?:"
+    r"(?:paying|receiving)\s+parent|"
+    r"(?:parent|child|spouse|person|participant)"
+    r"(?:\s+(?:paying|receiving)\s+(?:the\s+)?"
+    r"(?:child\s+support|cash\s+medical\s+support|income)"
+    r"|\s+for\s+whom\s+(?:the\s+)?child\s+support\s+is\s+being\s+paid)?)"
+)
+_SHARED_MEMBERSHIP_ASSERTION = (
+    rf"(?P<subject>{_SHARED_MEMBERSHIP_SUBJECT})\s+(?:is|are)\s+in\s+"
+    r"(?:the\s+)?same\s+(?P<unit>budgetary\s+unit|household)\s*\.?"
+)
+
+
+def _shared_membership_list_body(body: str) -> str:
+    """Distribute a closed shared membership predicate over explicit bullets.
+
+    Keep the ordinary parser for modified headers and mixed prose. The shared
+    predicate must survive on every member; merely discarding the header would
+    lose the requirement that the listed people belong to the same unit.
+    """
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if len(lines) < 3:
+        return body
+    header = re.fullmatch(
+        r"all\s+(?:of\s+)?the\s+following\s+are\s+"
+        r"(?P<membership>in\s+the\s+same\s+(?:budgetary\s+unit|household))\s*:",
+        lines[0],
+        re.IGNORECASE,
+    )
+    if header is None:
+        return body
+    subjects = []
+    for line in lines[1:]:
+        bullet = re.fullmatch(
+            rf"[●•]\s+(?P<subject>{_SHARED_MEMBERSHIP_SUBJECT})\.?",
+            line,
+            re.IGNORECASE,
+        )
+        if bullet is None:
+            return body
+        subjects.append(bullet.group("subject"))
+    return "\n".join(
+        f"{subject} is {header.group('membership')}" for subject in subjects
+    )
+
+
+def _is_pure_physical_alternative_condition(body: str) -> bool:
+    """Recognize a closed OR-list, never a conjunctive or qualified list.
+
+    This gate counts simultaneous facts, not alternative triggers. Decline
+    any shared prerequisite, nested condition, or unbulleted continuation;
+    their existing conservative gate analysis must remain in force.
+    """
+
+    header, separator, tail = body.strip().partition(":")
+    if not separator or not re.fullmatch(
+        r"one\s+or\s+more\s+of\s+the\s+following\s+occurs\s+regarding\s+"
+        r"the\s+child\s+support\s+payment",
+        header,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    lines = [line.strip() for line in tail.splitlines() if line.strip()]
+    if len(lines) < 2 or any(not re.match(r"^[●•]\s+\S", line) for line in lines):
+        return False
+    return not any(
+        re.search(
+            r"\b(?:and|nor|but|if|when|unless|provided|except|only)\b|[;:]",
+            line,
+            flags=re.IGNORECASE,
+        )
+        for line in lines
+    )
+
+
+_SOURCE_ANY_REASON_PREFIX = "source_any_reason:"
+
+
+def _closed_nested_reason_list(body: str) -> tuple[str, tuple[str, ...]] | None:
+    """Separate a closed nested reason list, retaining its concrete alternatives.
+
+    This is a physical-list grammar, not a general English parser. Unknown
+    continuations, qualifiers, or navigation prose retain conservative analysis.
+    """
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if not lines or not re.fullmatch(
+        r"all\s+of\s+the\s+following\s+apply:", lines[0], re.IGNORECASE
+    ):
+        return None
+    headers = [
+        i
+        for i, line in enumerate(lines)
+        if re.fullmatch(
+            r"[●•]\s+[^:;!?]+\s+for\s+any\s+of\s+the\s+following\s+reasons:",
+            line,
+            re.IGNORECASE,
+        )
+    ]
+    if len(headers) != 1 or headers[0] < 2:
+        return None
+    index = headers[0]
+    if any(not re.fullmatch(r"[●•]\s+[^:;!?]+\.", line) for line in lines[1:index]):
+        return None
+    reasons = lines[index + 1 :]
+    navigation = [
+        i
+        for i, line in enumerate(reasons)
+        if re.fullmatch(
+            r"Quick access to (?:the )?types of [A-Za-z ]+:", line, re.IGNORECASE
+        )
+    ]
+    if navigation:
+        if len(navigation) != 1:
+            return None
+        boundary = navigation[0]
+        links = reasons[boundary + 1 :]
+        if len(links) < 2 or any(
+            not re.fullmatch(r"[●•]\s+[A-Z][A-Za-z'-]*(?:\s+[A-Z][A-Za-z'-]*)*", line)
+            or re.search(
+                r"\b(?:if|when|unless|must|shall|only|not|is|are|requires?)\b",
+                line,
+                re.IGNORECASE,
+            )
+            for line in links
+        ):
+            return None
+        reasons = reasons[:boundary]
+    if not 2 <= len(reasons) <= _SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT:
+        return None
+    alternatives = []
+    for reason in reasons:
+        # A final glossary marker is metadata, not an operative qualifier.
+        reason = re.sub(r"\([a-z]\)$", "", reason).strip()
+        if not re.fullmatch(r"[A-Za-z][A-Za-z '-]*", reason) or re.search(
+            r"\b(?:and|nor|but|if|when|unless|provided|except|only|not|without|must|shall|is|are|requires?)\b",
+            reason,
+            re.IGNORECASE,
+        ):
+            return None
+        if re.search(r"\bor\b", reason, re.IGNORECASE):
+            away = re.fullmatch(
+                r"([A-Za-z-]+)\s+or\s+([A-Za-z-]+)(\s+away\s+from\s+[A-Za-z '-]+)",
+                reason,
+                re.IGNORECASE,
+            )
+            causal = re.fullmatch(
+                r"(.+\s+caused\s+by\s+)([^:]+?)\s+or\s+([^:]+)", reason, re.IGNORECASE
+            )
+            if away:
+                options = [away[1] + away[3], away[2] + away[3]]
+            elif causal and len(re.findall(r"\bor\b", reason, re.IGNORECASE)) == 1:
+                options = [causal[1] + causal[2], causal[1] + causal[3]]
+            else:
+                return None
+        else:
+            options = [reason]
+        alternatives.extend(options)
+        if len(alternatives) > _SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT:
+            return None
+    return "\n".join(lines[:index]), tuple(alternatives)
+
+
 def _source_conjunctive_fact_gates(
     text: str,
     *,
@@ -16546,7 +18165,22 @@ def _source_conjunctive_fact_gates(
         )
     if conditional is None:
         return ()
-    body = conditional.group("body")
+    body = _without_ceteris_paribus_clause(text, conditional)
+    # Preserve a complete physical nested list before exception preprocessing.
+    # Exact proof-context fragments may end at its heading; those keep their
+    # existing analysis, while the complete source list owns the reason gate.
+    nested_reason_body = (
+        body
+        if re.search(
+            r"[●•]\s+[^\n:]+\s+for\s+any\s+of\s+the\s+following\s+reasons:\s*\S",
+            body,
+            re.IGNORECASE,
+        )
+        and re.match(r"\s*all\s+of\s+the\s+following\s+apply:", body, re.IGNORECASE)
+        else None
+    )
+    if _is_pure_physical_alternative_condition(body):
+        return ()
     if conditional.group("cue").strip().casefold() != "unless":
         trailing_exception = re.search(
             r"\b(?:unless|except(?:\s+(?:if|when))?)\b",
@@ -16581,7 +18215,34 @@ def _source_conjunctive_fact_gates(
     body = _without_flattened_pdf_alternative_list(body)
     body = _without_completed_chart_result_label(body, text)
     body = _without_worksheet_imperative_consequent(body)
-    segments = _source_gate_split_conjunctive_conditions(body)
+    membership_body = _shared_membership_list_body(body)
+    membership_requirement = None
+    if membership_body != body:
+        membership_requirement = (
+            "shared_membership:budgetary_unit"
+            if "budgetary" in body.split(":", 1)[0].lower()
+            else "shared_membership:household"
+        )
+    nested_reasons = _closed_nested_reason_list(nested_reason_body or membership_body)
+    # An identified but unparsed continuation must not silently lose its gate.
+    # The empty marker is deliberately unmatchable (including by empty tokens).
+    reason_gates = (
+        frozenset({_SOURCE_ANY_REASON_PREFIX}) if nested_reason_body else frozenset()
+    )
+    if nested_reasons is not None:
+        outer_body, reasons = nested_reasons
+        signatures = [
+            _source_gate_semantic_tokens(reason, care_source_text=care_source_text)
+            - _SOURCE_GATE_SUBJECT_PRONOUNS
+            for reason in reasons
+        ]
+        if all(signatures):
+            membership_body = outer_body
+            reason_gates = frozenset(
+                _SOURCE_ANY_REASON_PREFIX + " ".join(sorted(tokens))
+                for tokens in signatures
+            )
+    segments = _source_gate_split_conjunctive_conditions(membership_body)
     if len(segments) < 2:
         return ()
     gates: list[tuple[frozenset[str], frozenset[str]]] = []
@@ -16639,7 +18300,11 @@ def _source_conjunctive_fact_gates(
             )
         ):
             continue
+        if membership_requirement is not None:
+            predicates = predicates | {membership_requirement}
         gates.append((entities, predicates))
+    if reason_gates:
+        gates.append((frozenset(), reason_gates))
     return tuple(gates) if len(gates) >= 2 else ()
 
 
@@ -16819,11 +18484,53 @@ def _printed_page_header_boundaries(text: str) -> tuple[int, ...]:
     )
 
 
+def _post_list_verification_heading_starts(text: str) -> tuple[int, ...]:
+    """Locate independent verification lists after physical bullet material.
+
+    A blank line is not a boundary by itself: it can introduce a proviso or
+    continue a bullet. Require the finite, unindented verification-list heading
+    and its following physical bullet. Preserve the entire heading and list;
+    this changes ownership offsets only, never source text or factual gates.
+    """
+
+    first_bullet = re.search(r"(?m)^[●•][ \t]+", text)
+    if first_bullet is None:
+        return ()
+    # Do not infer independent sections under an unresolved conditional
+    # chapeau. In that shape the original enclosing ownership must stand.
+    # This deliberately declines the whole container, including later lists.
+    if re.search(
+        r"(?im)^[ \t]*(?:[●•][ \t]+)?(?:only\s+)?"
+        r"(?:if|when|unless|provided\s+that)\b"
+        r"(?:(?!\r?\n[ \t]*\r?\n)[^:.!?])*:[ \t]*\r?$",
+        text,
+    ):
+        return ()
+    heading = re.compile(
+        r"(?:\r?\n[ \t]*\r?\n)(?P<heading>Verification of )"
+        r"[^\r\n:]+\bincludes\b[^\r\n:]*"
+        r"\bthe following:[ \t]*\r?\n(?:[ \t]*\r?\n)*[●•][ \t]+"
+    )
+    return tuple(
+        match.start("heading")
+        for match in heading.finditer(text)
+        if match.start("heading") > first_bullet.start()
+    )
+
+
 def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     boundaries = [0, len(text)]
     boundaries.extend(_work_chart_heading_starts(text))
     boundaries.extend(_printed_chart_arithmetic_starts(text))
     boundaries.extend(_printed_page_header_boundaries(text))
+    boundaries.extend(_post_list_verification_heading_starts(text))
+    # DES manual notes following a physical bullet list are separate
+    # propositions, not another conjunctive eligibility condition.
+    boundaries.extend(
+        match.start()
+        for match in re.finditer(r"(?m)^[ \t]*NOTE\b", text)
+        if text[: match.start()].endswith("\n\n")
+    )
     boundaries.extend(
         match.end()
         for match in re.finditer(
@@ -16852,6 +18559,49 @@ def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, in
         max(position for position in ordered if position <= start),
         min(position for position in ordered if position >= end),
     )
+
+
+def _source_bullet_item_bounds(
+    text: str, start: int, end: int
+) -> tuple[int, int] | None:
+    """Keep an exact proof inside one physical bullet from owning its siblings."""
+
+    markers = tuple(re.finditer(r"(?m)^(?P<indent>[ \t]*)[●•][ \t]+", text))
+    # Prefer the most deeply nested item containing the proof. An indented
+    # child does not terminate its parent item.
+    for index in range(len(markers) - 1, -1, -1):
+        marker = markers[index]
+        indent = len(marker.group("indent"))
+        next_marker = next(
+            (
+                candidate.start()
+                for candidate in markers[index + 1 :]
+                if len(candidate.group("indent")) <= indent
+            ),
+            len(text),
+        )
+        first_line_end = text.find("\n", marker.end(), next_marker)
+        if first_line_end < 0:
+            first_line_end = next_marker
+        if (
+            marker.end() <= start
+            and end <= first_line_end
+            and text[marker.end() : first_line_end].rstrip().endswith(":")
+        ):
+            # A bullet can itself be the chapeau of an indented list. Its
+            # exact proof retains the child conditions.
+            return None
+        paragraph_break = re.search(
+            r"\r?\n[ \t]*\r?\n", text[marker.end() : next_marker]
+        )
+        item_end = (
+            marker.end() + paragraph_break.start()
+            if paragraph_break is not None
+            else next_marker
+        )
+        if marker.end() <= start and end <= item_end:
+            return marker.start(), item_end
+    return None
 
 
 def _flattened_inline_dotted_marker_has_item_boundary(
@@ -17035,6 +18785,17 @@ def _source_condition_clauses_owned_by_excerpt(
     matches = tuple(pattern.finditer(source_text))
     if not matches:
         return (), False
+    printed_rows = _unconflicted_printed_rows(
+        source_text, branches, corpus_citation_path=corpus_citation_path
+    )
+    bare_labels = (
+        bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
+    structural_boundaries = {
+        *(point for branch in branches for point in (branch.start, branch.end)),
+        *(point for label in bare_labels for point in (label.start, label.marker_end)),
+        *(start for start, _term in bare_definition_headers(source_text, bare_labels)),
+    }
     virtual_branches: dict[tuple[tuple[str, ...], str, int], SourceStructureBranch] = {}
     ambiguous_inline_ownership = False
     inline_ownership_by_parent: dict[
@@ -17130,6 +18891,26 @@ def _source_condition_clauses_owned_by_excerpt(
             ),
             default=container_end,
         )
+        atomic_printed_owner = False
+        if printed_rows is not None:
+            row_owners = [
+                (a, b)
+                for a, b in printed_rows.ownership_spans
+                if a <= match.start()
+                and match.end() <= b
+                and not any(a < point < b for point in structural_boundaries)
+            ]
+            if len(row_owners) == 1:
+                # This is only an offset container, never a new statutory path.
+                # Preserve the whole inherited group and every within-row
+                # advisory/condition; explicit source ownership wins conflicts.
+                a, b = row_owners[0]
+                container_start = max(container_start, a)
+                container_end = min(container_end, b)
+                atomic_printed_owner = (a, b) in printed_rows.atomic_spans and (
+                    container_start,
+                    container_end,
+                ) == (a, b)
         container_text = source_text[container_start:container_end]
         local_start = match.start() - container_start
         local_end = match.end() - container_start
@@ -17138,6 +18919,10 @@ def _source_condition_clauses_owned_by_excerpt(
             local_start,
             local_end,
         )
+        bullet_item = _source_bullet_item_bounds(container_text, local_start, local_end)
+        if bullet_item is not None:
+            proposition_start = max(proposition_start, bullet_item[0])
+            proposition_end = min(proposition_end, bullet_item[1])
         if (
             narrow_conjunctive_excerpt
             and _excerpt_is_conjunction_delimited_subclause(
@@ -17155,6 +18940,11 @@ def _source_condition_clauses_owned_by_excerpt(
             proposition_end=proposition_end,
         ):
             proposition_start, proposition_end = local_start, local_end
+        if atomic_printed_owner:
+            # A proof inside an inherited else-row or either conditional arm
+            # owns the full positively recognized guard group, not a detached
+            # sentence obtained by punctuation/conjunction slicing.
+            proposition_start, proposition_end = 0, len(container_text)
         absolute_start = container_start + proposition_start
         absolute_end = container_start + proposition_end
         identity = (branch_path, absolute_start, absolute_end)
@@ -17407,7 +19197,9 @@ def _terminal_gate_evidence(
 ) -> dict[str, _TerminalGateEvidence]:
     evidence: dict[str, _TerminalGateEvidence] = {}
 
-    def build(name: str, description: str = "") -> _TerminalGateEvidence:
+    def build(
+        name: str, description: str = "", *, numeric_amount: bool = False
+    ) -> _TerminalGateEvidence:
         if care_source_text in _SOURCE_GATE_REVIEWED_DEPENDENT_CARE_SOURCES and (
             name,
             description,
@@ -17439,6 +19231,38 @@ def _terminal_gate_evidence(
         )
         effective_polarities = description_polarities | name_polarities
         tokens = set(name_tokens | description_tokens)
+        # Shared-list membership is a required predicate, not optional lexical
+        # overlap. Inspect raw wording before stopword normalization loses `not`.
+        # Unread/qualified descriptions remain conservative for this new path.
+        membership = re.fullmatch(
+            _SHARED_MEMBERSHIP_ASSERTION,
+            name_text.strip(),
+            re.IGNORECASE,
+        )
+        description_membership = re.fullmatch(
+            _SHARED_MEMBERSHIP_ASSERTION,
+            description.strip(),
+            re.IGNORECASE,
+        )
+        description_matches = not description.strip() or (
+            membership is not None
+            and description_membership is not None
+            and description_membership.group("unit").lower().split()
+            == membership.group("unit").lower().split()
+            and tuple(
+                word
+                for word in description_membership.group("subject").lower().split()
+                if word not in {"the", "payment"}
+            )
+            == tuple(
+                word
+                for word in membership.group("subject").lower().split()
+                if word not in {"the", "payment"}
+            )
+        )
+        if membership and description_matches:
+            unit = "_".join(membership.group("unit").lower().split())
+            tokens.add(f"affirmative_membership:{unit}")
         for base_predicate, negative in effective_polarities.items():
             if negative is None:
                 polarity_predicate = f"unknown_{base_predicate}"
@@ -17461,6 +19285,23 @@ def _terminal_gate_evidence(
                 for base_predicate, negative in name_polarities.items()
                 if negative is not None
             ),
+            numeric_amount
+            and re.search(r"(?:^|_)income(?:_amount)?$", name) is not None
+            and not _SOURCE_GATE_INCOME_BLOCKERS.intersection(
+                name_text.casefold().split() + description.casefold().split()
+            )
+            and not _SOURCE_GATE_INCOME_NEGATION_MARKERS.intersection(
+                name_text.casefold().split() + description.casefold().split()
+            ),
+            not polarity_conflict
+            and not any(
+                negative is not False for negative in effective_polarities.values()
+            )
+            and not re.search(
+                r"\b(?:not|no|never|without|neither|nor|unless|except|if|unqualified|ineligible)\b",
+                name_text + " " + description,
+                re.IGNORECASE,
+            ),
         )
 
     for item in payload.get("inputs", ()) or ():
@@ -17469,7 +19310,14 @@ def _terminal_gate_evidence(
         name = str(item.get("name") or "").strip()
         if not name:
             continue
-        evidence[name] = build(name, str(item.get("description") or ""))
+        evidence[name] = build(
+            name,
+            str(item.get("description") or ""),
+            numeric_amount=(
+                str(item.get("dtype") or "").strip().casefold()
+                in {"money", "decimal", "integer", "count"}
+            ),
+        )
     for item in payload.get("imports", ()) or ():
         if not isinstance(item, str) or "#" not in item:
             continue
@@ -17534,19 +19382,121 @@ def _terminal_names_corroborate_source_gates(
     ]
     candidates: list[tuple[str, ...]] = []
     for index, (entities, predicates) in enumerate(gates):
+        alternative_reasons = [
+            frozenset(predicate.removeprefix(_SOURCE_ANY_REASON_PREFIX).split())
+            for predicate in predicates
+            if predicate.startswith(_SOURCE_ANY_REASON_PREFIX)
+        ]
+        if alternative_reasons:
+            candidates.append(
+                tuple(
+                    name
+                    for name in sorted(names)
+                    if (evidence := terminal_evidence.get(name)) is not None
+                    and not evidence.polarity_conflict
+                    and evidence.affirmative_reason_evidence
+                    and any(
+                        tokens and tokens <= evidence.entities | evidence.predicates
+                        for tokens in alternative_reasons
+                    )
+                )
+            )
+            continue
         if predicates & _SOURCE_GATE_UNKNOWN_POLARITY_PREDICATES:
             candidates.append(())
             continue
+        income_ceiling_gate = "income" in predicates and bool(
+            predicates
+            & {
+                "exceed",
+                "limit",
+                "over",
+                "under",
+                "below",
+                "above",
+                "income_upper_bound",
+                "income_lower_bound",
+            }
+        )
+        source_income_comparators = predicates & {
+            "exceed",
+            "over",
+            "under",
+            "below",
+            "above",
+        }
+        source_income_direction = predicates & {
+            "income_upper_bound",
+            "income_lower_bound",
+        }
         matches: list[str] = []
         for name in sorted(names):
             evidence = terminal_evidence.get(
                 name,
                 _TerminalGateEvidence(frozenset(), frozenset(), True),
             )
-            if evidence.polarity_conflict:
+            numeric_income_comparison = (
+                evidence.numeric_income_amount
+                and income_ceiling_gate
+                and "unknown_income" in evidence.predicates
+            )
+            terminal_income_comparators = evidence.predicates & {
+                "exceed",
+                "over",
+                "under",
+                "below",
+                "above",
+            }
+            terminal_income_direction = evidence.predicates & {
+                "income_upper_bound",
+                "income_lower_bound",
+            }
+            explicit_income_comparison = (
+                bool(terminal_income_comparators or terminal_income_direction)
+                and (
+                    not source_income_direction
+                    or source_income_direction == terminal_income_direction
+                )
+                and (
+                    not source_income_comparators
+                    or bool(source_income_comparators & terminal_income_comparators)
+                    or bool(source_income_direction & terminal_income_direction)
+                )
+            )
+            if income_ceiling_gate and not (
+                evidence.numeric_income_amount or explicit_income_comparison
+            ):
+                continue
+            if evidence.polarity_conflict and not numeric_income_comparison:
                 continue
             terminal_entities = evidence.entities
             terminal_predicates = evidence.predicates
+            shared_membership = predicates & {
+                "shared_membership:budgetary_unit",
+                "shared_membership:household",
+            }
+            if shared_membership:
+                required_marker = next(iter(shared_membership)).replace(
+                    "shared_membership:", "affirmative_membership:"
+                )
+                if required_marker not in terminal_predicates:
+                    continue
+                required_membership = (
+                    {"same", "budgetary", "unit"}
+                    if "shared_membership:budgetary_unit" in shared_membership
+                    else {"same", "household"}
+                )
+                terminal_tokens = terminal_entities | terminal_predicates
+                if not required_membership <= terminal_tokens or terminal_tokens & {
+                    "different",
+                    "outside",
+                    "separate",
+                }:
+                    continue
+            if numeric_income_comparison:
+                terminal_predicates = (terminal_predicates - {"unknown_income"}) | {
+                    "income"
+                }
             if "care" in predicates:
                 care_facts = predicates & {"care", "expense", "payment"}
                 if not care_facts <= terminal_predicates:
@@ -17700,10 +19650,38 @@ def _terminal_names_corroborate_source_gates(
     return all(augment(gate_index, set()) for gate_index in order)
 
 
+CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED = declare_check(
+    "complete-source-unit:source-explicit-conditions/gates-collapsed",
+    title="Source-stated conjunctive gates collapsed into too few inputs",
+    requires=(
+        "Each factual gate that the formula's own source clause states is a "
+        "distinct local input or canonical import, combined in a "
+        "source-proved derived Judgment."
+    ),
+    why=(
+        "An aggregate input that stands for several source-stated facts hides "
+        "the conditions from tests and from callers, so a wrong answer on one "
+        "gate cannot be seen."
+    ),
+    fix=(
+        "Declare each source-stated fact as its own document-root `inputs` "
+        "entry (a sibling of `module` and `rules`) or canonical import, combine "
+        "them in a derived Judgment with formula proof, and test each gate."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=(
+        "axiom_encode/harness/source_completeness.py:"
+        "_opaque_same_source_condition_input_issues"
+    ),
+)
+
+
 def _opaque_same_source_condition_input_issues(
     payload: Mapping[str, Any],
     *,
     source_text: str,
+    consumer_content: str | None = None,
     branches: Sequence[SourceStructureBranch],
     principal_rules: Mapping[str, dict[str, Any]],
     corpus_citation_path: str,
@@ -17711,6 +19689,7 @@ def _opaque_same_source_condition_input_issues(
     certified_paths: Any = None,
     care_source_text: str | None = None,
     certified_country: Any = None,
+    repayment_alternatives: RepaymentAlternativeCoverage | None = None,
     test_cases: Sequence[object] | None = None,
 ) -> list[str]:
     """Reject terminal selectors that collapse explicit same-source fact gates."""
@@ -18098,6 +20077,40 @@ def _opaque_same_source_condition_input_issues(
         }
 
     condition_row_ends = _corroborated_unless_row_ends(source_text)
+    physical_allowance = read_physical_allowance_condition(
+        source_text, limit=_SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT
+    )
+    physical_inputs = {
+        str(item.get("name")): item for item in inputs or () if isinstance(item, dict)
+    }
+
+    def physical_resolve(name, lo, hi, *, entity, period):
+        if name in physical_inputs:
+            if (
+                name in named_rules
+                or name in imported_names
+                or sum(
+                    isinstance(item, dict) and item.get("name") == name
+                    for item in inputs or ()
+                )
+                != 1
+            ):
+                raise ValueError("ambiguous physical-condition input")
+            return None
+        dependency = named_rules.get(name)
+        if (
+            dependency is None
+            or str(dependency.get("dtype", "")).lower()
+            not in {"boolean", "bool", "judgment"}
+            or dependency.get("entity") != entity
+            or dependency.get("period") != period
+        ):
+            raise ValueError("unresolved physical-condition dependency")
+        return tuple(
+            (_parse_formula_expression(child), child_start, child_end)
+            for _, child, child_start, child_end in interval_cache.get(name, ())
+        )
+
     findings: list[tuple[str, int, int, frozenset[str]]] = []
     for rule_name, rule in sorted(principal_rules.items()):
         if (
@@ -18108,6 +20121,47 @@ def _opaque_same_source_condition_input_issues(
             continue
         for version_index, formula, start, end in interval_cache.get(rule_name, ()):
             excerpts = proof_excerpts.get(rule_name, {}).get(version_index, ())
+            if physical_allowance is not None:
+                paths = signed_granting_paths(
+                    _parse_formula_expression(formula),
+                    start=start,
+                    end=end,
+                    resolve=lambda name, lo, hi: physical_resolve(
+                        name,
+                        lo,
+                        hi,
+                        entity=rule.get("entity"),
+                        period=rule.get("period"),
+                    ),
+                    intersect=_formula_interval_intersection,
+                    limit=_SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT,
+                    depth_limit=_SOURCE_EXPLICIT_CONDITION_DEPENDENCY_DEPTH_LIMIT,
+                    numeric_names=frozenset(
+                        name
+                        for name, item in physical_inputs.items()
+                        if str(item.get("dtype", "")).lower() == "count"
+                    ),
+                )
+                if (
+                    not physical_allowance.owns_excerpts(excerpts)
+                    or str(rule.get("dtype", "")).lower()
+                    not in {"boolean", "bool", "judgment"}
+                    or str(rule.get("period", "")).lower() != physical_allowance.period
+                    or not physical_allowance.corroborates(
+                        paths, physical_inputs, entity=rule.get("entity")
+                    )
+                ):
+                    findings.append(
+                        (
+                            rule_name,
+                            version_index,
+                            physical_allowance.gate_count,
+                            frozenset(
+                                f.name for path in paths or () for f in path.facts
+                            ),
+                        )
+                    )
+                continue
             gate_sets: dict[
                 tuple[tuple[str, ...], int, int],
                 tuple[tuple[frozenset[str], frozenset[str]], ...],
@@ -18149,6 +20203,25 @@ def _opaque_same_source_condition_input_issues(
                     )
                 )
                 for clause in condition_clauses:
+                    if (
+                        repayment_alternatives is not None
+                        and consumer_content is not None
+                        and not ambiguous
+                        and repayment_alternatives.owns_condition(
+                            owner=rule_name,
+                            consumer_content=consumer_content,
+                            version=version_index,
+                            formula=formula,
+                            start=start,
+                            end=end,
+                            clause_start=clause.start,
+                            clause_end=clause.end,
+                            clause_text=clause.text,
+                            source_text=source_text,
+                            citation=corpus_citation_path,
+                        )
+                    ):
+                        continue
                     if (
                         certified_country is not None
                         and not ambiguous
@@ -18357,16 +20430,27 @@ def _opaque_same_source_condition_input_issues(
             f"... ({len(findings) - _SOURCE_EXPLICIT_CONDITION_DIAGNOSTIC_LIMIT} "
             "additional formula versions omitted)"
         )
+    first_rule, first_version, first_gate_count, first_evidence = findings[0]
     return [
-        "[complete-source-unit:source-explicit-conditions] Derived formula "
-        "version(s) delegate multiple conjunctive factual gates stated in their "
-        "exact authoritative source clause to too few terminal local inputs or "
-        f"canonical imports: {'; '.join(rendered)}. Encode the source-stated facts "
-        "as distinct local inputs or canonical imports, declare every local fact "
-        "in the RuleSpec document-root `inputs` list (a sibling of `module` and "
-        "`rules`, never nested under `module`), combine them in a "
-        "source-proved derived Judgment, and test each gate. Reserve aggregate "
-        "boundary statuses for source-atomic or externally determined conditions."
+        ValidationIssue(
+            "[complete-source-unit:source-explicit-conditions] Derived formula "
+            "version(s) delegate multiple conjunctive factual gates stated in their "
+            "exact authoritative source clause to too few terminal local inputs or "
+            f"canonical imports: {'; '.join(rendered)}. Encode the source-stated facts "
+            "as distinct local inputs or canonical imports, declare every local fact "
+            "in the RuleSpec document-root `inputs` list (a sibling of `module` and "
+            "`rules`, never nested under `module`), combine them in a "
+            "source-proved derived Judgment, and test each gate. Reserve aggregate "
+            "boundary statuses for source-atomic or externally determined conditions.",
+            check=CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED,
+            subject=IssueSubject(
+                citation=corpus_citation_path,
+                rule=first_rule,
+                field=f"rules.{first_rule}.versions[{first_version}].formula",
+            ),
+            expected=f"{first_gate_count} distinct gate inputs",
+            found=f"{len(first_evidence)} terminal selectors",
+        )
     ]
 
 
@@ -18507,6 +20591,149 @@ def _selected_formula_structural_source_branches(
     )
 
 
+_SITE_COMPANION_TESTS = (
+    "axiom_encode/harness/source_completeness.py:_companion_test_issues"
+)
+_COMPANION_TESTS_WHY = (
+    "Companion tests are the executed evidence that the encoding behaves as "
+    "the source says. A source-stated output, branch, boundary, exception or "
+    "rounding rule without a test can be wrong without any gate noticing."
+)
+
+
+def _declare_companion_test_check(
+    name: str,
+    *,
+    title: str,
+    requires: str,
+    fix: str,
+    site: str = _SITE_COMPANION_TESTS,
+):
+    return declare_check(
+        f"complete-source-unit:tests/{name}",
+        title=title,
+        requires=requires,
+        why=_COMPANION_TESTS_WHY,
+        fix=fix,
+        cause="encoder_output",
+        gate="ci",
+        site=site,
+    )
+
+
+CHECK_TESTS_NO_SUITE = _declare_companion_test_check(
+    "no-suite",
+    title="Complete source unit has no companion test suite",
+    requires=(
+        "A complete source-unit encoding ships a companion test suite covering "
+        "outputs, branches, boundaries, exceptions and rounding rules."
+    ),
+    fix="Write the companion `.test.yaml` cases for the module.",
+)
+CHECK_TESTS_INPUT_SHADOWS_OUTPUT = _declare_companion_test_check(
+    "input-shadows-output",
+    title="Companion case supplies a principal output as an input",
+    requires=(
+        "Companion cases compute and assert local principal outputs; they never "
+        "supply them as inputs."
+    ),
+    fix=(
+        "Remove the principal output from the case's `input` and assert it "
+        "under `output` instead; supply the facts it is computed from."
+    ),
+)
+CHECK_TESTS_OUTPUT_UNASSERTED = _declare_companion_test_check(
+    "output-unasserted",
+    title="Principal output is never asserted",
+    requires="Every principal output is asserted by at least one companion case.",
+    fix="Add a companion case whose `output` asserts the named principal output.",
+)
+CHECK_TESTS_NEGATIVE_CLAMP_UNWITNESSED = _declare_companion_test_check(
+    "negative-clamp-unwitnessed",
+    title="Nonnegative clamp has no below-zero companion case",
+    requires=(
+        "Each direct `max(0, input)` clamp has an executed companion case with "
+        "the input below zero in every distinct temporal owner context."
+    ),
+    fix=(
+        "Add a case with the clamped input below zero that asserts the clamped "
+        "rule (and the downstream principal output when one exists). A zero "
+        "input does not exercise the clamp."
+    ),
+    site="axiom_encode/harness/source_completeness.py:_negative_local_input_clamp_test_issues",
+)
+CHECK_TESTS_FORMULA_BRANCH_UNWITNESSED = _declare_companion_test_check(
+    "formula-branch-unwitnessed",
+    title="Formula branch has no executed companion evidence",
+    requires=(
+        "Each source formula branch has distinct executed test evidence that "
+        "reaches the branch's computation."
+    ),
+    fix=(
+        "Add a companion case whose inputs select the named branch and whose "
+        "asserted output depends on the branch's computation, in a period the "
+        "branch's formula version covers."
+    ),
+)
+CHECK_TESTS_BOUNDARY_UNEXERCISED = _declare_companion_test_check(
+    "boundary-unexercised",
+    title="Source-stated boundary input is not exercised",
+    requires="Every source-stated boundary value is exercised by a companion case.",
+    fix=(
+        "Add cases at each listed boundary value (and just across it) that "
+        "assert the affected principal output."
+    ),
+)
+CHECK_TESTS_EXCEPTION_PAIR_MISSING = _declare_companion_test_check(
+    "exception-pair-missing",
+    title="Source exception or condition has no positive/blocking case pair",
+    requires=(
+        "Each source-stated exception or applicability condition has a "
+        "same-period pair of cases that differ in exactly the controlling input "
+        "and assert the affected principal output."
+    ),
+    fix=(
+        "For each listed condition, add two same-period cases that differ only "
+        "in its controlling input: one where it applies and one where it blocks."
+    ),
+)
+CHECK_TESTS_NONAPPLICABILITY_UNWITNESSED = _declare_companion_test_check(
+    "nonapplicability-unwitnessed",
+    title="Unconditional non-applicability is not witnessed",
+    requires=(
+        "Unconditional source-stated non-applicability is a source-bound "
+        "principal Judgment output that executes to false and is asserted false."
+    ),
+    fix=(
+        "Encode the non-applicability as a principal Judgment output and add a "
+        "case that asserts it is false."
+    ),
+)
+CHECK_TESTS_ROUNDING_FORMULA_ABSENT = _declare_companion_test_check(
+    "rounding-formula-absent",
+    title="Source-stated rounding rule is absent from the principal formula",
+    requires="Every source-stated rounding rule is applied in the principal formula.",
+    fix=(
+        "Apply the stated rounding (direction and unit) in the principal "
+        "formula that computes the rounded amount."
+    ),
+)
+CHECK_TESTS_ROUNDING_UNWITNESSED = _declare_companion_test_check(
+    "rounding-unwitnessed",
+    title="Source-stated rounding rule has no fractional companion evidence",
+    requires=(
+        "Every source-stated rounding rule is demonstrated by companion cases "
+        "with distinct fractional inputs on the affected principal output."
+    ),
+    fix=(
+        "Add same-period paired cases that drive the pre-rounding amount to a "
+        "fraction on each side of the rounding point, asserting the unrounded "
+        "intermediate and the rounded output; or precisely defer the branch "
+        "when its inputs are not available."
+    ),
+)
+
+
 def _negative_local_input_clamp_test_issues(
     principal_rules: dict[str, dict[str, Any]],
     *,
@@ -18519,6 +20746,7 @@ def _negative_local_input_clamp_test_issues(
     corpus_citation_path: str,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     numeric_value_is_grounded: NumericGroundingPredicate,
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> list[str]:
     """Require negative evidence for direct max(0, local_input) clamps."""
 
@@ -18575,6 +20803,7 @@ def _negative_local_input_clamp_test_issues(
                     for branch in owned_branches
                     if _selected_principal_formula_has_exact_source_proof(
                         principal_rules[name],
+                        printed_operations=printed_operations,
                         case=case,
                         branch=branch,
                         corpus_citation_path=corpus_citation_path,
@@ -19074,16 +21303,23 @@ def _negative_local_input_clamp_test_issues(
     )
     omitted = len(ordered_clamps) - len(shown_clamps)
     omission = f" ({omitted} additional clamps omitted)" if omitted else ""
+    first_owner, first_input = ordered_clamps[0]
     return [
-        "[complete-source-unit:tests] Direct nonnegative clamp companion "
-        f"evidence is missing for {rendered_clamps}{omission}. Each requires "
-        "an executed companion case in every distinct selected temporal "
-        "owner/downstream claimant context, with the input below zero, that "
-        "asserts the clamped rule and, when downstream consumers exist, an "
-        "unambiguous authoritative principal output with selected-version "
-        "formula proof whose matching assertion and selected formula path "
-        "reach it through a resolved dependency chain. A zero-valued case "
-        "does not exercise the negative clamp."
+        ValidationIssue(
+            "[complete-source-unit:tests] Direct nonnegative clamp companion "
+            f"evidence is missing for {rendered_clamps}{omission}. Each requires "
+            "an executed companion case in every distinct selected temporal "
+            "owner/downstream claimant context, with the input below zero, that "
+            "asserts the clamped rule and, when downstream consumers exist, an "
+            "unambiguous authoritative principal output with selected-version "
+            "formula proof whose matching assertion and selected formula path "
+            "reach it through a resolved dependency chain. A zero-valued case "
+            "does not exercise the negative clamp.",
+            check=CHECK_TESTS_NEGATIVE_CLAMP_UNWITNESSED,
+            subject=IssueSubject(citation=corpus_citation_path, rule=first_owner),
+            expected=f"case with {first_input} below zero",
+            found=f"{len(ordered_clamps)} clamp(s) without a below-zero case",
+        )
     ]
 
 
@@ -19124,6 +21360,9 @@ def _companion_test_issues(
     source_bound_constant_occurrences: dict[str, tuple[NumericOccurrenceLike, ...]],
     declared_input_names: set[str],
     represented_annual_spans: set[tuple[int, int]] | None = None,
+    measurement_roles: BoundMeasurementRoles | None = None,
+    represented_measurement_spans: set[tuple[int, int]] | None = None,
+    measurement_witnesses: set[ExecutedMeasurementWitness] | None = None,
     calendar_date_declarations: Mapping[str, bool] | None = None,
     deferred_clauses: Sequence[SourceStructureBranch] = (),
     input_declarations: Mapping[str, dict[str, Any]] | None = None,
@@ -19133,14 +21372,26 @@ def _companion_test_issues(
     certified_replacement: BoundWorksheetReplacement | None = None,
     certified_composition: BoundWorksheetComposition | None = None,
     raw_source_text: str | None = None,
+    partnership_content: str | None = None,
+    printed_operations: _PrintedOperationContext | None = None,
+    execution_evidence: SameCaseEvidence | None = None,
+    floor_imported_exports: Sequence[ResolvedImportedExport] = (),
+    floor_source_context: Mapping[str, str | None] | None = None,
+    referral_context: Any = None,
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
     if not cases:
         return [
-            "[complete-source-unit:tests] Complete source-unit controls require "
-            "a companion test suite covering outputs, branches, boundaries, "
-            "exceptions, and rounding rules."
+            ValidationIssue(
+                "[complete-source-unit:tests] Complete source-unit controls require "
+                "a companion test suite covering outputs, branches, boundaries, "
+                "exceptions, and rounding rules.",
+                check=CHECK_TESTS_NO_SUITE,
+                subject=IssueSubject(citation=corpus_citation_path),
+                expected="companion test suite",
+                found="no test cases",
+            )
         ]
 
     colliding_cases = [
@@ -19158,10 +21409,19 @@ def _companion_test_issues(
             )
         )
         issues.append(
-            "[complete-source-unit:tests] Companion case "
-            f"`{case.get('name') or '<unnamed>'}` supplies local principal "
-            f"output(s) {collisions} as inputs; derived outputs must be "
-            "computed and asserted, not shadowed."
+            ValidationIssue(
+                "[complete-source-unit:tests] Companion case "
+                f"`{case.get('name') or '<unnamed>'}` supplies local principal "
+                f"output(s) {collisions} as inputs; derived outputs must be "
+                "computed and asserted, not shadowed.",
+                check=CHECK_TESTS_INPUT_SHADOWS_OUTPUT,
+                subject=IssueSubject(
+                    citation=corpus_citation_path,
+                    test_case=str(case.get("name") or "<unnamed>"),
+                ),
+                expected="principal outputs computed and asserted",
+                found=f"supplied as inputs: {collisions}",
+            )
         )
     cases = [case for case in cases if case not in colliding_cases]
 
@@ -19172,6 +21432,7 @@ def _companion_test_issues(
     issues.extend(
         _negative_local_input_clamp_test_issues(
             principal_rules,
+            printed_operations=printed_operations,
             parameter_rules=parameter_rules,
             principal_formula_clause_rules=principal_formula_clause_rules,
             formula_branches=formula_branches,
@@ -19189,8 +21450,14 @@ def _companion_test_issues(
             and certified_transfers.owns_output(name, principal_rules[name])
         ):
             issues.append(
-                "[complete-source-unit:tests] Principal output "
-                f"`{name}` is never asserted by a companion test."
+                ValidationIssue(
+                    "[complete-source-unit:tests] Principal output "
+                    f"`{name}` is never asserted by a companion test.",
+                    check=CHECK_TESTS_OUTPUT_UNASSERTED,
+                    subject=IssueSubject(citation=corpus_citation_path, rule=name),
+                    expected="at least one asserting companion case",
+                    found="no case asserts it",
+                )
             )
 
     formula_dependency_cache: dict[int, dict[str, Any]] = {}
@@ -19204,6 +21471,9 @@ def _companion_test_issues(
     ]
     missing_formula_branches = _unwitnessed_formula_branches(
         formula_branches,
+        execution_evidence=execution_evidence,
+        execution_content=partnership_content,
+        printed_operations=printed_operations,
         operand_declarations={
             **parameter_rules,
             **principal_rules,
@@ -19212,6 +21482,9 @@ def _companion_test_issues(
         certified_replacement=certified_replacement,
         source_text=source_text,
         represented_annual_spans=represented_annual_spans,
+        measurement_roles=measurement_roles,
+        represented_measurement_spans=represented_measurement_spans,
+        measurement_witnesses=measurement_witnesses,
         corpus_citation_path=corpus_citation_path,
         principal_rules=principal_rules,
         principal_formula_clause_rules=principal_formula_clause_rules,
@@ -19222,11 +21495,49 @@ def _companion_test_issues(
         dependency_cache=formula_dependency_cache,
         execution_cache=formula_execution_cache,
     )
+    if measurement_roles is not None:
+        # These exact source operations are not necessarily formula branches in
+        # the generic inventory. Validate them with the same ordinary witness;
+        # they contribute only their own typed measurement spans, never a
+        # condition witness or an exemption from source coverage.
+        for binding in measurement_roles.current:
+            start, end = binding.operation_span
+            operation_branch = SourceStructureBranch(
+                (),
+                "formula-clause",
+                "measurement operation",
+                source_text[start:end],
+                start,
+                end,
+            )
+            _formula_branch_test_witnesses(
+                operation_branch,
+                printed_operations=printed_operations,
+                corpus_citation_path=corpus_citation_path,
+                principal_rules=principal_rules,
+                rule_names={binding.owner},
+                asserted_by_rule=asserted_by_rule,
+                extract_numeric_occurrences=extract_numeric_occurrences,
+                numeric_value_is_grounded=numeric_value_is_grounded,
+                formula_environment=formula_environment,
+                dependency_cache=formula_dependency_cache,
+                execution_cache=formula_execution_cache,
+                source_text=source_text,
+                measurement_roles=measurement_roles,
+                represented_measurement_spans=represented_measurement_spans,
+                measurement_witnesses=measurement_witnesses,
+                operand_declarations={
+                    **parameter_rules,
+                    **principal_rules,
+                    **(input_declarations or {}),
+                },
+            )
     for branch in missing_formula_branches:
         source_excerpt = _bounded_source_feedback_excerpt(branch.text)
         source_location = f"characters {branch.start}:{branch.end}"
         unbound_diagnostic = _unbound_matching_formula_rules(
             branch,
+            printed_operations=printed_operations,
             corpus_citation_path=corpus_citation_path,
             principal_rules=principal_rules,
             bound_rule_names=principal_formula_clause_rules[branch],
@@ -19243,6 +21554,7 @@ def _companion_test_issues(
         )
         dependency_diagnostic = _uncorroborated_formula_dependency_diagnostic(
             branch,
+            printed_operations=printed_operations,
             principal_rules=principal_rules,
             bound_rule_names=principal_formula_clause_rules[branch],
             asserted_by_rule=asserted_by_rule,
@@ -19304,15 +21616,22 @@ def _companion_test_issues(
             else " No asserted candidate principal-output case has a usable period."
         )
         issues.append(
-            "[complete-source-unit:tests] Companion tests do not demonstrate "
-            f"formula branch {branch.label} at "
-            f"{_branch_citation(corpus_citation_path, branch)}. Exact source "
-            f"computation ({source_location}): `{source_excerpt}`. "
-            f"{witness_requirement}{observed_period_detail}"
-            f"{source_binding_detail}{dependency_detail} Each formula branch "
-            "needs distinct executed "
-            "test evidence; an internal formula-clause ordinal is not a legal "
-            "paragraph number."
+            ValidationIssue(
+                "[complete-source-unit:tests] Companion tests do not demonstrate "
+                f"formula branch {branch.label} at "
+                f"{_branch_citation(corpus_citation_path, branch)}. Exact source "
+                f"computation ({source_location}): `{source_excerpt}`. "
+                f"{witness_requirement}{observed_period_detail}"
+                f"{source_binding_detail}{dependency_detail} Each formula branch "
+                "needs distinct executed "
+                "test evidence; an internal formula-clause ordinal is not a legal "
+                "paragraph number.",
+                check=CHECK_TESTS_FORMULA_BRANCH_UNWITNESSED,
+                subject=_branch_subject(corpus_citation_path, branch),
+                expected="executed case reaching the branch computation",
+                found="no executed case reaches it",
+                evidence=source_excerpt,
+            )
         )
 
     boundary_branches = _active_or_root_source_branches(
@@ -19334,6 +21653,8 @@ def _companion_test_issues(
         boundary_branches,
         narrative_formula_branches=formula_branches,
         extract_numeric_occurrences=extract_numeric_occurrences,
+        source_text=source_text,
+        corpus_citation_path=corpus_citation_path,
     )
     missing_boundaries: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
     for branch, boundary in boundary_obligations:
@@ -19349,6 +21670,27 @@ def _companion_test_issues(
             extract_numeric_occurrences=extract_numeric_occurrences,
         ):
             continue
+        if execution_evidence is not None and partnership_content is not None:
+            from .actual_repayment_boundary_evidence import (
+                witnesses as actual_boundary_witnesses,
+            )
+
+            if actual_boundary_witnesses(
+                execution_evidence,
+                branch,
+                boundary,
+                content=partnership_content,
+                source_text=source_text,
+                corpus_citation_path=corpus_citation_path,
+                imported_exports=floor_imported_exports,
+                source_context=floor_source_context,
+                principal_rules=principal_rules,
+                asserted_by_rule=asserted_by_rule,
+                formula_environment=formula_environment,
+                boundary_branches=boundary_branches,
+                source_branches=branches,
+            ):
+                continue
         missing_boundaries.append((branch, boundary))
     if missing_boundaries:
         rendered = ", ".join(
@@ -19356,8 +21698,20 @@ def _companion_test_issues(
             for branch, occurrence in missing_boundaries
         )
         issues.append(
-            "[complete-source-unit:tests] Companion tests do not exercise every "
-            f"source-stated boundary input; missing: {rendered}."
+            ValidationIssue(
+                "[complete-source-unit:tests] Companion tests do not exercise every "
+                f"source-stated boundary input; missing: {rendered}.",
+                check=CHECK_TESTS_BOUNDARY_UNEXERCISED,
+                subject=_branch_subject(corpus_citation_path, missing_boundaries[0][0]),
+                # Name only the subject's own boundary: the fingerprint must not
+                # change when a different boundary is repaired.
+                expected=(
+                    "case at "
+                    f"{missing_boundaries[0][0].label}="
+                    f"{missing_boundaries[0][1].value:g}"
+                ),
+                found=f"no case at {rendered}",
+            )
         )
 
     exception_branches = _source_exception_branches(
@@ -19370,6 +21724,7 @@ def _companion_test_issues(
         deferred_clauses=deferred_clauses,
         # Manual procedure needs no paired witnesses either.
         numeric_limits_only=_is_us_manual_citation_path(corpus_citation_path),
+        corpus_citation_path=corpus_citation_path,
     )
     if exception_branches:
         independently_covered_paths = {
@@ -19416,6 +21771,181 @@ def _companion_test_issues(
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
+        if execution_evidence is not None and partnership_content is not None:
+            from .floor_retained_referral_evidence import (
+                witnesses as referral_witnesses,
+            )
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: referral_witnesses(
+                        execution_evidence,
+                        branch,
+                        content=partnership_content,
+                        source_text=source_text,
+                        corpus_citation_path=corpus_citation_path,
+                        principal_rules=principal_rules,
+                        asserted_by_rule=asserted_by_rule,
+                        formula_environment=formula_environment,
+                        referral_context=referral_context,
+                        source_context=(
+                            dict(printed_operations.proof_sources)
+                            if printed_operations is not None
+                            else None
+                        ),
+                        imported_exports=floor_imported_exports,
+                        printed_operations=printed_operations,
+                        extract_numeric_occurrences=extract_numeric_occurrences,
+                        numeric_value_is_grounded=numeric_value_is_grounded,
+                        operand_declarations={
+                            **parameter_rules,
+                            **principal_rules,
+                            **(input_declarations or {}),
+                        },
+                        certified_replacement=certified_replacement,
+                        represented_annual_spans=represented_annual_spans,
+                        measurement_roles=measurement_roles,
+                        represented_measurement_spans=represented_measurement_spans,
+                        measurement_witnesses=measurement_witnesses,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
+        if execution_evidence is not None and partnership_content is not None:
+            from .actual_repayment_group_evidence import witnesses as group_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: group_witnesses(
+                        execution_evidence,
+                        branch,
+                        content=partnership_content,
+                        source_text=source_text,
+                        corpus_citation_path=corpus_citation_path,
+                        imported_exports=floor_imported_exports,
+                        source_context=floor_source_context,
+                        principal_rules=principal_rules,
+                        asserted_by_rule=asserted_by_rule,
+                        formula_environment=formula_environment,
+                        boundary_obligations=boundary_obligations,
+                        boundary_branches=boundary_branches,
+                        source_branches=branches,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
+        if execution_evidence is not None and partnership_content is not None:
+            from .printed_signed_format_evidence import (
+                witnesses as signed_format_witnesses,
+            )
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: signed_format_witnesses(
+                        execution_evidence,
+                        branch,
+                        content=partnership_content,
+                        imported_exports=floor_imported_exports,
+                        source_context=floor_source_context,
+                        source_text=source_text,
+                        source_branches=branches,
+                        corpus_citation_path=corpus_citation_path,
+                        principal_rules=principal_rules,
+                        asserted_by_rule=asserted_by_rule,
+                        formula_environment=formula_environment,
+                        extract_numeric_occurrences=extract_numeric_occurrences,
+                        numeric_value_is_grounded=numeric_value_is_grounded,
+                        operand_declarations={
+                            **parameter_rules,
+                            **principal_rules,
+                            **(input_declarations or {}),
+                        },
+                        certified_replacement=certified_replacement,
+                        printed_operations=printed_operations,
+                        represented_annual_spans=represented_annual_spans,
+                        measurement_roles=measurement_roles,
+                        represented_measurement_spans=represented_measurement_spans,
+                        measurement_witnesses=measurement_witnesses,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
+        if execution_evidence is not None and partnership_content is not None:
+            from .actual_floor_evidence import witnesses as actual_floor_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: actual_floor_witnesses(
+                        execution_evidence,
+                        branch,
+                        content=partnership_content,
+                        imported_exports=floor_imported_exports,
+                        source_context=floor_source_context,
+                        source_text=source_text,
+                        corpus_citation_path=corpus_citation_path,
+                        principal_rules=principal_rules,
+                        asserted_by_rule=asserted_by_rule,
+                        formula_environment=formula_environment,
+                        extract_numeric_occurrences=extract_numeric_occurrences,
+                        numeric_value_is_grounded=numeric_value_is_grounded,
+                        operand_declarations={
+                            **parameter_rules,
+                            **principal_rules,
+                            **(input_declarations or {}),
+                        },
+                        certified_replacement=certified_replacement,
+                        printed_operations=printed_operations,
+                        represented_annual_spans=represented_annual_spans,
+                        measurement_roles=measurement_roles,
+                        represented_measurement_spans=represented_measurement_spans,
+                        measurement_witnesses=measurement_witnesses,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
+        if execution_evidence is not None and partnership_content is not None:
+            from .actual_sparse_worksheet_evidence import witnesses as sparse_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: sparse_witnesses(
+                        execution_evidence,
+                        branch,
+                        content=partnership_content,
+                        imported_exports=floor_imported_exports,
+                        source_context=floor_source_context,
+                        source_text=source_text,
+                        source_branches=branches,
+                        corpus_citation_path=corpus_citation_path,
+                        principal_rules=principal_rules,
+                        asserted_by_rule=asserted_by_rule,
+                        formula_environment=formula_environment,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
+        reporting_routes = certify_reporting_routes(
+            measurement_roles,
+            measurement_witnesses or set(),
+            principal_rules=principal_rules,
+            formula_environment=formula_environment,
+        )
+        if reporting_routes is not None:
+            missing_exception_branches = reporting_routes.unmatched(
+                missing_exception_branches
+            )
+        partnership = certify_partnership_reporting(
+            partnership_content,
+            source_text,
+            corpus_citation_path,
+            cases,
+            principal_rules=principal_rules,
+            formula_environment=formula_environment,
+        )
+        if partnership is not None:
+            missing_exception_branches = partnership.unmatched(
+                missing_exception_branches
+            )
         if missing_exception_branches:
             unsupported_row_outputs = [
                 f"case `{case.get('name') or '<unnamed>'}` output `{key}` "
@@ -19453,18 +21983,32 @@ def _companion_test_issues(
                 )
             missing_conditions = "; ".join(
                 f"{_branch_citation(corpus_citation_path, branch)} "
-                f"[{_source_exception_effect_requirement(branch.text)}]: `"
+                + (
+                    f"[output {branch.required_principal_output}] "
+                    if branch.required_principal_output
+                    else ""
+                )
+                + f"[{_source_exception_effect_requirement(branch.text)}]: `"
                 f"{_bounded_source_feedback_excerpt(branch.text, limit=220)}`"
                 for branch in missing_exception_branches
             )
             issues.append(
-                "[complete-source-unit:tests] Source-stated exceptions or "
-                "applicability conditions require paired positive/blocking cases "
-                "that assert the affected principal output and toggle its "
-                "controlling formula selector. Each listed condition needs its "
-                "own same-period case pair differing in exactly that one input; "
-                f"missing: {missing_conditions}.{recognized_pair_feedback}"
-                f"{row_output_feedback}"
+                ValidationIssue(
+                    "[complete-source-unit:tests] Source-stated exceptions or "
+                    "applicability conditions require paired positive/blocking cases "
+                    "that assert the affected principal output and toggle its "
+                    "controlling formula selector. Each listed condition needs its "
+                    "own same-period case pair differing in exactly that one input; "
+                    f"missing: {missing_conditions}.{recognized_pair_feedback}"
+                    f"{row_output_feedback}",
+                    check=CHECK_TESTS_EXCEPTION_PAIR_MISSING,
+                    subject=_branch_subject(
+                        corpus_citation_path, missing_exception_branches[0]
+                    ),
+                    expected="same-period positive/blocking case pair",
+                    found=f"{len(missing_exception_branches)} condition(s) unpaired",
+                    evidence=missing_exception_branches[0].text,
+                )
             )
         missing_unconditional_branches = _unmatched_evidence_obligations(
             {
@@ -19486,10 +22030,19 @@ def _companion_test_issues(
                 for branch in missing_unconditional_branches
             )
             issues.append(
-                "[complete-source-unit:tests] Unconditional source-stated "
-                "non-applicability requires a source-bound principal Judgment "
-                "output whose formula executes to false and is asserted false "
-                f"by a companion case; missing: {missing_conditions}."
+                ValidationIssue(
+                    "[complete-source-unit:tests] Unconditional source-stated "
+                    "non-applicability requires a source-bound principal Judgment "
+                    "output whose formula executes to false and is asserted false "
+                    f"by a companion case; missing: {missing_conditions}.",
+                    check=CHECK_TESTS_NONAPPLICABILITY_UNWITNESSED,
+                    subject=_branch_subject(
+                        corpus_citation_path, missing_unconditional_branches[0]
+                    ),
+                    expected="principal Judgment asserted false",
+                    found="no such output or assertion",
+                    evidence=missing_unconditional_branches[0].text,
+                )
             )
 
     rounding_obligations = _source_rounding_obligations(
@@ -19497,6 +22050,7 @@ def _companion_test_issues(
         branches=branches,
         active_branches=active_branches,
         deferred_paths=deferred_paths,
+        corpus_citation_path=corpus_citation_path,
     )
     missing_rounding_formula: list[tuple[SourceStructureBranch, str]] = []
     rounding_witnesses: dict[
@@ -19551,10 +22105,17 @@ def _companion_test_issues(
         )
     for branch, direction in missing_rounding_formula:
         issues.append(
-            "[complete-source-unit:tests] A source-stated "
-            f"{direction} rounding rule at "
-            f"{_branch_citation(corpus_citation_path, branch)} is absent from "
-            "the principal formula."
+            ValidationIssue(
+                "[complete-source-unit:tests] A source-stated "
+                f"{direction} rounding rule at "
+                f"{_branch_citation(corpus_citation_path, branch)} is absent from "
+                "the principal formula.",
+                check=CHECK_TESTS_ROUNDING_FORMULA_ABSENT,
+                subject=_branch_subject(corpus_citation_path, branch),
+                expected=f"{direction} rounding in the principal formula",
+                found="no rounding applied",
+                evidence=branch.text,
+            )
         )
     missing_rounding_tests = _unmatched_evidence_obligations(rounding_witnesses)
     if missing_rounding_tests:
@@ -19574,17 +22135,25 @@ def _companion_test_issues(
             else ""
         )
         issues.append(
-            "[complete-source-unit:tests] Companion tests do not demonstrate "
-            "every source-stated rounding rule with distinct fractional input "
-            f"evidence on its affected principal output; missing at {rendered}."
-            f"{nearest_guidance}"
-            " Alternative: when the rounded computation depends on outputs "
-            "that are not yet available (for example a cross-module base this "
-            "module cannot compute), a PRECISE typed deferral of that branch "
-            "removes this demand — declare `module.deferred_outputs: "
-            "[{output: <namespaced branch output>, reason: <names the exact "
-            "missing dependency citations>}]` instead of encoding a "
-            "speculative mechanism."
+            ValidationIssue(
+                "[complete-source-unit:tests] Companion tests do not demonstrate "
+                "every source-stated rounding rule with distinct fractional input "
+                f"evidence on its affected principal output; missing at {rendered}."
+                f"{nearest_guidance}"
+                " Alternative: when the rounded computation depends on outputs "
+                "that are not yet available (for example a cross-module base this "
+                "module cannot compute), a PRECISE typed deferral of that branch "
+                "removes this demand — declare `module.deferred_outputs: "
+                "[{output: <namespaced branch output>, reason: <names the exact "
+                "missing dependency citations>}]` instead of encoding a "
+                "speculative mechanism.",
+                check=CHECK_TESTS_ROUNDING_UNWITNESSED,
+                subject=_branch_subject(
+                    corpus_citation_path, missing_rounding_tests[0][0]
+                ),
+                expected="paired fractional cases on each side of the rounding point",
+                found=f"missing at {rendered}",
+            )
         )
     return issues
 
@@ -19613,6 +22182,353 @@ def _case_input_principal_output_collisions(
     )
 
 
+@dataclass(frozen=True)
+class _PrintedArithmeticProjection:
+    operation_text: str
+    numeric_spans: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True)
+class _PrintedOperationContext:
+    source_text: str
+    citation_path: str
+    structure: PrintedRowStructure
+    source_branches: tuple[SourceStructureBranch, ...] = ()
+    consumer_content: str = ""
+    proof_sources: tuple[tuple[str, str | None], ...] = ()
+
+    def local_operands_bind(
+        self,
+        clause: SourceStructureBranch,
+        *,
+        rule: Mapping[str, Any] | None,
+        principal_rules: Mapping[str, dict[str, Any]] | None,
+        case: Mapping[str, Any] | None,
+        execution: _FormulaExecution,
+    ) -> bool:
+        from .imported_export_evidence import (
+            _URI,
+            _atoms,
+            _frame,
+            _named,
+            _payload,
+            _source,
+        )
+
+        if rule is None or principal_rules is None or case is None:
+            return False
+        payload = _payload(self.consumer_content)
+        if payload is None:
+            return False
+        rules, inputs, units = (
+            _named(payload, key) for key in ("rules", "inputs", "units")
+        )
+        module = payload.get("module")
+        verification = (
+            module.get("source_verification") if isinstance(module, dict) else None
+        )
+        imports = payload.get("imports", [])
+        if (
+            rules is None
+            or inputs is None
+            or units is None
+            or set(rules) & set(inputs)
+            or any(rules.get(name) != value for name, value in principal_rules.items())
+            or not isinstance(verification, dict)
+            or verification.get("corpus_citation_path") != self.citation_path
+            or not isinstance(imports, list)
+            or any(
+                not isinstance(ref, str) or _URI.fullmatch(ref) is None
+                for ref in imports
+            )
+        ):
+            return False
+        aliases = [ref.rsplit("#", 1)[1] for ref in imports]
+        if len(set(aliases)) != len(aliases) or set(aliases) & (
+            set(rules) | set(inputs)
+        ):
+            return False
+        context = dict(self.proof_sources)
+        raw = context.get(self.citation_path)
+        if not isinstance(raw, str) or raw.strip() != self.source_text:
+            return False
+        owner = rule.get("name")
+        if (
+            not isinstance(owner, str)
+            or rules.get(owner) != rule
+            or principal_rules.get(owner) != rule
+        ):
+            return False
+        head = re.match(
+            r"Line (?P<target>[1-9]\d{0,2}) and line [1-9]\d{4}: "
+            r"(?P<operative>Line (?P<left>[1-9]\d{0,2}) minus line (?P<right>[1-9]\d{0,2}) "
+            r'\(if negative, enter "0"\))',
+            clause.text,
+        )
+        if head is None:
+            return False
+        expected_owner = clause.text[: head.end()]
+        row_matches = tuple(
+            re.finditer(
+                r"(?m)^Line (?P<row>[1-9]\d{0,4})(?: and (?:line )?[1-9]\d{4})?:[^\r\n]+",
+                self.source_text,
+            )
+        )
+        coordinates = [int(m["row"]) for m in row_matches]
+        if len(set(coordinates)) != len(coordinates):
+            return False
+        rows = dict(zip(coordinates, row_matches))
+        target, left, right = (int(head[k]) for k in ("target", "left", "right"))
+        if any(n not in rows for n in (target, left, right)) or rows[target].span() != (
+            clause.start,
+            clause.end,
+        ):
+            return False
+        right_groups = [
+            span
+            for span in self.structure.ownership_spans
+            if span[0] <= rows[right].start() and rows[right].end() <= span[1]
+        ]
+        if len(right_groups) != 1:
+            return False
+        right_start, right_end = right_groups[0]
+        expected = (rows[left].group(), self.source_text[right_start:right_end])
+        versions = rule.get("versions")
+        if not isinstance(versions, list) or not versions:
+            return False
+        operands = []
+        for version in versions:
+            if not isinstance(version, dict) or not isinstance(
+                version.get("formula"), str
+            ):
+                return False
+            try:
+                expression = ast.parse(version["formula"].strip(), mode="eval").body
+            except (SyntaxError, ValueError, RecursionError):
+                return False
+            if (
+                not isinstance(expression, ast.Call)
+                or not isinstance(expression.func, ast.Name)
+                or expression.func.id != "max"
+                or expression.keywords
+                or len(expression.args) != 2
+                or not isinstance(expression.args[0], ast.Constant)
+                or type(expression.args[0].value) not in (int, float)
+                or expression.args[0].value != 0
+                or not isinstance(expression.args[1], ast.BinOp)
+                or not isinstance(expression.args[1].op, ast.Sub)
+                or not isinstance(expression.args[1].left, ast.Name)
+                or not isinstance(expression.args[1].right, ast.Name)
+            ):
+                return False
+            operands.append((expression.args[1].left.id, expression.args[1].right.id))
+        if len(set(operands)) != 1:
+            return False
+        try:
+            reached = ast.parse(execution.leaf.strip(), mode="eval").body
+        except (SyntaxError, ValueError, RecursionError):
+            return False
+        if execution.trace or ast.dump(reached) != ast.dump(expression):
+            return False
+        names = (owner, *operands[0])
+        if len(set(names)) != 3 or any(
+            name not in principal_rules or name not in rules for name in names
+        ):
+            return False
+        unit = rule.get("unit")
+        if not isinstance(unit, str) or units.get(unit, {}).get("kind") != "currency":
+            return False
+        all_frames, selected = [], []
+        for position, name in enumerate(names):
+            current = rules[name]
+            if (
+                current.get("kind"),
+                current.get("dtype"),
+                current.get("entity"),
+                current.get("period"),
+                current.get("unit"),
+            ) != ("derived", "Money", "Person", "Year", unit):
+                return False
+            current_versions = current.get("versions")
+            if not isinstance(current_versions, list) or len(current_versions) != len(
+                versions
+            ):
+                return False
+            frames = []
+            for i, version in enumerate(current_versions):
+                if (
+                    not isinstance(version, dict)
+                    or set(version) - {"formula", "effective_from", "effective_to"}
+                    or not isinstance(version.get("formula"), str)
+                ):
+                    return False
+                frame = _frame(current, i, version, context)
+                if (
+                    frame is None
+                    or frame[1].rsplit("/", 1)[0]
+                    != self.citation_path.rsplit("/", 1)[0]
+                ):
+                    return False
+                atoms = _atoms(current, f"versions[{i}].formula", "formula")
+                source = _source(atoms[0], context) if len(atoms) == 1 else None
+                if (
+                    source is None
+                    or source[0] != self.citation_path
+                    or source[1] != raw
+                ):
+                    return False
+                quote = source[2]
+                if position == 0:
+                    if quote not in (expected_owner, clause.text):
+                        return False
+                elif quote.strip() != expected[position - 1].strip():
+                    return False
+                frames.append(frame)
+            if len(set(frames)) != len(frames):
+                return False
+            all_frames.append(tuple(frames))
+            selected.append(_selected_rule_formula_version_index(current, dict(case)))
+        period = _normalized_case_period(dict(case))
+        return (
+            _is_iso_calendar_date(period)
+            and len(set(all_frames)) == 1
+            and None not in selected
+            and len(set(selected)) == 1
+            and versions[selected[0]]["effective_from"]
+            <= period
+            <= versions[selected[0]]["effective_to"]
+        )
+
+    def operation_projection(
+        self,
+        clause: SourceStructureBranch,
+        *,
+        source_text: str,
+        citation_path: str,
+    ) -> _PrintedArithmeticProjection | None:
+        # Re-derive spans from the complete source; stored spans are not authority.
+        if (
+            source_text != self.source_text
+            or citation_path.strip("/").casefold() != self.citation_path
+            or not 0 <= clause.start < clause.end <= len(source_text)
+            or source_text[clause.start : clause.end] != clause.text
+            or clause.computation_text != clause.text
+        ):
+            return None
+        labels = bare_outline(source_text, corpus_citation_path=citation_path) or ()
+        structural = {
+            *(
+                point
+                for owner in self.source_branches
+                for point in (owner.start, owner.end)
+            ),
+            *(point for label in labels for point in (label.start, label.marker_end)),
+            *(start for start, _term in bare_definition_headers(source_text, labels)),
+        }
+        if any(clause.start < point < clause.end for point in structural):
+            return None
+        structure = _unconflicted_printed_rows(
+            source_text, self.source_branches, corpus_citation_path=citation_path
+        )
+        if (
+            structure is None
+            or structure != self.structure
+            or (clause.start, clause.end) not in structure.ownership_spans
+        ):
+            return None
+        spans = tuple(
+            (a - clause.start, b - clause.start)
+            for a, b in structure.arithmetic_referral_spans
+            if clause.start <= a < b <= clause.end
+        )
+        if len(spans) != 1:
+            return None
+        projected = list(clause.text)
+        for a, b in spans:
+            projected[a:b] = _TYPOGRAPHY_MASK * (b - a)
+        return _PrintedArithmeticProjection("".join(projected), spans)
+
+    def operation_kinds(self, clause: SourceStructureBranch) -> frozenset[str] | None:
+        if self.source_text[clause.start : clause.end] != clause.text:
+            return None
+        if any(
+            clause.start <= a < b <= clause.end for a, b in self.structure.additions
+        ):
+            return frozenset({"add"})
+        return None
+
+    def covers(self, clause: SourceStructureBranch, excerpt: str) -> bool:
+        if not excerpt or self.source_text.count(excerpt) != 1:
+            return False
+        start = self.source_text.index(excerpt)
+        end = start + len(excerpt)
+        if self.source_text[clause.start : clause.end] != clause.text:
+            return False
+        return any(
+            clause.start <= a < b <= clause.end and start <= a < b <= end
+            for a, b in self.structure.additions
+        )
+
+
+def _printed_operation_context(
+    source_text: str,
+    branches: Sequence[SourceStructureBranch],
+    citation_path: str,
+    *,
+    consumer_content: str = "",
+    proof_sources: Mapping[str, str | None] | None = None,
+) -> _PrintedOperationContext | None:
+    structure = _unconflicted_printed_rows(
+        source_text, branches, corpus_citation_path=citation_path
+    )
+    return (
+        _PrintedOperationContext(
+            source_text,
+            citation_path.strip("/").casefold(),
+            structure,
+            tuple(branches),
+            consumer_content,
+            tuple(proof_sources.items()) if proof_sources is not None else (),
+        )
+        if structure is not None
+        else None
+    )
+
+
+def _printed_operation_proof(
+    context: _PrintedOperationContext | None,
+    clause: SourceStructureBranch,
+    excerpt: str,
+    citation_path: str,
+) -> bool:
+    return (
+        context is not None
+        and context.citation_path == citation_path.strip("/").casefold()
+        and context.covers(clause, excerpt)
+    )
+
+
+def _unconflicted_printed_rows(
+    source_text: str,
+    branches: Sequence[SourceStructureBranch],
+    *,
+    corpus_citation_path: str = "",
+) -> PrintedRowStructure | None:
+    """Printed groups never supersede existing source ownership boundaries."""
+    evidence = recognize_printed_rows(source_text)
+    if evidence is None:
+        return None
+    labels = bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    structural = {
+        *(point for branch in branches for point in (branch.start, branch.end)),
+        *(point for label in labels for point in (label.start, label.marker_end)),
+        *(start for start, _term in bare_definition_headers(source_text, labels)),
+    }
+    if any(a < point < b for a, b in evidence.atomic_spans for point in structural):
+        return None
+    return evidence
+
+
 def _source_formula_branches(
     source_text: str,
     *,
@@ -19620,21 +22536,82 @@ def _source_formula_branches(
     branches: Sequence[SourceStructureBranch],
     active_branches: Sequence[SourceStructureBranch],
     deferred_paths: set[tuple[str, ...]],
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> tuple[SourceStructureBranch, ...]:
     """Return every explicit computation clause with its structural owner."""
 
+    if printed_operations is None:
+        printed_operations = _printed_operation_context(
+            source_text, branches, corpus_citation_path
+        )
+    printed_rows = (
+        printed_operations.structure
+        if printed_operations is not None
+        and printed_operations.source_text == source_text
+        and printed_operations.citation_path
+        == corpus_citation_path.strip("/").casefold()
+        else None
+    )
     worksheet_labels = tuple(
         sorted(
             {row.span("label") for row in _worksheet_arithmetic_rows(source_text)}
             | set(_corroborated_form_output_label_spans(source_text))
+            | set(form_numeric_locator_spans(source_text))
         )
     )
+    heading_text = source_text
+    if printed_rows is not None:
+        a, b = printed_rows.heading_dash
+        heading_text = source_text[:a] + " " * (b - a) + source_text[b:]
+        glyphs = list(heading_text)
+        for a, b in printed_rows.typography_spans:
+            glyphs[a:b] = _TYPOGRAPHY_MASK * (b - a)
+        heading_text = "".join(glyphs)
     classification_text = _without_precomputed_income_table_percentage_captions(
-        source_text, corpus_citation_path=corpus_citation_path
+        mask_form_display(heading_text),
+        corpus_citation_path=corpus_citation_path,
+    )
+    bare_labels = (
+        bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
+    bare_display_text = mask_bare_labels(source_text, bare_labels)
+    bare_deferred_labels = frozenset(
+        label
+        for label in bare_labels
+        if _path_is_deferred(tuple(part.lower() for part in label.path), deferred_paths)
+    )
+    # The precision gate authenticates these deferrals. Omit only their
+    # positively recognized source spans from active computation context.
+    deferred_intervals: list[tuple[int, int]] = []
+    for label in sorted(bare_deferred_labels, key=lambda label: label.start):
+        if deferred_intervals and label.start <= deferred_intervals[-1][1]:
+            previous_start, previous_end = deferred_intervals[-1]
+            deferred_intervals[-1] = (previous_start, max(previous_end, label.end))
+        else:
+            deferred_intervals.append((label.start, label.end))
+    active_pieces = []
+    previous_end = 0
+    for deferred_start, deferred_end in deferred_intervals:
+        active_pieces.extend(
+            (
+                bare_display_text[previous_end:deferred_start],
+                " " * (deferred_end - deferred_start),
+            )
+        )
+        previous_end = deferred_end
+    active_pieces.append(bare_display_text[previous_end:])
+    bare_active_text = "".join(active_pieces)
+    bare_punctuation_clauses = (
+        tuple(_source_clause_spans(bare_active_text, branches=()))
+        if bare_labels
+        else ()
     )
     obligations: list[SourceStructureBranch] = []
+    inherited_chapeaux: list[tuple[tuple[str, ...], int, tuple[int, int, str]]] = []
     for clause_index, (start, end, clause) in enumerate(
-        _source_clause_spans(source_text, branches=branches),
+        _source_clause_spans(
+            source_text, branches=branches, corpus_citation_path=corpus_citation_path
+        ),
         start=1,
     ):
         if _span_is_deferred(
@@ -19643,8 +22620,6 @@ def _source_formula_branches(
             branches=branches,
             deferred_paths=deferred_paths,
         ):
-            continue
-        if not source_states_explicit_computation(classification_text[start:end]):
             continue
         owner = _most_specific_containing_branch(
             start,
@@ -19660,6 +22635,62 @@ def _source_formula_branches(
                 0,
                 len(source_text),
             )
+        # Retain only enclosing contexts. Outline depth bounds this stack;
+        # sibling calculations cannot accumulate a quadratic context scan.
+        inherited_chapeaux = [
+            (path, scope_end, context)
+            for path, scope_end, context in inherited_chapeaux
+            if start < scope_end
+            and len(owner.path) >= len(path)
+            and owner.path[: len(path)] == path
+        ]
+        computation_chapeaux = tuple(
+            context
+            for path, scope_end, context in inherited_chapeaux
+            if context[1] <= start < end <= scope_end
+            and len(owner.path) > len(path)
+            and owner.path[: len(path)] == path
+        )
+        owner_end = len(source_text) if owner.kind == "source-unit" else owner.end
+        children = (
+            tuple(
+                label
+                for label in bare_labels
+                if end <= label.start < owner_end
+                and len(label.path) > len(owner.path)
+                and tuple(part.lower() for part in label.path[: len(owner.path)])
+                == owner.path
+            )
+            if bare_labels and re.search(r"[:—–-]\s*$", clause)
+            else ()
+        )
+        first_child = min(children, key=lambda label: label.start, default=None)
+        active_children = tuple(
+            label for label in children if label not in bare_deferred_labels
+        )
+        authenticated_bare_chapeau = (
+            first_child is not None
+            and not bare_display_text[end : first_child.start].strip()
+            and bool(active_children)
+        )
+        classification_clause = classification_text[start:end]
+        explicit_computation = (
+            source_states_explicit_computation(classification_clause)
+            or (
+                printed_rows is not None
+                and any(start <= a < b <= end for a, b in printed_rows.additions)
+            )
+            or (
+                authenticated_bare_chapeau
+                and bool(_formula_operation_kinds(classification_clause))
+            )
+        )
+        if not explicit_computation and (
+            not computation_chapeaux
+            or _collapse_text(clause).lower()
+            in {"and", "or", "but", "und", "oder", "aber"}
+        ):
+            continue
         if _formula_clause_has_nonnumeric_inline_following_operands(
             clause,
             end=end,
@@ -19676,6 +22707,50 @@ def _source_formula_branches(
             source_text=source_text,
         ):
             continue
+        if authenticated_bare_chapeau:
+            if explicit_computation:
+                computation_chapeau = (start, end, clause)
+                computation_chapeaux = (*computation_chapeaux, computation_chapeau)
+                inherited_chapeaux = [
+                    context
+                    for context in inherited_chapeaux
+                    if context[0] != owner.path
+                ]
+                inherited_chapeaux.append((owner.path, owner_end, computation_chapeau))
+            punctuation_end = next(
+                (
+                    clause_end
+                    for clause_start, clause_end, _text in bare_punctuation_clauses
+                    if clause_start <= start and end <= clause_end
+                ),
+                end,
+            )
+            punctuation_end = min(
+                punctuation_end,
+                min(
+                    (
+                        label.start
+                        for label in children
+                        if label in bare_deferred_labels
+                        and label.start > active_children[0].start
+                    ),
+                    default=owner_end,
+                ),
+            )
+            # The first child inherits the chapeau's calculation cue.
+            # Keep the former punctuation-bounded computation together,
+            # while structure and condition excerpts retain child boundaries.
+            end = min(punctuation_end, owner_end)
+            clause = bare_active_text[start:end]
+        if (
+            bare_labels
+            and obligations
+            and obligations[-1].start <= start
+            and end <= obligations[-1].end
+        ):
+            # A retained parent computation already owns this exact operation.
+            # Requiring another witness for its child would count it twice.
+            continue
         obligation = SourceStructureBranch(
             owner.path,
             "formula-clause",
@@ -19688,6 +22763,7 @@ def _source_formula_branches(
                 for label_start, label_end in worksheet_labels
                 if start <= label_start < label_end <= end
             ),
+            computation_chapeaux=computation_chapeaux,
         )
         if _rounding_clause_refers_to_previous_result(
             obligation,
@@ -19696,7 +22772,163 @@ def _source_formula_branches(
         ):
             continue
         obligations.append(obligation)
+    if bare_labels:
+        obligations = _retain_bare_punctuation_computations(
+            bare_display_text,
+            classification_text=mask_bare_labels(classification_text, bare_labels),
+            branches=active_branches,
+            obligations=obligations,
+            deferred_intervals=deferred_intervals,
+            worksheet_labels=worksheet_labels,
+        )
     return tuple(obligations)
+
+
+def _retain_bare_punctuation_computations(
+    source_text: str,
+    *,
+    classification_text: str | None = None,
+    branches: Sequence[SourceStructureBranch],
+    obligations: Sequence[SourceStructureBranch],
+    deferred_intervals: Sequence[tuple[int, int]],
+    worksheet_labels: Sequence[tuple[int, int]],
+) -> list[SourceStructureBranch]:
+    """Keep the former full computation when outline boundaries split its text.
+
+    A computation cue can occur in a later child or beside an earlier sibling's
+    operands. The enclosing punctuation clause remains its authenticated source
+    context even when its introduction does not independently name arithmetic.
+    Accepted deferrals split that context into physical active spans.
+    """
+    if classification_text is None:
+        classification_text = source_text
+    retained = list(obligations)
+    connectives = {"and", "or", "but", "und", "oder", "aber"}
+    for clause_index, (start, end, text) in enumerate(
+        _source_clause_spans(source_text, branches=()), start=1
+    ):
+        if not source_states_explicit_computation(classification_text[start:end]):
+            continue
+        active_spans = []
+        previous_end = start
+        for deferred_start, deferred_end in deferred_intervals:
+            if deferred_end <= start or end <= deferred_start:
+                continue
+            active_spans.append((previous_end, max(previous_end, deferred_start)))
+            previous_end = min(end, deferred_end)
+        active_spans.append((previous_end, end))
+        for piece_start, piece_end in active_spans:
+            piece = source_text[piece_start:piece_end]
+            piece_start += len(piece) - len(piece.lstrip())
+            piece_end -= len(piece) - len(piece.rstrip())
+            if piece_start >= piece_end:
+                continue
+            coverage = sorted(
+                (max(piece_start, covered_start), min(piece_end, covered_end))
+                for obligation in retained
+                for covered_start, covered_end in (
+                    (obligation.start, obligation.end),
+                    *(
+                        (cue_start, cue_end)
+                        for cue_start, cue_end, _cue in obligation.computation_chapeaux
+                    ),
+                )
+                if covered_start < piece_end and piece_start < covered_end
+            )
+            uncovered = []
+            covered_end = piece_start
+            for span_start, span_end in coverage:
+                if covered_end < span_start:
+                    uncovered.append(source_text[covered_end:span_start])
+                covered_end = max(covered_end, span_end)
+            uncovered.append(source_text[covered_end:piece_end])
+            if all(
+                not gap.strip() or _collapse_text(gap).lower() in connectives
+                for gap in uncovered
+            ):
+                # Standalone conjunctions already have their own physical
+                # source clauses and do not name an additional computation.
+                continue
+            contained = [
+                obligation
+                for obligation in retained
+                if piece_start <= obligation.start < obligation.end <= piece_end
+            ]
+            previous = min(contained, key=lambda branch: branch.start, default=None)
+            if previous is None and not source_states_explicit_computation(
+                classification_text[piece_start:piece_end]
+            ):
+                contextual = min(
+                    (
+                        obligation
+                        for obligation in retained
+                        if start <= obligation.start < obligation.end <= end
+                    ),
+                    key=lambda branch: min(
+                        abs(branch.start - piece_end), abs(branch.end - piece_start)
+                    ),
+                    default=None,
+                )
+                if contextual is not None:
+                    # A deferred sibling can separate an introduction from its
+                    # active computation. Keep that physical context on the
+                    # existing operation without crossing the deferred span or
+                    # requiring another execution of the same operation.
+                    context = (
+                        piece_start,
+                        piece_end,
+                        source_text[piece_start:piece_end],
+                    )
+                    retained[retained.index(contextual)] = replace(
+                        contextual,
+                        computation_chapeaux=tuple(
+                            sorted({*contextual.computation_chapeaux, context})
+                        ),
+                    )
+                    continue
+                # The clause's only computation may belong to an accepted
+                # deferred sibling. Ordinary active prose cannot inherit that
+                # sibling's operation when no active computation remains.
+                continue
+            owner = _most_specific_containing_branch(
+                piece_start, piece_end, branches=branches
+            )
+            replacement = SourceStructureBranch(
+                owner.path if owner else (),
+                "formula-clause",
+                f"{owner.label if owner else 'source unit'} formula clause {clause_index}",
+                source_text[piece_start:piece_end],
+                piece_start,
+                piece_end,
+                structural_numeric_spans=tuple(
+                    (label_start - piece_start, label_end - piece_start)
+                    for label_start, label_end in worksheet_labels
+                    if piece_start <= label_start < label_end <= piece_end
+                ),
+                computation_chapeaux=previous.computation_chapeaux if previous else (),
+            )
+            if _rounding_clause_refers_to_previous_result(
+                replacement,
+                previous=max(
+                    (
+                        obligation
+                        for obligation in retained
+                        if obligation.end <= piece_start
+                    ),
+                    key=lambda branch: branch.end,
+                    default=None,
+                ),
+                source_text=source_text,
+            ):
+                continue
+            if previous is not None:
+                # Expand one existing witness obligation instead of adding a
+                # duplicate for its operation. Other independent computations
+                # in this punctuation clause keep their own witness demands.
+                retained[retained.index(previous)] = replacement
+            else:
+                retained.append(replacement)
+    return sorted(retained, key=lambda branch: (branch.start, branch.end))
 
 
 def _formula_clause_has_nonnumeric_inline_following_operands(
@@ -19842,6 +23074,7 @@ def _source_control_branches(
     deferred_clauses: Sequence[SourceStructureBranch] = (),
     numeric_exception_controls_only: bool = False,
     raw_source_text: str | None = None,
+    corpus_citation_path: str = "",
 ) -> tuple[SourceStructureBranch, ...]:
     """Return active boundary, exception, and applicability control clauses.
 
@@ -19865,6 +23098,8 @@ def _source_control_branches(
             boundary_branches,
             narrative_formula_branches=formula_branches,
             extract_numeric_occurrences=extract_numeric_occurrences,
+            source_text=source_text,
+            corpus_citation_path=corpus_citation_path,
         )
         if not _source_boundary_is_temporal(branch, boundary)
     ]
@@ -19878,6 +23113,7 @@ def _source_control_branches(
             formula_branches=formula_branches,
             deferred_clauses=deferred_clauses,
             numeric_limits_only=numeric_exception_controls_only,
+            corpus_citation_path=corpus_citation_path,
         )
     )
     return tuple(
@@ -19974,12 +23210,20 @@ def _source_clause_spans(
     source_text: str,
     *,
     branches: Sequence[SourceStructureBranch],
+    corpus_citation_path: str = "",
 ) -> Iterable[tuple[int, int, str]]:
     """Yield offset-preserving clauses split at punctuation and structure."""
 
-    # Mask only authenticated structural labels; preserve offsets and return
-    # original source slices so proof atoms remain text-bound.
-    boundary_text = _mask_spaced_german_sentence_labels(source_text)
+    # Mask only authenticated structural labels, preserving offsets. The
+    # resulting excerpts retain every operative character of the source.
+    printed_rows = _unconflicted_printed_rows(
+        source_text, branches, corpus_citation_path=corpus_citation_path
+    )
+    bare_labels = (
+        bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
+    display_text = mask_bare_labels(source_text, bare_labels)
+    boundary_text = _mask_spaced_german_sentence_labels(display_text)
     boundary = re.compile(
         r";|:(?=\s*(?i:provided)\s*,?\s*(?i:that)\b)|"
         r"[.!?](?=(?:[ \t]+[A-ZÄÖÜ(]|\s*$))",
@@ -20010,6 +23254,7 @@ def _source_clause_spans(
     split_points = {
         0,
         len(source_text),
+        *_post_list_verification_heading_starts(source_text),
         *_work_chart_heading_starts(source_text),
         *_printed_chart_arithmetic_starts(source_text),
         *_printed_page_header_boundaries(source_text),
@@ -20018,7 +23263,12 @@ def _source_clause_spans(
             for span in _spaced_german_sentence_label_spans(source_text)
             for point in span
         ),
-        *(match.end() for match in boundary_matches),
+        *(
+            match.end()
+            for match in boundary_matches
+            if printed_rows is None
+            or not any(a < match.end() < b for a, b in printed_rows.atomic_spans)
+        ),
         *(
             point
             for row in _worksheet_arithmetic_rows(source_text)
@@ -20036,7 +23286,23 @@ def _source_clause_spans(
         ),
         *(branch.start for branch in branches),
         *(branch.end for branch in branches),
+        *(label.start for label in bare_labels),
+        *(label.marker_end for label in bare_labels),
+        *(
+            (
+                start
+                for start, _term in bare_definition_headers(source_text, bare_labels)
+            )
+            if bare_labels
+            else ()
+        ),
     }
+    if printed_rows is not None:
+        split_points.update(
+            point
+            for point in printed_rows.boundaries
+            if not any(a < point < b for a, b in printed_rows.atomic_spans)
+        )
     for start, end in zip(sorted(split_points), sorted(split_points)[1:]):
         raw = boundary_text[start:end]
         left_trimmed = len(raw) - len(raw.lstrip())
@@ -20045,7 +23311,7 @@ def _source_clause_spans(
             yield (
                 start + left_trimmed,
                 start + right_trimmed,
-                source_text[start + left_trimmed : start + right_trimmed],
+                display_text[start + left_trimmed : start + right_trimmed],
             )
 
 
@@ -20141,6 +23407,9 @@ def _unwitnessed_formula_branches(
     *,
     source_text: str = "",
     represented_annual_spans: set[tuple[int, int]] | None = None,
+    measurement_roles: BoundMeasurementRoles | None = None,
+    represented_measurement_spans: set[tuple[int, int]] | None = None,
+    measurement_witnesses: set[ExecutedMeasurementWitness] | None = None,
     corpus_citation_path: str,
     principal_rules: dict[str, dict[str, Any]],
     principal_formula_clause_rules: dict[SourceStructureBranch, set[str]],
@@ -20152,16 +23421,23 @@ def _unwitnessed_formula_branches(
     execution_cache: dict[tuple[str, int], _FormulaExecution | None],
     operand_declarations: Mapping[str, dict[str, Any]] | None = None,
     certified_replacement: BoundWorksheetReplacement | None = None,
+    printed_operations: _PrintedOperationContext | None = None,
+    execution_evidence: SameCaseEvidence | None = None,
+    execution_content: str | None = None,
 ) -> tuple[SourceStructureBranch, ...]:
     """Consume each executed rule/case witness for at most one source formula."""
 
     candidate_witnesses = {
         branch: _formula_branch_test_witnesses(
             branch,
+            printed_operations=printed_operations,
             operand_declarations=operand_declarations,
             certified_replacement=certified_replacement,
             source_text=source_text,
             represented_annual_spans=represented_annual_spans,
+            measurement_roles=measurement_roles,
+            represented_measurement_spans=represented_measurement_spans,
+            measurement_witnesses=measurement_witnesses,
             corpus_citation_path=corpus_citation_path,
             principal_rules=principal_rules,
             rule_names=principal_formula_clause_rules[branch],
@@ -20174,6 +23450,30 @@ def _unwitnessed_formula_branches(
         )
         for branch in branches
     }
+    if execution_evidence is not None and execution_content is not None:
+        for branch in branches:
+            candidate_witnesses[branch].update(
+                formula_witnesses(
+                    execution_evidence,
+                    branch,
+                    content=execution_content,
+                    printed_operations=printed_operations,
+                    operand_declarations=operand_declarations,
+                    certified_replacement=certified_replacement,
+                    source_text=source_text,
+                    represented_annual_spans=represented_annual_spans,
+                    measurement_roles=measurement_roles,
+                    represented_measurement_spans=represented_measurement_spans,
+                    measurement_witnesses=measurement_witnesses,
+                    corpus_citation_path=corpus_citation_path,
+                    principal_rules=principal_rules,
+                    rule_names=principal_formula_clause_rules[branch],
+                    asserted_by_rule=asserted_by_rule,
+                    extract_numeric_occurrences=extract_numeric_occurrences,
+                    numeric_value_is_grounded=numeric_value_is_grounded,
+                    formula_environment=formula_environment,
+                )
+            )
     return _unmatched_evidence_obligations(candidate_witnesses)
 
 
@@ -20871,9 +24171,13 @@ def _formula_branch_test_witnesses(
     execution_cache: dict[tuple[str, int], _FormulaExecution | None],
     source_text: str = "",
     represented_annual_spans: set[tuple[int, int]] | None = None,
+    measurement_roles: BoundMeasurementRoles | None = None,
+    represented_measurement_spans: set[tuple[int, int]] | None = None,
+    measurement_witnesses: set[ExecutedMeasurementWitness] | None = None,
     max_cases_per_rule: int | None = None,
     operand_declarations: Mapping[str, dict[str, Any]] | None = None,
     certified_replacement: BoundWorksheetReplacement | None = None,
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> set[tuple[str, str]]:
     # A good execution must never hide another invalid source-owned version,
     # alternative, operand or alias after the closed credit demand removal.
@@ -20930,9 +24234,17 @@ def _formula_branch_test_witnesses(
                 source_text=source_text,
                 corpus_citation_path=corpus_citation_path,
             )
+            measurement_evidence = (
+                measurement_roles.evidence(
+                    rule=rule, case=case, execution=execution, branch=branch
+                )
+                if measurement_roles is not None
+                else ()
+            )
             if not _formula_execution_is_source_branch_witness(
                 execution,
-                branch,
+                printed_operations=printed_operations,
+                branch=branch,
                 operand_declarations=operand_declarations,
                 source_text=source_text,
                 corpus_citation_path=corpus_citation_path,
@@ -20944,6 +24256,7 @@ def _formula_branch_test_witnesses(
                 dependency_environment=dependency_environment,
                 require_corroborated_dependencies=True,
                 annual_evidence=annual_evidence,
+                measurement_evidence=measurement_evidence,
                 formula_environment=formula_environment,
                 extract_numeric_occurrences=extract_numeric_occurrences,
                 numeric_value_is_grounded=numeric_value_is_grounded,
@@ -20959,6 +24272,7 @@ def _formula_branch_test_witnesses(
                     continue
                 temporal_bindings = _formula_leaf_temporal_bindings(
                     execution.leaf,
+                    measurement_evidence=measurement_evidence,
                     case=case,
                     branch=branch,
                     interval=interval,
@@ -20984,11 +24298,39 @@ def _formula_branch_test_witnesses(
                     represented_annual_spans.update(
                         (e.start, e.end) for e in annual_evidence
                     )
+                if represented_measurement_spans is not None:
+                    represented_measurement_spans.update(
+                        (e.start, e.end) for e in measurement_evidence
+                    )
+                if measurement_witnesses is not None and measurement_evidence:
+                    import json
+
+                    measurement_witnesses.add(
+                        ExecutedMeasurementWitness(
+                            rule_name,
+                            json.dumps(case, sort_keys=True),
+                            measurement_evidence,
+                        )
+                    )
                 witnesses.add((rule_name, witness))
                 continue
             if represented_annual_spans is not None:
                 represented_annual_spans.update(
                     (e.start, e.end) for e in annual_evidence
+                )
+            if represented_measurement_spans is not None:
+                represented_measurement_spans.update(
+                    (e.start, e.end) for e in measurement_evidence
+                )
+            if measurement_witnesses is not None and measurement_evidence:
+                import json
+
+                measurement_witnesses.add(
+                    ExecutedMeasurementWitness(
+                        rule_name,
+                        json.dumps(case, sort_keys=True),
+                        measurement_evidence,
+                    )
                 )
             witnesses.add((rule_name, f"case:{id(case)}"))
     return witnesses
@@ -21003,14 +24345,12 @@ def _selected_principal_formula_proves_branch(
 ) -> bool:
     """Keep indexed principal proof evidence on its case-selected version."""
 
-    branch_text = _normalized_formula_clause_text(branch.text)
     normalized_citation_path = corpus_citation_path.strip("/").lower()
     matching_atoms = {
         (version_index, citation_path.strip("/").lower())
         for path, citation_path, excerpt in _rule_source_excerpt_atoms(rule)
         if (version_index := _formula_proof_version_index(path)) is not None
-        and (excerpt_text := _normalized_formula_clause_text(excerpt))
-        and (excerpt_text in branch_text or branch_text in excerpt_text)
+        and _formula_source_excerpt_matches(branch, excerpt)
     }
     if not matching_atoms:
         return True
@@ -21029,20 +24369,24 @@ def _selected_principal_formula_has_exact_source_proof(
     case: dict[str, Any],
     branch: SourceStructureBranch,
     corpus_citation_path: str,
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> bool:
     """Require normalized same-source formula proof on the selected version."""
 
     selected_index = _selected_rule_formula_version_index(rule, case)
     if selected_index is None:
         return False
-    branch_text = _normalized_formula_clause_text(branch.text)
     normalized_citation_path = corpus_citation_path.strip("/").casefold()
     return any(
         version_index == selected_index
         and citation_path.strip("/").casefold() == normalized_citation_path
-        and (excerpt_text := _normalized_formula_clause_text(excerpt))
-        and (excerpt_text in branch_text or branch_text in excerpt_text)
-        and source_states_explicit_computation(excerpt)
+        and _formula_source_excerpt_matches(branch, excerpt)
+        and (
+            source_states_explicit_computation(excerpt)
+            or _printed_operation_proof(
+                printed_operations, branch, excerpt, citation_path
+            )
+        )
         for path, citation_path, excerpt in _rule_source_excerpt_atoms(rule)
         if (version_index := _formula_proof_version_index(path)) is not None
     )
@@ -21051,6 +24395,7 @@ def _selected_principal_formula_has_exact_source_proof(
 def _formula_leaf_temporal_bindings(
     leaf: str,
     *,
+    measurement_evidence: tuple[MeasurementSourceEvidence, ...] = (),
     case: dict[str, Any],
     branch: SourceStructureBranch,
     interval: _NumericInterval | None,
@@ -21068,15 +24413,16 @@ def _formula_leaf_temporal_bindings(
     computation_occurrences = _formula_branch_computation_occurrences(
         branch,
         interval=interval,
+        measurement_evidence=measurement_evidence,
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
     source_factor_occurrences = tuple(
         occurrence
         for occurrence in computation_occurrences
         if occurrence.has_rate_context
-        or "multiply" in _formula_operation_kinds(branch.text)
+        or "multiply" in _formula_operation_kinds(branch.computation_text)
     )
-    worded_percentage_rates = _source_worded_percentage_rates(branch.text)
+    worded_percentage_rates = _source_worded_percentage_rates(branch.computation_text)
     temporal_names = {
         node.id
         for node in ast.walk(expression)
@@ -21423,12 +24769,13 @@ def _formula_branch_computation_occurrences(
     branch: SourceStructureBranch,
     *,
     annual_evidence: tuple[_AnnualSourceEvidence, ...] = (),
+    measurement_evidence: tuple[MeasurementSourceEvidence, ...] = (),
     interval: _NumericInterval | None,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> tuple[NumericOccurrenceLike, ...]:
     represented_years = tuple(
         (e.start - branch.start, e.end - branch.start)
-        for e in annual_evidence
+        for e in (*annual_evidence, *measurement_evidence)
         if branch.start <= e.start < e.end <= branch.end
         and branch.text[e.start - branch.start : e.end - branch.start] == str(e.year)
     )
@@ -21462,7 +24809,7 @@ def _formula_branch_computation_occurrences(
             if occurrence is not None
         )
     )
-    return tuple(
+    child_occurrences = tuple(
         occurrence
         for occurrence in sorted(
             source_occurrences,
@@ -21477,6 +24824,119 @@ def _formula_branch_computation_occurrences(
             for boundary in boundaries
         )
     )
+    inherited = tuple(
+        occurrence
+        for context in branch.computation_chapeaux
+        if not (branch.start <= context[0] and context[1] <= branch.end)
+        for occurrence in _chapeau_computation_occurrences(
+            branch,
+            context=context,
+            annual_evidence=annual_evidence,
+            measurement_evidence=measurement_evidence,
+            extract_numeric_occurrences=extract_numeric_occurrences,
+        )
+    )
+    return (*child_occurrences, *inherited)
+
+
+def _chapeau_computation_occurrences(
+    branch: SourceStructureBranch,
+    *,
+    context: tuple[int, int, str],
+    annual_evidence: tuple[_AnnualSourceEvidence, ...],
+    measurement_evidence: tuple[MeasurementSourceEvidence, ...] = (),
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> tuple[NumericOccurrenceLike, ...]:
+    """Preserve one physical cue's operands and coordinates for a child."""
+    cue_start, cue_end, cue_text = context
+    cue = SourceStructureBranch(
+        branch.path,
+        "formula-clause",
+        "computation chapeau",
+        cue_text,
+        cue_start,
+        cue_end,
+    )
+    cue_occurrences = _formula_branch_computation_occurrences(
+        cue,
+        annual_evidence=annual_evidence,
+        measurement_evidence=measurement_evidence,
+        interval=None,
+        extract_numeric_occurrences=extract_numeric_occurrences,
+    )
+    cue_interval = _formula_branch_interval(
+        cue, extract_numeric_occurrences=extract_numeric_occurrences
+    )
+    cue_boundaries = (
+        ()
+        if cue_interval is None
+        else tuple(
+            occurrence
+            for occurrence in (cue_interval.lower, cue_interval.upper)
+            if occurrence is not None
+        )
+    )
+    cue_occurrences = tuple(
+        occurrence
+        for occurrence in cue_occurrences
+        if not any(
+            occurrence.start == boundary.start
+            and occurrence.end == boundary.end
+            and _numeric_occurrences_are_equivalent(occurrence, boundary)
+            for boundary in cue_boundaries
+        )
+    )
+    cue_recall = authoritative_numeric_recall_text(
+        _mask_numeric_spans(
+            cue_text,
+            (
+                (e.start - cue_start, e.end - cue_start)
+                for e in annual_evidence
+                if cue_start <= e.start < e.end <= cue_end
+                and cue_text[e.start - cue_start : e.end - cue_start] == str(e.year)
+            ),
+        )
+    )
+    blocks = (
+        difflib.SequenceMatcher(None, cue_text, cue_recall).get_matching_blocks()
+        if cue_text != cue_recall
+        else ()
+    )
+    inherited = []
+    for occurrence in cue_occurrences:
+        if cue_text == cue_recall:
+            local_start, local_end = occurrence.start, occurrence.end
+        else:
+            block = next(
+                (
+                    block
+                    for block in blocks
+                    if block.b <= occurrence.start
+                    and occurrence.end <= block.b + block.size
+                ),
+                None,
+            )
+            # Unmapped evidence remains demanded on the complete real chapeau.
+            local_start = 0 if block is None else block.a + occurrence.start - block.b
+            local_end = (
+                len(cue_text)
+                if block is None
+                else local_start + occurrence.end - occurrence.start
+            )
+        inherited.append(
+            _NumericOccurrenceView(
+                **{
+                    name: getattr(occurrence, name)
+                    for name in _NumericOccurrenceView.__dataclass_fields__
+                    if name not in {"start", "end"}
+                },
+                start=cue_start + local_start - branch.start,
+                end=cue_start + local_end - branch.start,
+            )
+        )
+    # Cue coefficients are filtered in their own source context, then appended:
+    # an equal-valued child threshold cannot mask an inherited coefficient.
+    return tuple(inherited)
 
 
 def _source_fractional_percentage_occurrences(
@@ -21521,6 +24981,7 @@ def _formula_execution_is_source_branch_witness(
     case: dict[str, Any],
     principal_rules: dict[str, dict[str, Any]],
     annual_evidence: tuple[_AnnualSourceEvidence, ...] = (),
+    measurement_evidence: tuple[MeasurementSourceEvidence, ...] = (),
     interval: _NumericInterval | None,
     dependency_environment: dict[str, Any],
     require_corroborated_dependencies: bool,
@@ -21531,6 +24992,7 @@ def _formula_execution_is_source_branch_witness(
     source_text: str = "",
     corpus_citation_path: str = "",
     certified_replacement: BoundWorksheetReplacement | None = None,
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> bool:
     """Return whether one resolved execution proves the exact source branch."""
 
@@ -21559,6 +25021,28 @@ def _formula_execution_is_source_branch_witness(
         return False
 
     def matches(binding_execution: _FormulaExecution) -> bool:
+        replacement_kinds = (
+            certified_replacement.operation_kinds(
+                rule=rule, case=case, branch=branch, execution=binding_execution
+            )
+            if certified_replacement is not None
+            else None
+        )
+        printed_kinds = None
+        if printed_operations is not None:
+            if (
+                printed_operations.source_text != source_text
+                or printed_operations.citation_path
+                != corpus_citation_path.strip("/").casefold()
+            ):
+                return False
+            printed_kinds = printed_operations.operation_kinds(branch)
+        if (
+            printed_kinds is not None
+            and replacement_kinds is not None
+            and printed_kinds != replacement_kinds
+        ):
+            return False
         return _statutory_credit_execution_binds_operands(
             binding_execution,
             branch,
@@ -21570,14 +25054,17 @@ def _formula_execution_is_source_branch_witness(
             binding_execution,
             branch,
             source_operation_kinds=(
-                certified_replacement.operation_kinds(
-                    rule=rule, case=case, branch=branch, execution=binding_execution
-                )
-                if certified_replacement is not None
-                else None
+                printed_kinds if printed_kinds is not None else replacement_kinds
             ),
+            printed_operations=printed_operations,
+            source_text=source_text,
+            corpus_citation_path=corpus_citation_path,
+            source_rule=rule,
+            principal_rules=principal_rules,
+            case=case,
             interval=interval,
             annual_evidence=annual_evidence,
+            measurement_evidence=measurement_evidence,
             formula_environment=formula_environment,
             execution_environment=execution_environment,
             extract_numeric_occurrences=extract_numeric_occurrences,
@@ -21706,6 +25193,7 @@ def _unbound_matching_formula_rules(
     formula_environment: dict[str, Any],
     dependency_cache: dict[int, dict[str, Any]],
     execution_cache: dict[tuple[str, int], _FormulaExecution | None],
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> _UnboundFormulaDiagnostic:
     """Find asserted formulas that match a clause but lack its source binding."""
 
@@ -21721,6 +25209,8 @@ def _unbound_matching_formula_rules(
     )
     witnesses = _formula_branch_test_witnesses(
         branch,
+        printed_operations=printed_operations,
+        source_text=printed_operations.source_text if printed_operations else "",
         corpus_citation_path=corpus_citation_path,
         principal_rules=principal_rules,
         rule_names=set(scanned_rule_names),
@@ -21783,6 +25273,7 @@ def _uncorroborated_formula_dependency_diagnostic(
     strict_execution_cache: dict[tuple[str, int], _FormulaExecution | None],
     permissive_dependency_cache: dict[tuple[str, int], dict[str, Any]],
     permissive_execution_cache: dict[tuple[str, int], _FormulaExecution | None],
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> _UncorroboratedFormulaDependencyDiagnostic:
     """Find reached derived dependencies omitted from candidate assertions."""
 
@@ -21831,7 +25322,14 @@ def _uncorroborated_formula_dependency_diagnostic(
                 )
             if _formula_execution_is_source_branch_witness(
                 strict_execution_cache[execution_key],
-                branch,
+                printed_operations=printed_operations,
+                corpus_citation_path=printed_operations.citation_path
+                if printed_operations
+                else "",
+                source_text=printed_operations.source_text
+                if printed_operations
+                else "",
+                branch=branch,
                 rule=rule,
                 case=case,
                 principal_rules=principal_rules,
@@ -21864,7 +25362,14 @@ def _uncorroborated_formula_dependency_diagnostic(
             permissive_execution = permissive_execution_cache[execution_key]
             if not _formula_execution_is_source_branch_witness(
                 permissive_execution,
-                branch,
+                printed_operations=printed_operations,
+                corpus_citation_path=printed_operations.citation_path
+                if printed_operations
+                else "",
+                source_text=printed_operations.source_text
+                if printed_operations
+                else "",
+                branch=branch,
                 rule=rule,
                 case=case,
                 principal_rules=principal_rules,
@@ -22804,19 +26309,62 @@ def _formula_execution_matches_source_branch(
     branch: SourceStructureBranch,
     *,
     annual_evidence: tuple[_AnnualSourceEvidence, ...] = (),
+    measurement_evidence: tuple[MeasurementSourceEvidence, ...] = (),
     interval: _NumericInterval | None,
     formula_environment: dict[str, Any],
     execution_environment: dict[str, Any] | None = None,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     numeric_value_is_grounded: NumericGroundingPredicate,
     source_operation_kinds: frozenset[str] | None = None,
+    printed_operations: _PrintedOperationContext | None = None,
+    source_text: str = "",
+    corpus_citation_path: str = "",
+    source_rule: Mapping[str, Any] | None = None,
+    principal_rules: Mapping[str, dict[str, Any]] | None = None,
+    case: Mapping[str, Any] | None = None,
 ) -> bool:
     """Bind a reached leaf to numeric evidence in its exact source formula."""
 
+    projection = (
+        printed_operations.operation_projection(
+            branch, source_text=source_text, citation_path=corpus_citation_path
+        )
+        if printed_operations is not None
+        else None
+    )
+    if projection is not None and not printed_operations.local_operands_bind(
+        branch,
+        rule=source_rule,
+        principal_rules=principal_rules,
+        case=case,
+        execution=execution,
+    ):
+        return False
+    operation_text = (
+        projection.operation_text if projection is not None else branch.computation_text
+    )
+    if (
+        projection is not None
+        and source_operation_kinds is not None
+        and set(source_operation_kinds) != _formula_operation_kinds(operation_text)
+    ):
+        return False
+    numeric_branch = (
+        replace(
+            branch,
+            structural_numeric_spans=tuple(
+                sorted(
+                    set(branch.structural_numeric_spans) | set(projection.numeric_spans)
+                )
+            ),
+        )
+        if projection is not None
+        else branch
+    )
     source_operations = (
         set(source_operation_kinds)
         if source_operation_kinds is not None
-        else _formula_operation_kinds(branch.text)
+        else _formula_operation_kinds(operation_text)
     )
     binding_environment = {
         name: value
@@ -22832,12 +26380,12 @@ def _formula_execution_matches_source_branch(
     if interval is not None and clamp_subject_names:
         if len(clamp_subject_names) != 1 or not _formula_subject_matches_source(
             clamp_subject_names[0],
-            branch.text,
+            operation_text,
         ):
             return False
     source_topology = _explicit_source_arithmetic_topology(
         _without_manual_typography_operators(
-            authoritative_numeric_recall_text(branch.text)
+            authoritative_numeric_recall_text(operation_text)
         )
     )
     if source_topology is not None and source_topology != _formula_arithmetic_topology(
@@ -22852,12 +26400,12 @@ def _formula_execution_matches_source_branch(
     if not _formula_operations_are_compatible(
         source_operations,
         artifact_operations,
-        source_text=branch.text,
+        source_text=operation_text,
         artifact_formula=operative_leaf,
         artifact_environment=binding_environment,
     ):
         return False
-    source_multiplier = _source_named_multiplier(branch.text)
+    source_multiplier = _source_named_multiplier(operation_text)
     if source_multiplier is not None and (
         source_multiplier.value is None
         or not (
@@ -22873,7 +26421,40 @@ def _formula_execution_matches_source_branch(
         )
     ):
         return False
-    source_divisor = _source_named_divisor(branch.text)
+    for _cue_start, _cue_end, cue_text in branch.computation_chapeaux:
+        # A selector containing the same number cannot stand in for an
+        # authenticated common coefficient. Require the reached arithmetic
+        # itself to use each literal multiplier/rate from that chapeau.
+        literal_factors = [
+            float(match.group("factor"))
+            for match in re.finditer(
+                r"\bmultiplied\s+by\s+(?P<factor>\d+(?:\.\d+)?)(?![\d.,])",
+                cue_text,
+                flags=re.IGNORECASE,
+            )
+        ]
+        literal_factors.extend(
+            float(re.match(r"\d+(?:\.\d+)?", match.group()).group()) / 100.0
+            for match in _EXPLICIT_NUMERIC_PERCENTAGE_OF.finditer(cue_text)
+            if "," not in match.group()
+        )
+        literal_factors.extend(_source_worded_percentage_rates(cue_text))
+        for factor in literal_factors:
+            if not (
+                _formula_has_numeric_factor(operative_leaf, binding_environment, factor)
+                or (
+                    factor != 0
+                    and _formula_has_numeric_divisor(
+                        operative_leaf, binding_environment, 1.0 / factor
+                    )
+                )
+                or (
+                    math.isclose(factor, 2.0)
+                    and _formula_is_duplicate_addition(operative_leaf)
+                )
+            ):
+                return False
+    source_divisor = _source_named_divisor(operation_text)
     if source_divisor is not None:
         if source_divisor.value is None:
             return False
@@ -22884,7 +26465,7 @@ def _formula_execution_matches_source_branch(
         )
         has_equivalent_half_factor = (
             math.isclose(source_divisor.value, 2.0)
-            and _source_describes_half(branch.text)
+            and _source_describes_half(operation_text)
             and _formula_has_numeric_factor(
                 operative_leaf,
                 binding_environment,
@@ -22893,7 +26474,7 @@ def _formula_execution_matches_source_branch(
         )
         if not (has_source_divisor or has_equivalent_half_factor):
             return False
-    source_delta = _source_named_delta(branch.text)
+    source_delta = _source_named_delta(operation_text)
     if source_delta is not None:
         if source_delta[1].value is None or not _formula_has_numeric_delta(
             operative_leaf,
@@ -22902,7 +26483,7 @@ def _formula_execution_matches_source_branch(
             expected=source_delta[1].value,
         ):
             return False
-    if _source_describes_half(branch.text):
+    if _source_describes_half(operation_text):
         if not (
             _formula_has_numeric_factor(
                 operative_leaf,
@@ -22917,8 +26498,9 @@ def _formula_execution_matches_source_branch(
         ):
             return False
     computation_occurrences = _formula_branch_computation_occurrences(
-        branch,
+        numeric_branch,
         annual_evidence=annual_evidence,
+        measurement_evidence=measurement_evidence,
         interval=interval,
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
@@ -22956,7 +26538,7 @@ def _formula_execution_matches_source_branch(
     if (
         "multiply" in source_operations
         and "add" in artifact_operations
-        and _source_describes_doubling(branch.text)
+        and _source_describes_doubling(operation_text)
         and _formula_is_duplicate_addition(operative_leaf)
     ):
         candidate_values.append(2.0)
@@ -24206,6 +27788,19 @@ def _execute_formula_text(
 
 
 def _first_formula_branch_node(text: str) -> _FormulaBranchNode | None:
+    # Formula syntax is independent of the case environment. Limit both the
+    # entry count and text size; large formulas still receive the full parser.
+    if len(text) > 16_384:
+        return _parse_first_formula_branch_node(text)
+    return _cached_first_formula_branch_node(text)
+
+
+@functools.lru_cache(maxsize=256)
+def _cached_first_formula_branch_node(text: str) -> _FormulaBranchNode | None:
+    return _parse_first_formula_branch_node(text)
+
+
+def _parse_first_formula_branch_node(text: str) -> _FormulaBranchNode | None:
     candidates = tuple(
         candidate
         for candidate in (
@@ -26264,7 +29859,224 @@ def _branch_boundary_test_witnesses(
                 ):
                     witnesses.add((rule_name, f"case:{id(case)}"))
                     break
+                # Only a principal predicate whose reached leaf itself
+                # compares the scaled amount may use this fallback. A control
+                # selector feeding an inverted if/match result is not a
+                # source-polarity witness for that result.
+                if (
+                    controller_rule is rule
+                    and boundary.has_rate_context
+                    and any(
+                        _formula_execution_references_names(
+                            controller_execution, input_names
+                        )
+                        and _formula_execution_binds_boundary(
+                            controller_execution,
+                            boundary,
+                            source_text=authoritative_numeric_recall_text(branch.text),
+                            input_names=input_names,
+                            formula_environment=(
+                                controller_execution.constant_environment
+                            ),
+                            evaluation_environment=execution_environment,
+                            source_bound_constant_occurrences=(
+                                source_bound_constant_occurrences or {}
+                            ),
+                            source_interval=source_interval,
+                            source_boolean_polarity=source_boolean_polarity,
+                            extract_numeric_occurrences=extract_numeric_occurrences,
+                            numeric_value_is_grounded=numeric_value_is_grounded,
+                            leaf_only=True,
+                        )
+                        and _formula_execution_boolean_value(controller_execution)
+                        is comparison_boolean_at_boundary
+                        and _boundary_case_changes_formula_effect(
+                            controller_rule,
+                            case,
+                            input_key=input_key,
+                            selector_names=input_names,
+                            boundary_value=scaled_value,
+                            execution=controller_execution,
+                            principal_rules=principal_rules,
+                            dependency_names=set(dependency_environment),
+                            formula_environment=formula_environment or {},
+                            source_interval=scaled_source_interval,
+                            source_boolean_polarity=scaled_effect_polarity,
+                            root_rule=rule,
+                            root_execution=execution,
+                        )
+                        for (
+                            input_key,
+                            input_names,
+                            scaled_value,
+                            comparison_boolean_at_boundary,
+                            scaled_source_interval,
+                            scaled_effect_polarity,
+                        ) in (
+                            _case_scaled_percentage_boundary_evidence(
+                                case,
+                                controller_execution,
+                                boundary,
+                                selector_names=selector_names,
+                                source_text=authoritative_numeric_recall_text(
+                                    branch.text
+                                ),
+                                source_interval=source_interval,
+                                source_boolean_polarity=source_boolean_polarity,
+                                numeric_value_is_grounded=numeric_value_is_grounded,
+                            )
+                        )
+                    )
+                ):
+                    witnesses.add((rule_name, f"case:{id(case)}"))
+                    break
     return witnesses
+
+
+def _case_scaled_percentage_boundary_evidence(
+    case: dict[str, Any],
+    execution: _FormulaExecution,
+    boundary: NumericOccurrenceLike,
+    *,
+    selector_names: set[str],
+    source_text: str,
+    source_interval: _NumericInterval | None,
+    source_boolean_polarity: int,
+    numeric_value_is_grounded: NumericGroundingPredicate,
+) -> tuple[tuple[object, set[str], float, bool, _NumericInterval, int], ...]:
+    """Find an asserted amount at a source-stated percent-of-base boundary.
+
+    A percentage may be supplied by a source-bound imported rate rather than
+    as a test input. In that case the tested boundary is ``rate * base`` in
+    money, not the rate itself in the input map.
+    """
+    if not boundary.has_rate_context or source_interval is None:
+        return ()
+    inputs = case.get("input")
+    if not isinstance(inputs, dict):
+        return ()
+    numeric_inputs = {
+        name: (key, float(value))
+        for key, value in inputs.items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+        for name in _input_key_names(key)
+    }
+    evidence: list[tuple[object, set[str], float, bool, _NumericInterval, int]] = []
+    for text in (execution.leaf,):
+        expression = _parse_formula_expression(text)
+        if expression is None:
+            continue
+        for comparison, negated in _formula_comparisons_with_polarity(expression):
+            operands = (comparison.left, *comparison.comparators)
+            for operator, left, right in zip(comparison.ops, operands, operands[1:]):
+                if not isinstance(
+                    operator,
+                    (ast.Gt, ast.GtE, ast.Lt, ast.LtE, ast.Eq, ast.NotEq),
+                ):
+                    continue
+                comparison_boolean_at_boundary = isinstance(
+                    operator, (ast.GtE, ast.LtE, ast.Eq)
+                )
+                if negated:
+                    comparison_boolean_at_boundary = not comparison_boolean_at_boundary
+                for amount_node, threshold_node in ((left, right), (right, left)):
+                    if (
+                        not isinstance(amount_node, ast.Name)
+                        or amount_node.id not in numeric_inputs
+                        or amount_node.id not in selector_names
+                        or not isinstance(threshold_node, ast.BinOp)
+                        or not isinstance(threshold_node.op, ast.Mult)
+                    ):
+                        continue
+                    amount_key, amount = numeric_inputs[amount_node.id]
+                    for rate_node, base_node in (
+                        (threshold_node.left, threshold_node.right),
+                        (threshold_node.right, threshold_node.left),
+                    ):
+                        if (
+                            not isinstance(base_node, ast.Name)
+                            or base_node.id not in numeric_inputs
+                            or not _source_percentage_base_matches(
+                                source_text,
+                                boundary=boundary,
+                                base_name=base_node.id,
+                            )
+                        ):
+                            continue
+                        rate_names = {
+                            node.id
+                            for node in ast.walk(rate_node)
+                            if isinstance(node, ast.Name)
+                        }
+                        if rate_names & numeric_inputs.keys():
+                            continue
+                        rate = _rulespec_runtime_decimal(
+                            _evaluate_condition_expression(
+                                rate_node, execution.constant_environment
+                            )
+                        )
+                        if rate is None or not numeric_value_is_grounded(
+                            float(rate), (boundary,)
+                        ):
+                            continue
+                        if not _comparison_matches_source_interval(
+                            operator,
+                            input_on_left=amount_node is left,
+                            compared_boundary_value=float(rate),
+                            boundary_names=set(),
+                            boundary=boundary,
+                            numeric_value_is_grounded=numeric_value_is_grounded,
+                            source_interval=source_interval,
+                            allow_complement_relation=source_boolean_polarity < 0,
+                            negated=negated,
+                        ):
+                            continue
+                        _base_key, base = numeric_inputs[base_node.id]
+                        if base <= 0 or not math.isclose(
+                            amount,
+                            float(rate) * base,
+                            rel_tol=1e-9,
+                            abs_tol=1e-9,
+                        ):
+                            continue
+                        scaled_source_interval = _NumericInterval(
+                            lower=(
+                                replace(
+                                    source_interval.lower,
+                                    value=float(source_interval.lower.value) * base,
+                                )
+                                if source_interval.lower is not None
+                                else None
+                            ),
+                            lower_inclusive=source_interval.lower_inclusive,
+                            upper=(
+                                replace(
+                                    source_interval.upper,
+                                    value=float(source_interval.upper.value) * base,
+                                )
+                                if source_interval.upper is not None
+                                else None
+                            ),
+                            upper_inclusive=source_interval.upper_inclusive,
+                            upper_directly_conjoined=source_interval.upper_directly_conjoined,
+                        )
+                        scaled_effect_polarity = (
+                            1
+                            if comparison_boolean_at_boundary
+                            == _interval_contains(scaled_source_interval, amount)
+                            else -1
+                        )
+                        evidence.append(
+                            (
+                                amount_key,
+                                {amount_node.id},
+                                amount,
+                                comparison_boolean_at_boundary,
+                                scaled_source_interval,
+                                scaled_effect_polarity,
+                            )
+                        )
+    return tuple(evidence)
 
 
 def _asserted_reached_rule_executions(
@@ -26373,6 +30185,7 @@ def _formula_execution_binds_boundary(
     source_boolean_polarity: int,
     extract_numeric_occurrences: NumericOccurrenceExtractor | None,
     numeric_value_is_grounded: NumericGroundingPredicate,
+    leaf_only: bool = False,
 ) -> bool:
     boundary_names = {
         name
@@ -26394,10 +30207,11 @@ def _formula_execution_binds_boundary(
         )
     }
     checks: list[tuple[str, bool]] = []
-    for step in execution.trace:
-        if step.kind not in {"if", "match"}:
-            continue
-        checks.extend((selector, True) for selector in step.selectors)
+    if not leaf_only:
+        for step in execution.trace:
+            if step.kind not in {"if", "match"}:
+                continue
+            checks.extend((selector, True) for selector in step.selectors)
     checks.append((execution.leaf, source_boolean_polarity < 0))
     resolved_environment = dict(formula_environment)
     resolved_environment.update(evaluation_environment or {})
@@ -26981,16 +30795,20 @@ def _source_percentage_base_matches(
         return False
     searchable_text = explicit_base.group("base")
     collapsed = _collapse_text(searchable_text).lower()
+    selector_tokens = tuple(_normalized_selector_name(base_name).split("_"))
     concept_tokens = tuple(
         token
-        for token in _normalized_selector_name(base_name).split("_")
+        for token in selector_tokens
         if (len(token) >= 4 or token in _SOURCE_ACRONYM_EXPANSIONS)
         and token not in _SOURCE_SELECTOR_TOKEN_STOPWORDS
         and token not in _SOURCE_SELECTOR_GENERIC_ENTITY_TOKENS
         and token not in _SOURCE_GENERIC_NUMERIC_NAME_TOKENS
     )
     return bool(concept_tokens) and all(
-        _source_concept_token_matches(collapsed, token) for token in concept_tokens
+        _source_selector_token_matches(
+            collapsed, token, selector_tokens=selector_tokens
+        )
+        for token in concept_tokens
     )
 
 
@@ -27071,6 +30889,7 @@ def _shift_numeric_occurrence(
         requires_rate_context=occurrence.requires_rate_context,
         is_word_number=occurrence.is_word_number,
         alternative_values=occurrence.alternative_values,
+        requires_month_context=getattr(occurrence, "requires_month_context", False),
     )
 
 
@@ -28424,9 +32243,14 @@ def _source_exception_branches(
     deferred_clauses: Sequence[SourceStructureBranch] = (),
     numeric_limits_only: bool = False,
     raw_source_text: str | None = None,
+    corpus_citation_path: str = "",
 ) -> tuple[SourceStructureBranch, ...]:
     obligations: list[SourceStructureBranch] = []
-    source_clauses = tuple(_source_clause_spans(source_text, branches=branches))
+    source_clauses = tuple(
+        _source_clause_spans(
+            source_text, branches=branches, corpus_citation_path=corpus_citation_path
+        )
+    )
     matches_by_clause: dict[
         tuple[int, int, str],
         list[re.Match[str]],
@@ -28870,6 +32694,14 @@ def _source_is_nonoperative_guidance_instruction(text: str) -> bool:
 
     if _source_has_joined_operative_segment(text):
         return False
+    if re.fullmatch(
+        r"If you want to keep a copy for your records, see the guide\.",
+        _collapse_text(text),
+        flags=re.IGNORECASE,
+    ):
+        # Optional copying/referral has no eligibility or calculation effect.
+        # Full matching deliberately excludes mandatory retention and joined rules.
+        return True
     return bool(
         re.match(
             r"State\s+agencies\s+must\s+(?:(?:review|check|contact|follow|use|"
@@ -29236,9 +33068,14 @@ def _source_rounding_obligations(
     branches: Sequence[SourceStructureBranch],
     active_branches: Sequence[SourceStructureBranch],
     deferred_paths: set[tuple[str, ...]],
+    corpus_citation_path: str = "",
 ) -> tuple[tuple[SourceStructureBranch, str], ...]:
     obligations: list[tuple[SourceStructureBranch, str]] = []
-    source_clauses = tuple(_source_clause_spans(source_text, branches=branches))
+    source_clauses = tuple(
+        _source_clause_spans(
+            source_text, branches=branches, corpus_citation_path=corpus_citation_path
+        )
+    )
     for match in _ROUNDING_LANGUAGE.finditer(source_text):
         if _span_is_deferred(
             match.start(),
@@ -29356,8 +33193,16 @@ def _unwitnessed_exception_branches(
     certified_paths: Any = None,
     certified_operations: Any = None,
 ) -> tuple[SourceStructureBranch, ...]:
-    candidate_witnesses = {
-        branch: _exception_witnesses_for_branch(
+    bare_branches = (
+        recognize_source_structure(
+            source_text, corpus_citation_path=corpus_citation_path
+        )
+        if bare_outline(source_text, corpus_citation_path=corpus_citation_path)
+        else ()
+    )
+    candidate_witnesses: dict[SourceStructureBranch, set[_ExceptionWitness]] = {}
+    for branch in exception_branches:
+        witnesses = _exception_witnesses_for_branch(
             branch,
             source_text=source_text,
             input_declarations=input_declarations,
@@ -29369,8 +33214,25 @@ def _unwitnessed_exception_branches(
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
-        for branch in exception_branches
-    }
+        affected_outputs = _bare_definition_condition_outputs(
+            branch,
+            branches=bare_branches,
+            principal_rules=principal_rules,
+            principal_rule_paths=principal_rule_paths,
+            corpus_citation_path=corpus_citation_path,
+        )
+        if not affected_outputs:
+            candidate_witnesses[branch] = witnesses
+            continue
+        for rule_name in affected_outputs:
+            # One physical condition can govern several definitions/outputs.
+            # A calendar output's pair cannot prove that a benefit output also
+            # implements that condition. Retain the real excerpt and offsets;
+            # only the witness obligation is specialized to its affected rule.
+            scoped = replace(branch, required_principal_output=rule_name)
+            candidate_witnesses[scoped] = {
+                witness for witness in witnesses if witness.rule_name == rule_name
+            }
     missing = _unmatched_evidence_obligations(candidate_witnesses)
     if represented_annual_spans is not None:
         for branch, witnesses in candidate_witnesses.items():
@@ -29461,6 +33323,78 @@ def _unwitnessed_exception_branches(
         )
 
     return missing
+
+
+def _bare_definition_condition_outputs(
+    condition: SourceStructureBranch,
+    *,
+    branches: Sequence[SourceStructureBranch],
+    principal_rules: Mapping[str, dict[str, Any]],
+    principal_rule_paths: Mapping[str, set[tuple[str, ...]]],
+    corpus_citation_path: str,
+) -> tuple[str, ...]:
+    """Bind an authenticated enclosing condition to each definition output.
+
+    Definition heads share their owner's legal path, so ancestry alone cannot
+    distinguish their principal outputs. Precise excerpts can exclude a rule
+    owned by another definition; broad or absent excerpts cannot waive a demand.
+    """
+    definitions = tuple(branch for branch in branches if branch.kind == "definition")
+    if not definitions:
+        return ()
+    owner = _most_specific_containing_branch(
+        condition.start, condition.end, branches=branches
+    )
+    if owner is None:
+        return ()
+    if owner.kind == "definition":
+        scopes = (owner,)
+    elif re.search(r"[:—–-]\s*$", condition.text):
+        scope_end = (
+            max(branch.end for branch in branches)
+            if owner.kind == "source-unit"
+            else owner.end
+        )
+        scopes = tuple(
+            definition
+            for definition in definitions
+            if definition.path == owner.path
+            and condition.end <= definition.start < definition.end <= scope_end
+        )
+    else:
+        return ()
+    if not scopes:
+        return ()
+    paths = {scope.path for scope in scopes}
+    normalized_citation = corpus_citation_path.strip("/").casefold()
+    affected = []
+    for name, rule in principal_rules.items():
+        if not paths.intersection(principal_rule_paths.get(name, ())):
+            continue
+        excerpt_owners: set[SourceStructureBranch | None] = set()
+        for citation, excerpt in _rule_source_excerpts(rule):
+            if citation.strip("/").casefold() != normalized_citation:
+                continue
+            normalized_excerpt = _collapse_text(mask_bare_labels(excerpt))
+            possible_owners = {
+                definition
+                for definition in definitions
+                if normalized_excerpt
+                and normalized_excerpt in _collapse_text(definition.text)
+            }
+            excerpt_owners.update(possible_owners or {None})
+        # An exact proof on another definition is positive evidence that the
+        # condition does not govern this output. Every possible owner must be
+        # outside its scope: shared wording cannot select a shorter definition
+        # to waive the condition. Unresolved proof also stays demanded.
+        if (
+            excerpt_owners
+            and None not in excerpt_owners
+            and excerpt_owners.isdisjoint(scopes)
+        ):
+            continue
+        affected.append(name)
+    return tuple(affected)
 
 
 def _unconditional_nonapplicability_witnesses(
@@ -35520,10 +39454,68 @@ def _source_boundary_obligations(
     *,
     narrative_formula_branches: Sequence[SourceStructureBranch] = (),
     extract_numeric_occurrences: NumericOccurrenceExtractor,
+    source_text: str | None = None,
+    corpus_citation_path: str = "",
 ) -> tuple[tuple[SourceStructureBranch, NumericOccurrenceLike], ...]:
-    obligations: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
+    # Physical deduplication belongs only to positively recognized bare
+    # outlines. Ambiguous sources retain the existing fallback obligations.
+    physical_coordinates = bool(
+        source_text
+        and bare_outline(source_text, corpus_citation_path=corpus_citation_path)
+    )
+    coordinate_text = (
+        mask_bare_labels(source_text, corpus_citation_path=corpus_citation_path)
+        if physical_coordinates
+        else ""
+    )
+    obligations: list[
+        tuple[SourceStructureBranch, NumericOccurrenceLike, tuple[int, int] | None]
+    ] = []
+
+    def recall_with_source_map(
+        raw_text: str,
+    ) -> tuple[str, _NumericRecallSourceMap | None]:
+        source_map = (
+            _NumericRecallSourceMap(list(range(len(raw_text))))
+            if physical_coordinates
+            else None
+        )
+        return (
+            authoritative_numeric_recall_text(raw_text, _source_map=source_map),
+            source_map,
+        )
+
+    def raw_boundary_span(
+        branch: SourceStructureBranch,
+        occurrence: NumericOccurrenceLike,
+        raw_text: str,
+        recall_text: str,
+        source_map: _NumericRecallSourceMap | None,
+    ) -> tuple[int, int] | None:
+        if source_map is None or source_text is None:
+            return None
+        local_span = source_map.source_span(occurrence.start, occurrence.end)
+        if local_span is None:
+            return None
+        start, end = local_span
+        # Branch offsets must themselves be certified raw source coordinates.
+        # Equal numeric text elsewhere cannot establish a physical identity.
+        if (
+            not 0 <= branch.start <= branch.start + len(raw_text) <= branch.end
+            or (
+                source_text[branch.start : branch.start + len(raw_text)] != raw_text
+                and coordinate_text[branch.start : branch.start + len(raw_text)]
+                != raw_text
+            )
+            or source_text[branch.start + start : branch.start + end]
+            != recall_text[occurrence.start : occurrence.end]
+        ):
+            return None
+        return branch.start + start, branch.start + end
+
     for branch in branches:
         if branch.kind not in {
+            "definition",
             "paragraph",
             "number",
             "letter",
@@ -35531,9 +39523,20 @@ def _source_boundary_obligations(
             "source-unit",
         }:
             continue
-        direct_text = authoritative_numeric_recall_text(
-            _source_branch_direct_text(branch, branches=branches)
-        )
+        if branch.kind == "definition" and any(
+            container.kind != "definition"
+            and container.path == branch.path
+            and container.start
+            <= branch.start
+            < container.start
+            + len(_source_branch_direct_text(container, branches=branches))
+            for container in branches
+        ):
+            # A detached heading may describe the owning subsection's own
+            # text. Inventory that threshold once, on its structural owner.
+            continue
+        raw_direct_text = _source_branch_direct_text(branch, branches=branches)
+        direct_text, source_map = recall_with_source_map(raw_direct_text)
         direct_inventory = tuple(extract_numeric_occurrences(direct_text))
         for fragment_start, fragment in _source_boundary_fragments(direct_text):
             range_fragment = fragment.split(":", 1)[0]
@@ -35565,7 +39568,13 @@ def _source_boundary_obligations(
             if interval is None:
                 continue
             obligations.extend(
-                (branch, boundary)
+                (
+                    branch,
+                    boundary,
+                    raw_boundary_span(
+                        branch, boundary, raw_direct_text, direct_text, source_map
+                    ),
+                )
                 for boundary in (interval.lower, interval.upper)
                 if boundary is not None
                 and any(
@@ -35576,14 +39585,24 @@ def _source_boundary_obligations(
                 )
             )
     for branch in narrative_formula_branches:
-        interval = _formula_branch_interval(
-            branch,
+        # _formula_branch_interval inventories only the first physical line.
+        # Use that same cleaned view while carrying its original positions.
+        raw_first_line = branch.text.splitlines()[0] if branch.text.splitlines() else ""
+        range_text, source_map = recall_with_source_map(raw_first_line)
+        interval = _formula_interval_from_text(
+            range_text,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
         if interval is None:
             continue
         obligations.extend(
-            (branch, boundary)
+            (
+                branch,
+                boundary,
+                raw_boundary_span(
+                    branch, boundary, raw_first_line, range_text, source_map
+                ),
+            )
             for boundary in (interval.lower, interval.upper)
             if boundary is not None
         )
@@ -35599,10 +39618,12 @@ def _source_boundary_obligations(
                 occurrence.requires_rate_context,
                 occurrence.is_word_number,
                 occurrence.alternative_values,
-                occurrence.start,
-                occurrence.end,
+                # Unknown origins each retain their own obligation.
+                (("raw", *raw_span) if raw_span is not None else ("unmapped", index))
+                if physical_coordinates
+                else (occurrence.start, occurrence.end),
             ): (branch, occurrence)
-            for branch, occurrence in obligations
+            for index, (branch, occurrence, raw_span) in enumerate(obligations)
         }.values()
     )
 
