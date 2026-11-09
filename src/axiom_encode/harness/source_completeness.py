@@ -2276,6 +2276,76 @@ _ENGLISH_LEGAL_CITATION = re.compile(
     r"\d+(?:\.\d+)*(?:\s*(?:through|to|[-–—]|and|,)\s*\d+(?:\.\d+)*)*",
     flags=re.IGNORECASE,
 )
+# Every separator `str.splitlines` treats as a line boundary, not only `\n`.
+_LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
+# A coordinated list of titled references, as UK instruments print them:
+# "regulation 15 (persons not entitled to council tax reduction: absentees),
+# regulation 16 (...) or 19 (...)". _ENGLISH_LEGAL_CITATION removes each
+# keyword-led item, but its number list stops at the title, so a keyword-less
+# item such as that 19 stayed behind as an amount.
+#
+# A title names a provision. A parenthesis counts as one only when space on the
+# item's own line separates it from the number and it opens with a letter; it
+# may hold parenthesized pairs one level deep ("(... to whom regulation 14(6)
+# does not apply)"). These never count, so their item keeps its number: a bare
+# subdivision marker ("5 (a)"), a parenthesis glued to its number ("5(a)"), one
+# that opens with a number word and restates an amount ("19 (nineteen) weeks"),
+# and one that opens with a word carrying on the amount or limiting the
+# reference ("19 (or more) weeks", "500 (per annum)", "5 (except paragraph 2)").
+# A parenthesis left open reaches to some later close, so one that holds a full
+# stop or semicolon and space before a capital letter or opening parenthesis,
+# or runs past 300 characters, counting a nested pair as one, doesn't count
+# either. A list ends at its first untitled item: in "regulation 15 (absentees)
+# or 19 weeks" the 19 stays.
+_ENGLISH_REFERENCE_KEYWORD = (
+    r"(?:articles?|sections?|secs?\.?|regulations?|paragraphs?|"
+    r"sub-?paragraphs?|subsections?|parts?|chapters?|schedules?)"
+)
+_ENGLISH_NON_TITLE_OPENING = (
+    r"(?:or|and|but|plus|minus|less|per|for|up\s+to|at\s+(?:least|most)|"
+    r"(?:not|no)\s+(?:more|less|fewer|exceeding)|more\s+than|except|excluding|"
+    r"with\s+the\s+exception\s+of|other\s+than|only\s+if|provided\s+that|unless|"
+    r"if|subject\s+to|notwithstanding|save|apart\s+from|read\s+with|"
+    r"as\s+modified\s+by|which\s+does\s+not\s+apply|so\s+far\s+as|"
+    r"in\s+so\s+far\s+as|insofar\s+as|to\s+the\s+extent|where)"
+)
+# The title patterns compile with IGNORECASE, so the capital that starts a
+# sentence needs its own case-sensitive group.
+_ENGLISH_TITLE_CHARACTER = r"(?![.;]\s+(?-i:[(A-Z]))[^()]"
+# Vulgar fractions count as word characters, and one opens an amount.
+_VULGAR_FRACTION_CHARS = f"{chr(0xBC)}-{chr(0xBE)}{chr(0x2150)}-{chr(0x215E)}"
+_ENGLISH_REFERENCE_TITLE = (
+    rf"\((?=[^\W\d_{_VULGAR_FRACTION_CHARS}])"
+    r"(?!(?:[a-z]|[ivxlcdm]+)\))"
+    rf"(?!(?:{_ENGLISH_NUMBER_WORD}|{_ENGLISH_NON_TITLE_OPENING})\b)"
+    rf"(?:{_ENGLISH_TITLE_CHARACTER}|\((?:{_ENGLISH_TITLE_CHARACTER})*\))"
+    r"{1,300}\)"
+)
+_ENGLISH_TITLE_GAP = rf"[^\S{_LINE_BREAK_CHARS}]+"
+_ENGLISH_TITLED_REFERENCE_ITEM = (
+    rf"\d+[A-Za-z]*{_ENGLISH_TITLE_GAP}{_ENGLISH_REFERENCE_TITLE}"
+)
+# A number on the same line or one of these units right after the last title
+# makes that item an amount with an aside ("12 (in the case of a couple, 24)
+# months", "1 (January) 2020"). The possessive repeat stops the pattern from
+# falling back to the items before it.
+_ENGLISH_AMOUNT_AFTER_TITLE = (
+    rf"[^\S{_LINE_BREAK_CHARS}]*+\d|\s*+(?:per\s*cent(?:um)?\b|%|"
+    r"(?:week|month|year|day|hour|pound|dollar|euro|cent)s?\b|"
+    r"penn(?:y|ies)\b|pence\b)"
+)
+_ENGLISH_TITLED_REFERENCE_LIST = re.compile(
+    rf"\b{_ENGLISH_REFERENCE_KEYWORD}\s+{_ENGLISH_TITLED_REFERENCE_ITEM}"
+    r"(?:\s*(?:,\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)"
+    rf"(?:{_ENGLISH_REFERENCE_KEYWORD}\s+)?{_ENGLISH_TITLED_REFERENCE_ITEM})++"
+    rf"(?!{_ENGLISH_AMOUNT_AFTER_TITLE})",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_TITLED_REFERENCE_ITEM_TITLE = re.compile(
+    rf"(?P<keyword>{_ENGLISH_REFERENCE_KEYWORD}\s+)?(?P<number>\d+[A-Za-z]*)"
+    rf"{_ENGLISH_TITLE_GAP}(?P<title>{_ENGLISH_REFERENCE_TITLE})",
+    flags=re.IGNORECASE,
+)
 # A complete parenthesis containing only a Statutes at Large volume/page
 # reference is bibliographic metadata. Do not accept dollar signs, ranges,
 # additional text, or a citation split across lines.
@@ -16025,6 +16095,28 @@ def _irs_page_locator_numeric_recall_spans(
         yield line.span("page")
 
 
+def _blank_titled_reference_list(match: re.Match[str]) -> str:
+    """Overwrite the keyword-less item numbers of a titled reference list in place.
+
+    Later passes read a keyword-led item as any other reference, and its keyword
+    can make a line a Part, Chapter or Schedule heading, so those items stay. A
+    title can state an amount of its own ("regulation 15 (persons aged 65 or
+    over) or 19 (...)"), so the titles stay too. A placeholder takes each number's
+    place because an earlier reference reads on through spaces: "Under Part 3
+    and regulation 15 (absentees) or 19 (persons), 7 and 8" would lose the 7 and
+    8.
+    """
+    matched = match.group(0)
+    kept = list(matched)
+    # Each item consumes its whole title, so a number inside a title
+    # ("regulation 14(6)") never starts the next item.
+    for item in _ENGLISH_TITLED_REFERENCE_ITEM_TITLE.finditer(matched):
+        if item.group("keyword") is None:
+            start, end = item.span("number")
+            kept[start:end] = "#" * (end - start)
+    return "".join(kept)
+
+
 def authoritative_numeric_recall_text(
     source_text: str,
     *,
@@ -16241,6 +16333,9 @@ def authoritative_numeric_recall_text(
     cleaned = sub(_BFH_DECISION_NUMERIC_RECALL_CITATION, "", cleaned)
     cleaned = sub(_GERMAN_LEGAL_CITATION, "", cleaned)
     cleaned = sub(_TITLE_SUFFIX_LEGAL_CITATION, "", cleaned)
+    # Before _ENGLISH_LEGAL_CITATION removes "regulation 15", the keyword that
+    # anchors the rest of a titled list.
+    cleaned = sub(_ENGLISH_TITLED_REFERENCE_LIST, _blank_titled_reference_list, cleaned)
     cleaned = sub(_ENGLISH_LEGAL_CITATION, "", cleaned)
     cleaned = sub(_STRUCTURAL_REFERENCE, "", cleaned)
     cleaned = sub(
