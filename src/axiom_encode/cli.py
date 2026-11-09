@@ -27811,9 +27811,13 @@ def _target_uses_per_file_waiver_bindings(policy_repo_path: Path) -> bool:
             env={**_rulespec_migration_git_environment(), "LC_ALL": "C"},
             check=False,
         )
-        if (
-            completed.returncode == 128
-            and completed.stderr.strip() == b"fatal: Needed a single revision"
+        stderr = completed.stderr.strip()
+        if completed.returncode == 128 and (
+            stderr == b"fatal: Needed a single revision"
+            # A target that is not a Git checkout has no protected base, so
+            # it cannot have opted in. Every other failure (a missing path,
+            # an unsafe repository, a refused query) refuses to sign.
+            or stderr.startswith(b"fatal: not a git repository")
         ):
             continue  # the ref does not exist in this checkout
         candidate = completed.stdout.decode("ascii", errors="replace").strip()

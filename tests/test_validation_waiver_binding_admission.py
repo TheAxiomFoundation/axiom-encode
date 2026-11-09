@@ -552,3 +552,29 @@ def test_writer_refuses_when_the_protected_base_cannot_be_resolved(
     monkeypatch.setattr(cli.subprocess, "run", refusing_run)
     with pytest.raises(RuntimeError, match="cannot resolve the protected base"):
         cli._target_uses_per_file_waiver_bindings(frozen_repo.repo)
+
+
+def test_writer_keeps_the_set_digest_shape_outside_a_git_checkout(
+    frozen_repo, tmp_path, monkeypatch
+):
+    """Only a missing ref or a non-repository target means no protected base."""
+
+    import shutil
+
+    plain = tmp_path / "plain" / "rulespec-us"
+    shutil.copytree(frozen_repo.repo, plain, ignore=shutil.ignore_patterns(".git"))
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    assert cli._target_uses_per_file_waiver_bindings(plain) is False
+
+    real_run = cli.subprocess.run
+
+    def unsafe_run(command, *args, **kwargs):
+        if command[:2] == ["git", "-C"] and "--verify" in command:
+            return cli.subprocess.CompletedProcess(
+                command, 128, b"", b"fatal: detected dubious ownership in repository\n"
+            )
+        return real_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(cli.subprocess, "run", unsafe_run)
+    with pytest.raises(RuntimeError, match="cannot resolve the protected base"):
+        cli._target_uses_per_file_waiver_bindings(frozen_repo.repo)
