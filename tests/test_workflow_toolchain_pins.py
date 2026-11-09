@@ -60,8 +60,22 @@ UV_OPTIONS = workflow_shell.load_uv_options()
 
 # workflow -> jobs whose environment runs the repository's tests or linters.
 TEST_ENVIRONMENTS = {
-    "ci.yml": {"test", "real-engine", "lint"},
+    "ci.yml": {"test", "real-engine", "quick-tests", "lint"},
     "signing-supervisor.yml": {"build-and-test"},
+}
+# The only `if:` a test job may have, exactly: one that skips the whole job, so
+# no test in it runs without the runtime check. ci.yml skips its test shards
+# and real-engine on a draft pull request, where its test (3.13) check fails
+# (tests/test_ci_shards.py), and runs quick-tests only there.
+FULL_RUN_CONDITION = (
+    "github.event_name != 'pull_request' || !github.event.pull_request.draft"
+)
+TEST_JOB_CONDITIONS = {
+    ("ci.yml", "test"): FULL_RUN_CONDITION,
+    ("ci.yml", "real-engine"): FULL_RUN_CONDITION,
+    ("ci.yml", "quick-tests"): (
+        "github.event_name == 'pull_request' && github.event.pull_request.draft"
+    ),
 }
 LOCKED_DEV_SYNCS = {
     ("uv", "sync", "--locked", "--python", python, "--extra", "dev")
@@ -525,6 +539,7 @@ def test_discovery_is_not_vacuous():
     assert {
         ("ci.yml:test", "sync"),
         ("ci.yml:real-engine", "sync"),
+        ("ci.yml:quick-tests", "sync"),
         ("ci.yml:lint", "sync"),
         ("signing-supervisor.yml:build-and-test", "sync"),
         ("prepare-all-state-snap-queue.yml:prepare", "run"),
@@ -1728,14 +1743,16 @@ def test_test_environment_is_the_locked_dev_set(workflow_name, job_name):
     # pinned exactly: a single command (so no pipe, `|| true`, wrapper,
     # export or unset around it), no option that could deselect it, and no
     # `if:`, `env:`, `shell:` or `continue-on-error:` on the step. The job has
-    # no `if:` or `continue-on-error:`, and nothing in scope overrides CI,
+    # no `continue-on-error:` and no `if:` but its reviewed condition in
+    # TEST_JOB_CONDITIONS, which skips the whole job, and nothing in scope overrides CI,
     # GITHUB_ACTIONS, pytest's options, or how the step's shell or Python
     # starts (BASH_ENV is sourced before every step), and no container.
     # Runner-provided CI can then only be changed through $GITHUB_ENV, which
     # only reviewed run: steps and pinned actions write.
     workflow = dict(_workflows())[workflow_name]
     job = workflow["jobs"][job_name]
-    assert "if" not in job and "continue-on-error" not in job, job_name
+    assert job.get("if") == TEST_JOB_CONDITIONS.get((workflow_name, job_name)), job_name
+    assert "continue-on-error" not in job, job_name
     # A container's env:, --env options or image environment would reach the
     # pinned step unseen.
     assert "container" not in job, job_name

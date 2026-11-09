@@ -64,8 +64,8 @@ def load_eval_evidence_public_key_from_broker() -> Ed25519PublicKey:
         local_public_key = local_signing_public_key("eval")
         if local_public_key is None:
             raise ValueError(
-                "axiom-encode ci was given no --eval-public-key to verify "
-                "authenticated eval result evidence"
+                "the verification-only run was given no --eval-public-key to "
+                "verify authenticated eval result evidence"
             )
         return Ed25519PublicKey.from_public_bytes(local_public_key)
     try:

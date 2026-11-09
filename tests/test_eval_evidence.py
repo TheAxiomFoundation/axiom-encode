@@ -27,6 +27,7 @@ from tests.eval_evidence_fixtures import (
     install_test_eval_evidence_keys,
     make_test_eval_signing_broker,
 )
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 from tests.signing_broker_fixtures import SigningBrokerFixture
 
 EVAL_EVIDENCE_PUBLIC_KEY_ENV = "AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY"
@@ -200,8 +201,8 @@ def test_reviewer_oracle_subprocess_scrubs_keys_and_broker_markers(monkeypatch):
 
     result = _run_subprocess_with_idle_timeout(
         [sys.executable, "-c", script],
-        timeout=10,
-        idle_timeout=10,
+        timeout=HANG_TIMEOUT_SECONDS,
+        idle_timeout=HANG_TIMEOUT_SECONDS,
     )
 
     assert result.returncode == 0

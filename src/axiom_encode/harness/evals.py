@@ -32,8 +32,14 @@ from axiom_oracles.bridges.registry import load_policyengine_registry
 
 from axiom_encode import __version__
 from axiom_encode import corpus_resolver as _corpus_resolver
+from axiom_encode.checks import (
+    ValidationIssue,
+    issue_fix_feedback,
+    typed_issue_document,
+)
 from axiom_encode.codex_cli import (
     DEFAULT_CODEX_REASONING_EFFORT,
+    codex_auth_error,
     resolve_codex_cli,
     validate_codex_reasoning_effort,
     with_codex_model_availability_hint,
@@ -62,6 +68,10 @@ from axiom_encode.encode_timing import (
     mark_encode_phase,
     timed_phase,
 )
+from axiom_encode.harness.same_case_execution import (
+    bind_execution_overlay_origin,
+    capture_execution_git_origin,
+)
 from axiom_encode.legacy_replacement import LegacyReplacementContract
 from axiom_encode.legacy_replacement_overlay import (
     LegacyReplacementOverlayError,
@@ -85,6 +95,7 @@ from axiom_encode.repo_routing import (
     monorepo_checkout_name,
 )
 from axiom_encode.retry_feedback import (
+    VALIDATION_RETRY_CHECK_FIX_MAX_CHARS,
     VALIDATION_RETRY_FEEDBACK_MAX_ITEMS,
     VALIDATION_RETRY_FEEDBACK_MAX_TOTAL_CHARS,
     bounded_validation_retry_feedback_item,
@@ -137,11 +148,12 @@ from .policyengine_runtime import (
     PolicyEngineRuntime,
     PolicyEngineRuntimeError,
 )
-from .pricing import estimate_usage_cost_usd
+from .pricing import estimate_anthropic_refusal_cost_usd, estimate_usage_cost_usd
 from .proof_validator import find_interpretation_yaml_issues
 from .source_completeness import (
     _rulespec_target_base,
     collect_artifact_numeric_values,
+    mask_armenian_amendment_history,
 )
 from .validator_pipeline import (
     ExistingTargetOracleContract,
@@ -312,6 +324,11 @@ _ADMIN_AGENCY_BONUS_USE_RESTRICTION_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _ADMIN_AGENCY_AGGREGATE_CONTEXT_WINDOW = 500
+_PERSON_LEVEL_RULE_CONTEXT_PATTERN = re.compile(
+    r"\b(?:each\s+household\s+member|the\s+following\s+persons|"
+    r"an?\s+(?:individual|person|recipient|applicant))\b",
+    flags=re.IGNORECASE,
+)
 _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     r"\b(?:if|where|unless|except|subject to|treated as paid)\b",
     re.IGNORECASE,
@@ -355,6 +372,121 @@ _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN = {
     "statute": "statutes",
     "statutes": "statutes",
 }
+# Federal Register instruments live under <jurisdiction>/rulemaking/... in the
+# corpus. RuleSpec has no rulemaking filesystem root, so their outputs land in
+# a reserved ``policies/rulemaking/`` namespace. A dot-free tail maps back to
+# the same citation; a dotted leaf is written nested and maps back to the
+# nested path (cli._relative_output_to_child_corpus_citation_path,
+# validator_pipeline._corpus_citation_to_normalized_target and
+# dependency_stubs._corpus_kind_and_rest keep the same contract).
+_RULEMAKING_SOURCE_TOKEN = "rulemaking"
+_RULEMAKING_OUTPUT_ROOT = "policies"
+
+
+def is_rulemaking_source_identifier(identifier: str) -> bool:
+    """Whether ``identifier`` is a corpus ``<jurisdiction>/rulemaking/...`` path.
+
+    Only the corpus form matches. RuleSpec-form ids return False here: the
+    RuleSpec name of a Federal Register document
+    (``[<j>:]policies|policy/rulemaking/...``) is caught by the eval backstop
+    after normalization (``_eval_target_names_rulemaking_source``), and other
+    roots such as ``us:statutes/rulemaking/...`` keep main's mapping.
+    """
+    parts = [part for part in identifier.strip().strip("/").split("/") if part]
+    return (
+        len(parts) >= 3
+        and parts[1] == _RULEMAKING_SOURCE_TOKEN
+        and ":" not in parts[0]
+        and parts[0] not in _RULESPEC_SOURCE_ROOT_TOKENS
+    )
+
+
+def _eval_target_names_rulemaking_source(citation: str, source_unit: object) -> bool:
+    """Whether an eval target names a Federal Register document in any form.
+
+    Covers the corpus form, the document's RuleSpec names
+    ``[<j>:]policies|policy/rulemaking/...`` (which the resolver aliases to the
+    document), and the resolver-normalized id of the citation and of the
+    resolved source unit. ``us:statutes/rulemaking/...`` matches none of these
+    and keeps main's mapping.
+    """
+    candidates = [citation, str(getattr(source_unit, "requested", "") or "")]
+    with contextlib.suppress(_corpus_resolver.CorpusResolutionError, ValueError):
+        candidates.append(_corpus_resolver.normalize_corpus_identifier(citation))
+    return any(
+        is_rulemaking_source_identifier(candidate)
+        for candidate in candidates
+        if candidate
+    ) or _names_rulemaking_output(citation)
+
+
+def _rulemaking_document_id(citation: str, source_unit: object) -> str:
+    """The corpus ``<j>/rulemaking/...`` id an eval target resolves to.
+
+    Prefers the resolved source unit, then the resolver-normalized citation;
+    falls back to the citation itself.
+    """
+    candidates = [str(getattr(source_unit, "requested", "") or "")]
+    with contextlib.suppress(_corpus_resolver.CorpusResolutionError, ValueError):
+        candidates.append(_corpus_resolver.normalize_corpus_identifier(citation))
+    for candidate in candidates:
+        if candidate and is_rulemaking_source_identifier(candidate):
+            return candidate
+    return citation
+
+
+def rulemaking_explicit_output_required_message(
+    citation: str,
+    existing_modules: Sequence[str] = (),
+    *,
+    other_citing_modules: Sequence[str] = (),
+) -> str:
+    """Explain why a Federal Register target needs an explicit module path.
+
+    RuleSpec repositories file each Federal Register module under the agency
+    and subject it amends (``us/policies/cbp/...``), and one document can back
+    several modules, so no default path is safe: the encoder would put a
+    re-encode of an existing module in a second place.
+
+    ``existing_modules`` cite this document as their
+    ``source_verification.corpus_citation_path``. ``other_citing_modules``
+    cite it in ``corpus_citation_paths`` or cite one of its pages. The message
+    lists both and leaves to ``--replace-rulespec-path`` whether it accepts a
+    given module.
+    """
+    jurisdiction = citation.strip().strip("/").split("/", 1)[0]
+    message = (
+        f"{citation} is a Federal Register (rulemaking) source, which has no "
+        "default RuleSpec path: modules built from it live under the agency and "
+        f"subject they amend in {jurisdiction}/policies/. Pass that module's "
+        "path with --replace-rulespec-path "
+        f"(for example {jurisdiction}/policies/<agency>/<subject>.yaml, with "
+        "--apply and --mode repo-augmented)."
+    )
+    if existing_modules:
+        message += (
+            " Modules whose source_verification corpus_citation_path is this "
+            f"document: {', '.join(existing_modules)}."
+        )
+    if other_citing_modules:
+        message += (
+            " Modules that cite this document in corpus_citation_paths or cite "
+            f"one of its pages: {', '.join(other_citing_modules)}."
+        )
+    if existing_modules or other_citing_modules:
+        message += (
+            " --replace-rulespec-path checks each module's source_verification "
+            "and decides whether it accepts that module."
+        )
+    else:
+        message += (
+            f" A scan of {jurisdiction}/policies/ in this checkout found no "
+            "module whose source_verification corpus_citation_path or "
+            "corpus_citation_paths names this document or one of its pages."
+        )
+    return message
+
+
 _UK_LEGISLATION_DOMAIN_TOKEN = "legislation.gov.uk"
 _UK_LEGISLATION_SECTION_TOKENS = {"article", "regulation", "section"}
 _CLAUDE_DEFAULT_TIMEOUT_SECONDS = 1800
@@ -956,21 +1088,29 @@ def summarize_validation_failures(
             if identity in seen:
                 continue
             seen.add(identity)
-            message_class = classify_validation_issue(detail)
+            # A typed issue is classed by its declared check id; an untyped
+            # one by the message classifier, as before.
+            check_id = issue.check if isinstance(issue, ValidationIssue) else None
+            message_class = check_id or classify_validation_issue(detail)
             counts[f"{gate_text}:{message_class}"] += 1
-            failures.append(
-                {
-                    "gate": gate_text,
-                    "message_class": message_class,
-                    "detail": detail[:240],
-                }
-            )
+            failure = {
+                "gate": gate_text,
+                "message_class": message_class,
+                "detail": detail[:240],
+            }
+            if check_id is not None:
+                failure["check"] = check_id
+                failure["fingerprint"] = issue.fingerprint
+            failures.append(failure)
     if not failures:
         return {}
     result: dict[str, object] = {
         "validation_failures": failures[:40],
         "validation_failure_counts": dict(counts),
     }
+    typed_issues = typed_issue_document(labeled_issues)
+    if typed_issues is not None:
+        result["validation_issues"] = typed_issues
     dropped = len(failures) - 40
     if dropped > 0:
         result["validation_failures_truncated"] = dropped
@@ -1216,6 +1356,7 @@ class EvalResult:
     retry_count: int = 0
     source_attestation: dict[str, object] | None = None
     admission: dict[str, object] | None = None
+    admission_score: dict[str, object] | None = None
     verdict_file: str = ""
     verdict_sha256: str | None = None
     require_complete_source_unit: bool = False
@@ -1227,6 +1368,8 @@ class EvalResult:
             data.pop("amendment_request", None)
         if not self.require_complete_source_unit:
             data.pop("require_complete_source_unit", None)
+        if self.admission_score is None:
+            data.pop("admission_score", None)
         if self.metrics is not None:
             data["metrics"] = asdict(self.metrics)
             if not self.metrics.manual_outcome_exception_advice:
@@ -1532,6 +1675,7 @@ class EvalReadinessSummary:
     mean_estimated_cost_usd: float | None
     gate_results: list[EvalReadinessGateResult]
     ready: bool
+    infrastructure_error_count: int = 0
 
 
 def parse_runner_spec(spec: str) -> EvalRunnerSpec:
@@ -1568,7 +1712,7 @@ def parse_runner_spec(spec: str) -> EvalRunnerSpec:
         )
     name = alias or re.sub(r"[^a-zA-Z0-9._-]+", "-", f"{backend}-{model}")
 
-    if backend not in {"claude", "codex", "openai"}:
+    if backend not in {"claude", "claude-api", "codex", "openai"}:
         raise ValueError(f"Unsupported backend '{backend}' in runner spec '{spec}'")
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name) is None or name in {".", ".."}:
         raise ValueError(f"Unsafe runner name '{name}' in runner spec '{spec}'")
@@ -3365,6 +3509,9 @@ def run_eval_suite(
     policyengine_runtime: PolicyEngineRuntime | None = None,
     suite_retry_attempts: int = _DEFAULT_SUITE_RETRY_ATTEMPTS,
     resume_existing: bool = False,
+    admission_score: bool = False,
+    axiom_compose_path: Path | None = None,
+    skip_reviewers: bool = False,
 ) -> list[EvalResult]:
     """Run a suite while keeping its evidence signer out of child environments."""
 
@@ -3378,6 +3525,9 @@ def run_eval_suite(
             policyengine_runtime=policyengine_runtime,
             suite_retry_attempts=suite_retry_attempts,
             resume_existing=resume_existing,
+            admission_score=admission_score,
+            axiom_compose_path=axiom_compose_path,
+            skip_reviewers=skip_reviewers,
             evidence_signing_key=evidence_signing_key,
         )
 
@@ -3392,6 +3542,9 @@ def _run_eval_suite_with_signer(
     suite_retry_attempts: int,
     resume_existing: bool,
     evidence_signing_key: SigningBroker,
+    admission_score: bool = False,
+    axiom_compose_path: Path | None = None,
+    skip_reviewers: bool = False,
 ) -> list[EvalResult]:
     """Run every case using a parent-memory-only evidence signer."""
 
@@ -3435,6 +3588,12 @@ def _run_eval_suite_with_signer(
             suite_retry_attempts=suite_retry_attempts,
         )
     )
+    if skip_reviewers:
+        execution_identity["skip_reviewers"] = True
+    if admission_score:
+        execution_identity["admission_score"] = _eval_suite_admission_score_options(
+            axiom_compose_path
+        )
     results: list[EvalResult] = []
     run_id = str(uuid.uuid4())
     started_at = _utc_now_iso()
@@ -3463,6 +3622,7 @@ def _run_eval_suite_with_signer(
             manifest_identity=manifest_identity,
             execution_identity=execution_identity,
             policyengine_runtime=policyengine_runtime,
+            retry_usage_limits=True,
         )
         completed_cases = _contiguous_completed_case_count(
             completed_case_indexes, len(manifest.cases)
@@ -3569,6 +3729,7 @@ def _run_eval_suite_with_signer(
                                     runtime_axiom_rules_path=axiom_rules_path,
                                     corpus_release=corpus_release,
                                     mode=case.mode,
+                                    skip_reviewers=skip_reviewers,
                                     extra_context_paths=extra_context,
                                     oracle=case.oracle,
                                     policyengine_runtime=policyengine_runtime,
@@ -3595,6 +3756,7 @@ def _run_eval_suite_with_signer(
                                     local_corpus_release=corpus_release,
                                     runtime_axiom_rules_path=axiom_rules_path,
                                     mode=case.mode,
+                                    skip_reviewers=skip_reviewers,
                                     extra_context_paths=extra_context,
                                     oracle=case.oracle,
                                     policyengine_runtime=policyengine_runtime,
@@ -3644,6 +3806,17 @@ def _run_eval_suite_with_signer(
                 expected_source_attestation=expected_source_attestation,
                 source_unit=case_source_unit,
             )
+            if admission_score:
+                _score_eval_suite_case_admission(
+                    case,
+                    case_results,
+                    output_root=case_output_root,
+                    policy_repo_path=policy_repo_root,
+                    axiom_rules_path=axiom_rules_path,
+                    axiom_compose_path=axiom_compose_path,
+                    corpus_release=corpus_release,
+                    rulespec_dependency_roots=manifest.rulespec_dependency_roots,
+                )
             _append_eval_suite_case_results(
                 output_root,
                 index,
@@ -3837,7 +4010,7 @@ def _eval_result_verdict_evidence_payload(
         raise ValueError(
             "Eval result admission does not match the context being authenticated"
         )
-    return {
+    payload = {
         "schema": _EVAL_RESULT_VERDICT_SCHEMA,
         "admission": admission_context,
         "identity": {
@@ -3884,6 +4057,9 @@ def _eval_result_verdict_evidence_payload(
             "metrics": result_payload.get("metrics"),
         },
     }
+    if result.admission_score is not None:
+        payload["admission_score"] = result.admission_score
+    return payload
 
 
 _EVAL_SUITE_MANAGED_ROOT_NAMES = frozenset(
@@ -4367,6 +4543,9 @@ def _build_eval_suite_execution_identity(
     *,
     policyengine_runtime: PolicyEngineRuntime | None = None,
     suite_retry_attempts: int = _DEFAULT_SUITE_RETRY_ATTEMPTS,
+    admission_score: bool = False,
+    axiom_compose_path: Path | None = None,
+    skip_reviewers: bool = False,
 ) -> dict[str, object]:
     """Return every executable and RuleSpec input identity used by a suite."""
 
@@ -4376,7 +4555,7 @@ def _build_eval_suite_execution_identity(
         pathspecs=("src/axiom_encode", "pyproject.toml", "uv.lock"),
     )
     encoder_identity["version"] = __version__
-    return {
+    identity = {
         "schema": EVAL_EXECUTION_IDENTITY_SCHEMA,
         # Each case-runner receives this full deadline for artifact generation
         # and every retry. Deterministic validation and optional reviewers run
@@ -4407,6 +4586,163 @@ def _build_eval_suite_execution_identity(
             _rulespec_root_execution_identity(Path(root)) for root in rulespec_roots
         ],
     }
+    if skip_reviewers:
+        identity["skip_reviewers"] = True
+    if admission_score:
+        identity["admission_score"] = _eval_suite_admission_score_options(
+            axiom_compose_path
+        )
+    return identity
+
+
+def _eval_suite_admission_score_options(
+    axiom_compose_path: Path | None,
+) -> dict[str, object]:
+    """Bind the opt-in and compose input without changing the four gates."""
+
+    compose_digest = (
+        _context_file_hash(str(axiom_compose_path))
+        if axiom_compose_path is not None
+        else None
+    )
+    return {
+        "enabled": True,
+        "axiom_compose": (
+            {
+                "path": str(Path(axiom_compose_path).resolve()),
+                "binary_sha256": (
+                    compose_digest.removeprefix("sha256:")
+                    if compose_digest is not None
+                    else None
+                ),
+            }
+            if axiom_compose_path is not None
+            else None
+        ),
+    }
+
+
+def _eval_result_generation_infrastructure_failure(result: EvalResult) -> str | None:
+    """Name the infrastructure class that ended a generation, when it is proven.
+
+    Only a failed row with no artifact and a backend error qualifies. The
+    evidence is the harness's own, never the wording of a model's output:
+
+    - ``authentication``: the row's backend had no credentials at all (no
+      ``OPENAI_API_KEY``, and for Codex no ``CODEX_API_KEY`` or auth file
+      either; ``encode`` refuses to start on the same Codex check), or no
+      ``ANTHROPIC_API_KEY`` for Claude API. The row reports no model tokens,
+      so nothing shows a model was reached.
+    - ``quota-exhaustion``: the usage-limit rule that already stops the suite.
+    - ``context-overflow``: the API rejected the prompt size or stopped at its
+      context window, before producing a complete artifact.
+
+    Any other backend error, including a credential the provider rejects,
+    returns ``None`` and stays a scored failure. The fold's run-level
+    exclusion covers those.
+
+    The credential check reads the environment, so it is only evidence about
+    a generation that has just run. A resumed suite reuses the class recorded
+    then (``_recorded_generation_infrastructure_failure``).
+    """
+
+    if result.success or result.output_file or result.failure_kind != "error":
+        return None
+    backend = result.backend.strip().lower()
+    if _eval_result_is_context_overflow(result):
+        return "context-overflow"
+    reports_model_tokens = any(
+        getattr(result, name, 0)
+        for name in (
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_creation_tokens",
+            "reasoning_output_tokens",
+        )
+    )
+    if not reports_model_tokens:
+        if (
+            backend == "codex"
+            and codex_auth_error() is not None
+            and not os.getenv("CODEX_API_KEY")
+        ):
+            return "authentication"
+        if backend == "openai" and not os.getenv("OPENAI_API_KEY"):
+            return "authentication"
+        if backend == "claude-api" and not os.getenv("ANTHROPIC_API_KEY"):
+            return "authentication"
+    if _eval_result_indicates_usage_limit(result):
+        return "quota-exhaustion"
+    return None
+
+
+def _eval_result_is_context_overflow(result: EvalResult) -> bool:
+    """Recognize the harness's artifact-free API context rejection."""
+    return (
+        result.backend == "claude-api"
+        and not result.success
+        and not result.output_file
+        and result.failure_kind == "error"
+        and "context overflow" in (result.error or "").lower()
+    )
+
+
+def _recorded_generation_infrastructure_failure(score: object) -> str | None:
+    """Return the infrastructure class a persisted admission score recorded."""
+
+    from axiom_encode.harness.admission import GENERATION_INFRASTRUCTURE_FAILURES
+
+    categories = (
+        score.get("prerequisite_categories") if isinstance(score, dict) else None
+    )
+    if not isinstance(categories, list):
+        return None
+    for failure in GENERATION_INFRASTRUCTURE_FAILURES:
+        if f"generation-{failure}" in categories:
+            return failure
+    return None
+
+
+def _score_eval_suite_case_admission(
+    case: EvalSuiteCase,
+    case_results: list[EvalResult],
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    axiom_rules_path: Path,
+    axiom_compose_path: Path | None,
+    corpus_release: _corpus_resolver.LocalCorpusRelease,
+    rulespec_dependency_roots: Sequence[Path] = (),
+    recorded_scores: Sequence[object] | None = None,
+) -> None:
+    """Attach production admission after the four-gate result is finalized.
+
+    ``recorded_scores`` are the persisted scores of the same rows when a
+    resumed suite re-scores them. Their generation infrastructure class is
+    reused, because the evidence for it existed only when generation ran.
+    """
+
+    from axiom_encode.harness.admission import score_admission
+
+    citation = case.corpus_citation_path or case.citation or ""
+    for position, result in enumerate(case_results):
+        infrastructure_failure = (
+            _eval_result_generation_infrastructure_failure(result)
+            if recorded_scores is None
+            else _recorded_generation_infrastructure_failure(recorded_scores[position])
+        )
+        result.admission_score = score_admission(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo_path,
+            axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
+            local_corpus_release=corpus_release,
+            citation=citation,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+            generation_infrastructure_failure=infrastructure_failure,
+        ).to_dict()
 
 
 def _eval_timeout_retry_policy(suite_retry_attempts: int) -> dict[str, object]:
@@ -5208,6 +5544,7 @@ def _load_eval_suite_resume_state(
     execution_identity: dict[str, object],
     policyengine_runtime: PolicyEngineRuntime | None = None,
     revalidate_persisted_results: bool = True,
+    retry_usage_limits: bool = False,
 ) -> tuple[str, str, list[EvalResult], set[int]]:
     """Load only a complete, content-identical suite ledger for resumption."""
     state_path = output_root / "suite-run.json"
@@ -5365,6 +5702,8 @@ def _load_eval_suite_resume_state(
 
     completed_case_indexes: set[int] = set()
     results: list[EvalResult] = []
+    quota_case_index: int | None = None
+    quota_result_count = 0
     for case_index in case_indexes:
         case = manifest.cases[case_index - 1]
         expected_source_attestation: dict[str, object] | None = None
@@ -5397,6 +5736,29 @@ def _load_eval_suite_resume_state(
             expected_source_attestation=expected_source_attestation,
             source_unit=live_source_unit,
         )
+        if retry_usage_limits and _suite_case_results_hit_usage_limit(case_results):
+            # Quota exhaustion stops generation before the remaining cases.
+            # Preserve earlier evidence, but rerun this terminal group after
+            # quota resets instead of treating it as a completed model exam.
+            if case_index != case_indexes[-1]:
+                raise ValueError(
+                    "Cannot resume eval suite: rows follow a usage-limit case"
+                )
+            quota_case_index = case_index
+            quota_result_count = len(case_results)
+            break
+        admission_options = execution_identity.get("admission_score")
+        admission_enabled = isinstance(admission_options, dict) and (
+            admission_options.get("enabled") is True
+        )
+        if any(
+            (result.admission_score is not None) != admission_enabled
+            for result in case_results
+        ):
+            raise ValueError(
+                "Cannot resume eval suite: admission scoring presence does not "
+                "match the execution identity"
+            )
         if revalidate_persisted_results:
             _revalidate_persisted_eval_suite_case_results(
                 case,
@@ -5410,27 +5772,83 @@ def _load_eval_suite_resume_state(
                 policyengine_runtime=policyengine_runtime,
                 rulespec_dependency_roots=manifest.rulespec_dependency_roots,
             )
+            if admission_enabled:
+                persisted_scores = [result.admission_score for result in case_results]
+                compose_identity = admission_options.get("axiom_compose")
+                compose_path = (
+                    Path(compose_identity["path"])
+                    if isinstance(compose_identity, dict)
+                    else None
+                )
+                _score_eval_suite_case_admission(
+                    case,
+                    case_results,
+                    output_root=output_root / f"{case_index:02d}-{_slugify(case.name)}",
+                    policy_repo_path=_eval_suite_case_policy_repo_root(
+                        case, policy_repo_path
+                    ),
+                    axiom_rules_path=axiom_rules_path,
+                    axiom_compose_path=compose_path,
+                    corpus_release=corpus_release,
+                    rulespec_dependency_roots=manifest.rulespec_dependency_roots,
+                    recorded_scores=persisted_scores,
+                )
+                if persisted_scores != [
+                    result.admission_score for result in case_results
+                ]:
+                    raise ValueError(
+                        "Cannot resume eval suite: persisted admission score does "
+                        "not match fresh production validation"
+                    )
         completed_case_indexes.add(case_index)
         results.extend(case_results)
 
     state_completed_cases = _state_nonnegative_int(state, "completed_cases")
     state_result_count = _state_nonnegative_int(state, "result_count")
-    if state_completed_cases > len(completed_case_indexes):
+    if state_completed_cases > len(completed_case_indexes) + (
+        quota_case_index is not None
+    ):
         raise ValueError(
             "Cannot resume eval suite: suite-run.json claims more completed cases "
             "than the durable results ledger"
         )
-    if state_result_count > len(results):
+    if state_result_count > len(results) + quota_result_count:
         raise ValueError(
             "Cannot resume eval suite: suite-run.json claims more results than the "
             "durable results ledger"
         )
-    if state.get("status") == "completed" and len(completed_case_indexes) != len(
-        manifest.cases
+    if (
+        state.get("status") == "completed"
+        and quota_case_index is None
+        and len(completed_case_indexes) != len(manifest.cases)
     ):
         raise ValueError(
             "Cannot resume eval suite: completed suite-run.json has incomplete "
             "ledger groups"
+        )
+    if quota_case_index is not None:
+        retained_ledger = "".join(
+            json.dumps(row) + "\n"
+            for index in case_indexes
+            if index < quota_case_index
+            for row in rows_by_case[index]
+        )
+        # Lower the progress counts first so an interruption between the two
+        # atomic writes remains resumable with either version of the ledger.
+        state["completed_cases"] = len(completed_case_indexes)
+        state["result_count"] = len(results)
+        state["status"] = "running"
+        for field_name in ("last_case_name", "active_case", "error", "finished_at"):
+            state.pop(field_name, None)
+        if completed_case_indexes:
+            state["last_case_name"] = manifest.cases[
+                max(completed_case_indexes) - 1
+            ].name
+        _secure_atomic_eval_write(
+            output_root, Path("suite-run.json"), json.dumps(state).encode()
+        )
+        _secure_atomic_eval_write(
+            output_root, Path("suite-results.jsonl"), retained_ledger.encode()
         )
     return run_id, started_at, results, completed_case_indexes
 
@@ -6030,6 +6448,11 @@ def _eval_result_from_payload(
             if isinstance(payload.get("admission"), dict)
             else None
         ),
+        admission_score=(
+            dict(payload["admission_score"])
+            if isinstance(payload.get("admission_score"), dict)
+            else None
+        ),
         verdict_file=str(payload.get("verdict_file", "")),
         verdict_sha256=payload.get("verdict_sha256"),
     )
@@ -6160,6 +6583,8 @@ def _suite_case_results_should_retry(case_results: list[EvalResult]) -> bool:
     """Return True when a suite case likely failed for a transient reason."""
     if _suite_case_results_hit_usage_limit(case_results):
         return False
+    if any(_eval_result_is_context_overflow(result) for result in case_results):
+        return False
     if any(result.timed_out or result.timeout_attempts for result in case_results):
         return False
     return any(
@@ -6186,7 +6611,10 @@ def _eval_result_indicates_usage_limit(result: EvalResult) -> bool:
         texts.extend(result.metrics.generalist_review_issues)
         texts.extend(result.metrics.policyengine_issues)
 
-    return any("usage limit" in text.lower() for text in texts)
+    return any(
+        "usage limit" in text.lower() or "credit balance is too low" in text.lower()
+        for text in texts
+    )
 
 
 def _eval_result_indicates_retryable_timeout(result: EvalResult) -> bool:
@@ -6209,6 +6637,10 @@ def summarize_readiness(
     gates: EvalReadinessGates,
 ) -> EvalReadinessSummary:
     """Summarize suite readiness for one runner."""
+    infrastructure_error_count = sum(
+        _eval_result_is_context_overflow(r) for r in results
+    )
+    results = [r for r in results if not _eval_result_is_context_overflow(r)]
     total_cases = len(results)
     artifact_results = [result for result in results if result.metrics is not None]
     artifact_case_count = len(artifact_results)
@@ -6346,6 +6778,7 @@ def summarize_readiness(
         )
 
     return EvalReadinessSummary(
+        infrastructure_error_count=infrastructure_error_count,
         total_cases=total_cases,
         artifact_case_count=artifact_case_count,
         timeout_count=timeout_count,
@@ -6360,7 +6793,8 @@ def summarize_readiness(
         mean_policyengine_score=mean_policyengine_score,
         mean_estimated_cost_usd=mean_estimated_cost_usd,
         gate_results=gate_results,
-        ready=all(result.passed for result in gate_results),
+        ready=not infrastructure_error_count
+        and all(result.passed for result in gate_results),
     )
 
 
@@ -7405,6 +7839,13 @@ def _looks_like_corpus_citation_path(identifier: str) -> bool:
         "policy",
         "regulation",
         "regulations",
+        # Federal Register instruments (proclamations, executive orders,
+        # notices) live under us/rulemaking/... in the corpus; without this
+        # token the CLI mangles such citations via citation_to_citation_path
+        # into us/statute/us/rulemaking/... and the provisions lookup fails.
+        # Validate-time source verification already resolves these paths
+        # verbatim.
+        "rulemaking",
         "statute",
         "statutes",
     }
@@ -8297,6 +8738,14 @@ def _evaluate_artifact_in_scope(
                     target=target,
                 )
             )
+    execution_git_origin = (
+        capture_execution_git_origin(Path(policy_repo_root))
+        if require_complete_source_unit
+        and legacy_replacement is None
+        and not replacement_overlay_scope
+        and not rulespec_dependency_roots
+        else None
+    )
     with _rulespec_validation_target(
         rulespec_file,
         policy_repo_root,
@@ -8315,6 +8764,15 @@ def _evaluate_artifact_in_scope(
         )
         pipeline = ValidatorPipeline(
             policy_repo_path=validation_policy_repo_root,
+            execution_overlay_origin=(
+                bind_execution_overlay_origin(
+                    execution_git_origin, validation_policy_repo_root
+                )
+                if legacy_replacement is None
+                and not replacement_overlay_scope
+                and not validation_dependency_roots
+                else None
+            ),
             axiom_rules_path=axiom_rules_path,
             **(
                 {"axiom_rules_engine_ref": axiom_rules_engine_ref}
@@ -8446,10 +8904,13 @@ def _evaluate_artifact_in_scope(
     # but generated literals are grounded only in authoritative source text and
     # separately parsed proof evidence below — never in module.summary.
     numeric_validation_source_text = embedded_source or numeric_source_text or ""
-    numeric_recall_source_text = (
-        evaluation_source_text
-        if require_complete_source_unit
-        else numeric_validation_source_text
+    numeric_recall_source_text = mask_armenian_amendment_history(
+        (
+            evaluation_source_text
+            if require_complete_source_unit
+            else numeric_validation_source_text
+        )
+        or ""
     )
     # Complete-source recall deliberately inventories the whole authoritative
     # unit.  Generated-number grounding remains scoped exactly as it is in the
@@ -9804,6 +10265,16 @@ def _run_single_eval(
     # the requested identifier keeps each subsection in its own file.
     #
     is_corpus_path = _looks_like_corpus_citation_path(citation)
+    if target_relative_output is None and _eval_target_names_rulemaking_source(
+        citation, source_unit
+    ):
+        # Name the document by its resolved corpus id, as encode does, so an
+        # alias citation still gets the right <jurisdiction>/policies/ hint.
+        raise ValueError(
+            rulemaking_explicit_output_required_message(
+                _rulemaking_document_id(citation, source_unit)
+            )
+        )
     relative_output = (
         Path(target_relative_output)
         if target_relative_output is not None
@@ -9834,17 +10305,18 @@ def _run_single_eval(
         review_contract=review_contract,
     )
     target_ref_source = citation if is_corpus_path else source_unit.citation_path
+    target_ref_prefix = _canonical_target_ref_prefix(
+        target_ref_source,
+        relative_output,
+        policy_repo_path=policy_path,
+    )
     prompt = _build_eval_prompt(
         citation,
         mode,
         workspace,
         workspace.context_files,
         target_file_name=relative_output.name,
-        target_ref_prefix=_canonical_target_ref_prefix(
-            target_ref_source,
-            relative_output,
-            policy_repo_path=policy_path,
-        ),
+        target_ref_prefix=target_ref_prefix,
         include_tests=include_tests,
         runner_backend=runner.backend,
         policyengine_rule_hint=policyengine_rule_hint,
@@ -10039,6 +10511,7 @@ def _run_single_eval(
                 output_file,
                 artifact_root=artifact_root,
                 candidate=validation_retry_candidate,
+                target_ref_prefix=target_ref_prefix,
             )
         except _PreservedRepairOverlayError as exc:
             # Do not restore an unusable base, but also do not accept this
@@ -10710,6 +11183,47 @@ def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
 def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
     """Map a canonical source identifier to its RuleSpec artifact path.
 
+    See ``_mapped_relative_rulespec_path``. Only a rulemaking source may land
+    in the reserved ``policies/rulemaking/`` namespace: a corpus
+    ``<j>/rulemaking/...`` path, or the output's own RuleSpec name
+    ``[<j>:]policies/rulemaking/...``. Anything else that maps there (a policy,
+    form, guidance or manual source whose tail or dotted leaf starts with
+    ``rulemaking``, in any letter case) would overwrite a rulemaking output
+    and is refused.
+    """
+    relative = _mapped_relative_rulespec_path(source_id)
+    out = relative.parts
+    if (
+        len(out) >= 3
+        and out[0] == _RULEMAKING_OUTPUT_ROOT
+        and out[1].casefold() == _RULEMAKING_SOURCE_TOKEN
+        and not _names_rulemaking_output(source_id)
+    ):
+        raise ValueError(
+            "Source collides with the reserved rulemaking output namespace: "
+            f"{source_id!r}"
+        )
+    return relative
+
+
+def _names_rulemaking_output(source_id: str) -> bool:
+    """Whether ``source_id`` is a rulemaking source or its output's own name."""
+    parts = [part for part in source_id.strip().strip("/").split("/") if part]
+    if len(parts) < 3 or parts[1] != _RULEMAKING_SOURCE_TOKEN:
+        return False
+    head = parts[0]
+    if ":" in head:
+        # RuleSpec form: only the policies root names the rulemaking output.
+        return head.split(":", 1)[1] in {"policies", "policy"}
+    if head in _RULESPEC_SOURCE_ROOT_TOKENS:
+        return head in {"policies", "policy"}
+    # Corpus form <jurisdiction>/rulemaking/...
+    return True
+
+
+def _mapped_relative_rulespec_path(source_id: str) -> Path:
+    """Map a canonical source identifier to its RuleSpec artifact path.
+
     Unicode dash punctuation is normalized only in the returned filesystem
     path; the authoritative source identifier remains unchanged. Each path
     segment is treated as a directory and a dot inside the leaf segment is
@@ -10757,6 +11271,10 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
             if tail and tail[0] == _UK_LEGISLATION_DOMAIN_TOKEN:
                 tail = _canonical_uk_legislation_tail(tail)
             return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
+    if len(parts) >= 3 and parts[1] == _RULEMAKING_SOURCE_TOKEN:
+        return Path(_RULEMAKING_OUTPUT_ROOT) / _dotted_leaf_to_nested_yaml_path(
+            [_RULEMAKING_SOURCE_TOKEN, *parts[2:]]
+        )
     if len(parts) >= 3:
         root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[1])
         if root is not None:
@@ -10989,8 +11507,11 @@ def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
     optional_items: list[str] = []
     rendered_chars = 0
     seen: set[str] = set()
+    typed_items: list[str] = []
     for raw_item in feedback[:VALIDATION_RETRY_FEEDBACK_MAX_ITEMS]:
-        item = bounded_validation_retry_feedback_item(str(raw_item))
+        item = bounded_validation_retry_feedback_item(
+            raw_item if isinstance(raw_item, str) else str(raw_item)
+        )
         if (
             not item
             or item in seen
@@ -10998,6 +11519,7 @@ def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
         ):
             continue
         seen.add(item)
+        typed_items.append(item)
         rendered = f"- {json.dumps(item, ensure_ascii=False)}"
         if item.startswith("[non-blocking] Manual outcome advisory:"):
             optional_items.append(rendered)
@@ -11051,7 +11573,34 @@ Deterministic validation feedback for the rejected candidate below:
 {chr(10).join(rendered_items)}
 === END PRIOR VALIDATION FEEDBACK ===
 """
+        + _format_check_fix_feedback(typed_items)
         + optional_section
+    )
+
+
+def _format_check_fix_feedback(items: Sequence[str]) -> str:
+    """Render each failed check's declared fix, with expected vs found per subject.
+
+    Only typed issues (``checks.ValidationIssue``) contribute; feedback made of
+    untyped strings renders nothing here, so its bytes are unchanged.
+    """
+
+    lines = issue_fix_feedback(items)
+    if not lines:
+        return ""
+    kept: list[str] = []
+    used = 0
+    for line in lines:
+        if used + len(line) + 1 > VALIDATION_RETRY_CHECK_FIX_MAX_CHARS:
+            break
+        kept.append(line)
+        used += len(line) + 1
+    if not kept:
+        return ""
+    return (
+        "\n=== BEGIN CHECK FIXES (declared by each failed check) ===\n"
+        + "\n".join(kept)
+        + "\n=== END CHECK FIXES ===\n"
     )
 
 
@@ -11200,11 +11749,11 @@ companion test file required by the task and deterministic validation.
         if tests_only
         else (
             "- Return syntactically complete RuleSpec and companion test YAML, but "
-            "you may omit unchanged named inputs, named rules, imports, deferred "
+            "you may omit unchanged named units, named inputs, named rules, imports, deferred "
             "outputs, and named companion cases. The encoder overlays those "
             "omitted items from the hash-bound candidate before validation. Re-emit "
             "the complete item only when changing or replacing it. To remove an "
-            "obsolete named input, rule, or companion case from this rejected "
+            "obsolete named unit, input, rule, or companion case from this rejected "
             "candidate, emit an exact YAML item containing only "
             "`name: <existing name>` and `repair_remove: true`; input removal is "
             "accepted only after no repaired rule or companion case references "
@@ -11274,7 +11823,7 @@ def _build_rulespec_eval_prompt(
         )
     corpus_citation_path = _workspace_corpus_citation_path(workspace)
     backend_section = ""
-    if runner_backend == "openai":
+    if runner_backend in {"openai", "claude-api"}:
         backend_section = (
             "You do not have filesystem tool access in this eval; rely on the "
             "inline source and any inline context copies in this prompt.\n"
@@ -11528,6 +12077,17 @@ Import and context rules:
 - Do not assert an exact zero imported standard, grant, or threshold unless that exact imported row is visible in the copied chart file.
 {scaffold_dates_section}
 """
+
+    if runner_backend == "claude-api" and context_files:
+        # Include the original copies as well as any derived guidance above.
+        # Amendments and replacement baselines must retain whitespace, too.
+        context_section += (
+            "\nInline context copies (complete files):\n"
+            + _format_inline_context_snippets(
+                workspace, context_files, max_chars_per_file=None
+            )
+            + "\n"
+        )
 
     missing_cited_source_section = _format_missing_cited_source_guidance(
         citation,
@@ -13063,17 +13623,22 @@ Rate-only source boundary:
 def _format_inline_context_snippets(
     workspace: EvalWorkspace,
     context_files: list[EvalContextFile],
-    max_chars_per_file: int = 6000,
+    max_chars_per_file: int | None = 6000,
 ) -> str:
     """Inline copied precedent files for non-tool backends like Responses API."""
     snippets: list[str] = []
     for item in context_files:
         path = workspace.root / item.workspace_path
-        try:
-            content = path.read_text().strip()
-        except OSError:
-            continue
-        if len(content) > max_chars_per_file:
+        if max_chars_per_file is None:
+            # UTF-8 decode preserves CRLF and surrounding whitespace. A missing
+            # copy must fail, never silently reduce the API's context exam.
+            content = path.read_bytes().decode("utf-8")
+        else:
+            try:
+                content = path.read_text().strip()
+            except OSError:
+                continue
+        if max_chars_per_file is not None and len(content) > max_chars_per_file:
             content = content[:max_chars_per_file].rstrip() + "\n... [truncated]"
         snippets.append(f"=== FILE: {item.workspace_path} ===\n{content}")
     return "\n\n".join(snippets)
@@ -14854,8 +15419,7 @@ def find_admin_agency_aggregate_entity_issues(
     source_text: str,
 ) -> list[str]:
     """Reject executable entity rules for State-agency/FNS aggregate measures."""
-    is_admin_agency_aggregate = _has_admin_agency_aggregate_source_context(source_text)
-    if not is_admin_agency_aggregate:
+    if not _has_admin_agency_aggregate_source_context(source_text):
         return []
     try:
         payload = yaml.safe_load(content)
@@ -14885,6 +15449,10 @@ def find_admin_agency_aggregate_entity_issues(
             continue
         if normalized_entity not in standard_entities:
             continue
+        if not _has_admin_agency_aggregate_rule_context(
+            rule, module=module, source_text=source_text
+        ):
+            continue
         name = str(rule.get("name") or f"rules[{index}]").strip()
         issues.append(
             "Unsupported administrative aggregate entity: "
@@ -14896,6 +15464,113 @@ def find_admin_agency_aggregate_entity_issues(
             "administrative surface still cannot be represented faithfully."
         )
     return issues
+
+
+def _has_admin_agency_aggregate_rule_context(
+    rule: dict,
+    *,
+    module: dict | None,
+    source_text: str,
+) -> bool:
+    """Scope a mixed provision to the rule's paragraph or source proof."""
+    source_verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    citations = []
+    if isinstance(source_verification, dict):
+        singular = source_verification.get("corpus_citation_path")
+        if isinstance(singular, str):
+            citations.append(singular)
+        plural = source_verification.get("corpus_citation_paths")
+        if isinstance(plural, list):
+            citations.extend(item for item in plural if isinstance(item, str))
+    rule_source = rule.get("source")
+    if (
+        citations
+        and citations[0] == "us/regulation/7/273/7"
+        and isinstance(rule_source, str)
+    ):
+        references = [
+            item.strip()
+            for item in re.split(r"\s*(?:,|;|\band\b)\s*", rule_source)
+            if item.strip()
+        ]
+        reference_pattern = re.compile(
+            r"7\s+CFR\s+273\.7\(([ab])\)(?:\([^)]+\))*", re.IGNORECASE
+        )
+        parsed = [reference_pattern.fullmatch(item) for item in references]
+        if parsed and all(parsed):
+            paragraphs = {item.group(1).lower() for item in parsed if item}
+            # Scope only the established (a)/(b) person-level provisions.
+            # A general alphabetic split confuses nested roman (i) with the
+            # top-level (i) and can conceal administrative measures.
+            a = re.search(r"(?m)^\(a\)\s", source_text)
+            b = re.search(r"(?m)^\(b\)\s", source_text)
+            c = re.search(r"(?m)^\(c\)\s", source_text)
+            if a and b and c and a.start() < b.start() < c.start():
+                intro = source_text[: a.start()]
+                sections = {
+                    "a": intro + source_text[a.end() : b.start()],
+                    "b": intro + source_text[b.end() : c.start()],
+                }
+                scoped = [sections[key.lower()] for key in paragraphs]
+                if any(
+                    _has_admin_agency_aggregate_source_context(text) for text in scoped
+                ):
+                    return True
+                if all(
+                    _PERSON_LEVEL_RULE_CONTEXT_PATTERN.search(text) for text in scoped
+                ):
+                    return False
+
+    metadata = rule.get("metadata")
+    proof = metadata.get("proof") if isinstance(metadata, dict) else None
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if isinstance(atoms, list):
+        proved_sources = [
+            source
+            for atom in atoms
+            if isinstance(atom, dict)
+            for source in [atom.get("source")]
+            if isinstance(source, dict) and isinstance(source.get("excerpt"), str)
+        ]
+        if proved_sources:
+            excerpts = "\n".join(source["excerpt"] for source in proved_sources)
+            if _has_admin_agency_aggregate_source_context(excerpts):
+                return True
+            # The existing SNAP work-registration exemption is proven by a
+            # separate statute. Do not let a generic statutory proof fragment
+            # (such as an administrative coefficient or household reference)
+            # override the regulation's aggregate context.
+            if (
+                citations
+                and citations[0] == "us/regulation/7/273/7"
+                and rule.get("name")
+                == "snap_member_statutory_work_registration_exemption_applies"
+                and rule_source == "7 U.S.C. 2015(d)(2)"
+                and len(proved_sources) >= 3
+                and all(
+                    source.get("corpus_citation_path") == "us/statute/7/2015/d/2"
+                    for source in proved_sources
+                )
+                and re.search(
+                    r"\bparent\b.{0,100}\bdependent child\b",
+                    excerpts,
+                    re.IGNORECASE | re.DOTALL,
+                )
+                and re.search(
+                    r"\bstudent enrolled at least half time\b",
+                    excerpts,
+                    re.IGNORECASE,
+                )
+                and re.search(
+                    r"\bperson between the ages of sixteen and eighteen\b",
+                    excerpts,
+                    re.IGNORECASE,
+                )
+            ):
+                return False
+    return _has_admin_agency_aggregate_source_context(source_text)
 
 
 def _has_admin_agency_aggregate_source_context(source_text: str) -> bool:
@@ -15672,6 +16347,8 @@ def _run_prompt_eval(
         )
     if runner.backend == "claude":
         return _run_claude_prompt_eval(runner, workspace, prompt)
+    if runner.backend == "claude-api":
+        return _run_claude_api_prompt_eval(runner, workspace, prompt)
     if runner.backend == "codex":
         return _run_codex_prompt_eval(runner, workspace, prompt)
     if runner.backend == "openai":
@@ -15723,6 +16400,9 @@ def _run_claude_prompt_eval(
         "timeout_seconds": timeout_seconds,
     }
     start = time.time()
+    environment = scrub_attestation_signing_keys()
+    # Claude CLI uses subscription authentication, never the API credit key.
+    environment.pop("ANTHROPIC_API_KEY", None)
     try:
         result = subprocess.run(
             cmd,
@@ -15730,7 +16410,7 @@ def _run_claude_prompt_eval(
             text=True,
             cwd=workspace.root,
             timeout=timeout_seconds,
-            env=scrub_attestation_signing_keys(),
+            env=environment,
         )
     except subprocess.TimeoutExpired:
         duration_ms = int((time.time() - start) * 1000)
@@ -16393,6 +17073,264 @@ def _openai_prompt_input(
     if suffix:
         content.append({"type": "input_text", "text": suffix})
     return [{"type": "message", "role": "user", "content": content}], prefix, True
+
+
+_CLAUDE_API_SYSTEM_PROMPT = (
+    "Produce accurate RuleSpec encodings from the supplied source and context."
+)
+
+
+def _run_claude_api_prompt_eval(
+    runner: EvalRunnerSpec,
+    workspace: EvalWorkspace,
+    prompt: str,
+) -> EvalPromptResponse:
+    """Run a complete, prompt-only exam through the Anthropic Messages API."""
+    import asyncio
+
+    from .anthropic_messages import (
+        ANTHROPIC_MESSAGES_MAX_TOKENS,
+        anthropic_messages_options,
+        resolve_api_encoder_effort,
+    )
+
+    start = time.time()
+    tokens: TokenUsage | None = None
+    refusal_details: Any = None
+    timeout_seconds, case_budget_limited = _timeout_bounded_by_eval_case_budget(
+        _claude_encoder_timeout_seconds()
+    )
+    trace: dict[str, Any] = {
+        "provider": "anthropic",
+        "backend": "messages",
+        "model": runner.model,
+        "served_model": None,
+        "stop_reason": None,
+        "effort": None,
+        "system_prompt_sha256": _sha256_text(_CLAUDE_API_SYSTEM_PROMPT),
+        "anthropic_sdk_version": None,
+        "request_id": None,
+        "prompt_chars": len(prompt),
+        "timed_out": False,
+        "timeout_stage": None,
+        "timeout_reason": None,
+        "timeout_seconds": timeout_seconds,
+        "timeout_attempts": 0,
+    }
+
+    def refusal_category() -> str | None:
+        category = (
+            refusal_details.get("category")
+            if isinstance(refusal_details, dict)
+            else getattr(refusal_details, "category", None)
+        )
+        return category if isinstance(category, str) else None
+
+    def respond(text: str = "", *, error: str | None = None) -> EvalPromptResponse:
+        cost_usd = estimate_usage_cost_usd(runner.model, tokens)
+        if trace["stop_reason"] == "refusal":
+            category = refusal_category()
+            trace["refusal_category"] = category
+            cost_usd = estimate_anthropic_refusal_cost_usd(
+                runner.model,
+                tokens,
+                category=category,
+                has_stop_details=refusal_details is not None,
+            )
+        return EvalPromptResponse(
+            text=text,
+            duration_ms=int((time.time() - start) * 1000),
+            tokens=tokens,
+            estimated_cost_usd=cost_usd,
+            trace=trace,
+            error=error,
+            timed_out=trace["timed_out"],
+            timeout_stage=trace["timeout_stage"],
+            timeout_reason=trace["timeout_reason"],
+            timeout_seconds=trace["timeout_seconds"],
+            timeout_attempts=trace["timeout_attempts"],
+        )
+
+    def timed_out(*, case_budget: bool, reason: str = "wall") -> EvalPromptResponse:
+        trace.update(
+            timed_out=True,
+            timeout_stage="case_budget" if case_budget else "encoder",
+            timeout_reason=reason,
+            timeout_attempts=1,
+        )
+        return respond(
+            error=(
+                "Eval case budget timed out"
+                if case_budget
+                else "Claude API eval timed out"
+            )
+        )
+
+    def context_overflow(detail: str) -> EvalPromptResponse:
+        trace["infrastructure_failure"] = "context-overflow"
+        return respond(error=f"Context overflow (prompt_chars={len(prompt)}): {detail}")
+
+    remaining = _remaining_eval_case_budget_seconds()
+    if remaining is not None and remaining <= 0:
+        return timed_out(case_budget=True)
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return respond(error="ANTHROPIC_API_KEY is not set")
+
+    try:
+        trace["effort"] = resolve_api_encoder_effort()
+    except ValueError as exc:
+        return respond(error=str(exc))
+
+    try:
+        import anthropic
+    except ImportError as exc:
+        return respond(
+            error=f"anthropic SDK not installed; install axiom-encode[api] ({exc})"
+        )
+    trace["anthropic_sdk_version"] = getattr(anthropic, "__version__", None)
+
+    # SDK import and request preparation also consume the shared case budget.
+    remaining = _remaining_eval_case_budget_seconds()
+    if remaining is not None:
+        if remaining <= 0:
+            return timed_out(case_budget=True)
+        case_budget_limited = case_budget_limited or remaining < timeout_seconds
+        timeout_seconds = min(timeout_seconds, remaining)
+        trace["timeout_seconds"] = timeout_seconds
+
+    async def request() -> tuple[str, Any]:
+        nonlocal tokens, refusal_details
+        # The explicit endpoint prevents environment overrides from forwarding
+        # this key. Disable SDK retries so one wall budget bounds the request.
+        async with asyncio.timeout(timeout_seconds):
+            async with anthropic.AsyncAnthropic(
+                api_key=api_key,
+                base_url="https://api.anthropic.com",
+                timeout=timeout_seconds,
+                max_retries=0,
+            ) as client:
+                async with client.messages.stream(
+                    **anthropic_messages_options(
+                        model=runner.model,
+                        prompt=prompt,
+                        effort=trace["effort"],
+                    ),
+                    system=_CLAUDE_API_SYSTEM_PROMPT,
+                ) as stream:
+                    streamed_details = None
+                    async for event in stream:
+                        if getattr(event, "type", None) == "message_delta":
+                            streamed_details = (
+                                getattr(
+                                    getattr(event, "delta", None), "stop_details", None
+                                )
+                                or streamed_details
+                            )
+                    response = await stream.get_final_message()
+                    trace["served_model"] = getattr(response, "model", None)
+                    trace["stop_reason"] = getattr(response, "stop_reason", None)
+                    trace["request_id"] = getattr(response, "_request_id", None)
+                    if trace["request_id"] is None:
+                        raw_response = getattr(stream, "response", None)
+                        if raw_response is not None:
+                            trace["request_id"] = raw_response.headers.get("request-id")
+                    usage = response.usage
+                    usage_payload = (
+                        usage.model_dump()
+                        if callable(getattr(usage, "model_dump", None))
+                        else vars(usage)
+                    )
+                    uncached_input_tokens = int(
+                        usage_payload.get("input_tokens", 0) or 0
+                    )
+                    cache_read_tokens = int(
+                        usage_payload.get("cache_read_input_tokens", 0) or 0
+                    )
+                    cache_creation_tokens = int(
+                        usage_payload.get("cache_creation_input_tokens", 0) or 0
+                    )
+                    trace["uncached_input_tokens"] = uncached_input_tokens
+                    # The shared estimator expects total input, while the SDK
+                    # reports uncached input separately from its cache counts:
+                    # https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+                    tokens = TokenUsage(
+                        input_tokens=(
+                            uncached_input_tokens
+                            + cache_read_tokens
+                            + cache_creation_tokens
+                        ),
+                        output_tokens=int(usage_payload.get("output_tokens", 0) or 0),
+                        cache_read_tokens=cache_read_tokens,
+                        cache_creation_tokens=cache_creation_tokens,
+                        reasoning_output_tokens=int(
+                            usage_payload.get("reasoning_output_tokens", 0) or 0
+                        )
+                        or extract_reasoning_output_tokens(
+                            {"json_result": {"usage": usage_payload}}
+                        ),
+                    )
+                    refusal_details = (
+                        getattr(response, "stop_details", None) or streamed_details
+                    )
+                    text = "".join(
+                        block.text
+                        for block in response.content
+                        if getattr(block, "type", None) == "text"
+                    )
+        return text, refusal_details
+
+    try:
+        text, refusal_details = asyncio.run(request())
+    except Exception as exc:
+        # SDK exception messages are useful diagnostics, but no exception may
+        # echo the API key into a persisted trace or the caller's output.
+        message = str(exc).replace(api_key, "[redacted]")
+        trace["exception_class"] = type(exc).__name__
+        trace["exception_message"] = message
+        trace["request_id"] = getattr(exc, "request_id", trace["request_id"])
+        timeout_error = getattr(anthropic, "APITimeoutError", TimeoutError)
+        if isinstance(exc, (TimeoutError, timeout_error)):
+            remaining = _remaining_eval_case_budget_seconds()
+            return timed_out(
+                case_budget=case_budget_limited
+                or (remaining is not None and remaining <= 0),
+                reason="wall" if isinstance(exc, TimeoutError) else "request",
+            )
+        if (
+            getattr(exc, "status_code", None) == 400
+            and "prompt" in message.lower()
+            and "too long" in message.lower()
+        ):
+            return context_overflow(message)
+        return respond(error=f"{type(exc).__name__}: {message}")
+
+    remaining = _remaining_eval_case_budget_seconds()
+    if remaining is not None and remaining <= 0:
+        return timed_out(case_budget=True)
+    stop_reason = trace["stop_reason"]
+    if stop_reason == "model_context_window_exceeded":
+        return context_overflow("model_context_window_exceeded")
+    if stop_reason == "refusal":
+        category = refusal_category()
+        return respond(
+            error="model declined the encode request"
+            + (f" (category: {category})" if category else "")
+        )
+    if stop_reason == "max_tokens":
+        return respond(
+            error=f"response hit max_tokens={ANTHROPIC_MESSAGES_MAX_TOKENS} "
+            "before the RuleSpec was complete"
+        )
+    if stop_reason not in {"end_turn", "stop_sequence"}:
+        return respond(
+            error=f"Claude API response did not finish (stop_reason: {stop_reason})"
+        )
+    if not text.strip():
+        return respond(
+            error=f"response had no RuleSpec text (stop_reason: {stop_reason})"
+        )
+    return respond(text)
 
 
 def _run_openai_prompt_eval(
@@ -18527,6 +19465,13 @@ def _repair_overlay_candidate_base_issue(
         not isinstance(import_target, str) for import_target in imports
     ):
         return "preserved repair overlay imports must be a list of strings"
+    preserved_units = preserved.get("units", [])
+    if not isinstance(preserved_units, list):
+        return "preserved repair overlay units must be a list"
+    try:
+        _merge_named_yaml_items([], preserved_units, label="units")
+    except ValueError as exc:
+        return str(exc)
     preserved_inputs = preserved.get("inputs", [])
     if not isinstance(preserved_inputs, list):
         return "preserved repair overlay inputs must be a list"
@@ -18585,6 +19530,7 @@ def _overlay_validation_retry_candidate(
     *,
     artifact_root: Path,
     candidate: ValidationRetryCandidate,
+    target_ref_prefix: str | None = None,
 ) -> tuple[str, ...]:
     """Overlay partial repair output onto its integrity-bound prior candidate."""
 
@@ -18642,6 +19588,22 @@ def _overlay_validation_retry_candidate(
     if imports:
         generated["imports"] = imports
 
+    generated_units = generated.get("units", [])
+    preserved_units = preserved.get("units", [])
+    if not isinstance(generated_units, list) or not isinstance(preserved_units, list):
+        raise ValueError("repair overlay units must be lists")
+    units, restored_units, removed_units = _merge_named_yaml_items(
+        generated_units,
+        preserved_units,
+        label="units",
+    )
+    if units:
+        generated["units"] = units
+    else:
+        generated.pop("units", None)
+    repairs.extend(f"unit:{name}" for name in restored_units)
+    repairs.extend(f"removed_unit:{name}" for name in removed_units)
+
     generated_inputs = generated.get("inputs", [])
     preserved_inputs = preserved.get("inputs", [])
     if not isinstance(generated_inputs, list) or not isinstance(preserved_inputs, list):
@@ -18671,6 +19633,28 @@ def _overlay_validation_retry_candidate(
         for item in rules
         if isinstance(item, dict) and isinstance(item.get("name"), str)
     }
+    # A retained candidate can carry an import of a rule that the repaired
+    # target now defines locally. Such an import points back to this same
+    # module and creates a cycle; remove only exact local-rule self-imports.
+    if target_ref_prefix:
+        self_import_prefix = f"{target_ref_prefix}#"
+        local_rule_self_imports = [
+            item
+            for item in imports
+            if isinstance(item, str)
+            and item.startswith(self_import_prefix)
+            and item[len(self_import_prefix) :] in generated_rule_names
+        ]
+        if local_rule_self_imports:
+            imports = [item for item in imports if item not in local_rule_self_imports]
+            if imports:
+                generated["imports"] = imports
+            else:
+                generated.pop("imports", None)
+            repairs.extend(
+                f"removed_local_rule_self_import:{item}"
+                for item in local_rule_self_imports
+            )
     repairs.extend(f"rule:{name}" for name in restored_rules)
     repairs.extend(f"removed_rule:{name}" for name in removed_rules)
 
