@@ -32470,17 +32470,29 @@ def _require_axiom_encode_version_provenance(
         version_commit,
         "HEAD",
     )
+    # A version below one that main declared, or changes after main first
+    # reached this version at another commit (axiom-encode#2051 review), read
+    # under the same scrubbed environment as the guard's own git calls.
+    try:
+        main_history_changes = _version_provenance.main_history_changes(
+            repo,
+            "HEAD",
+            version_commit,
+            pyproject_version,
+            environment=_read_only_git_environment(),
+        )
+    except (OSError, subprocess.CalledProcessError, ValueError) as exc:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: could not read the first-parent "
+            f"encoder version history: {exc}"
+        ) from exc
     unversioned_encoder_changes = sorted(
         {
             path
             for path in changed_since_version
             if _is_axiom_encode_versioned_path(path)
         }
-        # A version below one that main declared, or changes after main first
-        # reached this version at another commit (axiom-encode#2051 review).
-        | _version_provenance.main_history_changes(
-            repo, "HEAD", version_commit, pyproject_version
-        )
+        | main_history_changes
     )
     if unversioned_encoder_changes:
         display = ", ".join(f"`{path}`" for path in unversioned_encoder_changes[:8])
