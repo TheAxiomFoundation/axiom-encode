@@ -90,6 +90,9 @@ jobs:
         id: tests
         env:
           AXIOM_ENCODE_TEST_SHARD: ${{ matrix.shard }}/8
+          # A bump pull request must leave no encoder change unversioned
+          # (axiom-encode#2048); other heads may be unversioned until their bump.
+          AXIOM_ENCODE_REQUIRE_VERSION_BUMP: ${{ startsWith(github.head_ref, 'automation/encoder-version-') && '1' || '' }}
         run: |
           set -e
           export AXIOM_ENCODE_TEST_SHARD_REPORT="$RUNNER_TEMP/shard-report"
@@ -289,6 +292,9 @@ jobs:
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The pull request's merge commit and its first parent, the base.
+          fetch-depth: 2
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -306,6 +312,20 @@ jobs:
         run: >-
           .venv/bin/pytest -q -o addopts=''
           tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set
+
+      # Versions are assigned after merge (axiom-encode#2048). Once the bump
+      # workflow is on main, only its App's pull requests may change the
+      # encoder version lines; a hand bump could reuse a number it assigned.
+      # This job is a required check, so the refusal blocks the merge.
+      - name: Refuse a hand-picked encoder version
+        if: github.event_name == 'pull_request'
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          ./.venv/bin/python -I src/axiom_encode/version_provenance.py pull-request \
+            --repo . --base HEAD^1 --ref HEAD --author "$PR_AUTHOR" \
+            --head-repository "$PR_HEAD_REPOSITORY" --repository "$GITHUB_REPOSITORY"
 
       - name: Lint
         run: .venv/bin/ruff check src/ tests/
