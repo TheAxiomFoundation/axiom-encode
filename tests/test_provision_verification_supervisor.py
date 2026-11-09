@@ -20,13 +20,20 @@ from scripts.provision_verification_supervisor import (
 
 def test_argument_parser_preserves_reviewed_pr_selector() -> None:
     arguments = [
-        "--destination", "/tmp/runtime",
-        "--supervisor", "/tmp/supervisor",
-        "--site-packages", "/tmp/packages",
-        "--apply-root", "apply-root",
-        "--eval-root", "eval-root",
-        "--corpus-release-root", "corpus-root",
-        "--git", "/tmp/git",
+        "--destination",
+        "/tmp/runtime",
+        "--supervisor",
+        "/tmp/supervisor",
+        "--site-packages",
+        "/tmp/packages",
+        "--apply-root",
+        "apply-root",
+        "--eval-root",
+        "eval-root",
+        "--corpus-release-root",
+        "corpus-root",
+        "--git",
+        "/tmp/git",
     ]
     assert _argument_parser().parse_args(arguments).reviewed_pr_selector is None
     parsed = _argument_parser().parse_args(
