@@ -1,0 +1,1 @@
+Compare CPU time across input sizes in the Hebrew range-pass and CFR outline runtime tests, in place of absolute wall-clock limits, and count the Hebrew text index builds directly. Runner speed and scheduling delays now affect these tests far less.

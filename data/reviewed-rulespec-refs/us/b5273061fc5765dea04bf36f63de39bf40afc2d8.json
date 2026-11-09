@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "us",
+  "declared": null,
+  "pr_base_branch": "fix/1248-snap-immigration-status",
+  "purpose": "Program-safe SNAP immigration head (#1248) for reviewed-candidate promotion. Migrated from the pre-record allowlist; admitted by axiom-encode#1706.",
+  "rulespec_pr": null,
+  "rulespec_ref": "b5273061fc5765dea04bf36f63de39bf40afc2d8",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}

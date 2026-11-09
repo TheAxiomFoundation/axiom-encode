@@ -12,6 +12,7 @@ import yaml
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from axiom_encode import retired_source_metadata as retired_metadata
 from axiom_encode.harness.validator_pipeline import (
     find_proof_import_hash_consistency_issues,
 )
@@ -180,14 +181,74 @@ class TestStructureAndLocality:
         )
         assert rewrite.removed_corpus_citation_paths == tuple(paths)
 
-    def test_r2_normalizes_entries_before_finding_the_ancestor(self):
-        raw = _plural_module(["us:statutes/26/63/c/6/A", "26 USC 63(c)(6)"])
-        rewrite = rewrite_source_metadata(raw)
-        assert rewrite.corpus_citation_path == "us/statute/26/63/c/6"
-        assert rewrite.removed_corpus_citation_paths == (
-            "us:statutes/26/63/c/6/A",
-            "26 USC 63(c)(6)",
+    @pytest.mark.parametrize(
+        "paths",
+        [
+            ["us:statutes/26/63/c/6/A", "26 USC 63(c)(6)"],
+            ["us/statute/26/63/c/6", "us:statutes/26/63/c/6/A"],
+            ["us/statute/26/63/c/6/", "us/statute/26/63/c/6/A"],
+        ],
+    )
+    def test_r2_requires_every_listed_entry_to_already_be_canonical(self, paths):
+        with pytest.raises(RetiredSourceMetadataError, match="exact canonical"):
+            rewrite_source_metadata(_plural_module(paths))
+
+    @pytest.mark.parametrize("changed", [True, 1.0])
+    def test_structural_postcondition_distinguishes_scalar_types(
+        self, monkeypatch, changed
+    ):
+        raw = _values_module({"amount": 1}).replace(
+            b"  summary:", b"  retained: 1\n  summary:"
         )
+        parse = retired_metadata._yaml
+        calls = 0
+
+        def altered_parse(document):
+            nonlocal calls
+            text, payload, root = parse(document)
+            calls += 1
+            if calls == 2:
+                payload["module"]["retained"] = changed
+            return text, payload, root
+
+        monkeypatch.setattr(retired_metadata, "_yaml", altered_parse)
+        with pytest.raises(RetiredSourceMetadataError, match="unrelated RuleSpec"):
+            rewrite_source_metadata(raw)
+
+    def test_structural_postcondition_accepts_distinct_nan_values(self, monkeypatch):
+        raw = _values_module({"amount": 1}).replace(
+            b"  summary:", b"  retained: .nan\n  summary:"
+        )
+        parse = retired_metadata._yaml
+
+        def independent_nan_parse(document):
+            text, payload, root = parse(document)
+            payload["module"]["retained"] = float("nan")
+            return text, payload, root
+
+        monkeypatch.setattr(retired_metadata, "_yaml", independent_nan_parse)
+        assert rewrite_source_metadata(raw).after == raw.replace(
+            b"    values:\n      amount: 1\n", b""
+        )
+
+    def test_bom_and_missing_final_newline_are_preserved(self):
+        raw = b"\xef\xbb\xbf" + _values_module({"amount": 1}).rstrip(b"\n")
+        assert rewrite_source_metadata(raw).after == raw.replace(
+            b"    values:\n      amount: 1\n", b""
+        )
+
+    def test_keep_chomping_blank_lines_belong_to_removed_scalar_history(self):
+        block = (
+            b"    values:\n      explanation: |+\n        preserved in history\n\n\n"
+        )
+        raw = _module(
+            "    corpus_citation_path: us/statute/26/1\n" + block.decode(),
+            after="    # sibling comment survives\n",
+        )
+        rewrite = rewrite_source_metadata(raw)
+        assert rewrite.after == raw.replace(block, b"", 1)
+        assert rewrite.removed_values_yaml.encode() == block
+        assert rewrite.removed_values == {"explanation": "preserved in history\n\n\n"}
 
     def test_both_edits_and_consistent_upstream_preserve_history(self):
         paths = ["us/statute/26/1", "us/statute/26/1/a"]
@@ -214,6 +275,32 @@ class TestStructureAndLocality:
 
 
 class TestRefusal:
+    @pytest.mark.parametrize("line_break", ["\r", "\x85", "\u2028", "\u2029"])
+    @pytest.mark.parametrize("location", ["values", "elsewhere"])
+    def test_refuses_non_lf_yaml_line_breaks_anywhere(self, line_break, location):
+        raw = _values_module({"amount": 1})
+        if location == "values":
+            raw = raw.replace(
+                b"      amount: 1\n",
+                (
+                    "      amount: 1" + line_break + "    # keep sibling comment\n"
+                ).encode(),
+            )
+        else:
+            raw += ("# retained comment" + line_break + "# another comment\n").encode()
+        with pytest.raises(RetiredSourceMetadataError, match="line break"):
+            rewrite_source_metadata(raw)
+
+    def test_crlf_document_is_refused_as_noncanonical_block_yaml(self):
+        raw = _values_module({"amount": 1}).replace(b"\n", b"\r\n")
+        with pytest.raises(RetiredSourceMetadataError, match="canonical block YAML"):
+            rewrite_source_metadata(raw)
+
+    def test_retired_block_without_terminal_newline_is_refused(self):
+        raw = b"format: rulespec/v1\nmodule:\n  source_verification:\n    values:\n      amount: 1"
+        with pytest.raises(RetiredSourceMetadataError, match="end with a newline"):
+            rewrite_source_metadata(raw)
+
     @pytest.mark.parametrize("indent", [5, 7, 8])
     def test_values_children_must_use_exactly_six_spaces(self, indent):
         raw = _module(
@@ -237,22 +324,19 @@ class TestRefusal:
         ):
             rewrite_source_metadata(raw)
 
-    # I4: failure is pure; even a values deletion cannot escape an R2 refusal.
+    # A values edit cannot make an ambiguous R2 migration admissible. CLI tests
+    # cover I4 by observing files and the signer across the failed transaction.
     @settings(max_examples=50, deadline=None)
     @given(st.integers(1, 100000), st.integers(1, 100000))
-    def test_i4_no_unique_ancestor_is_refused_without_changing_input(
-        self, first, second
-    ):
+    def test_no_unique_ancestor_is_refused_even_with_values(self, first, second):
         paths = [f"us/statute/26/1/a/{first}", f"us/statute/26/1/b/{second}"]
         raw = _plural_module(paths).replace(
             b"  summary:", b"    values:\n      amount: 1\n  summary:"
         )
-        before = bytes(raw)
         with pytest.raises(
             RetiredSourceMetadataError, match="pending source shape decision"
         ):
             rewrite_source_metadata(raw)
-        assert raw == before
 
     @pytest.mark.parametrize(
         "raw,match",
@@ -421,6 +505,38 @@ class TestReplay:
 
 
 class TestCascade:
+    def test_synthetic_changed_dependency_cycle_is_refused(self):
+        # A base-authorized hash cycle would require mutually fixed SHA-256
+        # preimages. Exercise the defensive graph check with synthetic records.
+        rewrites = (
+            {"importer_path": "first", "target_path": "second"},
+            {"importer_path": "second", "target_path": "first"},
+        )
+        with pytest.raises(RetiredSourceMetadataError, match="dependency graph.*cycle"):
+            retired_metadata._leaves_first({"first", "second"}, rewrites)
+
+    def test_synthetic_hash_cycle_exhausts_bounded_cascade(self):
+        raw = _importer("us:statutes/26/example", b"synthetic predecessor")
+        target, pinned = retired_metadata._proof_import_scalar_nodes(raw.decode())[0]
+        scan = retired_metadata._ProofImportScan(
+            importer_path=PRIMARY,
+            target=target.value,
+            target_path=PRIMARY,
+            line=pinned.start_mark.line + 1,
+            declared_hash=pinned.value,
+            base_target_hash=pinned.value,
+            current_target_hash=pinned.value,
+            start_index=pinned.start_mark.index,
+            end_index=pinned.end_mark.index,
+            scalar_style=pinned.style,
+        )
+        with pytest.raises(ValueError, match="did not converge.*dependency cycle"):
+            retired_metadata._resolve_base_bound_cascade(
+                module_bytes={PRIMARY: raw},
+                candidates=[scan],
+                current_target_bytes={PRIMARY: raw},
+            )
+
     # I5: cascade reaches importers of importers and alters only exact pinned
     # hash spans. The ordinary validator sees no migration-induced stale pins.
     def test_i5_transitive_cascade_only_changes_pin_values(self, tmp_path):
