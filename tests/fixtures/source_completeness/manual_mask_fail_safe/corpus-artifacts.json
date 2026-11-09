@@ -1,0 +1,151 @@
+{
+  "all_published_artifacts": {
+    "corpus-ast-graph.py.txt": {
+      "bytes": 4578,
+      "sha256": "a5f0543c4863405f59bf90361b6d475d241dd6011ad91782ea6702280a998e79"
+    },
+    "corpus-deltas.jsonl": {
+      "bytes": 959010,
+      "sha256": "2f8482c7c8cdc9f77e93d49f9a10fc5d951eb49460d5af942f004acea7933e0d"
+    },
+    "corpus-differential-utility.py.txt": {
+      "bytes": 20266,
+      "sha256": "5ab6a7aa2c0e2afbf846591a615de147f5748aa9a5f2efa5c86d2d4bd0ec1a66"
+    },
+    "corpus-generated-observer.py.txt": {
+      "bytes": 34365,
+      "sha256": "0093d6ab2c8609332b75d519c87ebae3b0643158431a957b5798c36c5e82e86a"
+    },
+    "corpus-generated-probe.py.txt": {
+      "bytes": 1277,
+      "sha256": "88f24402520f9e3542adb62f2626a5c6ef5efd8c90a88d12a2aca536b548c0db"
+    },
+    "corpus-guard-utility.py.txt": {
+      "bytes": 3975,
+      "sha256": "92fee6d841cf1eceacbb197c0c738e9f5cbc1123262abd808fa6b2746ff5b265"
+    },
+    "corpus-independent-completion-check.py.txt": {
+      "bytes": 7867,
+      "sha256": "6a4684fb6c49a6ba50b75f520e3d2db773e0c116f939b5ee4ccf878f21207807"
+    },
+    "corpus-independent-completion.json": {
+      "bytes": 3857,
+      "sha256": "7978cb0b7df08260e32b37813df8590b43c2713ce1ae4a53382f90e33009e7ce"
+    },
+    "corpus-independent-completion.md": {
+      "bytes": 3406,
+      "sha256": "d5c0a9c199f0b35bf8c5134e6b5735adfbde8869529ded070d1417cec17c3ba4"
+    },
+    "corpus-independent-observer-smoke.py.txt": {
+      "bytes": 2374,
+      "sha256": "1ea05b8093577a432f1e8ebab007bd5e7afbb74dd4ed44e13506b9b1c6094490"
+    },
+    "corpus-independent-proof-check.py.txt": {
+      "bytes": 6754,
+      "sha256": "f594e8d49859b838469462fea0e93e34ff6ec181942ad9b80b726ab6ef6eca92"
+    },
+    "corpus-independent-proof.json": {
+      "bytes": 29131,
+      "sha256": "3e61bb76b0d194f83e3a9ed6d76baa86fef2bdb0f3fc709d63884a446be822b9"
+    },
+    "corpus-independent-proof.md": {
+      "bytes": 4134,
+      "sha256": "783f01b9cb262d845fd23176b8f1c1bad79f0e4028be3ede7a5e9ffeaeb94bf2"
+    },
+    "corpus-input-manifest.json": {
+      "bytes": 125385,
+      "sha256": "5517b957907a559f4aa390f3296051e7ac41442e6affb49c70e20616a3a98f40"
+    },
+    "corpus-main-forward-equivalence.json": {
+      "bytes": 23442,
+      "sha256": "7ce7d650938bd072fc28e90b9afc14ed5d61835fc6c1477be9b2bbe60e00f72c"
+    },
+    "corpus-main-forward-equivalence.py.txt": {
+      "bytes": 2819,
+      "sha256": "a00a9cc82d3188dbf536882c7c84ad0de1aec67b9deb56931e84cd15b41cb9f9"
+    },
+    "corpus-observer-smoke.json": {
+      "bytes": 2557,
+      "sha256": "2cbcd2472697e7820c5cfbb1992058cbebe8bf53a019818b5900ad3758c770b1"
+    },
+    "corpus-pipeline-proof.json": {
+      "bytes": 391475,
+      "sha256": "117265c4e1257e65726ecf6ef429820ae4f0b40eb6c0add958cac918e7439431"
+    },
+    "corpus-probe-generator.py.txt": {
+      "bytes": 31225,
+      "sha256": "b555928db0cc3caf704d88874b0555fb2a59940e425410863b31dec9cde683ac"
+    },
+    "corpus-provenance.json": {
+      "bytes": 10908,
+      "sha256": "ed1c434e7ff7eec6ef972a40c3c5e3e54abddbc394e32c9841f26111f9f549e2"
+    },
+    "corpus-publisher.py.txt": {
+      "bytes": 7295,
+      "sha256": "e942b2d62a09275b5dc67c2bbee611b834427d315583f11c99c1466e62be6e68"
+    },
+    "corpus-reproduction.md": {
+      "bytes": 7685,
+      "sha256": "5d4f1dea82a9898b1b380178798b3c5acbc753b695026b87a9a55325b97121f4"
+    },
+    "corpus-rows.jsonl.gz": {
+      "bytes": 7747673,
+      "sha256": "424c1a35108287db3ab6a97893e729cfa6ac3adac54939a99e8177c4036b66ac"
+    },
+    "corpus-runner.py.txt": {
+      "bytes": 15670,
+      "sha256": "5485c8cfb55efb9ec6fd8df1eff3793763ec3614c0cc0b16fbc50354b86aef9e"
+    },
+    "corpus-summary.json": {
+      "bytes": 11421,
+      "sha256": "a2068d9e020882b2dfabafeb559e1a085516522047f2213f677818c99d25d104"
+    },
+    "corpus-verification.json": {
+      "bytes": 1284,
+      "sha256": "90acdc3fc7981ba1c00852d561834fa8747c024f3f73b0bad79a9a32ae68a8f8"
+    },
+    "corpus-verifier.py.txt": {
+      "bytes": 4803,
+      "sha256": "b59351daaa75ae19d0ea86c490b95c5a14b3d88960fcadf81eb2d9fed1f09cd7"
+    }
+  },
+  "baseline_commit": "4f3547461300bfa70569f57c83728b2ad25d9d0b",
+  "comparisons": {
+    "en-US": {
+      "added_occurrences": 525,
+      "added_typed": 525,
+      "changed_rows": 244,
+      "new_demands": 422,
+      "removed_demands": 0,
+      "removed_occurrences": 0,
+      "removed_typed": 0
+    },
+    "legacy": {
+      "added_occurrences": 1680,
+      "added_typed": 1680,
+      "changed_rows": 661,
+      "new_demands": 1008,
+      "removed_demands": 0,
+      "removed_occurrences": 0,
+      "removed_typed": 0
+    }
+  },
+  "compressed_row_ledger": {
+    "decompressed_sha256": "268b85cec95fb54270d7c733454510b1a01ecceb22e0a553cf6a90792f556847",
+    "file": "corpus-rows.jsonl.gz",
+    "rows": 68848
+  },
+  "metadata_sha256": "a1bf6df0a0f1559a56f334e20fb78e07e13588aa3a5eef979f85d89573fef321",
+  "previous_records_read": 0,
+  "raw_input_files": 231,
+  "raw_rows": 68848,
+  "schema_version": 1,
+  "source_sha256": {
+    "candidate": "d53c686aff3c750568f3b97e0117c5bfdf1d3cf5dac8572bb98f6e0758af80f2",
+    "main": "875df7eb77efdaef6add1ca6756989f2881b5825dcf65dd6e66c0f30c43f3b62"
+  },
+  "validator_sha256": {
+    "candidate": "264f57fa014c4ba90343e3785b66357927d5f7f07f915a8fb9e4afb0bf114e06",
+    "main": "e9fb139cc37ec9e72555524941b29edf66d33c6fc828986e82c97643ad51c922"
+  }
+}

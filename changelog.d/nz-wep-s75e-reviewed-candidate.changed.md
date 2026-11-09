@@ -1,0 +1,1 @@
+Admit the repaired New Zealand Winter Energy Payment section 75 candidate (rulespec-nz `163ac0d3`, branch `nzhub/wep-s75e`) for signed promotion, and retire the withdrawn `a3b2ded3` candidate on `nzhub/wep-s75d`. The repaired rule takes effect on the Act's commencement date, 26 November 2018.
