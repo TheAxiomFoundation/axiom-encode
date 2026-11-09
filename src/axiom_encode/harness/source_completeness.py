@@ -6057,7 +6057,8 @@ def _analyze_rulespec_payload(
             default=None,
         )
         if pending_deferral is None:
-            issues.append(structure_issue)
+            # Already a typed ValidationIssue (built above).
+            issues.extend((structure_issue,))
             continue
         # An identical finding text is one finding, as the final
         # de-duplication of the issue list makes it.
