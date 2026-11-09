@@ -416,7 +416,11 @@ def test_runtime_gap_ground_is_limited_to_the_classes_the_validator_reads():
 
     assert covered == set()
     assert "the source is a statute or a U.S. federal regulation" in rendered
-    assert "In other source classes, cover such an administrative branch" in rendered
+    assert (
+        "In other source classes, cover such an administrative branch by citing "
+        "it in the `source:` of the rule it governs." in rendered
+    )
+    assert "proof excerpt" not in rendered
 
 
 def test_guidance_points_to_the_repeal_form_without_direction_words():

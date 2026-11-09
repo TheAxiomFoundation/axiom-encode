@@ -11577,8 +11577,8 @@ _DEFERRAL_GROUNDS = """(1) the branch depends on the determination of another pr
   report, hearing, or submission, with no computation, and `reason` cites the
   exact canonical branch citation and names the concrete missing runtime
   capability in the branch's own terms. In other source classes, cover such
-  an administrative branch by citing it in the `source:` or proof excerpt of
-  the rule it governs"""
+  an administrative branch by citing it in the `source:` of the rule it
+  governs"""
 
 
 def _format_branch_coverage_plan(deferral_anchor: str) -> str:
