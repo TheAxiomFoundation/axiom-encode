@@ -1,3 +1,9 @@
+## 0.2.2350
+
+- Harden optional retired-manifest inventory reconciliation (#1566)
+- Stop key-bearing jobs from restoring the uv cache (#1950)
+- Define each corpus read refusal message once (#2108)
+
 ## 0.2.2349
 
 - Stage the verification supervisor's site-packages from uv.lock (#1712)
