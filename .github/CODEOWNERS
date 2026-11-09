@@ -15,6 +15,8 @@
 # bump and the re-encode workflow's early refusal. main requires no approving
 # review, so code-owner review is these files' only review.
 /.github/workflows/encoder-version-bump.yml @PavelMakarchuk @MaxGhenis
+# ci.yml holds the lint gate that refuses hand-picked version changes.
+/.github/workflows/ci.yml @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/version_provenance.py @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/prepare_signed_backfill.py @PavelMakarchuk @MaxGhenis
 /data/reviewed-rulespec-refs/ @PavelMakarchuk @MaxGhenis
