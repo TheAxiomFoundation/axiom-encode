@@ -1,7 +1,3 @@
-## 0.2.2420
-
-- Add primary-only review guidance from an immutable blob in the exact executing encoder commit, bound to the authenticated citation and source digest. Preserve ordinary inline findings. The targeted workflow uses a tagged descriptor within its existing input limit and binds packaged context and manifest bytes to the successful protected verifier result. This does not expand source ownership, signing authority, supported dependency modes, model capacity, or publication clearance.
-
 ## 0.2.2344
 
 - Integrate the independently reviewed nested-condition and physical-alternative source checks; refresh encoder version provenance for the combined tree.
