@@ -47,7 +47,7 @@ from typing import Any
 
 import yaml
 
-from axiom_encode import __version__
+from axiom_encode import __version__, version_provenance
 from axiom_encode.corpus_materialize import (
     NO_FETCH_ENV,
     fetch_disabled,
@@ -1730,10 +1730,12 @@ def encoder_version_at_pin(path: Path, pin: str) -> str:
     """Require consistent encoder version metadata at the caller's exact pin."""
 
     def show(name: str) -> str:
-        result = _git(path, "show", f"{pin}:{name}", check=False)
-        if result.returncode:
+        # The same reads as the provenance check below: no replacement refs
+        # or grafts, so a rewritten pin cannot show other version files.
+        text = version_provenance.show_file(path, pin, name)
+        if text is None:
             raise ValueError(f"Pinned encoder {pin} has no {name}")
-        return result.stdout
+        return text
 
     pyproject = tomllib.loads(show("pyproject.toml"))["project"]["version"]
     package_match = re.search(
@@ -1749,6 +1751,16 @@ def encoder_version_at_pin(path: Path, pin: str) -> str:
         raise ValueError(
             f"Pinned encoder {pin} has inconsistent version metadata "
             f"(pyproject={pyproject}, package={package}, lock={lock})"
+        )
+    # With the version assigned after merge (axiom-encode#2048), a commit on
+    # main can carry encoder changes under the previous version until the bump
+    # lands. Such a pin names two encoder states with one version, so refuse it.
+    unversioned = version_provenance.unversioned_changes(path, pin)
+    if unversioned:
+        raise ValueError(
+            f"Pinned encoder {pin} changes encoder files after its version "
+            f"bump ({', '.join(unversioned[:8])}); pin the commit that bumps "
+            f"past {pyproject}"
         )
     return pyproject
 
