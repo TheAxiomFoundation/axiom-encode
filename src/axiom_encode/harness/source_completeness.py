@@ -6719,8 +6719,10 @@ def _analyze_rulespec_payload(
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
     # One decision for both counts: locator numbers are dropped only when both
-    # views are consistent and agree on exactly which occurrences they drop,
-    # so the covered count stays main's.
+    # views are consistent and agree on exactly which occurrences they drop.
+    # The two views then lose the same occurrences, so the covered count never
+    # exceeds the source count. It can be lower than main's when main counted
+    # a dropped locator number as grounded by an equal named scalar.
     drop_us_locators = (
         source_inventory.consistent
         and unrepresented_inventory.consistent

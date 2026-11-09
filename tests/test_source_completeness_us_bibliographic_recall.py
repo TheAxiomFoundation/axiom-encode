@@ -17,6 +17,7 @@ recognized locator span.
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import re
 
@@ -592,6 +593,80 @@ def test_source_and_unrepresented_views_share_one_locator_decision(monkeypatch):
         == main.covered_source_numeric_occurrence_count
     )
     assert set(branch.issues) <= set(main.issues)
+
+
+def test_inconsistent_reread_returns_main_inventory():
+    # Rule 3: when re-reading the blanked text disagrees with the kept
+    # occurrences, the whole inventory is main's.
+    source = "Pub. L. 111-226 applies. The cap is 5 dollars."
+    extract = functools.partial(
+        extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+    )
+    occurrences = tuple(extract(source))
+    extra = next(item for item in occurrences if item.value == 5)
+
+    def disagreeing_reread(text):
+        found = tuple(extract(text))
+        return found if text == source else (*found, extra)
+
+    inventory = completeness._us_locator_filtered_inventory(
+        source,
+        corpus_citation_path=EITC_STATUTE,
+        extract_numeric_occurrences=disagreeing_reread,
+    )
+    assert not inventory.consistent
+    assert len(inventory.kept) < len(occurrences)
+    assert (
+        completeness.numeric_occurrences_without_us_bibliographic_locators(
+            source,
+            corpus_citation_path=EITC_STATUTE,
+            extract_numeric_occurrences=disagreeing_reread,
+        )
+        == occurrences
+    )
+
+
+def test_one_inconsistent_view_makes_both_views_keep_main_inventory(monkeypatch):
+    # When only the unrepresented view is inconsistent, neither view drops
+    # locator numbers, so both counts are main's.
+    from axiom_encode.harness import worksheet_operation_evidence as evidence
+
+    source = "Pub. L. 111-226 applies. The cap is $226 and 226,000 households."
+    start = source.index("$226") + 1
+    monkeypatch.setattr(
+        evidence,
+        "certify_worksheet_operations",
+        lambda *args, **kwargs: evidence.WorksheetOperationCoverage(
+            annual_spans=((start, start + 3),)
+        ),
+    )
+    filtered = completeness._us_locator_filtered_inventory
+    calls = []
+
+    def second_view_inconsistent(text, **kwargs):
+        inventory = filtered(text, **kwargs)
+        calls.append(text)
+        if len(calls) == 2:
+            return dataclasses.replace(inventory, consistent=False)
+        return inventory
+
+    monkeypatch.setattr(
+        completeness, "_us_locator_filtered_inventory", second_view_inconsistent
+    )
+    citation = "us/statute/42/1"
+    branch = _analysis(source, citation)
+    assert len(calls) == 2
+    with monkeypatch.context() as patch:
+        patch.setattr(completeness, NEW_LOCATORS, ())
+        main = _analysis(source, citation)
+    assert (
+        branch.covered_source_numeric_occurrence_count,
+        branch.source_numeric_occurrence_count,
+    ) == (
+        main.covered_source_numeric_occurrence_count,
+        main.source_numeric_occurrence_count,
+    )
+    assert branch.issues == main.issues
 
 
 @pytest.mark.parametrize(
