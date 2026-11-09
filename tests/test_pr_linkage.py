@@ -664,3 +664,25 @@ def test_comment_markers_in_code_spans_are_literal_text():
 def test_a_fence_in_a_list_item_is_a_code_block():
     body = "Encoding-Target: none\n- ```\n  Fixes-Run: none\n  ```\n"
     assert any("missing `Fixes-Run:`" in error for error in parse(body).errors)
+
+
+# --- review-fix cycle 5 ------------------------------------------------------
+
+
+def test_a_list_item_fence_ends_with_its_item():
+    # `foo` ends the list item and its fence; the column-0 fence then opens a
+    # block that runs to the end, hiding both lines, as GitHub renders it.
+    body = "- ```\nfoo\n```\nEncoding-Target: none\nFixes-Run: none\n"
+    assert any("missing" in error for error in parse(body).errors)
+
+
+@pytest.mark.parametrize(
+    "fenced",
+    [
+        "- a\n  - ```bash\n    echo\n    ```\n",
+        "10. ```\n    echo\n    ```\n",
+    ],
+)
+def test_a_nested_list_fence_closes(fenced):
+    body = fenced + "\nEncoding-Target: none\nFixes-Run: none\n"
+    assert parse(body).errors == []

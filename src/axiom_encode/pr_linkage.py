@@ -77,10 +77,14 @@ RATE_LIMIT_WAIT = 60.0
 VERIFY_DEADLINE = 180.0
 
 _LIST_MARKER = r"(?:(?:[-*+]|[0-9]{1,9}[.)])[ \t]+)?"
-_FENCE = re.compile(rf"^ {{0,3}}{_LIST_MARKER}(`{{3,}}|~{{3,}})")
+# A fence opens after up to three spaces, or after a (possibly nested) list
+# marker; `prefix` is then the list item's content column.
+_FENCE = re.compile(
+    r"^(?P<prefix> {0,3}| *(?:[-*+]|[0-9]{1,9}[.)])[ \t]+)(`{3,}|~{3,})"
+)
 _COMMENT_BLOCK = re.compile(rf" {{0,3}}{_LIST_MARKER}<!--")
 _CODE_SPAN = re.compile(r"(`+)(?!`).*?(?<!`)\1(?!`)")
-_CLOSING_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*")
+_CLOSING_FENCE = re.compile(r"( *)(`{3,}|~{3,})[ \t]*")
 _MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\((\S+)\)")
 _BOLD = r"(?:\*\*|__)?"
 # Up to three spaces of indent (four is a code block), an optional list marker
@@ -141,16 +145,27 @@ def _visible_lines(body: str, errors: list[str]) -> list[str]:
     marker) closes only on a bare fence line, as in CommonMark.
     """
     lines: list[str] = []
-    fence: str | None = None
+    fence: tuple[str, int] | None = None  # (fence characters, content column)
     in_comment = False
     raw = body.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     for number, line in enumerate(raw, start=1):
         if fence is not None:
-            match = _CLOSING_FENCE.fullmatch(line)
-            if match and match.group(1)[0] == fence[0]:
-                if len(match.group(1)) >= len(fence):
+            fence_chars, column = fence
+            indent = len(line) - len(line.lstrip(" "))
+            if line.strip() and indent < column:
+                # Less indented than its list item: the item, and with it
+                # the fence, has ended; this line is ordinary text.
+                fence = None
+            else:
+                match = _CLOSING_FENCE.fullmatch(line)
+                if (
+                    match
+                    and len(match.group(1)) <= column + 3
+                    and match.group(2)[0] == fence_chars[0]
+                    and len(match.group(2)) >= len(fence_chars)
+                ):
                     fence = None
-            continue
+                continue
         visible = ""
         rest = line
         block = None if in_comment else _COMMENT_BLOCK.match(line)
@@ -186,7 +201,7 @@ def _visible_lines(body: str, errors: list[str]) -> list[str]:
             continue
         match = _FENCE.match(visible)
         if match and visible == line:
-            fence = match.group(1)
+            fence = (match.group(2), len(match.group("prefix")))
             continue
         lines.append(visible)
     return lines
