@@ -61,12 +61,18 @@ def as_json(pr, graphql=False):
         author["login"] = APP if graphql else f"app/{APP}"
     if graphql:
         author["__typename"] = "Bot" if login == "app" else "User"
-    return {
+    document = {
         "number": pr["number"], "url": pr["url"], "headRefName": pr["head"],
         "headRefOid": head_oid(pr), "isCrossRepository": pr.get("fork", False),
         "author": author,
         "autoMergeRequest": {"enabledAt": "x"} if pr["auto"] else None,
     }
+    if graphql:
+        # Like GitHub: GraphQL returns only the fields the query selects.
+        query = next(arg for arg in args if arg.startswith("query="))
+        document["author"] = {k: v for k, v in author.items() if k in query}
+        document = {k: v for k, v in document.items() if k in query}
+    return document
 
 def emit(document):
     if "--jq" in args:
@@ -101,7 +107,7 @@ elif args[:2] == ["pr", "create"]:
     url = f"https://github.com/o/r/pull/{number}"
     state["prs"].append(
         {"number": number, "url": url, "head": value("--head"), "state": "open",
-         "auto": False}
+         "auto": False, **state.get("create_as", {})}
     )
     print(url)
 elif args[:2] == ["pr", "view"]:
@@ -460,6 +466,20 @@ def test_an_app_pull_request_at_another_commit_is_not_auto_merged(
 
     assert rerun.returncode != 0
     assert "is not the App's pull request" in rerun.stdout + rerun.stderr
+    assert _merges(state) == []
+
+
+@pytest.mark.parametrize("opened_as", [{"author": "mallory"}, {"fork": True}])
+def test_a_pull_request_at_the_bump_commit_that_is_not_the_apps_is_not_auto_merged(
+    opened_as: dict, tmp_path: Path, remote: Path
+):
+    # Its head is the bump commit, so only the author test can stop it.
+    state = _state(tmp_path, create_as=opened_as)
+
+    result, _ = _run(tmp_path, remote, state, 1)
+
+    assert result.returncode != 0
+    assert "is not the App's pull request" in result.stdout + result.stderr
     assert _merges(state) == []
 
 
