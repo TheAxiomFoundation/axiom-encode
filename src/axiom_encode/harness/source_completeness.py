@@ -2287,6 +2287,50 @@ _US_LOCATOR_ARITHMETIC_WORDS = frozenset(
     {"plus", "minus", "less", "times", "by", "x", "of", "per", "each"}
 )
 _US_LOCATOR_CONNECTORS = _US_LOCATOR_LIST_CONNECTORS | _US_LOCATOR_ARITHMETIC_WORDS
+# A comparator or quantity word before a citation that starts with a number
+# makes that number a threshold or amount (`under 6 FR 1,200`, `less than 2
+# Fed. Reg. 150`, `equal 100 Fed. Reg. 500`), so the citation keeps main's
+# inventory.
+_US_LOCATOR_PRECEDING_QUANTITY_WORDS = frozenset(
+    {
+        "about",
+        "above",
+        "additional",
+        "age",
+        "aged",
+        "approximately",
+        "around",
+        "below",
+        "beyond",
+        "equal",
+        "equaling",
+        "equalling",
+        "equals",
+        "exceed",
+        "exceeded",
+        "exceeding",
+        "exceeds",
+        "first",
+        "last",
+        "least",
+        "max",
+        "maximum",
+        "min",
+        "minimum",
+        "most",
+        "nearly",
+        "next",
+        "over",
+        "than",
+        "total",
+        "totaling",
+        "totalling",
+        "under",
+        "up",
+        "upto",
+        "within",
+    }
+)
 # Words that may follow a citation without turning one of its numbers into a
 # quantity: function words, month names (`62 FR 61344, Nov. 17, 1997`) and
 # the verbs that U.S. Code, CFR and Federal Register prose attaches to a
@@ -2455,7 +2499,7 @@ _US_BIBLIOGRAPHIC_NUMERIC_RECALL_LOCATORS = (
 _US_LOCATOR_HORIZONTAL_SPACE = re.compile(r"[ \t]*")
 _US_LOCATOR_SPACE = re.compile(r"\s*")
 _US_LOCATOR_WORD = re.compile(r"[A-Za-z]+|&")
-_US_LOCATOR_PREVIOUS_WORD = re.compile(r"(?:(?<![A-Za-z])[A-Za-z]{1,12}|&)$")
+_US_LOCATOR_PREVIOUS_WORD = re.compile(r"(?:(?<![A-Za-z])[A-Za-z]{1,15}|&)$")
 _US_LOCATOR_PREVIOUS_CURRENCY_CODE = re.compile(r"(?<![A-Za-z])[A-Z]{3}$")
 _US_LOCATOR_PARAGRAPH_LABEL = re.compile(
     r"\((?:[0-9]{1,3}[A-Za-z]?|[A-Za-z]{1,4})\)(?=[ \t]+[A-Za-z(\[\"“])",
@@ -2518,7 +2562,8 @@ def _us_locator_context_is_bibliographic(text: str, start: int, end: int) -> boo
     or math symbol, or invisible formatting character. Before it, the previous
     non-space token (looking back across line breaks, at most 64 characters)
     must not be numeric, a currency code or, for a citation that starts with a
-    number, an arithmetic word (`x 62`, `of 62`); a longer gap fails. After
+    number, an arithmetic, comparator or quantity word (`x 62`, `of 62`,
+    `under 62`, `than 62`); a longer gap fails. After
     it, up to three closing parentheses/brackets are skipped; then a sentence
     end, the end of the text, or a line break followed by a line that does not
     open with a number ends the check. Otherwise, after one optional
@@ -2554,7 +2599,8 @@ def _us_locator_context_is_bibliographic(text: str, start: int, end: int) -> boo
             if (
                 text[start].isdigit()
                 and previous_word is not None
-                and previous_word.group(0).lower() in _US_LOCATOR_CONNECTORS | {"of"}
+                and previous_word.group(0).lower()
+                in _US_LOCATOR_CONNECTORS | _US_LOCATOR_PRECEDING_QUANTITY_WORDS
             ):
                 return False
     if end < len(text):
@@ -2617,6 +2663,10 @@ def _us_locator_occurrence_key(occurrence: NumericOccurrenceLike) -> tuple[Any, 
         getattr(occurrence, "has_structural_context", None),
         getattr(occurrence, "requires_rate_context", None),
         tuple(getattr(occurrence, "alternative_values", ()) or ()),
+        getattr(occurrence, "raw", None),
+        getattr(occurrence, "source_value", None),
+        getattr(occurrence, "is_word_number", None),
+        getattr(occurrence, "requires_month_context", None),
     )
 
 

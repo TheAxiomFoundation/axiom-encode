@@ -595,6 +595,35 @@ def test_source_and_unrepresented_views_share_one_locator_decision(monkeypatch):
     assert set(branch.issues) <= set(main.issues)
 
 
+def test_both_views_drop_locators_together_with_a_represented_span(monkeypatch):
+    # Pre-queue review: when both views are consistent and drop the same
+    # locator numbers, the source and unrepresented counts each lose them.
+    from axiom_encode.harness import worksheet_operation_evidence as evidence
+
+    source = "Pub. L. 111-226 applies. The cap is $500."
+    start = source.index("$500") + 1
+    monkeypatch.setattr(
+        evidence,
+        "certify_worksheet_operations",
+        lambda *args, **kwargs: evidence.WorksheetOperationCoverage(
+            annual_spans=((start, start + 3),)
+        ),
+    )
+    citation = "us/statute/42/1"
+    branch = _analysis(source, citation)
+    with monkeypatch.context() as patch:
+        patch.setattr(completeness, NEW_LOCATORS, ())
+        main = _analysis(source, citation)
+    assert main.source_numeric_occurrence_count == 3
+    assert branch.source_numeric_occurrence_count == 1
+    assert (
+        branch.covered_source_numeric_occurrence_count
+        == main.covered_source_numeric_occurrence_count
+        == 1
+    )
+    assert set(branch.issues) < set(main.issues)
+
+
 def test_inconsistent_reread_returns_main_inventory():
     # Rule 3: when re-reading the blanked text disagrees with the kept
     # occurrences, the whole inventory is main's.
@@ -690,6 +719,14 @@ def test_one_inconsistent_view_makes_both_views_keep_main_inventory(monkeypatch)
         "62 FR 61344 times the standard",
         "Household Size FR Amount\n1 FR 291\n2 FR 535\n3 FR 766\nThe amounts apply.",
         "Pub. L. 111-226 of the households",
+        # Pre-queue review: a comparator or quantity word before a citation
+        # that starts with a number makes that number a threshold.
+        "Children under 6 FR 1,200 in the year.",
+        "The limit is less than 2 Fed. Reg. 150 that applies.",
+        "Benefits equal 100 Fed. Reg. 500 in the month.",
+        "Income at or above 50 FR 300 in the month.",
+        "Amounts exceeding 5 FR 100 under the rule.",
+        "Payments of approximately 5 FR 100 apply.",
     ),
 )
 def test_round_two_contexts_keep_main_inventory(source):
