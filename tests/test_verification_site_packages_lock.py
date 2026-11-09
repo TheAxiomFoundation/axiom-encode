@@ -46,7 +46,8 @@ script. So ``pip3``, ``python -m pip``, ``"$VAR" -m pip``, the
 - A provision's ``if:`` holds no status function (``success()``, ``always()``,
   ``failure()`` or ``cancelled()``), so the runner's implicit ``success()``
   keeps it from running after a failed step. A staging step carries no key that
-  would let its ``diff`` fail without stopping the job.
+  would let its ``diff`` fail without stopping the job, and no ``${{ }}``
+  expression, which the runner substitutes before bash reads even a comment.
 
 Only the provisions in the provisioner's selftest escape these last two rules;
 its throwaway tree verifies and signs nothing.
@@ -165,10 +166,11 @@ RUNS_AFTER_FAILURE = re.compile(
 
 
 def _logical_lines(script: str) -> list[str]:
-    """``script``'s lines, joined as bash joins them: a backslash-newline
-    disappears and leaves nothing between its neighbours, a full-line comment
-    starts only where a word can start and ends at its newline, even after a
-    trailing backslash, and a blank line ends a continuation."""
+    """``script``'s lines, joined as bash joins them outside quotes: a
+    backslash-newline disappears and leaves nothing between its neighbours, a
+    full-line comment starts only where a word can start and ends at its
+    newline, even after a trailing backslash, and a blank line ends a
+    continuation."""
     lines: list[str] = []
 
     def finish(text: str) -> None:
@@ -551,9 +553,9 @@ def _changes_an_environment(commands: list[Command]) -> bool:
 
 
 def _names_more_than_its_purelib(job: dict) -> bool:
-    """Whether ``job``'s text, comments and step names aside, names the purelib
-    beyond its one assignment and its one provision, names the environment
-    outside ``bin/``, or assigns its interpreter more than once."""
+    """Whether ``job``'s text, comment lines and step names aside, names the
+    purelib beyond its one assignment and its one provision, names the
+    environment outside ``bin/``, or assigns its interpreter more than once."""
     steps = [
         {key: value for key, value in step.items() if key != "name"}
         for step in job.get("steps", [])
@@ -701,6 +703,11 @@ def _tree_violations(
                     continue
                 if _consumes(command, tree):
                     consumed[tree] += 1
+                    # The words join quoted pieces; the line keeps the split.
+                    if tree not in command.line:
+                        violations.append(
+                            f"{where}: splits {tree} across quotes: {command.line}"
+                        )
                 else:
                     violations.append(
                         f"{where}: names {tree} outside its staging, locked "
@@ -863,14 +870,43 @@ def test_the_selftest_stages_the_locked_pyyaml():
     assert sum("selftest_locked" in line for line in lines) == 3
 
 
-@pytest.mark.parametrize("workflow", STAGING)
-def test_staging_step_is_exactly_the_locked_install(workflow):
-    step = _staging_step(workflow)
-
-    assert _logical_lines(step["run"]) == _canonical_staging()
+def _staging_problems(step: dict) -> list[str]:
+    """What keeps ``step`` from running the canonical block and nothing else."""
+    problems = []
+    if _logical_lines(step["run"]) != _canonical_staging():
+        problems.append("its lines differ from the canonical block")
+    # The runner substitutes an expression before bash reads the script, even in
+    # a comment, and a newline in the value ends the comment.
+    if "${{" in step["run"]:
+        problems.append("it holds an expression")
     # `continue-on-error` or `if:` would let a job provision a tree that failed
     # the diff.
-    assert set(step) <= {"name", "run", "working-directory"}
+    extra = set(step) - {"name", "run", "working-directory"}
+    if extra:
+        problems.append(f"it carries {sorted(extra)}")
+    return problems
+
+
+@pytest.mark.parametrize("workflow", STAGING)
+def test_staging_step_is_exactly_the_locked_install(workflow):
+    assert _staging_problems(_staging_step(workflow)) == []
+
+
+@pytest.mark.parametrize("workflow", STAGING)
+def test_a_staging_comment_may_hold_no_expression(workflow):
+    step = _staging_step(workflow)
+    step["run"] += "# note: ${{ inputs.note }}\n"
+
+    assert _staging_problems(step) == ["it holds an expression"]
+
+
+@pytest.mark.parametrize("key", ["continue-on-error", "if"])
+@pytest.mark.parametrize("workflow", STAGING)
+def test_a_staging_step_carries_no_key_that_could_excuse_its_diff(workflow, key):
+    step = _staging_step(workflow)
+    step[key] = True
+
+    assert _staging_problems(step) == [f"it carries ['{key}']"]
 
 
 @pytest.mark.parametrize(
@@ -955,20 +991,20 @@ def test_bash_ends_a_comment_at_its_newline():
 
 @pytest.mark.parametrize("workflow", STAGING)
 def test_a_command_glued_to_a_continuation_breaks_the_canonical_block(workflow):
-    run = _staging_step(workflow)["run"]
+    step = _staging_step(workflow)
     assignment = f'site_packages="{SITE_PACKAGES}"'
-    assert run.count(assignment) == 1
-    hidden = run.replace(assignment, f"{assignment}\\\n#;echo hidden")
+    assert step["run"].count(assignment) == 1
+    step["run"] = step["run"].replace(assignment, f"{assignment}\\\n#;echo hidden")
 
-    assert _logical_lines(hidden) != _canonical_staging()
+    assert _staging_problems(step) == ["its lines differ from the canonical block"]
 
 
 @pytest.mark.parametrize("workflow", STAGING)
 def test_a_command_behind_a_comment_breaks_the_canonical_block(workflow):
-    run = _staging_step(workflow)["run"]
-    hidden = f'{run}# Drop one package. \\\nrm -rf "$site_packages/requests"\n'
+    step = _staging_step(workflow)
+    step["run"] += '# Drop one package. \\\nrm -rf "$site_packages/requests"\n'
 
-    assert _logical_lines(hidden) != _canonical_staging()
+    assert _staging_problems(step) == ["its lines differ from the canonical block"]
 
 
 def test_every_production_provision_consumes_a_locked_tree():
@@ -1135,6 +1171,22 @@ def test_a_consumer_must_name_its_tree_in_its_text():
     violations, _ = _tree_violations(workflows)
 
     assert any("names axiom-verification-site-packages 0 time" in v for v in violations)
+
+
+def test_a_split_consumer_cannot_lend_its_count_to_other_text():
+    # The loop header's mention balances the text count the split consumer lost.
+    workflows = _load_workflows()
+    step = _provision_step("bulk-encode.yml", workflows)
+    split = SITE_PACKAGES.replace("-site-", '-site""-')
+    loop = f'for t in "{SITE_PACKAGES}"/*; do rm -rf "$t"; done'
+    assert step["run"].count(SITE_PACKAGES) == 1
+    step["run"] = f"{loop}\n{step['run'].replace(SITE_PACKAGES, split)}"
+
+    violations, _ = _tree_violations(workflows)
+
+    assert any(
+        "splits axiom-verification-site-packages across quotes" in v for v in violations
+    ), violations
 
 
 def test_a_provision_that_names_its_tree_twice_does_not_consume_it():
@@ -1392,6 +1444,10 @@ def test_a_locked_venv_provision_rejects_any_change_to_the_environment(mutation)
             'python_path="{python}"\nexport python_path=/usr/bin/python3',
             id="an-exported-assignment",
         ),
+        pytest.param(
+            'python_path="{python}"\npython_path+="x"',
+            id="an-appended-assignment",
+        ),
     ],
 )
 def test_a_locked_venv_provision_computes_the_purelib_with_its_interpreter(replacement):
@@ -1407,6 +1463,33 @@ def test_a_locked_venv_provision_computes_the_purelib_with_its_interpreter(repla
     assert any(
         "changes the locked environment" in v or "purelib" in v for v in violations
     ), violations
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement"),
+    [
+        pytest.param(
+            'sudo "$python_path"', "sudo python3", id="another-interpreter-runs-it"
+        ),
+        pytest.param(
+            PURELIB,
+            f'# {PURELIB}\nsite="$RUNNER_TEMP/unlocked"',
+            id="a-comment-holds-the-purelib-line",
+        ),
+    ],
+)
+def test_a_locked_venv_provision_reads_its_purelib_with_its_python(
+    original, replacement
+):
+    workflows = _load_workflows()
+    name = next(iter(LOCKED_VENV_PROVISIONS))
+    step = _provision_step(name, workflows)
+    assert step["run"].count(original) == 1
+    step["run"] = step["run"].replace(original, replacement)
+
+    violations, _ = _provision_violations(workflows)
+
+    assert any("purelib" in v for v in violations), violations
 
 
 @pytest.mark.parametrize(
@@ -1518,6 +1601,27 @@ def test_every_way_of_running_the_provisioner_is_a_provision(interpreter):
     line = (
         f"{interpreter}{VERIFICATION_PROVISIONER} --destination d "
         f'--site-packages "$RUNNER_TEMP/other" {PROVISION_ARGUMENTS}'
+    )
+    step["run"] = f"{line}\n{step['run']}"
+
+    violations, _ = _provision_violations(workflows)
+
+    assert any("$RUNNER_TEMP/other is not locked" in v for v in violations), violations
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        pytest.param('--site-packages="$RUNNER_TEMP/other"', id="attached"),
+        pytest.param('--site-pack "$RUNNER_TEMP/other"', id="abbreviated"),
+    ],
+)
+def test_a_wrapped_provisioner_counts_under_any_spelling_of_its_option(option):
+    workflows = _load_workflows()
+    step = _provision_step("bulk-encode.yml", workflows)
+    line = (
+        f"chronic .venv/bin/python scripts/{VERIFICATION_PROVISIONER} "
+        f"--destination d {option} {PROVISION_ARGUMENTS}"
     )
     step["run"] = f"{line}\n{step['run']}"
 
