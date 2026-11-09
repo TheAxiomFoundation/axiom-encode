@@ -1,5 +1,5 @@
 r"""Rewritten whitespace patterns match as the patterns they replaced did, and
-stay linear in a run of spaces.
+stay linear in a run of spaces or tabs.
 
 Each replaced pattern let one run of spaces split between two repeats: two
 whitespace runs side by side around an optional item, as ``\s*(?:usd)?\s*``
@@ -12,9 +12,11 @@ whitespace into its own group (``\s*(?:usd\s*)?``), a repeat that takes spaces
 ends only at another character, or the pattern drops a run that another repeat
 already covers.
 
-Each case keeps its replaced pattern verbatim. The differential property
-compares every match, span and group of the two on generated text, so it fails
-a rewrite that changes anything a caller reads.
+Each case keeps its replaced pattern verbatim and checks the rewrite against it
+two ways: boundary texts at the edges the rewrite moved, and a differential
+property that compares every match, span and group of the two on generated
+text. Both sample texts, so a rewrite that changes a match only on texts
+neither tries can pass them.
 """
 
 from __future__ import annotations
@@ -35,7 +37,7 @@ from tests.scaling import assert_linear_growth, lowest_work
 _CARDINAL = completeness._ENGLISH_CARDINAL_PHRASE
 
 _SPACE = st.sampled_from(
-    ["", " ", "  ", "     ", "\t", "\n", " \t ", "\xa0", " ", "　"]
+    ["", " ", "  ", "     ", "\t", "\n", " \t ", "\xa0", "\u2009", "\u3000"]
 )
 _GAP = st.lists(_SPACE, max_size=3).map("".join)
 _LINE_GAP = st.sampled_from(["", " ", "  ", "\t", "\xa0", " \t "])
@@ -126,10 +128,13 @@ class Case:
     mode: str
     near_matches: st.SearchStrategy[str]
     # Texts at the edges the rewrite moved: the optional item present or
-    # absent, with whitespace beside it or none. The first one matches.
+    # absent, with whitespace beside it or none, and the characters each
+    # rewritten class takes or refuses at a repeat's end. The first one
+    # matches.
     boundaries: tuple[str, ...]
-    # A run of ``width`` spaces that the pattern then fails on.
-    adversarial: Callable[[int], str]
+    # Text around a run of whitespace, ``run``, that the pattern then fails
+    # on. The tests pass runs of spaces and of tabs.
+    adversarial: Callable[[str], str]
     # The flags main compiled the replaced pattern with.
     replaced_flags: int = re.IGNORECASE
     # Text before and after the text under test, for callers that apply the
@@ -159,7 +164,7 @@ CASES = (
             "dollars",
             "dollars ( $ x",
         ),
-        lambda width: " " * width + "(" + " " * width + "x",
+        lambda run: run + "(" + run + "x",
     ),
     Case(
         "spelled parenthetical first gap",
@@ -179,7 +184,7 @@ CASES = (
             "five dollars",
             "five  dollars",
         ),
-        lambda width: " five dollars (" + " " * width + "x",
+        lambda run: " five dollars (" + run + "x",
     ),
     Case(
         "first gap filler",
@@ -217,7 +222,7 @@ CASES = (
             "usd of ",
             " $ x",
         ),
-        lambda width: " " * width + "x",
+        lambda run: run + "x",
     ),
     Case(
         "von open range continuation",
@@ -244,7 +249,7 @@ CASES = (
             " Euro",
             " Euro x",
         ),
-        lambda width: " " * width + "x",
+        lambda run: run + "x",
     ),
     Case(
         "spelled parenthetical amount",
@@ -279,7 +284,7 @@ CASES = (
             "five dollars ($ x)",
             "five dollars ( 5",
         ),
-        lambda width: "five dollars (" + " " * width + "x",
+        lambda run: "five dollars (" + run + "x",
     ),
     Case(
         "trailing spelled parenthetical opening",
@@ -308,7 +313,7 @@ CASES = (
             "five dollars ($x",
             "five dollars",
         ),
-        lambda width: "five dollars (" + " " * width + "x",
+        lambda run: "five dollars (" + run + "x",
     ),
     Case(
         "structural source heading",
@@ -332,7 +337,7 @@ CASES = (
             "ARTICLE 1 x",
             "ARTICLE x",
         ),
-        lambda width: "ARTICLE" + " " * width + "x",
+        lambda run: "ARTICLE" + run + "x",
     ),
     Case(
         "step reference",
@@ -361,7 +366,7 @@ CASES = (
             "step 2,",
             "step 2 x",
         ),
-        lambda width: "step 1" + " " * width + "x",
+        lambda run: "step 1" + run + "x",
     ),
     Case(
         "schedule size row",
@@ -394,7 +399,7 @@ CASES = (
             "- size",
             "-: 100",
         ),
-        lambda width: " " * width + "x",
+        lambda run: run + "x",
     ),
     Case(
         "schedule pipe row",
@@ -425,7 +430,7 @@ CASES = (
             "* | 100",
             "- x | 100",
         ),
-        lambda width: " " * width + "x",
+        lambda run: run + "x",
     ),
     Case(
         "schedule arrow row",
@@ -456,7 +461,7 @@ CASES = (
             "* 1 = 100",
             "- => 100",
         ),
-        lambda width: " " * width + "x",
+        lambda run: run + "x",
     ),
     Case(
         "two-line table row key",
@@ -484,7 +489,7 @@ CASES = (
             "first  a b  ",
             "1",
         ),
-        lambda width: "first a" + " " * width + "1",
+        lambda run: "first a" + run + "1",
     ),
     Case(
         "value-bearing table row",
@@ -515,7 +520,7 @@ CASES = (
             "*:5",
             "- Amount:x",
         ),
-        lambda width: " " * width + "x",
+        lambda run: run + "x",
     ),
     Case(
         "English month day year",
@@ -545,7 +550,7 @@ CASES = (
             "may 1st, 2024",
             "may 1 x",
         ),
-        lambda width: "may 1" + " " * width + "x",
+        lambda run: "may 1" + run + "x",
     ),
     Case(
         "definition",
@@ -594,8 +599,13 @@ CASES = (
             "a, b means c means",
             "a, means b means",
             "income ,",
+            "COVID-19 means x",
+            "income, x\xa0 means y",
         ),
-        lambda width: "a" + " " * width + "x",
+        # The term crosses the first run and the text after the comma crosses
+        # the second, so a rewrite that lets either one end inside a run turns
+        # quadratic here.
+        lambda run: "a" + run + "x," + run + "y",
         replaced_flags=re.MULTILINE,
     ),
     Case(
@@ -624,8 +634,12 @@ CASES = (
             "x means means",
             "\t\tmeans",
             "x",
+            "Form 1040 means",
         ),
-        lambda width: " " * width + "x",
+        # The replaced pattern split the first run, an indent, among three
+        # repeats. The term crosses the second, so a rewrite that lets the term
+        # end inside a run turns quadratic here.
+        lambda run: run + "x" + run + "y",
         replaced_flags=0,
     ),
     Case(
@@ -653,8 +667,12 @@ CASES = (
             " - ",
             "x",
             " ,,",
+            " \u2014 ",
+            "\u05be",
+            " \u2013 ",
+            " ; ",
         ),
-        lambda width: " " * width + "x",
+        lambda run: run + "x",
         replaced_flags=0,
         # _iter_hebrew_gregorian_month_matches reads the gap between two
         # month names.
@@ -688,8 +706,9 @@ CASES = (
             "1999.5",
             " ,, 1999",
             " 19999",
+            " ; 1999",
         ),
-        lambda width: " " * width + "x",
+        lambda run: run + "x",
         replaced_flags=0,
         # _iter_hebrew_gregorian_month_matches reads the year after a month
         # name.
@@ -747,7 +766,8 @@ def test_rewritten_pattern_reads_each_boundary_as_the_replaced_one(case: Case):
         None,
         [],
     )
-    for text in (*case.boundaries, case.adversarial(64)):
+    adversarial = (case.adversarial(" " * 64), case.adversarial("\t" * 64))
+    for text in (*case.boundaries, *adversarial):
         assert _observe(case.current, case.mode, text, case.context) == _observe(
             replaced, case.mode, text, case.context
         ), text
@@ -764,10 +784,11 @@ def test_rewritten_pattern_reads_every_match_as_the_replaced_one(case: Case, dat
     )
 
 
+@pytest.mark.parametrize("run", (" ", "\t"), ids=("spaces", "tabs"))
 @pytest.mark.parametrize("case", CASES, ids=_IDS)
-def test_rewritten_pattern_stays_linear_in_a_space_run(case: Case):
+def test_rewritten_pattern_stays_linear_in_a_whitespace_run(case: Case, run: str):
     def work(width):
-        text = case.adversarial(width)
+        text = case.adversarial(run * width)
         expected = _observe(case.current, case.mode, text, case.context)
 
         def check(observed):
@@ -783,6 +804,8 @@ def test_rewritten_pattern_stays_linear_in_a_space_run(case: Case):
     # The first step fails each replaced pattern, quadratic or cubic, in under
     # a minute, so a regression never reaches the wide pair, which would run a
     # cubic one for hours. The wide pair holds the patterns to the run widths
-    # the interval parser's own growth test uses.
+    # the interval parser's own growth test uses. Runs of tabs cover the
+    # classes that tell a tab from a space, such as the definition patterns'
+    # ``[ \t]``: a rewrite can stay linear in one and not the other.
     assert_linear_growth(work(64), work(512), input_ratio=8)
     assert_linear_growth(work(1_000), work(16_000), input_ratio=16)

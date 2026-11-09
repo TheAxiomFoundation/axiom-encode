@@ -233,10 +233,11 @@ def is_complete_section_path(corpus_citation_path: str) -> bool:
 
 
 # Neither a definition's term nor the text after its comma ends in a space
-# or tab. Wherever ``[ \t]*,`` or ``[ \t]+means`` can follow a space inside
-# them, it can follow the first space of that run too, which the lazy repeat
-# reaches first. So each lazy repeat ends only at another character, and the
-# run after it has one way through the pattern. When a lazy repeat could end
+# or tab. Wherever ``[ \t]*,`` or ``[ \t]+means`` can start inside a run of
+# spaces and tabs, it can also start at the run's first character, right
+# after the character before the run, and the lazy repeat reaches that end
+# first. So each lazy repeat ends only at another character, and the run
+# after it has one way through the pattern. When a lazy repeat could end
 # anywhere inside a run, the run split n + 1 ways between the repeat and the
 # whitespace after it, so a line that failed after the run backtracked
 # quadratically in the run.

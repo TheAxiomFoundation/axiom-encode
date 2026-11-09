@@ -9142,10 +9142,10 @@ _HEBREW_GREGORIAN_MONTH_PATTERN = re.compile(
 # ספיקת לב" (National Health Insurance Law, schedule 2) is "suffering from
 # heart failure", "במאי" is also a director and "מרץ" vigour.
 # In the next two patterns, as in the structural heading pattern, an optional
-# separator or comma takes the spaces after it into its own group. Both run
-# at every month name; written as ``[^\S\n]*,?[^\S\n]*``, two runs split one
-# run of spaces between them, quadratic in the run when nothing after it
-# matches.
+# separator or comma takes the spaces after it into its own group. The first
+# runs between each pair of adjacent month names, the second after the last
+# name of a group. Written as ``[^\S\n]*,?[^\S\n]*``, two runs split one run
+# of spaces between them, quadratic in the run when nothing after it matches.
 _HEBREW_MONTH_LIST_GAP_PATTERN = re.compile(
     "[^\\S\\n]*(?:(?:,|;|[\u05be\u2013\u2014-]|עד|ועד|או)[^\\S\\n]*)?"
 )
