@@ -191,10 +191,16 @@ def test_digit_and_worded_mixed_percentages_agree(words: str, digits: str) -> No
     [
         "amount B is 2\n6/7 per cent of the difference",
         "amount B is 2 6 / 7 per cent of the difference",
+        "amount B is 2\n½ per cent of the difference",
     ],
 )
-def test_a_split_or_spaced_mixed_percentage_keeps_its_parts(text: str) -> None:
-    assert {2.0, 6.0} <= {item.value for item in occurrences(text)}
+def test_a_split_or_spaced_mixed_percentage_keeps_its_old_reading(text: str) -> None:
+    def reading() -> set[tuple[int, int, float]]:
+        return {(item.start, item.end, item.value) for item in occurrences(text)}
+
+    collapsed = reading()
+    with mixed_percentage_collapse_disabled():
+        assert collapsed == reading()
 
 
 def test_a_numeral_with_a_fraction_slash_has_no_parts() -> None:
@@ -264,6 +270,7 @@ def test_a_mixed_percentage_may_space_or_capitalize_its_marker(numeral: str) -> 
         "amount B is 2 6 / 7 per cent of the difference",
         "amount B is 2\n6/7 per cent of the difference",
         "amount B is 2 6/7 per centum of the difference",
+        "amount B is 12/7 per cent of the difference",
     ],
 )
 def test_other_slashes_stay_divisions(text: str) -> None:
@@ -305,6 +312,7 @@ def test_mixed_percentage_masking_keeps_offsets() -> None:
         "1,5 3/4 per cent",
         "2 6 / 7 per cent",
         "2\n6/7 per cent",
+        "12/7 per cent",
     ],
 )
 def test_the_mask_leaves_every_other_numeral_alone(text: str) -> None:
@@ -544,6 +552,7 @@ def test_a_cue_that_runs_past_the_title_stays() -> None:
             "does not apply",
         ),
         ("regulation 14(6A) (persons if absent)", "if"),
+        ("regulation 2(lxxxviii) (persons if absent)", "if"),
         ("regulation 7(circumstances if absent)", "if"),
     ],
 )
@@ -554,8 +563,30 @@ def test_a_title_may_follow_subdivisions_or_touch_its_number(
     assert cue not in [item[2] for item in cues(text, CITATION)]
 
 
-def test_a_long_parenthesis_on_a_number_is_no_subdivision() -> None:
-    text = "regulation 7(circumstances) (persons if absent)"
+@pytest.mark.parametrize(
+    "text",
+    [
+        "regulation 7(circumstances) (persons if absent)",
+        "regulation 2(clxxxviii) (persons if absent)",
+        "regulation 7(2 or 3) (persons if absent)",
+    ],
+)
+def test_a_long_or_spaced_parenthesis_on_a_number_is_no_subdivision(
+    text: str,
+) -> None:
+    assert "if" in [item[2] for item in cues(text, CITATION)]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "under subregulation 14 (persons if absent) the amount applies",
+        "regulation14 (persons if absent)",
+    ],
+)
+def test_a_keyword_inside_a_word_or_touching_its_number_opens_no_title(
+    text: str,
+) -> None:
     assert "if" in [item[2] for item in cues(text, CITATION)]
 
 
