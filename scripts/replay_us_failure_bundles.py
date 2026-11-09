@@ -24,9 +24,19 @@ Commands::
     # Compare two replay reports (for example main versus a PR branch).
     python scripts/replay_us_failure_bundles.py compare before.json after.json
 
-    # Check or rewrite the committed snapshot (the pytest ratchet).
+    # Compare with held-out totals from a private split map.
+    python scripts/replay_us_failure_bundles.py compare before.json after.json \
+        --split split.json [--show-held-out]
+
+    # Check or rewrite the committed snapshot of every fixture's findings.
     python scripts/replay_us_failure_bundles.py snapshot --check
-    python scripts/replay_us_failure_bundles.py snapshot [--allow-increase]
+    python scripts/replay_us_failure_bundles.py snapshot --base-ref origin/main \
+        [--allow-regression ID=REASON ...]
+
+    # The required CI gate: replay errors, refused clean or control fixtures,
+    # and findings that differ from the committed snapshot all fail it.
+    python scripts/replay_us_failure_bundles.py ci --base-ref origin/main \
+        [--changed-since origin/main] [--jobs auto]
 
     # Add one extracted failure bundle as a committed fixture.
     python -I scripts/replay_us_failure_bundles.py extract bundles/<run_id>/x \
@@ -64,7 +74,31 @@ SNAPSHOT_FILE = "snapshot.json"
 FIXTURE_FILE = "fixture.json"
 FIXTURE_SCHEMA = "axiom-encode/us-replay-fixture/v1"
 REPORT_SCHEMA = "axiom-encode/us-replay-report/v1"
-SNAPSHOT_SCHEMA = "axiom-encode/us-replay-snapshot/v1"
+SNAPSHOT_SCHEMA = "axiom-encode/us-replay-snapshot/v2"
+SNAPSHOT_SCHEMAS_READ = frozenset(
+    {"axiom-encode/us-replay-snapshot/v1", SNAPSHOT_SCHEMA}
+)
+SNAPSHOT_REPO_PATH = "tests/fixtures/us_replay_benchmark/snapshot.json"
+# A fixture's split. Committed fixtures are visible; held-out cases stay in a
+# private fixture directory and carry ``"split": "held_out"``.
+VISIBLE = "visible"
+HELD_OUT = "held_out"
+SPLITS = (VISIBLE, HELD_OUT)
+# A fixture's ``recorded_verdict`` (default ``rejected``). Any other verdict
+# marks a control: a candidate that production validation accepted.
+REJECTED = "rejected"
+# The replay-benchmark CI job replays the fixtures when a pull request
+# changes one of these paths (a prefix ends with ``/``).
+REPLAY_TRIGGER_PATHS = (
+    "src/axiom_encode/harness/",
+    "src/axiom_encode/bare_structure.py",
+    "src/axiom_encode/corpus_resolver.py",
+    "scripts/replay_us_failure_bundles.py",
+    "tests/fixtures/us_replay_benchmark/",
+    ".github/workflows/ci.yml",
+    "pyproject.toml",
+    "uv.lock",
+)
 RUN_URL = "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/{run_id}"
 MAX_FILE_BYTES = 8 * 1024 * 1024
 RULE_PATTERN = re.compile(r"\[([a-z][a-z0-9-]*:[a-z0-9-]+)\]")
@@ -457,6 +491,8 @@ def replay_case(case: ReplayCase, *, use_context: bool = True) -> dict[str, Any]
         "imports_unresolved": unresolved_imports,
         "deferral_providers_resolved": list(deferral_outputs),
         "deferral_providers_unresolved": unresolved_deferrals,
+        "split": case_split(case),
+        "control": case_is_control(case),
         "expected_class": case.provenance.get("expected_class"),
         "expected_subclass": case.provenance.get("expected_subclass"),
     }
@@ -525,13 +561,35 @@ def fixture_label_errors(metadata: Mapping[str, Any]) -> list[str]:
     return errors
 
 
+def fixture_role_errors(metadata: Mapping[str, Any]) -> list[str]:
+    """Problems with the optional ``split`` and ``recorded_verdict`` keys."""
+
+    errors: list[str] = []
+    if "split" in metadata and metadata["split"] not in SPLITS:
+        errors.append(f"split must be one of {list(SPLITS)}")
+    verdict = metadata.get("recorded_verdict", REJECTED)
+    if not isinstance(verdict, str) or not verdict.strip():
+        errors.append("recorded_verdict must be a non-empty string")
+    return errors
+
+
+def case_split(case: ReplayCase) -> str:
+    return case.provenance.get("split", VISIBLE)
+
+
+def case_is_control(case: ReplayCase) -> bool:
+    """A control is a candidate that production validation did not reject."""
+
+    return case.provenance.get("recorded_verdict", REJECTED) != REJECTED
+
+
 def load_fixture(directory: Path) -> ReplayCase:
     """Load and authenticate one committed fixture directory."""
 
     metadata = _json_object(_read_inside(directory, FIXTURE_FILE), FIXTURE_FILE)
     if metadata.get("schema") != FIXTURE_SCHEMA:
         raise ValueError(f"{directory}: unexpected fixture schema")
-    label_errors = fixture_label_errors(metadata)
+    label_errors = fixture_label_errors(metadata) + fixture_role_errors(metadata)
     if label_errors:
         raise ValueError(f"{directory}: {'; '.join(label_errors)}")
     files: Mapping[str, str] = metadata["files"]
@@ -993,8 +1051,40 @@ def extract_fixture(
 
 
 # --------------------------------------------------------------------------
-# Reports, comparison and the snapshot ratchet
+# Reports and split-aware comparison
 # --------------------------------------------------------------------------
+
+
+def _replay_worker(item: tuple[ReplayCase, bool]) -> dict[str, Any]:
+    case, use_context = item
+    started = time.perf_counter()
+    result = replay_case(case, use_context=use_context)
+    result["seconds"] = round(time.perf_counter() - started, 3)
+    return result
+
+
+def replay_cases(
+    cases: Sequence[ReplayCase], *, use_context: bool = True, jobs: int = 1
+) -> list[dict[str, Any]]:
+    """Replay every case, in order; ``jobs`` > 1 uses worker processes."""
+
+    items = [(case, use_context) for case in cases]
+    if jobs <= 1 or len(items) <= 1:
+        return [_replay_worker(item) for item in items]
+    from concurrent.futures import ProcessPoolExecutor
+
+    with ProcessPoolExecutor(max_workers=min(jobs, len(items))) as pool:
+        return list(pool.map(_replay_worker, items))
+
+
+def _slice_summary(results: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    return {
+        "cases": len(results),
+        "clean": sum(1 for r in results if not r["issues"] and not r["error"]),
+        "refused": sum(1 for r in results if r["issues"] and not r["error"]),
+        "errors": sum(1 for r in results if r["error"]),
+        "issues": sum(len(r["issues"]) for r in results),
+    }
 
 
 def build_report(
@@ -1002,15 +1092,12 @@ def build_report(
     *,
     use_context: bool = True,
     errors: Sequence[Mapping[str, Any]] = (),
+    jobs: int = 1,
 ) -> dict[str, Any]:
     from axiom_encode import __version__
 
-    results = []
-    for case in cases:
-        started = time.perf_counter()
-        result = replay_case(case, use_context=use_context)
-        result["seconds"] = round(time.perf_counter() - started, 3)
-        results.append(result)
+    started = time.perf_counter()
+    results = replay_cases(cases, use_context=use_context, jobs=jobs)
     rule_totals: collections.Counter[str] = collections.Counter()
     cases_with_rule: collections.Counter[str] = collections.Counter()
     expected_classes: collections.Counter[str] = collections.Counter()
@@ -1031,11 +1118,17 @@ def build_report(
         "rules": dict(sorted(rule_totals.items())),
         "cases_with_rule": dict(sorted(cases_with_rule.items())),
         "expected_classes": dict(sorted(expected_classes.items())),
+        "splits": {
+            split: _slice_summary([r for r in results if r.get("split") == split])
+            for split in SPLITS
+        },
+        "controls": _slice_summary([r for r in results if r.get("control")]),
     }
     return {
         "schema": REPORT_SCHEMA,
         "encoder_version": __version__,
         "context": CONTEXT_WORKSPACE if use_context else CONTEXT_NONE,
+        "seconds": round(time.perf_counter() - started, 1),
         "summary": summary,
         "cases": results,
         "load_errors": list(errors),
@@ -1051,8 +1144,17 @@ def format_summary(report: Mapping[str, Any]) -> str:
         f"imports resolved {summary['imports_resolved']}, unresolved "
         f"{summary['imports_unresolved']}; deferral providers unresolved "
         f"{summary['deferral_providers_unresolved']}",
-        f"  {'rule':48} {'issues':>7} {'modules':>8}",
     ]
+    for name, part in [
+        *((split, summary.get("splits", {}).get(split)) for split in SPLITS),
+        ("controls", summary.get("controls")),
+    ]:
+        if part and part["cases"]:
+            lines.append(
+                f"{name}: {part['cases']} modules, {part['clean']} clean, "
+                f"{part['issues']} issues, {part['errors']} errors"
+            )
+    lines.append(f"  {'rule':48} {'issues':>7} {'modules':>8}")
     for rule, count in sorted(summary["rules"].items(), key=lambda kv: (-kv[1], kv[0])):
         lines.append(f"  {rule:48} {count:7} {summary['cases_with_rule'][rule]:8}")
     expected_classes = summary.get("expected_classes") or {}
@@ -1065,21 +1167,83 @@ def format_summary(report: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def load_split_map(path: Path) -> dict[str, str]:
+    """Read a case-id to split map.
+
+    Accepts a JSON object ``{"<case_id>": "visible" | "held_out"}`` (also
+    under a ``"cases"`` key) or a JSON-lines manifest whose rows carry
+    ``case_id`` and ``split``.
+    """
+
+    text = path.read_text()
+    mapping: dict[str, Any]
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        payload = None
+    if isinstance(payload, dict):
+        cases = payload.get("cases", payload)
+        if not isinstance(cases, dict):
+            raise ValueError(f"{path}: 'cases' is not an object")
+        mapping = dict(cases)
+    else:
+        mapping = {}
+        for number, line in enumerate(text.splitlines(), 1):
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                raise ValueError(f"{path}:{number}: not an object")
+            if "case_id" in row and "split" in row:
+                mapping[str(row["case_id"])] = row["split"]
+    bad = sorted(k for k, v in mapping.items() if v not in SPLITS)
+    if bad:
+        raise ValueError(f"{path}: split must be one of {list(SPLITS)}: {bad}")
+    return {str(k): v for k, v in mapping.items()}
+
+
+def _case_split(
+    case_id: str, *rows: Mapping[str, Any] | None, split_of: Mapping[str, str]
+) -> str:
+    if case_id in split_of:
+        return split_of[case_id]
+    for row in rows:
+        if row and row.get("split") in SPLITS:
+            return row["split"]
+    return VISIBLE
+
+
 def compare_reports(
-    before: Mapping[str, Any], after: Mapping[str, Any]
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+    *,
+    split_of: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Issue-level difference between two replay reports of the same cases.
 
     A case that errors on either side is listed under ``errored`` and left out
-    of every count, so a crash never reads as removed issues.
+    of every count, so a crash never reads as removed issues. Each case falls
+    in the split that ``split_of`` names, else the one its report row names,
+    else ``visible``; ``splits`` holds the same counts per split.
     """
 
+    split_of = split_of or {}
     before_cases = {r["id"]: r for r in before["cases"]}
     after_cases = {r["id"]: r for r in after["cases"]}
     shared = sorted(before_cases.keys() & after_cases.keys())
+    split = {
+        case_id: _case_split(
+            case_id,
+            after_cases.get(case_id),
+            before_cases.get(case_id),
+            split_of=split_of,
+        )
+        for case_id in before_cases.keys() | after_cases.keys()
+    }
     errored = [
         {
             "id": case_id,
+            "split": split[case_id],
             "before": before_cases[case_id]["error"],
             "after": after_cases[case_id]["error"],
         }
@@ -1091,48 +1255,74 @@ def compare_reports(
         for case_id in shared
         if not before_cases[case_id]["error"] and not after_cases[case_id]["error"]
     ]
-    removed: collections.Counter[str] = collections.Counter()
-    added: collections.Counter[str] = collections.Counter()
-    newly_clean, newly_failing, changed = [], [], []
+    rows = []
     for case_id in compared:
         old = collections.Counter(before_cases[case_id]["issues"])
         new = collections.Counter(after_cases[case_id]["issues"])
         gone, came = old - new, new - old
-        removed.update(issue_rule(issue) for issue in gone.elements())
-        added.update(issue_rule(issue) for issue in came.elements())
-        if old and not new:
-            newly_clean.append(case_id)
-        if new and not old:
-            newly_failing.append(case_id)
-        if gone or came:
-            changed.append(
-                {
-                    "id": case_id,
-                    "citation": after_cases[case_id]["citation"],
-                    "before": sum(old.values()),
-                    "after": sum(new.values()),
-                    "removed": sorted(gone.elements()),
-                    "added": sorted(came.elements()),
-                }
-            )
-    return {
-        "compared": len(compared),
-        "errored": errored,
-        "only_before": sorted(before_cases.keys() - after_cases.keys()),
-        "only_after": sorted(after_cases.keys() - before_cases.keys()),
-        "issues_before": sum(len(before_cases[c]["issues"]) for c in compared),
-        "issues_after": sum(len(after_cases[c]["issues"]) for c in compared),
-        "clean_before": sum(1 for c in compared if not before_cases[c]["issues"]),
-        "clean_after": sum(1 for c in compared if not after_cases[c]["issues"]),
-        "removed_by_rule": dict(removed.most_common()),
-        "added_by_rule": dict(added.most_common()),
-        "newly_clean": newly_clean,
-        "newly_failing": newly_failing,
-        "changed": changed,
-    }
+        rows.append(
+            {
+                "id": case_id,
+                "split": split[case_id],
+                "citation": after_cases[case_id]["citation"],
+                "control": bool(after_cases[case_id].get("control")),
+                "before": sum(old.values()),
+                "after": sum(new.values()),
+                "removed": sorted(gone.elements()),
+                "added": sorted(came.elements()),
+                "newly_clean": bool(old) and not new,
+                "newly_failing": bool(new) and not old,
+            }
+        )
+
+    def totals(selected: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+        removed = collections.Counter(
+            issue_rule(issue) for row in selected for issue in row["removed"]
+        )
+        added = collections.Counter(
+            issue_rule(issue) for row in selected for issue in row["added"]
+        )
+        return {
+            "compared": len(selected),
+            "issues_before": sum(row["before"] for row in selected),
+            "issues_after": sum(row["after"] for row in selected),
+            "clean_before": sum(1 for row in selected if not row["before"]),
+            "clean_after": sum(1 for row in selected if not row["after"]),
+            "removed_by_rule": dict(removed.most_common()),
+            "added_by_rule": dict(added.most_common()),
+            "newly_clean": [row["id"] for row in selected if row["newly_clean"]],
+            "newly_failing": [row["id"] for row in selected if row["newly_failing"]],
+        }
+
+    diff = totals(rows)
+    diff.update(
+        errored=errored,
+        only_before=sorted(before_cases.keys() - after_cases.keys()),
+        only_after=sorted(after_cases.keys() - before_cases.keys()),
+        changed=[
+            {
+                key: row[key]
+                for key in row
+                if key not in ("newly_clean", "newly_failing")
+            }
+            for row in rows
+            if row["removed"] or row["added"]
+        ],
+        splits={
+            name: totals([row for row in rows if row["split"] == name])
+            for name in SPLITS
+        },
+    )
+    return diff
 
 
-def format_comparison(diff: Mapping[str, Any]) -> str:
+def format_comparison(diff: Mapping[str, Any], *, show_held_out: bool = False) -> str:
+    """Text form of ``compare_reports``.
+
+    Held-out cases appear only in the per-split totals unless
+    ``show_held_out``: fix authors must not tune to them case by case.
+    """
+
     lines = [
         f"compared modules: {diff['compared']}",
         f"issues: {diff['issues_before']} -> {diff['issues_after']}; "
@@ -1142,28 +1332,68 @@ def format_comparison(diff: Mapping[str, Any]) -> str:
         f"newly clean: {len(diff['newly_clean'])}  newly failing: "
         f"{len(diff['newly_failing'])}",
     ]
+    for name in SPLITS:
+        part = diff["splits"][name]
+        if part["compared"]:
+            lines.append(
+                f"{name}: {part['compared']} modules, issues "
+                f"{part['issues_before']} -> {part['issues_after']}, clean "
+                f"{part['clean_before']} -> {part['clean_after']}, newly clean "
+                f"{len(part['newly_clean'])}, newly failing "
+                f"{len(part['newly_failing'])}"
+            )
+
+    def shown(item: Mapping[str, Any]) -> bool:
+        return show_held_out or item.get("split") != HELD_OUT
+
     if diff["errored"]:
         lines.append(f"ERRORED (not compared): {len(diff['errored'])}")
         lines.extend(
             f"  {item['id']}: before={item['before']!r} after={item['after']!r}"
             for item in diff["errored"]
+            if shown(item)
         )
     if diff["only_before"] or diff["only_after"]:
         lines.append(
             f"not compared: {len(diff['only_before'])} only before, "
             f"{len(diff['only_after'])} only after"
         )
+    hidden = 0
     for change in diff["changed"]:
+        if not shown(change):
+            hidden += 1
+            continue
         lines.append(
             f"  {change['id']} ({change['citation']}): "
             f"{change['before']} -> {change['after']}"
         )
+    if hidden:
+        lines.append(f"  ({hidden} changed held-out modules not listed)")
     return "\n".join(lines)
 
 
-def snapshot_from_report(report: Mapping[str, Any]) -> dict[str, Any]:
+# --------------------------------------------------------------------------
+# The snapshot: expected findings per fixture, and the CI gate
+# --------------------------------------------------------------------------
+
+
+def snapshot_from_report(
+    report: Mapping[str, Any], allowed_regressions: Mapping[str, str] | None = None
+) -> dict[str, Any]:
+    """The committed snapshot: every fixture's exact findings.
+
+    A replay error or a load error is never pinned; it fails the gate.
+    """
+
     if report["context"] != CONTEXT_WORKSPACE:
         raise ValueError("the snapshot pins the replay with workspace context")
+    broken = [r["id"] for r in report["cases"] if r["error"]]
+    if broken or report.get("load_errors"):
+        raise ValueError(
+            f"replay errors are never pinned: {broken + list(report.get('load_errors') or [])}"
+        )
+    if any(r.get("split", VISIBLE) != VISIBLE for r in report["cases"]):
+        raise ValueError("the committed snapshot pins visible fixtures only")
     return {
         "schema": SNAPSHOT_SCHEMA,
         "context": report["context"],
@@ -1173,67 +1403,298 @@ def snapshot_from_report(report: Mapping[str, Any]) -> dict[str, Any]:
             "issues": report["summary"]["issues"],
             "rules": report["summary"]["rules"],
         },
+        "allowed_regressions": dict(sorted((allowed_regressions or {}).items())),
         "cases": {
             result["id"]: {
                 "citation": result["citation"],
+                "control": bool(result.get("control")),
                 "issues": len(result["issues"]),
                 "rules": result["rules"],
-                "error": result["error"],
+                "error": None,
+                "findings": sorted(result["issues"]),
             }
             for result in sorted(report["cases"], key=lambda r: r["id"])
         },
     }
 
 
-@dataclass(frozen=True)
-class SnapshotDeviations:
-    """How a replay differs from the pinned snapshot."""
-
-    increases: list[str]
-    decreases: list[str]
-    unpinned: list[str]
-
-    def __bool__(self) -> bool:
-        return bool(self.increases or self.decreases or self.unpinned)
+def _check_snapshot(snapshot: Any, label: str) -> Mapping[str, Any]:
+    if (
+        not isinstance(snapshot, dict)
+        or snapshot.get("schema") not in SNAPSHOT_SCHEMAS_READ
+        or not isinstance(snapshot.get("cases"), dict)
+    ):
+        raise ValueError(f"{label} is not a US replay snapshot")
+    return snapshot
 
 
-def snapshot_deviations(
-    snapshot: Mapping[str, Any], report: Mapping[str, Any]
-) -> SnapshotDeviations:
-    """Compare per-case, per-rule counts with the pinned snapshot.
+def snapshot_drift(
+    snapshot: Mapping[str, Any], report: Mapping[str, Any], *, limit: int = 20
+) -> list[str]:
+    """Every way a replay differs from the committed snapshot's findings.
 
-    Increases are rises, new replay errors and pinned fixtures that are gone.
-    Unpinned fixtures are new fixtures that the snapshot does not list yet.
+    Any line here means the fixtures' findings changed without the snapshot
+    being rewritten. At most ``limit`` findings are printed per direction
+    and case.
     """
 
-    if snapshot.get("schema") != SNAPSHOT_SCHEMA or not isinstance(
-        snapshot.get("cases"), dict
-    ):
-        raise ValueError("not a US replay snapshot")
-    increases: list[str] = []
-    decreases: list[str] = []
-    unpinned: list[str] = []
+    snapshot = _check_snapshot(snapshot, "the committed snapshot")
+    if snapshot.get("schema") != SNAPSHOT_SCHEMA:
+        return [f"the committed snapshot is {snapshot.get('schema')}; rewrite it"]
+    lines: list[str] = []
     pinned = snapshot["cases"]
-    current = snapshot_from_report(report)["cases"]
+    current = {r["id"]: r for r in report["cases"]}
     for case_id in sorted(pinned.keys() | current.keys()):
         if case_id not in current:
-            increases.append(f"{case_id}: pinned fixture is missing from the replay")
+            lines.append(f"{case_id}: pinned fixture is missing from the replay")
             continue
         if case_id not in pinned:
-            unpinned.append(f"{case_id}: fixture is not pinned in the snapshot")
+            lines.append(f"{case_id}: fixture is not pinned in the snapshot")
             continue
-        old, new = pinned[case_id], current[case_id]
-        if new["error"] != old["error"]:
-            message = f"{case_id}: replay error changed to {new['error']!r}"
-            (increases if new["error"] else decreases).append(message)
-        for rule in sorted(old["rules"].keys() | new["rules"].keys()):
-            before, after = old["rules"].get(rule, 0), new["rules"].get(rule, 0)
-            message = f"{case_id} ({new['citation']}) {rule}: {before} -> {after}"
-            if after > before:
-                increases.append(message)
-            elif after < before:
-                decreases.append(message)
-    return SnapshotDeviations(increases, decreases, unpinned)
+        result = current[case_id]
+        if result["error"]:
+            lines.append(f"{case_id}: replay error {result['error']!r}")
+            continue
+        old = collections.Counter(pinned[case_id].get("findings", []))
+        new = collections.Counter(result["issues"])
+        for sign, items in (("-", old - new), ("+", new - old)):
+            elements = sorted(items.elements())
+            for finding in elements[:limit]:
+                lines.append(f"{case_id} {sign} {finding}")
+            if len(elements) > limit:
+                lines.append(f"{case_id} {sign} ... {len(elements) - limit} more")
+        if bool(pinned[case_id].get("control")) != bool(result.get("control")):
+            lines.append(f"{case_id}: control flag changed")
+    return lines
+
+
+def guard_violations(
+    base: Mapping[str, Any] | None,
+    report: Mapping[str, Any],
+    allowed: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Clean or control fixtures that this change refuses or removes.
+
+    A guarded fixture is one that the base snapshot pins with no finding and
+    no error, or a control that the base snapshot does not pin. The change
+    may refuse or remove it only when ``allowed`` (the change's own
+    ``allowed_regressions``) gives a reason for that fixture.
+    """
+
+    allowed = {k: v for k, v in (allowed or {}).items() if str(v).strip()}
+    base_cases = (
+        _check_snapshot(base, "the base snapshot")["cases"] if base is not None else {}
+    )
+    current = {r["id"]: r for r in report["cases"]}
+    violations: list[str] = []
+    guarded = {
+        case_id
+        for case_id, row in base_cases.items()
+        if not row.get("issues") and not row.get("error")
+    }
+    guarded |= {
+        case_id
+        for case_id, row in current.items()
+        if row.get("control") and case_id not in base_cases
+    }
+    for case_id in sorted(guarded):
+        if case_id in allowed:
+            continue
+        row = current.get(case_id)
+        if row is None:
+            violations.append(f"{case_id}: clean fixture was removed")
+        elif row["error"]:
+            violations.append(f"{case_id}: clean fixture now errors: {row['error']}")
+        elif row["issues"]:
+            kind = "control" if row.get("control") else "clean fixture"
+            violations.append(
+                f"{case_id} ({row['citation']}): {kind} is now refused with "
+                f"{len(row['issues'])} findings, e.g. {sorted(row['issues'])[0][:200]}"
+            )
+    return violations
+
+
+def read_snapshot_at(ref: str, *, repo: Path = REPO_ROOT) -> dict[str, Any] | None:
+    """The committed snapshot at a git ref, or None when that ref has none.
+
+    A ref that git cannot resolve raises, so the gate fails closed.
+    """
+
+    import subprocess
+
+    resolved = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            f"{ref}^{{commit}}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if resolved.returncode != 0:
+        raise ValueError(f"git cannot resolve the base ref {ref!r}")
+    shown = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "show",
+            f"{resolved.stdout.strip()}:{SNAPSHOT_REPO_PATH}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if shown.returncode != 0:
+        return None
+    return json.loads(shown.stdout)
+
+
+def changed_paths(base: str, *, repo: Path = REPO_ROOT) -> list[str]:
+    import subprocess
+
+    diff = subprocess.run(
+        ["git", "-C", str(repo), "diff", "-z", "--name-only", base, "HEAD"],
+        capture_output=True,
+        check=True,
+    )
+    return [name for name in diff.stdout.decode().split("\0") if name]
+
+
+def replay_is_needed(paths: Iterable[str]) -> bool:
+    return any(
+        path.startswith(trigger) if trigger.endswith("/") else path == trigger
+        for path in paths
+        for trigger in REPLAY_TRIGGER_PATHS
+    )
+
+
+def _parse_allowed(items: Sequence[str]) -> dict[str, str]:
+    allowed: dict[str, str] = {}
+    for item in items:
+        case_id, sep, reason = item.partition("=")
+        if not sep or not case_id.strip() or not reason.strip():
+            raise ValueError(f"--allow-regression needs ID=REASON, got {item!r}")
+        allowed[case_id.strip()] = reason.strip()
+    return allowed
+
+
+def _snapshot_as_report(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "cases": [
+            {
+                "id": case_id,
+                "citation": row.get("citation"),
+                "control": bool(row.get("control")),
+                "issues": list(row.get("findings", [])),
+                "error": row.get("error"),
+            }
+            for case_id, row in snapshot["cases"].items()
+        ]
+    }
+
+
+def gate_markdown(
+    report: Mapping[str, Any],
+    base: Mapping[str, Any] | None,
+    failures: Mapping[str, Sequence[str]],
+) -> str:
+    """Step summary of one gate run: verdict, totals and changed fixtures."""
+
+    summary = report["summary"]
+    failed = [name for name, lines in failures.items() if lines]
+    lines = [
+        "## Replay benchmark",
+        "",
+        f"**{'FAILED: ' + ', '.join(failed) if failed else 'passed'}**",
+        "",
+        f"{summary['cases']} fixtures, {summary['clean']} clean, "
+        f"{summary['issues']} findings, {summary['errors']} errors, "
+        f"{report.get('seconds', '?')} s.",
+        "",
+    ]
+    for name, items in failures.items():
+        if items:
+            lines += [f"### {name}", "", "```"]
+            lines += [item[:400] for item in items[:60]]
+            if len(items) > 60:
+                lines.append(f"... {len(items) - 60} more")
+            lines += ["```", ""]
+    if base is not None and base.get("schema") == SNAPSHOT_SCHEMA:
+        diff = compare_reports(_snapshot_as_report(base), report)
+        lines += [
+            "### Against the base branch's snapshot",
+            "",
+            f"Findings {diff['issues_before']} -> {diff['issues_after']}; clean "
+            f"fixtures {diff['clean_before']} -> {diff['clean_after']}.",
+            "",
+        ]
+        if diff["changed"]:
+            lines += [
+                "| fixture | citation | before | after | removed | added |",
+                "|---|---|---:|---:|---:|---:|",
+            ]
+            lines += [
+                f"| `{c['id']}` | `{c['citation']}` | {c['before']} | {c['after']} "
+                f"| {len(c['removed'])} | {len(c['added'])} |"
+                for c in diff["changed"]
+            ]
+            lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def run_gate(
+    fixtures: Path,
+    *,
+    base_snapshot: Mapping[str, Any] | None,
+    jobs: int = 1,
+) -> tuple[dict[str, Any], dict[str, list[str]]]:
+    """Replay the committed fixtures and collect every gate failure."""
+
+    snapshot_path = fixtures / SNAPSHOT_FILE
+    failures: dict[str, list[str]] = {
+        "replay errors": [],
+        "clean or control fixtures refused": [],
+        "findings differ from the committed snapshot": [],
+    }
+    try:
+        cases = load_fixtures(fixtures)
+    except (OSError, ValueError, KeyError, UnicodeDecodeError) as exc:
+        failures["replay errors"].append(f"fixture load error: {exc}")
+        cases = []
+    report = build_report(cases, jobs=jobs)
+    failures["replay errors"] += [
+        f"{r['id']}: {r['error']}" for r in report["cases"] if r["error"]
+    ]
+    failures["replay errors"] += [
+        f"{r['id']}: unresolved import or deferral provider "
+        f"{r['imports_unresolved'] + r['deferral_providers_unresolved']}"
+        for r in report["cases"]
+        if r["imports_unresolved"] or r["deferral_providers_unresolved"]
+    ]
+    failures["replay errors"] += [
+        f"{r['id']}: committed fixtures must be visible, not {r['split']}"
+        for r in report["cases"]
+        if r.get("split", VISIBLE) != VISIBLE
+    ]
+    snapshot: Mapping[str, Any] | None = None
+    if snapshot_path.is_file():
+        snapshot = json.loads(snapshot_path.read_text())
+        failures["findings differ from the committed snapshot"] = snapshot_drift(
+            snapshot, report
+        )
+    else:
+        failures["findings differ from the committed snapshot"] = [
+            f"no snapshot at {snapshot_path}"
+        ]
+    allowed = (snapshot or {}).get("allowed_regressions") or {}
+    failures["clean or control fixtures refused"] = guard_violations(
+        base_snapshot, report, allowed
+    )
+    return report, failures
 
 
 # --------------------------------------------------------------------------
@@ -1246,6 +1707,18 @@ def _write_json(path: str | None, payload: Mapping[str, Any]) -> None:
         Path(path).write_text(json.dumps(payload, indent=1) + "\n")
 
 
+def _jobs(value: str) -> int:
+    import os
+
+    try:
+        jobs = (os.cpu_count() or 1) if value == "auto" else int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("--jobs takes a number or 'auto'") from None
+    if jobs < 1:
+        raise argparse.ArgumentTypeError("--jobs must be at least 1")
+    return jobs
+
+
 def _cmd_replay(args: argparse.Namespace) -> int:
     if args.bundles:
         cases, errors = load_bundle_cases(
@@ -1253,9 +1726,12 @@ def _cmd_replay(args: argparse.Namespace) -> int:
         )
     else:
         cases, errors = load_fixtures(Path(args.fixtures)), []
-    report = build_report(cases, use_context=not args.no_context, errors=errors)
+    report = build_report(
+        cases, use_context=not args.no_context, errors=errors, jobs=args.jobs
+    )
     _write_json(args.out, report)
     print(format_summary(report))
+    print(f"{report['seconds']} s")
     for error in errors:
         print(f"  load error: {error}", file=sys.stderr)
     return 0
@@ -1264,48 +1740,129 @@ def _cmd_replay(args: argparse.Namespace) -> int:
 def _cmd_compare(args: argparse.Namespace) -> int:
     before = json.loads(Path(args.before).read_text())
     after = json.loads(Path(args.after).read_text())
-    diff = compare_reports(before, after)
+    split_of = load_split_map(Path(args.split)) if args.split else None
+    diff = compare_reports(before, after, split_of=split_of)
     if args.json:
+        if not args.show_held_out:
+            diff = {
+                **diff,
+                "changed": [c for c in diff["changed"] if c["split"] != HELD_OUT],
+                "errored": [e for e in diff["errored"] if e["split"] != HELD_OUT],
+            }
         print(json.dumps(diff, indent=1))
     else:
-        print(format_comparison(diff))
+        print(format_comparison(diff, show_held_out=args.show_held_out))
     return 0
+
+
+def _base_snapshot(ref: str | None, fallback: Path) -> dict[str, Any] | None:
+    if ref:
+        return read_snapshot_at(ref)
+    return json.loads(fallback.read_text()) if fallback.is_file() else None
 
 
 def _cmd_snapshot(args: argparse.Namespace) -> int:
     root = Path(args.fixtures)
-    report = build_report(load_fixtures(root))
     snapshot_path = root / SNAPSHOT_FILE
-    snapshot = (
+    try:
+        allowed = _parse_allowed(args.allow_regression)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    report = build_report(load_fixtures(root), jobs=args.jobs)
+    committed = (
         json.loads(snapshot_path.read_text()) if snapshot_path.is_file() else None
     )
-    deviations = (
-        snapshot_deviations(snapshot, report)
-        if snapshot is not None
-        else SnapshotDeviations([], [], [])
-    )
-    for line in deviations.increases:
-        print(f"INCREASE {line}")
-    for line in deviations.decreases:
-        print(f"decrease {line}")
-    for line in deviations.unpinned:
-        print(f"new      {line}")
     if args.check:
-        if snapshot is None:
+        if committed is None:
             print(f"no snapshot at {snapshot_path}", file=sys.stderr)
             return 1
-        return 1 if deviations else 0
-    if deviations.increases and not args.allow_increase:
+        drift = snapshot_drift(committed, report)
+        for line in drift:
+            print(line)
+        return 1 if drift else 0
+    errors = [f"{r['id']}: {r['error']}" for r in report["cases"] if r["error"]]
+    if errors:
+        print("replay errors are never pinned:", *errors, sep="\n  ", file=sys.stderr)
+        return 1
+    try:
+        base = _base_snapshot(args.base_ref, snapshot_path)
+    except ValueError as exc:
+        print(f"{exc}; pass --base-ref with a ref that exists", file=sys.stderr)
+        return 1
+    violations = guard_violations(base, report, allowed)
+    if violations:
         print(
-            "refusing to raise pinned counts; rerun with --allow-increase and "
-            "justify each increase in the PR",
+            "refusing: clean or control fixtures would be refused or removed. "
+            "Fix the regression, or rerun with --allow-regression ID=REASON for "
+            "each and explain it in the PR body:",
+            *violations,
+            sep="\n  ",
             file=sys.stderr,
         )
         return 1
-    snapshot_path.write_text(json.dumps(snapshot_from_report(report), indent=1) + "\n")
+    unused = sorted(
+        set(allowed)
+        - {r["id"] for r in report["cases"]}
+        - set((base or {}).get("cases", {}))
+    )
+    if unused:
+        print(f"--allow-regression names unknown fixtures: {unused}", file=sys.stderr)
+        return 1
+    if committed is not None:
+        for line in snapshot_drift(committed, report, limit=5):
+            print(line)
+    snapshot_path.write_text(
+        json.dumps(snapshot_from_report(report, allowed), indent=1, ensure_ascii=False)
+        + "\n"
+    )
     print(format_summary(report))
     print(f"wrote {snapshot_path}")
     return 0
+
+
+def _cmd_ci(args: argparse.Namespace) -> int:
+    if args.changed_since:
+        paths = changed_paths(args.changed_since)
+        if not replay_is_needed(paths):
+            print(
+                "The change touches none of the replay trigger paths; the replay "
+                "benchmark passes without a replay."
+            )
+            return 0
+    try:
+        base = read_snapshot_at(args.base_ref) if args.base_ref else None
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if args.base_ref and base is None:
+        print(
+            f"The base {args.base_ref} has no snapshot; the clean-fixture guard is skipped."
+        )
+    report, failures = run_gate(Path(args.fixtures), base_snapshot=base, jobs=args.jobs)
+    _write_json(args.out, report)
+    print(format_summary(report))
+    print(f"{report['seconds']} s")
+    if args.summary:
+        with open(args.summary, "a", encoding="utf-8") as handle:
+            handle.write(gate_markdown(report, base, failures))
+    status = 0
+    for name, items in failures.items():
+        if not items:
+            continue
+        status = 1
+        print(f"::error::replay benchmark: {name} ({len(items)})")
+        for item in items:
+            print(f"  {item}")
+    if failures["findings differ from the committed snapshot"]:
+        print(
+            "If the change is intended, rewrite the snapshot with\n"
+            "  uv run python scripts/replay_us_failure_bundles.py snapshot "
+            "--base-ref origin/main\n"
+            "commit tests/fixtures/us_replay_benchmark/snapshot.json, and explain "
+            "every changed fixture in the PR body."
+        )
+    return status
 
 
 def _cmd_extract(args: argparse.Namespace) -> int:
@@ -1354,6 +1911,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     commands = parser.add_subparsers(dest="command", required=True)
+    jobs_help = "worker processes (a number or 'auto'; default 1)"
 
     replay = commands.add_parser("replay", help="replay fixtures or bundles")
     replay.add_argument("--fixtures", default=str(DEFAULT_FIXTURE_ROOT))
@@ -1365,23 +1923,57 @@ def build_parser() -> argparse.ArgumentParser:
         help="leave out imports, deferral providers and same-act aliases",
     )
     replay.add_argument("--out", help="write the full JSON report here")
+    replay.add_argument("--jobs", type=_jobs, default=1, help=jobs_help)
     replay.set_defaults(func=_cmd_replay)
 
     compare = commands.add_parser("compare", help="compare two replay reports")
     compare.add_argument("before")
     compare.add_argument("after")
     compare.add_argument("--json", action="store_true")
+    compare.add_argument(
+        "--split",
+        help="case-id to split map (JSON object or JSON-lines manifest rows)",
+    )
+    compare.add_argument(
+        "--show-held-out",
+        action="store_true",
+        help="also list held-out cases one by one (default: totals only)",
+    )
     compare.set_defaults(func=_cmd_compare)
 
-    snapshot = commands.add_parser("snapshot", help="check or rewrite the snapshot")
+    snapshot = commands.add_parser(
+        "snapshot", help="check or rewrite the committed snapshot of findings"
+    )
     snapshot.add_argument("--fixtures", default=str(DEFAULT_FIXTURE_ROOT))
     snapshot.add_argument("--check", action="store_true")
     snapshot.add_argument(
-        "--allow-increase",
-        action="store_true",
-        help="also record rises, new errors and removed fixtures",
+        "--base-ref",
+        help=(
+            "git ref whose snapshot guards clean and control fixtures, e.g. "
+            "origin/main (default: the snapshot file before the rewrite)"
+        ),
     )
+    snapshot.add_argument(
+        "--allow-regression",
+        action="append",
+        default=[],
+        metavar="ID=REASON",
+        help="record a reason to refuse or remove a clean or control fixture",
+    )
+    snapshot.add_argument("--jobs", type=_jobs, default=1, help=jobs_help)
     snapshot.set_defaults(func=_cmd_snapshot)
+
+    ci = commands.add_parser("ci", help="the required replay-benchmark CI gate")
+    ci.add_argument("--fixtures", default=str(DEFAULT_FIXTURE_ROOT))
+    ci.add_argument("--base-ref", help="git ref of the base branch's snapshot")
+    ci.add_argument(
+        "--changed-since",
+        help="pass without a replay when the diff from this ref to HEAD touches no trigger path",
+    )
+    ci.add_argument("--jobs", type=_jobs, default=1, help=jobs_help)
+    ci.add_argument("--out", help="write the full JSON report here")
+    ci.add_argument("--summary", help="append a Markdown summary to this file")
+    ci.set_defaults(func=_cmd_ci)
 
     extract = commands.add_parser("extract", help="add a bundle as a fixture")
     extract.add_argument("bundle", help="extracted bundle (<run_id>/x or <run_id>)")

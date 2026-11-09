@@ -1106,6 +1106,7 @@ def test_concurrency_groups_sit_on_the_jobs_that_do_the_work():
             "real-engine": "real-engine",
             "quick-tests": "quick-tests",
             "lint": "lint",
+            "replay-benchmark": "replay-benchmark",
         }.items()
     }
 
@@ -1184,9 +1185,17 @@ def test_drafts_run_lint_and_quick_tests_and_everything_else_runs_in_full():
     assert jobs["test"]["if"] == jobs["real-engine"]["if"] == _FULL_RUN
     assert jobs["quick-tests"]["if"] == _DRAFT_RUN
     assert "if" not in jobs["lint"]
+    assert "if" not in jobs["replay-benchmark"]
     # The gate runs on every event; nothing about drafts may skip it.
     assert jobs["test-gate"]["if"] == "always()"
-    assert jobs.keys() == {"test", "test-gate", "real-engine", "quick-tests", "lint"}
+    assert jobs.keys() == {
+        "test",
+        "test-gate",
+        "real-engine",
+        "quick-tests",
+        "lint",
+        "replay-benchmark",
+    }
 
     runs = {
         event: {

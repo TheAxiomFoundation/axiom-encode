@@ -332,3 +332,71 @@ jobs:
 
       - name: Format check
         run: .venv/bin/ruff format --check src/ tests/
+
+  # The replay benchmark (docs/us-replay-benchmark.md): the complete-source-unit
+  # analyzer replayed offline over tests/fixtures/us_replay_benchmark, real
+  # candidates that production runs produced. No model, network or engine. It
+  # fails on a replay error, on a fixture that the base branch's snapshot pins
+  # clean (or a control) becoming refused or removed without a recorded reason,
+  # and on any finding that differs from the committed snapshot.json, which
+  # `scripts/replay_us_failure_bundles.py snapshot` rewrites as a reviewable
+  # diff. A pull request that touches no trigger path (REPLAY_TRIGGER_PATHS in
+  # the script) passes without a replay, so this job can be a required check;
+  # the merge queue and pushes to main always replay. Drafts run it too.
+  replay-benchmark:
+    name: replay benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: ${{ github.workflow }}-replay-benchmark-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # A pull request's merge commit and its first parent, the base; a
+          # push's commit and its parent.
+          fetch-depth: 2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install locked dependencies
+        run: uv sync --locked --python 3.13 --extra dev
+
+      - name: Check the environment is the locked set
+        run: >-
+          .venv/bin/pytest -q -o addopts=''
+          tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set
+
+      # The merge queue tests main plus the pull requests ahead; its base
+      # snapshot is main's, at the queue's base commit.
+      - name: Fetch the merge queue's base commit
+        if: github.event_name == 'merge_group'
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: git fetch --no-tags --depth=1 origin "$BASE_SHA"
+
+      - name: Replay the fixtures and check them against the snapshot
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          changed=()
+          if [ "$EVENT_NAME" = "merge_group" ]; then
+            base="$MERGE_GROUP_BASE_SHA"
+          else
+            base='HEAD^1'
+          fi
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            changed=(--changed-since 'HEAD^1')
+          fi
+          .venv/bin/python -I scripts/replay_us_failure_bundles.py ci \
+            --base-ref "$base" "${changed[@]}" --jobs auto \
+            --out "$RUNNER_TEMP/replay-report.json" \
+            --summary "$GITHUB_STEP_SUMMARY"

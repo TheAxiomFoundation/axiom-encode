@@ -1,131 +1,154 @@
 # US replay benchmark
 
-The US replay benchmark gives every validator or prompt PR an offline
-before/after number. It needs no model call, network, rules engine or corpus
-checkout. It runs in about 15 seconds.
+The US replay benchmark gives every validator PR an offline before/after
+measure on real candidates. It needs no model call, network, rules engine or
+corpus checkout. The `replay benchmark` CI job runs it as a required check.
 
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 32 committed
+(the `[complete-source-unit:*]` rules of the CI validator) over 35 committed
 fixtures in `tests/fixtures/us_replay_benchmark/`. Each fixture is a real
-rejected US candidate from a `targeted-reencode-failure` artifact:
+candidate from a `targeted-reencode-failure` artifact of a signed run:
 
-- `candidate.yaml` and `candidate.test.yaml`: the final rejected candidate and
-  its companion tests. Their hashes match the bundle inventory and the
-  recorded `issues.json`.
+- `candidate.yaml` and `candidate.test.yaml`: the final candidate and its
+  companion tests. For a rejected candidate, their hashes match the bundle
+  inventory and the recorded `issues.json`.
 - `source.txt` and `source-metadata.json`: the exact workspace source. Its hash
   matches the resolver attestation.
 - `issues.json`: the recorded pipeline issues for that run.
 - `context/`: only the workspace context modules that the candidate imports or
   names as a deferral provider (`blocked_by`).
 - `providers/`: a module that the candidate needs but the workspace context
-  lacks, copied from the RuleSpec repository at the run's `rulespec_ref`. Only
-  one fixture has one.
+  lacks, copied from the RuleSpec repository at the run's `rulespec_ref`.
 - `fixture.json`: the run id and URL, citation, lane, runner, encoder commit and
   version, corpus and RuleSpec refs, recorded failure classes, the origin of
-  each context module and the SHA-256 of every file.
+  each context module and the SHA-256 of every file. Optional keys:
+  `recorded_verdict` (default `rejected`; any other value marks a control, a
+  candidate that production validation accepted) and `split` (`visible`, the
+  default, or `held_out`).
 
 The replay passes the same inputs as `ValidatorPipeline._complete_source_unit_issues`:
 the citation's numeric profile, the companion test cases, imported symbol
 contents, resolved deferral providers and same-act aliases from the source
 metadata. `--no-context` leaves out the last three.
 
-The output is a JSON report with per-rule totals, the number of modules that
-have each rule, the full issue list of each fixture, and any import or
-deferral provider that the context cannot resolve.
+The set has 27 distinct citations: federal statutes, CFR regulations, IRS and
+FNS guidance, state statutes, manuals and guidance, one Canadian CRA guide
+(three runs) and one Israeli statute. It has one control (an Arizona candidate
+that passed validation and then failed a provenance guard). At 0.2.2349, 8
+fixtures replay clean and 27 have 3,282 findings; four 7 CFR 273.7 candidates
+hold 2,671 of them. Read clean counts and per-fixture changes, not only the
+total. The fixtures total about 3.3 MB and `snapshot.json` about 1.3 MB.
 
-The set has 32 distinct citations: federal statutes, CFR regulations, IRS and
-FNS guidance, and state statutes, manuals and guidance. It includes every
-completeness rule and the recorded failure classes `compile`, `oracle`,
-`proof:excerpt-not-found`, `tests:wrong-expected-value`, `tests:missing-input`
-and `grounding:literal`. Five fixtures replay clean at 0.2.2250. They failed for other
-reasons (compile, oracle, proof excerpts, test inputs), or later validator fixes
-removed their completeness issues. The snapshot keeps them clean. The fixtures
-total about 1.4 MB.
+## Visible and held-out cases
 
-## Failure-class labels
+The committed fixtures are the visible split of the maintainer's local
+benchmark of 2026-11-09 (59 cases). Cases are grouped by target, and a fixed
+hash order puts about 30% of the cases in a held-out split. The repository
+never holds:
 
-Each `fixture.json` also carries a hand label of the root cause of the
-failure, from the failure-class design (v1):
+- held-out cases (18 at the first cut);
+- hand failure-class labels (`expected_class` and related keys);
+- sources from a private-only corpus (12 CFR 1005 and 1006);
+- raw failure bundles.
 
-- `expected_class`: one of `encoder`, `validator_fp`, `corpus`, `dependency`,
-  `selection`, `engine`, `migration`, `process`, `infra` or `unknown`.
-- `expected_subclass` (optional): `encoder` takes `omission`, `formula`,
-  `test` or `harness`; `corpus` takes `content` or `metadata`; `migration`
-  takes `schema` or `elided_excerpt`.
-- `class_evidence`: one sentence that names the deciding evidence.
-- `class_source`: `hand` for these labels.
+These stay in the maintainer's private benchmark. A maintainer replays the
+held-out cases weekly, and on any PR that claims a general fix, and reports
+only totals. `compare --split` reads a private case-to-split map and prints
+held-out cases as totals only (`--show-held-out` lists them, for the
+maintainer). A fix author looks only at visible cases.
 
-A label names the root cause, not the symptom. A fixture whose central
-blocker no candidate can fix (an unencoded upstream concept, a non-operative
-target, a removed schema field in a context module) takes that class, even
-when the candidate also has encoder errors. A dependency label needs the
-necessary executable output to be missing at the run's `rulespec_ref`; a
-module that only defers that output still counts as missing. A validator
-false positive decides the label only when it blocks every plausible
-candidate for the citation (for example, the local hand adjudication found it
-in the failed runs of that citation). An incidental false demand, such as a
-page number or a footnote marker beside larger encoder errors, does not change
-an `encoder` label. When two unfixable blockers coexist, the label follows the
-local hand adjudication of that citation. `unknown` means that the evidence
-does not decide between two classes. `load_fixture` refuses an unknown class,
-a subclass of another class, or a label without evidence. `fixture.json` is not
-in its own hash list, so a label change does not change any file hash.
+## The required CI check
 
-`replay` prints the number of fixtures per class and puts `expected_class`
-and `expected_subclass` on each fixture row of the JSON report. The labels do
-not enter `snapshot.json`; the ratchet stays per rule.
+The `replay benchmark` job in `.github/workflows/ci.yml` runs
+`scripts/replay_us_failure_bundles.py ci`. On a pull request it first checks
+the paths that the pull request changes. When none of the trigger paths
+changes (`REPLAY_TRIGGER_PATHS`: `src/axiom_encode/harness/`,
+`bare_structure.py`, `corpus_resolver.py`, the replay script, the fixtures,
+`ci.yml`, `pyproject.toml`, `uv.lock`), the job passes without a replay. The
+merge queue and pushes to `main` always replay. The replay takes about 30 s
+with 4 workers; the job takes about 90 s with the dependency install.
+
+The job fails when:
+
+1. **The replay errors.** A fixture does not load or authenticate, the
+   analyzer raises, or an import or deferral provider does not resolve.
+2. **A clean fixture or a control becomes refused.** A fixture that the base
+   branch's `snapshot.json` pins with no finding, or a control, now has a
+   finding or an error, or was removed. The only way through is a reason in
+   the PR's own `snapshot.json` (`allowed_regressions`, written by
+   `snapshot --allow-regression ID=REASON`), which a reviewer sees in the diff.
+3. **Any finding differs from the committed `snapshot.json`.** The snapshot
+   holds every fixture's exact findings. A removed, added or reworded finding,
+   a new fixture or a removed fixture fails until the same PR rewrites the
+   snapshot.
+
+The job's summary lists every changed fixture against the base branch.
+
+### Updating the snapshot
+
+When a change to the findings is intended:
+
+```bash
+uv run python scripts/replay_us_failure_bundles.py snapshot --base-ref origin/main --jobs auto
+```
+
+Commit `tests/fixtures/us_replay_benchmark/snapshot.json`. The rewrite is a
+reviewable diff: one line per finding. The command refuses to pin replay
+errors. It also refuses to pin a finding on a fixture that the base pins clean
+(or on a control) unless you pass `--allow-regression ID=REASON` for it. A
+rewrite keeps only the reasons that it is given again.
+
+`snapshot --check` reports drift without writing.
+
+## Rule for false-positive fix PRs
+
+Every PR that fixes a validator false positive:
+
+1. Adds the failing candidate as a fixture (`extract`, below), from public
+   sources only. A candidate from a private-only corpus or a held-out case
+   stays out of the repository; name the run in the PR body instead.
+2. Rewrites the snapshot. The new fixture's false findings must be gone.
+3. Explains, in the PR body, every change to other fixtures: each removed
+   finding checked against that fixture's `source.txt` (a removed true
+   positive is a regression), and each added finding.
 
 ## Fidelity
 
-Replayed with the encoder source of their own run, 11 of 12 sampled fixtures
-reproduce the recorded completeness rule counts exactly. Without context, 10
-of 12 do. On all 197 replayable US bundles since 2026-09-01, context removes 5
-numeric-recall and 10 tests issues and adds 9 tests issues (5,711 to 5,705). An
-imported module can also add demands, for example a rounding rule. Only one
-bundle in that set has deferral providers that its workspace context lacks.
+Each case of the local benchmark was replayed with the encoder source of its
+own run (38 encoder commits). 51 cases reproduce the recorded completeness
+findings exactly and 4 within two findings; no replay errors. Three 7 CFR
+273.7 runs stopped before the completeness check in production; the replay
+finds 653 to 695 findings each.
 
 ## Limits
 
 - Only the completeness analyzer runs. Compilation, companion-test execution,
-  oracles, proof-excerpt checks (`source_context` is not passed), reviewers and
-  signing are not measured. A fixture that replays clean can still fail CI.
-- Context comes from the workspace snapshot, not from the live checkout. In one
-  sampled fixture, production did not bind a value that the context provides.
-  The test requires that every import and deferral provider of every fixture
-  resolves; `extract --rulespec-root` fills a gap from a RuleSpec checkout at
-  the run's `rulespec_ref`.
+  oracles, proof-excerpt checks (`source_context` is not passed), literal
+  grounding, guards, reviewers and signing are not measured. A fixture that
+  replays clean can still fail CI. Of 58 rejected cases in the local
+  benchmark, 31 also had a finding of such a kind.
+- Context comes from the workspace snapshot, not from the live checkout.
+  `extract --rulespec-root` fills a gap from a RuleSpec checkout at the run's
+  `rulespec_ref`.
 - The candidates are fixed. The benchmark measures validator changes. It does
   not show whether a prompt change makes the model write better candidates. Use
   `axiom-encode eval-suite` for that.
-- The fixtures are rejected candidates. A lower count can mean a removed false
-  positive or a weakened rule. Check every removed issue against the
-  fixture's `source.txt`.
+- A lower count can mean a removed false positive or a weakened rule. Check
+  every removed finding against the fixture's `source.txt`.
 
-## How PR authors report numbers
+## Comparing two encoder commits
 
 1. On `main`, run
-   `uv run python scripts/replay_us_failure_bundles.py replay --out before.json`.
+   `uv run python scripts/replay_us_failure_bundles.py replay --jobs auto --out before.json`.
 2. On your branch, run the same command with `--out after.json`.
-3. Run `uv run python scripts/replay_us_failure_bundles.py compare before.json after.json`.
-4. In the PR body, report the issue total and clean modules before and after,
-   and removed and added issues by rule. `compare` leaves out a fixture that
-   errors on either side and lists it under `ERRORED`; report those too.
-5. For removed issues, list examples that you checked against `source.txt`.
-   Report any removed issue that was a true positive.
+3. Run `uv run python scripts/replay_us_failure_bundles.py compare before.json after.json`
+   (add `--split <map>` for a private held-out set).
 
-`tests/test_us_replay_benchmark.py` pins the per-fixture, per-rule counts in
-`snapshot.json`. The pin is a ratchet:
-
-- A count that rises fails the test as a regression. A new replay error or a
-  removed fixture also fails.
-- A count that falls also fails until the same PR records it. Run
-  `uv run python scripts/replay_us_failure_bundles.py snapshot` and commit the
-  new `snapshot.json`.
-- To record a rise, a new error or a removed fixture, add `--allow-increase`
-  and justify each one in the PR, for example a stricter rule that rejects real
-  omissions.
+`compare` gives totals per split, removed and added findings by rule, newly
+clean and newly failing fixtures, and every changed fixture. It leaves out a
+fixture that errors on either side and lists it under `ERRORED`.
 
 ## Adding fixtures
 
@@ -145,12 +168,13 @@ tar -xf bundles/<run_id>/targeted-reencode-failure.tar -C bundles/<run_id>/x
    `--rulespec-root <RuleSpec checkout at the run's rulespec_ref>`. The fixture
    records the git blob id of each copied module, so a reviewer can compare it
    with the RuleSpec repository at that ref.
-3. Run `snapshot`. It records new fixtures without `--allow-increase`.
+3. For a control, add `"recorded_verdict": "<verdict>"` to `fixture.json`.
+4. Run `snapshot --base-ref origin/main`.
 
-Keep one or two fixtures for each citation. Prefer fixtures that add a rule
-class or a citation. Failure artifacts expire after 90 days.
+Failure artifacts expire after 90 days.
 
 To replay a larger, uncommitted set, run
-`python -I scripts/replay_us_failure_bundles.py replay --bundles bundles/ [--latest-per-citation]`.
-Bundles are untrusted data: the script only parses them, refuses symlinks and
-keeps every path inside its bundle.
+`python -I scripts/replay_us_failure_bundles.py replay --bundles bundles/ [--latest-per-citation]`
+or `replay --fixtures <private fixture directory>`. Bundles are untrusted
+data: the script only parses them, refuses symlinks and keeps every path
+inside its bundle.
