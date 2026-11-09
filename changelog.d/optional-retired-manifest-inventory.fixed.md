@@ -1,0 +1,1 @@
+Probe signed-backfill checkout paths through pinned no-follow directory descriptors, so a symlinked or swapped repository root or ancestor cannot redirect the existence probe that source-add conflict checks and authorized-publication staging rely on, and only a proven missing path counts as absent.
