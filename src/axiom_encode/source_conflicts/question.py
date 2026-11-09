@@ -125,6 +125,8 @@ class Answer:
     effective_from: str | None
     effective_to: str | None
     module: str
+    outputs: tuple[str, ...] = ()
+    guards: tuple[str, ...] = ()
     supplied: tuple[tuple[str, str], ...] = ()
 
     def metadata(self) -> dict[str, Any]:
@@ -251,10 +253,19 @@ def _answer(
             effective_from=dates["effective_from"],
             effective_to=dates["effective_to"],
             module=raw["module"],
-            supplied=tuple(
-                (group, name)
-                for group in ("derived", "fixed")
-                for name in encoding[group]
+            outputs=tuple(
+                name for name in raw.get("outputs") or () if isinstance(name, str)
+            )
+            if isinstance(raw.get("outputs"), list)
+            else (),
+            guards=tuple(guards),
+            supplied=(
+                *(("inputs", name) for name in encoding["inputs"].values()),
+                *(
+                    (group, name)
+                    for group in ("derived", "fixed")
+                    for name in encoding[group]
+                ),
             ),
         ),
         encoding,
@@ -513,28 +524,41 @@ def compare_question(
     repository = dict(
         repository if repository is not None else repository_state(Path(rulespec_root))
     )
-    # An answer's derived and fixed inputs must be inputs of its own module.
-    # A pair gives each such input to every side that accepts it, so without
-    # this an answer could lean on an input that its partner supplies.
+    # Each answer must stand alone: the inputs it names are inputs of its own
+    # module, and it supplies every input its own rules read. A pair gives a
+    # derived or fixed input to every side that accepts it, so without this
+    # an answer could lean on an input that only its partner supplies, and the
+    # result would depend on which partner it has.
     problems: list[str] = []
     for number, answer in enumerate(question.answers):
         module = Path(rulespec_root) / answer.module
-        if not answer.supplied or not module.is_file():
+        if not module.is_file():
             continue  # a missing module is reported by the pair's gates
         answer_workdir = Path(workdir) / f"answer-{number}"
         answer_workdir.mkdir(parents=True, exist_ok=True)
         try:
-            accepted = Artifact(
+            artifact = Artifact(
                 engine.compile(module, Path(rulespec_root), answer_workdir / "a.json"),
                 question.period["start"],
-            ).slot_by_request_name
+            )
         except ArtifactError as error:
             raise CompareError(f"answer {answer.id}: {error}") from error
+        accepted = artifact.slot_by_request_name
         problems.extend(
             f"answers.{answer.id}.{group}: '{name}' is not an input of its module "
             f"{answer.module}"
             for group, name in answer.supplied
             if name not in accepted
+        )
+        own = {name for _, name in answer.supplied}
+        _, _, slots = artifact.closure([*answer.outputs, *answer.guards])
+        problems.extend(
+            f"answers.{answer.id}: input '{artifact.request_name_by_slot[slot]}' is "
+            "read by its rules, but the answer does not supply it (inputs, derived "
+            "or fixed)"
+            for slot in slots
+            if slot in artifact.request_name_by_slot
+            and artifact.request_name_by_slot[slot] not in own
         )
     if problems:
         raise LinkGateError(problems)

@@ -418,7 +418,8 @@ def test_a_gate_failure_of_one_pair_fails_the_question(tmp_path):
     doc = document()
     del answer(doc, "regulation")["fixed"][B + "input.minimum_wage_rate"]
     with pytest.raises(
-        LinkGateError, match="input.minimum_wage_rate' is read by the compared rules"
+        LinkGateError,
+        match="answers.regulation: input .*minimum_wage_rate' is read by its rules",
     ):
         run_question(tmp_path, doc)
 
@@ -613,11 +614,43 @@ def test_an_answer_cannot_lean_on_an_input_its_partner_supplies(tmp_path):
     del doc["facts"]["enrolled_student"]
     name = B + "input.minimum_wage_rate"
     answer(doc, "statute")["fixed"][name] = answer(doc, "regulation")["fixed"].pop(name)
-    with pytest.raises(
-        LinkGateError,
-        match="answers.statute.fixed: .*minimum_wage_rate' is not an input of its module",
-    ):
+    with pytest.raises(LinkGateError) as caught:
         run_question(tmp_path, doc)
+    assert caught.value.problems == [
+        f"answers.statute.fixed: '{name}' is not an input of its module "
+        "us/statutes/999/1/a.yaml",
+        f"answers.regulation: input '{name}' is read by its rules, but the answer "
+        "does not supply it (inputs, derived or fixed)",
+    ]
+
+
+def test_each_answer_supplies_its_own_inputs_also_when_a_partner_could(tmp_path):
+    # The statute's module also accepts the regulation's wage input (a shared
+    # import), and only the statute fixes it: the regulation must not lean on it.
+    name = B + "input.minimum_wage_rate"
+    payloads = {
+        "us/statutes/999/1/a.yaml": artifact_payload("a"),
+        "us/regulations/99-cfr/1/2.yaml": artifact_payload("b"),
+    }
+    payloads["us/statutes/999/1/a.yaml"]["metadata"]["input_catalog"].append(
+        {"slot": "shared_wage", "canonical_request_name": name, "request_names": [name]}
+    )
+    doc = document()
+    doc["answers"] = [answer(doc, "statute"), answer(doc, "regulation")]
+    del doc["facts"]["enrolled_student"]
+    answer(doc, "statute")["fixed"][name] = answer(doc, "regulation")["fixed"].pop(name)
+    with pytest.raises(LinkGateError) as caught:
+        compare_question(
+            parse_question(doc),
+            rulespec_root=RULESPEC,
+            engine=FakeEngine(payloads),
+            workdir=tmp_path,
+            repository=REPOSITORY,
+        )
+    assert caught.value.problems == [
+        f"answers.regulation: input '{name}' is read by its rules, but the answer "
+        "does not supply it (inputs, derived or fixed)"
+    ]
 
 
 def test_cli_question_out_must_not_be_a_file_and_old_records_are_removed(
@@ -674,14 +707,15 @@ def test_module_discovery_skips_question_files(tmp_path):
     stray.write_text("format: rulespec/v1\n")
     with pytest.raises(ValueError, match="canonical filesystem root"):
         cli._rulespec_module_paths(checkout)
-    assert is_rulespec_question_path(("questions", "x.yaml"))
-    assert is_rulespec_question_path(("statutes", "42", "a.question.yaml"))
+    assert is_rulespec_question_path(("questions", "m", "x.question.yaml"))
+    assert not is_rulespec_question_path(("questions", "x.yaml"))
+    assert not is_rulespec_question_path(("statutes", "42", "a.question.yaml"))
     assert not is_rulespec_question_path(("statutes", "42", "questions.yaml"))
     assert not is_rulespec_question_path(("statutes", "questions", "a.yaml"))
     assert not is_rulespec_question_path(())
 
 
-def test_a_question_file_beside_a_module_is_not_a_module(tmp_path):
+def test_a_question_file_in_a_module_root_is_refused(tmp_path):
     from axiom_encode import cli
 
     checkout = tmp_path / "rulespec-us"
@@ -689,8 +723,36 @@ def test_a_question_file_beside_a_module_is_not_a_module(tmp_path):
     subprocess.run(["git", "init", str(checkout)], check=True, capture_output=True)
     beside = checkout / "us" / "statutes" / "999" / "1" / "a.question.yaml"
     shutil.copyfile(QUESTION, beside)
-    assert beside not in cli._rulespec_module_paths(checkout)
-    assert beside not in cli._proof_atom_kind_normalization_module_paths(checkout)
+    with pytest.raises(ValueError, match="must be under <jurisdiction>/questions/"):
+        cli._rulespec_module_paths(checkout)
+    # The proof-kind scan reads the module roots only; a file there is a module.
+    assert beside in cli._proof_atom_kind_normalization_module_paths(checkout)
+
+
+def test_only_question_files_are_skipped_in_the_questions_tree(tmp_path):
+    from axiom_encode import cli
+    from axiom_encode.oracles.policyengine import snap_readiness
+
+    checkout = _checkout_with_a_question(tmp_path)
+    folder = checkout / "us" / "questions" / "medicaid"
+    module = folder / "real.yaml"
+    module.write_text((RULESPEC / "us/statutes/999/1/a.yaml").read_text())
+    with pytest.raises(ValueError, match="canonical filesystem root"):
+        cli._rulespec_module_paths(checkout)
+    module.unlink()
+    (folder / "x.question.yml").write_text("a: 1\n")
+    with pytest.raises(ValueError, match="exact .yaml extension"):
+        cli._rulespec_module_paths(checkout)
+    (folder / "x.question.yml").unlink()
+    (folder / "link.question.yaml").symlink_to(
+        folder / "work-requirement.question.yaml"
+    )
+    with pytest.raises(ValueError, match="must not contain symlinks"):
+        cli._rulespec_module_paths(checkout)
+    with pytest.raises(
+        snap_readiness.SnapReadinessConfigurationError, match="symlinks"
+    ):
+        snap_readiness._iter_snap_rulespec_payloads(checkout / "us")
 
 
 def test_snap_readiness_scan_skips_question_files(tmp_path):
@@ -711,3 +773,36 @@ def test_the_compare_step_reads_a_question_file_from_the_questions_tree(tmp_path
         repository=REPOSITORY,
     )
     assert summary["counts"]["pairs_that_differ"] == 3
+
+
+def test_cli_question_output_is_written_safely(tmp_path, capsys, cli_engine):
+    out = tmp_path / "out"
+    target = tmp_path / "precious.json"
+    target.write_text("keep")
+    out.mkdir()
+    (out / "my~notes.json").write_text("keep")
+    (out / "statute~guidance.json").symlink_to(target)
+    assert compare_cli.run(cli_args(tmp_path, "--question", str(QUESTION))) == 1
+    assert "is not a regular file" in capsys.readouterr().err
+    assert target.read_text() == "keep"
+    assert not (out / "summary.json").exists()
+    (out / "statute~guidance.json").unlink()
+    assert compare_cli.run(cli_args(tmp_path, "--question", str(QUESTION))) == 0
+    doc = document()
+    doc["answers"] = [answer(doc, "statute"), answer(doc, "regulation")]
+    del doc["facts"]["enrolled_student"]
+    path = tmp_path / "two.json"
+    path.write_text(json.dumps(doc))
+    assert compare_cli.run(cli_args(tmp_path, "--question", str(path))) == 0
+    # Only the records the earlier summary listed are removed.
+    assert sorted(item.name for item in out.iterdir()) == [
+        "my~notes.json",
+        "statute~regulation.json",
+        "summary.json",
+    ]
+    dangling = tmp_path / "dangling"
+    dangling.symlink_to(tmp_path / "nowhere")
+    args = cli_args(tmp_path, "--question", str(QUESTION))
+    args[args.index("--out") + 1] = str(dangling)
+    assert compare_cli.run(args) == 1
+    assert "--out is a directory" in capsys.readouterr().err
