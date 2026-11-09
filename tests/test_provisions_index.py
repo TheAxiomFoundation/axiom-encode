@@ -795,6 +795,9 @@ def test_the_publish_step_refuses_evidence_it_cannot_recheck(
     fixture = _publish_fixture(tmp_path, python=sys.executable)
     checkout = fixture["checkout"]
     lane_head = fixture["lane_head"]
+    # CI runners have no global git identity; the forged commits need one.
+    _git(checkout, "config", "user.name", "Test")
+    _git(checkout, "config", "user.email", "test@example.com")
     # Forge a lane head that the token-free refresh did not produce.
     _write(checkout, pi.INDEX_PATH.as_posix(), '{"forged": true}\n')
     _write(checkout, "us/statute/7/2015/smuggled.yaml", "smuggled: true\n")
