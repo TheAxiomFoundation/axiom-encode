@@ -211,6 +211,7 @@ def test_rate_table_rows_compared_with_the_rules_own_threshold_are_stated_values
         "20000",
         "0.05",
     )
+    assert _covers("Between $10,000 and $20,000 5%", "10000", "0.05")
     # A cross-reference ("set forth in (b) below") is not a comparison.
     assert _covers("The limit of $2,000 is set forth in paragraph (b) below.", "2000")
     # Negative controls: a rate alone does not make a condition a table row,
@@ -226,6 +227,10 @@ def test_attainment_aggregate_limits_and_lesser_of_are_conditions():
     assert not _covers("The credit is a maximum of $2,000 per return.", "2000")
     assert not _covers("The credit is the lesser of $2,000 or the tax.", "2000")
     assert not _covers("Income that does not reach $25,000.", "25000")
+    assert not _covers("A sponsored alien child younger than 18.", "18")
+    assert not _covers("An individual older than 60.", "60")
+    assert not _covers("Individuals between the ages of 18 and 50.", "18")
+    assert not _covers("Income between $10,000 and $20,000.", "10000")
     # Positive control: a stated maximum amount (not "a maximum of") is a value.
     assert _covers("The maximum allotment is $975.", "975")
 

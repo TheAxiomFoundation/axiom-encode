@@ -6359,11 +6359,13 @@ def _numeric_values_by_rule_name(
 
 # A comparison or limit makes a branch an operative condition, not a stated
 # value: `under the age of 19`, `does not exceed $100`, `at least 25 percent`,
-# `has not attained age 17`, `age 65 and over`, `the lesser of $2,000 or`.
+# `has not attained age 17`, `age 65 and over`, `the lesser of $2,000 or`,
+# `younger than 18`, `between the ages of 18 and 50`.
 _STATED_VALUE_CONDITION_LANGUAGE = re.compile(
     r"\b(?:"
     r"under(?=\s+(?:the\s+)?age\b|\s+\$?\d)|over(?=\s+(?:the\s+)?age\b|\s+\$?\d)|"
-    r"(?:more|less|fewer|greater)\s+than|at\s+(?:least|most)|"
+    r"(?:more|less|fewer|greater|younger|older)\s+than|at\s+(?:least|most)|"
+    r"between(?=\s+(?:the\s+)?ages?\b|\s+\$?\d)|"
     r"exceed(?:s|ed|ing)?|up\s+to|(?:below|above)(?=\s+\$?\d)|"
     r"or\s+(?:more|less|older|younger|over|under)|"
     r"(?:has\s+|have\s+)?(?:not\s+)?attain(?:s|ed)?|"
@@ -6376,7 +6378,7 @@ _STATED_VALUE_CONDITION_LANGUAGE = re.compile(
 # ("Amount exceeding $11,000,000 ... 2.25%", "Over $10,000 but not over
 # $20,000 ... 5 percent"); the threshold parameter encodes that comparison.
 _STATED_VALUE_TABLE_COMPARISON = re.compile(
-    r"\b(?:first|over|not\s+over|exceeding|in\s+excess\s+of|up\s+to|"
+    r"\b(?:first|over|not\s+over|exceeding|in\s+excess\s+of|up\s+to|between|"
     r"(?:more|less)\s+than)\s+\$\s?(?P<amount>\d[\d,]*(?:\.\d+)?)",
     flags=re.IGNORECASE,
 )
