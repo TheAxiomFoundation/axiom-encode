@@ -1468,6 +1468,45 @@ def snapshot_drift(
     return lines
 
 
+def _guard_failures(
+    base: Mapping[str, Any] | None, report: Mapping[str, Any]
+) -> dict[str, str]:
+    """Guarded fixtures that this change refuses or removes, by case id.
+
+    A guarded fixture is one that the base snapshot pins with no finding and
+    no error, or a control that the base snapshot does not pin.
+    """
+
+    base_cases = (
+        _check_snapshot(base, "the base snapshot")["cases"] if base is not None else {}
+    )
+    current = {r["id"]: r for r in report["cases"]}
+    guarded = {
+        case_id
+        for case_id, row in base_cases.items()
+        if not row.get("issues") and not row.get("findings") and not row.get("error")
+    }
+    guarded |= {
+        case_id
+        for case_id, row in current.items()
+        if row.get("control") and case_id not in base_cases
+    }
+    failures: dict[str, str] = {}
+    for case_id in sorted(guarded):
+        row = current.get(case_id)
+        if row is None:
+            failures[case_id] = f"{case_id}: clean fixture was removed"
+        elif row["error"]:
+            failures[case_id] = f"{case_id}: clean fixture now errors: {row['error']}"
+        elif row["issues"]:
+            kind = "control" if row.get("control") else "clean fixture"
+            failures[case_id] = (
+                f"{case_id} ({row['citation']}): {kind} is now refused with "
+                f"{len(row['issues'])} findings, e.g. {sorted(row['issues'])[0][:200]}"
+            )
+    return failures
+
+
 def guard_violations(
     base: Mapping[str, Any] | None,
     report: Mapping[str, Any],
@@ -1475,43 +1514,31 @@ def guard_violations(
 ) -> list[str]:
     """Clean or control fixtures that this change refuses or removes.
 
-    A guarded fixture is one that the base snapshot pins with no finding and
-    no error, or a control that the base snapshot does not pin. The change
-    may refuse or remove it only when ``allowed`` (the change's own
-    ``allowed_regressions``) gives a reason for that fixture.
+    The change may refuse or remove a guarded fixture (see
+    ``_guard_failures``) only when ``allowed`` (the change's own
+    ``allowed_regressions``) gives a non-blank reason for that fixture.
     """
 
     allowed = {k: v for k, v in (allowed or {}).items() if str(v).strip()}
-    base_cases = (
-        _check_snapshot(base, "the base snapshot")["cases"] if base is not None else {}
-    )
-    current = {r["id"]: r for r in report["cases"]}
-    violations: list[str] = []
-    guarded = {
-        case_id
-        for case_id, row in base_cases.items()
-        if not row.get("issues") and not row.get("error")
-    }
-    guarded |= {
-        case_id
-        for case_id, row in current.items()
-        if row.get("control") and case_id not in base_cases
-    }
-    for case_id in sorted(guarded):
-        if case_id in allowed:
-            continue
-        row = current.get(case_id)
-        if row is None:
-            violations.append(f"{case_id}: clean fixture was removed")
-        elif row["error"]:
-            violations.append(f"{case_id}: clean fixture now errors: {row['error']}")
-        elif row["issues"]:
-            kind = "control" if row.get("control") else "clean fixture"
-            violations.append(
-                f"{case_id} ({row['citation']}): {kind} is now refused with "
-                f"{len(row['issues'])} findings, e.g. {sorted(row['issues'])[0][:200]}"
-            )
-    return violations
+    return [
+        message
+        for case_id, message in _guard_failures(base, report).items()
+        if case_id not in allowed
+    ]
+
+
+def unneeded_allowances(
+    base: Mapping[str, Any] | None,
+    report: Mapping[str, Any],
+    allowed: Mapping[str, str] | None,
+) -> list[str]:
+    """``allowed_regressions`` entries that excuse no guard failure.
+
+    A stale reason would silently excuse a later regression of that fixture,
+    so the snapshot may carry only the reasons this change needs.
+    """
+
+    return sorted(set(allowed or {}) - set(_guard_failures(base, report)))
 
 
 def read_snapshot_at(ref: str, *, repo: Path = REPO_ROOT) -> dict[str, Any] | None:
@@ -1557,18 +1584,57 @@ def changed_paths(base: str, *, repo: Path = REPO_ROOT) -> list[str]:
     import subprocess
 
     diff = subprocess.run(
-        ["git", "-C", str(repo), "diff", "-z", "--name-only", base, "HEAD"],
+        [
+            "git",
+            "-C",
+            str(repo),
+            "diff",
+            "-z",
+            "--no-renames",
+            "--name-only",
+            base,
+            "HEAD",
+        ],
         capture_output=True,
         check=True,
     )
     return [name for name in diff.stdout.decode().split("\0") if name]
 
 
-def replay_is_needed(paths: Iterable[str]) -> bool:
+def analyzer_module_paths(*, repo: Path = REPO_ROOT) -> list[str]:
+    """Repository paths of every ``axiom_encode`` module the replay loads.
+
+    A change to any of them can change findings, so it triggers the replay
+    even outside ``REPLAY_TRIGGER_PATHS``.
+    """
+
+    import axiom_encode.harness.source_completeness  # noqa: F401
+    import axiom_encode.harness.validator_pipeline  # noqa: F401
+
+    root = repo.resolve()
+    paths = set()
+    for name, module in list(sys.modules.items()):
+        if name != "axiom_encode" and not name.startswith("axiom_encode."):
+            continue
+        filename = getattr(module, "__file__", None)
+        if not filename:
+            continue
+        try:
+            paths.add(Path(filename).resolve().relative_to(root).as_posix())
+        except ValueError:
+            continue
+    return sorted(paths)
+
+
+def replay_is_needed(paths: Iterable[str], extra: Iterable[str] = ()) -> bool:
+    extra = set(extra)
     return any(
-        path.startswith(trigger) if trigger.endswith("/") else path == trigger
+        path in extra
+        or any(
+            path.startswith(trigger) if trigger.endswith("/") else path == trigger
+            for trigger in REPLAY_TRIGGER_PATHS
+        )
         for path in paths
-        for trigger in REPLAY_TRIGGER_PATHS
     )
 
 
@@ -1690,10 +1756,31 @@ def run_gate(
         failures["findings differ from the committed snapshot"] = [
             f"no snapshot at {snapshot_path}"
         ]
+    if (
+        snapshot is not None
+        and not failures["findings differ from the committed snapshot"]
+    ):
+        try:
+            expected = snapshot_from_report(
+                report, snapshot.get("allowed_regressions") or {}
+            )
+        except ValueError:
+            expected = None
+        if expected is not None and expected != snapshot:
+            failures["findings differ from the committed snapshot"].append(
+                "snapshot.json is not what the snapshot command writes for this "
+                "replay (a hand edit?); rewrite it"
+            )
     allowed = (snapshot or {}).get("allowed_regressions") or {}
     failures["clean or control fixtures refused"] = guard_violations(
         base_snapshot, report, allowed
     )
+    if base_snapshot is not None:
+        failures["clean or control fixtures refused"] += [
+            f"allowed_regressions names {case_id}, which does not regress against "
+            "the base; drop it (rewrite the snapshot without that reason)"
+            for case_id in unneeded_allowances(base_snapshot, report, allowed)
+        ]
     return report, failures
 
 
@@ -1744,15 +1831,44 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     diff = compare_reports(before, after, split_of=split_of)
     if args.json:
         if not args.show_held_out:
-            diff = {
-                **diff,
-                "changed": [c for c in diff["changed"] if c["split"] != HELD_OUT],
-                "errored": [e for e in diff["errored"] if e["split"] != HELD_OUT],
-            }
+            diff = hide_held_out(diff, split_of or {}, before, after)
         print(json.dumps(diff, indent=1))
     else:
         print(format_comparison(diff, show_held_out=args.show_held_out))
     return 0
+
+
+def hide_held_out(
+    diff: Mapping[str, Any],
+    split_of: Mapping[str, str],
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> dict[str, Any]:
+    """``diff`` with every held-out case id replaced by a count."""
+
+    rows = {r["id"]: r for r in [*before["cases"], *after["cases"]]}
+    held_out = {
+        case_id
+        for case_id in rows
+        if _case_split(case_id, rows[case_id], split_of=split_of) == HELD_OUT
+    }
+
+    def visible(ids: Sequence[str]) -> list[str]:
+        return [case_id for case_id in ids if case_id not in held_out]
+
+    out = dict(diff)
+    out["changed"] = [c for c in diff["changed"] if c["id"] not in held_out]
+    out["errored"] = [e for e in diff["errored"] if e["id"] not in held_out]
+    for key in ("newly_clean", "newly_failing", "only_before", "only_after"):
+        out[key] = visible(diff[key])
+        out[f"{key}_held_out"] = len(diff[key]) - len(out[key])
+    splits = dict(diff["splits"])
+    part = dict(splits[HELD_OUT])
+    for key in ("newly_clean", "newly_failing"):
+        part[key] = len(part[key])
+    splits[HELD_OUT] = part
+    out["splits"] = splits
+    return out
 
 
 def _base_snapshot(ref: str | None, fallback: Path) -> dict[str, Any] | None:
@@ -1801,13 +1917,12 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    unused = sorted(
-        set(allowed)
-        - {r["id"] for r in report["cases"]}
-        - set((base or {}).get("cases", {}))
-    )
+    unused = unneeded_allowances(base, report, allowed)
     if unused:
-        print(f"--allow-regression names unknown fixtures: {unused}", file=sys.stderr)
+        print(
+            f"--allow-regression names fixtures that do not regress: {unused}",
+            file=sys.stderr,
+        )
         return 1
     if committed is not None:
         for line in snapshot_drift(committed, report, limit=5):
@@ -1824,9 +1939,9 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
 def _cmd_ci(args: argparse.Namespace) -> int:
     if args.changed_since:
         paths = changed_paths(args.changed_since)
-        if not replay_is_needed(paths):
+        if not replay_is_needed(paths, analyzer_module_paths()):
             print(
-                "The change touches none of the replay trigger paths; the replay "
+                "The change touches no replay trigger path and no module the replay loads; the replay "
                 "benchmark passes without a replay."
             )
             return 0

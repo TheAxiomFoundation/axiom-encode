@@ -39,6 +39,7 @@ from scripts.replay_us_failure_bundles import (
     UnsafeBundlePath,
     _context_key,
     _read_inside,
+    analyzer_module_paths,
     build_report,
     compare_reports,
     discover_bundle_modules,
@@ -59,6 +60,7 @@ from scripts.replay_us_failure_bundles import (
     run_gate,
     snapshot_drift,
     snapshot_from_report,
+    unneeded_allowances,
 )
 
 FIXTURES = DEFAULT_FIXTURE_ROOT
@@ -479,6 +481,14 @@ def test_guard_covers_new_controls_and_errors():
     assert len(violations) == 2
 
 
+def test_unneeded_allowances_are_listed():
+    base = snapshot_from_report(_report([_case("clean", []), _case("dirty", [TESTS])]))
+    after = _report([_case("clean", [NUMERIC]), _case("dirty", [TESTS])])
+
+    assert unneeded_allowances(base, after, {"clean": "x"}) == []
+    assert unneeded_allowances(base, after, {"clean": "x", "dirty": "y"}) == ["dirty"]
+
+
 def test_guard_accepts_a_recorded_reason_and_needs_a_base():
     base = snapshot_from_report(_report([_case("clean", []), _case("gone", [])]))
     after = _report([_case("clean", [NUMERIC])])
@@ -608,9 +618,30 @@ def test_compare_cli_hides_held_out_cases_in_json(tmp_path, capsys):
     assert (
         main(["compare", str(before), str(after), "--split", str(split), "--json"]) == 0
     )
-    diff = json.loads(capsys.readouterr().out)
+    output = capsys.readouterr().out
+    diff = json.loads(output)
     assert [c["id"] for c in diff["changed"]] == ["v"]
-    assert diff["splits"]["held_out"]["newly_clean"] == ["h"]
+    assert diff["newly_clean"] == ["v"] and diff["newly_clean_held_out"] == 1
+    assert diff["splits"]["held_out"]["newly_clean"] == 1
+    assert '"h"' not in output
+
+    assert (
+        main(
+            [
+                "compare",
+                str(before),
+                str(after),
+                "--split",
+                str(split),
+                "--json",
+                "--show-held-out",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["splits"]["held_out"]["newly_clean"] == [
+        "h"
+    ]
 
 
 # --- the CI gate ---------------------------------------------------------------------
@@ -634,6 +665,16 @@ def test_compare_cli_hides_held_out_cases_in_json(tmp_path, capsys):
 )
 def test_replay_trigger_paths(paths, needed):
     assert replay_is_needed(paths) is needed
+
+
+def test_modules_the_replay_loads_trigger_it():
+    loaded = analyzer_module_paths()
+
+    assert "src/axiom_encode/harness/source_completeness.py" in loaded
+    assert "src/axiom_encode/numeric_equality.py" in loaded
+    assert replay_is_needed(["src/axiom_encode/numeric_equality.py"], loaded)
+    assert not replay_is_needed(["src/axiom_encode/numeric_equality.py"])
+    assert not replay_is_needed(["docs/us-replay-benchmark.md"], loaded)
 
 
 def test_trigger_paths_exist():
@@ -945,6 +986,26 @@ def test_run_gate_passes_and_fails_on_each_condition(tmp_path):
     (root / SNAPSHOT_FILE).write_text(json.dumps(edited))
     _, failures = run_gate(root, base_snapshot=snapshot)
     assert failures["findings differ from the committed snapshot"]
+
+    # A hand edit that keeps the findings but changes the counts: refused.
+    hand = json.loads(json.dumps(snapshot))
+    hand["cases"]["first"]["issues"] += 1
+    (root / SNAPSHOT_FILE).write_text(json.dumps(hand))
+    _, failures = run_gate(root, base_snapshot=snapshot)
+    assert "a hand edit?" in failures["findings differ from the committed snapshot"][0]
+
+    # A reason for a fixture that does not regress against the base: refused.
+    stale = json.loads(json.dumps(snapshot))
+    stale["allowed_regressions"] = {"first": "old reason"}
+    (root / SNAPSHOT_FILE).write_text(json.dumps(stale))
+    _, failures = run_gate(root, base_snapshot=snapshot)
+    assert failures["clean or control fixtures refused"] == [
+        "allowed_regressions names first, which does not regress against the "
+        "base; drop it (rewrite the snapshot without that reason)"
+    ]
+    # Against a base that pinned it clean, the same reason is needed and passes.
+    _, failures = run_gate(root, base_snapshot=clean_base)
+    assert not any(failures.values()), failures
 
     # A fixture that does not load: a replay error.
     (root / SNAPSHOT_FILE).write_text(json.dumps(snapshot))

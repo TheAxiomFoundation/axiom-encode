@@ -341,7 +341,8 @@ jobs:
   # and on any finding that differs from the committed snapshot.json, which
   # `scripts/replay_us_failure_bundles.py snapshot` rewrites as a reviewable
   # diff. A pull request that touches no trigger path (REPLAY_TRIGGER_PATHS in
-  # the script) passes without a replay, so this job can be a required check;
+  # the script) and no module the replay loads passes without a replay, so
+  # this job can be a required check;
   # the merge queue and pushes to main always replay. Drafts run it too.
   replay-benchmark:
     name: replay benchmark
@@ -387,16 +388,15 @@ jobs:
           MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
         run: |
           set -euo pipefail
-          changed=()
-          if [ "$EVENT_NAME" = "merge_group" ]; then
-            base="$MERGE_GROUP_BASE_SHA"
-          else
-            base='HEAD^1'
-          fi
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            changed=(--changed-since 'HEAD^1')
-          fi
+          # The base whose snapshot guards clean fixtures. A dispatch on a
+          # branch has no base to guard against: only errors and drift count.
+          args=()
+          case "$EVENT_NAME" in
+            pull_request) args=(--base-ref 'HEAD^1' --changed-since 'HEAD^1') ;;
+            merge_group) args=(--base-ref "$MERGE_GROUP_BASE_SHA") ;;
+            push) args=(--base-ref 'HEAD^1') ;;
+          esac
           .venv/bin/python -I scripts/replay_us_failure_bundles.py ci \
-            --base-ref "$base" "${changed[@]}" --jobs auto \
+            "${args[@]}" --jobs auto \
             --out "$RUNNER_TEMP/replay-report.json" \
             --summary "$GITHUB_STEP_SUMMARY"

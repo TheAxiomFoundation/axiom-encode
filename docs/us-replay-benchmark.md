@@ -66,8 +66,11 @@ The `replay benchmark` job in `.github/workflows/ci.yml` runs
 the paths that the pull request changes. When none of the trigger paths
 changes (`REPLAY_TRIGGER_PATHS`: `src/axiom_encode/harness/`,
 `bare_structure.py`, `corpus_resolver.py`, the replay script, the fixtures,
-`ci.yml`, `pyproject.toml`, `uv.lock`), the job passes without a replay. The
-merge queue and pushes to `main` always replay. The replay takes about 30 s
+`ci.yml`, `pyproject.toml`, `uv.lock`), and no other `axiom_encode` module
+that the replay loads changes, the job passes without a replay. Renames count
+both paths. The merge queue and pushes to `main` always replay. A manual
+dispatch on a branch checks errors and drift only; it has no base to guard
+against. The replay takes about 30 s
 with 4 workers; the job takes about 90 s with the dependency install.
 
 The job fails when:
@@ -82,7 +85,10 @@ The job fails when:
 3. **Any finding differs from the committed `snapshot.json`.** The snapshot
    holds every fixture's exact findings. A removed, added or reworded finding,
    a new fixture or a removed fixture fails until the same PR rewrites the
-   snapshot.
+   snapshot. The committed file must also be exactly what the `snapshot`
+   command writes, so a hand edit to counts or totals fails, and every
+   `allowed_regressions` reason must excuse a real regression against the
+   base.
 
 The job's summary lists every changed fixture against the base branch.
 
