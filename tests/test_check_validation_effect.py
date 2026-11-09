@@ -82,3 +82,43 @@ def test_html_comments_are_not_declarations():
     )
     assert check.validation_effect_issues(body) == ("loosen", [])
     assert check.validation_effect_issues("<!-- Validation effect: none -->")[1]
+
+
+def test_fenced_code_is_not_a_declaration():
+    fenced = "```text\nValidation effect: none\n```\n"
+    assert check.validation_effect_issues(fenced)[1]
+    assert check.validation_effect_issues(
+        "~~~\nValidation effect: none\n~~~\nValidation effect: tighten\n"
+        "Changed checks: unknown\n"
+    ) == ("tighten", [])
+    # An unclosed fence hides the rest of the body, as GitHub renders it.
+    assert check.validation_effect_issues("````\nValidation effect: none\n")[1]
+
+
+@pytest.mark.parametrize("checks", ["none", "a.b, none", "NONE"])
+def test_loosen_or_tighten_cannot_list_none_as_changed_checks(checks):
+    _effect, issues = check.validation_effect_issues(
+        f"Validation effect: loosen\nChanged checks: {checks}\n"
+    )
+    assert issues and "cannot list 'none'" in issues[0]
+
+
+def test_workflow_runs_the_base_copy_without_pull_request_code():
+    import yaml
+
+    workflow = yaml.safe_load(
+        (
+            Path(__file__).resolve().parents[1]
+            / ".github/workflows/validation-effect.yml"
+        ).read_text()
+    )
+    triggers = workflow.get("on", workflow.get(True))
+    assert set(triggers) == {"pull_request_target"}
+    assert workflow["permissions"] == {"contents": "read"}
+    steps = workflow["jobs"]["declared"]["steps"]
+    checkout = steps[0]
+    assert checkout["with"]["ref"] == "${{ github.event.pull_request.base.sha }}"
+    assert checkout["with"]["persist-credentials"] is False
+    run_step = steps[1]
+    assert "github.event" not in run_step["run"]
+    assert run_step["env"]["PR_BODY"] == "${{ github.event.pull_request.body }}"

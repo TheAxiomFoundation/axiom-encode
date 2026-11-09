@@ -22,13 +22,21 @@ EFFECTS = ("none", "loosen", "tighten")
 _EFFECT_RE = re.compile(r"^\s*validation effect\s*:\s*(\S+)\s*$", re.I | re.M)
 _CHECKS_RE = re.compile(r"^\s*changed checks\s*:\s*(.+?)\s*$", re.I | re.M)
 _CHECK_ID_RE = re.compile(r"[a-z0-9][a-z0-9_.:/-]*")
+# A fenced code block, opened by three or more backticks or tildes at the
+# start of a line and closed by the same fence (or the end of the body).
+_FENCE_RE = re.compile(
+    r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]{0,3}(?P=fence)[ \t]*$|\Z)",
+    re.M | re.S,
+)
 
 
 def validation_effect_issues(body: str | None) -> tuple[str | None, list[str]]:
     """Return the declared effect and the reasons the declaration is invalid."""
 
-    # Template guidance sits in HTML comments; it is not a declaration.
+    # Template guidance sits in HTML comments, and examples in fenced code
+    # blocks; GitHub hides or quotes them, so neither is a declaration.
     text = re.sub(r"<!--.*?-->", "", body or "", flags=re.S)
+    text = _FENCE_RE.sub("", text)
     effects = _EFFECT_RE.findall(text)
     if len(effects) != 1:
         return None, [
@@ -53,6 +61,11 @@ def validation_effect_issues(body: str | None) -> tuple[str | None, list[str]]:
                 not value or _CHECK_ID_RE.fullmatch(value) is None for value in values
             ):
                 issues.append("'Changed checks:' must list check ids or 'unknown'")
+            elif "none" in values:
+                issues.append(
+                    f"a '{effect}' change cannot list 'none' as a changed check; "
+                    "name the check ids or write 'unknown'"
+                )
     return effect, issues
 
 
