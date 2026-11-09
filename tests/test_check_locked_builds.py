@@ -532,8 +532,7 @@ def test_fetch_url_retries_a_network_failure(tmp_path, monkeypatch, failures):
 
     assert destination.read_bytes() == b"sdist bytes"
     assert len(calls) == failures + 1
-    assert len(delays) == failures
-    assert delays == sorted(delays)
+    assert delays == [gate.FETCH_BACKOFF_SECONDS * n for n in range(1, failures + 1)]
 
 
 def test_fetch_url_fails_closed_after_its_last_attempt(tmp_path, monkeypatch):

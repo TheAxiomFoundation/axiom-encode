@@ -98,6 +98,14 @@ EXEMPT_WORKFLOWS = frozenset({"provision-selftest.yml"})
 
 SITE_PACKAGES = "$RUNNER_TEMP/axiom-verification-site-packages"
 BUILD_CONSTRAINTS = "$RUNNER_TEMP/axiom-verification-build-constraints.txt"
+BUILD_EXPORT_OPTIONS = {
+    "--no-config",
+    "--locked",
+    "--only-group",
+    "--no-emit-project",
+    "--format",
+    "--output-file",
+}
 COMPOSE_SITE_PACKAGES = "$RUNNER_TEMP/axiom-compose-site-packages"
 VERIFICATION_PROVISIONER = "provision_verification_supervisor.py"
 COMPOSE_PROVISIONER = "provision_axiom_compose_runtime.py"
@@ -259,7 +267,12 @@ def _locked_exports(commands: list[Command]) -> set[str]:
 
 
 def _locked_build_exports(commands: list[Command]) -> set[str]:
-    """Output files of hash-pinned exports of the lock's ``build`` group."""
+    """Output files of hash-pinned exports of the lock's ``build`` group.
+
+    The options must be exactly the export's own: uv accepts ``--no-emit-package``,
+    ``--prune`` and ``--no-group`` here and writes a file that omits backends, and
+    uv resolves whatever a constraints file omits freely.
+    """
     exported = set()
     for command in commands:
         parsed = _uv_arguments(command)
@@ -267,11 +280,9 @@ def _locked_build_exports(commands: list[Command]) -> set[str]:
             continue
         _, values, _ = parsed
         if (
-            "--locked" in values
-            and values.get("--only-group") == ["build"]
-            and values.keys().isdisjoint({"--group", "--all-groups", "--extra"})
-            and "--no-hashes" not in values
-            and "--output-file" in values
+            values.keys() == BUILD_EXPORT_OPTIONS
+            and values["--only-group"] == ["build"]
+            and values["--format"] == ["requirements-txt"]
         ):
             exported.add(values["--output-file"][-1])
     return exported
@@ -291,10 +302,10 @@ def _build_constraints_tampered(
     any command, even the install that reads it, or a line that only redirects,
     such as ``exec 3> "$build_constraints"``, empties it before uv reads it.
 
-    The step's text outside comments holds the variable's name only in those
-    places and the literal path only in that assignment. So a command the
-    reader drops (a loop header) or reads as plain words (``export``, ``read``,
-    ``printf -v``) cannot rebind it.
+    The step's text outside full-line comments holds the variable's name only
+    in those places and the literal path only in that assignment. So a command
+    the reader drops (a loop header) or reads as plain words (``export``,
+    ``read``, ``printf -v``) cannot rebind it.
     """
     names = {out.lstrip("$").strip("{}") for out in build_exported}
     if not names:
@@ -1195,6 +1206,33 @@ def test_writes_to_the_build_constraints_are_rejected(workflow, form):
     assert any("written outside their locked export" in v for v in violations), (
         violations
     )
+
+
+@pytest.mark.parametrize("workflow", STAGING)
+@pytest.mark.parametrize(
+    "option",
+    [
+        "--no-emit-package hatchling",
+        "--prune hatchling",
+        "--no-group build",
+        "--no-hashes",
+        "--only-group dev",
+        "--extra dev",
+    ],
+)
+def test_a_build_export_that_changes_its_contents_is_not_the_locked_export(
+    workflow, option
+):
+    workflows = _load_workflows()
+    step = _staging_step(workflow, workflows)
+    assert step["run"].count(BUILD_EXPORT_LINE) == 1
+    step["run"] = step["run"].replace(
+        BUILD_EXPORT_LINE, f"{BUILD_EXPORT_LINE.rstrip()} {option}\n"
+    )
+
+    violations, _ = _target_install_violations(workflows)
+
+    assert any("is not the locked `build`" in v for v in violations), violations
 
 
 def test_the_compose_runtime_install_builds_nothing():
