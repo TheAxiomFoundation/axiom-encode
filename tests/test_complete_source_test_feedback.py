@@ -580,6 +580,14 @@ def test_deduplicated_feedback_does_not_outrank_a_more_complete_candidate():
     # The folded (b)=18 demand still counts on the finding that absorbed it.
     assert sum(getattr(issue, "absorbed_obligations", 0) for issue in less_issues) == 1
 
+    # Residual work as main counted it before the fold: structure (b),
+    # control (b), numeric recall 18 and the folded (b)=18, against four
+    # missing boundary items. Without the folded demand the less complete
+    # candidate counts 3 and wins; with it the tie goes to fewer messages.
+    count = cli_module._validation_residual_obligation_count
+    assert count(less_issues) == 4
+    assert count(more_issues) == 4
+    assert len(less_issues) > len(more_issues)
     for order in ((less_complete, more_complete), (more_complete, less_complete)):
         assert cli_module._best_validation_retry_attempt(order) is more_complete
 
