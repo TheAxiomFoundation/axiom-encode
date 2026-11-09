@@ -43,22 +43,33 @@ def _clear_waiver_ledger_caches():
 EXPIRES = "2026-12-21"
 
 
-def _record(marker: str) -> str:
+def _record(marker: str, *, state: str = "active", expires: str = EXPIRES) -> str:
     return (
-        "    active:\n"
+        f"    {state}:\n"
         f'      fingerprint: "sha256:{marker * 64}"\n'
         '      owner: "@MaxGhenis"\n'
         '      issue: "https://github.com/TheAxiomFoundation/rulespec-us/issues/1980"\n'
-        f'      expires: "{EXPIRES}"\n'
+        f'      expires: "{expires}"\n'
     )
 
 
-def _write_ledger(fixture, *, covered: str | None, other: str | None) -> str:
+def _write_ledger(
+    fixture,
+    *,
+    covered: str | None,
+    other: str | None,
+    covered_expires: str = EXPIRES,
+    covered_pending: str | None = None,
+) -> str:
     """Write the waiver ledger, rebind the toolchain digest, return it."""
 
     text = "validate_failures:\n"
     if covered is not None:
-        text += f"  {fixture.rule_relative}:\n" + _record(covered)
+        text += f"  {fixture.rule_relative}:\n" + _record(
+            covered, expires=covered_expires
+        )
+        if covered_pending is not None:
+            text += _record(covered_pending, state="pending")
     if other is not None:
         text += f"  {OTHER}:\n" + _record(other)
     if covered is None and other is None:
@@ -97,6 +108,11 @@ def _per_file_payload(fixture, ledger_digest: str) -> dict:
     payload[cli.VALIDATION_WAIVER_BINDINGS_FIELD] = (
         waivers_module.build_file_waiver_bindings(ledger, {fixture.rule_relative})
     )
+    if payload.get("backend") == "codex":
+        # New Codex manifests always carry CLI provenance; only historical
+        # set-digest receipts may omit it.
+        payload["codex_cli_version"] = "codex-cli 0.0.0"
+        payload["codex_cli_sha256"] = "c" * 64
     return payload
 
 
@@ -179,7 +195,53 @@ def test_new_waiver_on_unwaived_covered_file_fails(frozen_repo):
     assert _admission_issues(frozen_repo) == []
     _write_ledger(frozen_repo, covered="a", other="b")
     _commit(frozen_repo.repo, "waive the covered file after signing")
-    assert _admission_issues(frozen_repo)
+    issues = _admission_issues(frozen_repo)
+    assert any(
+        f"waiver identity for {frozen_repo.rule_relative} is not current" in issue
+        for issue in issues
+    ), issues
+
+
+def test_covered_waiver_renewal_makes_per_file_manifest_stale(frozen_repo):
+    """A renewal binds a new record (owner, issue, expires), so it re-signs."""
+
+    digest = _write_ledger(frozen_repo, covered="a", other="b")
+    _sign(frozen_repo, _per_file_payload(frozen_repo, digest))
+    _commit(frozen_repo.repo, "per-file manifest")
+    _write_ledger(frozen_repo, covered="a", other="b", covered_expires="2027-01-15")
+    _commit(frozen_repo.repo, "renew the covered file's waiver")
+    issues = _admission_issues(frozen_repo)
+    assert any(
+        f"waiver identity for {frozen_repo.rule_relative} is not current" in issue
+        for issue in issues
+    ), issues
+
+
+def test_pending_record_on_covered_file_keeps_per_file_manifest_admissible(
+    frozen_repo,
+):
+    """A pending record never waives a failure, so it is not bound."""
+
+    digest = _write_ledger(frozen_repo, covered="a", other="b")
+    _sign(frozen_repo, _per_file_payload(frozen_repo, digest))
+    _commit(frozen_repo.repo, "per-file manifest")
+    _write_ledger(frozen_repo, covered="a", other="b", covered_pending="d")
+    _commit(frozen_repo.repo, "stage a pending record for the covered file")
+    assert _admission_issues(frozen_repo) == []
+
+
+def test_per_file_codex_manifest_requires_cli_provenance(frozen_repo):
+    digest = _write_ledger(frozen_repo, covered="a", other="b")
+    payload = _per_file_payload(frozen_repo, digest)
+    assert payload["backend"] == "codex"
+    del payload["codex_cli_version"]
+    del payload["codex_cli_sha256"]
+    _sign(frozen_repo, payload)
+    _commit(frozen_repo.repo, "per-file Codex manifest without CLI provenance")
+    issues = _admission_issues(frozen_repo)
+    assert any(
+        issue.endswith("does not match the exact model v5 schema") for issue in issues
+    ), issues
 
 
 def test_old_format_set_digest_manifest_still_verifies(frozen_repo):
@@ -218,23 +280,35 @@ def _malformed_null_bindings(payload: dict, _digest: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "mutate",
+    ("mutate", "expected"),
     [
-        _malformed_both_fields,
-        _malformed_schema,
-        _malformed_extra_file,
-        _malformed_no_files,
-        _malformed_bad_record,
-        _malformed_null_bindings,
+        (
+            _malformed_both_fields,
+            "unsupported both validation_waiver_set_sha256 and "
+            "validation_waiver_bindings",
+        ),
+        (_malformed_schema, "validation_waiver_bindings.schema is not supported"),
+        (
+            _malformed_extra_file,
+            "validation_waiver_bindings binds files it does not cover: "
+            "zz/unrelated.yaml",
+        ),
+        (_malformed_no_files, "validation_waiver_bindings.files is malformed"),
+        (
+            _malformed_bad_record,
+            "validation_waiver_bindings.files[0] waiver record identity is invalid",
+        ),
+        (_malformed_null_bindings, "validation_waiver_bindings is malformed"),
     ],
 )
-def test_malformed_bindings_fail_closed_at_admission(frozen_repo, mutate):
+def test_malformed_bindings_fail_closed_at_admission(frozen_repo, mutate, expected):
     digest = _write_ledger(frozen_repo, covered="a", other="b")
     payload = _per_file_payload(frozen_repo, digest)
     mutate(payload, digest)
     _sign(frozen_repo, payload)
     _commit(frozen_repo.repo, "malformed per-file manifest")
-    assert _admission_issues(frozen_repo)
+    issues = _admission_issues(frozen_repo)
+    assert any(expected in issue for issue in issues), issues
 
 
 def test_per_file_manifest_fails_when_validated_ledger_is_unavailable(frozen_repo):

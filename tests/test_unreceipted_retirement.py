@@ -1939,13 +1939,22 @@ def test_manifest_scan_recognition_matches_direct_schema_admission(schema_name):
         )
         assert admitted == (keys in recognized), (schema_name, sorted(keys))
     for backend in backends:
-        assert not _admission_shape_issues(schema, schema_name, backend) or (
-            schema_name
-            in {
-                "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
-                "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
-            }
-            and backend != "codex"
+        assert (
+            not _admission_shape_issues(schema, schema_name, backend)
+            or (
+                schema_name
+                in {
+                    "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
+                    "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+                }
+                and backend != "codex"
+            )
+            or (
+                # A per-file Codex manifest must carry CLI provenance; only
+                # historical set-digest Codex receipts may omit it.
+                schema_name == "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS"
+                and backend == "codex"
+            )
         )
 
 
