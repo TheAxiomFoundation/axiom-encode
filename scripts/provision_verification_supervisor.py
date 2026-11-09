@@ -1214,6 +1214,10 @@ _GITHUB_REMOTE_PATTERNS = (
 _HARDENED_GIT_FLAGS = (
     "--no-pager",
     "-c",
+    "core.commitGraph=false",
+    "-c",
+    "advice.graftFileDeprecated=false",
+    "-c",
     "core.fsmonitor=",
     "-c",
     "core.hooksPath=/dev/null",
@@ -1266,12 +1270,21 @@ def _hardened_git_environment(home: Path) -> dict[str, str]:
         "GIT_ATTR_NOSYSTEM": "1",
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_NO_REPLACE_OBJECTS": "1",
+        # An info/grafts file must not rewrite the history the version-bump
+        # check reads, as in version_provenance and cli (axiom-encode#2048).
+        "GIT_GRAFT_FILE": os.devnull,
         "GIT_NO_LAZY_FETCH": "1",
         "GIT_OPTIONAL_LOCKS": "0",
     }
 
 
-def _hardened_git(trusted_git: Path, git_dir: Path, home: Path, *args: str) -> bytes:
+def _hardened_git(
+    trusted_git: Path,
+    git_dir: Path,
+    home: Path,
+    *args: str,
+    stdin: bytes | None = None,
+) -> bytes:
     """Run one read-only, worktree-free Git query against a ROOT-OWNED git dir.
 
     Every invocation targets ``--git-dir`` only (never a worktree), so git never
@@ -1291,6 +1304,7 @@ def _hardened_git(trusted_git: Path, git_dir: Path, home: Path, *args: str) -> b
             ],
             check=True,
             capture_output=True,
+            input=stdin,
             env=_hardened_git_environment(home),
         )
     except (OSError, subprocess.CalledProcessError) as exc:
@@ -1485,15 +1499,20 @@ def _require_snapshot_version_bump(
         home,
         "diff",
         "--name-only",
-        "--diff-filter=ACMRT",
-        f"{version_commit}..{commit}",
-    ).splitlines()
+        "--no-renames",
+        "--diff-filter=ACDMRT",
+        "-z",
+        version_commit,
+        commit,
+    ).split("\0")
+    # Deletions and both sides of a move count, and -z keeps non-ASCII names
+    # unquoted, so no encoder change escapes the prefix test (axiom-encode#2048).
     unversioned = sorted(
-        {
-            path.strip()
-            for path in changed
-            if path.strip() and _is_encoder_versioned_path(path.strip())
-        }
+        {path for path in changed if path and _is_encoder_versioned_path(path)}
+    )
+    unversioned = sorted(
+        set(unversioned)
+        | _main_history_unversioned(trusted_git, git_dir, home, commit, version_commit)
     )
     if unversioned:
         raise SystemExit(
@@ -1501,6 +1520,99 @@ def _require_snapshot_version_bump(
             f"bump ({version_commit[:12]}) without a bump: {', '.join(unversioned)}"
         )
     return version_commit
+
+
+def _first_parent_pyproject_versions(
+    trusted_git: Path, git_dir: Path, home: Path, commit: str
+) -> list[tuple[str, str | None]]:
+    """(commit, pyproject version) for each first-parent commit of ``commit``
+    that changed pyproject.toml against its first parent, newest first."""
+    commits = _hardened_git_text(
+        trusted_git,
+        git_dir,
+        home,
+        "log",
+        "--first-parent",
+        "--format=%H",
+        commit,
+        "--",
+        "pyproject.toml",
+    ).split()
+    if not commits:
+        return []
+    data = _hardened_git(
+        trusted_git,
+        git_dir,
+        home,
+        "cat-file",
+        "--batch",
+        stdin="".join(f"{each}:pyproject.toml\n" for each in commits).encode(),
+    )
+    offset, history = 0, []
+    for each in commits:
+        end = data.index(b"\n", offset)
+        header = data[offset:end].decode().split()
+        offset = end + 1
+        version = None
+        if len(header) == 3:
+            size = int(header[2])
+            if header[1] == "blob":
+                version = _extract_pyproject_version(
+                    data[offset : offset + size].decode("utf-8", "replace")
+                )
+            offset += size + 1
+        history.append((each, version))
+    return history
+
+
+def _main_history_unversioned(
+    trusted_git: Path, git_dir: Path, home: Path, commit: str, version_commit: str
+) -> set[str]:
+    """The two first-parent rules of version_provenance.main_history_changes
+    (axiom-encode#2051 review), on the root-owned history.
+
+    A head below a version main already declared needs a bump of the version
+    files; so do encoder changes after main first reached the head's version
+    at another commit than the bump found by the latest-bump rule.
+    """
+    history = _first_parent_pyproject_versions(trusted_git, git_dir, home, commit)
+    current = _encoder_versions_at_ref(trusted_git, git_dir, home, commit).get(
+        "pyproject"
+    )
+    unversioned: set[str] = set()
+    keys = [
+        key
+        for _, version in history
+        if version and (key := _parse_numeric_version(version)) is not None
+    ]
+    current_key = _parse_numeric_version(current) if current else None
+    if keys and current_key is not None and max(keys) > current_key:
+        unversioned.update(_ENCODER_VERSION_FILES)
+    arrival = None
+    for index, (each, version) in enumerate(history):
+        if version != current:
+            continue
+        older = history[index + 1][1] if index + 1 < len(history) else None
+        if older != current:
+            arrival = each
+            break
+    if arrival is not None and arrival != version_commit:
+        changed = _hardened_git_text(
+            trusted_git,
+            git_dir,
+            home,
+            "diff",
+            "--name-only",
+            "--no-renames",
+            "--diff-filter=ACDMRT",
+            "-z",
+            arrival,
+            commit,
+        ).split("\0")
+        unversioned.update(
+            path for path in changed if path and _is_encoder_versioned_path(path)
+        )
+    return unversioned
 
 
 def _export_encoder_package(

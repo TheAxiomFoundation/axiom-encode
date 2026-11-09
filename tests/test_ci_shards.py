@@ -1005,7 +1005,14 @@ def test_workflow_runs_every_shard_and_reports_each():
     assert run_tests == {
         "name": "Run tests",
         "id": "tests",
-        "env": {ci_shards.SHARD_ENV: f"${{{{ matrix.shard }}}}/{len(shards)}"},
+        "env": {
+            ci_shards.SHARD_ENV: f"${{{{ matrix.shard }}}}/{len(shards)}",
+            # Only a bump pull request runs the version guard test (#2048).
+            "AXIOM_ENCODE_REQUIRE_VERSION_BUMP": (
+                "${{ startsWith(github.head_ref, 'automation/encoder-version-') "
+                "&& '1' || '' }}"
+            ),
+        },
         "run": (
             "set -e\n"
             f'export {ci_shards.REPORT_ENV}="$RUNNER_TEMP/shard-report"\n'
