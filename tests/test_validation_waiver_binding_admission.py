@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import re
 
 import pytest
@@ -511,3 +512,43 @@ def test_writer_shape_ignores_the_working_tree_and_a_pull_request_head(
     head = _git(frozen_repo.repo, "rev-parse", "HEAD").strip()
     _git(frozen_repo.repo, "update-ref", "refs/remotes/origin/main", head)
     assert cli._target_uses_per_file_waiver_bindings(frozen_repo.repo) is True
+
+
+def test_writer_shape_reads_the_protected_base_through_the_trusted_git_wrapper(
+    frozen_repo, tmp_path, monkeypatch
+):
+    """Signing runs under the supervisor, whose PATH resolves the wrapper."""
+
+    import shutil
+    import sys
+    from pathlib import Path
+
+    from scripts.provision_verification_supervisor import (
+        _install_trusted_git_wrapper,
+    )
+
+    tools = tmp_path / "trusted-tools"
+    tools.mkdir()
+    native = Path(shutil.which("git")).resolve()
+    _install_trusted_git_wrapper(tools, Path(sys.executable).resolve(), native)
+    _write_workflow_toolchain(
+        frozen_repo, '[workflow_toolchain]\nencoder_verifier = "main"\n'
+    )
+    _commit(frozen_repo.repo, "protected main mode")
+    monkeypatch.setenv("PATH", f"{tools}:{os.environ['PATH']}")
+    assert cli._target_uses_per_file_waiver_bindings(frozen_repo.repo) is True
+
+
+def test_writer_refuses_when_the_protected_base_cannot_be_resolved(
+    frozen_repo, monkeypatch
+):
+    real_run = cli.subprocess.run
+
+    def refusing_run(command, *args, **kwargs):
+        if command[:2] == ["git", "-C"] and "--verify" in command:
+            return cli.subprocess.CompletedProcess(command, 126, b"", b"refused")
+        return real_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(cli.subprocess, "run", refusing_run)
+    with pytest.raises(RuntimeError, match="cannot resolve the protected base"):
+        cli._target_uses_per_file_waiver_bindings(frozen_repo.repo)

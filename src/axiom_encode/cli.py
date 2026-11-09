@@ -27798,26 +27798,35 @@ def _target_uses_per_file_waiver_bindings(policy_repo_path: Path) -> bool:
 
     import tomllib
 
+    # The toolchain root is the checkout top level (toolchain.py), so the
+    # workflow toolchain path is relative to the repository root.
     root = load_rulespec_toolchain(policy_repo_path).root
+    relative = RULESPEC_WORKFLOW_TOOLCHAIN_RELATIVE
     base: str | None = None
     for ref in _WAIVER_SHAPE_PROTECTED_BASE_REFS:
-        try:
-            candidate = _rulespec_migration_git(
-                root, "rev-parse", "--verify", "--quiet", "--end-of-options", ref
-            ).strip()
-        except (OSError, RuntimeError):
-            continue
-        if re.fullmatch(r"[0-9a-f]{40}", candidate):
-            base = candidate
-            break
+        # The form the signing supervisor's trusted Git wrapper accepts.
+        completed = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", "--end-of-options", ref],
+            capture_output=True,
+            env=_rulespec_migration_git_environment(),
+            check=False,
+        )
+        if completed.returncode == 128:
+            continue  # the ref does not exist in this checkout
+        candidate = completed.stdout.decode("ascii", errors="replace").strip()
+        if (
+            completed.returncode != 0
+            or re.fullmatch(r"[0-9a-f]{40}", candidate) is None
+        ):
+            # A refused or failed query must not silently pick a shape.
+            raise RuntimeError(
+                "Cannot sign RuleSpec: cannot resolve the protected base "
+                f"{ref} of the target repository"
+            )
+        base = candidate
+        break
     if base is None:
         return False
-    prefix = _git_worktree_prefix(root)
-    relative = (
-        Path(prefix) / RULESPEC_WORKFLOW_TOOLCHAIN_RELATIVE
-        if prefix
-        else RULESPEC_WORKFLOW_TOOLCHAIN_RELATIVE
-    )
     try:
         listing = _rulespec_migration_git_bytes(
             root, "ls-tree", "-z", "--full-tree", "--", base, relative.as_posix()
