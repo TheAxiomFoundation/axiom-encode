@@ -6365,7 +6365,7 @@ _STATED_VALUE_CONDITION_LANGUAGE = re.compile(
     r"\b(?:"
     r"under(?=\s+(?:the\s+)?age\b|\s+\$?\d)|over(?=\s+(?:the\s+)?age\b|\s+\$?\d)|"
     r"(?:more|less|fewer|greater|younger|older)\s+than|at\s+(?:least|most)|"
-    r"between(?=\s+(?:the\s+)?ages?\b|\s+\$?\d)|"
+    r"between(?=\s+(?:the\s+)?ages?\b|\s+\$\d)|"
     r"exceed(?:s|ed|ing)?|up\s+to|(?:below|above)(?=\s+\$?\d)|"
     r"or\s+(?:more|less|older|younger|over|under)|"
     r"(?:has\s+|have\s+)?(?:not\s+)?attain(?:s|ed)?|"

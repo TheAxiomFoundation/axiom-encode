@@ -233,6 +233,10 @@ def test_attainment_aggregate_limits_and_lesser_of_are_conditions():
     assert not _covers("Income between $10,000 and $20,000.", "10000")
     # Positive control: a stated maximum amount (not "a maximum of") is a value.
     assert _covers("The maximum allotment is $975.", "975")
+    # A year range is not a comparison with the stated amount.
+    assert _covers(
+        "For taxable years between 2021 and 2025, the amount is $500.", "500"
+    )
 
 
 def test_relation_rules_keep_their_citations():
