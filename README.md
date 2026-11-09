@@ -270,6 +270,24 @@ composition modules and reporting rule-kind totals. It does not discover
 sibling repositories. Use `--json` when feeding the current inventory into
 status reports or dashboards.
 
+### Source-conflict compare
+
+`compare-sources` runs two RuleSpec modules that decide the same question on
+generated households and writes a conflict record with the households that get
+different results. A link file names the rules on each side and maps the shared
+facts to each module's inputs. The record's `review_state` is always
+`unreviewed`: a difference between two encodings is not yet a difference
+between two sources. See
+[docs/source-conflict-compare.md](docs/source-conflict-compare.md).
+
+```bash
+axiom-encode compare-sources \
+  --link docs/source-conflicts/examples/us-medicaid-community-engagement.link.json \
+  --rulespec-root /path/to/rulespec-us \
+  --axiom-rules-engine-path /path/to/axiom-rules-engine \
+  --out record.json
+```
+
 ## Run telemetry and repair manifests
 
 `axiom-encode encode` records each completed eval-backed run in the local
