@@ -1,0 +1,1 @@
+Validate frozen retired-apply inventories once at broker attachment and expose a read-only repository/path index backed by native tuples, rejecting state restoration and pickling. Scope repository and covered-source history proofs to each generated guard operation, keeping per-artifact inventory work constant as the frozen inventory grows.

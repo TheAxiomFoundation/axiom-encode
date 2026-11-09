@@ -1,0 +1,330 @@
+"""Fresh three-snapshot raw-manual differential with immutable local inputs.
+
+Every row executes all three actual cleaner prefixes and the final helper's
+length/idempotence checks. Equal prefix bytes plus verified identical suffix
+AST/dependencies establish equal inventories. If any prefix differs, all three
+actual complete recall functions execute and both numeric profiles are freshly
+extracted. No historical inventories, outcomes, or checkpoints are read.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import collections
+import copy
+import dataclasses
+import functools
+import hashlib
+import importlib.util
+import json
+import multiprocessing
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[2]
+MAIN = "86a1f911a338cb071e0ed660d1282714034b6dc4"
+REVIEWED = "bb068ca8444ca9445f93b4292788285e770c1e75"
+CORPUS = "8f7d60aaced28ee4252b9237f9d6e02360dc34bc"
+SOURCE = "src/axiom_encode/harness/source_completeness.py"
+METADATA = "src/axiom_encode/harness/manual_locator_metadata.py"
+VALIDATOR = "src/axiom_encode/harness/validator_pipeline.py"
+PROFILES = ("en-US", "legacy")
+sys.path.insert(0, str(ROOT / "src"))
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def git_bytes(*arguments):
+    return subprocess.check_output(["git", "-c", "core.fsmonitor=false", *arguments], cwd=ROOT)
+
+
+def definitions(source):
+    result = {}
+    for node in ast.parse(source).body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            result[node.name] = node
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    result[target.id] = node
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            result[node.target.id] = node
+    return result
+
+
+def reachable(defs, root):
+    result, pending = {}, [root]
+    while pending:
+        name = pending.pop()
+        if name in result or name not in defs:
+            continue
+        node = defs[name]
+        result[name] = ast.dump(node, include_attributes=False)
+        pending.extend(child.id for child in ast.walk(node) if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load) and child.id in defs)
+    return result
+
+
+class RemoveManualMasks(ast.NodeTransformer):
+    def visit_Assign(self, node):
+        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id == "_without_us_manual_locators":
+            return None
+        return self.generic_visit(node)
+
+    def visit_If(self, node):
+        if isinstance(node.test, ast.Compare) and isinstance(node.test.left, ast.Constant) and node.test.left.value == "/manual/":
+            return None
+        return self.generic_visit(node)
+
+
+def split_function(source):
+    full = definitions(source)["authoritative_numeric_recall_text"]
+    split = next(index for index, node in enumerate(full.body) if isinstance(node, ast.If) and isinstance(node.test, ast.Call) and isinstance(node.test.func, ast.Attribute) and isinstance(node.test.func.value, ast.Name) and node.test.func.value.id == "_US_CORPUS_CITATION_PATH")
+    prefix = copy.deepcopy(full)
+    prefix.name = "_audit_prefix"
+    prefix.body = prefix.body[:split + 1] + [ast.Return(value=ast.Name(id="cleaned", ctx=ast.Load()))]
+    suffix = ast.parse("def _audit_suffix(cleaned, corpus_citation_path):\n    return cleaned\n").body[0]
+    suffix.body = copy.deepcopy(full.body[split + 1:])
+    assert not any(isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id == "source_text" for node in ast.walk(suffix)), "Suffix reads original input"
+    generated = ast.Module(body=[prefix, suffix], type_ignores=[])
+    ast.fix_missing_locations(generated)
+    return generated, suffix
+
+
+def pipeline_proof(sources):
+    shared, suffixes, computations, imports = {}, {}, {}, {}
+    for name, source in sources.items():
+        defs = definitions(source)
+        stripped = copy.deepcopy(defs)
+        root = "authoritative_numeric_recall_text"
+        stripped[root] = RemoveManualMasks().visit(stripped[root])
+        shared[name] = reachable(stripped, root)
+        _, suffix = split_function(source)
+        defs["_audit_suffix"] = suffix
+        suffixes[name] = reachable(defs, "_audit_suffix")
+        computations[name] = reachable(defs, "source_states_explicit_computation")
+        imports[name] = {ast.dump(node, include_attributes=False) for node in ast.parse(source).body if isinstance(node, (ast.Import, ast.ImportFrom))}
+    for name in ("reviewed", "final"):
+        assert shared["main"] == shared[name], f"Shared recall dependencies changed: {name}"
+        assert suffixes["main"] == suffixes[name], f"Actual suffix dependencies changed: {name}"
+        assert computations["main"] == computations[name], f"Explicit computation dependencies changed: {name}"
+        assert imports["main"] <= imports[name], f"Main import removed: {name}"
+    return {"snapshots": list(sources), "all_equal": True, "shared_recall_definitions": sorted(shared["main"]), "shared_suffix_definitions": sorted(suffixes["main"]), "shared_explicit_computation_definitions": sorted(computations["main"]), "imports_main_subset_of_reviewed_and_final": True, "suffix_ast_sha256": sha(json.dumps(suffixes["main"], sort_keys=True).encode()), "shared_recall_ast_sha256": sha(json.dumps(shared["main"], sort_keys=True).encode())}
+
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def initialize(output):
+    global MODULES, PREFIX, RECALL, HELPERS, EXTRACT
+    output = Path(output)
+    MODULES, PREFIX, RECALL, HELPERS = {}, {}, {}, {}
+    for name in ("main", "reviewed", "final"):
+        module = load(f"r6_frozen_{name}", output / f"{name}-source.py")
+        metadata = output / f"{name}-metadata.py"
+        if metadata.exists():
+            frozen = load(f"r6_frozen_{name}_metadata", metadata)
+            for key, value in vars(frozen).items():
+                if key.isupper():
+                    setattr(module, key, value)
+        original = getattr(module, "_without_us_manual_locators", lambda text, *, corpus_citation_path: text)
+
+        @functools.lru_cache(maxsize=4096)
+        def helper(text, citation, _original=original, _name=name):
+            masked = _original(text, corpus_citation_path=citation)
+            assert len(masked) == len(text), f"Helper length failed: {_name}, {citation}"
+            if _name == "final":
+                assert _original(masked, corpus_citation_path=citation) == masked, f"Helper idempotence failed: {citation}"
+            digits = tuple(index for index, (before, after) in enumerate(zip(text, masked)) if before.isdigit() and before != after)
+            return masked, digits
+
+        HELPERS[name] = helper
+        module._without_us_manual_locators = lambda text, *, corpus_citation_path, _helper=helper: _helper(text, corpus_citation_path)[0]
+        generated, _ = split_function((output / f"{name}-source.py").read_bytes())
+        exec(compile(generated, "<actual-cleaner-pipeline-split>", "exec"), vars(module))
+        MODULES[name] = module
+        PREFIX[name] = functools.lru_cache(maxsize=4096)(lambda body, citation, _module=module: _module._audit_prefix(body, corpus_citation_path=citation))
+        RECALL[name] = functools.lru_cache(maxsize=4096)(lambda body, citation, _module=module: _module.authoritative_numeric_recall_text(body, corpus_citation_path=citation))
+    from axiom_encode.harness.validator_pipeline import extract_typed_numeric_inventory_occurrences_from_text
+
+    EXTRACT = functools.lru_cache(maxsize=8192)(lambda text, profile: tuple(dataclasses.asdict(item) for item in extract_typed_numeric_inventory_occurrences_from_text(text, profile=profile)))
+
+
+def semantic(inventory):
+    return collections.Counter(json.dumps({key: value for key, value in item.items() if key not in {"raw", "start", "end"}}, sort_keys=True) for item in inventory)
+
+
+def delta(old_inventory, new_inventory, body, profile):
+    removed, added = semantic(old_inventory) - semantic(new_inventory), semantic(new_inventory) - semantic(old_inventory)
+    if not added and not removed:
+        return None
+    old_values, new_values = (collections.Counter(item["value"] for item in inventory) for inventory in (old_inventory, new_inventory))
+    values = set(new_values - old_values) | set(old_values - new_values)
+    return {
+        "added_typed": [dict(json.loads(item), count=count) for item, count in added.items()],
+        "removed_typed": [dict(json.loads(item), count=count) for item, count in removed.items()],
+        "added_occurrences": dict(new_values - old_values), "removed_occurrences": dict(old_values - new_values),
+        "new_demands": sorted(set(new_values) - set(old_values)), "removed_demands": sorted(set(old_values) - set(new_values)),
+        "before_inventory": [item["value"] for item in old_inventory], "final_inventory": [item["value"] for item in new_inventory],
+        "contexts": [dict(item, context=body[max(0, item["start"] - 180):item["end"] + 260]) for item in EXTRACT(body, profile) if item["value"] in values],
+    }
+
+
+def evaluate(task):
+    path, line, raw, row = task
+    started = time.perf_counter()
+    body, citation = row.get("body") or "", row["citation_path"]
+    helpers = {name: helper(body, citation) for name, helper in HELPERS.items()}
+    if not MODULES["final"]._US_CORPUS_CITATION_PATH.match(citation):
+        assert all(masked == body for masked, _digits in helpers.values()), f"Non-US helper changed source: {citation}"
+    prefixes = {name: prefix(body, citation) for name, prefix in PREFIX.items()}
+    equal = len(set(prefixes.values())) == 1
+    new_masks = sorted(set(helpers["final"][1]) - set(helpers["reviewed"][1]))
+    result = {
+        "file": path, "line": line, "citation": citation, "jurisdiction": row["jurisdiction"], "row_sha256": sha(raw),
+        "proof": "equal_actual_prefixes_and_identical_suffix" if equal else "actual_full_recall_and_both_profiles_fresh_extraction",
+        "prefix_sha256": {name: sha(prefix.encode()) for name, prefix in prefixes.items()},
+        "helper_sha256": {name: sha(value[0].encode()) for name, value in helpers.items()},
+        "helper_available": {"main": False, "reviewed": True, "final": True},
+        "helper_masked_digit_counts": {name: len(value[1]) for name, value in helpers.items()},
+        "helper_final_length_and_idempotence": True, "helper_non_us_no_op": not MODULES["final"]._US_CORPUS_CITATION_PATH.match(citation),
+        "newly_masked_digit_positions_vs_reviewed": new_masks,
+    }
+    if new_masks:
+        result["new_mask_contexts"] = [{"position": index, "digit": body[index], "context": body[max(0, index - 180):index + 260]} for index in new_masks]
+    if not equal:
+        recalls = {name: function(body, citation) for name, function in RECALL.items()}
+        for name, text in recalls.items():
+            assert text == MODULES[name]._audit_suffix(prefixes[name], citation), f"Full recall/split mismatch: {name}, {citation}"
+        result["recall_sha256"] = {name: sha(text.encode()) for name, text in recalls.items()}
+        result["inventory_sha256"], result["changes"] = {}, {}
+        for profile in PROFILES:
+            inventories = {name: EXTRACT(text, profile) for name, text in recalls.items()}
+            result["inventory_sha256"][profile] = {name: sha(json.dumps(inventory, sort_keys=True).encode()) for name, inventory in inventories.items()}
+            for baseline in ("main", "reviewed"):
+                change = delta(inventories[baseline], inventories["final"], body, profile)
+                if change:
+                    result["changes"][f"{baseline}_to_final/{profile}"] = dict(change, citation=citation, file=path, line=line, heading=row.get("heading"))
+    result["seconds"] = time.perf_counter() - started
+    return result
+
+
+def verified_manifest():
+    manifest = json.loads((HERE / "corpus-manifest.json").read_bytes())
+    assert len(manifest) == 231 and sum(item["rows"] for item in manifest) == 68848
+    for item in manifest:
+        path = HERE / "input" / item["file"]
+        data = path.read_bytes()
+        assert sha(data) == item["sha256"], f"Input hash changed: {item['file']}"
+        assert sum(bool(raw.strip()) for raw in data.splitlines()) == item["rows"], f"Input count changed: {item['file']}"
+    return manifest
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--workers", type=int, choices=(1, 2, 4), default=1)
+    parser.add_argument("--limit", type=int, default=0, help="Preparatory smoke test only; never labelled full corpus")
+    parser.add_argument("--shape", choices=("raw", "sole-page"), default="raw", help="A synthetic sole Page 1 composition of every US body is supplementary evidence")
+    args = parser.parse_args()
+    print(json.dumps({"output": args.output.name, "runner": Path(__file__).name}), flush=True)
+    started = time.perf_counter()
+    output = args.output.resolve()
+    assert output.is_relative_to(HERE) and not output.exists()
+    sources = {"main": git_bytes("show", f"{MAIN}:{SOURCE}"), "reviewed": git_bytes("show", f"{REVIEWED}:{SOURCE}"), "final": (ROOT / SOURCE).read_bytes()}
+    metadata = {"reviewed": git_bytes("show", f"{REVIEWED}:{METADATA}"), "final": (ROOT / METADATA).read_bytes()}
+    validator = (ROOT / VALIDATOR).read_bytes()
+    assert validator == git_bytes("show", f"{MAIN}:{VALIDATOR}") == git_bytes("show", f"{REVIEWED}:{VALIDATOR}"), "Extractor changed"
+    proof = pipeline_proof(sources)
+    manifest = verified_manifest()
+    expected_rows = 68848 if args.shape == "raw" else 47238
+    info = {"main": MAIN, "reviewed_head": REVIEWED, "corpus_commit": CORPUS, "source_sha256": {name: sha(data) for name, data in sources.items()}, "metadata_sha256": {name: sha(data) for name, data in metadata.items()}, "validator_sha256": sha(validator), "corpus_manifest_sha256": sha((HERE / "corpus-manifest.json").read_bytes()), "files": len(manifest), "python": sys.version, "workers": args.workers, "profiles": PROFILES, "runner_sha256": sha(Path(__file__).read_bytes()), "historical_inventory_rows": 0, "resumed_rows": 0, "limit": args.limit, "shape": args.shape, "threads": {name: os.environ.get(name) for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS", "OMP_WAIT_POLICY")}}
+    output.mkdir(parents=True)
+    for name, data in sources.items():
+        (output / f"{name}-source.py").write_bytes(data)
+    for name, data in metadata.items():
+        (output / f"{name}-metadata.py").write_bytes(data)
+    (output / "provenance.json").write_text(json.dumps(info, indent=2) + "\n")
+    (output / "pipeline-proof.json").write_text(json.dumps(proof, indent=2) + "\n")
+    proof_counts, jurisdictions = collections.Counter(), collections.Counter()
+    seen, returned, processed = set(), set(), 0
+    metric_names = ("changed_inventories", "new_demands", "removed_demands", "added_occurrences", "removed_occurrences", "added_typed", "removed_typed")
+    counts = {f"{baseline}_to_final/{profile}": collections.Counter({key: 0 for key in metric_names}) for baseline in ("main", "reviewed") for profile in PROFILES}
+    changes = {key: [] for key in counts}
+    new_mask_rows, new_mask_digits, null_bodies = 0, 0, 0
+
+    def tasks():
+        nonlocal null_bodies
+        issued = 0
+        for item in manifest:
+            for line, raw in enumerate((HERE / "input" / item["file"]).read_bytes().splitlines(), 1):
+                if not raw.strip():
+                    continue
+                if args.limit and issued >= args.limit:
+                    return
+                row = json.loads(raw)
+                if args.shape == "sole-page":
+                    if not row["jurisdiction"].startswith("us-"):
+                        continue
+                    row = dict(row, body="Page 1\n\n" + (row.get("body") or ""))
+                key = item["file"], line
+                assert key not in seen and "/manual/" in row["citation_path"]
+                seen.add(key)
+                null_bodies += row.get("body") is None
+                issued += 1
+                yield item["file"], line, raw, row
+
+    print(json.dumps({"started": True, "expected_rows": args.limit or expected_rows, "profiles": PROFILES, "workers": args.workers, "fresh": True, "source_sha256": info["source_sha256"]}), flush=True)
+    with (output / "rows.jsonl").open("w") as dest, multiprocessing.Pool(args.workers, initialize, (str(output),)) as pool:
+        for item in pool.imap_unordered(evaluate, tasks(), chunksize=16):
+            key = item["file"], item["line"]
+            assert key not in returned
+            returned.add(key)
+            dest.write(json.dumps(item, separators=(",", ":")) + "\n")
+            processed += 1
+            proof_counts[item["proof"]] += 1
+            jurisdictions[item["jurisdiction"]] += 1
+            new_mask_rows += bool(item["newly_masked_digit_positions_vs_reviewed"])
+            new_mask_digits += len(item["newly_masked_digit_positions_vs_reviewed"])
+            for comparison, change in item.get("changes", {}).items():
+                changes[comparison].append(change)
+                count = counts[comparison]
+                count["changed_inventories"] += 1
+                for key in ("new_demands", "removed_demands"):
+                    count[key] += len(change[key])
+                for key in ("added_occurrences", "removed_occurrences"):
+                    count[key] += sum(change[key].values())
+                for key in ("added_typed", "removed_typed"):
+                    count[key] += sum(value["count"] for value in change[key])
+            if processed % 500 == 0:
+                dest.flush()
+                print(f"{processed}/{args.limit or expected_rows} rows in {time.perf_counter() - started:.1f}s", flush=True)
+    assert seen == returned and processed == (args.limit or expected_rows), "Missing or duplicate results"
+    assert sha((ROOT / SOURCE).read_bytes()) == info["source_sha256"]["final"], "Final source changed during audit"
+    assert sha((ROOT / METADATA).read_bytes()) == info["metadata_sha256"]["final"], "Final metadata changed during audit"
+    assert sha((ROOT / VALIDATOR).read_bytes()) == info["validator_sha256"], "Extractor changed during audit"
+    assert verified_manifest() == manifest
+    limitation = "Raw manual bodies only" if args.shape == "raw" else "Synthetic sole-page composition of every US row only"
+    summary = dict(info, rows=processed, full_corpus=not args.limit and args.shape == "raw", full_us_sole_page=not args.limit and args.shape == "sole-page", null_body_rows=null_bodies, proof_counts=dict(proof_counts), jurisdictions=dict(sorted(jurisdictions.items())), helper_final_length_passed_rows=processed, helper_final_idempotence_passed_rows=processed, newly_masked_rows_vs_reviewed=new_mask_rows, newly_masked_digit_positions_vs_reviewed=new_mask_digits, comparisons={key: dict(count) for key, count in counts.items()}, all_completion_guards_passed=True, elapsed_seconds=time.perf_counter() - started, limitations=limitation + "; no composed books, signing events, historical outcomes, or full artifact-completeness evaluation. Absence of new masks/removals does not prove every preexisting mask is nonoperative.")
+    for comparison, items in changes.items():
+        with (output / f"changes-{comparison.replace('/', '-')}.jsonl").open("w") as dest:
+            for item in sorted(items, key=lambda item: (item["file"], item["line"])):
+                dest.write(json.dumps(item, separators=(",", ":")) + "\n")
+    summary["output_sha256"] = {path.name: sha(path.read_bytes()) for path in output.glob("*.jsonl")}
+    (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    print(json.dumps(summary, indent=2), flush=True)
+
+
+if __name__ == "__main__":
+    main()

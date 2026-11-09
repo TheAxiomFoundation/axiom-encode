@@ -58,6 +58,8 @@ RUNS_PER_PAGE = 100
 # must not feed back into the streak.
 ENCODE_JOB_NAME = "Queue protected signed RuleSpec re-encode"
 ENCODE_STEP_NAME = "Encode, review, validate, and apply"
+MODEL_FREE_STEP_NAME = "Record model-free signing transaction"
+MODEL_SUCCESS_STEP_NAME = "Record completed model-capable generation"
 # At most this many per-run jobs lookups per evaluation; beyond the cap a
 # failure is counted without verification (conservative toward blocking).
 MAX_JOB_LOOKUPS = 10
@@ -155,8 +157,11 @@ def make_encode_job_checker(
 ) -> Callable[[dict], bool]:
     """Build a ``spent_model_tokens`` classifier backed by the jobs API.
 
-    A run counts as model-spending only when its encode job contains the
-    actual encode step with a non-skipped conclusion. Looking only at the
+    Failures conservatively count when the generic encode step was not
+    skipped, unless a completed queue-derived model-free marker proves no
+    generation was scheduled. Success resets require the distinct completed
+    model-capable queue marker; legacy generic successes are ambiguous.
+    Looking only at the
     enclosing job is insufficient: trusted-repair and other preflight steps
     can fail that job before the model runs. Past ``max_lookups`` (or on
     lookup errors) the classification is conservative toward blocking in both
@@ -186,6 +191,31 @@ def make_encode_job_checker(
         ]
         if not encode_jobs:
             return False
+        steps = [
+            step
+            for job in encode_jobs
+            for step in (job.get("steps") or [])
+            if isinstance(step, dict)
+        ]
+        # The legacy generic step also promotes existing bytes without a model.
+        # Its historical success is ambiguous and cannot erase failed attempts.
+        # New workflow markers are derived from the constructed operation queue,
+        # not a caller assertion. Unknown/error evidence retains conservative
+        # failure counting and never grants a success reset.
+        model_free = any(
+            step.get("name") == MODEL_FREE_STEP_NAME
+            and step.get("conclusion") == "success"
+            for step in steps
+        )
+        model_success = any(
+            step.get("name") == MODEL_SUCCESS_STEP_NAME
+            and step.get("conclusion") == "success"
+            for step in steps
+        )
+        if model_free:
+            return _unverified(run) if model_success else False
+        if run.get("conclusion") == "success":
+            return model_success
         encode_steps = [
             step
             for job in encode_jobs
@@ -327,10 +357,24 @@ def _render_summary(
         )
     elif not enforced:
         lines.append(
-            "- Report-only: queue dispatch, authenticated repair path, or override; "
+            "- Report-only: queue dispatch, authenticated repair path, "
+            "deterministic migration, or override; "
             "not blocking."
         )
     return lines
+
+
+def is_retired_source_metadata_plan(source_bundle_json: str) -> bool:
+    """Recognize the model-free lane; the protected resolver validates it."""
+
+    try:
+        payload = json.loads(source_bundle_json)
+    except (ValueError, RecursionError):
+        return False
+    return isinstance(payload, dict) and payload.get("schema_version") in (
+        "axiom-encode/retired-source-metadata-migration-plan/v1",
+        "axiom-encode/retired-source-metadata-migration-plan/v2",
+    )
 
 
 def main() -> int:
@@ -340,6 +384,9 @@ def main() -> int:
     workflow_file = os.environ.get("WORKFLOW_FILE", "targeted-signed-reencode.yml")
     queue_id = os.environ.get("QUEUE_ID", "").strip()
     repair_run_id = os.environ.get("REPAIR_RUN_ID", "").strip()
+    metadata_migration = is_retired_source_metadata_plan(
+        os.environ.get("SOURCE_BUNDLE_JSON", "")
+    )
     override = os.environ.get("ATTEMPT_BUDGET_OVERRIDE", "").strip().lower()
     try:
         budget = int(os.environ.get("ATTEMPT_BUDGET", str(DEFAULT_BUDGET)))
@@ -400,7 +447,12 @@ def main() -> int:
             lambda run_id: _fetch_run_jobs(repo=repo, token=token, run_id=run_id)
         ),
     )
-    enforced = queue_id == "" and repair_run_id == "" and override != "true"
+    enforced = (
+        queue_id == ""
+        and repair_run_id == ""
+        and not metadata_migration
+        and override != "true"
+    )
     blocked = enforced and decision.exhausted
     print(
         f"attempt-budget: citation={citation} streak={decision.streak} "
@@ -418,6 +470,11 @@ def main() -> int:
         print(
             "attempt-budget: repair replay is authenticated by the protected "
             "resolver; not blocking."
+        )
+    if metadata_migration:
+        print(
+            "attempt-budget: retired source metadata migration makes no model call; "
+            "not blocking."
         )
     return 1 if blocked else 0
 

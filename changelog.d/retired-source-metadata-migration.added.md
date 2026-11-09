@@ -1,0 +1,1 @@
+Add a model-free retired source metadata migration with base-bound plans, byte-local values removal and unique-ancestor citation collapse, fixed-point proof hash cascades, history-preserving receipts, and signed manifests admitted only after deterministic replay and exact change-set verification.

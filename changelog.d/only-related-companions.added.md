@@ -1,0 +1,1 @@
+Recognize the `only_related` Boolean relation projection without treating its function name as a factual input, and exercise explicit related-entity companion execution against the reviewed merged engine.
