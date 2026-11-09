@@ -18,7 +18,6 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
-import time
 from pathlib import Path
 
 import pytest
@@ -32,6 +31,7 @@ from axiom_encode.harness.validator_pipeline import (
     extract_typed_numeric_occurrences_from_text,
     numeric_value_is_grounded,
 )
+from tests.scaling import assert_linear_growth, lowest_work
 
 FIXTURES = Path(__file__).parent / "fixtures/source_completeness"
 CONTROL = "[complete-source-unit:formula-output] Source-stated control"
@@ -237,11 +237,30 @@ def test_stated_numeric_limit(text: str, expected: bool):
 
 
 def test_stated_numeric_limit_stays_linear_on_long_space_runs():
-    # Two adjacent unbounded space runs took about 36 s on this input.
-    started = time.perf_counter()
+    # Two adjacent unbounded space runs took about 36 s at 50,000 spaces.
+    # Detect their growth on finite smaller inputs so the quadratic regression
+    # can finish, then retain the original large output case after the guard.
+    def work(spaces):
+        source = "1" + " " * spaces
 
+        def check(matches):
+            assert not any(matches)
+
+        # One batch size for both lengths lifts the short sample above the
+        # CPU floor without changing the ratio.
+        return lowest_work(
+            lambda: [
+                completeness_module._STATED_NUMERIC_LIMIT.search(source)
+                for _ in range(8)
+            ],
+            check,
+        )
+
+    # A higher-order pattern can already take seconds a call at 256 spaces,
+    # so a short first step fails it before the pair below.
+    assert_linear_growth(work(32), work(128), input_ratio=4)
+    assert_linear_growth(work(256), work(4_096), input_ratio=16)
     assert not completeness_module._STATED_NUMERIC_LIMIT.search("1" + " " * 50_000)
-    assert time.perf_counter() - started < 2
 
 
 def test_manual_procedure_needs_no_paired_test_cases():
