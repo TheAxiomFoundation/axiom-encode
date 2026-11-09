@@ -39767,8 +39767,8 @@ def _source_conjoined_threshold_obligations(
             and container.start
             <= branch.start
             < container.start
-            + len(_source_branch_direct_text(container, branches=branches))
-            for container in branches
+            + len(_source_branch_direct_text(container, branches=boundary_branches))
+            for container in boundary_branches
         ):
             # As in _source_boundary_obligations: a detached heading inside its
             # structural owner's text is read once, on that owner.
