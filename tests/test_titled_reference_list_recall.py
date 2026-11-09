@@ -20,13 +20,16 @@ Invariants pinned here:
 * a parenthesis that does not name a provision keeps its item out of the list:
   a bare marker, a glued or wrapped parenthesis, one that opens with a number
   word or with a word carrying on the amount or limiting the reference, one
-  that holds a sentence break, and one that runs past 300 characters;
-* a number on the same line or a listed unit after the last title keeps the
-  whole list out of the pass;
+  with a full stop or semicolon and space before a capital or an opening
+  parenthesis, and one that runs past 300 characters;
+* a number on the same line or a listed unit right after the last title keeps
+  the whole list out of the pass;
 * a list on a line the extractor reads as a heading changes nothing, because
   the keyword that makes the line a heading stays;
 * on generated lists, including lists right after another reference, the pass
-  adds no demand.
+  adds no demand. One intended limit: when a later reference pattern reads
+  across the blank an earlier one left and takes numbers after the list, the
+  placeholder ends that reading and those numbers gain a demand.
 """
 
 from __future__ import annotations
@@ -564,6 +567,17 @@ def test_a_reference_before_the_list_gains_nothing_from_the_pass(
     assert not (before - after) - Counter([float(last)])
 
 
+def test_a_number_that_a_stitched_reference_took_gains_a_demand() -> None:
+    # Intended limit: "step 2" reads on through the space the Schedule reference
+    # leaves behind and takes the 8 after the list. The placeholder ends that
+    # reading, so the 8 gains a demand.
+    text = "step 2 and Schedule 5 (a), paragraph 6 (persons), 7 (students), 8"
+
+    with titled_list_pass_disabled():
+        assert recall_values(text) == []
+    assert recall_values(text) == [8.0]
+
+
 _UNITS_AFTER_A_TITLE = (
     "months",
     "month",
@@ -579,6 +593,8 @@ _UNITS_AFTER_A_TITLE = (
     "per  cent",
     "per\ncent",
     "percent",
+    "per centum",
+    "per  centum",
     "%",
     "pounds",
     "pound",
@@ -586,7 +602,11 @@ _UNITS_AFTER_A_TITLE = (
     "dollar",
     "euros",
     "euro",
+    "cents",
+    "cent",
     "pence",
+    "penny",
+    "pennies",
 )
 
 
@@ -625,6 +645,16 @@ def test_a_unit_after_the_last_title_keeps_the_list_out_of_the_pass(
             id="every-item-of-the-list-stays",
         ),
         pytest.param(
+            "section 5 (rates), 10 (gross) or 20 (net) per centum",
+            [10.0, 20.0],
+            id="per-centum",
+        ),
+        pytest.param(
+            "section 5 (rates), 10 (gross) or 20 (net) cents",
+            [10.0, 20.0],
+            id="cents",
+        ),
+        pytest.param(
             "section 5 (commencement), 1 (January) 2020",
             [1.0, 2020.0],
             id="number-on-the-same-line",
@@ -660,6 +690,8 @@ def test_a_number_after_the_last_title_may_follow_any_same_line_space(
         "percentage",
         "poundage",
         "pencel",
+        "pennyworth",
+        "century",
     ),
 )
 def test_a_word_that_only_begins_like_a_unit_leaves_the_list_alone(word: str) -> None:
