@@ -6967,11 +6967,13 @@ _US_DESIGNATION_LIST_CONTINUATION = re.compile(
 # citation when the next line goes on in lowercase prose, a qualifier word in
 # any case (`Of`, `In`), a comma, a parenthesis, a dash or a quote, so a
 # qualifier wrapped onto the next line (`(2)\nof 7 CFR 273.9`) still stops
-# the list; a U.S. corpus path (`us/...`, `us-co/...`) starts a new citation.
+# the list; a U.S. corpus path (`us/...`, `us-co/...`) or a line that starts
+# with another citation (`7 CFR 273.9`) starts a new citation.
 _US_DESIGNATION_LIST_TERMINAL = re.compile(
-    r"[ \t]*(?:$|[;.]|\r?\n(?!\s*(?:[,(\-–—\"'“‘]|"
+    r"[ \t]*(?:$|[;.]|\r?\n(?!\s*(?:[,:(§\-–—\"'“‘]|"
     r"(?:of|in|under|as|for|by|from|with|except|unless|subject|relating|"
-    r"other|are|is)\b|(?-i:[a-z])(?!s(?:-[a-z0-9]+)?/))))|"
+    r"other|are|is|see|which|including|that|where|when|if)\b|"
+    r"(?!us(?:-[a-z0-9]+)?/)(?-i:[a-z]))))|"
     r"\s+of\s+this\s+(?:section|subsection|paragraph|subparagraph|clause|"
     r"subclause|part|subpart|chapter|subchapter|title|rule|regulation)\b",
     flags=re.IGNORECASE,

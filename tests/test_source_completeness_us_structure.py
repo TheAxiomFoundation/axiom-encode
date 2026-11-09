@@ -431,6 +431,12 @@ def test_us_citation_list_counts_only_when_nothing_qualifies_it():
         "\n— as defined in 7 CFR 273.9",
         '\n"of 7 CFR 273.9"',
         "\nnote: only for aliens of 7 CFR 273.9",
+        "\nWhich are defined in 7 CFR 273.9",
+        "\nIncluding 7 CFR 273.9",
+        "\nSee 7 CFR 273.9",
+        "\n§ 273.9",
+        "\n: of 7 CFR 273.9",
+        "\nes/statute/x",
     ):
         assert _listed(f"7 CFR 273.4(a)(1) and (c)(1){tail}") == {("a", "1")}, tail
     assert _listed(
@@ -445,6 +451,7 @@ def test_us_citation_list_counts_only_when_nothing_qualifies_it():
         "\nNext line",
         "\n7 CFR 273.9",
         "\nus/regulation/7/273/9",
+        "\nus-co/regulation/1/2",
         " of this section",
     ):
         assert _listed(f"7 CFR 273.4(a)(1) and (c)(1){tail}") == {
@@ -513,7 +520,11 @@ def test_section_sign_list_after_another_title_names_only_its_first_branch():
         ("c", "1")
     }
     # Positive controls: the unit's own title, or no title at all.
-    for source in ("26 U.S.C. § 15(c)(1)-(4).", "§ 15(c)(1)-(4)."):
+    for source in (
+        "26 U.S.C. § 15(c)(1)-(4).",
+        "26 U.S.C.A. § 15(c)(1)-(4).",
+        "§ 15(c)(1)-(4).",
+    ):
         assert _listed(source, corpus) == {
             ("c", "1"),
             ("c", "2"),
