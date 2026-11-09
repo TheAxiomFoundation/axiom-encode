@@ -582,6 +582,7 @@ def _publish_fixture(tmp_path: Path, *, python: str) -> dict[str, Any]:
         "RULESPEC_CHECKOUT": "rulespec-us",
         "PRIOR_STATUS": "success",
         "PREPARED_BRANCH": LANE_BRANCH,
+        "SIGNED_LANE_HEAD": _git(checkout, "rev-parse", "HEAD"),
     }
     return {
         "env": env,
@@ -777,7 +778,16 @@ def _run_publish_step_only(
 
 
 @pytest.mark.parametrize(
-    "case", ["not-index-only", "two-commits", "unrefreshed-moved", "missing"]
+    "case",
+    [
+        "not-index-only",
+        "two-commits",
+        "two-commits-index-only-net",
+        "forged-head-before",
+        "forged-head-before-current",
+        "unrefreshed-moved",
+        "missing",
+    ],
 )
 def test_the_publish_step_refuses_evidence_it_cannot_recheck(
     tmp_path: Path, case: str
@@ -788,24 +798,44 @@ def test_the_publish_step_refuses_evidence_it_cannot_recheck(
     # Forge a lane head that the token-free refresh did not produce.
     _write(checkout, pi.INDEX_PATH.as_posix(), '{"forged": true}\n')
     _write(checkout, "us/statute/7/2015/smuggled.yaml", "smuggled: true\n")
-    if case == "two-commits":
+    head_before = lane_head
+    if case.startswith("two-commits"):
         _git(checkout, "add", "us/statute/7/2015/smuggled.yaml")
         _git(checkout, "commit", "-q", "-m", "smuggled")
         middle = _git(checkout, "rev-parse", "HEAD")
+        if case == "two-commits-index-only-net":
+            # The net diff from the lane head is index-only; only the
+            # single-parent check catches the extra commit.
+            _git(checkout, "rm", "-q", "us/statute/7/2015/smuggled.yaml")
         _git(checkout, "commit", "-q", "-am", "index")
         assert middle != lane_head
+    elif case.startswith("forged-head-before"):
+        # A smuggled commit, then an index-only commit on top of it, with
+        # evidence claiming the smuggled commit as the starting head.
+        _git(checkout, "add", "us/statute/7/2015/smuggled.yaml")
+        _git(checkout, "commit", "-q", "-m", "smuggled")
+        head_before = _git(checkout, "rev-parse", "HEAD")
+        if case == "forged-head-before":
+            _git(checkout, "commit", "-q", "-am", "index")
+        else:
+            _git(checkout, "checkout", "-q", "--", ".")
     else:
         _git(checkout, "add", "-A")
         _git(checkout, "commit", "-q", "-m", "forged")
     forged = _git(checkout, "rev-parse", "HEAD")
+    mode = "refreshed"
+    if case in {"unrefreshed-moved", "forged-head-before-current"}:
+        mode = "current"
+    if case == "forged-head-before-current":
+        assert forged == head_before
     evidence = fixture["runner"] / "targeted-reencode/provisions-index.json"
     if case != "missing":
         evidence.write_text(
             json.dumps(
                 {
                     "schema": "axiom-encode/provisions-index-refresh/v1",
-                    "mode": "current" if case == "unrefreshed-moved" else "refreshed",
-                    "head_before": lane_head,
+                    "mode": mode,
+                    "head_before": head_before,
                     "head_after": forged,
                 }
             )

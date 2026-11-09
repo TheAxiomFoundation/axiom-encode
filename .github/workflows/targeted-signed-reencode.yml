@@ -4937,8 +4937,13 @@ jobs:
         if: ${{ inputs.open_pr && steps.retired_source_metadata_request.outputs.enabled != 'true' }}
         env:
           COUNTRY: ${{ inputs.country }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
           set -euo pipefail
+          # Record the signed lane head before the reverse-index refresh runs;
+          # the publish step binds the refresh evidence to it.
+          lane_head="$(git -C "$RULESPEC_CHECKOUT" rev-parse HEAD)"
+          [[ "$lane_head" =~ ^[0-9a-f]{40}$ ]]
           workflow_python=(/opt/axiom-verification/python/bin/python -I)
           if [ ! -x "${workflow_python[0]}" ]; then
             workflow_python=("${AXIOM_TEST_PYTHON:-python}")
@@ -4946,7 +4951,10 @@ jobs:
           branch="$("${workflow_python[@]}" \
             axiom-encode/scripts/prepare_signed_backfill.py branch-name \
             "$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")"
-          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          {
+            echo "branch=$branch"
+            echo "lane_head=$lane_head"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Regenerate the provision-to-rules reverse index
         id: refresh_provisions_index
@@ -5017,18 +5025,22 @@ jobs:
           REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
           PREPARED_BRANCH: ${{ steps.reviewed_lane_pull_request_branch.outputs.branch }}
+          SIGNED_LANE_HEAD: ${{ steps.reviewed_lane_pull_request_branch.outputs.lane_head }}
         run: |
           set -euo pipefail
           test "$PRIOR_STATUS" = success
           test -n "$GH_TOKEN"
           repo="TheAxiomFoundation/rulespec-${COUNTRY}"
           # The reverse-index refresh step left the lane head it produced.
-          # Re-check its shape with git alone: a refresh adds exactly one
-          # commit that changes only the index; every other mode adds none.
+          # Re-check it with git and jq: the evidence starts at the signed
+          # lane head recorded before the refresh ran, a refresh adds exactly
+          # one commit that changes only the index, and other modes add none.
           provisions_index="$RUNNER_TEMP/targeted-reencode/provisions-index.json"
           index_head_before="$(jq -er '.head_before' "$provisions_index")"
           index_head_after="$(jq -er '.head_after' "$provisions_index")"
           index_mode="$(jq -er '.mode' "$provisions_index")"
+          test -n "$SIGNED_LANE_HEAD"
+          test "$index_head_before" = "$SIGNED_LANE_HEAD"
           test "$(git -C "$RULESPEC_CHECKOUT" rev-parse HEAD)" = "$index_head_after"
           if [ "$index_mode" = refreshed ]; then
             test "$(git -C "$RULESPEC_CHECKOUT" rev-list --parents -n 1 HEAD)" = \
