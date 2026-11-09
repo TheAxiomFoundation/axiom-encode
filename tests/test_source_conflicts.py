@@ -1247,3 +1247,178 @@ def test_an_input_no_compared_rule_reads_does_not_make_a_fact_two_sided(tmp_path
         "monthly_income": "nonzero",
         "agency_counts_income_as_hours": True,
     }
+
+
+# -- findings of the second review ------------------------------------------
+
+
+def test_unhashable_keys_and_deep_nesting_are_link_errors(tmp_path):
+    bad = tmp_path / "link.yaml"
+    bad.write_text(LINK.read_text() + "? [a, b]\n: 1\n")
+    with pytest.raises(LinkError, match="cannot parse"):
+        load_link(bad)
+    deep = tmp_path / "deep.json"
+    deep.write_text("[" * 100_000)
+    with pytest.raises(LinkError, match="cannot parse"):
+        load_link(deep)
+
+
+def test_link_hash_ignores_the_key_order_inside_the_period():
+    doc = document()
+    reordered = copy.deepcopy(doc)
+    reordered["period"] = {
+        key: doc["period"][key] for key in ("end", "start", "period_kind")
+    }
+    assert parse_link(reordered).sha256 == parse_link(doc).sha256
+
+
+def test_constraint_numbers_are_ascii_digits_only():
+    with pytest.raises(ExpressionError, match="unsupported text"):
+        parse_constraint("income >= ١", KINDS)
+
+
+def test_a_long_rule_chain_does_not_exhaust_the_stack():
+    payload = artifact_payload("a")
+    program = payload["program"]
+    program["derived"].append(
+        {"name": "c0", "id": "us:x#c0", "expr": {"kind": "input", "name": "bottom"}}
+    )
+    for index in range(1, 3000):
+        program["derived"].append(
+            {
+                "name": f"c{index}",
+                "id": f"us:x#c{index}",
+                "expr": {"kind": "derived", "name": f"c{index - 1}"},
+            }
+        )
+    nested = {"kind": "input", "name": "deep"}
+    for _ in range(3000):
+        nested = {"kind": "not", "item": nested}
+    program["derived"].append(
+        {
+            "name": "top",
+            "id": "us:x#top",
+            "expr": {
+                "kind": "and",
+                "items": [
+                    nested,
+                    {
+                        "kind": "comparison",
+                        "left": {"kind": "derived", "name": "c2999"},
+                        "op": "gte",
+                        "right": {
+                            "kind": "literal",
+                            "value": {"kind": "integer", "value": 5},
+                        },
+                    },
+                ],
+            },
+        }
+    )
+    artifact = Artifact(payload, "2027-01-01")
+    derived, _, slots = artifact.closure(["us:x#top"])
+    assert len(derived) == 3001 and set(slots) == {"deep", "bottom"}
+    (threshold,) = artifact.thresholds(["top"], {})
+    assert (threshold.value, threshold.inputs) == (Decimal(5), frozenset({"bottom"}))
+    assert artifact.input_classes(["top"]) == {"deep": {BOOL}}
+
+
+def test_a_rule_that_reads_itself_ends():
+    payload = artifact_payload("a")
+    payload["program"]["derived"].append(
+        {
+            "name": "loop",
+            "id": "us:x#loop",
+            "expr": {
+                "kind": "comparison",
+                "left": {
+                    "kind": "add",
+                    "items": [
+                        {"kind": "derived", "name": "loop"},
+                        {"kind": "input", "name": "x"},
+                    ],
+                },
+                "op": "gte",
+                "right": {"kind": "literal", "value": {"kind": "integer", "value": 3}},
+            },
+        }
+    )
+    artifact = Artifact(payload, "2027-01-01")
+    assert artifact.fold({"kind": "derived", "name": "loop"}, {}) is None
+    (threshold,) = artifact.thresholds(["loop"], {})
+    assert threshold.inputs == frozenset({"x"})
+
+
+def test_effective_to_is_inclusive():
+    payload = artifact_payload("a")
+    parameter = payload["program"]["parameters"][0]
+    parameter["versions"] = [
+        {
+            "effective_from": "0001-01-01",
+            "effective_to": "2027-01-01",
+            "values": {"0": {"kind": "integer", "value": 80}},
+        },
+        {
+            "effective_from": "2027-01-02",
+            "values": {"0": {"kind": "integer", "value": 100}},
+        },
+    ]
+    for start, expected in (("2027-01-01", 80), ("2027-01-02", 100)):
+        artifact = Artifact(payload, start)
+        (threshold,) = artifact.thresholds(["work_requirement_met"], {})
+        assert threshold.value == Decimal(expected)
+
+
+def test_combine_any_names_only_the_outputs_that_hold_on_a_yes(tmp_path):
+    doc = document()
+    del doc["guards"]
+    doc["b"]["outputs"] = [B + "individual_in_scope", B + "hours_path_met"]
+    doc["fixed"][B + "input.individual_is_covered"]["value"] = True
+    doc["facts"]["agency_counts_income_as_hours"]["values"] = [False]
+    record = run_compare(doc, tmp_path)
+    # individual_in_scope holds for everyone, so side b always says yes.
+    assert record["counts"]["differ"] > 0
+    for group in record["witness_groups"]:
+        assert group["direction"] == {"a": False, "b": True}
+        assert group["deciding_rules"]["b"] == [B + "individual_in_scope"]
+        assert group["witness"]["b"]["outputs"][B + "hours_path_met"] is False
+
+
+def test_guard_rules_count_for_read_by_and_integer_sums_are_integers(tmp_path):
+    doc = document()
+    del doc["fixed"][B + "input.individual_is_covered"]
+    doc["facts"]["covered"] = {"kind": "bool", "b": B + "input.individual_is_covered"}
+    doc["b"]["outputs"] = [B + "individual_in_scope"]
+    doc["guards"]["b"] = [B + "hours_path_met"]
+    for name in ("work_hours", "service_hours"):
+        doc["facts"][name] = {
+            **doc["facts"][name],
+            "kind": "integer",
+            "values": [0, 80],
+        }
+    doc["derived"][A + "input.monthly_total_hours"]["kind"] = "integer"
+    doc["constraints"] = []
+    engine = FakeEngine()
+    record = run_compare(doc, tmp_path, engine)
+    # monthly_income reaches side b only through the guard rule.
+    assert record["facts"]["monthly_income"]["read_by"] == ["b"]
+    assert record["facts"]["monthly_income"]["thresholds"]
+    totals = {
+        json.dumps(item["value"])
+        for item in engine.requests[0]["dataset"]["inputs"]
+        if item["name"] == A + "input.monthly_total_hours"
+    }
+    assert totals == {
+        '{"kind": "integer", "value": 0}',
+        '{"kind": "integer", "value": 80}',
+        '{"kind": "integer", "value": 160}',
+    }
+    assert record["counts"]["skipped_by_guard"] > 0
+
+
+def test_guard_gate_message_names_the_sample(tmp_path):
+    doc = document()
+    doc["fixed"][B + "input.individual_is_covered"]["value"] = False
+    doc["sampling"] = {"max_combinations": 60}
+    with pytest.raises(LinkGateError, match="households of the sample of 60 from 224"):
+        run_compare(doc, tmp_path)

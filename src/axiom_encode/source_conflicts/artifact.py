@@ -73,7 +73,6 @@ class Artifact:
         self._derived_by_id = {
             rule["id"]: rule for rule in self._derived.values() if rule.get("id")
         }
-        self._inputs_memo: dict[str, frozenset[str]] = {}
 
     # -- lookup -----------------------------------------------------------
 
@@ -131,11 +130,14 @@ class Artifact:
     # -- dependencies -----------------------------------------------------
 
     def _walk(self, node: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
-        yield node
-        if node.get("kind") == "literal":
-            return
-        for child in _children(node):
-            yield from self._walk(child)
+        """Every node of an expression, parents first; a literal's value is not a node."""
+
+        stack = [node]
+        while stack:
+            current = stack.pop()
+            yield current
+            if current.get("kind") != "literal":
+                stack.extend(reversed(list(_children(current))))
 
     def closure(
         self, rule_ids: Iterable[str]
@@ -185,21 +187,24 @@ class Artifact:
         return sorted(found)
 
     def _expression_inputs(self, node: Mapping[str, Any]) -> frozenset[str]:
-        slots: set[str] = set()
-        for item in self._walk(node):
-            if item.get("kind") == "input":
-                slots.add(item.get("name"))
-            elif item.get("kind") == "derived":
-                slots |= self._rule_inputs(item.get("name"))
-        return frozenset(slots)
+        """The input slots an expression reads, through every rule it depends on."""
 
-    def _rule_inputs(self, name: str) -> frozenset[str]:
-        if name not in self._inputs_memo:
-            self._inputs_memo[name] = frozenset()  # a cycle reads nothing new
-            expression = self.expression(self._derived.get(name) or {})
-            if expression is not None:
-                self._inputs_memo[name] = self._expression_inputs(expression)
-        return self._inputs_memo[name]
+        slots: set[str] = set()
+        seen: set[str] = set()
+        pending = [node]
+        while pending:
+            for item in self._walk(pending.pop()):
+                kind = item.get("kind")
+                if kind == "input":
+                    slots.add(item.get("name"))
+                elif kind == "derived" and item.get("name") not in seen:
+                    seen.add(item.get("name"))
+                    expression = self.expression(
+                        self._derived.get(item.get("name")) or {}
+                    )
+                    if expression is not None:
+                        pending.append(expression)
+        return frozenset(slots)
 
     # -- kinds ------------------------------------------------------------
 
@@ -236,38 +241,40 @@ class Artifact:
 
         classes: dict[str, set[str]] = {}
 
-        def visit(node: Mapping[str, Any], context: str | None) -> None:
-            kind = node.get("kind")
-            if kind == "input":
-                if context is not None:
-                    classes.setdefault(node.get("name"), set()).add(context)
-                return
-            if kind == "literal":
-                return
-            if kind == "comparison":
-                left, right = node.get("left"), node.get("right")
-                if isinstance(left, dict) and isinstance(right, dict):
-                    visit(left, self._static_class(right))
-                    visit(right, self._static_class(left))
-                return
-            if kind == "if":
-                for key, value in node.items():
-                    if isinstance(value, dict) and "kind" in value:
-                        visit(value, BOOL if key == "condition" else context)
-                return
-            if kind in ("and", "or", "not"):
-                child_context = BOOL
-            elif kind in _NUMERIC_NODES:
-                child_context = NUMERIC
-            else:
-                child_context = None
-            for child in _children(node):
-                visit(child, child_context)
+        def visit(root: Mapping[str, Any]) -> None:
+            pending: list[tuple[Mapping[str, Any], str | None]] = [(root, None)]
+            while pending:
+                node, context = pending.pop()
+                kind = node.get("kind")
+                if kind == "input":
+                    if context is not None:
+                        classes.setdefault(node.get("name"), set()).add(context)
+                elif kind == "literal":
+                    continue
+                elif kind == "comparison":
+                    left, right = node.get("left"), node.get("right")
+                    if isinstance(left, dict) and isinstance(right, dict):
+                        pending.append((left, self._static_class(right)))
+                        pending.append((right, self._static_class(left)))
+                elif kind == "if":
+                    for key, value in node.items():
+                        if isinstance(value, dict) and "kind" in value:
+                            pending.append(
+                                (value, BOOL if key == "condition" else context)
+                            )
+                else:
+                    if kind in ("and", "or", "not"):
+                        child_context = BOOL
+                    elif kind in _NUMERIC_NODES:
+                        child_context = NUMERIC
+                    else:
+                        child_context = None
+                    pending.extend((child, child_context) for child in _children(node))
 
         for name in derived_names:
             expression = self.expression(self._derived.get(name) or {})
             if expression is not None:
-                visit(expression, None)
+                visit(expression)
         return classes
 
     # -- constants --------------------------------------------------------
