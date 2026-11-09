@@ -154,7 +154,12 @@ def test_committed_fixtures_are_visible_public_and_unlabeled():
         assert not metadata["citation"].startswith(PRIVATE_CITATION_PREFIXES), (
             directory.name
         )
-        private_paths = ("12-cfr/1005", "12-cfr/1006", "regulations/12/1005")
+        private_paths = (
+            "12-cfr/1005",
+            "12-cfr/1006",
+            "regulations/12/1005",
+            "regulations/12/1006",
+        )
         for key, relative in metadata["context_imports"].items():
             assert not any(part in key for part in private_paths), directory.name
             assert not any(part in relative for part in private_paths), directory.name

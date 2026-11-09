@@ -71,7 +71,7 @@ changes (`REPLAY_TRIGGER_PATHS`: `src/axiom_encode/harness/`,
 that the replay loads changes, the job passes without a replay. Renames count
 both paths. The merge queue and pushes to `main` always replay. A manual
 dispatch on a branch has no base snapshot: it checks errors, drift and
-controls only. The replay takes 30 to 55 s with 4 workers; the whole job took
+controls only. The replay takes 20 to 55 s with 4 workers; the whole job took
 67 s on a GitHub runner.
 
 The job fails when:
@@ -139,8 +139,8 @@ check in production; the replay finds 653 to 695 findings each.
 - Only the completeness analyzer runs. Compilation, companion-test execution,
   oracles, proof-excerpt checks (`source_context` is not passed), literal
   grounding, guards, reviewers and signing are not measured. A fixture that
-  replays clean can still fail CI. About half of the rejected cases also had
-  a finding of such a kind.
+  replays clean can still fail CI, and many rejected candidates also had a
+  finding of such a kind.
 - Context comes from the workspace snapshot, not from the live checkout.
   `extract --rulespec-root` fills a gap from a RuleSpec checkout at the run's
   `rulespec_ref`.
