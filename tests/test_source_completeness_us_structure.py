@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import functools
 
+import pytest
+
 from axiom_encode.cli import _validation_retry_branch_locator
 from axiom_encode.harness import source_completeness as completeness
 from axiom_encode.harness.source_completeness import (
@@ -166,6 +168,34 @@ def test_german_labels_are_unchanged():
 
     assert "de/statute/estg/32a(2) [Absatz 2, Nummer 1]" in rendered
     assert "de/statute/estg/32a(1) [Absatz 1]" in rendered
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "at/statute/estg/33",
+        "ch/statute/dbg/36",
+        "uk/statute/ita/2007/35",
+        "nz/statute/act/public/2018/0032",
+        "/us/statute/26/15",
+        "usa/statute/26/15",
+        "",
+    ],
+)
+def test_non_us_labels_keep_the_base_wording(citation: str):
+    # Only U.S. paths switch to English, so other jurisdictions keep main's
+    # issue text and issue fingerprints.
+    branch = completeness.SourceStructureBranch(
+        path=("1", "satz-2"),
+        kind="sentence",
+        label="2",
+        text="Satz zwei.",
+        start=0,
+        end=10,
+    )
+    assert completeness._branch_citation(citation, branch) == (
+        f"{citation}(1) [Absatz 1, Satz 2]"
+    )
 
 
 def test_us_sources_do_not_recognize_german_sentence_markers():
@@ -392,6 +422,15 @@ def test_us_citation_list_counts_only_when_nothing_qualifies_it():
         " (relating to aliens) of 7 CFR 273.9",
         " are not implemented",
         " and 7 CFR 273.41(b)",
+        "\nof 7 CFR 273.9",
+        "\n  in 7 CFR 273.9",
+        "\n(relating to aliens) of 7 CFR 273.9",
+        "\nOf 7 CFR 273.9",
+        "\nIn 7 CFR 273.9",
+        "\n- of 7 CFR 273.9",
+        "\n— as defined in 7 CFR 273.9",
+        '\n"of 7 CFR 273.9"',
+        "\nnote: only for aliens of 7 CFR 273.9",
     ):
         assert _listed(f"7 CFR 273.4(a)(1) and (c)(1){tail}") == {("a", "1")}, tail
     assert _listed(
@@ -399,7 +438,15 @@ def test_us_citation_list_counts_only_when_nothing_qualifies_it():
     ) == {("c", "1", "a")}
     # Positive controls: the list ends the citation, says `of this section`,
     # or is followed by another citation of this unit.
-    for tail in ("", ".", "; 7 CFR 273.9", "\nNext line", " of this section"):
+    for tail in (
+        "",
+        ".",
+        "; 7 CFR 273.9",
+        "\nNext line",
+        "\n7 CFR 273.9",
+        "\nus/regulation/7/273/9",
+        " of this section",
+    ):
         assert _listed(f"7 CFR 273.4(a)(1) and (c)(1){tail}") == {
             ("a", "1"),
             ("c", "1"),
@@ -447,6 +494,43 @@ def test_list_shapes_that_name_no_branch_here_leave_it_reported():
     issues = structure("7 CFR 273.4(a)(1)(i), (ii)")
     assert not any(roman_ii in issue for issue in issues), issues
     assert not any("273/4(a)(1)(i) [" in issue for issue in issues), issues
+
+
+def test_section_sign_list_after_another_title_names_only_its_first_branch():
+    corpus = "us/statute/26/15"
+    # Another title's section 15 is not this unit: the list is not read.
+    for source in (
+        "7 U.S.C. § 15(c)(1)-(4).",
+        "7 CFR § 15(c)(1), (2).",
+        "Pub. L. 99-514, § 15(c)(1)-(2).",
+        "7 U.S.C. 2014; § 15(c)(1)-(2).",
+    ):
+        assert _listed(source, corpus) == {("c", "1")}, source
+    # A CFR section is `part.section`: `7 CFR § 4` is part 4, not 273.4.
+    for source in ("7 CFR § 4(a)(1)-(3).", "7 C.F.R. § 4(a)(1)-(3)."):
+        assert _listed(source) == {("a", "1")}, source
+    assert _listed("N.C. Gen. Stat. § 15(c)(1)-(2).", "us-nc/statute/105/15") == {
+        ("c", "1")
+    }
+    # Positive controls: the unit's own title, or no title at all.
+    for source in ("26 U.S.C. § 15(c)(1)-(4).", "§ 15(c)(1)-(4)."):
+        assert _listed(source, corpus) == {
+            ("c", "1"),
+            ("c", "2"),
+            ("c", "3"),
+            ("c", "4"),
+        }, source
+
+
+def test_bare_section_sign_does_not_keep_a_list_on_this_unit():
+    # `§ 4(b) of the Act` names no title or part, so it is not proof that the
+    # list before it stays on 7 CFR 273.4.
+    assert ("a", "2") not in _listed("7 CFR 273.4(a)(1), (2), and § 4(b) of the Act")
+    assert _listed("7 CFR 273.4(a)(1), (2), and 7 CFR 273.4(b)") == {
+        ("a", "1"),
+        ("a", "2"),
+        ("b",),
+    }
 
 
 def test_retained_punctuation_computation_keeps_the_owner_printed_case():

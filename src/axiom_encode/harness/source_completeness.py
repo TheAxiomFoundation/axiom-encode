@@ -6835,17 +6835,13 @@ def _paths_from_source_reference(
     reference_aliases = _authoritative_source_unit_aliases(corpus_citation_path)
     current_section = corpus_citation_path.rstrip("/").rsplit("/", 1)[-1]
     # Another citation of this unit after a designation list (`(a)(1), (2),
-    # and 7 CFR 273.4(b)`) keeps the list on this unit.
+    # and 7 CFR 273.4(b)`) keeps the list on this unit. A bare `§ 4(b)` names
+    # no title or part (`§ 4(b) of the Act`), so it does not count.
     same_unit_reference = (
         re.compile(
             "|".join(
-                (
-                    *(
-                        rf"{re.escape(reference)}(?![A-Za-z0-9_])(?!\.\d)"
-                        for reference in reference_aliases
-                    ),
-                    rf"§{{1,2}}\s*{re.escape(current_section)}(?![A-Za-z0-9_-])(?!\.\d)",
-                )
+                rf"{re.escape(reference)}(?![A-Za-z0-9_])(?!\.\d)"
+                for reference in reference_aliases
             ),
             flags=re.IGNORECASE,
         )
@@ -6910,7 +6906,9 @@ def _paths_from_source_reference(
             paths.add(
                 (*base_components, *_keyword_path_components(trailing, base_components))
             )
-            if us_source:
+            if us_source and _section_sign_names_this_unit(
+                value[: match.start()], corpus_citation_path
+            ):
                 paths.update(
                     _us_designation_list_continuations(
                         value,
@@ -6924,6 +6922,36 @@ def _paths_from_source_reference(
     return paths
 
 
+_US_CODE_TITLE_BEFORE_SECTION_SIGN = re.compile(
+    r"(?<![A-Za-z0-9])(?P<title>\d+)\s*U\.?\s?S\.?\s?C\.?(?:\s*A\.?)?\s*$",
+    flags=re.IGNORECASE,
+)
+
+
+def _section_sign_names_this_unit(prefix: str, corpus_citation_path: str) -> bool:
+    """Tell whether a bare `§ 15` before a designation list cites this unit.
+
+    A bare `§ <section>` names no title, part or code, so its list is read
+    only when nothing precedes it, or when the unit's own U.S. Code title
+    does (`26 U.S.C. § 15` for `us/statute/26/15`). After any other code
+    name or citation (`7 U.S.C. § 15`, `7 CFR § 4`, `N.C. Gen. Stat. § 15`,
+    `Pub. L. 99-514, § 15`, `7 U.S.C. 2014; § 15`) only the first
+    designation counts.
+    """
+
+    if not prefix.strip():
+        return True
+    parts = corpus_citation_path.strip().split("/")
+    if len(parts) < 3 or parts[0].lower() != "us" or parts[1] != "statute":
+        return False
+    match = _US_CODE_TITLE_BEFORE_SECTION_SIGN.search(prefix)
+    return (
+        match is not None
+        and match.group("title").lstrip("0") == parts[2].lstrip("0")
+        and not prefix[: match.start()].strip()
+    )
+
+
 _US_DESIGNATION_LIST_CONTINUATION = re.compile(
     r"[ \t]*(?P<separator>,[ \t]*(?:(?:and|or)[ \t]+)?|[ \t]+(?:and|or)[ \t]+|"
     r"[ \t]*(?:-|–|—|through|thru|to)[ \t]*)"
@@ -6935,9 +6963,15 @@ _US_DESIGNATION_LIST_CONTINUATION = re.compile(
 # followed by another citation of the same unit. Anything else (`of 7 CFR
 # 273.9`, `in 7 CFR 273.9`, `under ...`, `as defined in ...`, `, 7 CFR
 # 273.9`, `(relating to ...) of ...`, `are not implemented`) may qualify the
-# listed items, so the list is not read.
+# listed items, so the list is not read. A line break does not end the
+# citation when the next line goes on in lowercase prose, a qualifier word in
+# any case (`Of`, `In`), a comma, a parenthesis, a dash or a quote, so a
+# qualifier wrapped onto the next line (`(2)\nof 7 CFR 273.9`) still stops
+# the list; a U.S. corpus path (`us/...`, `us-co/...`) starts a new citation.
 _US_DESIGNATION_LIST_TERMINAL = re.compile(
-    r"[ \t]*(?:$|[;.\r\n])|"
+    r"[ \t]*(?:$|[;.]|\r?\n(?!\s*(?:[,(\-–—\"'“‘]|"
+    r"(?:of|in|under|as|for|by|from|with|except|unless|subject|relating|"
+    r"other|are|is)\b|(?-i:[a-z])(?!s(?:-[a-z0-9]+)?/))))|"
     r"\s+of\s+this\s+(?:section|subsection|paragraph|subparagraph|clause|"
     r"subclause|part|subpart|chapter|subchapter|title|rule|regulation)\b",
     flags=re.IGNORECASE,
@@ -14386,7 +14420,7 @@ def _branch_citation(
         ]
         path = "".join(f"({component})" for component in branch.path)
         return f"{corpus_citation_path}{path} [{', '.join(components)}]"
-    if not _uses_german_branch_labels(corpus_citation_path):
+    if _uses_english_branch_labels(corpus_citation_path):
         return _english_branch_citation(corpus_citation_path, branch)
     citation = corpus_citation_path
     components: list[str] = []
@@ -14402,14 +14436,15 @@ def _branch_citation(
     return f"{citation}({branch.path[0]}) [{', '.join(components)}]"
 
 
-_GERMAN_CORPUS_CITATION_PATH = re.compile(r"de(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
+def _uses_english_branch_labels(corpus_citation_path: str) -> bool:
+    """Only U.S. sources get English labels.
 
+    Every other jurisdiction (German, Austrian and Swiss law included) and
+    unscoped legacy output keep Absatz/Nummer/Buchstabe, so their issue text
+    and fingerprints do not change.
+    """
 
-def _uses_german_branch_labels(corpus_citation_path: str) -> bool:
-    """German (and unscoped legacy) sources keep Absatz/Nummer/Buchstabe."""
-
-    path = corpus_citation_path.strip()
-    return not path or _GERMAN_CORPUS_CITATION_PATH.match(path) is not None
+    return _US_CORPUS_CITATION_PATH.match(corpus_citation_path.strip()) is not None
 
 
 def _english_branch_citation(
@@ -14418,7 +14453,7 @@ def _english_branch_citation(
 ) -> str:
     """Render `us/regulation/7/273/4(a)(6)(i)(A) [paragraph (a)(6)(i)(A)]`.
 
-    Repair feedback for a non-German source names the branch with its full
+    Repair feedback for a U.S. source names the branch with its full
     parenthesized designation instead of German Absatz/Nummer/Buchstabe
     labels. Only the wording differs; the branch is the same. This is a
     locator, not the citation form a deferral `reason` must use (a U.S. Code
