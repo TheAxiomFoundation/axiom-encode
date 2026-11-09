@@ -1150,7 +1150,9 @@ def _takes_the_locked_build_constraints(
     `build` group export before the install. Nothing else in the step may
     mention it, by variable or by literal path, and neither the export nor an
     install that reads it may redirect, so no redirect, copy or second
-    assignment can swap or truncate the file.
+    assignment can swap or truncate the file. This reads commands, so it cannot
+    see a loop header that rebinds the variable; the staging steps' text count
+    in ``test_verification_site_packages_lock.py`` does.
     """
     words = invocation.command.words
     if invocation.subcommand != "pip install":
@@ -1368,6 +1370,15 @@ _EXPORT = (
                     '> "$RUNNER_TEMP/axiom-verification-build-constraints.txt"'
                 ),
                 "aliased": 'other="$build_constraints"',
+                "guarded-expansion": ': > "${build_constraints:?}"',
+                "guarded-expansion-copy": 'cp -f /etc/hosts "${build_constraints:?}"',
+                "guarded-expansion-alias": 'other="${build_constraints:?}"',
+                "export": "export build_constraints=/etc/hosts",
+                "declare": "declare build_constraints=/etc/hosts",
+                "readonly": "readonly build_constraints=/etc/hosts",
+                "append-assignment": "build_constraints+=.bak",
+                "read": "read -r build_constraints < /etc/hosts",
+                "printf-v": "printf -v build_constraints %s /etc/hosts",
             }.items()
         ),
     ],

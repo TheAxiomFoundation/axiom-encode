@@ -1051,9 +1051,18 @@ def test_required_check_is_the_gate_over_all_shards():
     # its run. locked-builds (scripts/check_locked_builds.py) is one result for
     # both of its Python legs.
     assert gate["needs"] == ["test", "real-engine", "locked-builds"]
-    assert _rendered_names("locked-builds", CI["jobs"]["locked-builds"]) == {
+    locked_builds = CI["jobs"]["locked-builds"]
+    assert _rendered_names("locked-builds", locked_builds) == {
         "locked builds (3.13)",
         "locked builds (3.14)",
+    }
+    # Its result means only what the gate reads if a failure cannot pass and the
+    # job's last act is the check.
+    assert "continue-on-error" not in locked_builds
+    assert all("continue-on-error" not in step for step in locked_builds["steps"])
+    assert locked_builds["steps"][-1] == {
+        "name": "Build every locked source against the locked build backends",
+        "run": ".venv/bin/python scripts/check_locked_builds.py",
     }
     checkout, check = gate["steps"]
     assert checkout.keys() == {"uses"}

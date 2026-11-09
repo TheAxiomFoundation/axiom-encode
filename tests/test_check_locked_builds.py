@@ -9,9 +9,11 @@ tag expansion), and every way the orchestration must fail closed.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import subprocess
 import tomllib
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -48,9 +50,11 @@ CP314_LINUX = _tags((3, 14), LINUX_X86_64)
 CP313_MACOS = _tags((3, 13), MACOS_ARM64)
 
 
-def _locked(name: str, version: str) -> dict:
+def _locked(name: str, version: str | None = None) -> dict:
     [entry] = [
-        p for p in LOCK["package"] if p["name"] == name and p.get("version") == version
+        p
+        for p in LOCK["package"]
+        if p["name"] == name and version in {None, p.get("version")}
     ]
     return entry
 
@@ -131,9 +135,9 @@ def test_pyroaring_builds_from_its_sdist_only_on_314():
     assert gate.needs_build(pyroaring, CP314_LINUX)
 
 
-def test_pure_python_wheels_never_build():
-    assert not gate.needs_build(_locked("pyyaml", "6.0.3"), CP314_LINUX)
-    assert not gate.needs_build(_locked("hatchling", "1.32.4"), CP313_LINUX)
+def test_a_package_with_a_compatible_wheel_never_builds():
+    assert not gate.needs_build(_locked("pyyaml"), CP314_LINUX)
+    assert not gate.needs_build(_locked("hatchling"), CP313_LINUX)
 
 
 @pytest.mark.parametrize("tags", [CP313_LINUX, CP314_LINUX, CP313_MACOS])
@@ -501,6 +505,47 @@ def test_a_tampered_sdist_is_never_built(tmp_path):
     with pytest.raises(gate.CheckFailed):
         world.check()
     assert not any(call[:2] == ["uv", "build"] for call in world.calls)
+
+
+def _flaky_urlopen(monkeypatch, failures: int) -> tuple[list[str], list[float]]:
+    calls: list[str] = []
+    delays: list[float] = []
+
+    def urlopen(url, timeout):
+        calls.append(url)
+        assert timeout > 0
+        if len(calls) <= failures:
+            raise urllib.error.URLError("connection reset")
+        return io.BytesIO(b"sdist bytes")
+
+    monkeypatch.setattr(gate.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(gate.time, "sleep", delays.append)
+    return calls, delays
+
+
+@pytest.mark.parametrize("failures", range(gate.FETCH_ATTEMPTS))
+def test_fetch_url_retries_a_network_failure(tmp_path, monkeypatch, failures):
+    calls, delays = _flaky_urlopen(monkeypatch, failures)
+    destination = tmp_path / "pkg.tar.gz"
+
+    gate.fetch_url("https://files.example/pkg.tar.gz", destination)
+
+    assert destination.read_bytes() == b"sdist bytes"
+    assert len(calls) == failures + 1
+    assert len(delays) == failures
+    assert delays == sorted(delays)
+
+
+def test_fetch_url_fails_closed_after_its_last_attempt(tmp_path, monkeypatch):
+    calls, delays = _flaky_urlopen(monkeypatch, gate.FETCH_ATTEMPTS)
+    destination = tmp_path / "pkg.tar.gz"
+
+    with pytest.raises(gate.CheckFailed, match=r"could not fetch .*connection reset"):
+        gate.fetch_url("https://files.example/pkg.tar.gz", destination)
+
+    assert len(calls) == gate.FETCH_ATTEMPTS
+    assert len(delays) == gate.FETCH_ATTEMPTS - 1
+    assert not destination.exists()
 
 
 def test_main_reports_a_failure(monkeypatch, capsys):

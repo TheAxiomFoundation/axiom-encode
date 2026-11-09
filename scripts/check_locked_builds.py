@@ -14,11 +14,14 @@ fails CI instead of floating in production.
 
 The sources a locked install builds are:
 
-- each registry package the lock pins (all extras, and the ``build`` group
-  itself) that has no wheel compatible with this interpreter, from its
-  hash-checked sdist;
+- each registry package the lock pins (all extras) that has no wheel
+  compatible with this interpreter, from its hash-checked sdist;
 - each git dependency, at its locked commit;
 - the project.
+
+A package in the ``build`` group with no compatible wheel fails the check,
+because a backend built from source would itself build with whatever backends
+the index serves.
 
 The registry sdists are found two ways, which must agree: from the lock's
 wheel tags against this interpreter's tags, and from what uv reports it
@@ -35,12 +38,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 import urllib.parse
 import urllib.request
@@ -57,6 +62,8 @@ BUILD_GROUP = "build"
 # `uv pip install` reports each source build on stderr as `Built name==version`.
 BUILT = re.compile(r"^\s*Built (?P<name>[A-Za-z0-9._-]+)==(?P<version>\S+)\s*$")
 GIT_URL = re.compile(r"^git\+(?P<repository>https://[^@#?]+)@(?P<commit>[0-9a-f]{40})$")
+FETCH_ATTEMPTS = 3
+FETCH_BACKOFF_SECONDS = 5
 
 Runner = Callable[..., subprocess.CompletedProcess]
 Fetcher = Callable[[str, Path], None]
@@ -211,8 +218,19 @@ def sha256_file(path: Path) -> str:
 
 
 def fetch_url(url: str, destination: Path) -> None:
-    with urllib.request.urlopen(url, timeout=120) as response:  # noqa: S310
-        destination.write_bytes(response.read())
+    """Download ``url``, trying again after a network failure. A failed last
+    attempt fails the check; the caller checks the bytes against uv.lock."""
+    for attempt in range(1, FETCH_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=120) as response:  # noqa: S310
+                body = response.read()
+        except (OSError, http.client.HTTPException) as error:
+            if attempt == FETCH_ATTEMPTS:
+                raise CheckFailed(f"could not fetch {url}: {error}") from error
+            time.sleep(FETCH_BACKOFF_SECONDS * attempt)
+        else:
+            destination.write_bytes(body)
+            return
 
 
 def clean_environment() -> dict[str, str]:

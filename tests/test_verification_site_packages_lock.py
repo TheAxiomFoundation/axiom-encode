@@ -278,18 +278,23 @@ def _locked_build_exports(commands: list[Command]) -> set[str]:
 
 
 def _build_constraints_tampered(
-    commands: list[Command], build_exported: set[str]
+    commands: list[Command], build_exported: set[str], script: str
 ) -> bool:
     """Whether anything but the locked export writes, swaps or aliases the
     build constraints.
 
-    The file may be named by its variable or by its literal path. A command may
-    name it only as its one bare assignment, as the ``--output-file`` of a
-    locked ``build`` group export, or as the ``--build-constraints`` value of an
-    install, spelled with the variable. No redirection may name it:
-    ``> "$RUNNER_TEMP/...-build-constraints.txt"`` on any command, even the
-    install that reads it, or a line that only redirects, such as
-    ``exec 3> "$build_constraints"``, empties it before uv reads it.
+    The file may be named by its variable, in any expansion, or by its literal
+    path. A command may name it only as its one bare assignment, as the
+    ``--output-file`` of a locked ``build`` group export, or as the
+    ``--build-constraints`` value of an install, spelled with the variable. No
+    redirection may name it: ``> "$RUNNER_TEMP/...-build-constraints.txt"`` on
+    any command, even the install that reads it, or a line that only redirects,
+    such as ``exec 3> "$build_constraints"``, empties it before uv reads it.
+
+    The step's text outside comments holds the variable's name only in those
+    places and the literal path only in that assignment. So a command the
+    reader drops (a loop header) or reads as plain words (``export``, ``read``,
+    ``printf -v``) cannot rebind it.
     """
     names = {out.lstrip("$").strip("{}") for out in build_exported}
     if not names:
@@ -300,12 +305,14 @@ def _build_constraints_tampered(
         for assignment in command.assignments
         if assignment.partition("=")[0] in names
     } - {""}
-    tokens = {f"${name}" for name in names} | {"${" + name + "}" for name in names}
+    alternatives = "|".join(re.escape(name) for name in sorted(names))
+    expansion = re.compile(rf"\$\{{?(?:{alternatives})\b")
+    name_in_text = re.compile(rf"\b(?:{alternatives})\b")
 
     def names_it(text: str) -> bool:
-        return any(token in text for token in tokens | literals)
+        return bool(expansion.search(text)) or any(lit in text for lit in literals)
 
-    definitions = 0
+    definitions = consumers = 0
     for command in commands:
         if any(names_it(target) for _, target in command.redirects):
             return True
@@ -332,6 +339,7 @@ def _build_constraints_tampered(
             if _locked_build_exports([command]) and len(words) == len(
                 values["--output-file"]
             ):
+                consumers += len(words)
                 continue
             return True
         constraints = values.get("--build-constraints", [])
@@ -342,9 +350,16 @@ def _build_constraints_tampered(
             and len(words) == len(constraints)
             and not any(literal in word for word in words for literal in literals)
         ):
+            consumers += len(words)
             continue
         return True
-    return definitions != 1
+    lines = list(_code_lines([script]))
+    return (
+        definitions != 1
+        or sum(len(name_in_text.findall(line)) for line in lines)
+        != definitions + consumers
+        or sum(line.count(lit) for line in lines for lit in literals) != definitions
+    )
 
 
 def _build_problem(
@@ -386,7 +401,7 @@ def _target_install_violations(
         commands = _commands(name, job, step["run"])
         exported = _locked_exports(commands)
         build_exported = _locked_build_exports(commands)
-        tampered = _build_constraints_tampered(commands, build_exported)
+        tampered = _build_constraints_tampered(commands, build_exported, step["run"])
         for command in commands:
             if _runs_pip(command):
                 if {"install", "uninstall"} & set(command.words):
@@ -1148,6 +1163,19 @@ TAMPERING = {
     "exec-redirect-literal": f'exec 3> "{BUILD_CONSTRAINTS}"',
     "bare-redirect-variable": '> "$build_constraints"',
     "bare-redirect-literal": f'> "{BUILD_CONSTRAINTS}"',
+    # Other expansions of the variable, and rebinding it without a plain
+    # assignment.
+    "truncate-guarded-expansion": ': > "${build_constraints:?}"',
+    "copy-guarded-expansion": 'cp -f /etc/hosts "${build_constraints:?}"',
+    "alias-guarded-expansion": 'other="${build_constraints:?}"',
+    "export": "export build_constraints=/etc/hosts",
+    "declare": "declare build_constraints=/etc/hosts",
+    "readonly": "readonly build_constraints=/etc/hosts",
+    "append-assignment": "build_constraints+=.bak",
+    "read": "read -r build_constraints < /etc/hosts",
+    "printf-v": "printf -v build_constraints %s /etc/hosts",
+    "loop-header": "for build_constraints in /etc/hosts; do :; done",
+    "loop-header-literal": f'for f in "{BUILD_CONSTRAINTS}"; do :; done',
 }
 BUILD_EXPORT_LINE = '  --format requirements-txt --output-file "$build_constraints"\n'
 
