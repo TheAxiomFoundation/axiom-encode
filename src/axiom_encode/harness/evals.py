@@ -11571,8 +11571,7 @@ def _format_branch_coverage_plan(deferral_anchor: str) -> str:
   their boundary-input or deferral form); do not invent a local fact for it.
   For a branch that states a condition, amount, or computation, a missing
   input, a missing date type, or a missing relation is not a deferral ground.
-- DEFER a branch only when:
-  {_DEFERRAL_GROUNDS}. A purpose, basis, or heading
+- DEFER a branch only when {_DEFERRAL_GROUNDS}. A purpose, basis, or heading
   leaf is covered by the `source:` or proof excerpt of the rule that consumes
   it, not by a deferral. Write each deferred output as
   `{deferral_anchor}/<marker>/<marker>#<name>` with slash-separated markers;
