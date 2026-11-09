@@ -1,3 +1,7 @@
+## 0.2.2351
+
+- Keep titled reference lists out of complete-source numeric recall (#2149)
+
 ## 0.2.2350
 
 - Harden optional retired-manifest inventory reconciliation (#1566)
