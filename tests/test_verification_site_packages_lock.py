@@ -35,10 +35,11 @@ provisioner's selftest:
   locked tree. The verification supervisor's must be the staged tree or, in the
   issue233 diagnostic, the purelib of a ``uv sync --locked``/``--frozen``
   environment. That job runs no other uv call and installs nothing with pip,
-  and nothing else in it names the purelib, assigns ``site`` again or names the
-  environment outside its ``bin/`` directory.
-- No provision runs after a failed step (``always()``, ``failure()`` or
-  ``cancelled()`` in its ``if:``), and a staging step carries no key that
+  and nothing else in it names the purelib, assigns ``site`` or ``python_path``
+  again or names the environment outside its ``bin/`` directory.
+- A provision's ``if:`` holds no status function (``success()``, ``always()``,
+  ``failure()`` or ``cancelled()``), so the runner's implicit ``success()``
+  keeps it from running after a failed step. A staging step carries no key that
   would let its ``diff`` fail without stopping the job.
 
 The staging steps are then executed against a fake ``uv`` to prove their
@@ -134,30 +135,43 @@ PURELIB = (
     '\'import sysconfig; print(sysconfig.get_paths()["purelib"])\')"'
 )
 # What names a locked environment's purelib, or the environment outside bin/.
-PURELIB_NAME = re.compile(r"\$\{?site\b|\.venv(?!/bin/)")
-PURELIB_ASSIGNMENT = re.compile(r"\bsite\+?=")
+PURELIB_NAME = re.compile(r"\$\{?site\b|\.venv(?!/bin\b)")
+PURELIB_ASSIGNMENT = re.compile(r"(?:^|[\s;&|(])site\+?=")
+INTERPRETER_ASSIGNMENT = re.compile(r"(?<![-\w])python_path\+?=")
 # A step with one of these in its `if:` runs after an earlier step failed.
-RUNS_AFTER_FAILURE = re.compile(r"always\(\)|failure\(\)|cancelled\(\)", re.IGNORECASE)
+RUNS_AFTER_FAILURE = re.compile(
+    r"\b(?:always|failure|cancelled|success)\s*\(", re.IGNORECASE
+)
 
 
 def _logical_lines(script: str) -> list[str]:
-    """``script``'s lines, with continuations joined as bash joins them: a
-    comment ends at its newline, even after a trailing backslash, and a blank
-    line ends a continuation."""
+    """``script``'s lines, joined as bash joins them: a backslash-newline
+    disappears and leaves nothing between its neighbours, a full-line comment
+    starts only where a word can start and ends at its newline, even after a
+    trailing backslash, and a blank line ends a continuation."""
     lines: list[str] = []
+
+    def finish(text: str) -> None:
+        if text.strip(" \t"):
+            lines.append(re.sub(r"[ \t]+", " ", text.strip(" \t")))
+
     pending = ""
-    for raw in script.splitlines():
-        text = raw.strip()
-        comment = text.startswith("#")
-        if text.endswith("\\") and not comment:
-            pending += f"{text[:-1]} "
+    physical = script.split("\n")
+    for number, raw in enumerate(physical, start=1):
+        body = raw.lstrip(" \t")
+        if body.startswith("#") and (
+            raw != body or not pending or pending[-1] in " \t"
+        ):
+            finish(pending)
+            pending = ""
             continue
-        logical = pending if comment else f"{pending}{text}"
+        text = pending + raw
+        backslashes = len(text) - len(text.rstrip("\\"))
+        if backslashes % 2 and number < len(physical):
+            pending = text[:-1]
+            continue
+        finish(text)
         pending = ""
-        if logical.strip():
-            lines.append(re.sub(r"\s+", " ", logical.strip()))
-    if pending.strip():
-        lines.append(re.sub(r"\s+", " ", pending.strip()))
     return lines
 
 
@@ -347,11 +361,19 @@ def _provision(command: Command) -> tuple[str, argparse.Namespace | None] | None
         PYTHON.fullmatch(command.program) or command.words[0].startswith("$")
     ):
         program = workflow_shell.python_program(command.words)
-        if program is None:
-            return None
-        script, arguments = _provisioner(program[0]), program[1]
+        if program is not None:
+            script, arguments = _provisioner(program[0]), program[1]
     if script is None:
-        return None
+        # Behind a wrapper the reader doesn't know ("$SUDO", chronic, coverage
+        # run), the script is the word its --site-packages follows.
+        for index, word in enumerate(command.words):
+            script, arguments = _provisioner(word), index + 1
+            if script and any(
+                later.startswith("--site") for later in command.words[arguments:]
+            ):
+                break
+        else:
+            return None
     try:
         with contextlib.redirect_stderr(io.StringIO()):
             return script, _parser(script).parse_args(list(command.words[arguments:]))
@@ -369,12 +391,17 @@ def _changes_an_environment(commands: list[Command]) -> bool:
 
 
 def _names_more_than_its_purelib(job: dict) -> bool:
-    """Whether ``job``'s text, comments aside, names the purelib beyond its one
-    assignment and its one provision, or the environment outside ``bin/``."""
-    lines = list(_code_lines(_strings(job)))
-    return (
-        sum(len(PURELIB_NAME.findall(line)) for line in lines) != 1
-        or sum(len(PURELIB_ASSIGNMENT.findall(line)) for line in lines) != 1
+    """Whether ``job``'s text, comments and step names aside, names the purelib
+    beyond its one assignment and its one provision, names the environment
+    outside ``bin/``, or assigns its interpreter more than once."""
+    steps = [
+        {key: value for key, value in step.items() if key != "name"}
+        for step in job.get("steps", [])
+    ]
+    lines = list(_code_lines(_strings({**job, "steps": steps})))
+    return any(
+        sum(len(pattern.findall(line)) for line in lines) != 1
+        for pattern in (PURELIB_NAME, PURELIB_ASSIGNMENT, INTERPRETER_ASSIGNMENT)
     )
 
 
@@ -426,9 +453,10 @@ def _provision_violations(
                     and parsed[0] == "sync"
                     and parsed[1].keys() & {"--locked", "--frozen"}
                 ]
+                logical = _logical_lines(run)
                 if (
-                    f'python_path="{python}"' not in run
-                    or PURELIB not in _logical_lines(run)
+                    f'python_path="{python}"' not in logical
+                    or PURELIB not in logical
                     or command.words[0] != "$python_path"
                 ):
                     violations.append(f"{where}: $site is not {python}'s purelib")
@@ -525,10 +553,11 @@ def _tree_violations(
             _code_lines(_strings({k: v for k, v in step.items() if k != "name"}))
         )
         for tree in PROTECTED_TREES:
-            if sum(line.count(tree) for line in lines) > consumed[tree]:
+            mentions = sum(line.count(tree) for line in lines)
+            if mentions != consumed[tree]:
                 violations.append(
-                    f"{where}: its text names {tree} outside its locked install "
-                    "and provisioner"
+                    f"{where}: its text names {tree} {mentions} time(s) for "
+                    f"{consumed[tree]} locked install(s) and provision(s)"
                 )
     return violations, dict(consumers)
 
@@ -653,19 +682,37 @@ def test_staging_step_is_exactly_the_locked_install(workflow):
             id="a-continued-comment-still-ends-at-its-newline",
         ),
         pytest.param("a \\\n\nc\n", ["a", "c"], id="a-blank-line-ends-a-continuation"),
+        pytest.param("a\\\nb\n", ["ab"], id="a-glued-continuation-adds-no-space"),
+        pytest.param("a\\\n  b\n", ["a b"], id="the-next-line-keeps-its-indent"),
+        pytest.param(
+            "a\\\n#b\nc\n", ["a#b", "c"], id="a-hash-inside-a-word-opens-no-comment"
+        ),
+        pytest.param(
+            "a\\\n  #b\nc\n", ["a", "c"], id="a-hash-after-blanks-opens-a-comment"
+        ),
+        pytest.param(
+            "a \\\\\nb\n", ["a \\\\", "b"], id="an-escaped-backslash-ends-the-line"
+        ),
+        pytest.param(
+            "a \\ \nb\n", ["a \\", "b"], id="a-backslash-before-a-blank-ends-the-line"
+        ),
+        pytest.param("a \\", ["a \\"], id="a-backslash-at-the-end-of-the-script-stays"),
     ],
 )
 def test_logical_lines_read_continuations_as_bash_does(script, expected):
     assert _logical_lines(script) == expected
 
 
-@settings(max_examples=60, deadline=None)
+@settings(max_examples=120, deadline=None)
 @given(
     st.lists(
         st.sampled_from(
             [
                 "echo a",
                 "echo b \\",
+                "echo e\\",
+                "echo f \\\\",
+                "#;echo g",
                 "# note",
                 "# note \\",
                 "   # indented \\",
@@ -697,6 +744,16 @@ def test_bash_ends_a_comment_at_its_newline():
     )
 
     assert result.stdout == "ran\n"
+
+
+@pytest.mark.parametrize("workflow", STAGING)
+def test_a_command_glued_to_a_continuation_breaks_the_canonical_block(workflow):
+    run = _staging_step(workflow)["run"]
+    assignment = f'site_packages="{SITE_PACKAGES}"'
+    assert run.count(assignment) == 1
+    hidden = run.replace(assignment, f"{assignment}\\\n#;echo hidden")
+
+    assert _logical_lines(hidden) != _canonical_staging()
 
 
 @pytest.mark.parametrize("workflow", STAGING)
@@ -837,6 +894,19 @@ def test_a_write_into_the_staged_tree_is_rejected(workflow, mutation):
     assert _new_violations(workflows), f"{TREE_WRITES[mutation]!r} was not caught"
 
 
+def test_a_consumer_must_name_its_tree_in_its_text():
+    # The reader joins the quoted pieces, so only the step's text shows the split.
+    workflows = _load_workflows()
+    step = _provision_step("bulk-encode.yml", workflows)
+    split = SITE_PACKAGES.replace("-site-", '-site""-')
+    assert step["run"].count(SITE_PACKAGES) == 1
+    step["run"] = step["run"].replace(SITE_PACKAGES, split)
+
+    violations, _ = _tree_violations(workflows)
+
+    assert any("names axiom-verification-site-packages 0 time" in v for v in violations)
+
+
 def test_a_provision_that_names_its_tree_twice_does_not_consume_it():
     (command, *_) = workflow_shell.commands(
         TREE_WRITES["second-mention-in-the-provision"]
@@ -954,6 +1024,10 @@ def test_the_compose_runtime_install_must_stay_hash_required():
         "rm -rf axiom-encode/.venv/lib/python3.14/site-packages/yaml",
         "rm -rf axiom-encode/.venv",
         'site="$RUNNER_TEMP/unlocked"',
+        'export site="$RUNNER_TEMP/unlocked"',
+        'declare site="$RUNNER_TEMP/unlocked"',
+        'true; site="$RUNNER_TEMP/unlocked"',
+        "site+=/unlocked",
     ],
 )
 def test_a_locked_venv_provision_rejects_any_change_to_the_environment(mutation):
@@ -965,6 +1039,73 @@ def test_a_locked_venv_provision_rejects_any_change_to_the_environment(mutation)
     violations, _ = _provision_violations(workflows)
 
     assert any("changes the locked environment" in v for v in violations), violations
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        pytest.param(
+            '# python_path="{python}"\npython_path="$RUNNER_TEMP/unlocked/bin/python"',
+            id="a-comment-holds-the-locked-interpreter",
+        ),
+        pytest.param(
+            'python_path="{python}"\npython_path="$RUNNER_TEMP/unlocked/bin/python"',
+            id="a-second-assignment",
+        ),
+        pytest.param(
+            'python_path="{python}"\n'
+            'if [ ! -x "$python_path" ]; then python_path="$(command -v python3)"; fi',
+            id="a-fallback-assignment",
+        ),
+        pytest.param(
+            'python_path="{python}"\nexport python_path=/usr/bin/python3',
+            id="an-exported-assignment",
+        ),
+    ],
+)
+def test_a_locked_venv_provision_computes_the_purelib_with_its_interpreter(replacement):
+    workflows = _load_workflows()
+    name, python = next(iter(LOCKED_VENV_PROVISIONS.items()))
+    step = _provision_step(name, workflows)
+    assignment = f'python_path="{python}"'
+    assert step["run"].count(assignment) == 1
+    step["run"] = step["run"].replace(assignment, replacement.format(python=python))
+
+    violations, _ = _provision_violations(workflows)
+
+    assert any(
+        "changes the locked environment" in v or "purelib" in v for v in violations
+    ), violations
+
+
+@pytest.mark.parametrize(
+    "harmless",
+    [
+        pytest.param({"name": "Report from the locked .venv"}, id="a-step-name"),
+        pytest.param(
+            {"run": 'curl "https://example.invalid/search?site=laws"'}, id="a-url-query"
+        ),
+        pytest.param({"run": "tool --site=laws"}, id="another-tools-option"),
+        pytest.param(
+            {"run": 'ls -l "$GITHUB_WORKSPACE/axiom-encode/.venv/bin"'},
+            id="the-environments-bin-directory",
+        ),
+    ],
+)
+def test_a_locked_venv_job_may_do_what_cannot_touch_the_environment(harmless):
+    workflows = _load_workflows()
+    name = next(iter(LOCKED_VENV_PROVISIONS))
+    step = _provision_step(name, workflows)
+    job = next(
+        job
+        for job in workflows[name]["jobs"].values()
+        if any(candidate is step for candidate in job["steps"])
+    )
+    job["steps"].insert(0, {"run": "true", **harmless})
+
+    violations, _ = _provision_violations(workflows)
+
+    assert violations == []
 
 
 @pytest.mark.parametrize(
@@ -1028,6 +1169,16 @@ def test_a_provision_uses_the_value_its_parser_keeps():
         "python3 -- scripts/",
         "./scripts/",
         "$HOME/bin/",
+        '"$SUDO" .venv/bin/python scripts/',
+        "$SUDO .venv/bin/python scripts/",
+        "chronic .venv/bin/python scripts/",
+        "retry .venv/bin/python scripts/",
+        "coverage run scripts/",
+        "python3 -m coverage run scripts/",
+        "python3 -m pdb scripts/",
+        "pypy3 scripts/",
+        "python3-dbg scripts/",
+        ".venv/bin/$py scripts/",
     ],
 )
 def test_every_way_of_running_the_provisioner_is_a_provision(interpreter):
@@ -1087,7 +1238,17 @@ def test_reading_the_provisioner_is_not_a_provision(line):
 
 @pytest.mark.parametrize(
     "condition",
-    ["${{ always() }}", "${{ !cancelled() }}", "failure()", "${{ Always() }}"],
+    [
+        "${{ always() }}",
+        "${{ !cancelled() }}",
+        "failure()",
+        "${{ Always() }}",
+        "${{ always () }}",
+        "${{ always( ) }}",
+        "${{ success() || inputs.force_provision }}",
+        "${{ !success() }}",
+        "success() || steps.diff.outcome == 'failure'",
+    ],
 )
 def test_a_provision_never_runs_after_a_failed_staging_step(condition):
     workflows = _load_workflows()
