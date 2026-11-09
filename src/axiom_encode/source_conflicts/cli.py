@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import tempfile
 from collections.abc import Sequence
@@ -77,9 +78,12 @@ def run(argv: Sequence[str]) -> int:
     except LinkError as error:
         print(f"error: {error}", file=sys.stderr)
         return EXIT_LINK
-    if question is not None and args.out.exists() and not args.out.is_dir():
+    if question is not None and (
+        args.out.is_symlink() or (args.out.exists() and not args.out.is_dir())
+    ):
         print(
-            f"error: with --question, --out is a directory; {args.out} is a file",
+            f"error: with --question, --out is a directory; {args.out} is a file "
+            "or a link",
             file=sys.stderr,
         )
         return EXIT_LINK
@@ -145,14 +149,42 @@ def run(argv: Sequence[str]) -> int:
 
 
 def _write_question(out: Path, summary: dict, records: dict[str, dict]) -> int:
-    out.mkdir(parents=True, exist_ok=True)
-    # Remove the records of an earlier run, so the directory matches the summary.
-    for stale in sorted(out.glob("*~*.json")):
-        if stale.is_file() and stale.name not in records:
-            stale.unlink()
-    for name, record in records.items():
-        (out / name).write_text(render_record(record), encoding="utf-8")
-    (out / "summary.json").write_text(render_record(summary), encoding="utf-8")
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+        # Remove the pair records that an earlier summary in this directory
+        # lists, so the directory matches the new summary. Nothing else is
+        # touched, and no file is written through a link.
+        stale: list[str] = []
+        try:
+            earlier = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+            stale = [
+                pair["record"]
+                for pair in earlier.get("pairs", [])
+                if isinstance(pair, dict) and isinstance(pair.get("record"), str)
+            ]
+        except (OSError, ValueError, AttributeError):
+            pass
+        for name in (*records, "summary.json"):
+            path = out / name
+            if path.is_symlink() or (path.exists() and not path.is_file()):
+                raise OSError(f"{path} exists and is not a regular file")
+        for name in stale:
+            path = out / name
+            if (
+                Path(name).name == name
+                and name.endswith(".json")
+                and "~" in name
+                and name not in records
+                and path.is_file()
+                and not path.is_symlink()
+            ):
+                path.unlink()
+        for name, record in records.items():
+            (out / name).write_text(render_record(record), encoding="utf-8")
+        (out / "summary.json").write_text(render_record(summary), encoding="utf-8")
+    except OSError as error:
+        print(f"error: cannot write the records into {out}: {error}", file=sys.stderr)
+        return EXIT_LINK
     for warning in summary["warnings"]:
         print(f"warning: {warning}", file=sys.stderr)
     counts = summary["counts"]

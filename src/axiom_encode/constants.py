@@ -69,17 +69,20 @@ RULESPEC_FILE_SUFFIX = ".yaml"
 RULESPEC_TEST_FILE_SUFFIX = ".test.yaml"
 # Source-question files (axiom-source-question/v1, see
 # docs/source-conflict-compare.md) are sidecars of the compare step, not
-# RuleSpec modules: they live in ``<jurisdiction>/questions/`` and end in
-# ``.question.yaml``. Module discovery skips both, so a question file never
-# needs a manifest, a companion test or ``format: rulespec/v1``.
+# RuleSpec modules. Their one place is ``<jurisdiction>/questions/**`` with the
+# suffix ``.question.yaml``. Module discovery skips exactly those files, so a
+# question file there needs no manifest, no companion test and no
+# ``format: rulespec/v1``. Anything else in ``questions/``, and a
+# ``.question.yaml`` file in a module root, is not skipped.
 RULESPEC_QUESTION_ROOT = "questions"
 RULESPEC_QUESTION_FILE_SUFFIX = ".question.yaml"
 
 
 def is_rulespec_question_path(relative_parts: tuple[str, ...]) -> bool:
-    """Whether a path below a jurisdiction root is a source-question file or tree."""
+    """Whether a path below a jurisdiction root is a source-question file in its place."""
 
-    return bool(relative_parts) and (
-        relative_parts[0] == RULESPEC_QUESTION_ROOT
-        or relative_parts[-1].endswith(RULESPEC_QUESTION_FILE_SUFFIX)
+    return (
+        len(relative_parts) >= 2
+        and relative_parts[0] == RULESPEC_QUESTION_ROOT
+        and relative_parts[-1].endswith(RULESPEC_QUESTION_FILE_SUFFIX)
     )

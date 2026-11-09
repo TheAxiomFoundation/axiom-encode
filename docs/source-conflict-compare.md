@@ -168,20 +168,27 @@ with the conditions `agency_converts_income_to_hours = true` and
 Place of a question file in a RuleSpec repository:
 `<jurisdiction>/questions/**/<name>.question.yaml` (for example
 `us/questions/medicaid/community-engagement.question.yaml`). A question file
-is not a module. Module discovery in axiom-encode (`_rulespec_module_paths`,
-the proof-kind normalization scan and the SNAP readiness scan) skips the
-`questions/` tree and each `*.question.yaml` file, so a question file needs no
-signed manifest, no companion test and no `format: rulespec/v1`. The engine
-compiles a module of a checkout that holds a `questions/` tree with no change.
-The validators of each RuleSpec repository must accept the same path; that is
-their change, not this one.
+is not a module. In axiom-encode, `_rulespec_module_paths` and the SNAP
+readiness scan skip a `.question.yaml` file under `<jurisdiction>/questions/`,
+so a question file there needs no signed manifest, no companion test and no
+`format: rulespec/v1`. Nothing else is skipped: any other file in
+`questions/` is refused as before, a symlink is refused, and a
+`.question.yaml` file in a module root is refused. The engine compiles a
+module of a checkout that holds a `questions/` tree with no change.
 
-Each gate failure of a pair names the pair and its two answers. An answer's
-`derived` and `fixed` inputs must be inputs of its own module: an answer cannot
-lean on an input that its partner supplies.
+Open points for the place: the validators of each RuleSpec repository (its
+`.axiom/repository-structure.yaml` path rules) must allow the path; and the
+fallback layout gate of `ci_parity` (used only for a repository with no
+structure file) still lists a question file as a layout problem.
+
+Each gate failure of a pair names the pair and its two answers. Each answer
+must stand alone: its `inputs`, `derived` and `fixed` names must be inputs of
+its own module, and it must supply every input that its own rules read. An
+answer cannot lean on an input that its partner supplies.
 
 With `--question`, `--out` is a directory. The step removes the pair records
-of an earlier run from it, so the directory matches `summary.json`.
+that the earlier `summary.json` in it lists, so the directory matches the new
+summary. It touches no other file and writes through no link.
 
 ## Numbers
 

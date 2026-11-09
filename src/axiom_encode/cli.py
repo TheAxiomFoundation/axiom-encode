@@ -149,6 +149,8 @@ from .constants import (
     RULESPEC_COMPOSITION_SPEC_ROOT,
     RULESPEC_FILE_SUFFIX,
     RULESPEC_FILESYSTEM_ROOTS,
+    RULESPEC_QUESTION_FILE_SUFFIX,
+    RULESPEC_QUESTION_ROOT,
     RULESPEC_TEST_FILE_SUFFIX,
     is_rulespec_question_path,
 )
@@ -7178,9 +7180,6 @@ def _proof_atom_kind_normalization_module_paths(checkout: Path) -> list[Path]:
                     candidate.is_file()
                     and candidate.suffix == RULESPEC_FILE_SUFFIX
                     and not candidate.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
-                    and not is_rulespec_question_path(
-                        candidate.relative_to(content_root).parts
-                    )
                 ):
                     modules.append(candidate)
     return modules
@@ -7325,6 +7324,12 @@ def _rulespec_module_paths(checkout: Path) -> list[Path]:
             relative = candidate.relative_to(content_root)
             if is_rulespec_question_path(relative.parts):
                 continue
+            if candidate.name.endswith(RULESPEC_QUESTION_FILE_SUFFIX):
+                raise ValueError(
+                    "A source-question file must be under "
+                    f"<jurisdiction>/{RULESPEC_QUESTION_ROOT}/, not in a module root: "
+                    f"{candidate}"
+                )
             yaml_like = candidate.suffix.lower() in {".yaml", ".yml"}
             if yaml_like and candidate.suffix != RULESPEC_FILE_SUFFIX:
                 raise ValueError(

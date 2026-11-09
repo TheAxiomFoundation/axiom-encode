@@ -215,12 +215,12 @@ def _iter_snap_rulespec_payloads(repo: Path) -> list[tuple[Path, dict[str, Any]]
         relative = rulespec_file.relative_to(repo)
         if relative.parts and relative.parts[0] == RULESPEC_COMPOSITION_SPEC_ROOT:
             continue
-        if is_rulespec_question_path(relative.parts):
-            continue
         if rulespec_file.is_symlink():
             raise SnapReadinessConfigurationError(
                 f"RuleSpec content must not contain symlinks: {rulespec_file}"
             )
+        if is_rulespec_question_path(relative.parts):
+            continue
         if not rulespec_file.is_file():
             continue
         if rulespec_file.suffix == ".yml":
