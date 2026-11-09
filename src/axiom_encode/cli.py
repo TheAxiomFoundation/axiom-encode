@@ -813,6 +813,8 @@ _LEGACY_REPLACEMENT_RECEIPT_FIELDS = frozenset(
 )
 # Admission and ownership recognition use these exact, named variants. Codex
 # also admits the base model shape for historical receipts without CLI metadata.
+# No historical receipt has per-file bindings, and the writer refuses a Codex
+# result without CLI provenance, so a per-file Codex manifest must carry it.
 _APPLIED_MANIFEST_SCHEMA_VARIANTS = {
     "model": (
         _MODEL_APPLY_MANIFEST_FIELDS,
@@ -821,7 +823,6 @@ _APPLIED_MANIFEST_SCHEMA_VARIANTS = {
     "codex model": (
         _MODEL_APPLY_MANIFEST_FIELDS,
         _MODEL_CODEX_APPLY_MANIFEST_FIELDS,
-        _MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
         _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
     ),
     "reviewed candidate promotion": (
