@@ -1,12 +1,16 @@
 r"""Rewritten whitespace patterns match as the patterns they replaced did, and
 stay linear in a run of spaces.
 
-Each replaced pattern put two whitespace runs side by side around an optional
-item, as ``\s*(?:usd)?\s*`` does. A run of n spaces then splits n + 1 ways, and
-text that fails after the run backtracks through every split: quadratic in the
-run, or cubic where two such pairs follow each other. Each rewrite hangs the
-trailing whitespace on the optional item, ``\s*(?:usd\s*)?``, which accepts the
-same strings with one way through the run.
+Each replaced pattern let one run of spaces split between two repeats: two
+whitespace runs side by side around an optional item, as ``\s*(?:usd)?\s*``
+has, or a repeat that takes spaces right before a whitespace run, as the term in
+``(?P<term>[^|]+?)[ \t]+means`` does. A run of n spaces then splits n + 1 ways,
+and text that fails after the run backtracks through every split: quadratic in
+the run, or cubic where two such splits follow each other. Each rewrite accepts
+the same strings and leaves one way through the run. An optional item takes its
+whitespace into its own group (``\s*(?:usd\s*)?``), a repeat that takes spaces
+ends only at another character, or the pattern drops a run that another repeat
+already covers.
 
 Each case keeps its replaced pattern verbatim. The differential property
 compares every match, span and group of the two on generated text, so it fails
@@ -23,6 +27,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from axiom_encode import bare_structure
 from axiom_encode.harness import source_completeness as completeness
 from axiom_encode.harness import validator_pipeline as pipeline
 from tests.scaling import assert_linear_growth, lowest_work
@@ -33,6 +38,7 @@ _SPACE = st.sampled_from(
     ["", " ", "  ", "     ", "\t", "\n", " \t ", "\xa0", " ", "　"]
 )
 _GAP = st.lists(_SPACE, max_size=3).map("".join)
+_LINE_GAP = st.sampled_from(["", " ", "  ", "\t", "\xa0", " \t "])
 _TAIL = st.sampled_from(["", "", "x", " x", ")", "1", "(", ":", "\n", " ."])
 _SPELLED = st.sampled_from(
     [
@@ -84,6 +90,11 @@ _TOKEN_SOUP = st.lists(
             "first",
             "may",
             "von",
+            "means",
+            "\r",
+            "עד",
+            "שנת",
+            "1999",
         ]
     ),
     max_size=12,
@@ -119,6 +130,12 @@ class Case:
     boundaries: tuple[str, ...]
     # A run of ``width`` spaces that the pattern then fails on.
     adversarial: Callable[[int], str]
+    # The flags main compiled the replaced pattern with.
+    replaced_flags: int = re.IGNORECASE
+    # Text before and after the text under test, for callers that apply the
+    # pattern at a position inside a longer text. A fullmatch ends where the
+    # text under test does, as the caller's end position makes it.
+    context: tuple[str, str] = ("", "")
 
 
 CASES = (
@@ -530,11 +547,164 @@ CASES = (
         ),
         lambda width: "may 1" + " " * width + "x",
     ),
+    Case(
+        "definition",
+        bare_structure._DEFINITION,
+        r"^[ \t]*(?P<term>[^\W\d_](?:[^\W_]|[ \t'’()/-])*?)"
+        r"(?:[ \t]*,[^\n|]*?)?[ \t]+means\b",
+        "match",
+        _text(
+            ["", " ", "\t", "  "],
+            [
+                "income",
+                "Gross income",
+                "a",
+                "the term",
+                "x-y",
+                "a b  c",
+                "it’s",
+                "(a) b",
+                "a-",
+                "b’",
+                "1st",
+                "_a",
+            ],
+            _GAP,
+            ["", ",", " ,", ", as used in this part", ",\tx|y", ",,"],
+            _GAP,
+            ["means", "meansx", "mean", "", "MEANS"],
+            _TAIL,
+            ["", "", " means", " b means"],
+        ),
+        (
+            "income means",
+            "a means",
+            "a  means",
+            "a\tmeans",
+            "a meansx",
+            "income, as used here, means",
+            "income ,x means",
+            "income,  means",
+            "income,means",
+            "in  come means",
+            "a- means",
+            "a’ means",
+            "  income means",
+            "a means means",
+            "a, b means c means",
+            "a, means b means",
+            "income ,",
+        ),
+        lambda width: "a" + " " * width + "x",
+        replaced_flags=re.MULTILINE,
+    ),
+    Case(
+        "definition header",
+        bare_structure._DEFINITION_HEADER,
+        r"^[ \t]*(?P<term>[^|\r\n]+?)[ \t]+means\b",
+        "match",
+        _text(
+            _GAP,
+            ["", "a", "income", "|", "x y", "means", "\r", "a|b", "means means"],
+            _GAP,
+            ["means", "meansx", "", "mean", "means,"],
+            _TAIL,
+        ),
+        (
+            "income means",
+            "  income means",
+            "   means x",
+            "  means",
+            " means",
+            "means",
+            "a b means",
+            "a  means",
+            "a|b means",
+            "  means means",
+            "x means means",
+            "\t\tmeans",
+            "x",
+        ),
+        lambda width: " " * width + "x",
+        replaced_flags=0,
+    ),
+    Case(
+        "Hebrew month list gap",
+        pipeline._HEBREW_MONTH_LIST_GAP_PATTERN,
+        "[^\\S\\n]*(?:,|;|[\u05be\u2013\u2014-]|עד|ועד|או)?[^\\S\\n]*",
+        "fullmatch",
+        _text(
+            _GAP,
+            ["", ",", ";", "\u05be", "–", "—", "-", "עד", "ועד", "או", "ו", "x", ",,"],
+            _GAP,
+            _TAIL,
+        ),
+        (
+            " , ",
+            "",
+            " ",
+            ",",
+            " ,",
+            ", ",
+            "עד",
+            " עד ",
+            "ועד",
+            " או ",
+            " - ",
+            "x",
+            " ,,",
+        ),
+        lambda width: " " * width + "x",
+        replaced_flags=0,
+        # _iter_hebrew_gregorian_month_matches reads the gap between two
+        # month names.
+        context=("מאי", "יוני"),
+    ),
+    Case(
+        "Hebrew month year after",
+        pipeline._HEBREW_MONTH_YEAR_AFTER_PATTERN,
+        rf"[^\S\n]*,?[^\S\n]*(?:(?:ב|של[^\S\n]+)?שנת[^\S\n]+)?"
+        rf"{pipeline._TEMPORAL_YEAR_BODY}{pipeline._TEMPORAL_YEAR_END}",
+        "match",
+        _text(
+            _GAP,
+            ["", ",", ",", ",,"],
+            _LINE_GAP,
+            ["", "שנת ", "בשנת ", "של שנת ", "של\tשנת  ", "שנת", "בשנת\n"],
+            ["1999", "2024", "1850", "2100", "199", "x"],
+            ["", ".", ".5", ",5", "x", " ", "0"],
+        ),
+        (
+            " , 1999",
+            "1999",
+            " 1999",
+            ",1999",
+            ", 1999",
+            " ,1999",
+            "שנת 1999",
+            " בשנת 2024",
+            ", של שנת 1999",
+            " , x",
+            "1999.5",
+            " ,, 1999",
+            " 19999",
+        ),
+        lambda width: " " * width + "x",
+        replaced_flags=0,
+        # _iter_hebrew_gregorian_month_matches reads the year after a month
+        # name.
+        context=("מאי", ""),
+    ),
 )
 _IDS = [case.name for case in CASES]
 
 
-def _observe(pattern: re.Pattern[str], mode: str, text: str) -> object:
+def _observe(
+    pattern: re.Pattern[str],
+    mode: str,
+    text: str,
+    context: tuple[str, str] = ("", ""),
+) -> object:
     """Everything a caller can read from applying ``pattern`` the case's way."""
 
     def details(match: re.Match[str] | None) -> object:
@@ -546,17 +716,18 @@ def _observe(pattern: re.Pattern[str], mode: str, text: str) -> object:
             tuple(match.span(group) for group in range(1, pattern.groups + 1)),
         )
 
+    prefix, suffix = context
+    whole = prefix + text + suffix
+    start, end = len(prefix), len(prefix) + len(text)
     if mode == "finditer":
-        return [details(match) for match in pattern.finditer(text)]
-    return details(getattr(pattern, mode)(text))
-
-
-# Main compiled every replaced pattern with these flags.
-_REPLACED_FLAGS = re.IGNORECASE
+        return [details(match) for match in pattern.finditer(whole, start, end)]
+    if mode == "fullmatch":
+        return details(pattern.fullmatch(whole, start, end))
+    return details(pattern.match(whole, start))
 
 
 def _replaced(case: Case) -> re.Pattern[str]:
-    return re.compile(case.replaced, _REPLACED_FLAGS)
+    return re.compile(case.replaced, case.replaced_flags)
 
 
 @pytest.mark.parametrize("case", CASES, ids=_IDS)
@@ -572,10 +743,13 @@ def test_rewritten_pattern_keeps_the_replaced_flags_and_groups(case: Case):
 def test_rewritten_pattern_reads_each_boundary_as_the_replaced_one(case: Case):
     replaced = _replaced(case)
 
-    assert _observe(case.current, case.mode, case.boundaries[0]) not in (None, [])
+    assert _observe(case.current, case.mode, case.boundaries[0], case.context) not in (
+        None,
+        [],
+    )
     for text in (*case.boundaries, case.adversarial(64)):
-        assert _observe(case.current, case.mode, text) == _observe(
-            replaced, case.mode, text
+        assert _observe(case.current, case.mode, text, case.context) == _observe(
+            replaced, case.mode, text, case.context
         ), text
 
 
@@ -585,8 +759,8 @@ def test_rewritten_pattern_reads_each_boundary_as_the_replaced_one(case: Case):
 def test_rewritten_pattern_reads_every_match_as_the_replaced_one(case: Case, data):
     text = data.draw(st.one_of(case.near_matches, _TOKEN_SOUP), label="text")
 
-    assert _observe(case.current, case.mode, text) == _observe(
-        _replaced(case), case.mode, text
+    assert _observe(case.current, case.mode, text, case.context) == _observe(
+        _replaced(case), case.mode, text, case.context
     )
 
 
@@ -594,18 +768,20 @@ def test_rewritten_pattern_reads_every_match_as_the_replaced_one(case: Case, dat
 def test_rewritten_pattern_stays_linear_in_a_space_run(case: Case):
     def work(width):
         text = case.adversarial(width)
-        expected = _observe(case.current, case.mode, text)
+        expected = _observe(case.current, case.mode, text, case.context)
 
         def check(observed):
             assert observed == [expected] * 4
 
         return lowest_work(
-            lambda: [_observe(case.current, case.mode, text) for _ in range(4)],
+            lambda: [
+                _observe(case.current, case.mode, text, case.context) for _ in range(4)
+            ],
             check,
         )
 
-    # The first step fails each replaced pattern, quadratic or cubic, within
-    # seconds, so a regression never reaches the wide pair, which would run a
+    # The first step fails each replaced pattern, quadratic or cubic, in under
+    # a minute, so a regression never reaches the wide pair, which would run a
     # cubic one for hours. The wide pair holds the patterns to the run widths
     # the interval parser's own growth test uses.
     assert_linear_growth(work(64), work(512), input_ratio=8)

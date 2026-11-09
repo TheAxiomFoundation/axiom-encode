@@ -32672,14 +32672,17 @@ def _formula_bound_from_comparison(
     return None
 
 
-# The interval parser's patterns for a spelled amount and its parenthetical
-# restatement, "five dollars ($5)". Each optional unit word or currency marker
-# carries the whitespace after it, so a run of spaces has one way through the
-# pattern. Written as ``\s*(?:usd)?\s*``, two adjacent ``\s*`` runs split a run
-# of n spaces n + 1 ways, and text that fails after the run backtracks through
-# every split: quadratic in the run, cubic where two such pairs follow each
-# other. tests/test_whitespace_run_patterns.py holds each pattern to the
-# matches of the one it replaced.
+# The interval parser's patterns for the raw text around a bound's amounts: a
+# spelled amount and its parenthetical restatement, "five dollars ($5)", the
+# filler between a range keyword and its first amount, and the open-range word
+# after a German amount. Each optional unit word or currency marker takes the
+# whitespace next to it into its own optional group, so a run of spaces has
+# one way through the pattern. Written as ``\s*(?:usd)?\s*``, two adjacent
+# ``\s*`` runs split a run of n spaces n + 1 ways, and text that fails after
+# the run backtracks through every split: quadratic in the run, and cubic in
+# the restatement gap when spaces sit on both sides of its parenthesis.
+# tests/test_whitespace_run_patterns.py holds each pattern to the matches of
+# the one it replaced.
 _TRAILING_SPELLED_PARENTHETICAL_OPENING = re.compile(
     rf"\b{_ENGLISH_CARDINAL_PHRASE}\s+"
     r"(?:dollars?|usd|euros?|eur|pounds?|gbp)\s*"

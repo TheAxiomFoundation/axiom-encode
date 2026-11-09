@@ -11245,11 +11245,29 @@ def test_formula_interval_uses_controlled_comparison_as_stronger_lower_bound(
     assert interval.upper is None
 
 
-def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtime():
+@pytest.mark.parametrize(
+    ("extract_numeric_occurrences", "extractor_cached"),
+    (
+        pytest.param(
+            EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR, True, id="extractor-cached"
+        ),
+        pytest.param(
+            LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+            False,
+            id="legacy-extractor-uncached",
+        ),
+    ),
+)
+def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtime(
+    extract_numeric_occurrences, extractor_cached
+):
     def interval_for(width):
+        if not extractor_cached:
+            validator_pipeline_module._tokenize_numeric_occurrences_from_text.cache_clear()
+            validator_pipeline_module._hebrew_paragraph_and_heading_index.cache_clear()
         return completeness_module._formula_interval_from_text(
             "income greater than 1" + " " * width + "x 2",
-            extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+            extract_numeric_occurrences=extract_numeric_occurrences,
         )
 
     def check(interval):
@@ -11269,12 +11287,21 @@ def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtim
             lambda: [interval_for(width) for _ in range(batch)], check_batch
         )
 
-    # A regex scanning the raw space run from every position is quadratic in
-    # the gap, and one that splits the run between two adjacent ``\s*`` is
-    # cubic. The first step stops a cubic scan before it reaches widths where
-    # it runs for minutes. The wide pair catches a quadratic one, which costs
-    # seconds per call at 16,000 spaces. One call at 1,000 spaces already
-    # costs more than the CPU floor, so that pair samples single calls.
+    # The parser runs the numeric extractor on its text, and the extractor
+    # caches its tokenization of each text, so a repeated call skips it. With
+    # the cache kept, the lowest sample measures the parser's own work, where a
+    # quadratic scan of the gap outgrows everything else. With both caches
+    # cleared before every call, on the legacy profile production defaults to,
+    # each sample counts the extractor's work on the text too. That work is
+    # linear but large: it can hide a quadratic scan of the parser's own, which
+    # the cached variant catches, and the uncached variant catches a
+    # superlinear scan inside the extractor.
+    # A search that rescans the raw space run from every position is quadratic
+    # in the gap, and one whose pattern also splits the run between two
+    # adjacent ``\s*`` is cubic. The first step stops a cubic scan before it
+    # reaches widths where it runs for minutes, and the wide pair catches a
+    # quadratic one. One call at 1,000 spaces already costs more than the CPU
+    # floor, so that pair samples single calls.
     assert_linear_growth(work(32, 8), work(256, 8), input_ratio=8)
     assert_linear_growth(work(1_000, 1), work(16_000, 1), input_ratio=16)
     # Keep the original 10,000-space rejection, once and untimed.
