@@ -824,6 +824,20 @@ def test_the_selftest_exemption_is_still_needed():
         assert violations, f"{workflow} no longer needs its exemption"
 
 
+def test_the_selftest_escapes_only_the_provision_rules():
+    workflows = _load_workflows()
+    [step] = [
+        step
+        for name, _job, _index, step in _steps(workflows)
+        if name == "provision-selftest.yml" and "selftest_locked" in step["run"]
+    ]
+    step["run"] += f'echo "{SITE_PACKAGES}"\n'
+
+    violations, _ = _tree_violations(workflows)
+
+    assert any(v.startswith("provision-selftest.yml") for v in violations), violations
+
+
 def test_the_selftest_stages_the_locked_pyyaml():
     # Its one install is the hash-pinned export of uv.lock's
     # `provision-selftest` group, from a wheel (`--no-build`).
@@ -1288,6 +1302,7 @@ def test_writes_to_the_build_constraints_are_rejected(workflow, form):
         "--no-hashes",
         "--only-group dev",
         "--extra dev",
+        "--format pylock.toml",
     ],
 )
 def test_a_build_export_that_changes_its_contents_is_not_the_locked_export(
