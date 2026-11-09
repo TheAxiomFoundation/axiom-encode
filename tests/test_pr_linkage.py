@@ -697,22 +697,63 @@ def test_a_tab_indented_line_stays_inside_a_list_item_fence():
 
 
 @pytest.mark.parametrize(
-    "value",
+    ("target", "run"),
     [
-        "[us/statute/26/21](us/statute/26/32)",
-        f"[42409703021](https://github.com/{REPO}/actions/runs/1)",
+        ("[us/statute/26/21](us/statute/26/32)", "none"),
+        ("[us/statute/26/21](us/statute/26/32)\\", "none"),
+        ("[*us/statute/26/21*](us/statute/26/32)", "none"),
+        ("[US/statute/26/21](us/statute/26/32)", "none"),
+        ("[none](us/statute/26/32)", "none"),
+        ("[21](us/statute/26/21)", "none"),
+        (
+            "us/statute/26/21",
+            f"[42409703021](https://github.com/{REPO}/actions/runs/1)",
+        ),
+        (
+            "us/statute/26/21",
+            f"[#42409703021](https://github.com/{REPO}/actions/runs/1)",
+        ),
+        (
+            "us/statute/26/21",
+            f"[run 42409703021](https://github.com/{REPO}/actions/runs/1)",
+        ),
+        (
+            "us/statute/26/21",
+            "[https://github.com/other/x/actions/runs/5]"
+            f"(https://github.com/{REPO}/actions/runs/5)",
+        ),
     ],
 )
-def test_a_link_that_shows_another_value_is_refused(value):
-    target = value if value.startswith("[us/") else "us/statute/26/21"
-    run = "none" if value.startswith("[us/") else value
+def test_a_link_that_shows_another_value_is_refused(target, run):
     result = parse(_body(target, run), REPO)
     assert result.linkage is None
-    assert "points elsewhere" in " ".join(result.errors)
+    assert "not the value it links to" in " ".join(result.errors)
 
 
-def test_a_link_that_shows_its_own_value_counts():
-    value = f"[42409703021](https://github.com/{REPO}/actions/runs/42409703021)"
-    result = parse(_body("[us/statute/26/21](us/statute/26/21)", value), REPO)
+@pytest.mark.parametrize(
+    "run",
+    [
+        f"[42409703021](https://github.com/{REPO}/actions/runs/42409703021)",
+        f"[run](https://github.com/{REPO}/actions/runs/42409703021)",
+        f"[signed run](https://github.com/{REPO}/actions/runs/42409703021)",
+        f"<https://github.com/{REPO}/actions/runs/42409703021>",
+    ],
+)
+def test_a_link_that_shows_its_own_value_or_a_label_counts(run):
+    result = parse(_body("[us/statute/26/21](us/statute/26/21)", run), REPO)
     assert result.errors == []
+    assert result.linkage.targets == ["us/statute/26/21"]
     assert result.linkage.signed_runs == ["42409703021"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # A tab-indented closing fence closes the list item's fence.
+        "- ```\n  x\n\t```\n  Encoding-Target: none\n  Fixes-Run: none\n",
+        # `-\t` puts the item's content at column 4: a two-space line ends it.
+        "-\t```\n  Encoding-Target: none\n  Fixes-Run: none\n",
+    ],
+)
+def test_tabs_are_measured_in_columns_around_fences(body):
+    assert parse(body).errors == []

@@ -150,14 +150,16 @@ def _visible_lines(body: str, errors: list[str]) -> list[str]:
     lines: list[str] = []
     fence: tuple[str, int] | None = None  # (fence characters, content column)
     in_comment = False
-    raw = body.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    # A tab advances to the next multiple of four columns, as in CommonMark,
+    # so indents, list-item columns and fences are measured in columns.
+    raw = [
+        line.expandtabs(4)
+        for line in body.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    ]
     for number, line in enumerate(raw, start=1):
         if fence is not None:
             fence_chars, column = fence
-            # A tab advances to the next multiple of four columns, as in
-            # CommonMark, so a tab-indented line stays inside its item.
-            expanded = line.expandtabs(4)
-            indent = len(expanded) - len(expanded.lstrip(" "))
+            indent = len(line) - len(line.lstrip(" "))
             if line.strip() and indent < column:
                 # Less indented than its list item: the item, and with it
                 # the fence, has ended; this line is ordinary text.
@@ -228,29 +230,33 @@ def _clean(part: str) -> str:
     return part
 
 
-def _value_shaped(text: str) -> bool:
-    """Whether a link's text reads as a citation, run id or run URL itself."""
-    return any(
-        pattern.fullmatch(text)
-        for pattern in (CITATION, SIGNED_RUN, LOCAL_RUN, _RUN_URL)
-    )
-
-
 def _normalized(text: str) -> str:
     url = _RUN_URL.fullmatch(text)
     return url.group("id") if url is not None else text
 
 
+# Link text that only labels the value it links to, such as `[run](<url>)`.
+_LINK_LABEL = re.compile(r"[A-Za-z][A-Za-z ]*")
+
+
 def _misleading_link(part: str) -> str | None:
-    """A link whose visible text names another value than its target."""
-    link = _MARKDOWN_LINK.fullmatch(part.strip())
+    """A link whose visible text is not its target or a plain label word.
+
+    Text such as `[us/statute/26/21](us/statute/26/32)` or
+    `[#42409703021](.../runs/1)` shows one value and records another, so a
+    link counts only when its text is the value itself or letters alone.
+    """
+    part = re.sub(r"\\$", "", part.strip()).strip()
+    link = _MARKDOWN_LINK.fullmatch(part)
     if link is None:
         return None
     text = _clean(link.group(1))
     target = _clean(link.group(2))
-    if _value_shaped(text) and _normalized(text) != _normalized(target):
-        return text
-    return None
+    if text == target or (SIGNED_RUN.fullmatch(text) and _normalized(target) == text):
+        return None
+    if _LINK_LABEL.fullmatch(text) and text.strip().lower() != NONE:
+        return None
+    return text
 
 
 def _values(raw: str, key: str, errors: list[str]) -> list[str] | None:
@@ -258,8 +264,8 @@ def _values(raw: str, key: str, errors: list[str]) -> list[str] | None:
     for part in raw.split(","):
         if (text := _misleading_link(part)) is not None:
             errors.append(
-                f"{key}: the link {part.strip()!r} shows {text!r} but points "
-                "elsewhere; write the value itself"
+                f"{key}: the link {part.strip()!r} shows {text!r}, not the "
+                "value it links to; write the value itself"
             )
             return None
     parts = [_clean(part) for part in raw.split(",")]
