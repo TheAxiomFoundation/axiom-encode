@@ -26,7 +26,9 @@ Invariants pinned here:
 * a list on a line the extractor reads as a heading changes nothing, because
   the keyword that makes the line a heading stays;
 * on generated lists, including lists right after another reference, the pass
-  adds no demand.
+  adds no demand. One intended limit: when a later reference pattern reads
+  across the blank an earlier one left and takes numbers after the list, the
+  placeholder ends that reading and those numbers gain a demand.
 """
 
 from __future__ import annotations
@@ -562,6 +564,17 @@ def test_a_reference_before_the_list_gains_nothing_from_the_pass(
 
     assert not after - before
     assert not (before - after) - Counter([float(last)])
+
+
+def test_a_number_that_a_stitched_reference_took_gains_a_demand() -> None:
+    # Intended limit: "step 2" reads on through the space the Schedule reference
+    # leaves behind and takes the 8 after the list. The placeholder ends that
+    # reading, so the 8 gains a demand.
+    text = "step 2 and Schedule 5 (a), paragraph 6 (persons), 7 (students), 8"
+
+    with titled_list_pass_disabled():
+        assert recall_values(text) == []
+    assert recall_values(text) == [8.0]
 
 
 _UNITS_AFTER_A_TITLE = (
