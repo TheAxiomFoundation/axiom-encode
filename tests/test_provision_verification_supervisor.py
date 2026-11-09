@@ -12,9 +12,27 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from scripts.provision_verification_supervisor import (
+    _argument_parser,
     _load_retired_apply_inventory,
     _signing_trust_roots_payload,
 )
+
+
+def test_argument_parser_preserves_reviewed_pr_selector() -> None:
+    arguments = [
+        "--destination", "/tmp/runtime",
+        "--supervisor", "/tmp/supervisor",
+        "--site-packages", "/tmp/packages",
+        "--apply-root", "apply-root",
+        "--eval-root", "eval-root",
+        "--corpus-release-root", "corpus-root",
+        "--git", "/tmp/git",
+    ]
+    assert _argument_parser().parse_args(arguments).reviewed_pr_selector is None
+    parsed = _argument_parser().parse_args(
+        [*arguments, "--reviewed-pr-selector", "/tmp/selector.json"]
+    )
+    assert parsed.reviewed_pr_selector == Path("/tmp/selector.json")
 
 
 def test_provision_replaces_base_runtime_site_packages(tmp_path: Path) -> None:

@@ -28,9 +28,25 @@ The static passes below make that outcome reachable and durable:
   the toolchain's absolute build-prefix RUNPATH so ``libpython`` loads from the
   runtime, and is the pass the maps check then verifies for the launcher.
 
-Trust boundary and residual: the inputs are the GitHub-provided toolcache stdlib
-and pinned pip dependencies, and the finished tree is chowned root and stripped
-of group/other write by the caller (the supervisor re-verifies that ownership).
+Trust boundary and residual: the inputs are the invoking interpreter's CPython
+prefix (the setup-python toolcache when ``--require-prefix-under`` is set) and
+the caller-staged ``--site-packages`` tree, and the finished tree is chowned
+root and stripped of group/other write by the caller (the supervisor re-verifies
+that ownership). This script does not inspect how ``--site-packages`` was
+installed. The repository workflows stage it from ``uv.lock``: ``uv export
+--locked`` hash-pinned registry distributions installed with ``--require-hashes
+--no-deps``, then the commit-pinned ``axiom-oracles`` git dependency and the
+project itself with ``--no-deps``, then a diff against the ``uv sync --locked``
+environment. The issue233 Canada diagnostic passes instead the purelib of a
+``uv sync --frozen`` environment; that sync is its job's only uv call, the job
+installs nothing with pip, and only this script's call names the purelib.
+``tests/test_verification_site_packages_lock.py`` enforces both forms, reads
+``--site-packages`` with this script's own argument parser, and fails a
+workflow whose text names the staged tree outside staging and this script's call.
+``uv.lock`` does not pin build backends, so the sdists it pins, the git
+dependency and the project are built with whatever backend versions the index
+serves at run time; when the ``--encoder-*`` attestation arguments are given,
+the staged ``axiom_encode`` package is replaced by the attested commit's bytes.
 A pinned dependency carrying hostile ELF metadata (an absolute ``DT_NEEDED``, a
 ``DT_AUDIT`` hook, a decoy section) is NOT statically audited here — such a
 dependency already executes its own code inside the signer, so metadata-level
@@ -303,9 +319,9 @@ def _relocate_elf_rpaths(runtime: Path, patchelf: str) -> int:
     which LD_LIBRARY_PATH cannot outrank; patchelf --print-rpath then re-reads
     the object to confirm nothing still escapes.
 
-    This is a best-effort hardening pass over trusted, pinned inputs (the
-    toolcache stdlib and pinned pip deps). The load-bearing guarantee for the
-    launcher interpreter is the empirical /proc/self/maps check in
+    This is a best-effort hardening pass over trusted inputs (the interpreter
+    prefix and the uv.lock-staged site-packages). The load-bearing guarantee for
+    the launcher interpreter is the empirical /proc/self/maps check in
     _assert_self_contained, not this static rewrite.
     """
     runtime_resolved = runtime.resolve(strict=True)
@@ -2238,7 +2254,9 @@ def provision(
             shutil.rmtree(encoder_staging, ignore_errors=True)
 
 
-if __name__ == "__main__":
+def _argument_parser() -> argparse.ArgumentParser:
+    """What ``__main__`` parses. tests/test_verification_site_packages_lock.py
+    reads workflow calls with it, so it checks the values this script acts on."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--destination", type=Path, required=True)
     parser.add_argument("--supervisor", type=Path, required=True)
@@ -2328,7 +2346,11 @@ if __name__ == "__main__":
         type=Path,
         help="Run-scoped selector only; attested verifier must fetch live GitHub approval before admission.",
     )
-    args = parser.parse_args()
+    return parser
+
+
+if __name__ == "__main__":
+    args = _argument_parser().parse_args()
     provision(
         args.destination.resolve(),
         args.supervisor.resolve(),
