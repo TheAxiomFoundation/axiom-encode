@@ -39745,9 +39745,12 @@ def _source_conjoined_threshold_obligations(
     threshold, is not demanded again: a boundary witness is keyed by value.
     """
 
-    claimed: dict[tuple[str, ...], list[NumericOccurrenceLike]] = {}
+    # Values are claimed per path; spans only per branch object, because a
+    # narrative formula clause shares its paragraph's path while its offsets
+    # are in its own first-line frame.
+    claimed: dict[tuple[str, ...], list[tuple[int, NumericOccurrenceLike]]] = {}
     for branch, occurrence in existing:
-        claimed.setdefault(branch.path, []).append(occurrence)
+        claimed.setdefault(branch.path, []).append((id(branch), occurrence))
     obligations: list[
         tuple[SourceStructureBranch, NumericOccurrenceLike, _NumericInterval, int]
     ] = []
@@ -39866,14 +39869,18 @@ def _source_conjoined_threshold_obligations(
                         continue
                     branch_claims = claimed.setdefault(branch.path, [])
                     if any(
-                        (occurrence.start < claim.end and claim.start < occurrence.end)
+                        (
+                            claim_branch == id(branch)
+                            and occurrence.start < claim.end
+                            and claim.start < occurrence.end
+                        )
                         or math.isclose(
                             float(occurrence.value),
                             float(claim.value),
                             rel_tol=0.0,
                             abs_tol=1e-9,
                         )
-                        for claim in branch_claims
+                        for claim_branch, claim in branch_claims
                     ) or not any(
                         occurrence.start == candidate.start
                         and occurrence.end == candidate.end
@@ -39881,7 +39888,7 @@ def _source_conjoined_threshold_obligations(
                         for candidate in direct_inventory
                     ):
                         continue
-                    branch_claims.append(occurrence)
+                    branch_claims.append((id(branch), occurrence))
                     obligations.append(
                         (
                             branch,

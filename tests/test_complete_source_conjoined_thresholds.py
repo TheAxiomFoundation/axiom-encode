@@ -299,3 +299,48 @@ def test_a_bare_definition_demands_each_conjoined_threshold():
         interval.lower is None and interval.upper_inclusive is False
         for _branch, _occurrence, interval, _polarity in new
     )
+
+
+def test_a_formula_clause_span_in_its_own_frame_does_not_hide_a_threshold():
+    # The narrative formula clause shares the paragraph's path, but its `$100`
+    # offsets (90..93) are in its own first-line frame. They coincide with the
+    # paragraph-frame offsets of `$500`, which must still be demanded.
+    text = (
+        "(a) A household is eligible if its income is less than $300 and its "
+        "resources are less than $500. The allotment equals 30 percent of the "
+        "household income if household income is more than $100."
+    )
+    branches = recognize_source_structure(text, corpus_citation_path=CITATION)
+    roots = completeness_module._active_or_root_source_branches(
+        text, branches=branches, active_branches=branches, deferred_paths=set()
+    )
+    formula_branches = completeness_module._source_formula_branches(
+        text,
+        corpus_citation_path=CITATION,
+        branches=branches,
+        active_branches=branches,
+        deferred_paths=set(),
+    )
+    existing = completeness_module._source_boundary_obligations(
+        roots,
+        narrative_formula_branches=formula_branches,
+        extract_numeric_occurrences=EXTRACT,
+        source_text=text,
+        corpus_citation_path=CITATION,
+    )
+    clause_spans = {
+        (occurrence.start, occurrence.end)
+        for branch, occurrence in existing
+        if branch.kind == "formula-clause"
+    }
+    new = completeness_module._source_conjoined_threshold_obligations(
+        roots,
+        branches=branches,
+        existing=existing,
+        extract_numeric_occurrences=EXTRACT,
+    )
+    assert [(occurrence.raw, occurrence.start) for _b, occurrence, *_ in new] == [
+        ("500", 90)
+    ]
+    assert (90, 93) in clause_spans
+
