@@ -207,6 +207,44 @@ def test_default_prompt_has_no_branch_coverage_plan(tmp_path):
     assert "Completeness repair:" not in default
 
 
+_STRUCTURE_FINDING = (
+    "ci: [complete-source-unit:structure] Source branch (2) at "
+    "us/statute/26/2/a(2) is neither encoded nor precisely deferred."
+)
+
+
+def test_repair_block_is_off_when_disabled():
+    plain = evals._format_validation_retry_feedback(
+        (_STRUCTURE_FINDING,), completeness_repair=False
+    )
+
+    assert "Completeness repair:" not in plain
+    assert evals.json.dumps(_STRUCTURE_FINDING) in plain
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_prompt_gates_repair_block_on_complete_source_mode(tmp_path, complete):
+    """Feedback loaded for a non-complete-source run keeps main's text."""
+
+    prompt = evals._build_eval_prompt(
+        citation="us/statute/26/2/a",
+        mode="cold",
+        workspace=_workspace(tmp_path, "(1) The amount is 12.", "us/statute/26/2/a"),
+        context_files=[],
+        target_file_name="a.yaml",
+        include_tests=True,
+        runner_backend="codex",
+        require_complete_source_unit=complete,
+        validation_retry_feedback=(_STRUCTURE_FINDING,),
+        validation_retry_candidate=evals.ValidationRetryCandidate(
+            "format: rulespec/v1\nrules: []\n", "cases: []\n"
+        ),
+    )
+
+    assert ("Completeness repair:" in prompt) is complete
+    assert evals.json.dumps(_STRUCTURE_FINDING) in prompt
+
+
 def test_retry_feedback_without_completeness_findings_is_byte_stable():
     # Frozen from origin/main 68ab3f399: the guidance adds no text, not even a
     # blank line, when no completeness finding is present.
@@ -258,6 +296,40 @@ def test_guidance_agrees_with_validator_on_administrative_runtime_gap():
 
     anchor = evals._complete_source_deferral_anchor(_GUIDANCE_CITATION)
     covered, issues = _coverage(f"{anchor}/a#hearing_notice", _ADMINISTRATIVE_REASON)
+
+    assert covered == {("a",)}
+    assert issues == []
+
+
+_DEPENDENCY_SOURCE = (
+    "(a) Eligibility. A household is eligible when its income is below the "
+    "standard determined under section 2014(c) of this title.\n\n"
+    "(b) Amount. The allotment equals 30 percent of the household's net income."
+)
+
+
+def test_guidance_dependency_reason_form_is_accepted_by_validator():
+    """Ground (1)'s stated reason form, filled in, covers the branch."""
+
+    rendered = _normalized(evals._format_completeness_repair_guidance("x"))
+    form = rendered.split("in the form `", 1)[1].split("`", 1)[0]
+    assert form == "Cannot be computed until <provision> is encoded."
+    reason = form.replace("<provision>", "7 U.S.C. 2014(c)")
+    anchor = evals._complete_source_deferral_anchor(_GUIDANCE_CITATION)
+    payload = {
+        "format": "rulespec/v1",
+        "module": {
+            "source_verification": {"corpus_citation_path": _GUIDANCE_CITATION},
+            "deferred_outputs": [{"output": f"{anchor}/a#eligible", "reason": reason}],
+        },
+        "rules": [],
+    }
+    covered, issues = sc._deferred_coverage(
+        payload,
+        corpus_citation_path=_GUIDANCE_CITATION,
+        source_text=_DEPENDENCY_SOURCE,
+        branches=sc.recognize_source_structure(_DEPENDENCY_SOURCE),
+    )
 
     assert covered == {("a",)}
     assert issues == []
@@ -325,6 +397,9 @@ def test_checklist_non_operative_text_is_gated_on_complete_source_mode():
     assert "satisfy this checklist with\n`module.deferred_outputs[]`" in default
     assert "satisfy this checklist with\n`module.deferred_outputs[]`" not in complete
     assert "a\nnon-operative deferral is rejected" in complete
+    # The checklist validator credits a rule's `source:`, not a proof excerpt.
+    assert "by citing it in the `source:` of the rule that consumes it" in complete
+    assert "proof excerpt" not in complete
 
 
 def _typed_completeness_feedback():
@@ -416,8 +491,9 @@ def test_typed_completeness_retry_feedback_has_one_repair_order():
     # The exact-fix carve-out covers paths and proof atoms, not a reason rewrite.
     assert "a required literal citation in `reason`" not in normalized
     assert (
-        "A literal citation that a finding requires in `reason` applies only to "
-        "a deferral that one of those grounds supports."
+        "A literal citation, missing input, or runtime capability that a finding "
+        "or a check requires in `reason` applies only to a deferral that one of "
+        "those grounds supports."
     ) in normalized
 
     check_fixes = rendered.split("=== BEGIN CHECK FIXES", 1)[1]
@@ -474,9 +550,8 @@ def test_encode_first_fix_overrides(check_id):
 
     load_checks()
     category = check_id.split("/", 1)[0]
-    assert f"[{category}]" in evals._COMPLETENESS_REPAIR_CATEGORIES
     override = evals._COMPLETENESS_ENCODE_FIRST_FIXES[check_id]
-    assert override.startswith(("Encode the", "Add a principal derived rule"))
+    assert override.startswith(("Encode the", "Add a principal derived rule", "Add "))
     assert "deferral ground listed" in override
     assert "Completeness repair guidance above" in override or "there" in override
 
@@ -487,13 +562,24 @@ def test_encode_first_fix_overrides(check_id):
         expected="x",
         found="y",
     )
+    issues = [issue]
+    if f"[{category}]" not in evals._COMPLETENESS_REPAIR_CATEGORIES:
+        # A check outside the trigger categories is overridden only when a
+        # completeness finding renders the repair block next to it.
+        issues.append(
+            "ci: [complete-source-unit:structure] Source branch (b) at "
+            "us/statute/7/2020(b) is neither encoded nor precisely deferred."
+        )
+        alone = evals._format_validation_retry_feedback((issue,))
+        assert "Completeness repair:" not in alone
+        assert f"  Fix: {checks.get_check(check_id).fix}" in alone
     declared = checks.get_check(check_id).fix
     # Main's #1987 rendering, unchanged without overrides.
     plain = evals._format_check_fix_feedback((issue,))
     assert f"  Fix: {declared}" in plain
     assert override not in plain
     # The retry renders the override with the completeness block.
-    rendered = evals._format_validation_retry_feedback((issue,))
+    rendered = evals._format_validation_retry_feedback(tuple(issues))
     assert "Completeness repair:" in rendered
     assert f"  Fix: {override}" in rendered
     assert declared not in rendered
