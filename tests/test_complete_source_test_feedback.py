@@ -7,6 +7,8 @@ import functools
 
 import pytest
 
+from axiom_encode import cli as cli_module
+from axiom_encode.checks import ValidationIssue, retype
 from axiom_encode.harness.source_completeness import (
     MISSING_BOUNDARY_DETAIL_MARKER,
     CompanionTestObligation,
@@ -378,6 +380,8 @@ rules:
         "excluded from source-bound evidence: `credit`." in formula_output
     )
     assert not any("do not demonstrate formula branch" in i for i in result.issues)
+    # The folded tests demand still counts as residual work for ranking.
+    assert formula_output.absorbed_obligations == 1
 
 
 GUARDED_CLAMP_RULES = """\
@@ -427,3 +431,175 @@ def test_clamp_evidence_must_be_on_the_owner_path(countable_income, eligible, cr
         for issue in result.issues
     )
     assert clamp_missing is not credited
+
+
+RANKING_SOURCE = """\
+(a) A household whose countable income is less than $500 is eligible.
+(b) A member who is less than 18 years of age is a minor.
+(c) A member who works less than 30 hours per week is part-time.
+(d) A household whose resources are less than $2,000 is resource-eligible.
+(e) A household whose rent is less than $700 is low-rent.
+"""
+
+RANKING_INPUTS = """\
+  - name: weekly_hours
+    entity: Household
+    dtype: Integer
+    period: Month
+  - name: resources
+    entity: Household
+    dtype: Money
+    period: Month
+  - name: rent
+    entity: Household
+    dtype: Money
+    period: Month
+"""
+
+
+def _threshold_rules(
+    output: str, parameter: str, value: int, excerpt: str, input_name: str
+) -> str:
+    line = next(text[4:] for text in RANKING_SOURCE.splitlines() if excerpt in text)
+    dtype = "Integer" if input_name in {"member_age", "weekly_hours"} else "Money"
+    return f"""\
+  - name: {parameter}
+    kind: parameter
+    dtype: {dtype}
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: {CITATION}
+              excerpt: {excerpt}
+    versions:
+      - effective_from: '2026-01-01'
+        formula: {value}
+  - name: {output}
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: {CITATION}
+              excerpt: {line}
+    versions:
+      - effective_from: '2026-01-01'
+        formula: {input_name} < {parameter}
+"""
+
+
+RANKING_BRANCHES = {
+    "b": (
+        "member_is_minor",
+        "minor_age_limit",
+        18,
+        "less than 18 years of age",
+        "member_age",
+    ),
+    "c": (
+        "part_time",
+        "part_time_hours",
+        30,
+        "less than 30 hours per week",
+        "weekly_hours",
+    ),
+    "d": ("resource_eligible", "resource_limit", 2000, "less than $2,000", "resources"),
+    "e": ("low_rent", "rent_limit", 700, "less than $700", "rent"),
+}
+
+
+def _ranking_candidate(*, encoded: str, boundary_tested: str):
+    content = HEADER.replace("__FORMULA__", "countable_income < income_limit").replace(
+        "rules:\n", RANKING_INPUTS + "rules:\n", 1
+    )
+    cases = [
+        *ELIGIBILITY_CASES,
+        _case("income_at", {"household_eligible": "not_holds"}, countable_income=500),
+    ]
+    for label in encoded:
+        output, parameter, value, excerpt, input_name = RANKING_BRANCHES[label]
+        content += _threshold_rules(output, parameter, value, excerpt, input_name)
+        cases.append(_case(f"{label}_in", {output: "holds"}, **{input_name: 1}))
+        cases.append(
+            _case(f"{label}_out", {output: "not_holds"}, **{input_name: value * 3})
+        )
+        if label in boundary_tested:
+            cases.append(
+                _case(f"{label}_at", {output: "not_holds"}, **{input_name: value})
+            )
+    result = analyze_complete_source_unit(
+        content,
+        RANKING_SOURCE,
+        corpus_citation_path=CITATION,
+        test_cases=cases,
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
+        ),
+        extract_numeric_grounding_occurrences=functools.partial(
+            extract_typed_numeric_occurrences_from_text, profile="en-US"
+        ),
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+    issues = tuple(result.issues)
+    return issues, cli_module._FailedEncodeAttempt(
+        result=None,
+        error="Generated RuleSpec failed CI validation",
+        validation_issues=issues,
+        validation_issue_count=len(issues),
+        full_validation_issues=issues,
+    )
+
+
+def test_deduplicated_feedback_does_not_outrank_a_more_complete_candidate():
+    """A candidate that leaves (b) unencoded must not beat one that encodes
+    every branch but misses its boundary cases only because the unencoded
+    branch's boundary demand is folded into the structure finding."""
+
+    less_issues, less_complete = _ranking_candidate(
+        encoded="cde", boundary_tested="cde"
+    )
+    more_issues, more_complete = _ranking_candidate(encoded="bcde", boundary_tested="")
+
+    # The feedback stays de-duplicated: (b)=18 is not listed for (b).
+    assert any(
+        issue.startswith("[complete-source-unit:structure] Source branch (b)")
+        for issue in less_issues
+    )
+    assert not any("(b)=18" in issue for issue in less_issues)
+    [boundary] = _boundary_issues_from(more_issues)
+    assert _listed(boundary) == ["(b)=18", "(c)=30", "(d)=2000", "(e)=700"]
+    # The folded (b)=18 demand still counts on the finding that absorbed it.
+    assert sum(getattr(issue, "absorbed_obligations", 0) for issue in less_issues) == 1
+
+    for order in ((less_complete, more_complete), (more_complete, less_complete)):
+        assert cli_module._best_validation_retry_attempt(order) is more_complete
+
+
+def _boundary_issues_from(issues) -> list[str]:
+    return [issue for issue in issues if "boundary input; missing:" in issue]
+
+
+def test_absorbed_obligations_survive_rewrites_and_pickling():
+    import pickle
+
+    issue = ValidationIssue(
+        "[complete-source-unit:structure] Source branch (b) is unencoded.",
+        check="complete-source-unit.structure.branch-unencoded",
+        absorbed_obligations=2,
+    )
+    prefixed = retype(issue, f"rules.yaml: ci: {issue}")
+
+    assert prefixed.absorbed_obligations == 2
+    assert pickle.loads(pickle.dumps(prefixed)).absorbed_obligations == 2
+    assert cli_module._validation_residual_obligation_count((prefixed,)) == 3
+    # Equality and the typed document stay the message's.
+    assert prefixed == f"rules.yaml: ci: {issue}"

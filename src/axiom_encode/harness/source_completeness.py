@@ -22,6 +22,7 @@ import itertools
 import math
 import re
 import textwrap
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
@@ -6047,6 +6048,7 @@ def _analyze_rulespec_payload(
     # Branches reported here as wholly unencoded cannot yet own companion
     # boundary evidence; their boundary demands return once they are encoded.
     structure_reported_paths: set[tuple[str, ...]] = set()
+    structure_issue_index: dict[tuple[str, ...], int] = {}
     for branch in branches:
         if _path_covered(
             branch.path,
@@ -6106,6 +6108,7 @@ def _analyze_rulespec_payload(
                     "precisely defer the parent; do not invent a dummy output."
                 )
         structure_reported_paths.add(branch.path)
+        structure_issue_index.setdefault(branch.path, len(issues))
         issues.append(
             ValidationIssue(
                 "[complete-source-unit:structure] "
@@ -6275,6 +6278,9 @@ def _analyze_rulespec_payload(
     companion_issues: list[str] = []
     companion_obligations: list[CompanionTestObligation] = []
     formula_output_binding_details: dict[SourceStructureBranch, str] = {}
+    absorbed_companion_demands: list[
+        tuple[SourceStructureBranch | None, tuple[str, ...] | None]
+    ] = []
     if principal_rules:
         imported_parameters = _resolved_imported_parameter_rules(
             payload, imported_symbol_contents=imported_symbol_contents
@@ -6329,6 +6335,7 @@ def _analyze_rulespec_payload(
                 formula_output_reported_branches=frozenset(formula_output_issue_index),
                 formula_output_binding_details=formula_output_binding_details,
                 structure_reported_paths=frozenset(structure_reported_paths),
+                absorbed_demand_sink=absorbed_companion_demands,
                 obligation_sink=companion_obligations,
                 branches=branches,
                 source_text=source_text,
@@ -6366,6 +6373,19 @@ def _analyze_rulespec_payload(
             index = formula_output_issue_index.get(branch)
             if index is not None:
                 issues[index] = retype(issues[index], issues[index] + detail)
+        # Each folded demand still counts as residual work on the finding
+        # that absorbed it, so de-duplicated feedback does not make a less
+        # encoded candidate rank better than a more complete one.
+        absorbed_counts: Counter[int] = Counter()
+        for absorbed_branch, absorbed_path in absorbed_companion_demands:
+            index = (
+                formula_output_issue_index[absorbed_branch]
+                if absorbed_branch is not None
+                else structure_issue_index[absorbed_path]
+            )
+            absorbed_counts[index] += 1
+        for index, count in absorbed_counts.items():
+            issues[index] = _with_absorbed_obligations(issues[index], count)
 
     numeric_recall_text = authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path
@@ -21874,6 +21894,22 @@ def _companion_case_input_classes(
     return numeric, boolean
 
 
+def _with_absorbed_obligations(issue: str, count: int) -> str:
+    """Add ``count`` folded companion demands to one finding's residual work."""
+
+    if not isinstance(issue, ValidationIssue):
+        return issue
+    return ValidationIssue(
+        str(issue),
+        check=issue.check,
+        subject=issue.subject,
+        expected=issue.expected,
+        found=issue.found,
+        evidence=issue.evidence,
+        absorbed_obligations=issue.absorbed_obligations + count,
+    )
+
+
 def _companion_test_issues(
     principal_rules: dict[str, dict[str, Any]],
     *,
@@ -21907,6 +21943,10 @@ def _companion_test_issues(
     formula_output_reported_branches: frozenset[SourceStructureBranch] = frozenset(),
     formula_output_binding_details: dict[SourceStructureBranch, str] | None = None,
     structure_reported_paths: frozenset[tuple[str, ...]] = frozenset(),
+    absorbed_demand_sink: list[
+        tuple[SourceStructureBranch | None, tuple[str, ...] | None]
+    ]
+    | None = None,
     obligation_sink: list[CompanionTestObligation] | None = None,
     partnership_content: str | None = None,
     printed_operations: _PrintedOperationContext | None = None,
@@ -22107,6 +22147,8 @@ def _companion_test_issues(
             # The caller moves any named-rule binding hint onto that finding.
             if source_binding_detail and formula_output_binding_details is not None:
                 formula_output_binding_details[branch] = source_binding_detail
+            if absorbed_demand_sink is not None:
+                absorbed_demand_sink.append((branch, None))
             continue
         source_excerpt = _bounded_source_feedback_excerpt(branch.text)
         source_location = f"characters {branch.start}:{branch.end}"
@@ -22217,14 +22259,6 @@ def _companion_test_issues(
     missing_boundaries: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
     direct_boundary_inputs: dict[int, tuple[str, ...]] = {}
     for branch, boundary in boundary_obligations:
-        if not _rules_covering_branch(branch, principal_rule_paths) and (
-            branch.path in structure_reported_paths
-            or branch in formula_output_reported_branches
-        ):
-            # No principal output can witness a boundary in a branch that the
-            # structure or formula-output finding already reports as
-            # unencoded. The boundary demand returns once an output covers it.
-            continue
         if _branch_boundary_test_witnesses(
             branch,
             boundary,
@@ -22258,6 +22292,21 @@ def _companion_test_issues(
                 source_branches=branches,
             ):
                 continue
+        if not _rules_covering_branch(branch, principal_rule_paths) and (
+            branch in formula_output_reported_branches
+            or branch.path in structure_reported_paths
+        ):
+            # No principal output can witness a boundary in a branch that the
+            # structure or formula-output finding already reports as
+            # unencoded. The boundary demand returns once an output covers it,
+            # and until then it counts as residual work on that finding.
+            if absorbed_demand_sink is not None:
+                absorbed_demand_sink.append(
+                    (branch, None)
+                    if branch in formula_output_reported_branches
+                    else (None, branch.path)
+                )
+            continue
         missing_boundaries.append((branch, boundary))
         covering_rule_names = tuple(
             sorted(_rules_covering_branch(branch, principal_rule_paths))

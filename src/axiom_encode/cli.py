@@ -33754,8 +33754,17 @@ def _validation_residual_obligation_count(issues: Sequence[str]) -> int:
                 1,
                 len(re.findall(r"`[^`]+`\s+versions\[", issue)),
             )
-        total += obligation_count
+        # Companion demands that a structure or formula-output finding
+        # absorbed are not repeated in its message, but they are still
+        # residual work: a less encoded candidate must not outrank a more
+        # complete one only because its feedback is de-duplicated.
+        total += obligation_count + _absorbed_obligation_count(issue)
     return total
+
+
+def _absorbed_obligation_count(issue: str) -> int:
+    count = getattr(issue, "absorbed_obligations", 0)
+    return count if isinstance(count, int) and not isinstance(count, bool) else 0
 
 
 def _full_validation_issue_list(*issue_groups: object) -> tuple[str, ...]:
