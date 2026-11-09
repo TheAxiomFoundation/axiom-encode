@@ -1,0 +1,21 @@
+def _audit_legacy_condition_has_candidate(text: str, *, profile: str='legacy') -> _NumericTokenization:
+    """Tokenize once into typed grounding and source-inventory emission streams."""
+    if profile not in _NUMERIC_EXTRACTION_PROFILES:
+        raise ValueError(f'Unsupported numeric profile: {profile}')
+    if profile != 'legacy':
+        return _tokenize_profiled_numeric_occurrences(text, profile=profile)
+    raw_tracked = _bind_hebrew_source_text_tracked(_TrackedText.identity(text).sub(_FORM_IMPLIED_CENTS_PATTERN, lambda match: ' ' * len(match.group(0))))
+    raw_text = raw_tracked.text
+    cleaned_tracked = _clean_source_text_for_numeric_extraction_tracked(raw_text)
+    cleaned_before_schedule = cleaned_tracked.text
+    schedule_matches, cleaned = _iter_collapsed_schedule_row_occurrences(cleaned_before_schedule)
+    for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(cleaned):
+        raw = match.group(1).replace(',', '')
+        try:
+            value = float(raw)
+        except ValueError:
+            continue
+        grouped_value = _parse_belgian_numeric_phrase(match.group(1))
+        if grouped_value is not None and (not math.isclose(grouped_value, value, rel_tol=0, abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE)):
+            return True
+    return False

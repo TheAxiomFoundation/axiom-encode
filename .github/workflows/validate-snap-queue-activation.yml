@@ -16,6 +16,12 @@ permissions:
   actions: read
   contents: read
 
+# A new push to a pull request cancels that pull request's older run of this
+# workflow, so runs for superseded heads stop holding runners.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -263,7 +269,7 @@ jobs:
           url="${SUPABASE_URL%/}/rest/v1/release_objects?select=release_object&release_name=eq.${RELEASE_NAME}&content_sha256=eq.${RELEASE_SHA}&limit=2"
           curl --fail --silent --show-error --location \
             --proto '=https' --proto-redir '=https' --tlsv1.2 \
-            --max-filesize 16777216 \
+            --max-filesize 67108864 \
             --header "apikey: $SUPABASE_ANON_KEY" \
             --header "Authorization: Bearer $SUPABASE_ANON_KEY" \
             --header "Accept-Profile: corpus" \

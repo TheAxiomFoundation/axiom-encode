@@ -16,6 +16,7 @@ from typing import Optional
 
 from supabase import Client, create_client
 
+from .encode_timing import iteration_timing_payload
 from .harness.encoding_db import (
     ITERATION_USAGE_FIELDS,
     RUN_COST_COLUMNS,
@@ -184,6 +185,11 @@ def sync_run_to_supabase(
                         "message": e.message,
                         "variable": e.variable,
                         "fix_applied": e.fix_applied,
+                        **(
+                            {"issue_document": e.issue_document}
+                            if getattr(e, "issue_document", None) is not None
+                            else {}
+                        ),
                     }
                     for e in it.errors
                 ],
@@ -191,6 +197,9 @@ def sync_run_to_supabase(
                 # run (Terra, then Sol) can be re-priced from the remote record.
                 # An attempt that reported no usage stays absent, not zero.
                 **_iteration_usage(it),
+                # The try's wall time and phase timeline (encode loop only);
+                # `duration_ms` above stays the model call alone.
+                **iteration_timing_payload(it),
             }
             for it in run.iterations
         ],

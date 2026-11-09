@@ -1,0 +1,122 @@
+"""Record final-byte public-gate checks without changing tests or settings."""
+from concurrent.futures import ThreadPoolExecutor
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import sysconfig
+import time
+
+BASE = Path(__file__).resolve().parent
+ROOT = Path.cwd()
+EXPECTED = {
+    'src/axiom_encode/harness/source_completeness.py': 'd53c686aff3c750568f3b97e0117c5bfdf1d3cf5dac8572bb98f6e0758af80f2',
+    'src/axiom_encode/harness/validator_pipeline.py': '264f57fa014c4ba90343e3785b66357927d5f7f07f915a8fb9e4afb0bf114e06',
+    'src/axiom_encode/harness/manual_locator_metadata.py': 'a1bf6df0a0f1559a56f334e20fb78e07e13588aa3a5eef979f85d89573fef321',
+    'tests/test_source_completeness_manual_mask_fail_safe.py': 'abbe476854436f9491d68b0954b38f6f5d30205fa300d7f76a0de617363f6a4c',
+    'tests/test_source_completeness_manual_mask_review_safety.py': 'cd88b5a5e7c22a042227a5dc7bc0a1453fb3fc947aefb0f10fa25d7166daa2b7',
+    'changelog.d/1821-manual-operative-values.fixed.md': 'd9933ad3721387689b11fe5ce3cc5dfada03602514c66f36a6cc3723e2a420c0',
+}
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+def hashes():
+    return {name:digest(name) for name in EXPECTED}
+assert hashes() == EXPECTED, hashes()
+assert not sysconfig.get_config_var('Py_GIL_DISABLED')
+environment = dict(os.environ)
+for name in ('OMP_NUM_THREADS','OPENBLAS_NUM_THREADS','MKL_NUM_THREADS','VECLIB_MAXIMUM_THREADS','NUMEXPR_NUM_THREADS'):
+    environment[name] = '1'
+environment['OMP_WAIT_POLICY'] = 'PASSIVE'
+environment['UV_CACHE_DIR'] = os.environ['UV_CACHE_DIR']
+environment['HYPOTHESIS_STORAGE_DIRECTORY'] = str(BASE / 'hypothesis-current')
+SAFETY = 'tests/test_source_completeness_manual_mask_review_safety.py'
+
+def run(name, selection, expected_code=0, additional_env=None):
+    assert hashes() == EXPECTED
+    temp = Path(os.environ['PYTEST_BASETEMP_PREFIX'] + name)
+    assert not temp.exists(), temp
+    command = ['.venv/bin/pytest','-q','-o','addopts=','--no-cov','-p','no:cacheprovider','--basetemp=' + str(temp),*selection]
+    child_env = dict(environment)
+    child_env.update(additional_env or {})
+    log = BASE / (name + '.log')
+    started = time.monotonic()
+    print('START',name,flush=True)
+    try:
+        with log.open('w') as output:
+            output.write('COMMAND ' + repr(command) + '\n')
+            output.flush()
+            process = subprocess.Popen(command,env=child_env,stdout=output,stderr=subprocess.STDOUT)
+            (BASE / (name + '.pid')).write_text(str(process.pid) + '\n')
+            try:
+                code = process.wait(timeout=7200)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                try:
+                    process.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                code = 124
+            elapsed = round(time.monotonic()-started,3)
+            output.write(f'\nWRAPPER exit {code}, elapsed {elapsed}s\n')
+    finally:
+        shutil.rmtree(temp,ignore_errors=True)
+    text = log.read_text()
+    summary = re.findall(r'[^\n]*\b(?:passed|failed|deselected)\b[^\n]*',text)
+    result = {'name':name,'command':command,'exit_code':code,'expected_exit_code':expected_code,
+              'elapsed_seconds':elapsed,'summary':summary[-1:], 'validated_file_sha256':EXPECTED,
+              'source_unchanged':hashes() == EXPECTED, 'log_sha256':digest(log),
+              'numeric_thread_cap_per_child':1,'basetemp_removed':not temp.exists(),
+              'additional_env':additional_env or {}}
+    (BASE / (name + '-result.json')).write_text(json.dumps(result,indent=2)+'\n')
+    print('DONE',name,code,result['summary'],flush=True)
+    assert code == expected_code and result['source_unchanged'], result
+    return result
+
+mode = sys.argv[1]
+if mode in ('old-table', 'old-safety'):
+    selection = ['-p','old_complete_plugin',SAFETY]
+    if mode == 'old-table':
+        selection += ['-k','flattened']
+    results = [run(mode, selection,expected_code=1,
+                  additional_env={'PYTHONPATH':'.hub-scratch/r6-resumed/tests:src',
+                                  'HYPOTHESIS_STORAGE_DIRECTORY':str(BASE / ('hypothesis-' + mode))})]
+elif mode == 'current':
+    results = [run('safety',[SAFETY])]
+    prior = Path('.hub-scratch/r6-resumed/tests/collection.log')
+    nodes = [line for line in prior.read_text().splitlines() if line.startswith('tests/')]
+    assert len(nodes) == len(set(nodes)) == 295
+    shards = [(f'generated-{i+1}',nodes[i::4]) for i in range(4)]
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results.extend(executor.map(lambda shard:run(*shard),shards))
+    focus = [f'tests/test_source_completeness_{name}.py' for name in (
+        'locator_masks','manual_mask_operative_values','manual_mask_review_headings',
+        'manual_mask_review_stamps','locator_replays','us_manual_numeric_recall','manual_typography')]
+    numeric = ('typed_numeric_occurrences or numeric_profile_convention_matrix or '
+        'legacy_percentage_context or legacy_profile_keeps_uk_single_dot_dual_read or '
+        'numeric_extraction_reads_single_dot_group_as_decimal_too or '
+        'grounding_accepts_european or grounding_accepts_spaced_european or '
+        'grounding_accepts_dot_thousands or grounding_accepts_spaced_thousands or '
+        'numeric_extraction_handles_ghana_cedi_grouped_thousands')
+    for name,selection in (
+        ('focused',focus),
+        ('complete-source',['tests/test_source_completeness.py','-k',
+            'us_manual or numbered_manual or leading_values or locator_masks']),
+        ('numeric',['tests/test_rulespec_validation.py','-k',numeric]),
+        ('upstream-controls',['.hub-scratch/r6/main-integration/test_upstream_manual_controls.py']),
+    ):
+        results.append(run(name,selection))
+    results.append(run('locked',['tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set'],
+        additional_env={'AXIOM_CHECK_LOCKED_ENV':'1',
+                        'PATH':os.environ['UV_CACHE_LAUNCHER_DIR'] + os.pathsep + environment['PATH']}))
+else:
+    raise SystemExit(mode)
+manifest = {'mode':mode,'interpreter':sys.version,'Py_GIL_DISABLED':sysconfig.get_config_var('Py_GIL_DISABLED'),
+    'source_sha256':EXPECTED,'maximum_pytest_children':4,'numeric_thread_cap_per_child':1,
+    'OMP_WAIT_POLICY':'PASSIVE','results':results,'all_source_hashes_unchanged':hashes() == EXPECTED,
+    'all_owned_basetemps_removed':all(result['basetemp_removed'] for result in results)}
+(BASE / (mode + '-manifest.json')).write_text(json.dumps(manifest,indent=2)+'\n')

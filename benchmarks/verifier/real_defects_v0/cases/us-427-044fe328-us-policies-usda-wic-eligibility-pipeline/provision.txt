@@ -1,0 +1,165 @@
+--- Source: us/regulation/7/246/7/c ---
+(c) Eligibility criteria and basic certification procedures. (1) To qualify for the Program, infants, children, and pregnant, postpartum, and breastfeeding women must:
+
+(i) Reside within the jurisdiction of the State (except for Indian State agencies). Indian State agencies may establish a similar requirement. All State agencies may determine a service area for any local agency, and may require that an applicant reside within the service area. However, the State agency may not use length of residency as an eligibility requirement.
+
+(ii) Meet the income criteria specified in paragraph (d) of this section.
+
+(iii) Meet the nutritional risk criteria specified in paragraph (e) of this section.
+
+(2)(i) At certification, the State or local agency must require each applicant to present proof of residency (i.e., location or address where the applicant routinely lives or spends the night) and proof of identity. The State or local agency must also check the identity of participants, or in the case of infants or children, the identity of the parent or guardian, or proxies when issuing food, cash-value vouchers or food instruments. The State agency may authorize the certification of applicants when no proof of residency or identity exists (such as when an applicant or an applicant's parent is a victim of theft, loss, or disaster; a homeless individual; or a migrant farmworker). In these cases, the State or local agency must require the applicant to confirm in writing his/her residency or identity. Further, an individual residing in a remote Indian or Native village or an individual served by an Indian tribal organization and residing on a reservation or pueblo may establish proof of residency by providing the State agency their mailing address and the name of the remote Indian or Native village.
+
+(ii) For a State agency opting to require proof of pregnancy, the State agency may issue benefits to applicants who claim to be pregnant (assuming that all other eligibility criteria are met) but whose conditions (as pregnant) are not visibly noticeable and do not have documented proof of pregnancy at the time of the certification interview and determination. The State agency should then allow a reasonable period of time, not to exceed 60 days, for the applicant to provide the requested documentation. If such documentation is not provided as requested, the woman can no longer be considered categorically eligible, and the local agency would then be justified in terminating the woman's WIC participation in the middle of a certification period.
+
+(3) A State, a State agency, and an Indian Tribal Organization (including, an Indian tribe, band, or group recognized by the Department of the Interior; or an intertribal council or group which is an authorized representative of Indian tribes, bands or groups recognized by the Department of the Interior and which has an ongoing relationship with such tribes, bands or groups for other purposes and has contracted with them to administer the Program) serving as a State agency, may limit WIC participation to United States citizens, nationals, and qualified aliens as these terms are defined in the Immigration and Nationality Laws (8 U.S.C. 1101 et seq.). State agencies that implement this option shall inform FNS of their intentions and provide copies of the procedures they will establish regarding the limitation of WIC services to United States citizens, nationals, and qualified aliens.
+
+(4) The certification procedure shall be performed at no cost to the applicant.
+
+--- Source: us/regulation/7/246/7/d ---
+(d) Income criteria and income eligibility determinations. The State agency shall establish, and provide local agencies with, income guidelines, definitions, and procedures to be used in determining an applicant's income eligibility for the Program.
+
+(1) Income eligibility guidelines. The State agency may prescribe income guidelines either equaling the income guidelines established under section 9 of the National School Lunch Act for reduced-price school meals or identical to State or local guidelines for free or reduced-price health care. However, in conforming Program income guidelines to health care guidelines, the State agency shall not establish Program guidelines which exceed the guidelines for reduced-price school meals or are less than 100 percent of the revised poverty income guidelines issued annually by the Department of Health and Human Services. Program applicants who meet the requirements established by paragraph (d)(2)(vi)(A) of this section shall not be subject to the income limits established by State agencies under this paragraph.
+
+(i) Local agency income eligibility guidelines. Different guidelines may be prescribed for different local agencies within the State provided that the guidelines are the ones used by the local agencies for determining eligibility for free or reduced-price health care.
+
+(ii) Annual adjustments in the income guidelines. On or before June 1 each year, FNS will announce adjustments in the income guidelines for reduced-price meals under section 9 of the National School Lunch Act, based on annual adjustments in the revised poverty income guidelines issued by the Department of Health and Human Services.
+
+(iii) Implementation of the income guidelines. On or before July 1 each year, each State agency shall announce and transmit to each local agency the State agency's family size income guidelines, unless changes in the poverty income guidelines issued by the Department of Health and Human Services do not necessitate changes in the State or local agency's income guidelines. The State agency may implement revised guidelines concurrently with the implementation of income guidelines under the Medicaid program established under Title XIX of the Social Security Act (42 U.S.C. 1396 of et seq.). The State agency shall ensure that conforming adjustments are made, if necessary, in local agency income guidelines. The local agency shall implement (revised) guidelines not later than July 1 of each year for which such guidelines are issued by the State.
+
+(2) Income eligibility determinations. The State agency shall ensure that local agencies determine income through the use of a clear and simple application form provided or approved by the State agency.
+
+(i) Timeframes for determining income. In determining the income eligibility of an applicant, the State agency may instruct local agencies to consider the income of the family during the past 12 months and the family's current rate of income to determine which indicator more accurately reflects the family's status. However, persons from families with adult members who are unemployed shall be eligible based on income during the period of unemployment if the loss of income causes the current rate of income to be less than the State or local agency's income guidelines for Program eligibility.
+
+(ii) Definition of “Income”. If the State agency uses the National School Lunch reduced-priced meal income guidelines, as specified in paragraph (d)(1) of this section, it shall use the following definition of income: Income for the purposes of this part means gross cash income before deductions for income taxes, employees' social security taxes, insurance premiums, bonds, etc. Income includes the following—
+
+(A) Monetary compensation for services, including wages, salary, commissions, or fees;
+
+(B) Net income from farm and non-farm self-employment;
+
+(C) Social Security benefits;
+
+(D) Dividends or interest on savings or bonds, income from estates or trusts, or net rental income;
+
+(E) Public assistance or welfare payments;
+
+(F) Unemployment compensation;
+
+(G) Government civilian employee or military retirement or pensions or veterans' payments;
+
+(H) Private pensions or annuities;
+
+(I) Alimony or child support payments;
+
+(J) Regular contributions from persons not living in the household;
+
+(K) Net royalties; and
+
+(L) Other cash income. Other cash income includes, but is not limited to, cash amounts received or withdrawn from any source including savings, investments, trust accounts and other resources which are readily available to the family.
+
+(iii) Use of a State or local health care definition of “Income”. If the State agency uses State or local free or reduced-price health care income guidelines, it will ensure that the definitions of income (see paragraph (d)(2)(ii) of this section), family (see § 246.2) and allowable exclusions from income (see paragraph (d)(2)(iv) of this section) are used uniformly to determine an applicant's income eligibility. This ensures that households with a gross income in excess of 185 percent of the Federal income guidelines (see paragraph (d)(1) of this section) are not eligible for Program benefits. The exception to this requirement is persons who are also income eligible under other programs (see paragraph (d)(2)(vi) of this section).
+
+(iv) Income exclusions. (A) In determining income eligibility, the State agency may exclude from consideration as income any:
+
+(1) Basic allowance for housing received by military services personnel residing off military installations or in privatized housing, whether on- or off-base; and
+
+(2) Cost-of-living allowance provided under 37 U.S.C. 405, to a member of a uniformed service who is on duty outside the contiguous states of the United States.
+
+(B) The value of inkind housing and other inkind benefits, shall be excluded from consideration as income in determining an applicant's eligibility for the program.
+
+(C) Loans, not including amounts to which the applicant has constant or unlimited access.
+
+(D) Payments or benefits provided under certain Federal programs or acts are excluded from consideration as income by legislative prohibition. The payments or benefits which must be excluded from consideration as income include, but are not limited to:
+
+(1) Reimbursements from the Uniform Relocation Assistance and Real Property Acquisition Policies Act of 1970 (Pub. L. 91-646, sec. 216, 42 U.S.C. 4636);
+
+(2) Any payment to volunteers under Title I (VISTA and others) and Title II (RSVP, foster grandparents, and others) of the Domestic Volunteer Service Act of 1973 (Pub. L. 93-113, sec. 404(g), 42 U.S.C. 5044(g)) to the extent excluded by that Act;
+
+(3) Payment to volunteers under section 8(b)(1)(B) of the Small Business Act (SCORE and ACE) (Pub. L. 95-510, sec. 101, 15 U.S.C. 637(b)(1)(D));
+
+(4) Income derived from certain submarginal land of the United States which is held in trust for certain Indian tribes (Pub. L. 94-114, sec. 6, 25 U.S.C. 459e);
+
+(5) Payments received under the Job Training Partnership Act (Pub. L. 97-300, sec. 142(b), 29 U.S.C. 1552(b));
+
+(6) Income derived from the disposition of funds to the Grand River Band of Ottawa Indians (Pub. L. 94-540, sec. 6);
+
+(7) Payments received under the Alaska Native Claims Settlement Act (Pub. L. 100-241, sec. 15, 43 U.S.C. sec. 1626(c));
+
+(8) The value of assistance to children or their families under the National School Lunch Act, as amended (Pub. L. 94-105, sec. 9(d), 42 U.S.C. sec. 1760(e)), the Child Nutrition Act of 1966 (Pub. L. 89-642, sec. 11(b), 42 U.S.C. sec. 1780(b)), and the Food and Nutrition Act of 2008 (Pub. L. 95-113, sec. 1301, 7 U.S.C. sec. 2017(b));
+
+(9) Payments by the Indian Claims Commission to the Confederated Tribes and Bands of the Yakima Indian Nation or the Apache Tribe of the Mescalero Reservation (Pub. L. 95-433, sec. 2, 25 U.S.C. 609c-1);
+
+(10) Payments to the Passamaquoddy Tribe and the Penobscot Nation or any of their members received pursuant to the Maine Indian Claims Settlement Act of 1980 (Pub. L. 96-420, sec. 6, 9(c), 25 U.S.C. 1725(i), 1728(c));
+
+(11) Payments under the Low-income Home Energy Assistance Act, as amended (Pub. L. 99-125, sec. 504(c), 42 U.S.C. sec. 8624(f));
+
+(12) Student financial assistance received from any program funded in whole or part under Title IV of the Higher Education Act of 1965, including the Pell Grant, Supplemental Educational Opportunity Grant, State Student Incentive Grants, National Direct Student Loan, PLUS, College Work Study, and Byrd Honor Scholarship programs, which is used for costs described in section 472 (1) and (2) of that Act (Pub. L. 99-498, section 479B, 20 U.S.C. 1087uu). The specified costs set forth in section 472 (1) and (2) of the Higher Education Act are tuition and fees normally assessed a student carrying the same academic workload as determined by the institution, and including the costs for rental or purchase of any equipment, materials, or supplies required of all students in the same course of study; and an allowance for books, supplies, transportation, and miscellaneous personal expenses for a student attending the institution on at least a half-time basis, as determined by the institution. The specified costs set forth in section 472 (1) and (2) of the Act are those costs which are related to the costs of attendance at the educational institution and do not include room and board and dependent care expenses;
+
+(13) Payments under the Disaster Relief Act of 1974, as amended by the Disaster Relief and Emergency Assistance Amendments of 1989 (Pub. L. 100-707, sec. 105(i), 42 U.S.C. sec. 5155(d));
+
+(14) Effective July 1, 1991, payments received under the Carl D. Perkins Vocational Education Act, as amended by the Carl D. Perkins Vocational and Applied Technology Education Act Amendments of 1990 (Pub. L. 101-392, sec. 501, 20 U.S.C. sec. 2466d);
+
+(15) Payments pursuant to the Agent Orange Compensation Exclusion Act (Pub. L. 101-201, sec. 1);
+
+(16) Payments received for Wartime Relocation of Civilians under the Civil Liberties Act of 1988 (Pub. L. 100-383, sec. 105(f)(2), 50 App. U.S.C. sec. 1989b-4(f)(2));
+
+(17) Value of any child care payments made under section 402(g)(1)(E) of the Social Security Act, as amended by the Family Support Act (Pub. L. 100-485, sec. 301, 42 U.S.C. sec. 602 (g)(1)(E));
+
+(18) Value of any “at-risk” block grant child care payments made under section 5081 of Pub. L. 101-508, which amended section 402(i) of the Social Security Act;
+
+(19) Value of any child care provided or paid for under the Child Care and Development Block Grant Act, as amended (Pub. L. 102-586, Sec. 8(b)), 42 U.S.C. 9858q);
+
+(20) Mandatory salary reduction amount for military service personnel which is used to fund the Veteran's Educational Assistance Act of 1984 (GI Bill), as amended (Pub. L. 99-576, sec. 303(a)(1), 38 U.S.C. sec. 1411 (b));
+
+(21) Payments received under the Old Age Assistance Claims Settlement Act, except for per capita shares in excess of $2,000 (Pub. L. 98-500, sec. 8, 25 U.S.C. sec. 2307);
+
+(22) Payments received under the Cranston-Gonzales National Affordable Housing Act, unless the income of the family equals or exceeds 80 percent of the median income of the area (Pub. L. 101-625, sec. 522(i)(4), 42 U.S.C. sec. 1437f nt);
+
+(23) Payments received under the Housing and Community Development Act of 1987, unless the income of the family increases at any time to not less than 50 percent of the median income of the area (Pub. L. 100-242, sec. 126(c)(5)(A), 25 U.S.C. sec. 2307);
+
+(24) Payments received under the Sac and Fox Indian claims agreement (Pub. L. 94-189, sec. 6);
+
+(25) Payments received under the Judgment Award Authorization Act, as amended (Pub. L. 97-458, sec. 4, 25 U.S.C. sec. 1407 and Pub. L. 98-64, sec. 2(b), 25 U.S.C. sec. 117b(b));
+
+(26) Payments for the relocation assistance of members of Navajo and Hopi Tribes (Pub. L. 93-531, sec. 22, 22 U.S.C. sec. 640d-21);
+
+(27) Payments to the Turtle Mountain Band of Chippewas, Arizona (Pub. L. 97-403, sec. 9);
+
+(28) Payments to the Blackfeet, Grosventre, and Assiniboine tribes (Montana) and the Papago (Arizona) (Pub. L. 97-408, sec. 8(d));
+
+(29) Payments to the Assiniboine Tribe of the Fort Belknap Indian community and the Assiniboine Tribe of the Fort Peck Indian Reservation (Montana) (Pub. L. 98-124, sec. 5);
+
+(30) Payments to the Red Lake Band of Chippewas (Pub. L. 98-123, sec. 3);
+
+(31) Payments received under the Saginaw Chippewa Indian Tribe of Michigan Distribution of Judgment Funds Act (Pub. L. 99-346, sec. 6(b)(2));
+
+(32) Payments to the Chippewas of Mississippi (Pub. L. 99-377, sec. 4(b));
+
+(33) Payments received by members of the Armed Forces and their families under the Family Supplemental Subsistence Allowance from the Department of Defense (Pub. L. 109-163, sec. 608); and
+
+(34) Payments received by property owners under the National Flood Insurance Program (Pub. L. 109-64).
+
+(35) Combat pay received by the household member under Chapter 5 of Title 37 or as otherwise designated by the Secretary.
+
+(v) Are applicants required to document income eligibility? (A) Adjuctively/automatically income eligible applicants. The State or local agency must require applicants determined to be adjunctively or automatically income eligible to document their eligibility for the program that makes them income eligible as set forth in paragraph (d)(2)(vi) of this section.
+
+(B) Other applicants. The State or local agency must require all other applicants to provide documentation of family income at certification.
+
+(C) Exceptions. The income documentation requirement does not apply to an individual for whom the necessary documentation is not available or an individual such as a homeless woman or child for whom the agency determines the income documentation requirement would present an unreasonable barrier to participation. Examples of individuals for whom the necessary documentation is not available include those with no income or no proof of income (such as an applicant or applicant's parent who is a migrant farmworker or other individual who works for cash). These are the only exceptions that may be used. When using these exceptions, the State or local agency must require the applicant to sign a statement specifying why he/she cannot provide documentation of income. Such a statement is not required when there is no income.
+
+(D) Verification. The State or local agency may require verification of information it determines necessary to confirm income eligibility for Program benefits.
+
+(vi) Adjunct or automatic income eligibility. (A) The State agency shall accept as income-eligible for the Program any applicant who documents that he/she is:
+
+(1) Certified as fully eligible to receive SNAP benefits under the Food and Nutrition Act of 2008, or certified as fully eligible, or presumptively eligible pending completion of the eligibility determination process, to receive Temporary Assistance for Needy Families (TANF) under Part A of Title IV of the Social Security Act or Medical Assistance (i.e., Medicaid) under Title XIX of the Social Security Act; or
+
+(2) A member of a family that is certified eligible to receive assistance under TANF, or a member of a family in which a pregnant woman or an infant is certified eligible to receive assistance under Medicaid.
+
+(B) The State agency may accept, as evidence of income within Program guidelines, documentation of the applicant's participation in State-administered programs not specified in this paragraph that routinely require documentation of income, provided that those programs have income eligibility guidelines at or below the State agency's Program income guidelines.
+
+(C) Persons who are adjunctively income eligible, as set forth in paragraphs (d)(2)(vi)(A) of this section, shall not be subject to the income limits established under paragraph (d)(1) of this section.
+
+(vii) Income eligibility of pregnant women. A pregnant woman who is ineligible for participation in the program because she does not meet income guidelines shall be considered to have satisfied the income guidelines if the guidelines would be met by increasing the number of individuals in her family by the number of embryos or fetuses in utero. The same increased family size may also be used for any of the pregnant woman's categorically eligible family members. The State agency shall allow applicants to waive this increase in family size.
+
+(viii) Income eligibility of Indian applicants. If an Indian State agency (or a non-Indian State agency which acts on behalf of a local agency operated by an Indian organization or the Indian Health Service) submits census data or other reliable documentation demonstrating to FNS that the majority of the Indian households in a local agency's service area have incomes at or below the State agency's income eligibility guidelines, FNS may authorize the State agency to approve the use of an income certification system under which the local Indian agency shall inform each Indian applicant household of the maximum family income allowed for that applicant's family size. The local agency shall ensure that the applicant, or the applicant's parent or caretaker, signs a statement that the applicant's family income does not exceed the maximum. The local agency may verify the income eligibility of any Indian applicant.
+
+(ix) Are instream migrant farmworkers and their family members required to document income eligibility? Certain instream migrant farmworkers and their family members with expired Verification of Certification cards shall be declared to satisfy the State agency's income standard and income documentation requirements. Such cases include when income of that instream migrant farmworker is determined at least once every 12 months. Such families shall satisfy the income criteria in any State for any subsequent certification while the migrant is instream during the 12-month period following the determination. The determination can occur either in the migrant's home base area before the migrant has entered the stream for a particular agricultural season, or in an instream area during the agricultural season.

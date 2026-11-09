@@ -2,7 +2,10 @@
 # Change the model in ONE place, it changes everywhere.
 
 # Full model ID for Agent SDK (API) backend
-DEFAULT_MODEL = "claude-opus-4-6"
+DEFAULT_MODEL = "claude-opus-5-5"
+# Opus 5.5 defaults to medium effort; encoding is intelligence-sensitive, so the
+# API backend asks for high explicitly (override with AXIOM_API_ENCODER_EFFORT).
+DEFAULT_API_ENCODER_EFFORT = "high"
 
 # Short-form model names for Claude Code CLI backend
 DEFAULT_CLI_MODEL = "opus"
@@ -13,19 +16,42 @@ REVIEWER_CLI_MODEL = "opus"
 # below): same-model self-review correlates errors (the 9/9 identical
 # hardcoded-600,000 incident is the cautionary tale).
 # GPT-6 Luna generates; GPT-6 Sol takes the bounded validator-failure retry.
-# On 2026-09-24 ChatGPT-account Codex (codex-cli 0.153.3) rejected both with
-# "not supported when using Codex with a ChatGPT account"; on that auth path
-# pass --model/--escalation-model explicitly until they are served there.
+# Explicit --model/--escalation-model overrides also accept gpt-6.1-sol.
+# Codex model availability is determined by the signed-in account and CLI.
 DEFAULT_OPENAI_MODEL = "gpt-6-luna"
 DEFAULT_OPENAI_ESCALATION_MODEL = "gpt-6-sol"
 DEFAULT_OPENAI_ESCALATE_AFTER = 2
 
 # LLM judge models (maximum-traceability part 2). Cross-family by design: the
 # generator is a GPT model, so judges run on a Claude-family model. Volume runs
-# on Haiku; low-confidence verdicts escalate to Sonnet. Both are overridable via
-# AXIOM_JUDGE_MODEL / AXIOM_JUDGE_ESCALATION_MODEL.
-DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001"
-JUDGE_ESCALATION_MODEL = "claude-sonnet-4-5"
+# on Sonnet 5.5; low-confidence verdicts escalate to Opus 5.5. Both are
+# overridable via AXIOM_JUDGE_MODEL / AXIOM_JUDGE_ESCALATION_MODEL.
+DEFAULT_JUDGE_MODEL = "claude-sonnet-5-5"
+JUDGE_ESCALATION_MODEL = "claude-opus-5-5"
+
+# Statutory-fidelity screen (judges/statutory_fidelity_screen.py): a typed
+# probability pre-screen on TypeSafe System One (model family ``typesafe``,
+# model ids ``jev-*``) that runs before the LLM referee. Advisory by default;
+# ``AXIOM_JUDGE_SCREEN_MODE=cascade`` lets a below-threshold screen skip the
+# referee. The screen never gates the pipeline.
+JUDGE_SCREEN_MODE_ADVISORY = "advisory"
+JUDGE_SCREEN_MODE_CASCADE = "cascade"
+JUDGE_SCREEN_MODES = frozenset({JUDGE_SCREEN_MODE_ADVISORY, JUDGE_SCREEN_MODE_CASCADE})
+DEFAULT_JUDGE_SCREEN_MODE = JUDGE_SCREEN_MODE_ADVISORY
+
+# PLACEHOLDER THRESHOLD. The 2026-09-17 planted-defect pilot (30 pairs per
+# kind, synthetic single-edit defects in known-good artifacts) is the only
+# evidence behind this value: at 0.25 the cascade rule (amount or boundary
+# probability at or above the threshold) sent every planted amount change and
+# every flipped boundary to the referee while 32 of 90 clean originals crossed
+# it, so a cascade would still send about a third of clean artifacts on. It is
+# deliberately low because a skipped referee on a real defect costs far more
+# than a referee call. The calibration harness's apply/blocked labels cannot
+# validate a fidelity judge, so the verifier track (axiom-encode#1657, landing
+# under ``benchmarks/verifier/``) is the authority for setting the real
+# threshold; override with ``AXIOM_JUDGE_SCREEN_THRESHOLD`` (or per kind with
+# ``AXIOM_JUDGE_SCREEN_THRESHOLD_<KIND>``) until it does.
+DEFAULT_JUDGE_SCREEN_THRESHOLD = 0.25
 
 # Canonical RuleSpec filesystem contract. ``programs`` is canonical content,
 # but it contains declarative axiom-compose ProgramSpecs rather than atomic

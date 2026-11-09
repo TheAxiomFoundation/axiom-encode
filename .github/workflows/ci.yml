@@ -5,16 +5,59 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    # A draft pull request runs only lint and the quick-tests job, and its
+    # test (3.13) check fails. Marking it ready starts the full run; turning a
+    # pull request back into a draft makes its test (3.13) check fail again.
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+  # `gh workflow run CI --ref <branch>` runs the full suite on a branch, such
+  # as a draft's. Its checks attach to the branch's head commit, and its jobs
+  # key their concurrency groups on the run id, so it neither cancels a pull
+  # request's run nor is cancelled by one.
+  workflow_dispatch:
+  # The merge queue (axiom-encode#2048) tests each queued pull request on top of
+  # main and the pull requests ahead of it, so a pull request is never updated
+  # from main and keeps its approval. Branch protection's required checks must
+  # report on the queue's temporary branch. A merge_group run takes the same
+  # path as a push to main: the full suite, no cancelling, no draft gate.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
 
 jobs:
+  # The suite, split across parallel shards. tests/ci_shards.py assigns every
+  # test function to exactly one shard; the test-gate job below checks it.
   test:
+    name: test shard ${{ matrix.shard }} of 8 (${{ matrix.python-version }})
+    # Not on a draft pull request. The skipped shards fail test-gate below, so
+    # a draft's test (3.13) check fails; real-engine skips on the same condition.
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
+    # A new push to a pull request cancels the older run's test shards, real-engine
+    # and lint jobs. The groups sit on these jobs, not on the workflow, because
+    # test-gate runs even in a cancelled run (`if: always()`): a workflow-level
+    # group would keep the new run waiting until the old gate found a runner.
+    # Each push to main keys its own groups, so nothing cancels it or makes it wait.
+    # When a cancel stops a shard, the older run's test-gate still runs and fails,
+    # so that superseded head shows a failed `test (3.13)` check.
+    concurrency:
+      group: ${{ github.workflow }}-test-${{ matrix.python-version }}-${{ matrix.shard }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.13"]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    outputs:
+      shard_1: ${{ steps.tests.outputs.shard_1 }}
+      shard_2: ${{ steps.tests.outputs.shard_2 }}
+      shard_3: ${{ steps.tests.outputs.shard_3 }}
+      shard_4: ${{ steps.tests.outputs.shard_4 }}
+      shard_5: ${{ steps.tests.outputs.shard_5 }}
+      shard_6: ${{ steps.tests.outputs.shard_6 }}
+      shard_7: ${{ steps.tests.outputs.shard_7 }}
+      shard_8: ${{ steps.tests.outputs.shard_8 }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -42,13 +85,216 @@ jobs:
       - name: Check changelog fragments
         run: .venv/bin/python -m towncrier build --draft --version 0.0.0
 
+      # The real-engine job runs the tests that execute the engine.
       - name: Run tests
-        run: .venv/bin/pytest tests/
+        id: tests
+        env:
+          AXIOM_ENCODE_TEST_SHARD: ${{ matrix.shard }}/8
+          # A bump pull request must leave no encoder change unversioned
+          # (axiom-encode#2048); other heads may be unversioned until their bump.
+          AXIOM_ENCODE_REQUIRE_VERSION_BUMP: ${{ startsWith(github.head_ref, 'automation/encoder-version-') && '1' || '' }}
+        run: |
+          set -e
+          export AXIOM_ENCODE_TEST_SHARD_REPORT="$RUNNER_TEMP/shard-report"
+          .venv/bin/pytest --durations=200 --durations-min=5 -m "not real_engine" tests/
+          # Reached only when pytest exits 0, so a failure anywhere in the run,
+          # including after the report was written, publishes nothing.
+          cat "$RUNNER_TEMP/shard-report" >> "$GITHUB_OUTPUT"
 
-  lint:
+  # Branch protection requires the check named "test (3.13)". It passes only
+  # when every shard published a report and the reports show that together they
+  # ran every test the shards select (all but the real_engine tests, which the
+  # real-engine job runs): all shards collected the same tests and split them the
+  # same way, and the tests they kept add up to the tests collected. A shard
+  # publishes its report only when its pytest run exits 0 having run every
+  # test it kept, so a failed, cancelled or never-started shard leaves its
+  # report empty. `always()` keeps such a shard from turning this job into a
+  # skipped (and so passing) check. It also needs real-engine to have passed in
+  # the same run. On a draft pull request the shards and real-engine are
+  # skipped, so this check fails; the full run that marking the pull request
+  # ready starts reports this check again for the same commit.
+  test-gate:
+    name: test (3.13)
+    if: always()
+    needs: [test, real-engine]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Check every shard and real-engine passed and the shards ran every selected test
+        env:
+          SHARDS_RESULT: ${{ needs.test.result }}
+          REAL_ENGINE_RESULT: ${{ needs.real-engine.result }}
+          DRAFT_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
+          SHARD_1: ${{ needs.test.outputs.shard_1 }}
+          SHARD_2: ${{ needs.test.outputs.shard_2 }}
+          SHARD_3: ${{ needs.test.outputs.shard_3 }}
+          SHARD_4: ${{ needs.test.outputs.shard_4 }}
+          SHARD_5: ${{ needs.test.outputs.shard_5 }}
+          SHARD_6: ${{ needs.test.outputs.shard_6 }}
+          SHARD_7: ${{ needs.test.outputs.shard_7 }}
+          SHARD_8: ${{ needs.test.outputs.shard_8 }}
+        run: |
+          if [ "$SHARDS_RESULT" != "success" ] || [ "$REAL_ENGINE_RESULT" != "success" ]; then
+            if [ "$DRAFT_PULL_REQUEST" = "true" ]; then
+              echo "::error::draft PR: the full suite runs when the PR is marked ready (or dispatch CI on the branch: gh workflow run CI --ref <branch>)"
+            fi
+            echo "error: the test shards finished as '$SHARDS_RESULT' and real-engine as '$REAL_ENGINE_RESULT'" >&2
+            exit 1
+          fi
+          python3 -I tests/ci_shards.py check \
+            "$SHARD_1" "$SHARD_2" "$SHARD_3" "$SHARD_4" \
+            "$SHARD_5" "$SHARD_6" "$SHARD_7" "$SHARD_8"
+
+  real-engine:
+    # Tests that execute the real axiom-rules-engine (tests/real_engine.py),
+    # against an engine built from the pinned commit. The test job has no
+    # engine and deselects them; with AXIOM_REQUIRE_REAL_ENGINE=1 a missing,
+    # unusable or unpinned engine fails them here instead of skipping them.
+    # Skipped exactly when the test shards are. test (3.13) needs this job to
+    # have passed, so a skipped real-engine check comes with a failed one.
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: ${{ github.workflow }}-real-engine-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    env:
+      # Reviewed merged engine with required unique Boolean relation projection.
+      # The tests require a clean checkout at this commit and a binding receipt
+      # for the actual binary; downstream policy toolchain pins are independent.
+      AXIOM_RULES_ENGINE_REF: 363c6a6c56f7ad130996b63f7a09cfd4c3d9b021
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install locked dependencies
+        run: uv sync --locked --python 3.13 --extra dev
+
+      - name: Check the environment is the locked set
+        run: >-
+          .venv/bin/pytest -q -o addopts=''
+          tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set
+
+      # Outside the workspace, so the encoder checkout stays clean.
+      - name: Check out the pinned axiom-rules-engine
+        run: |
+          set -euo pipefail
+          engine="$RUNNER_TEMP/axiom-rules-engine"
+          git init -q "$engine"
+          git -C "$engine" fetch -q --depth=1 \
+            https://github.com/TheAxiomFoundation/axiom-rules-engine.git \
+            "$AXIOM_RULES_ENGINE_REF"
+          git -C "$engine" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$engine" rev-parse HEAD)" = "$AXIOM_RULES_ENGINE_REF"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+
+      # Dependencies only: rust-cache never caches workspace crates, so the
+      # engine binary itself is compiled below from the pinned checkout on
+      # every run and no cached executable stands in for it.
+      - name: Cache the engine's cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: ${{ runner.temp }}/axiom-rules-engine
+
+      # engine-bind builds with `cargo build --release --locked`, re-checks the
+      # checkout is clean at the pin afterwards, and writes the receipt that
+      # binds the binary's bytes to the commit; the tests verify it.
+      - name: Build and bind the pinned engine
+        run: >-
+          .venv/bin/axiom-encode engine-bind
+          --axiom-rules-engine-path "$RUNNER_TEMP/axiom-rules-engine"
+          --pin "$AXIOM_RULES_ENGINE_REF"
+
+      - name: Run real-engine tests
+        env:
+          AXIOM_REQUIRE_REAL_ENGINE: "1"
+          AXIOM_RULES_ENGINE_ROOT: ${{ runner.temp }}/axiom-rules-engine
+        run: .venv/bin/pytest tests/ -m real_engine
+
+  # A draft pull request's quick check: only the test files it changes, outside
+  # the real_engine marker. Not a required check; a draft cannot merge, and its
+  # test (3.13) check fails until a full run passes.
+  quick-tests:
+    name: quick tests (draft)
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-quick-tests-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      # The pull request merged into its base, and the commits it merges.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install locked dependencies
+        run: uv sync --locked --python 3.13 --extra dev
+
+      - name: Check the environment is the locked set
+        run: >-
+          .venv/bin/pytest -q -o addopts=''
+          tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set
+
+      - name: Run the test files the pull request changes
+        run: |
+          set -euo pipefail
+          # HEAD merges the pull request (second parent) into its base (first).
+          git rev-parse --verify --quiet 'HEAD^2' > /dev/null
+          # Added, changed or renamed (not deleted) files, NUL-separated so git
+          # neither quotes nor splits any name.
+          files=$(mktemp)
+          git diff -z --name-only --diff-filter=d 'HEAD^1' HEAD > "$files"
+          changed=()
+          while IFS= read -r -d '' file; do
+            if [[ "$file" =~ ^tests/test_[^/]*[.]py$ ]]; then
+              changed+=("$file")
+            fi
+          done < "$files"
+          if [ "${#changed[@]}" -eq 0 ]; then
+            echo "The pull request changes no tests/test_*.py file; the full suite runs when it is marked ready."
+            exit 0
+          fi
+          printf 'Running %s\n' "${changed[@]}"
+          status=0
+          .venv/bin/pytest -o addopts='' -m "not real_engine" "${changed[@]}" || status=$?
+          # 5: pytest selected no test, as when every test in these files is a real_engine test.
+          if [ "$status" -eq 5 ]; then
+            echo "pytest selected no test outside the real_engine marker in the changed files."
+            exit 0
+          fi
+          exit "$status"
+
+  lint:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-lint-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The pull request's merge commit and its first parent, the base.
+          fetch-depth: 2
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -66,6 +312,20 @@ jobs:
         run: >-
           .venv/bin/pytest -q -o addopts=''
           tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set
+
+      # Versions are assigned after merge (axiom-encode#2048). Once the bump
+      # workflow is on main, only its App's pull requests may change the
+      # encoder version lines; a hand bump could reuse a number it assigned.
+      # This job is a required check, so the refusal blocks the merge.
+      - name: Refuse a hand-picked encoder version
+        if: github.event_name == 'pull_request'
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          ./.venv/bin/python -I src/axiom_encode/version_provenance.py pull-request \
+            --repo . --base HEAD^1 --ref HEAD --author "$PR_AUTHOR" \
+            --head-repository "$PR_HEAD_REPOSITORY" --repository "$GITHUB_REPOSITORY"
 
       - name: Lint
         run: .venv/bin/ruff check src/ tests/
