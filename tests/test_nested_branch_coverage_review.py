@@ -217,21 +217,20 @@ def test_parent_fallback_repeal_summary_requires_matching_source_evidence(
     "heading", ["(3)", "(<i>3</i>)", "(３)", "(<sup>3</sup>)", "(³)"]
 )
 @pytest.mark.parametrize("scope_method", ["rules_file", "requested_source"])
-def test_parent_fallback_accepts_exact_authoritative_requested_repeal(
+def test_parent_fallback_unlisted_authoritative_repeal_keeps_demand(
     heading, scope_method
 ):
-    """An authenticated requested child may be repealed inside a parent slice."""
+    """Matching notice text cannot substitute for a reviewed tombstone."""
     source = (
         '(a) "benefit" means the amount payable.\n'
         f"{heading} Repealed.\n"
         "(b) Effective date.\n"
     )
-    assert (
-        _parent_fallback_coverage_issues(
-            source, "(3) Repealed.", scope_method=scope_method
-        )
-        == []
+    issues = _parent_fallback_coverage_issues(
+        source, "(3) Repealed.", scope_method=scope_method
     )
+    assert len(issues) == 1, issues
+    assert "26 USC 21(a)" in issues[0]
 
 
 @pytest.mark.parametrize("heading", ["(3)", "(<i>3</i>)", "(３)"])
@@ -325,14 +324,13 @@ def test_deep_parent_fallback_repeal_requires_proven_outer_ancestry(
     assert len(issues) == 1, issues
     assert "26 USC 21(a)" in issues[0]
     assert "benefit" in issues[0]
-    assert (
-        vp.find_source_subparagraph_coverage_issues(
-            content,
-            source_texts={citation: source.replace(f"{boundary}\n", "")},
-            **scope,
-        )
-        == []
+    without_boundary_issues = vp.find_source_subparagraph_coverage_issues(
+        content,
+        source_texts={citation: source.replace(f"{boundary}\n", "")},
+        **scope,
     )
+    assert len(without_boundary_issues) == 1, without_boundary_issues
+    assert "26 USC 21(a)" in without_boundary_issues[0]
 
 
 @given(

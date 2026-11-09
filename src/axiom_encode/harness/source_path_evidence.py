@@ -13,11 +13,10 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Sequence
 
-import yaml
-
 from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness import source_path_shadow as paths
 from axiom_encode.harness.proof_validator import validate_rulespec_proofs
+from axiom_encode.yaml_serialization import safe_dump_yaml
 
 _LINE2 = "provincial_territorial_2025_t2036_federal_credit_line_2"
 _TAX = "provincial_or_territorial_tax_otherwise_payable"
@@ -76,6 +75,61 @@ def _bind_alberta_input_names(payload, contract):
     # Raw source spans, predicates, dates and ownership remain unchanged.
     # The caller still validates types, selected proofs and actual executions.
     return replace(contract, obligations=tuple(obligations))
+
+
+_RESIDENCE_428MJ_STANDARD = (
+    "section_428mj_tax_before_foreign_tax_credit_for_residence_jurisdiction"
+)
+_RESIDENCE_428MJ_ALTERNATE = (
+    "form_428mj_tax_before_provincial_or_territorial_foreign_tax_credit_for_residence"
+)
+
+
+def _bind_residence_428mj_input_name(payload, contract):
+    """Bind one reviewed factual API spelling to the closed other-multi frame.
+
+    Source construction remains independent of candidate formulas. This changes
+    only the direct operand name; ordinary types, proof ownership, selected paths
+    and actual same-world witnesses must still certify the resulting contract.
+    """
+    inputs = paths._index(payload.get("inputs"))
+    rules = paths._index(payload.get("rules"))
+    if inputs is None or rules is None:
+        return replace(contract, unresolved=("invalid residence input declarations",))
+    standard, alternate = _RESIDENCE_428MJ_STANDARD, _RESIDENCE_428MJ_ALTERNATE
+    if alternate not in inputs:
+        return contract
+    if standard in inputs or {standard, alternate} & rules.keys():
+        return replace(contract, unresolved=("ambiguous residence 428MJ input alias",))
+    if payload.get("imports") or (payload.get("module") or {}).get("imports"):
+        return replace(contract, unresolved=("imported residence alias unsupported",))
+    targets = [o for o in contract.obligations if o.identity == "other_multi"]
+    if (
+        len(targets) != 1
+        or targets[0].owner != _TAX
+        or targets[0].expected_expression != standard
+        or sum(c.name == standard for c in targets[0].input_contracts) != 1
+    ):
+        return replace(
+            contract, unresolved=("unknown residence 428MJ source contract",)
+        )
+    target = targets[0]
+    return replace(
+        contract,
+        obligations=tuple(
+            replace(
+                o,
+                expected_expression=alternate,
+                input_contracts=tuple(
+                    replace(c, name=alternate) if c.name == standard else c
+                    for c in o.input_contracts
+                ),
+            )
+            if o is target
+            else o
+            for o in contract.obligations
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -296,6 +350,9 @@ def certify_worksheet_paths(
     contract = _bind_alberta_input_names(payload, contract)
     if contract.unresolved:
         return CertifiedPathCoverage(unresolved=contract.unresolved)
+    contract = _bind_residence_428mj_input_name(payload, contract)
+    if contract.unresolved:
+        return CertifiedPathCoverage(unresolved=contract.unresolved)
     cases = [
         c
         for c in (sc._typed_numeric_expected_cases(test_cases, rules) or ())
@@ -340,6 +397,14 @@ def certify_worksheet_paths(
             **payload,
             "rules": [rules[name] for name in sorted(selected_names)],
         }
+        # Interpretations refer to the full module, not this temporary proof view.
+        # The shared validation gate checks them against the original declarations.
+        if isinstance(proof_payload.get("module"), Mapping):
+            proof_payload["module"] = {
+                key: value
+                for key, value in proof_payload["module"].items()
+                if key != "interpretations"
+            }
         intro = re.search(
             r"(?m)^Use this form to calculate the foreign non-business income tax credit\s+for (?P<year>20[0-9]{2}) that you can deduct from the income tax",
             source_text,
@@ -393,7 +458,7 @@ def certify_worksheet_paths(
             global_errors.extend(date_errors)
             continue
         proof = validate_rulespec_proofs(
-            yaml.safe_dump(proof_payload),
+            safe_dump_yaml(proof_payload),
             require_policy_proofs=True,
             source_texts={corpus_citation_path: source_text},
         )

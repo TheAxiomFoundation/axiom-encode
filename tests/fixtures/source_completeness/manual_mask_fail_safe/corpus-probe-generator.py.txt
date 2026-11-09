@@ -1,0 +1,437 @@
+"""Fresh final-prefix and old/new legacy-extractor corpus differential.
+
+An exact unchanged tokenizer cleaning prelude proves that a row with no
+differing grouped/decimal candidate cannot reach the changed condition. Every
+possible candidate executes the exact current legacy extractor with a pure
+old/current guard observer. Divergent decisions execute the original old
+extractor; no divergence proves identical old/current state and inventory. The en-US
+route has identical reachable AST. All rows freshly execute the final actual
+recall prefix/helper, and changed inventories are streamed with exact deltas.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import collections
+import copy
+import dataclasses
+import functools
+import json
+import multiprocessing
+import os
+import sys
+import time
+from pathlib import Path
+
+import differential as d
+from guard_observer import make_observer
+
+OLD_VALIDATOR = "a21d67a4d1f82b56c1641c4bdc311091a2e2ecc368a893ff0ad8be6ed963a007"
+NEW_VALIDATOR = "0e8cf1e5d63e400d5303453b3f242d528524ac5ae63b8d67e70013fee208c2e3"
+FINAL_SOURCE = "bf1694e95de7dbe7813c31ec2098bfcf2f315d0c02d6bdbe1bdab693edb71d6b"
+FINAL_METADATA = "a1bf6df0a0f1559a56f334e20fb78e07e13588aa3a5eef979f85d89573fef321"
+CURRENT_MAIN = "c2ee166fd1813392022fe5cf4c1e08ae1f09aba0"
+
+
+def numeric_proof(old_bytes, new_bytes):
+    old_text, new_text = old_bytes.decode(), new_bytes.decode()
+    added = (
+        "            source_span = cleaned_view.source_span(span)\n"
+        "            # Prefer a grouped reading only when this same source token\n"
+        "            # supplied it. An unrelated integer (such as a retained page\n"
+        "            # number) cannot disambiguate an operative decimal amount.\n"
+    )
+    conjunct = (
+        "                    occurrence.span == source_span\n"
+        "                    and math.isclose(\n"
+    )
+    assert new_text.count(added) == new_text.count(conjunct) == 1
+    reverted = new_text.replace(added, "").replace(conjunct, "                    math.isclose(\n")
+    assert reverted == old_text, "Numeric changes exceed the reviewed source-span condition"
+    old_defs = d.definitions(old_bytes)
+    route = "_tokenize_profiled_numeric_occurrences"
+    profiled = d.reachable(old_defs, route)
+    assert "_tokenize_numeric_occurrences_from_text" not in profiled
+    start = new_text.index("def _tokenize_numeric_occurrences_from_text(")
+    end = new_text.index("\ndef extract_typed_numeric_inventory_occurrences_from_text(", start)
+    current = ast.parse(new_text[start:end]).body[0]
+    previous = old_defs["_tokenize_numeric_occurrences_from_text"]
+    endpoint = next(index for index, node in enumerate(current.body) if isinstance(node, ast.FunctionDef))
+    assert ast.dump(ast.Module(body=current.body[:endpoint], type_ignores=[]), include_attributes=False) == ast.dump(ast.Module(body=previous.body[:endpoint], type_ignores=[]), include_attributes=False)
+    # The text used by the changed condition is established in this prelude
+    # and is never reassigned in the rest of the tokenizer.
+    for node in current.body[endpoint:]:
+        for child in ast.walk(node):
+            if isinstance(child, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                targets = child.targets if isinstance(child, ast.Assign) else [child.target]
+                assert not any(isinstance(name, ast.Name) and name.id in {"cleaned", "cleaned_view"} for target in targets for name in ast.walk(target))
+    probe = ast.parse(ast.unparse(current)).body[0]
+    probe.name = "_audit_legacy_condition_has_candidate"
+    # Backward dataflow slice of the exact unchanged prelude: keep only
+    # statements required for the cleaned text inspected by this conservative
+    # probe. Unused collector/context creation does not alter cleaned text.
+    required = {"cleaned"}
+    retained, removed = [], []
+    for statement in reversed(current.body[:endpoint]):
+        if isinstance(statement, ast.Assign):
+            targets = {n.id for t in statement.targets for n in ast.walk(t) if isinstance(n, ast.Name)}
+            if not targets.intersection(required):
+                removed.append(ast.unparse(statement).split("=", 1)[0].strip())
+                continue
+            required.difference_update(targets)
+            required.update(n.id for n in ast.walk(statement.value) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load))
+        retained.append(copy.deepcopy(statement))
+    retained.reverse()
+    # The tracked-text constructor is a plain dataclass. This assignment
+    # leaves .text identical and recomposes only .offsets, unused by the probe.
+    tracked = old_defs["_TrackedText"]
+    assert isinstance(tracked, ast.ClassDef)
+    assert not any(isinstance(n, ast.FunctionDef) and n.name in {"__init__", "__post_init__"} for n in tracked.body)
+    offset_recomposition = [n for n in retained if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name) and n.targets[0].id == "cleaned_tracked" and isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name) and n.value.func.id == "_TrackedText"]
+    assert len(offset_recomposition) == 1
+    assignment = offset_recomposition[0]
+    assert ast.unparse(assignment.value.args[0]) == "cleaned_tracked.text"
+    retained.remove(assignment)
+    assert not any(isinstance(n, ast.Attribute) and n.attr == "offsets" for node in retained for n in ast.walk(node))
+    probe.body = retained + ast.parse("""
+for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(cleaned):
+    raw = match.group(1).replace(',', '')
+    try:
+        value = float(raw)
+    except ValueError:
+        continue
+    grouped_value = _parse_belgian_numeric_phrase(match.group(1))
+    if grouped_value is not None and not math.isclose(grouped_value, value, rel_tol=0, abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE):
+        return True
+return False
+""").body
+    generated = ast.unparse(ast.fix_missing_locations(ast.Module(body=[probe], type_ignores=[])))
+    return {
+        "only_legacy_source_span_conjunct_and_its_assignment_differ": True,
+        "entire_validator_bytes_identical_after_reverting_exact_reviewed_guard": True,
+        "entire_validator_ast_identical_after_reverting_exact_reviewed_guard": True,
+        "unchanged_en_us_route_and_reachable_declarations": sorted(profiled),
+        "unchanged_en_us_route_excludes_changed_legacy_tokenizer": True,
+        "unchanged_en_us_route_ast_sha256": d.sha(json.dumps(profiled, sort_keys=True).encode()),
+        "cleaning_prelude_old_new_ast_identical": True,
+        "candidate_probe_unused_prelude_assignments_removed_by_backward_dataflow": removed,
+        "candidate_probe_omits_plain_dataclass_offset_recomposition_preserving_exact_text": True,
+        "cleaned_text_never_reassigned_before_the_changed_condition": True,
+        "exact_generated_candidate_probe_sha256": d.sha(generated.encode()),
+        "candidate_probe_is_conservative": "It scans the exact unchanged cleaned text with the actual number pattern, parser and tolerance; it deliberately ignores earlier skip conditions, allowing false positives but no skipped potential condition change.",
+    }, generated
+
+
+def current_source_proof(previous, sources, metadata):
+    old = json.loads((previous / "summary.json").read_bytes())
+    bridge_dir = d.HERE / "final-byte-bridge"
+    bridge_summary = json.loads((bridge_dir / "summary.json").read_bytes())
+    assert d.sha(sources["final"]) == FINAL_SOURCE
+    bridge_source = (bridge_dir / "final-source.py").read_bytes()
+    assert d.sha(bridge_source) == bridge_summary["source_sha256"]["final"]
+    assert bridge_summary["metadata_sha256"]["final"] == d.sha(metadata["final"]) == FINAL_METADATA
+    assert bridge_summary["previous_complete_summary_sha256"] == d.sha((previous / "summary.json").read_bytes())
+    assert bridge_summary["validator_sha256"] == OLD_VALIDATOR
+    old_main = (previous / "main-source.py").read_bytes()
+    current_main = sources["main"]
+    old_defs, current_defs = d.definitions(old_main), d.definitions(current_main)
+    reachable = d.reachable(old_defs, "authoritative_numeric_recall_text")
+    assert reachable == d.reachable(current_defs, "authoritative_numeric_recall_text"), "Current main recall changed"
+    imports = lambda content: [ast.dump(node, include_attributes=False) for node in ast.parse(content).body if isinstance(node, (ast.Import, ast.ImportFrom))]
+    assert imports(old_main) == imports(current_main)
+    previous_final = d.reachable(d.definitions(bridge_source), "authoritative_numeric_recall_text")
+    current_final = d.reachable(d.definitions(sources["final"]), "authoritative_numeric_recall_text")
+    assert previous_final == current_final, "Current final recall differs from its completed source bridge"
+    assert imports(bridge_source) == imports(sources["final"])
+    return {
+        "original_three_snapshot_shared_recall_proof": json.loads((previous / "pipeline-proof.json").read_bytes()),
+        "original_to_current_source_shared_recall_proof": json.loads((bridge_dir / "pipeline-proof.json").read_bytes()),
+        "static_source_proofs_reused_only_after_exact_source_metadata_and_previous_summary_hash_checks": True,
+        "original_pipeline_proof_sha256": d.sha((previous / "pipeline-proof.json").read_bytes()),
+        "source_bridge_pipeline_proof_sha256": d.sha((bridge_dir / "pipeline-proof.json").read_bytes()),
+        "source_bridge_summary_sha256": d.sha((bridge_dir / "summary.json").read_bytes()),
+        "current_main_commit": CURRENT_MAIN, "previous_main_commit": old["main"],
+        "current_main_recall_reachable_declarations_identical_to_previous_main": sorted(reachable),
+        "current_main_recall_reachable_ast_sha256": d.sha(json.dumps(reachable, sort_keys=True).encode()),
+        "current_main_import_declarations_identical_to_previous_main": True,
+        "current_final_recall_reachable_declarations_identical_to_completed_source_bridge": sorted(previous_final),
+        "current_final_recall_reachable_ast_sha256": d.sha(json.dumps(previous_final, sort_keys=True).encode()),
+        "current_final_import_declarations_identical_to_completed_source_bridge": True,
+        "completed_source_bridge_source_sha256": bridge_summary["source_sha256"]["final"],
+        "source_sha256": {name: d.sha(content) for name, content in sources.items()},
+    }
+
+
+def initialize(output):
+    global MODULES, PREFIX, RECALL, HELPERS, EXTRACT_OLD, EXTRACT_NEW, PROBE, OBSERVED_EXTRACT_NEW
+    output = Path(output)
+    MODULES, PREFIX, RECALL, HELPERS = {}, {}, {}, {}
+    for name in ("main", "reviewed", "final"):
+        module = d.load(f"r6_final_numeric_source_{name}", output / f"{name}-source.py")
+        metadata = output / f"{name}-metadata.py"
+        if metadata.exists():
+            frozen = d.load(f"r6_final_numeric_metadata_{name}", metadata)
+            for key, value in vars(frozen).items():
+                if key.isupper():
+                    setattr(module, key, value)
+        original = getattr(module, "_without_us_manual_locators", lambda text, *, corpus_citation_path: text)
+
+        @functools.lru_cache(maxsize=128)
+        def helper(body, citation, function=original, mode=name):
+            masked = function(body, corpus_citation_path=citation)
+            assert len(masked) == len(body)
+            if mode == "final":
+                assert function(masked, corpus_citation_path=citation) == masked
+            digits = tuple(index for index, (before, after) in enumerate(zip(body, masked)) if before.isdigit() and before != after)
+            return masked, digits
+
+        HELPERS[name] = helper
+        module._without_us_manual_locators = lambda text, *, corpus_citation_path, function=helper: function(text, corpus_citation_path)[0]
+        generated, _ = d.split_function((output / f"{name}-source.py").read_bytes())
+        exec(compile(generated, "<actual-source-prefix-and-suffix>", "exec"), vars(module))
+        MODULES[name] = module
+        PREFIX[name] = functools.lru_cache(maxsize=128)(lambda body, citation, target=module: target._audit_prefix(body, corpus_citation_path=citation))
+        RECALL[name] = functools.lru_cache(maxsize=128)(lambda body, citation, target=module: target.authoritative_numeric_recall_text(body, corpus_citation_path=citation))
+    old = d.load("axiom_encode.harness.r6_original_validator", output / "old-validator.py")
+    new = d.load("axiom_encode.harness.r6_current_validator", output / "final-validator.py")
+    proof = json.loads((output / "pipeline-proof.json").read_bytes())["numeric_extractor"]
+    generated = (output / "candidate-probe.py.txt").read_text().rstrip("\n")
+    assert proof["cleaning_prelude_old_new_ast_identical"] and d.sha(generated.encode()) == proof["exact_generated_candidate_probe_sha256"]
+    exec(compile(generated, "<exact-unchanged-legacy-cleaning-prelude>", "exec"), vars(new))
+    PROBE = functools.lru_cache(maxsize=128)(new._audit_legacy_condition_has_candidate)
+    EXTRACT_OLD = functools.lru_cache(maxsize=128)(lambda text: tuple(dataclasses.asdict(item) for item in old.extract_typed_numeric_inventory_occurrences_from_text(text, profile="legacy")))
+    EXTRACT_NEW = functools.lru_cache(maxsize=128)(lambda text: tuple(dataclasses.asdict(item) for item in new.extract_typed_numeric_inventory_occurrences_from_text(text, profile="legacy")))
+    observer, observer_proof = make_observer((output / "old-validator.py").read_bytes(), (output / "final-validator.py").read_bytes())
+    assert observer_proof == json.loads((output / "pipeline-proof.json").read_bytes())["guard_observer"]
+    exec(compile(observer, "<pure-old-current-legacy-guard-observer>", "exec"), vars(new))
+    @functools.lru_cache(maxsize=128)
+    def observed_inventory(text):
+        tokenization, diverged = new._audit_legacy_tokenization_and_guard_divergence(text)
+        return tuple(dataclasses.asdict(item) for item in tokenization.inventory), diverged
+    OBSERVED_EXTRACT_NEW = observed_inventory
+    d.EXTRACT = functools.lru_cache(maxsize=128)(lambda text, profile: tuple(dataclasses.asdict(item) for item in new.extract_typed_numeric_inventory_occurrences_from_text(text, profile=profile)))
+
+
+def evaluate(task):
+    file, line, raw, row, previous = task
+    body, citation = row.get("body") or "", row["citation_path"]
+    assert d.sha(raw) == previous["row_sha256"]
+    masked, digits = HELPERS["final"](body, citation)
+    prefix = PREFIX["final"](body, citation)
+    main_prefix = PREFIX["main"](body, citation)
+    main_helper, main_digits = HELPERS["main"](body, citation)
+    assert d.sha(main_prefix.encode()) == previous["prefix_sha256"]["main"], "Current main raw prefix differs from authenticated old-main prefix"
+    assert d.sha(main_helper.encode()) == previous["helper_sha256"]["main"], "Current main raw helper differs from authenticated old-main helper"
+    assert d.sha(prefix.encode()) == previous["prefix_sha256"]["final"], "Final raw prefix changed"
+    assert d.sha(masked.encode()) == previous["helper_sha256"]["final"], "Final raw helper changed"
+    recalled = RECALL["final"](body, citation)
+    assert recalled == MODULES["final"]._audit_suffix(prefix, citation)
+    result = dict(previous)
+    result.pop("seconds", None)
+    result.pop("bridge_proof", None)
+    result["final_fresh_prefix_sha256"] = d.sha(prefix.encode())
+    result["current_main_fresh_prefix_sha256"] = d.sha(main_prefix.encode())
+    result["current_main_fresh_helper_sha256"] = d.sha(main_helper.encode())
+    result["final_fresh_recall_sha256"] = d.sha(recalled.encode())
+    if "inventory_sha256" in previous:
+        result["previous_inventory_sha256"] = previous["inventory_sha256"]
+        result["inventory_sha256"] = {profile: dict(values) for profile, values in previous["inventory_sha256"].items()}
+    result["recall_sha256"] = dict(previous.get("recall_sha256", {}), final=d.sha(recalled.encode()))
+    result["helper_masked_digit_counts"] = dict(previous["helper_masked_digit_counts"], final=len(digits))
+    candidate = PROBE(recalled)
+    result["legacy_differing_grouped_decimal_candidate"] = candidate
+    result["extractor_proof"] = "actual_old_and_current_legacy_extraction" if candidate else "fresh_exact_unchanged_prelude_no_differing_candidate"
+    result["en_us_extractor_proof"] = "identical_reachable_profiled_route_ast"
+    result["legacy_extractor_changed_inventory"] = False
+    result["legacy_original_old_extraction_executed"] = False
+    result["legacy_guard_decision_diverged"] = False
+    if candidate:
+        new_inventory, diverged = OBSERVED_EXTRACT_NEW(recalled)
+        result["legacy_guard_decision_diverged"] = diverged
+        result["legacy_original_old_extraction_executed"] = diverged
+        if diverged:
+            old_inventory = EXTRACT_OLD(recalled)
+            result["extractor_proof"] = "observed_current_guard_divergence_and_actual_original_old_extraction"
+        else:
+            old_inventory = new_inventory
+            result["extractor_proof"] = "fresh_current_legacy_extraction_and_inductive_no_guard_divergence"
+        old_sha = d.sha(json.dumps(old_inventory, sort_keys=True).encode())
+        new_sha = d.sha(json.dumps(new_inventory, sort_keys=True).encode())
+        recorded = previous.get("inventory_sha256", {}).get("legacy", {}).get("final")
+        if recorded:
+            assert old_sha == recorded
+        result["current_legacy_inventory_sha256"] = new_sha
+        result["frozen_old_final_legacy_inventory_sha256"] = old_sha
+        current_hashes = result.setdefault("inventory_sha256", {}).setdefault("legacy", {})
+        current_hashes["final"] = new_sha
+        for baseline in ("main", "reviewed"):
+            if previous["prefix_sha256"][baseline] == previous["prefix_sha256"]["final"]:
+                current_hashes[baseline] = old_sha
+        change = d.delta(old_inventory, new_inventory, body, "legacy")
+        if change:
+            result["legacy_extractor_changed_inventory"] = True
+            result["legacy_old_to_current_changes"] = change
+            result["changes"] = dict(previous.get("changes", {}))
+            for baseline in ("main", "reviewed"):
+                if previous["prefix_sha256"][baseline] == previous["prefix_sha256"]["final"]:
+                    baseline_inventory = old_inventory
+                else:
+                    baseline_prefix = PREFIX[baseline](body, citation)
+                    assert d.sha(baseline_prefix.encode()) == previous["prefix_sha256"][baseline]
+                    baseline_recall = RECALL[baseline](body, citation)
+                    assert baseline_recall == MODULES[baseline]._audit_suffix(baseline_prefix, citation)
+                    baseline_inventory = EXTRACT_OLD(baseline_recall)
+                    current_hashes[baseline] = d.sha(json.dumps(baseline_inventory, sort_keys=True).encode())
+                delta = d.delta(baseline_inventory, new_inventory, body, "legacy")
+                key = f"{baseline}_to_final/legacy"
+                if delta:
+                    result["changes"][key] = delta
+                else:
+                    result["changes"].pop(key, None)
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--previous", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--workers", type=int, choices=(1, 2, 4), default=4)
+    parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--resume", type=Path)
+    args = parser.parse_args()
+    started = time.perf_counter()
+    print(json.dumps({"stage": "read_verified_previous_evidence", "output": args.output.name}), flush=True)
+    previous, output = args.previous.resolve(), args.output.resolve()
+    assert previous.is_relative_to(d.HERE) and output.is_relative_to(d.HERE) and not output.exists()
+    old = json.loads((previous / "summary.json").read_bytes())
+    assert old["full_corpus"] and old["all_completion_guards_passed"]
+    assert json.loads((previous / "verified-completion.json").read_bytes())["full_evidence_complete"]
+    sources = {"main": d.git_bytes("show", f"{CURRENT_MAIN}:{d.SOURCE}"), "reviewed": (previous / "reviewed-source.py").read_bytes(), "final": (d.ROOT / d.SOURCE).read_bytes()}
+    metadata = {"reviewed": (previous / "reviewed-metadata.py").read_bytes(), "final": (d.ROOT / d.METADATA).read_bytes()}
+    assert d.sha(sources["final"]) == FINAL_SOURCE and d.sha(metadata["final"]) == FINAL_METADATA
+    old_validator = d.git_bytes("show", f"{CURRENT_MAIN}:{d.VALIDATOR}")
+    assert old_validator == d.git_bytes("show", f"{d.REVIEWED}:{d.VALIDATOR}")
+    new_validator = (d.ROOT / d.VALIDATOR).read_bytes()
+    assert d.sha(old_validator) == OLD_VALIDATOR and d.sha(new_validator) == NEW_VALIDATOR
+    print(json.dumps({"stage": "numeric_ast_and_prelude_proof", "elapsed_seconds": time.perf_counter()-started}), flush=True)
+    numeric, generated = numeric_proof(old_validator, new_validator)
+    observer, observer_proof = make_observer(old_validator, new_validator)
+    print(json.dumps({"stage": "recall_pipeline_ast_proof", "elapsed_seconds": time.perf_counter()-started}), flush=True)
+    recall = current_source_proof(previous, sources, metadata)
+    print(json.dumps({"stage": "authenticate_all_inputs", "elapsed_seconds": time.perf_counter()-started}), flush=True)
+    manifest = d.verified_manifest()
+    old_rows = {}
+    for line in (previous / "rows.jsonl").open():
+        row = json.loads(line)
+        key = row["file"], row["line"]
+        assert key not in old_rows
+        old_rows[key] = row
+    assert len(old_rows) == 68848
+    output.mkdir()
+    for name, content in sources.items():
+        (output / f"{name}-source.py").write_bytes(content)
+    for name, content in metadata.items():
+        (output / f"{name}-metadata.py").write_bytes(content)
+    (output / "old-validator.py").write_bytes(old_validator)
+    (output / "final-validator.py").write_bytes(new_validator)
+    (output / "candidate-probe.py.txt").write_text(generated + "\n")
+    (output / "guard-observer.py.txt").write_text(observer + "\n")
+    (output / "pipeline-proof.json").write_text(json.dumps({"recall": recall, "numeric_extractor": numeric, "guard_observer": observer_proof}, indent=2) + "\n")
+    names = ("changed_inventories", "new_demands", "removed_demands", "added_occurrences", "removed_occurrences", "added_typed", "removed_typed")
+    metrics = {key: collections.Counter({name: 0 for name in names}) for key in old["comparisons"]}
+    proofs, extractor_proofs, jurisdictions = collections.Counter(), collections.Counter(), collections.Counter()
+    processed = candidate_rows = changed_extractor_rows = old_extraction_rows = 0
+    seen, returned = set(), set()
+    resumed_rows = []
+    if args.resume:
+        resume = args.resume.resolve()
+        assert resume.is_relative_to(d.HERE)
+        for name in ("main", "reviewed", "final"):
+            assert (resume / f"{name}-source.py").read_bytes() == sources[name]
+        for name in metadata:
+            assert (resume / f"{name}-metadata.py").read_bytes() == metadata[name]
+        assert (resume / "old-validator.py").read_bytes() == old_validator
+        assert (resume / "final-validator.py").read_bytes() == new_validator
+        for raw_line in (resume / "rows.jsonl").open():
+            row = json.loads(raw_line)
+            key = row["file"], row["line"]
+            assert key in old_rows and key not in returned
+            assert row["row_sha256"] == old_rows[key]["row_sha256"]
+            assert row["final_fresh_prefix_sha256"] == old_rows[key]["prefix_sha256"]["final"]
+            assert row["current_main_fresh_prefix_sha256"] == old_rows[key]["prefix_sha256"]["main"]
+            assert row["current_main_fresh_helper_sha256"] == old_rows[key]["helper_sha256"]["main"]
+            assert row["helper_sha256"]["final"] == old_rows[key]["helper_sha256"]["final"]
+            returned.add(key)
+            resumed_rows.append(row)
+        print(json.dumps({"verified_partial_rows_to_resume": len(resumed_rows)}), flush=True)
+    resumed_keys = set(returned)
+    returned.clear()
+
+    def tasks():
+        for item in manifest:
+            with (d.HERE / "input" / item["file"]).open("rb") as source:
+                for index, line in enumerate(source, 1):
+                    if not line.strip():
+                        continue
+                    if args.limit and len(seen) >= args.limit:
+                        return
+                    key = item["file"], index
+                    assert key not in seen
+                    seen.add(key)
+                    if key in resumed_keys:
+                        continue
+                    raw = line.rstrip(b"\r\n")
+                    yield item["file"], index, raw, json.loads(raw), old_rows[key]
+
+    print(json.dumps({"started": True, "scope": "fresh_final_prefix_and_numeric_extractor_differential", "workers": args.workers, "limit": args.limit, "source_sha256": FINAL_SOURCE, "metadata_sha256": FINAL_METADATA, "old_validator_sha256": OLD_VALIDATOR, "validator_sha256": NEW_VALIDATOR}), flush=True)
+    handles = {key: (output / f"changes-{key.replace('/', '-')}.jsonl").open("w") for key in metrics}
+    try:
+        with (output / "rows.jsonl").open("w") as rows, multiprocessing.Pool(args.workers, initialize, (str(output),)) as pool:
+            import itertools
+            for row in itertools.chain(resumed_rows, pool.imap_unordered(evaluate, tasks(), chunksize=1)):
+                key = row["file"], row["line"]
+                assert key not in returned
+                returned.add(key)
+                processed += 1
+                candidate_rows += row["legacy_differing_grouped_decimal_candidate"]
+                old_extraction_rows += row["legacy_original_old_extraction_executed"]
+                changed_extractor_rows += row["legacy_extractor_changed_inventory"]
+                proofs[row["proof"]] += 1
+                extractor_proofs[row["extractor_proof"]] += 1
+                jurisdictions[row["jurisdiction"]] += 1
+                rows.write(json.dumps(row, separators=(",", ":")) + "\n")
+                for comparison, change in row.get("changes", {}).items():
+                    handles[comparison].write(json.dumps(row, separators=(",", ":")) + "\n")
+                    count = metrics[comparison]
+                    count["changed_inventories"] += 1
+                    for name in ("new_demands", "removed_demands"):
+                        count[name] += len(change[name])
+                    for name in ("added_occurrences", "removed_occurrences"):
+                        count[name] += sum(change[name].values())
+                    for name in ("added_typed", "removed_typed"):
+                        count[name] += sum(item["count"] for item in change[name])
+                if processed % 500 == 0:
+                    rows.flush()
+                    for handle in handles.values():
+                        handle.flush()
+                    assert sum(path.stat().st_size for path in output.glob("*.jsonl")) < 1_000_000_000
+                    print(f"{processed}/68848 rows; {candidate_rows} actual current legacy rows; {old_extraction_rows} original old executions; {changed_extractor_rows} changed extractor rows; {time.perf_counter()-started:.1f}s", flush=True)
+    finally:
+        for handle in handles.values():
+            handle.close()
+    expected = args.limit or 68848
+    assert seen == returned and processed == expected
+    assert not any(count["removed_demands"] or count["removed_occurrences"] or count["removed_typed"] for count in metrics.values())
+    assert (d.ROOT / d.SOURCE).read_bytes() == sources["final"]
+    assert (d.ROOT / d.METADATA).read_bytes() == metadata["final"]
+    assert (d.ROOT / d.VALIDATOR).read_bytes() == new_validator
+    assert d.verified_manifest() == manifest
+    result = dict(old)
+    result.update({"segmented_execution": {"preceding_incomplete_segment_rows": len(resumed_rows), "preceding_incomplete_segment_rows_sha256": d.sha((args.resume / "rows.jsonl").read_bytes()) if args.resume else None, "preceding_command_exit": "unobserved; machine restart interrupted" if resumed_rows else None, "fresh_remaining_rows": processed-len(resumed_rows), "preceding_source_metadata_validator_and_row_hashes_verified": True}, "main": CURRENT_MAIN, "previous_baseline_main_commit": old["main"], "scope": "fresh_final_prefix_and_numeric_extractor_differential", "rows": processed, "files": len({file for file, line in returned}), "full_corpus": not args.limit, "python": sys.version, "workers": args.workers, "threads": {key: os.environ.get(key) for key in old["threads"]}, "source_sha256": {name: d.sha(content) for name, content in sources.items()}, "metadata_sha256": {name: d.sha(content) for name, content in metadata.items()}, "validator_sha256": NEW_VALIDATOR, "baseline_validator_sha256": OLD_VALIDATOR, "comparisons": {key: dict(value) for key, value in metrics.items()}, "proof_counts": dict(proofs), "extractor_proof_counts": dict(extractor_proofs), "jurisdictions": dict(jurisdictions), "helper_final_length_passed_rows": processed, "helper_final_idempotence_passed_rows": processed, "all_completion_guards_passed": True, "fresh_final_prefix_helper_recall_and_legacy_candidate_checks": processed, "fresh_current_main_prefix_and_helper_equality_checks": processed, "fresh_current_legacy_extraction_rows": candidate_rows, "fresh_actual_old_and_current_legacy_extraction_rows": old_extraction_rows, "guard_observer_proof": observer_proof, "changed_legacy_extractor_inventory_rows": changed_extractor_rows, "previous_complete_summary_sha256": d.sha((previous / "summary.json").read_bytes()), "previous_complete_rows_sha256": d.sha((previous / "rows.jsonl").read_bytes()), "previous_complete_source_sha256": old["source_sha256"]["final"], "previous_complete_validator_sha256": old["validator_sha256"], "newly_masked_rows_vs_reviewed": 0, "newly_masked_digit_positions_vs_reviewed": 0, "runner_sha256": d.sha(Path(__file__).read_bytes()), "output_sha256": {path.name: d.sha(path.read_bytes()) for path in output.glob("*.jsonl")}, "elapsed_seconds": time.perf_counter()-started, "limitations": "Fresh all-row current prefix/helper/recall and exact unchanged legacy cleaning-prelude candidate checks. Rows with no differing grouped/decimal candidate inherit original inventory deltas only after proof that the changed condition cannot apply; all possible candidates execute exact current legacy extraction with a pure old/current guard-decision observer. If any decision diverges, the original old extractor executes; otherwise induction proves identical old/current states and final inventory. Current main binds a freshly verified identical reachable recall AST and fresh all-row prefixes/helpers against the original main snapshot. en-US inherits through identical reachable profile-route AST. This is an explicit current-extractor differential, not another full three-snapshot extraction run."})
+    (output / "summary.json").write_text(json.dumps(result, indent=2) + "\n")
+    print(json.dumps(result, indent=2), flush=True)
+
+
+if __name__ == "__main__":
+    main()

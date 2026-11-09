@@ -297,4 +297,13 @@ def test_calendar_witness_requires_unambiguous_declared_date_input(pretyped, mut
         payload["inputs"].append({"name": "child_birth_date", "dtype": "String"})
     elif mutation == "rule_collision":
         payload["rules"].append({"name": "child_birth_date", "dtype": "Date"})
-    assert _missing_age_test(_analyze(payload, cases)) is (mutation != "valid")
+    result = _analyze(payload, cases)
+    if mutation == "rule_collision":
+        # A local rule that shares an input's name is refused outright before
+        # any witness is considered, which is stricter than a missing-test issue.
+        assert any(
+            "[complete-source-unit:declaration-collision]" in issue
+            for issue in result.issues
+        )
+        return
+    assert _missing_age_test(result) is (mutation != "valid")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -864,15 +865,25 @@ exit 1
 """
 
 
-def _publish_step() -> dict[str, object]:
+PUBLICATION_STEP_IDS = (
+    "verify_reviewed_lane_pull_request_base",
+    "reviewed_lane_pull_request_branch",
+    "publish_lane_pull_request",
+)
+
+
+def _publication_steps() -> list[dict[str, Any]]:
+    """The base check, the token-free advance proof, and the publish step."""
+
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
     )
-    return next(
-        step
+    steps = {
+        step.get("id"): step
         for step in workflow["jobs"]["encode"]["steps"]
-        if step.get("id") == "publish_lane_pull_request"
-    )
+        if step.get("id") in PUBLICATION_STEP_IDS
+    }
+    return [steps[step_id] for step_id in PUBLICATION_STEP_IDS]
 
 
 def _publish_fixture(tmp_path: Path) -> dict[str, Any]:
@@ -922,6 +933,7 @@ def _publish_fixture(tmp_path: Path) -> dict[str, Any]:
         "AXIOM_TEST_PYTHON": sys.executable,
         "GIT_CONFIG_GLOBAL": str(gitconfig),
         "GH_TOKEN": "test-token",
+        "PRIOR_STATUS": "success",
         "GH_STUB_LOG": str(tmp_path / "gh.log"),
         "GH_STUB_BODY": str(tmp_path / "gh-body.txt"),
         "GH_STUB_CLOSED": str(tmp_path / "gh-closed"),
@@ -978,14 +990,39 @@ def _advance_remote(fixture: dict[str, Any], changes: dict[str, str]) -> str:
 def _run_publish(
     fixture: dict[str, Any], **extra_env: str
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["bash", "-c", str(_publish_step()["run"])],
-        cwd=fixture["workspace"],
-        env={**fixture["env"], **extra_env},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    """Run the publication steps in order, as GitHub would, until one fails."""
+
+    outputs: dict[str, dict[str, str]] = {}
+    result: subprocess.CompletedProcess[str] | None = None
+    for step in _publication_steps():
+        step_env = {**fixture["env"], **extra_env}
+        for name, value in (step.get("env") or {}).items():
+            match = re.fullmatch(
+                r"\$\{\{ steps\.(?P<step>[a-z_]+)\.outputs\.(?P<key>[a-z0-9_]+) \}\}",
+                str(value),
+            )
+            if match is not None:
+                step_env[name] = outputs.get(match["step"], {}).get(match["key"], "")
+        output_file = fixture["tmp_path"] / f"github-output-{step['id']}"
+        output_file.write_text("")
+        step_env["GITHUB_OUTPUT"] = str(output_file)
+        result = subprocess.run(
+            ["bash", "-c", str(step["run"])],
+            cwd=fixture["workspace"],
+            env=step_env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        outputs[step["id"]] = dict(
+            line.split("=", 1)
+            for line in output_file.read_text().splitlines()
+            if "=" in line
+        )
+        if result.returncode != 0:
+            break
+    assert result is not None
+    return result
 
 
 def _remote_rev(fixture: dict[str, Any], revision: str) -> str | None:

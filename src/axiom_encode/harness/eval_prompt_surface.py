@@ -164,7 +164,8 @@ def render_single_amount_row_guidance() -> str:
 def render_date_silent_scaffold_guidance() -> str:
     """Return fallback guidance for date-silent source slices."""
     return """
-- If `./source.txt` is silent on effective dates and no copied precedent file provides a scaffold date, you may use `effective_from: '0001-01-01'` as a neutral scaffold date solely to satisfy RuleSpec syntax.
+- If `./source.txt` is silent on effective dates, no supplied corpus metadata or amendment/commencement context supplies a date, and no copied precedent file provides a scaffold date, you may use `effective_from: '0001-01-01'` as a neutral scaffold date solely to satisfy RuleSpec syntax.
+- This fallback never applies to behavior derived from an amending provision. Use its authenticated commencement date on the principal rule's affected version; if the principal target or applicable commencement is missing, stop with an explicit unresolved-context blocker naming the missing evidence.
 - Treat that `0001-01-01` scaffold as a harness-only fallback, not as a claim about the true legal effective date.
 - Numeric grounding rules do not apply to the `0001-01-01` tokens inside that neutral scaffold date.
 """

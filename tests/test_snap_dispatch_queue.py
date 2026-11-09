@@ -4,6 +4,7 @@ import base64
 import copy
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -240,6 +241,16 @@ class FakeGitHub:
             self.finish(run_id, "cancelled")
             return None
         raise AssertionError(f"unexpected POST {path}")
+
+
+_UNVERSIONED_ENCODER_REFUSAL = q.unversioned_encoder_refusal
+
+
+@pytest.fixture(autouse=True)
+def _versioned_encoder(monkeypatch):
+    # The tick command checks this checkout's encoder version; a branch is
+    # unversioned until its post-merge bump, so the tests see a versioned one.
+    monkeypatch.setattr(q, "unversioned_encoder_refusal", lambda _root: None)
 
 
 def _tick(state, github, *, now=NOW, dry_run=False):
@@ -572,6 +583,136 @@ def test_a_paused_queue_reconciles_but_never_dispatches():
 
     assert github.dispatches == []
     assert result["hold"] == "queue is paused"
+
+
+def test_an_unversioned_encoder_main_holds_dispatches():
+    # Between a merge and its post-merge bump (axiom-encode#2048), a dispatched
+    # run would wait for its production-signing approval and then be refused.
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+
+    result = q.tick(
+        state,
+        github=github,
+        encoder_repo=ENCODER_REPO,
+        now=NOW,
+        sleep=lambda _seconds: None,
+        unversioned_encoder="src/axiom_encode/cli.py changed after the bump",
+    )
+
+    assert github.dispatches == []
+    assert "no version bump covers" in result["hold"]
+    assert state["items"][0]["status"] == "pending"
+
+
+def test_unversioned_encoder_refusal_reads_the_version_check(tmp_path):
+    repo = tmp_path / "axiom-encode"
+    (repo / "src/axiom_encode").mkdir(parents=True)
+    script = Path(__file__).parents[1] / "src/axiom_encode/version_provenance.py"
+    (repo / "src/axiom_encode/version_provenance.py").write_text(script.read_text())
+    (repo / "pyproject.toml").write_text('[project]\nversion = "0.2.10"\n')
+    (repo / "src/axiom_encode/__init__.py").write_text('__version__ = "0.2.10"\n')
+    (repo / "uv.lock").write_text(
+        '[[package]]\nname = "axiom-encode"\nversion = "0.2.10"\n'
+    )
+    for args in (
+        ("init", "-q", "-b", "main"),
+        ("config", "user.email", "test@example.com"),
+        ("config", "user.name", "Test"),
+        ("config", "commit.gpgsign", "false"),
+        ("add", "-A"),
+        ("commit", "-qm", "init"),
+    ):
+        subprocess.run(["git", "-C", str(repo), *args], check=True)
+
+    assert _UNVERSIONED_ENCODER_REFUSAL(repo) is None
+
+    (repo / "src/axiom_encode/cli.py").write_text("MARKER = 1\n")
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "change"], check=True)
+
+    assert "src/axiom_encode/cli.py" in _UNVERSIONED_ENCODER_REFUSAL(repo)
+
+
+def _git(repo, *args):
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+def test_queue_state_checkout_keeps_the_version_check_passing(tmp_path):
+    """The workflow's state fetch must not make the encoder clone shallow.
+
+    A shallow clone fails the version check, so the tick would hold every
+    item even on a versioned main.
+    """
+    origin = tmp_path / "origin"
+    (origin / "src/axiom_encode").mkdir(parents=True)
+    script = ROOT / "src/axiom_encode/version_provenance.py"
+    (origin / "src/axiom_encode/version_provenance.py").write_text(script.read_text())
+    (origin / "pyproject.toml").write_text('[project]\nversion = "0.2.10"\n')
+    (origin / "src/axiom_encode/__init__.py").write_text('__version__ = "0.2.10"\n')
+    (origin / "uv.lock").write_text(
+        '[[package]]\nname = "axiom-encode"\nversion = "0.2.10"\n'
+    )
+    _git(origin, "init", "-q", "-b", "main")
+    for key, value in (
+        ("user.email", "test@example.com"),
+        ("user.name", "Test"),
+        ("commit.gpgsign", "false"),
+    ):
+        _git(origin, "config", key, value)
+    _git(origin, "add", "-A")
+    _git(origin, "commit", "-qm", "init")
+    _git(origin, "checkout", "-q", "--orphan", "snap-queue-state")
+    _git(origin, "rm", "-rqf", ".")
+    for n in range(3):
+        (origin / "queue.json").write_text(f"{n}\n")
+        _git(origin, "add", "-A")
+        _git(origin, "commit", "-qm", f"state {n}")
+    _git(origin, "checkout", "-q", "main")
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    encoder = workspace / "axiom-encode"
+    # file:// so that git honours --depth, as a remote fetch would.
+    subprocess.run(
+        ["git", "clone", "-q", f"file://{origin}", str(encoder)],
+        check=True,
+        capture_output=True,
+    )
+    assert _UNVERSIONED_ENCODER_REFUSAL(encoder) is None
+
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/snap-dispatch-queue.yml").read_text()
+    )
+    step = next(
+        step
+        for job in workflow["jobs"].values()
+        for step in job["steps"]
+        if step.get("name") == "Check out queue state"
+    )
+    subprocess.run(
+        ["bash", "-c", step["run"]],
+        check=True,
+        capture_output=True,
+        cwd=workspace,
+        env={
+            "PATH": os.environ["PATH"],
+            "HOME": str(tmp_path),
+            "ACTION": "tick",
+            "STATE_BRANCH": "snap-queue-state",
+            "GITHUB_WORKSPACE": str(workspace),
+        },
+    )
+
+    assert (workspace / "state/queue.json").read_text() == "2\n"
+    shallow = subprocess.run(
+        ["git", "-C", str(encoder), "rev-parse", "--is-shallow-repository"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert shallow == "false"
+    assert _UNVERSIONED_ENCODER_REFUSAL(encoder) is None
 
 
 def test_active_queue_dispatches_up_to_max_in_flight_with_main_pins():
@@ -1682,3 +1823,27 @@ def test_workflow_saves_state_even_when_the_tick_fails():
     steps = {step["name"]: step for step in _workflow()["jobs"]["queue"]["steps"]}
 
     assert steps["Save queue state"]["if"].startswith("${{ always()")
+
+
+def test_the_tick_command_holds_every_item_on_an_unversioned_encoder(
+    tmp_path, monkeypatch
+):
+    # main() hands the checkout's version refusal to tick (axiom-encode#2048).
+    github = FakeGitHub()
+    path = tmp_path / "queues" / "us-snap-test.json"
+    q.write_state(path, _state(["us-or/p/1", "us-or/p/2"]))
+    monkeypatch.setattr(q, "ApiGitHub", lambda _token: github)
+    monkeypatch.setattr(q, "_now", lambda: NOW)
+    monkeypatch.setattr(q.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        q, "unversioned_encoder_refusal", lambda _root: "src/axiom_encode/cli.py"
+    )
+    monkeypatch.setenv("GH_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", ENCODER_REPO)
+    summary = tmp_path / "summary.md"
+
+    q.main(["tick", "--state-dir", str(tmp_path), "--summary", str(summary)])
+
+    saved = q.load_state(path)
+    assert [item["status"] for item in saved["items"]] == ["pending", "pending"]
+    assert "post-merge bump" in summary.read_text()

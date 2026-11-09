@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "us",
+  "declared": null,
+  "pr_base_branch": "fl-snap-bbce-page5",
+  "purpose": "Reviewed FL SNAP BBCE candidate promotion (rulespec-us#1183). Migrated from the pre-record allowlist; admitted by axiom-encode#1818.",
+  "rulespec_pr": 1183,
+  "rulespec_ref": "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}
