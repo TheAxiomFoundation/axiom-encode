@@ -161,8 +161,23 @@ the example link, and gives the same result: 1,536 run, 8 differ, 1 group,
 with the conditions `agency_converts_income_to_hours = true` and
 `agency_lacks_hours_documentation = true`.
 
-Open point: where a RuleSpec repository keeps question files. That depends on
-which paths the repository's validators accept, and is not decided here.
+Place of a question file in a RuleSpec repository:
+`<jurisdiction>/questions/**/<name>.question.yaml` (for example
+`us/questions/medicaid/community-engagement.question.yaml`). A question file
+is not a module. Module discovery in axiom-encode (`_rulespec_module_paths`,
+the proof-kind normalization scan and the SNAP readiness scan) skips the
+`questions/` tree and each `*.question.yaml` file, so a question file needs no
+signed manifest, no companion test and no `format: rulespec/v1`. The engine
+compiles a module of a checkout that holds a `questions/` tree with no change.
+The validators of each RuleSpec repository must accept the same path; that is
+their change, not this one.
+
+Each gate failure of a pair names the pair and its two answers. An answer's
+`derived` and `fixed` inputs must be inputs of its own module: an answer cannot
+lean on an input that its partner supplies.
+
+With `--question`, `--out` is a directory. The step removes the pair records
+of an earlier run from it, so the directory matches `summary.json`.
 
 ## Gates
 

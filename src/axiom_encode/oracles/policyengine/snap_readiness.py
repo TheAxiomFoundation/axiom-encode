@@ -16,6 +16,7 @@ from axiom_encode.constants import (
     RULESPEC_COMPOSITION_SPEC_ROOT,
     RULESPEC_FILE_SUFFIX,
     RULESPEC_TEST_FILE_SUFFIX,
+    is_rulespec_question_path,
 )
 from axiom_encode.corpus_resolver import (
     ActiveCorpusBodyRow,
@@ -213,6 +214,8 @@ def _iter_snap_rulespec_payloads(repo: Path) -> list[tuple[Path, dict[str, Any]]
     for rulespec_file in sorted(repo.rglob("*")):
         relative = rulespec_file.relative_to(repo)
         if relative.parts and relative.parts[0] == RULESPEC_COMPOSITION_SPEC_ROOT:
+            continue
+        if is_rulespec_question_path(relative.parts):
             continue
         if rulespec_file.is_symlink():
             raise SnapReadinessConfigurationError(

@@ -77,6 +77,12 @@ def run(argv: Sequence[str]) -> int:
     except LinkError as error:
         print(f"error: {error}", file=sys.stderr)
         return EXIT_LINK
+    if question is not None and args.out.exists() and not args.out.is_dir():
+        print(
+            f"error: with --question, --out is a directory; {args.out} is a file",
+            file=sys.stderr,
+        )
+        return EXIT_LINK
     rulespec_root = args.rulespec_root.resolve()
     if not rulespec_root.is_dir():
         print(
@@ -140,6 +146,10 @@ def run(argv: Sequence[str]) -> int:
 
 def _write_question(out: Path, summary: dict, records: dict[str, dict]) -> int:
     out.mkdir(parents=True, exist_ok=True)
+    # Remove the records of an earlier run, so the directory matches the summary.
+    for stale in sorted(out.glob("*~*.json")):
+        if stale.is_file() and stale.name not in records:
+            stale.unlink()
     for name, record in records.items():
         (out / name).write_text(render_record(record), encoding="utf-8")
     (out / "summary.json").write_text(render_record(summary), encoding="utf-8")

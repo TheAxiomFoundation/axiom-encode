@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -179,7 +180,7 @@ def with_answers(change) -> dict:
         ),
         (
             mutate(["answers", 1, "id"], "reg~1"),
-            r"answers\[1\].id must be a short lowercase id",
+            r"answers\[1\].id must be a lowercase id",
         ),
         (
             mutate(["answers", 1, "document_type"], "manual"),
@@ -558,3 +559,155 @@ def test_real_engine_gives_the_question_records_the_fixture_artifacts_give(
     for record in (*records.values(), *expected.values()):
         record["engine"]["version"] = None
     assert records == expected
+
+
+# -- findings of the review -------------------------------------------------
+
+
+@pytest.mark.parametrize("module", [5, ["x.yaml"], None])
+def test_an_answer_with_a_bad_module_is_refused_not_dropped(module):
+    doc = document()
+    doc["answers"][1]["module"] = module
+    with pytest.raises(
+        LinkError, match="answers.regulation.module must be a module path"
+    ):
+        parse_question(doc)
+    two = document()
+    two["answers"] = two["answers"][:2]
+    two["answers"][1]["module"] = module
+    with pytest.raises(LinkError, match="module must be a module path"):
+        parse_question(two)
+
+
+def test_an_answer_id_has_a_length_limit():
+    doc = document()
+    doc["answers"][1]["id"] = "r" * 65
+    with pytest.raises(LinkError, match="at most 64 characters"):
+        parse_question(doc)
+
+
+def test_date_warnings_do_not_depend_on_the_order_of_the_answers():
+    doc = document()
+    answer(doc, "regulation")["effective_from"] = "2027-06-01"
+    answer(doc, "guidance")["effective_to"] = "2026-06-01"
+    reversed_doc = copy.deepcopy(doc)
+    reversed_doc["answers"].reverse()
+    first, second = parse_question(doc), parse_question(reversed_doc)
+    assert len(first.warnings) == 3
+    assert first.warnings == second.warnings
+
+
+def test_a_gate_failure_names_the_pair_and_its_answers(tmp_path):
+    doc = document()
+    answer(doc, "guidance")["outputs"] = [C + "no_such_rule"]
+    with pytest.raises(LinkGateError) as caught:
+        run_question(tmp_path, doc)
+    assert caught.value.problems[0].startswith(
+        "pair statute~guidance (a = statute, b = guidance): b.outputs:"
+    )
+
+
+def test_an_answer_cannot_lean_on_an_input_its_partner_supplies(tmp_path):
+    doc = document()
+    doc["answers"] = [answer(doc, "statute"), answer(doc, "regulation")]
+    del doc["facts"]["enrolled_student"]
+    name = B + "input.minimum_wage_rate"
+    answer(doc, "statute")["fixed"][name] = answer(doc, "regulation")["fixed"].pop(name)
+    with pytest.raises(
+        LinkGateError,
+        match="answers.statute.fixed: .*minimum_wage_rate' is not an input of its module",
+    ):
+        run_question(tmp_path, doc)
+
+
+def test_cli_question_out_must_not_be_a_file_and_old_records_are_removed(
+    tmp_path, capsys, cli_engine
+):
+    out = tmp_path / "out"
+    out.write_text("x")
+    assert compare_cli.run(cli_args(tmp_path, "--question", str(QUESTION))) == 1
+    assert "--out is a directory" in capsys.readouterr().err
+    out.unlink()
+    assert compare_cli.run(cli_args(tmp_path, "--question", str(QUESTION))) == 0
+    (out / "notes.txt").write_text("keep")
+    doc = document()
+    doc["answers"] = [answer(doc, "statute"), answer(doc, "regulation")]
+    del doc["facts"]["enrolled_student"]
+    path = tmp_path / "two.json"
+    path.write_text(json.dumps(doc))
+    assert compare_cli.run(cli_args(tmp_path, "--question", str(path))) == 0
+    assert sorted(item.name for item in out.iterdir()) == [
+        "notes.txt",
+        "statute~regulation.json",
+        "summary.json",
+    ]
+
+
+# -- question files are not modules -----------------------------------------
+
+
+def _checkout_with_a_question(tmp_path: Path) -> Path:
+    checkout = tmp_path / "rulespec-us"
+    shutil.copytree(RULESPEC, checkout)
+    subprocess.run(["git", "init", str(checkout)], check=True, capture_output=True)
+    questions = checkout / "us" / "questions" / "medicaid"
+    questions.mkdir(parents=True)
+    shutil.copyfile(QUESTION, questions / "work-requirement.question.yaml")
+    return checkout
+
+
+def test_module_discovery_skips_question_files(tmp_path):
+    from axiom_encode import cli
+    from axiom_encode.constants import is_rulespec_question_path
+
+    checkout = _checkout_with_a_question(tmp_path)
+    found = cli._rulespec_module_paths(checkout)
+    assert [path.relative_to(checkout).as_posix() for path in found] == [
+        "us/policies/demo-agency/work-requirement-faq.yaml",
+        "us/regulations/99-cfr/1/2.yaml",
+        "us/statutes/999/1/a.yaml",
+    ]
+    assert cli._proof_atom_kind_normalization_module_paths(checkout) == found
+    # Anything else that is YAML outside the module roots is still refused.
+    stray = checkout / "us" / "notes" / "stray.yaml"
+    stray.parent.mkdir()
+    stray.write_text("format: rulespec/v1\n")
+    with pytest.raises(ValueError, match="canonical filesystem root"):
+        cli._rulespec_module_paths(checkout)
+    assert is_rulespec_question_path(("questions", "x.yaml"))
+    assert is_rulespec_question_path(("statutes", "42", "a.question.yaml"))
+    assert not is_rulespec_question_path(("statutes", "42", "questions.yaml"))
+    assert not is_rulespec_question_path(("statutes", "questions", "a.yaml"))
+    assert not is_rulespec_question_path(())
+
+
+def test_a_question_file_beside_a_module_is_not_a_module(tmp_path):
+    from axiom_encode import cli
+
+    checkout = tmp_path / "rulespec-us"
+    shutil.copytree(RULESPEC, checkout)
+    subprocess.run(["git", "init", str(checkout)], check=True, capture_output=True)
+    beside = checkout / "us" / "statutes" / "999" / "1" / "a.question.yaml"
+    shutil.copyfile(QUESTION, beside)
+    assert beside not in cli._rulespec_module_paths(checkout)
+    assert beside not in cli._proof_atom_kind_normalization_module_paths(checkout)
+
+
+def test_snap_readiness_scan_skips_question_files(tmp_path):
+    from axiom_encode.oracles.policyengine import snap_readiness
+
+    checkout = _checkout_with_a_question(tmp_path)
+    assert snap_readiness._iter_snap_rulespec_payloads(checkout / "us") == []
+
+
+def test_the_compare_step_reads_a_question_file_from_the_questions_tree(tmp_path):
+    checkout = _checkout_with_a_question(tmp_path)
+    path = checkout / "us" / "questions" / "medicaid" / "work-requirement.question.yaml"
+    summary, _ = compare_question(
+        load_question(path),
+        rulespec_root=checkout,
+        engine=engine(),
+        workdir=tmp_path / "work",
+        repository=REPOSITORY,
+    )
+    assert summary["counts"]["pairs_that_differ"] == 3

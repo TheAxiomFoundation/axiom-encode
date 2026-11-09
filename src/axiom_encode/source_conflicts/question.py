@@ -25,8 +25,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .compare import EngineLike, compare, repository_state
+from .artifact import Artifact, ArtifactError
+from .compare import CompareError, EngineLike, compare, repository_state
 from .expressions import ExpressionError, parse_constraint
+from .gates import LinkGateError
 from .link import (
     _DATE,
     _FACT,
@@ -53,7 +55,7 @@ DOCUMENT_TYPES = (
     "form_instructions",
     "third_party",
 )
-_ANSWER_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
+_ANSWER_ID = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 _JURISDICTION = re.compile(r"[a-z]{2}(?:-[a-z]{2})?")
 _CITATION = re.compile(r"[a-z]{2}(?:-[a-z]{2})?(?:/[A-Za-z0-9._-]+)+")
 
@@ -123,6 +125,7 @@ class Answer:
     effective_from: str | None
     effective_to: str | None
     module: str
+    supplied: tuple[tuple[str, str], ...] = ()
 
     def metadata(self) -> dict[str, Any]:
         return {key: getattr(self, key) for key in _METADATA}
@@ -165,13 +168,15 @@ def _answer(
     answer_id = raw.get("id")
     if not isinstance(answer_id, str) or not _ANSWER_ID.fullmatch(answer_id):
         problems.append(
-            f"{where}.id must be a short lowercase id without '~', ':' or '/', "
+            f"{where}.id must be a lowercase id of at most 64 characters without '~', ':' or '/', "
             "such as '42-cfr-435-552'"
         )
         answer_id = None
     else:
         where = f"answers.{answer_id}"
     label = _text(raw.get("label"), f"{where}.label", problems)
+    if "module" in raw and not isinstance(raw["module"], str):
+        problems.append(f"{where}.module must be a module path")
     if raw.get("document_type") not in DOCUMENT_TYPES:
         problems.append(
             f"{where}.document_type must be one of {', '.join(DOCUMENT_TYPES)}"
@@ -246,6 +251,11 @@ def _answer(
             effective_from=dates["effective_from"],
             effective_to=dates["effective_to"],
             module=raw["module"],
+            supplied=tuple(
+                (group, name)
+                for group in ("derived", "fixed")
+                for name in encoding[group]
+            ),
         ),
         encoding,
     )
@@ -379,6 +389,7 @@ def parse_question(document: object) -> Question:
     if not isinstance(raw_answers, list) or len(raw_answers) < 2:
         problems.append("answers must be a list of two or more answers")
         raw_answers = raw_answers if isinstance(raw_answers, list) else []
+    known_problems = len(problems)
     answers: dict[str, Answer] = {}
     encodings: dict[str, dict[str, Any]] = {}
     complete = True
@@ -386,7 +397,12 @@ def parse_question(document: object) -> Question:
         answer, encoding = _answer(index, value, fact_names, problems)
         if answer is None:
             complete = False
+            if len(problems) == known_problems:
+                # Never drop an answer without a reason.
+                problems.append(f"answers[{index}] is not a valid answer")
+            known_problems = len(problems)
             continue
+        known_problems = len(problems)
         if answer.id in answers:
             problems.append(f"the answer id '{answer.id}' appears twice")
             continue
@@ -444,7 +460,7 @@ def parse_question(document: object) -> Question:
         raise QuestionError(list(dict.fromkeys(problems)))
 
     start = raw["period"]["start"]
-    for answer in answers.values():
+    for answer in (answers[answer_id] for answer_id in ordered):
         if (answer.effective_from and start < answer.effective_from) or (
             answer.effective_to and start > answer.effective_to
         ):
@@ -497,18 +513,53 @@ def compare_question(
     repository = dict(
         repository if repository is not None else repository_state(Path(rulespec_root))
     )
+    # An answer's derived and fixed inputs must be inputs of its own module.
+    # A pair gives each such input to every side that accepts it, so without
+    # this an answer could lean on an input that its partner supplies.
+    problems: list[str] = []
+    for number, answer in enumerate(question.answers):
+        module = Path(rulespec_root) / answer.module
+        if not answer.supplied or not module.is_file():
+            continue  # a missing module is reported by the pair's gates
+        answer_workdir = Path(workdir) / f"answer-{number}"
+        answer_workdir.mkdir(parents=True, exist_ok=True)
+        try:
+            accepted = Artifact(
+                engine.compile(module, Path(rulespec_root), answer_workdir / "a.json"),
+                question.period["start"],
+            ).slot_by_request_name
+        except ArtifactError as error:
+            raise CompareError(f"answer {answer.id}: {error}") from error
+        problems.extend(
+            f"answers.{answer.id}.{group}: '{name}' is not an input of its module "
+            f"{answer.module}"
+            for group, name in answer.supplied
+            if name not in accepted
+        )
+    if problems:
+        raise LinkGateError(problems)
+
     records: dict[str, dict[str, Any]] = {}
     pairs_summary = []
     for number, pair in enumerate(question.pairs):
         pair_workdir = Path(workdir) / f"pair-{number}"
         pair_workdir.mkdir(parents=True, exist_ok=True)
-        record = compare(
-            pair.link,
-            rulespec_root=rulespec_root,
-            engine=engine,
-            workdir=pair_workdir,
-            repository=repository,
-        )
+        try:
+            record = compare(
+                pair.link,
+                rulespec_root=rulespec_root,
+                engine=engine,
+                workdir=pair_workdir,
+                repository=repository,
+            )
+        except LinkGateError as error:
+            raise LinkGateError(
+                [
+                    f"pair {pair.a.id}~{pair.b.id} (a = {pair.a.id}, b = {pair.b.id}): "
+                    f"{problem}"
+                    for problem in error.problems
+                ]
+            ) from error
         record["source_question"] = {"id": question.id, "sha256": question.sha256}
         for side, answer in (("a", pair.a), ("b", pair.b)):
             record["sides"][side]["answer"] = answer.metadata()

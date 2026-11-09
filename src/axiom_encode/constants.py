@@ -67,3 +67,19 @@ RULESPEC_FILESYSTEM_ROOTS = frozenset(
 )
 RULESPEC_FILE_SUFFIX = ".yaml"
 RULESPEC_TEST_FILE_SUFFIX = ".test.yaml"
+# Source-question files (axiom-source-question/v1, see
+# docs/source-conflict-compare.md) are sidecars of the compare step, not
+# RuleSpec modules: they live in ``<jurisdiction>/questions/`` and end in
+# ``.question.yaml``. Module discovery skips both, so a question file never
+# needs a manifest, a companion test or ``format: rulespec/v1``.
+RULESPEC_QUESTION_ROOT = "questions"
+RULESPEC_QUESTION_FILE_SUFFIX = ".question.yaml"
+
+
+def is_rulespec_question_path(relative_parts: tuple[str, ...]) -> bool:
+    """Whether a path below a jurisdiction root is a source-question file or tree."""
+
+    return bool(relative_parts) and (
+        relative_parts[0] == RULESPEC_QUESTION_ROOT
+        or relative_parts[-1].endswith(RULESPEC_QUESTION_FILE_SUFFIX)
+    )
