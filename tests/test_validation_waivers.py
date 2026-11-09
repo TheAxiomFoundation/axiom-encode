@@ -490,3 +490,112 @@ def test_fingerprint_normalizes_validator_owned_alias_and_temp_directories():
     assert fingerprint_outcome(
         first, companion, replacements={"/tmp": "<system-tmp>"}
     ) == fingerprint_outcome(second, companion, replacements={"/tmp": "<system-tmp>"})
+
+
+def test_verifier_restate_allows_only_fingerprint_restates_and_removals():
+    from axiom_encode.validation_waivers import verifier_restate_transition_issues
+
+    other = "us/statutes/2.yaml"
+    staged = "us/statutes/3.yaml"
+    base = _set(
+        _entry(PATH, active=_metadata("a")),
+        _entry(other, active=_metadata("b")),
+        _entry(staged, active=_metadata("c"), pending=_metadata("d")),
+    )
+    restated = _set(
+        _entry(PATH, active=_metadata("e")),
+        _entry(staged, active=_metadata("f"), pending=_metadata("d")),
+    )
+    assert verifier_restate_transition_issues(base, restated) == ()
+    assert verifier_restate_transition_issues(base, base) == ()
+    # The flag reaches the same check, and without it the restate is refused.
+    assert (
+        protected_base_transition_issues(
+            base, restated, changed_paths={"x"}, today=TODAY, verifier_restate=True
+        )
+        == ()
+    )
+    assert any(
+        "must exactly consume" in issue
+        for issue in protected_base_transition_issues(
+            base, restated, changed_paths={"x"}, today=TODAY
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("head_entries", "expected"),
+    [
+        # A new entry.
+        (
+            lambda: (
+                _entry(PATH, active=_metadata("a")),
+                _entry("us/statutes/9.yaml", active=_metadata("a")),
+            ),
+            "cannot add a waiver entry",
+        ),
+        # A later expiry, another issue, another owner.
+        (
+            lambda: (_entry(PATH, active=_metadata("e", expires="2027-06-01")),),
+            "may change only the fingerprint",
+        ),
+        (
+            lambda: (
+                _entry(
+                    PATH,
+                    active=_metadata(
+                        "e",
+                        issue="https://github.com/TheAxiomFoundation/rulespec-us/issues/1",
+                    ),
+                ),
+            ),
+            "may change only the fingerprint",
+        ),
+        (
+            lambda: (_entry(PATH, active=_metadata("e", owner="@other")),),
+            "may change only the fingerprint",
+        ),
+        # A new pending record beside the active one.
+        (
+            lambda: (_entry(PATH, active=_metadata("a"), pending=_metadata("e")),),
+            "may change only the fingerprint",
+        ),
+        # The active record replaced by a pending one.
+        (
+            lambda: (_entry(PATH, pending=_metadata("a")),),
+            "may change only the fingerprint",
+        ),
+    ],
+)
+def test_verifier_restate_refuses_every_other_change(head_entries, expected):
+    from axiom_encode.validation_waivers import verifier_restate_transition_issues
+
+    base = _set(_entry(PATH, active=_metadata("a")))
+    issues = verifier_restate_transition_issues(base, _set(*head_entries()))
+    assert len(issues) >= 1
+    assert any(expected in issue for issue in issues), issues
+
+
+def test_verifier_restate_refuses_consumption_and_pending_changes():
+    from axiom_encode.validation_waivers import verifier_restate_transition_issues
+
+    staged = _set(_entry(PATH, active=_metadata("a"), pending=_metadata("b")))
+    for head in (
+        # Consumption is an ordinary transition, not a restate.
+        _set(_entry(PATH, active=_metadata("b"))),
+        # A changed or dropped pending record.
+        _set(_entry(PATH, active=_metadata("a"), pending=_metadata("c"))),
+        _set(_entry(PATH, active=_metadata("a"))),
+    ):
+        issues = verifier_restate_transition_issues(staged, head)
+        assert any("may change only the fingerprint" in issue for issue in issues)
+    # An entry with a pending record cannot be removed.
+    assert any(
+        "can remove only an entry" in issue
+        for issue in verifier_restate_transition_issues(staged, _set())
+    )
+    pending_only = _set(_entry(PATH, pending=_metadata("b")))
+    assert any(
+        "can remove only an entry" in issue
+        for issue in verifier_restate_transition_issues(pending_only, _set())
+    )

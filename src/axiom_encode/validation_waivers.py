@@ -14,7 +14,7 @@ import re
 import stat
 import unicodedata
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
@@ -452,6 +452,58 @@ def _validation_waiver_set_from_payload(
     return ValidationWaiverSet(MappingProxyType(dict(sorted(entries.items()))))
 
 
+def verifier_restate_transition_issues(
+    base: ValidationWaiverSet,
+    head: ValidationWaiverSet,
+) -> tuple[str, ...]:
+    """Return every ledger change that is not a mechanical verifier restate.
+
+    A change of the verifier (``encoder_verifier`` switching between the
+    pinned encoder and encoder main) can change the fingerprint of a waived
+    failure, or make a waived module pass. Such a change may carry the ledger
+    only to restate it for the new verifier:
+
+    * an active record may change its fingerprint, with owner, issue and
+      expiry exactly as on the protected base;
+    * an entry that has only an active record may be removed.
+
+    Every other entry, state and field must stay exactly as on the protected
+    base: no new entry, no new or changed pending record, no consumption, no
+    changed owner, issue or expiry. This function checks the shape only. The
+    audit that calls it then requires each restated fingerprint to equal the
+    failure the running verifier observes, and each removed module to pass.
+    """
+    issues: list[str] = []
+    for path in sorted(set(base.entries) | set(head.entries)):
+        base_entry = base.entries.get(path)
+        head_entry = head.entries.get(path)
+        if base_entry == head_entry:
+            continue
+        if base_entry is None:
+            issues.append(f"{path}: a verifier restate cannot add a waiver entry")
+            continue
+        if head_entry is None:
+            if base_entry.active is None or base_entry.pending is not None:
+                issues.append(
+                    f"{path}: a verifier restate can remove only an entry that "
+                    "has an active record and no pending record"
+                )
+            continue
+        if (
+            base_entry.active is None
+            or head_entry.active is None
+            or head_entry.pending != base_entry.pending
+            or replace(head_entry.active, fingerprint=base_entry.active.fingerprint)
+            != base_entry.active
+        ):
+            issues.append(
+                f"{path}: a verifier restate may change only the fingerprint of "
+                "an active record; owner, issue, expiry and pending records must "
+                "stay exactly as on the protected base"
+            )
+    return tuple(issues)
+
+
 def protected_base_transition_issues(
     base: ValidationWaiverSet,
     head: ValidationWaiverSet,
@@ -459,8 +511,16 @@ def protected_base_transition_issues(
     changed_paths: set[str] | frozenset[str],
     waiver_path: str = DEFAULT_WAIVER_PATH,
     today: date | None = None,
+    verifier_restate: bool = False,
 ) -> tuple[str, ...]:
-    """Return attempts to activate a waiver without protected-base approval."""
+    """Return attempts to activate a waiver without protected-base approval.
+
+    With ``verifier_restate`` the change is a verifier-mode switch, and the
+    ledger may only be restated for the new verifier (see
+    ``verifier_restate_transition_issues``); no other transition is allowed.
+    """
+    if verifier_restate:
+        return verifier_restate_transition_issues(base, head)
     issues: list[str] = []
     current_date = today or date.today()
     changed = frozenset(changed_paths)

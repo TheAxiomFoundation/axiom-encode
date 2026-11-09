@@ -2124,6 +2124,15 @@ def main():
         help="Audit all waivers (default) or conservatively select changed read sets",
     )
     validation_waivers_audit_parser.add_argument(
+        "--verifier-restate",
+        action="store_true",
+        help=(
+            "The change switches the verifier mode: allow only a mechanical "
+            "restate of the ledger (active fingerprints restated, active-only "
+            "entries removed), and audit every waiver"
+        ),
+    )
+    validation_waivers_audit_parser.add_argument(
         "--partition-key",
         help="This audit job's key in --partition-keys-json",
     )
@@ -5319,11 +5328,23 @@ def _cmd_validation_waivers_audit(args) -> int:
         require_paths=False,
     )
     changed_paths = _validation_waiver_changed_paths(Path(changed_paths_file))
+    verifier_restate = bool(getattr(args, "verifier_restate", False))
+    if verifier_restate:
+        # A restate is sound only because this run then compares every head
+        # record with what the running verifier observes.
+        if requested_scope != "full":
+            raise ValueError("--verifier-restate requires --scope full")
+        if RULESPEC_WORKFLOW_TOOLCHAIN_RELATIVE.as_posix() not in changed_paths:
+            raise ValueError(
+                "--verifier-restate requires a change of "
+                f"{RULESPEC_WORKFLOW_TOOLCHAIN_RELATIVE.as_posix()}"
+            )
     transition_issues = _validation_waivers.protected_base_transition_issues(
         base,
         head,
         changed_paths=changed_paths,
         waiver_path=waiver_path,
+        **({"verifier_restate": True} if verifier_restate else {}),
     )
 
     if transition_issues:
@@ -26792,6 +26813,62 @@ def _in_place_replacement_post_waiver_dependent_manifests(
     return frozenset(matches) if len(matches) == 1 else frozenset()
 
 
+def _workflow_toolchain_encoder_verifier(raw: bytes | None) -> str | None:
+    """Return the verifier mode of workflow-toolchain bytes, or None if invalid.
+
+    An absent file, table or key means the pinned verifier.
+    """
+
+    import tomllib
+
+    if raw is None:
+        return "pinned"
+    try:
+        table = tomllib.loads(raw.decode("utf-8")).get("workflow_toolchain", {})
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return None
+    if not isinstance(table, dict):
+        return None
+    mode = table.get("encoder_verifier", "pinned")
+    return mode if mode in ("pinned", "main") else None
+
+
+def _guard_change_switches_encoder_verifier(
+    repo_path: Path, *, base_ref: str | None, head_ref: str | None
+) -> bool:
+    """Return whether the guarded change switches the verifier mode.
+
+    Both modes are read from Git objects (the working file when no head ref is
+    given). An unreadable or malformed value is never a switch, so the strict
+    waiver rules apply.
+    """
+
+    if base_ref is None:
+        return False
+    relative = RULESPEC_WORKFLOW_TOOLCHAIN_RELATIVE.as_posix()
+
+    def at(ref: str) -> str | None:
+        if _git_show_bytes(repo_path, ref, "") is None:
+            return None  # the ref itself does not resolve
+        return _workflow_toolchain_encoder_verifier(
+            _git_show_bytes(repo_path, ref, relative)
+        )
+
+    base_mode = at(base_ref)
+    if head_ref is not None:
+        head_mode = at(head_ref)
+    else:
+        working = repo_path / relative
+        try:
+            raw = working.read_bytes() if working.is_file() else None
+        except OSError:
+            return False
+        if working.is_symlink():
+            return False
+        head_mode = _workflow_toolchain_encoder_verifier(raw)
+    return base_mode is not None and head_mode is not None and base_mode != head_mode
+
+
 def _guard_manifest_waiver_set_identity(
     repo_path: Path,
     *,
@@ -26854,6 +26931,39 @@ def _guard_manifest_waiver_set_identity(
         )
     except _validation_waivers.ValidationWaiverError as exc:
         return current_waiver_set_sha256, [prefix + str(exc)]
+
+    if _guard_change_switches_encoder_verifier(
+        repo_path, base_ref=base_ref, head_ref=head_ref
+    ):
+        # A verifier-mode switch may restate the ledger for the new verifier
+        # (active fingerprints, removal of active-only entries) and nothing
+        # else. The supervised waiver audit proves each restated fingerprint
+        # and each removal against the running verifier; manifests keep the
+        # protected-base ledger identity, as for a retirement.
+        restate_issues = list(
+            _validation_waivers.verifier_restate_transition_issues(
+                base_waivers, head_waivers
+            )
+        )
+        riders = sorted(
+            path
+            for path in changed_set
+            if _is_protected_rulespec_yaml_path(Path(path), roots=roots)
+            or _is_applied_encoding_manifest_path(Path(path), roots=roots)
+            or _is_auxiliary_provenance_receipt_path(Path(path))
+        )
+        if riders:
+            restate_issues.append(
+                "a verifier restate cannot change RuleSpec files, apply "
+                "manifests or receipts: " + ", ".join(riders)
+            )
+        if restate_issues:
+            return current_waiver_set_sha256, [
+                "RuleSpec verifier restate is invalid: " + issue
+                for issue in restate_issues
+            ]
+        _remember_validation_waiver_ledger(base_bytes)
+        return base_sha256, []
 
     transition_issues = _validation_waivers.protected_base_transition_issues(
         base_waivers,
