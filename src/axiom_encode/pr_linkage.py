@@ -85,7 +85,7 @@ _FENCE = re.compile(
 _COMMENT_BLOCK = re.compile(rf" {{0,3}}{_LIST_MARKER}<!--")
 _CODE_SPAN = re.compile(r"(`+)(?!`).*?(?<!`)\1(?!`)")
 _CLOSING_FENCE = re.compile(r"( *)(`{3,}|~{3,})[ \t]*")
-_MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\((\S+)\)")
+_MARKDOWN_LINK = re.compile(r"\[([^\]]*)\]\((\S+)\)")
 _BOLD = r"(?:\*\*|__)?"
 # Up to three spaces of indent (four is a code block), an optional list marker
 # (bullet or number) and bold around the key: `- **Encoding-Target:** none`
@@ -154,7 +154,10 @@ def _visible_lines(body: str, errors: list[str]) -> list[str]:
     for number, line in enumerate(raw, start=1):
         if fence is not None:
             fence_chars, column = fence
-            indent = len(line) - len(line.lstrip(" "))
+            # A tab advances to the next multiple of four columns, as in
+            # CommonMark, so a tab-indented line stays inside its item.
+            expanded = line.expandtabs(4)
+            indent = len(expanded) - len(expanded.lstrip(" "))
             if line.strip() and indent < column:
                 # Less indented than its list item: the item, and with it
                 # the fence, has ended; this line is ordinary text.
@@ -216,7 +219,7 @@ def _clean(part: str) -> str:
     part = re.sub(r"\\$", "", part).strip()  # a backslash hard break
     link = _MARKDOWN_LINK.fullmatch(part)
     if link is not None:
-        part = link.group(1)
+        part = link.group(2)
     for _ in range(2):
         part = part.strip().strip("`").strip()
         part = re.sub(r"^(?:\*\*|__)|(?:\*\*|__)$", "", part).strip()
@@ -225,8 +228,40 @@ def _clean(part: str) -> str:
     return part
 
 
+def _value_shaped(text: str) -> bool:
+    """Whether a link's text reads as a citation, run id or run URL itself."""
+    return any(
+        pattern.fullmatch(text)
+        for pattern in (CITATION, SIGNED_RUN, LOCAL_RUN, _RUN_URL)
+    )
+
+
+def _normalized(text: str) -> str:
+    url = _RUN_URL.fullmatch(text)
+    return url.group("id") if url is not None else text
+
+
+def _misleading_link(part: str) -> str | None:
+    """A link whose visible text names another value than its target."""
+    link = _MARKDOWN_LINK.fullmatch(part.strip())
+    if link is None:
+        return None
+    text = _clean(link.group(1))
+    target = _clean(link.group(2))
+    if _value_shaped(text) and _normalized(text) != _normalized(target):
+        return text
+    return None
+
+
 def _values(raw: str, key: str, errors: list[str]) -> list[str] | None:
     """Split a line's value; None after an error, [] for ``none``."""
+    for part in raw.split(","):
+        if (text := _misleading_link(part)) is not None:
+            errors.append(
+                f"{key}: the link {part.strip()!r} shows {text!r} but points "
+                "elsewhere; write the value itself"
+            )
+            return None
     parts = [_clean(part) for part in raw.split(",")]
     if parts == [""]:
         errors.append(f"{key}: no value; write `{key}: {NONE}` if there is none")

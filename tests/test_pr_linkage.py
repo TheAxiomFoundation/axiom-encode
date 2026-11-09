@@ -500,7 +500,7 @@ def test_the_workflow_runs_only_the_base_branch_checker():
     checkouts = [step for step in steps if "uses" in step]
     assert len(checkouts) == 1
     assert "actions/checkout@" in checkouts[0]["uses"]
-    assert checkouts[0]["with"]["ref"] == "${{ github.event.pull_request.base.sha }}"
+    assert checkouts[0]["with"]["ref"] == "${{ github.sha }}"
     assert checkouts[0]["with"]["persist-credentials"] is False
     assert checkouts[0]["with"]["sparse-checkout"] == "src/axiom_encode/pr_linkage.py"
     assert workflow["permissions"] == {"contents": "read", "actions": "read"}
@@ -686,3 +686,33 @@ def test_a_list_item_fence_ends_with_its_item():
 def test_a_nested_list_fence_closes(fenced):
     body = fenced + "\nEncoding-Target: none\nFixes-Run: none\n"
     assert parse(body).errors == []
+
+
+# --- review-fix cycle 6 ------------------------------------------------------
+
+
+def test_a_tab_indented_line_stays_inside_a_list_item_fence():
+    body = "- ```\n\tx\n  Encoding-Target: us/a/b\n  Fixes-Run: none\n  ```\n"
+    assert "missing" in parse(body).errors[0]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "[us/statute/26/21](us/statute/26/32)",
+        f"[42409703021](https://github.com/{REPO}/actions/runs/1)",
+    ],
+)
+def test_a_link_that_shows_another_value_is_refused(value):
+    target = value if value.startswith("[us/") else "us/statute/26/21"
+    run = "none" if value.startswith("[us/") else value
+    result = parse(_body(target, run), REPO)
+    assert result.linkage is None
+    assert "points elsewhere" in " ".join(result.errors)
+
+
+def test_a_link_that_shows_its_own_value_counts():
+    value = f"[42409703021](https://github.com/{REPO}/actions/runs/42409703021)"
+    result = parse(_body("[us/statute/26/21](us/statute/26/21)", value), REPO)
+    assert result.errors == []
+    assert result.linkage.signed_runs == ["42409703021"]

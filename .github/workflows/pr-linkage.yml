@@ -35,11 +35,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      # The base commit only: never the pull request's head or merge ref.
+      # The base branch's current tip (github.sha under pull_request_target),
+      # the commit this workflow file comes from; never the pull request's
+      # head or merge ref. Not pull_request.base.sha: that is main as of the
+      # pull request's last push, which can predate this checker or a later
+      # tightening of it.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: github.event_name == 'pull_request_target'
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
           sparse-checkout: src/axiom_encode/pr_linkage.py
           sparse-checkout-cone-mode: false
