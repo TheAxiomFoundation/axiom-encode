@@ -11524,6 +11524,22 @@ def _complete_source_deferral_anchor(corpus_citation_path: str | None) -> str:
     return anchors[-1] if anchors else "<module path>"
 
 
+# Typed completeness checks whose declared fix offers "encode or defer" (or
+# "reword the reason or encode"). When the completeness repair guidance renders,
+# their CHECK FIXES line points at that guidance so the retry has one order.
+# Path-only and encode-only fixes keep their declared text.
+_COMPLETENESS_ENCODE_FIRST_CHECKS = (
+    "complete-source-unit:structure/branch-unencoded",
+    "complete-source-unit:formula-output/branch-without-output",
+    "complete-source-unit:formula-output/control-without-output",
+    "complete-source-unit:deferral/reason-imprecise",
+)
+_COMPLETENESS_ENCODE_FIRST_FIX = (
+    "Encode the branch, as the Completeness repair guidance above orders. Keep "
+    "or add a deferral only on one of the deferral grounds listed there."
+)
+
+
 _DEFERRAL_GROUNDS = """(1) the branch depends on the determination of another provision that
   its own text cites, the cross-reference rules in this prompt call for a
   deferral rather than an import or a boundary input, and `reason` names that
@@ -11555,7 +11571,8 @@ def _format_branch_coverage_plan(deferral_anchor: str) -> str:
   their boundary-input or deferral form); do not invent a local fact for it.
   For a branch that states a condition, amount, or computation, a missing
   input, a missing date type, or a missing relation is not a deferral ground.
-- DEFER a branch only when {_DEFERRAL_GROUNDS}. A purpose, basis, or heading
+- DEFER a branch only when:
+  {_DEFERRAL_GROUNDS}. A purpose, basis, or heading
   leaf is covered by the `source:` or proof excerpt of the rule that consumes
   it, not by a deferral. Write each deferred output as
   `{deferral_anchor}/<marker>/<marker>#<name>` with slash-separated markers;
@@ -11569,15 +11586,18 @@ def _format_completeness_repair_guidance(deferral_anchor: str) -> str:
     """Tell a repair to encode omitted branches instead of deferring them."""
 
     return f"""
-- Completeness repair: when a finding names an exact fix (a corrected output
-  path, a required literal citation in `reason`, or a proof atom to add to an
-  existing output that already implements the computation), apply exactly
-  that fix. Otherwise, for every branch reported as neither encoded nor
-  precisely deferred, every source-stated control or computation reported
-  without a principal output, and every deferral rejected because its reason
-  does not name an exact missing dependency, encode the branch unless one of
-  the deferral grounds below applies. Encoding is the default repair. A new
-  deferral, or a reworded reason on a rejected one, is not.
+- Completeness repair: when a finding names an exact output-path correction,
+  or a proof atom to add to an existing output that already implements the
+  computation, apply exactly that fix. Otherwise, for every branch reported as
+  neither encoded nor precisely deferred, every source-stated control or
+  computation reported without a principal output, and every deferral rejected
+  because its reason does not name an exact missing dependency, encode the
+  branch unless one of the deferral grounds below applies. Encoding is the
+  default repair. A new deferral, or a reworded reason on a rejected one, is
+  not. A literal citation that a finding requires in `reason` applies only to a
+  deferral that one of those grounds supports.
+- This order also governs the CHECK FIXES block below, when it is present: its
+  per-subject expected and found values name what to repair.
 - A condition, exception, limitation, date or period test, status,
   classification, amount, or computation that the branch itself states is
   encodable even when its facts are not yet modeled. Declare each fact the
@@ -11591,7 +11611,8 @@ def _format_completeness_repair_guidance(deferral_anchor: str) -> str:
 - When you encode a branch whose deferral was rejected, remove that deferral
   with an item that contains only `output: <existing output>` and
   `repair_remove: true`.
-- Keep or add a deferral only when {_DEFERRAL_GROUNDS}.
+- Keep or add a deferral only when:
+  {_DEFERRAL_GROUNDS}.
 - A deferred output path puts the branch after the module path as
   slash-separated markers: `{deferral_anchor}/<marker>/<marker>#<name>`.
   Never use parentheses such as `a(1)(A)`, another jurisdiction prefix, or the
@@ -11685,19 +11706,32 @@ Deterministic validation feedback for the rejected candidate below:
 {chr(10).join(rendered_items)}
 === END PRIOR VALIDATION FEEDBACK ===
 """
-        + _format_check_fix_feedback(typed_items)
+        + _format_check_fix_feedback(
+            typed_items,
+            fix_overrides=(
+                dict.fromkeys(
+                    _COMPLETENESS_ENCODE_FIRST_CHECKS, _COMPLETENESS_ENCODE_FIRST_FIX
+                )
+                if completeness_repair_guidance
+                else None
+            ),
+        )
         + optional_section
     )
 
 
-def _format_check_fix_feedback(items: Sequence[str]) -> str:
+def _format_check_fix_feedback(
+    items: Sequence[str],
+    *,
+    fix_overrides: Mapping[str, str] | None = None,
+) -> str:
     """Render each failed check's declared fix, with expected vs found per subject.
 
     Only typed issues (``checks.ValidationIssue``) contribute; feedback made of
     untyped strings renders nothing here, so its bytes are unchanged.
     """
 
-    lines = issue_fix_feedback(items)
+    lines = issue_fix_feedback(items, fix_overrides=fix_overrides)
     if not lines:
         return ""
     kept: list[str] = []
