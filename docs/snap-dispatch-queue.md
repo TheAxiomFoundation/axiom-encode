@@ -22,7 +22,10 @@ same draft RuleSpec pull request as an ad hoc encode.
    `prepare_signed_backfill.base_advance_binding_paths`). So an unfinished run
    on a `main` that has since moved in any other way is cancelled; API or
    network errors and truncated comparisons count as such a move. A run that
-   failed at a base-checking step after `main` moved at all is not counted:
+   failed at a base-checking step (checkout verification, the PR base fetch,
+   the publication-base proof, the retired metadata base check, or the PR
+   step) after `main` moved at all is
+   not counted:
    the workflow can still reject a plumbing-only move for lane-level reasons,
    or lose a race with a later move. Both are sent again on the new tip, up to
    six times in a row. A run that already opened its PR is never cancelled or

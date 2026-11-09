@@ -1051,7 +1051,25 @@ def test_a_binding_or_unprovable_main_advance_still_cancels(
     assert github.dispatches[-1]["inputs"]["rulespec_ref"] == tip
 
 
-@pytest.mark.parametrize("step", ["Verify immutable checkout identities", q.PR_STEP])
+def test_stale_base_steps_name_real_encode_workflow_steps():
+    """A renamed or moved base check must not silently count as a failure."""
+
+    encode = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / q.ENCODE_WORKFLOW).read_text()
+    )
+    names = {
+        step.get("name")
+        for job in encode["jobs"].values()
+        for step in job.get("steps") or []
+    }
+    assert q.STALE_BASE_STEPS <= names
+    assert {
+        "Verify reviewed lane pull request base",
+        "Prepare reviewed lane pull request branch",
+    } <= q.STALE_BASE_STEPS
+
+
+@pytest.mark.parametrize("step", sorted(q.STALE_BASE_STEPS))
 def test_a_base_step_failure_after_a_plumbing_advance_is_not_counted(step: str):
     """The workflow may still reject the lane or lose a race with a later move."""
 

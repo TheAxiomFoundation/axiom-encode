@@ -85,12 +85,17 @@ PR_STEP = "Push lane branch and open draft pull request"
 # The encode workflow requires rulespec main to still be at the pinned tip,
 # or to have moved from it only through plumbing the signed run neither
 # reads nor binds (base_advance_admitted), when it starts (checkout
-# verification) and again when it opens the pull request, so a run whose
-# main moved fails at one of these steps; a failure there after any move is
+# verification) and again before it opens the pull request (the base fetch
+# and ancestry check, the token-free publication-base proof, the retired
+# metadata exact-tip check, and the PR step itself), so a run whose main
+# moved fails at one of these steps; a failure there after any move is
 # treated as stale, never counted.
 STALE_BASE_STEPS = frozenset(
     {
         "Verify immutable checkout identities",
+        "Verify reviewed lane pull request base",
+        "Prepare reviewed lane pull request branch",
+        "Verify retired source metadata pull request base",
         PR_STEP,
     }
 )
