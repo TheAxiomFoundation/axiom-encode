@@ -79,6 +79,37 @@ class Artifact:
     def derived(self, rule_id: str) -> Mapping[str, Any] | None:
         return self._derived_by_id.get(rule_id)
 
+    def parameter(self, rule_id: str) -> Mapping[str, Any] | None:
+        for rule in self._parameters.values():
+            if rule.get("id") == rule_id:
+                return rule
+        return None
+
+    def parameter_number(self, rule_id: str) -> tuple[Decimal | None, str | None]:
+        """The one number of a parameter at the period start, or why there is none.
+
+        The engine does not give a parameter as an output, so the compare step
+        reads it from the artifact. Only a parameter with one value (no index)
+        can be compared.
+        """
+
+        rule = self.parameter(rule_id)
+        if rule is None:
+            return None, "is not a parameter of the compiled module"
+        version = self._effective(rule)
+        if version is None:
+            return None, f"has no value in force on {self.period_start}"
+        values = version.get("values") or {}
+        if rule.get("indexed_by") or list(values) != ["0"]:
+            return (
+                None,
+                "is a table (an indexed parameter); only one value can be compared",
+            )
+        value = _literal(values["0"]) if isinstance(values["0"], dict) else None
+        if isinstance(value, bool) or not isinstance(value, Decimal):
+            return None, "is not a number"
+        return value, None
+
     def rule_id(self, name: str) -> str:
         rule = self._derived.get(name) or self._parameters.get(name) or {}
         return rule.get("id") or name

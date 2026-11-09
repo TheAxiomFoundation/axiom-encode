@@ -162,6 +162,19 @@ def _rule_records(
     """Every rule the deciding rules depend on, with its citation and excerpts."""
 
     derived_names, parameter_names, _ = artifact.closure(deciding)
+    # A deciding rule can be a parameter itself (a number read from the artifact).
+    parameter_names = list(
+        dict.fromkeys(
+            [
+                *(
+                    artifact.parameter(rule_id)["name"]
+                    for rule_id in deciding
+                    if artifact.parameter(rule_id) is not None
+                ),
+                *parameter_names,
+            ]
+        )
+    )
     records: dict[str, Any] = {}
     for kind, names in (("derived", derived_names), ("parameter", parameter_names)):
         for name in names:
@@ -346,9 +359,21 @@ def compare(
     interval = {"start": link.period["start"], "end": link.period["end"]}
     for side in SIDES:
         spec, artifact = link.sides[side], artifacts[side]
-        queried = [*spec.outputs, *spec.guards]
+        # A parameter output is a constant of the artifact; the engine is
+        # asked for the derived rules only.
+        constants = {
+            name: artifact.parameter_number(name)[0]
+            for name in spec.outputs
+            if spec.combine == VALUE and artifact.derived(name) is None
+        }
+        queried = [
+            name for name in (*spec.outputs, *spec.guards) if name not in constants
+        ]
         numbers = set(spec.outputs) if spec.combine == VALUE else set()
         side_rows: list[dict[str, Any]] = []
+        if not queried:
+            rows[side] = [dict(constants) for _ in cases]
+            continue
         for offset in range(0, len(cases), BATCH):
             inputs, queries = [], []
             for position in range(offset, min(offset + BATCH, len(cases))):
@@ -410,10 +435,13 @@ def compare(
                 try:
                     side_rows.append(
                         {
-                            name: (_number if name in numbers else _truth)(
-                                outputs[name], name
-                            )
-                            for name in queried
+                            **constants,
+                            **{
+                                name: (_number if name in numbers else _truth)(
+                                    outputs[name], name
+                                )
+                                for name in queried
+                            },
                         }
                     )
                 except KeyError as error:
@@ -674,10 +702,13 @@ def compare(
         record["comparison"] = {
             "kind": "value",
             "tolerance": canonical_decimal(link.tolerance),
-            "unit": (artifacts["a"].derived(link.sides["a"].outputs[0]) or {}).get(
-                "unit"
-            ),
+            "unit": (artifacts["a"].rule(link.sides["a"].outputs[0]) or {}).get("unit"),
         }
+        if not link.facts and len(cases) == 1:
+            # One evaluation with no fact: give both numbers, conflict or not.
+            record["comparison"]["values"] = {
+                side: shown(decide(side, rows[side][0])[0]) for side in SIDES
+            }
     return record
 
 

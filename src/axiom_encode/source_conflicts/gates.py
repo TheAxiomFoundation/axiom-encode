@@ -63,9 +63,26 @@ def check_link(link: Link, artifacts: Mapping[str, Artifact]) -> list[str]:
         for group, names in (("outputs", spec.outputs), ("guards", spec.guards)):
             for name in names:
                 rule = artifact.derived(name)
+                if (
+                    rule is None
+                    and group == "outputs"
+                    and spec.combine == VALUE
+                    and artifact.parameter(name) is not None
+                ):
+                    # A parameter read from the artifact: no entity, no period.
+                    _, reason = artifact.parameter_number(name)
+                    if reason:
+                        problems.append(f"{side}.outputs: parameter '{name}' {reason}")
+                    continue
                 if rule is None:
                     problems.append(
-                        f"{side}.{group}: '{name}' is not a derived rule of the compiled "
+                        f"{side}.{group}: '{name}' is not a "
+                        + (
+                            "derived rule or parameter"
+                            if group == "outputs" and spec.combine == VALUE
+                            else "derived rule"
+                        )
+                        + " of the compiled "
                         f"module {spec.module}"
                     )
                     continue
@@ -163,9 +180,7 @@ def check_link(link: Link, artifacts: Mapping[str, Artifact]) -> list[str]:
                 )
     if all(link.sides[side].combine == VALUE for side in SIDES):
         units = {
-            side: (artifacts[side].derived(link.sides[side].outputs[0]) or {}).get(
-                "unit"
-            )
+            side: (artifacts[side].rule(link.sides[side].outputs[0]) or {}).get("unit")
             for side in SIDES
         }
         if units["a"] and units["b"] and units["a"] != units["b"]:

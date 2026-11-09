@@ -338,3 +338,336 @@ def test_real_engine_gives_the_amount_record_the_fixture_artifacts_give(
     for volatile in (record, expected):
         volatile["engine"]["version"] = None
     assert json.loads(render_record(record)) == json.loads(render_record(expected))
+
+
+# -- constants: parameter outputs and links with no fact --------------------
+
+P_STATUTE = "us:statutes/999/1/a#monthly_hours_requirement"
+P_REGULATION = "us:regulations/99-cfr/1/2#required_monthly_hours"
+P_GUIDANCE = "us:policies/demo-agency/work-requirement-faq#guidance_monthly_hours"
+CONSTANT_MODULES = {
+    **MODULES,
+    "us/policies/demo-agency/work-requirement-faq.yaml": "c",
+}
+
+
+def constant_link() -> dict:
+    return {
+        "format": "axiom-source-conflict-link/v1",
+        "id": "us:fixture-required-hours-statute-vs-regulation",
+        "question": "How many hours a month does the work requirement ask?",
+        "entity": "Person",
+        "period": {"period_kind": "month", "start": "2027-01-01", "end": "2027-02-01"},
+        "a": {
+            "label": "Fixture statute (a)(1)",
+            "module": "us/statutes/999/1/a.yaml",
+            "outputs": [P_STATUTE],
+            "combine": "value",
+        },
+        "b": {
+            "label": "Fixture regulation (a)(1)",
+            "module": "us/regulations/99-cfr/1/2.yaml",
+            "outputs": [P_REGULATION],
+            "combine": "value",
+        },
+    }
+
+
+def constant_engine(change=None) -> FakeEngine:
+    payloads = {path: artifact_payload(name) for path, name in CONSTANT_MODULES.items()}
+    if change:
+        change(payloads)
+    return FakeEngine(payloads)
+
+
+def set_regulation_hours(value, kind="integer"):
+    def change(payloads):
+        (parameter,) = payloads["us/regulations/99-cfr/1/2.yaml"]["program"][
+            "parameters"
+        ]
+        parameter["versions"][0]["values"]["0"] = {"kind": kind, "value": value}
+
+    return change
+
+
+def test_two_equal_parameters_are_one_comparison_and_no_conflict(tmp_path):
+    fake = constant_engine()
+    record = run(tmp_path, constant_link(), fake)
+    assert fake.requests == []  # a parameter is read from the artifact
+    assert record["conflict"] is False
+    assert record["facts"] == {}
+    assert record["counts"] == {
+        "grid": 1,
+        "combinations": 1,
+        "removed_by_constraints": 0,
+        "removed_that_differ": 0,
+        "run": 1,
+        "skipped_by_guard": 0,
+        "differ": 0,
+        "witness_groups": 0,
+    }
+    assert record["comparison"] == {
+        "kind": "value",
+        "tolerance": "0",
+        "unit": None,
+        "values": {"a": "80", "b": "80"},
+    }
+    assert record["sampled"] is False and record["warnings"] == []
+
+
+def test_two_parameters_that_differ_give_a_witness_with_no_facts(tmp_path):
+    record = run(tmp_path, constant_link(), constant_engine(set_regulation_hours(100)))
+    assert record["conflict"] is True and record["review_state"] == "unreviewed"
+    assert record["counts"]["run"] == record["counts"]["differ"] == 1
+    (group,) = record["witness_groups"]
+    assert group == {
+        "direction": {"a": "lower", "b": "higher"},
+        "deciding_rules": {"a": [P_STATUTE], "b": [P_REGULATION]},
+        "one_side_facts": {},
+        "conditions": [],
+        "count": 1,
+        "witness": {
+            "facts": {},
+            "a": {"result": "80", "outputs": {P_STATUTE: "80"}},
+            "b": {"result": "100", "outputs": {P_REGULATION: "100"}},
+            "difference": "20",
+        },
+        "fact_values": {},
+        "difference": {"min": "20", "max": "20"},
+    }
+    # The proof of a parameter is its own excerpt.
+    assert record["sides"]["a"]["rules"] == {
+        P_STATUTE: {
+            "kind": "parameter",
+            "source": "Fixture statute (a)(1)",
+            "corpus_citation_path": None,
+            "proof_atoms": [
+                {
+                    "kind": "parameter",
+                    "corpus_citation_path": "us/statute/999/1/a",
+                    "excerpt": "not less than 80 hours",
+                }
+            ],
+        }
+    }
+    doc = constant_link()
+    doc["tolerance"] = 20
+    assert (
+        run(tmp_path, doc, constant_engine(set_regulation_hours(100)))["conflict"]
+        is False
+    )
+    decimal = constant_engine(set_regulation_hours("0.08", "decimal"))
+    assert (
+        run(tmp_path, constant_link(), decimal)["witness_groups"][0]["witness"]["b"][
+            "result"
+        ]
+        == "0.08"
+    )
+
+
+def test_a_parameter_can_be_compared_with_a_derived_number(tmp_path):
+    doc = constant_link()
+    doc["a"] = {
+        "label": "Fixture statute 2: hours",
+        "module": "us/statutes/999/2/a.yaml",
+        "outputs": [SA + "threshold_hours"],
+        "combine": "value",
+    }
+    doc["b"] = {
+        "label": "Fixture statute 2: threshold",
+        "module": "us/statutes/999/2/a.yaml",
+        "outputs": [SA + "monthly_income_threshold"],
+        "combine": "value",
+    }
+    doc["fixed"] = {
+        SA + "input.federal_minimum_wage": {"kind": "decimal", "value": "1"}
+    }
+    fake = constant_engine()
+    record = run(tmp_path, doc, fake)
+    # Side a is a constant; side b is one engine household with the fixed input only.
+    assert len(fake.requests) == 1 and len(fake.requests[0]["queries"]) == 1
+    assert record["counts"]["run"] == 1 and record["conflict"] is False
+    doc["fixed"][SA + "input.federal_minimum_wage"]["value"] = "7.25"
+    (group,) = run(tmp_path, doc, constant_engine())["witness_groups"]
+    assert group["witness"]["a"]["result"] == "80"
+    assert group["witness"]["b"]["result"] == "580"
+    assert group["witness"]["difference"] == "500"
+    assert group["witness"]["facts"] == {}
+
+
+def test_a_yes_no_link_can_have_no_fact_too(tmp_path):
+    doc = yaml.safe_load(LINK.read_text())
+    for name, fact in doc.pop("facts").items():
+        kind = fact["kind"]
+        doc["fixed"][fact["b"]] = {
+            "kind": kind,
+            "value": True if kind == "bool" else "79",
+        }
+    doc["fixed"][next(iter(doc.pop("derived")))] = {"kind": "decimal", "value": "79"}
+    del doc["constraints"]
+    record = run(tmp_path, doc)
+    # 79 hours of service plus income counted as hours: the regulation says met.
+    assert record["counts"]["run"] == 1
+    (group,) = record["witness_groups"]
+    assert group["direction"] == {"a": False, "b": True}
+    assert group["witness"]["facts"] == {} and group["conditions"] == []
+
+
+def test_parameter_output_gates(tmp_path):
+    def indexed(payloads):
+        (parameter,) = payloads["us/regulations/99-cfr/1/2.yaml"]["program"][
+            "parameters"
+        ]
+        parameter["indexed_by"] = "household_size"
+        parameter["versions"][0]["values"]["1"] = {"kind": "integer", "value": 90}
+
+    with pytest.raises(LinkGateError, match="b.outputs: parameter .* is a table"):
+        run(tmp_path, constant_link(), constant_engine(indexed))
+
+    def not_in_force(payloads):
+        (parameter,) = payloads["us/regulations/99-cfr/1/2.yaml"]["program"][
+            "parameters"
+        ]
+        parameter["versions"][0]["effective_from"] = "2028-01-01"
+
+    with pytest.raises(LinkGateError, match="has no value in force on 2027-01-01"):
+        run(tmp_path, constant_link(), constant_engine(not_in_force))
+    with pytest.raises(LinkGateError, match="b.outputs: parameter .* is not a number"):
+        run(
+            tmp_path,
+            constant_link(),
+            constant_engine(set_regulation_hours(True, "bool")),
+        )
+
+    doc = constant_link()
+    doc["b"]["outputs"] = ["us:regulations/99-cfr/1/2#no_such_rule"]
+    with pytest.raises(LinkGateError, match="is not a derived rule or parameter"):
+        run(tmp_path, doc, constant_engine())
+    doc = constant_link()
+    for side in ("a", "b"):
+        doc[side]["combine"] = "any"
+    # A parameter is not a yes/no rule.
+    with pytest.raises(LinkGateError, match="a.outputs: .* is not a derived rule of"):
+        run(tmp_path, doc, constant_engine())
+    doc = constant_link()
+    doc["guards"] = {"a": [P_STATUTE]}
+    with pytest.raises(LinkGateError, match="a.guards: .* is not a derived rule of"):
+        run(tmp_path, doc, constant_engine())
+
+
+def constant_question() -> dict:
+    link = constant_link()
+    answers = []
+    for answer_id, kind, citation, module, output in (
+        (
+            "statute",
+            "statute",
+            "us/statute/999/1/a",
+            "us/statutes/999/1/a.yaml",
+            P_STATUTE,
+        ),
+        (
+            "regulation",
+            "regulation",
+            "us/regulation/99/1/2",
+            "us/regulations/99-cfr/1/2.yaml",
+            P_REGULATION,
+        ),
+        (
+            "guidance",
+            "federal_guidance",
+            "us/policy/demo-agency/work-requirement-faq",
+            "us/policies/demo-agency/work-requirement-faq.yaml",
+            P_GUIDANCE,
+        ),
+    ):
+        answers.append(
+            {
+                "id": answer_id,
+                "label": f"Fixture {answer_id}",
+                "document_type": kind,
+                "jurisdiction": "us",
+                "corpus_citation_path": citation,
+                "module": module,
+                "outputs": [output],
+                "combine": "value",
+            }
+        )
+    return {
+        "format": "axiom-source-question/v1",
+        "id": "us:fixture/required-monthly-hours",
+        "question": link["question"],
+        "entity": "Person",
+        "period": link["period"],
+        "answers": answers,
+    }
+
+
+def test_a_question_with_no_fact_compares_each_pair_once(tmp_path):
+    question = parse_question(constant_question())
+    assert [list(pair.link.facts) for pair in question.pairs] == [[], [], []]
+    summary, records = compare_question(
+        question,
+        rulespec_root=RULESPEC,
+        engine=constant_engine(set_regulation_hours(100)),
+        workdir=tmp_path,
+        repository=REPOSITORY,
+    )
+    assert summary["counts"] == {
+        "answers": 3,
+        "pairs": 3,
+        "pairs_run": 3,
+        "pairs_that_differ": 2,
+    }
+    assert [(p["a"], p["b"], p["run"], p["differ"]) for p in summary["pairs"]] == [
+        ("statute", "regulation", 1, 1),
+        ("statute", "guidance", 1, 0),
+        ("regulation", "guidance", 1, 1),
+    ]
+    assert summary["pairs"][2]["witness_groups"] == [
+        {
+            "direction": {"a": "higher", "b": "lower"},
+            "count": 1,
+            "conditions": [],
+            "difference": {"min": "-20", "max": "-20"},
+        }
+    ]
+    assert records["statute~guidance.json"]["witness_groups"] == []
+    assert [pair["values"] for pair in summary["pairs"]] == [
+        {"a": "80", "b": "100"},
+        {"a": "80", "b": "80"},
+        {"a": "100", "b": "80"},
+    ]
+    with_empty = constant_question()
+    with_empty["facts"] = {}
+    assert parse_question(with_empty).sha256 == question.sha256
+
+
+def test_real_engine_compares_a_parameter_with_a_derived_number(real_engine, tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    shutil.copytree(RULESPEC, checkout)
+    doc = constant_link()
+    doc["b"] = {
+        "label": "Fixture statute 2: threshold",
+        "module": "us/statutes/999/2/a.yaml",
+        "outputs": [SA + "monthly_income_threshold"],
+        "combine": "value",
+    }
+    doc["fixed"] = {
+        SA + "input.federal_minimum_wage": {"kind": "decimal", "value": "7.25"}
+    }
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    record = compare(
+        parse_link(doc),
+        rulespec_root=checkout,
+        engine=Engine(real_engine.binary, "f" * 40),
+        workdir=workdir,
+        repository=REPOSITORY,
+    )
+    (group,) = record["witness_groups"]
+    assert (group["witness"]["a"]["result"], group["witness"]["b"]["result"]) == (
+        "80",
+        "580",
+    )
+    assert group["witness"]["facts"] == {} and record["counts"]["run"] == 1

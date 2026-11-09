@@ -67,7 +67,7 @@ _TOP_KEYS = {
     "question": True,
     "entity": True,
     "period": True,
-    "facts": True,
+    "facts": False,
     "constraints": False,
     "answers": True,
     "sampling": False,
@@ -287,7 +287,7 @@ def _pair_document(
     sides = {"a": encodings[a], "b": encodings[b]}
     used = _facts_of(sides["a"]) | _facts_of(sides["b"])
     facts: dict[str, Any] = {}
-    for name, fact in raw["facts"].items():
+    for name, fact in raw.get("facts", {}).items():
         if name not in used:
             continue
         entry = dict(fact)
@@ -362,9 +362,10 @@ def parse_question(document: object) -> Question:
         if tolerance is None or tolerance < 0:
             problems.append("tolerance must be a number that is not negative")
 
-    raw_facts = raw.get("facts")
-    if not isinstance(raw_facts, dict) or not raw_facts:
-        problems.append("facts must be a non-empty mapping")
+    # No fact is a valid question: each answer is a constant (a parameter).
+    raw_facts = raw.get("facts", {})
+    if not isinstance(raw_facts, dict):
+        problems.append("facts must be a mapping")
         raw_facts = {}
     fact_kinds: dict[str, str] = {}
     for name, fact in raw_facts.items():
@@ -587,6 +588,11 @@ def compare_question(
                 "conflict": record["conflict"],
                 "run": record["counts"]["run"],
                 "differ": record["counts"]["differ"],
+                **(
+                    {"values": record["comparison"]["values"]}
+                    if "values" in record.get("comparison", {})
+                    else {}
+                ),
                 "witness_groups": [
                     {
                         "direction": group["direction"],

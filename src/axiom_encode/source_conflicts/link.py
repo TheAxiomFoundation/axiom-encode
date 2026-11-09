@@ -47,7 +47,7 @@ _TOP_KEYS = {
     "period": True,
     "a": True,
     "b": True,
-    "facts": True,
+    "facts": False,
     "derived": False,
     "fixed": False,
     "constraints": False,
@@ -402,9 +402,10 @@ def parse_link(document: object) -> Link:
     sides = {side: _side(side, raw, guards[side], problems) for side in SIDES}
 
     facts: dict[str, Fact] = {}
-    raw_facts = raw.get("facts")
-    if not isinstance(raw_facts, dict) or not raw_facts:
-        problems.append("facts must be a non-empty mapping")
+    # No fact is a valid link: two constants (parameters) are compared once.
+    raw_facts = raw.get("facts", {})
+    if not isinstance(raw_facts, dict):
+        problems.append("facts must be a mapping")
         raw_facts = {}
     for name, value in raw_facts.items():
         fact = _fact(str(name), value, problems)

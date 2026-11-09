@@ -5,7 +5,7 @@
   "description": "Says which rules of two RuleSpec modules decide the same question and maps the shared facts to each module's inputs. The loader in link.py is the authority; it also checks what a schema cannot (constraint grammar, one supplier per input, fact references).",
   "type": "object",
   "additionalProperties": false,
-  "required": ["format", "id", "entity", "period", "a", "b", "facts"],
+  "required": ["format", "id", "entity", "period", "a", "b"],
   "properties": {
     "format": {"const": "axiom-source-conflict-link/v1"},
     "id": {
@@ -30,7 +30,6 @@
     "facts": {
       "description": "Shared facts. The grid lists them in this order; the last fact varies fastest.",
       "type": "object",
-      "minProperties": 1,
       "propertyNames": {"pattern": "^[a-z][a-z0-9_]*$", "not": {"enum": ["true", "false"]}},
       "additionalProperties": {"$ref": "#/$defs/fact"}
     },

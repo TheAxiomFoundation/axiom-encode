@@ -212,6 +212,28 @@ The record of a `value` link keeps format v1 and adds:
 A yes/no link has none of these keys. Its record and its link hash do not
 change.
 
+### Constants: parameter outputs and no facts
+
+Some answers are a constant of the document: 80 hours, 6 lookback months, a
+rate of 8%. In RuleSpec these are parameter rules, and they read no fact.
+
+- With `combine: value`, the output can be a **parameter** rule. The engine
+  does not give a parameter as an output, so the step reads its value from the
+  compiled artifact, in the version in force at the period start. A table (an
+  indexed parameter) cannot be compared.
+- `facts` can be empty or absent, in a link and in a question file. The grid
+  then holds one combination with no facts: the step makes one comparison for
+  each pair. A witness then has `facts: {}` and no conditions.
+- A side can also be a derived rule that reads only fixed inputs. The step
+  then runs one household in the engine.
+- In this case `comparison.values` gives both numbers, also when they are
+  equal, and the question summary repeats them for each pair.
+
+Checked on H.R.1 (rulespec-us `fe62a527af`, engine `89571cc2`): the required
+hours (`monthly_activity_hours_requirement` of 42 U.S.C. 1396a(xx) against
+`monthly_community_engagement_hours_requirement` of 42 CFR 435.552) are 80 and
+80, and the seasonal lookback months are 6 and 6. Each is 1 run, 0 differ.
+
 ## Gates
 
 The gates run on the link and the two compiled artifacts before any household
