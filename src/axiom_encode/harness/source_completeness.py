@@ -6533,7 +6533,7 @@ def _non_principal_rule_encodes_branch(
     branches: Sequence[SourceStructureBranch],
     evidence: _StatedValueEvidence,
 ) -> bool:
-    """Whether a parameter (or other non-principal rule) encodes its branch.
+    """Whether a parameter rule encodes its branch.
 
     A parameter encodes a branch only when the branch is a stated value: the
     branch text states one of the rule's values, and the branch's own text
