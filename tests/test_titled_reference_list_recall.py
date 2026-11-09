@@ -542,7 +542,16 @@ def test_an_amount_after_the_last_title_keeps_every_item(
 
 @pytest.mark.parametrize(
     "word",
-    ("weekly", "monthly", "yearly", "daytime", "hourly", "percentage", "poundage"),
+    (
+        "weekly",
+        "monthly",
+        "yearly",
+        "daytime",
+        "hourly",
+        "percentage",
+        "poundage",
+        "pencel",
+    ),
 )
 def test_a_word_that_only_begins_like_a_unit_leaves_the_list_alone(word: str) -> None:
     text = f"regulation 5 (exceptions), 12 (persons) {word} apply"
