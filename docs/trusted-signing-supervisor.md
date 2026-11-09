@@ -131,6 +131,41 @@ deployment input.
 Purpose-specific model/reviewer subprocess environments are separately rebuilt
 without the broker capability or parent-only service configuration.
 
+Retirement uses the apply signer as well. For a protected module whose primary
+and companion test have no manifest or receipt owner, select the explicit
+unreceipted route:
+
+```bash
+build/axiom-encode-signing-supervisor \
+  --apply-signer-fd 3 \
+  --trusted-signing-roots /etc/axiom/signing-trust-roots.json \
+  --trusted-python-runtime-root /opt/axiom/python \
+  --trusted-python-import-root \
+    /opt/axiom/python/lib/python3.13/site-packages \
+  --trusted-python-package-root \
+    /opt/axiom/python/lib/python3.13/site-packages/axiom_encode \
+  -- /opt/axiom/python/bin/axiom-encode retire \
+  uk-arun/policies/arun/council-tax-reduction.yaml \
+  --unreceipted \
+  --policy-repo-path /srv/rulespec-uk \
+  --corpus-path /srv/axiom-corpus \
+  --reason "superseded by section encodings after the corpus rebind"
+```
+
+Omit `--unreceipted` for the existing retirement of a module covered by a
+verified model apply manifest. The unreceipted route refuses any receipt owner
+for either file and signs a separate `axiom-encode retire-unreceipted` v5
+deletion receipt at the canonical mirrored manifest path. It binds both files'
+exact deleted bytes, its immutable retirement base, the reason, encoder identity,
+waiver-set identity, and generation time, without source or execution
+attestation. Verification replays that base's bytes and receipt inventory, so
+the verification checkout must retain its Git history. The diff guard also
+checks the pull request's protected base. It uses the same preflight and atomic
+transaction checks as receipted retirement.
+`guard-generated --all` without a base audits settled receipts as a snapshot and
+cannot detect a settled receipt reused for a deletion that already merged; pass
+`--all --base-ref <parent>` to audit that deletion.
+
 The Python client marks the broker descriptor non-inheritable immediately and
 closes it in fork children. It authenticates the actual peer using kernel socket
 credentials (a Linux `SO_PASSCRED`/`SCM_CREDENTIALS` challenge response from the
@@ -184,7 +219,9 @@ a completely clean canonical RuleSpec checkout, verifies the historical
 signature, requires that the manifest exclusively covers the exact tracked
 primary and companion bytes at `HEAD`, revalidates those bytes against the
 current engine and corpus release, and aborts if validation changes any
-RuleSpec byte. A successful run changes only the signed manifest.
+RuleSpec byte. The required `--axiom-rules-engine-ref` argument is a full
+lowercase commit SHA; validation must bind the engine to that revision. A
+successful run changes only the signed manifest.
 
 The targeted workflow selects this mode with an exact
 `axiom-encode/atomic-source-transaction/v4` envelope whose
@@ -381,25 +418,76 @@ execution path are unchanged.
 
 ### Workflow deployment and secrets discipline
 
-The signed-apply leg runs the same provisioning as the verification supervisor
+Production signed re-encodes run centrally through
+[`targeted-signed-reencode.yml`](../.github/workflows/targeted-signed-reencode.yml)
+in `TheAxiomFoundation/axiom-encode`. Its signing job requires approval through
+the `production-signing` environment. The apply private key belongs only in that
+protected environment; do not configure ungated repository or organization
+copies or pass signing keys from jurisdiction repositories.
+
+The ungated apply-signing and caller App keys were removed during the October
+2026 key rotation. The one-time `migrate-apply-signing-key.yml` export lane and its
+`signing-key-migration` environment are retired, as is
+`signed-apply-reusable.yml`, which previously accepted caller-provided keys.
+Route signed re-encodes through the central targeted workflow.
+
+The central signed-apply leg runs the same provisioning as the verification supervisor
 (`scripts/provision_verification_supervisor.py`, a root-owned tree), then invokes
 `axiom-encode-apply-signer run …` in place of a bare supervisor call. The private
-key reaches the job only as a secret bound to that one step's `env:`; the launcher
-consumes and clears it.
+key in `targeted-signed-reencode.yml` is bound only to the `env:` of 20 signer
+launch steps. Actions supplies it to each launch shell, which uses only shell
+builtins before replacing itself with the owned apply-signer binary via `exec`
+and `--key-env`. These scripts never launch Python, workflow helpers, the CLI,
+or another external executable directly. Their fixed Bash invocation uses
+privileged mode to ignore inherited startup files, shell functions, and shell
+options; their step environment explicitly clears `LD_PRELOAD`, `LD_AUDIT`, and
+`LD_LIBRARY_PATH`. The launcher consumes and clears the key before spawning the
+supervisor. Its private key pipe connects only owned signer processes.
 
-**The signing leg must run only on `workflow_dispatch` or `schedule` from the
-main-branch workflow definition, never on `pull_request`.** GitHub does not expose
-repository/organization secrets to workflows triggered by a fork PR, and a PR that
-edits the workflow text runs with the PR's own definition — so fork- or
-PR-modified workflow text can never see the secret. The signer's own event-name
-binding (refusing `pull_request*` beneath the allowlist) and workflow-ref
-allowlist (pinned to `@refs/heads/main`) enforce this a second time, independently
-of the YAML.
+In `targeted-signed-reencode.yml`, input refusals, source-bundle parsing, repair
+extraction, corpus and queue preparation all run in earlier steps without the
+apply key. Preparation writes NUL-delimited arguments and ordered operations,
+never key material. Nineteen launch steps read this argument data without
+evaluating it, after using builtin regular-file and symlink checks to refuse
+a missing, non-regular, or symbolic-link arguments file. The check narrows a
+race-prone path: another process can replace the file between the check and
+the read, and the check does nothing against `sudo`. The twentieth launch
+step, retired-metadata migration, passes its arguments inline and reads no
+prepared data before `exec`. The next preparation step reconciles inventory and
+runs the checkpoint guard before preparing another signature, preserving the
+checks between source, dependent, and canonical-refresh lanes. Nineteen signing
+slots cover the existing maximum of sixteen sources plus a target and two dependents;
+an unfinished transaction fails closed. The final `encode_apply` step reports
+upstream failures and completes the last checkpoint.
+
+The CLI and helpers can request signatures through the broker when supervised,
+but the workflow does not give them the raw key through their environment,
+arguments, files, or descriptors. Keeping the key out of every step except the
+20 signer launch steps prevents helpers from reading it by inheritance,
+logging their environment, or inspecting `os.environ`. Repository-token helpers
+also run in separate steps before token-bearing checkout or publication commands.
+
+This confinement does not isolate the key from repository code that runs
+earlier in the same job on the same runner. That code shares the runner user,
+passwordless `sudo`, `$RUNNER_TEMP`, and values written to `GITHUB_ENV`; it can
+use that access to influence or intercept a later launch. Removing `sudo`
+alone would not close this: a leftover same-user process could still race the
+argument check, read the launch shell's environment, or set `GITHUB_ENV` values.
+Isolation from such code requires signing in a separate job on a fresh runner
+that runs no repository helper code; the workflow does not do that today.
+
+**The signing leg runs only on `workflow_dispatch` from the main-branch
+workflow definition, never on `pull_request`.** The workflow requires
+`refs/heads/main` before entering the protected environment. The signer's own
+event-name binding (refusing `pull_request*` beneath the allowlist) and
+workflow-ref allowlist (pinned to `@refs/heads/main`) enforce this a second time,
+independently of the YAML.
 
 ### Threat model
 
-- **Who can trigger it.** Only an actor who can dispatch (or schedule) the
-  main-branch workflow — i.e. a repository collaborator. A fork contributor
+- **Who can trigger it.** Only an actor who can dispatch the main-branch
+  workflow — i.e. a repository collaborator — can request signing, which still
+  requires the protected environment approval. A fork contributor
   cannot: their PR neither receives the secret nor matches the pinned workflow
   ref / permitted event.
 - **What the context binding is (and is not).** The `GITHUB_*` values and the
@@ -407,18 +495,19 @@ of the YAML.
   **defense-in-depth against misconfiguration** (an accidental `pull_request`
   trigger, or invoking the signer from the wrong workflow), not a cryptographic
   authentication of the runner. The primary boundary is external to this code:
-  GitHub does not expose repository/organization secrets to fork-PR-triggered
-  runs, and the workflow is restricted to `workflow_dispatch`/`schedule`. An
+  the private key is held in the approval-gated `production-signing` environment,
+  and the workflow is restricted to `workflow_dispatch` on main. An
   actor who could actually forge `GITHUB_*` would have to be able to edit the
   main-branch workflow — a trusted collaborator who can already dispatch it and
-  obtain signatures legitimately. The binding therefore never widens who can
+  request signing approval. The binding therefore never widens who can
   sign; it only narrows it further.
 - **A compromised or malicious PR** can change the module content a future
-  generation session encodes, but it cannot exfiltrate the key: the signing leg
-  does not run on its event, the secret is absent from PR-triggered runs, and the
-  supervised encoder never has the key in its environment or argv. The worst a PR
-  can do is propose bad content, which the supervised `validate` gate and human
-  review still catch.
+  generation session encodes. Its PR-triggered run cannot receive the key:
+  the signing leg does not run on its event and the secret is absent from
+  PR-triggered runs. The supervised encoder has no key in its environment or
+  argv. These controls do not protect against malicious repository code after
+  it is merged and runs earlier in a signing job with the shared runner access
+  described above. Content validation and human review remain necessary.
 - **Signer misuse for arbitrary payloads.** The signer signs only domain-bound
   `apply_ed25519` messages presented over the socket. There is no endpoint that
   signs an attacker-chosen pre-image, and an apply signature cannot be replayed as
@@ -523,7 +612,34 @@ with the active root. Ordinary
 `guard-generated` diffs require the active root. A scheduled or manual audit of
 an already frozen commit must explicitly use `guard-generated --retrospective`;
 its actual checkout head must equal or precede the trusted cutoff, and its
-`--head-ref` must be `HEAD` or that exact SHA.
+`--head-ref` must resolve to that checkout head (for example `HEAD`, its exact
+SHA, or a branch that points at it); refs are resolved once before any Git
+inspection.
+
+A retired-root manifest at the base of a guard range is admitted only as the
+exact frozen payload (or evidence nested in it), because the inventory holds one
+frozen payload per path. An older retired-signed payload of the same manifest,
+from before a pre-cutoff re-encode, has no trust anchor and is refused, fail
+closed. So a `--retrospective` audit, or a `--base-ref` diff, must start at or
+after the last pre-cutoff payload change of every manifest it changes.
+
+The broker validates and detaches the inventory once at attachment, exposing a
+read-only index by repository and artifact path. Its hash tables and nested data
+are stored in native tuples, with no mutable backing dictionaries. Its instance
+attributes cannot be set or deleted, and reassigning its `__class__` fails closed:
+admission accepts only the exact broker index type or a raw `dict`.
+Reinitialization is a no-op; state restoration and pickling are rejected, and
+shallow/deep copies return the same view. These are protections
+for the exposed values, not an isolation boundary against arbitrary Python code
+that replaces classes or changes the verifier. Each guard invocation
+owns fresh repository-history and covered-source caches, including retrospective
+preflight. Successful repository checks (identity, complete history,
+graft/replacement exclusion and cutoff ancestry) are snapshots
+for that operation and resolved HEAD only. Each admission rereads HEAD. Direct
+admission checks its own frozen blobs, live bytes, coverage and supersession
+history. Nested guards have independent caches; return or exception discards
+the operation's caches.
+Calls outside an operation do not share history caches.
 
 Nested retirement, migration, legacy replacement, and retained successor
 evidence uses the same protected inventory. Each retired signature must identify
@@ -543,3 +659,8 @@ protected configuration at an immutable revision, provision it into protected
 runner paths, and keep pull-request inputs and repository artifacts out of that
 trust source. Deploy the reviewed shared-workflow and encoder pins before the
 owner changes either active signing identity.
+
+The active public root is published as the `AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY`
+Actions variable, which the workflows provision into the supervisors' root-owned
+trust file. The active private seed is the `production-signing` environment's
+signing secret.

@@ -1,0 +1,1 @@
+Validate sparse companion inputs through ordinary execution for recognized strict-read compiled programs, preserving lazy branch behavior and exact case inputs. Keep conservative static validation for unknown or default-bearing compiled forms, and retain fatal errors for missing reached facts.

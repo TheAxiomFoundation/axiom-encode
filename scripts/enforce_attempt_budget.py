@@ -58,6 +58,8 @@ RUNS_PER_PAGE = 100
 # must not feed back into the streak.
 ENCODE_JOB_NAME = "Queue protected signed RuleSpec re-encode"
 ENCODE_STEP_NAME = "Encode, review, validate, and apply"
+MODEL_FREE_STEP_NAME = "Record model-free signing transaction"
+MODEL_SUCCESS_STEP_NAME = "Record completed model-capable generation"
 # At most this many per-run jobs lookups per evaluation; beyond the cap a
 # failure is counted without verification (conservative toward blocking).
 MAX_JOB_LOOKUPS = 10
@@ -155,8 +157,11 @@ def make_encode_job_checker(
 ) -> Callable[[dict], bool]:
     """Build a ``spent_model_tokens`` classifier backed by the jobs API.
 
-    A run counts as model-spending only when its encode job contains the
-    actual encode step with a non-skipped conclusion. Looking only at the
+    Failures conservatively count when the generic encode step was not
+    skipped, unless a completed queue-derived model-free marker proves no
+    generation was scheduled. Success resets require the distinct completed
+    model-capable queue marker; legacy generic successes are ambiguous.
+    Looking only at the
     enclosing job is insufficient: trusted-repair and other preflight steps
     can fail that job before the model runs. Past ``max_lookups`` (or on
     lookup errors) the classification is conservative toward blocking in both
@@ -186,6 +191,31 @@ def make_encode_job_checker(
         ]
         if not encode_jobs:
             return False
+        steps = [
+            step
+            for job in encode_jobs
+            for step in (job.get("steps") or [])
+            if isinstance(step, dict)
+        ]
+        # The legacy generic step also promotes existing bytes without a model.
+        # Its historical success is ambiguous and cannot erase failed attempts.
+        # New workflow markers are derived from the constructed operation queue,
+        # not a caller assertion. Unknown/error evidence retains conservative
+        # failure counting and never grants a success reset.
+        model_free = any(
+            step.get("name") == MODEL_FREE_STEP_NAME
+            and step.get("conclusion") == "success"
+            for step in steps
+        )
+        model_success = any(
+            step.get("name") == MODEL_SUCCESS_STEP_NAME
+            and step.get("conclusion") == "success"
+            for step in steps
+        )
+        if model_free:
+            return _unverified(run) if model_success else False
+        if run.get("conclusion") == "success":
+            return model_success
         encode_steps = [
             step
             for job in encode_jobs
