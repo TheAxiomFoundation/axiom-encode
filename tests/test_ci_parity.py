@@ -45,6 +45,7 @@ from axiom_encode.toolchain import (
     load_rulespec_toolchain,
     verify_rulespec_validation_waiver_set,
 )
+from tests.environment_assertions import hides_environment
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
@@ -971,6 +972,7 @@ def test_execute_gates_preserves_order_and_uses_pin_gate_parameters(
         ),
     )
 
+    @hides_environment
     def fake_cli(arguments, *, environment=None):
         calls.append((list(arguments), environment))
         return 0, "ok\n"

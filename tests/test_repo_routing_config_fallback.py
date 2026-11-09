@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from axiom_encode import repo_routing
+from tests.environment_assertions import hides_environment
 
 
 def _init_checkout(path: Path) -> None:
@@ -42,6 +43,7 @@ def test_configuration_failure_disables_cache_and_keeps_fresh_identity_checks(
     config_attempts = []
     identity_probes = []
 
+    @hides_environment
     def failed_configuration(command, *args, **kwargs):
         probe = command[3]
         if probe == config_probe:

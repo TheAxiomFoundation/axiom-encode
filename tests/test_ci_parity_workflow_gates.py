@@ -45,6 +45,7 @@ from axiom_encode.ci_parity import (
     resolve_roots,
     simulate_pull_request,
 )
+from tests.environment_assertions import changed_names, hides_environment
 
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
 PIN_6F11BE26 = "6f11be2655f79dd0a3b582db46525f58332ca120"
@@ -240,6 +241,7 @@ class _BatchRecorder:
         self.outcome = outcome or (lambda _invocation: (0, "ok\n"))
         self.events = events
 
+    @hides_environment
     def __call__(
         self,
         invocations: list[CliInvocation],
@@ -274,6 +276,7 @@ class _CliRecorder:
         self.result = result
         self.events = events
 
+    @hides_environment
     def __call__(
         self,
         arguments: list[str],
@@ -317,6 +320,7 @@ def _no_real_encoder(monkeypatch: pytest.MonkeyPatch) -> None:
     """Fail loudly if a gate reaches a real encoder, classifier or pytest run."""
 
     def refuse(name: str) -> Callable[..., Any]:
+        @hides_environment
         def refused(*args: Any, **kwargs: Any) -> Any:
             raise AssertionError(f"unexpected real {name} call: {args!r}")
 
@@ -465,6 +469,7 @@ def test_execute_workflow_gates_end_to_end_runs_repository_tests_last(
         events.append(("pinned", tuple(arguments)))
         return 0, json.dumps({"items": []}), ""
 
+    @hides_environment
     def process(
         arguments: list[str], cwd: Path, *, environment: dict[str, str] | None = None
     ) -> tuple[int, str]:
@@ -527,13 +532,17 @@ def test_simulated_pull_request_carries_base_head_and_event_context(
     assert simulation.number == 911
     assert simulation.base_is_ancestor is True
     assert simulation.ref == "refs/pull/911/merge"
-    assert simulation.github_environment(repo) == {
-        "GITHUB_EVENT_NAME": "pull_request",
-        "GITHUB_REF": "refs/pull/911/merge",
-        "GITHUB_REPOSITORY": RULESPEC_US,
-        "GITHUB_SHA": head,
-        "GITHUB_WORKSPACE": str(repo),
-    }
+    changed = changed_names(
+        {
+            "GITHUB_EVENT_NAME": "pull_request",
+            "GITHUB_REF": "refs/pull/911/merge",
+            "GITHUB_REPOSITORY": RULESPEC_US,
+            "GITHUB_SHA": head,
+            "GITHUB_WORKSPACE": str(repo),
+        },
+        simulation.github_environment(repo),
+    )
+    assert changed == []
     assert simulate_pull_request(repo, "origin/main").ref == ""
 
 
@@ -1597,6 +1606,7 @@ class _AuditRecorder(_BatchRecorder):
         self.protected: list[bytes] = []
         self.changed: list[bytes] = []
 
+    @hides_environment
     def __call__(
         self,
         invocations: list[CliInvocation],
@@ -3170,6 +3180,7 @@ def test_repository_tests_follow_the_workflow_find(
     run = _run(repo, tmp_path, inputs={"run-pytest": run_pytest}, plan=_plan("us"))
     seen: list[tuple[list[str], Path]] = []
 
+    @hides_environment
     def process(
         arguments: list[str], cwd: Path, *, environment: dict[str, str] | None = None
     ) -> tuple[int, str]:
@@ -3479,6 +3490,7 @@ def test_repository_tests_see_the_selection_steps_rulespec_variables(
     ci_parity._gate_select_targets(run, _spec("select_targets"))
     seen: dict[str, str] = {}
 
+    @hides_environment
     def fake_process(command, cwd, *, environment=None):
         seen.update(environment or {})
         return 0, "1 passed\n"

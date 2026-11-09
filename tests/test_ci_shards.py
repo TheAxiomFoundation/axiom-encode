@@ -18,6 +18,7 @@ from hypothesis import strategies as st
 
 from tests import ci_shards
 from tests import conftest as tests_conftest
+from tests.environment_assertions import Names, environment_variable
 
 Collected = ci_shards.Collected
 ROOT = Path(__file__).resolve().parents[1]
@@ -746,7 +747,7 @@ def _run(tmp_path: Path, shard: str | None, *options: str, ask: str | None = Non
             str(tests),
         ],
         cwd=ROOT,
-        env=environment,
+        env=Names(environment),
         capture_output=True,
         text=True,
         check=False,
@@ -1221,7 +1222,7 @@ def _gate_script() -> str:
 
 def _run_gate(shards_result, real_engine_result, draft, reports=("",) * 8):
     environment = {
-        "PATH": os.environ["PATH"],
+        "PATH": environment_variable("PATH"),
         "SHARDS_RESULT": shards_result,
         "REAL_ENGINE_RESULT": real_engine_result,
         "DRAFT_PULL_REQUEST": draft,
@@ -1334,7 +1335,7 @@ def _run_quick_tests(repo: Path, pytest_status: int = 0):
     result = subprocess.run(
         ["bash", "-c", _quick_tests_script()],
         cwd=repo,
-        env={"PATH": os.environ["PATH"]},
+        env={"PATH": environment_variable("PATH")},
         capture_output=True,
         text=True,
         check=False,

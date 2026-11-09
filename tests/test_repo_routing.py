@@ -32,6 +32,7 @@ from axiom_encode.repo_routing import (
     is_rulespec_source_checkout_root,
     jurisdiction_subdir_names,
 )
+from tests.environment_assertions import hides_environment
 
 
 class ValidatorPipeline(_ValidatorPipeline):
@@ -261,6 +262,7 @@ def test_routing_cache_reuses_git_identity_only_inside_bounded_scope(
     original_run = subprocess.run
     git_calls = []
 
+    @hides_environment
     def counting_run(command, *args, **kwargs):
         git_calls.append(tuple(command))
         return original_run(command, *args, **kwargs)
@@ -391,6 +393,7 @@ def test_routing_cache_tracks_missing_system_git_config(monkeypatch, tmp_path):
     system_config = tmp_path / "future-system.conf"
     original_run = subprocess.run
 
+    @hides_environment
     def system_config_run(command, *args, **kwargs):
         if command[-2:] == ["var", "GIT_CONFIG_SYSTEM"]:
             return subprocess.CompletedProcess(
@@ -685,6 +688,7 @@ def test_canonical_identity_rejects_observed_git_boundary_when_git_unavailable(
     plain_root = tmp_path / "plain" / "rulespec-us" / "us-co"
     plain_root.mkdir(parents=True)
 
+    @hides_environment
     def unavailable_git(*_args, **_kwargs):
         raise FileNotFoundError("git unavailable")
 
@@ -713,6 +717,7 @@ def test_checkout_inspection_categorizes_git_probe_launch_failures(
     checkout = tmp_path / "rulespec-us"
     _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
 
+    @hides_environment
     def failed_git(*_args, **_kwargs):
         raise error
 

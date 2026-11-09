@@ -16,6 +16,7 @@ from hypothesis import strategies as st
 from axiom_encode.cli import _execute_rulespec_test_file
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 from axiom_encode.rules_engine_compat import run_rulespec_compile
+from tests.environment_assertions import Names, hides_environment
 from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 FIXTURES = Path(__file__).parent / "fixtures" / "companion_declared_entities"
@@ -53,7 +54,7 @@ def _compile(
         rulespec_roots=[root],
         output=artifact,
         cwd=engine_root,
-        env=os.environ.copy(),
+        env=Names(os.environ),
     )
     assert result.returncode == 0, result.stderr or result.stdout
     return json.loads(artifact.read_text())
@@ -75,7 +76,7 @@ def _companions(
             test_file,
             binary=binary,
             axiom_rules_path=engine_root,
-            env=os.environ.copy(),
+            env=Names(os.environ),
             rulespec_roots=[root],
             tmp_path=artifact.parent,
             compiled_cache={module: (artifact, payload)},
@@ -253,6 +254,7 @@ def test_flat_input_keeps_its_entity_when_relation_is_declared(
     requests = []
     original_run = subprocess.run
 
+    @hides_environment
     def capture_run(command, **kwargs):
         if "run-compiled" in command:
             requests.append(json.loads(kwargs["input"]))
@@ -831,6 +833,7 @@ def test_generated_related_ids_preserve_distinct_entity_kinds(
     requests = []
     original_run = subprocess.run
 
+    @hides_environment
     def capture_run(command, **kwargs):
         if "run-compiled" in command:
             requests.append(json.loads(kwargs["input"]))
@@ -916,6 +919,7 @@ def test_generated_table_ids_preserve_distinct_entity_kinds(
     requests = []
     original_run = subprocess.run
 
+    @hides_environment
     def capture_run(command, **kwargs):
         if "run-compiled" in command:
             requests.append(json.loads(kwargs["input"]))

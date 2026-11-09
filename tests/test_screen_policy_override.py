@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import os
 
 import pytest
 
@@ -15,6 +14,10 @@ from axiom_encode.judges import (
     statutory_fidelity_screen,
 )
 from axiom_encode.judges.statutory_fidelity import FIDELITY_KINDS
+from tests.environment_assertions import (
+    environment_variable,
+    hides_environment,
+)
 
 
 @pytest.fixture
@@ -36,6 +39,7 @@ def screen_cli(monkeypatch, tmp_path):
     monkeypatch.setattr(cli_commands, "_load_bound_source", lambda *_: Source())
     state = {"policies": [], "referee_calls": 0}
 
+    @hides_environment
     def screen_run(*_, policy, **kwargs):
         state["policies"].append(policy)
         return JudgeEvent(
@@ -46,6 +50,7 @@ def screen_cli(monkeypatch, tmp_path):
             },
         )
 
+    @hides_environment
     def referee_run(*_, **kwargs):
         state["referee_calls"] += 1
         return JudgeEvent(stage=JudgeStage.STATUTORY_FIDELITY, verdict=Verdict.PASS)
@@ -88,7 +93,7 @@ def test_explicit_mode_overrides_invalid_inherited_mode(
     assert state["referee_calls"] == int(
         command == "judge-fidelity" and mode == "advisory"
     )
-    assert os.environ["AXIOM_JUDGE_SCREEN_MODE"] == "bad"
+    assert environment_variable("AXIOM_JUDGE_SCREEN_MODE") == "bad"
     captured = capsys.readouterr()
     assert captured.err == ""
     json.loads(captured.out)

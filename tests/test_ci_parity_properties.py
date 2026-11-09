@@ -48,6 +48,7 @@ from axiom_encode.ci_parity import (
     ci_verdict,
 )
 from axiom_encode.corpus_materialize import NO_FETCH_ENV, fetch_disabled
+from tests.environment_assertions import Names, changed_names, hides_environment
 
 VERDICT_RANK = {"PASS": 0, "PASS-WITH-MISMATCHED-DEPS": 1, "FAIL": 2}
 SPEC = GateSpec("gate", "Gate", "subcommand", (), "1-2")
@@ -155,6 +156,7 @@ environment_values = st.one_of(
 environments = st.dictionaries(environment_names, environment_values, max_size=12)
 
 
+@hides_environment
 def _without(environment: dict[str, str], *prefixes: str) -> dict[str, str]:
     return {
         name: value
@@ -164,44 +166,50 @@ def _without(environment: dict[str, str], *prefixes: str) -> dict[str, str]:
 
 
 @settings(deadline=None)
-@given(environment=environments)
+@given(ambient=environments)
 def test_git_and_repository_test_environments_withhold_exactly_their_prefixes(
-    environment: dict[str, str],
+    ambient: dict[str, str],
 ) -> None:
-    with mock.patch.dict(os.environ, environment, clear=True):
+    with mock.patch.dict(os.environ, ambient, clear=True):
         git_environment = _git_environment()
         test_environment = _repository_test_environment()
 
-    assert git_environment == _without(environment, "GIT_")
-    assert test_environment == _without(environment, "GIT_", "PYTEST_", "PYTHON")
+    git_changes = changed_names(_without(ambient, "GIT_"), git_environment)
+    assert git_changes == []
+    test_changes = changed_names(
+        _without(ambient, "GIT_", "PYTEST_", "PYTHON"), test_environment
+    )
+    assert test_changes == []
 
 
 @settings(deadline=None)
-@given(environment=environments, step=environments)
+@given(ambient=environments, step=environments)
 def test_embedded_python_sees_the_step_environment_and_no_runner_context(
-    environment: dict[str, str], step: dict[str, str]
+    ambient: dict[str, str], step: dict[str, str]
 ) -> None:
     seen: dict[str, Any] = {}
 
+    @hides_environment
     def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
         seen.update(kwargs)
         return subprocess.CompletedProcess(args, 0, b"", b"")
 
     with (
-        mock.patch.dict(os.environ, environment, clear=True),
+        mock.patch.dict(os.environ, ambient, clear=True),
         mock.patch.object(ci_parity.subprocess, "run", fake_run),
     ):
         _run_embedded_python("pass", cwd=Path("."), environment=step)
 
-    expected = _without(environment, "GIT_", "GITHUB_", "RUNNER_", "PYTHON")
+    expected = _without(ambient, "GIT_", "GITHUB_", "RUNNER_", "PYTHON")
     expected.update(step)
-    assert seen["env"] == expected
+    changed = changed_names(expected, seen["env"])
+    assert changed == []
 
 
 @settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
-@given(environment=environments, step=environments)
+@given(ambient=environments, step=environments)
 def test_supervised_cli_sees_the_supervisor_child_environment(
-    environment: dict[str, str], step: dict[str, str]
+    ambient: dict[str, str], step: dict[str, str]
 ) -> None:
     seen: dict[str, str] = {}
 
@@ -209,7 +217,7 @@ def test_supervised_cli_sees_the_supervisor_child_environment(
         seen.update(os.environ)
 
     with (
-        mock.patch.dict(os.environ, environment, clear=True),
+        mock.patch.dict(os.environ, ambient, clear=True),
         mock.patch("axiom_encode.cli.main", fake_main),
     ):
         code, _ = _run_cli(["validate"], environment=step, supervised=True)
@@ -217,7 +225,7 @@ def test_supervised_cli_sees_the_supervisor_child_environment(
 
     expected = {
         name: value
-        for name, value in environment.items()
+        for name, value in ambient.items()
         if not (
             name.startswith("AXIOM_") and name not in SUPERVISOR_FORWARDED_ENVIRONMENT
         )
@@ -225,13 +233,15 @@ def test_supervised_cli_sees_the_supervisor_child_environment(
     }
     expected.update(SUPERVISOR_GIT_ENVIRONMENT)
     # The caller's corpus-placement opt-out survives (cycle 24).
-    if fetch_disabled(environment):
+    if fetch_disabled(ambient):
         expected[NO_FETCH_ENV] = "1"
     expected.update(step)
     assert code == 0
-    assert seen == expected
+    changed = changed_names(expected, seen)
+    assert changed == []
     # The in-process run leaves the caller's environment as it found it.
-    assert restored == environment
+    restored_changes = changed_names(ambient, restored)
+    assert restored_changes == []
 
 
 @pytest.mark.parametrize(
@@ -253,7 +263,8 @@ def test_supervised_cli_keeps_the_callers_corpus_placement_opt_out(
         mock.patch("axiom_encode.cli.main", fake_main),
     ):
         _run_cli(["validate"], supervised=True)
-        assert os.environ == {NO_FETCH_ENV: value}
+        changed = changed_names({NO_FETCH_ENV: value}, os.environ)
+        assert changed == []
 
     assert seen == {"no_fetch": "1" if kept else None}
 
@@ -445,7 +456,7 @@ def test_glob_directories_visit_in_bash_order(
         bash = subprocess.run(
             ["bash", "-c", 'for dir in */; do printf "%s\\n" "${dir%/}"; done'],
             cwd=repo,
-            env={**os.environ, "LC_ALL": "C"},
+            env=Names({**os.environ, "LC_ALL": "C"}),
             capture_output=True,
             text=True,
             check=True,

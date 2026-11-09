@@ -1353,13 +1353,13 @@ def test_admission_resume_refuses_rows_whose_scoring_presence_differs(
     _, score, resume = _resume_scored_suite(tmp_path, monkeypatch, admission_context)
     real_validate = evals._validate_persisted_eval_suite_case_group
 
-    def unscored(*args, **kwargs):
+    def scoreless(*args, **kwargs):
         results = real_validate(*args, **kwargs)
         for result in results:
             result.admission_score = None
         return results
 
-    monkeypatch.setattr(evals, "_validate_persisted_eval_suite_case_group", unscored)
+    monkeypatch.setattr(evals, "_validate_persisted_eval_suite_case_group", scoreless)
     with pytest.raises(
         ValueError, match="admission scoring presence does not match the execution"
     ):

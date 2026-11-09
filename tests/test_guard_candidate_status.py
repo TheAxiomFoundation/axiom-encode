@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from axiom_encode import cli
+from tests.environment_assertions import hides_environment
 from tests.test_cli import _bind_test_corpus_release, _git, _init_test_git_repo
 
 MODULE = "us/statutes/26/21.yaml"
@@ -597,10 +598,12 @@ def test_git_work_does_not_grow_with_changed_paths(repo, monkeypatch):
     real_run, real_popen = cli.subprocess.run, cli.subprocess.Popen
     real_hash = cli._guard_candidate_hash_blobs
 
+    @hides_environment
     def run(command, *args, **kwargs):
         calls.append(tuple(command))
         return real_run(command, *args, **kwargs)
 
+    @hides_environment
     def popen(command, *args, **kwargs):
         calls.append(tuple(command))
         return real_popen(command, *args, **kwargs)
@@ -667,6 +670,7 @@ def test_blob_reader_waits_for_git_to_exit(repo, monkeypatch):
         def wait(self, *args, **kwargs):
             return self._process.wait(*args, **kwargs)
 
+    @hides_environment
     def popen(command, *args, **kwargs):
         if command[-2:] == ["cat-file", "--batch"]:
             return SlowExit(command, *args, **kwargs)
@@ -684,6 +688,7 @@ def test_blob_reader_waits_for_git_to_exit(repo, monkeypatch):
 
 
 def test_report_does_no_corpus_engine_or_broker_work(repo, monkeypatch):
+    @hides_environment
     def forbidden(*_args, **_kwargs):
         raise AssertionError("candidate status must stay cheap")
 

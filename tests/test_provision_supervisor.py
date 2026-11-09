@@ -22,6 +22,12 @@ from pathlib import Path
 
 import pytest
 
+from tests.environment_assertions import (
+    Names,
+    environment_variable,
+    hides_environment,
+)
+
 _SPEC = importlib.util.spec_from_file_location(
     "provision_verification_supervisor",
     Path(__file__).resolve().parent.parent
@@ -1414,7 +1420,7 @@ class TestTrustedGit:
 
         pin = commit("pin")
         producer = commit("producer")
-        real_path = os.environ["PATH"]
+        real_path = environment_variable("PATH")
         monkeypatch.setenv("PATH", str(destination))
         assert shutil.which("git") == str(destination / "git")
 
@@ -1600,7 +1606,7 @@ class TestTrustedGit:
             [git, "-C", str(partial), "cat-file", "-e", object_id],
             check=False,
             capture_output=True,
-            env=no_lazy_environment,
+            env=Names(no_lazy_environment),
         )
         if missing.returncode == 0:
             pytest.skip("Git did not create a blobless partial clone")
@@ -1614,15 +1620,13 @@ class TestTrustedGit:
         )
         assert wrapped.returncode != 0
         assert {path.name for path in pack_root.iterdir()} == packs_before
-        assert (
-            subprocess.run(
-                [git, "-C", str(partial), "cat-file", "-e", object_id],
-                check=False,
-                capture_output=True,
-                env=no_lazy_environment,
-            ).returncode
-            != 0
+        still_missing = subprocess.run(
+            [git, "-C", str(partial), "cat-file", "-e", object_id],
+            check=False,
+            capture_output=True,
+            env=Names(no_lazy_environment),
         )
+        assert still_missing.returncode != 0
 
     def test_installed_wrapper_disables_replacement_objects(self, tmp_path):
         git = shutil.which("git")
@@ -1798,6 +1802,7 @@ class _FakePatchelf:
         self._current = rpath
         self.set_calls = []
 
+    @hides_environment
     def __call__(self, cmd, *args, **kwargs):
         if "--print-rpath" in cmd:
             if self._current is None:
@@ -1847,6 +1852,7 @@ class TestRelocateElfRpaths:
         runtime, _ = self._runtime_with_elf(tmp_path)
         fake = _FakePatchelf("/opt/toolcache/lib")
 
+        @hides_environment
         def stubborn(cmd, *a, **k):
             if "--set-rpath" in cmd:  # pretend the write was a no-op
                 return subprocess.CompletedProcess(cmd, 0, "", "")
@@ -1869,7 +1875,11 @@ class TestPrintRpath:
         monkeypatch.setattr(
             provisioner.subprocess,
             "run",
-            lambda *a, **k: subprocess.CompletedProcess(a[0], 0, " /x:$ORIGIN\n", ""),
+            hides_environment(
+                lambda *a, **k: subprocess.CompletedProcess(
+                    a[0], 0, " /x:$ORIGIN\n", ""
+                )
+            ),
         )
         assert provisioner._print_rpath("patchelf", Path("obj")) == " /x:$ORIGIN"
 
@@ -1877,7 +1887,9 @@ class TestPrintRpath:
         monkeypatch.setattr(
             provisioner.subprocess,
             "run",
-            lambda *a, **k: subprocess.CompletedProcess(a[0], 1, "", "err"),
+            hides_environment(
+                lambda *a, **k: subprocess.CompletedProcess(a[0], 1, "", "err")
+            ),
         )
         assert provisioner._print_rpath("patchelf", Path("obj")) is None
 
@@ -1900,7 +1912,9 @@ class TestAssertSelfContained:
         monkeypatch.setattr(
             provisioner.subprocess,
             "run",
-            lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "{}", ""),
+            hides_environment(
+                lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "{}", "")
+            ),
         )
         monkeypatch.setattr(
             provisioner.json,
