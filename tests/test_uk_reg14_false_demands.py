@@ -175,11 +175,20 @@ def test_digit_and_worded_mixed_percentages_agree(words: str, digits: str) -> No
     assert math.isclose(worded[0].value, digit[0].value)
 
 
+def test_a_numeral_with_a_fraction_slash_has_no_parts() -> None:
+    numeral = f"2 6{chr(0x2044)}7"
+    text = f"amount B is {numeral} per cent of the excess"
+    start = text.index(numeral)
+    assert {(item.start, item.end) for item in occurrences(text)} == {
+        (start, start + len(numeral))
+    }
+
+
 @pytest.mark.parametrize(
     "numeral",
-    ["2 ½ per cent", "12 ¼ percent", "2½ per cent", f"2 6{chr(0x2044)}7 per cent"],
+    ["2 ½ per cent", "12 ¼ percent", "2½ per cent"],
 )
-def test_other_fraction_characters_read_as_one_rate(numeral: str) -> None:
+def test_vulgar_fraction_percentage_is_one_rate(numeral: str) -> None:
     text = f"amount B is {numeral} of the excess"
     start = text.index(numeral)
     end = start + len(numeral)
