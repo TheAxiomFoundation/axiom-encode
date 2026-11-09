@@ -1,7 +1,7 @@
 # Test data for tests/test_uk_reg14_false_demands.py, not an encoding.
 # The final candidate of signed re-encode run 41745442025, with one rule for
 # each limb of paragraph (8) and one for each paragraph that a limb names, so
-# the complete-source gate can find a case pair for each real condition.
+# the complete-source gate can find a case pair for each condition it reads.
 format: rulespec/v1
 module:
   proof_validation:

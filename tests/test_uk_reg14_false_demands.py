@@ -325,6 +325,7 @@ titles = st.builds(
 reference_forms = st.sampled_from(
     [
         "regulation 57 ({0})",
+        "regulation 14A ({0})",
         "regulation 14(6) ({0})",
         "Schedule 2 ({0})",
         "paragraph 12 ({0})",
@@ -729,6 +730,7 @@ def test_known_gap_limbs_with_no_cue_of_their_own() -> None:
     # Regulation 14(3)(b) carried a demand only through "subject to" in the title
     # of regulation 19, (7)(a) only through "falls", and (7)(b) only through "does
     # not apply" in the title of regulation 57, so dropping (3)(b) passes the gate.
+    # Issue 2153 tracks the cues that would read them.
     without_paragraph_3_b = PARAGRAPH_LIMBS
     for limb in (
         "and not regulation_15_applies",
