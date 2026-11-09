@@ -557,7 +557,7 @@ def test_typed_completeness_retry_feedback_has_one_repair_order():
     # Other checks keep their declared fix, and every subject line stays.
     numeric_fix = checks.get_check("complete-source-unit:numeric-recall/value-unnamed")
     assert f"  Fix: {numeric_fix.fix}" in check_fixes
-    assert "us/statute/7/2020(a) [Absatz a] chars 0:141; expected encoded" in (
+    assert "us/statute/7/2020(a) [provision (a)] chars 0:141; expected encoded" in (
         check_fixes
     )
     assert "field:module.deferred_outputs[0].reason; expected reason naming" in (
