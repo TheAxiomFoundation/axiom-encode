@@ -180,6 +180,16 @@ NOT_SAME_ACT_CASES = [
         "the Act",
         id="synthetic-statute-defined-the-act",
     ),
+    pytest.param(
+        "us-la/legislation/act:2",
+        "(a) Subject to section 1115 of the Act, the department shall seek a "
+        "waiver for the program.\n\n"
+        "(b) The department shall report to the legislature annually.",
+        ("a",),
+        "1115",
+        "the Act",
+        id="synthetic-legislation-defined-the-act",
+    ),
 ]
 
 # Real self-references: a statute, session law or law compilation names a
