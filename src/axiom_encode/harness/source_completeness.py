@@ -2272,9 +2272,10 @@ _LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
 # and one that opens with a word carrying on the amount or limiting the
 # reference ("19 (or more) weeks", "500 (per annum)", "5 (except paragraph 2)").
 # A parenthesis left open reaches to some later close, so one that holds a full
-# stop or semicolon before a capital letter or opening bracket, or runs past
-# 300 characters outside a nested pair, doesn't count either. A list ends at its
-# first untitled item: in "regulation 15 (absentees) or 19 weeks" the 19 stays.
+# stop or semicolon and space before a capital letter or opening parenthesis,
+# or runs past 300 characters, counting a nested pair as one, doesn't count
+# either. A list ends at its first untitled item: in "regulation 15 (absentees)
+# or 19 weeks" the 19 stays.
 _ENGLISH_REFERENCE_KEYWORD = (
     r"(?:articles?|sections?|secs?\.?|regulations?|paragraphs?|"
     r"sub-?paragraphs?|subsections?|parts?|chapters?|schedules?)"

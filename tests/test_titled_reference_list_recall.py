@@ -20,8 +20,8 @@ Invariants pinned here:
 * a parenthesis that does not name a provision keeps its item out of the list:
   a bare marker, a glued or wrapped parenthesis, one that opens with a number
   word or with a word carrying on the amount or limiting the reference, one
-  with a full stop or semicolon before a capital or an opening bracket, and one
-  that runs past 300 characters;
+  with a full stop or semicolon and space before a capital or an opening
+  parenthesis, and one that runs past 300 characters;
 * a number on the same line or a listed unit right after the last title keeps
   the whole list out of the pass;
 * a list on a line the extractor reads as a heading changes nothing, because
