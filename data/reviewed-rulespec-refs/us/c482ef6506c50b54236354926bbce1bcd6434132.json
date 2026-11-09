@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "us",
+  "declared": null,
+  "pr_base_branch": null,
+  "purpose": "Reviewed Head Start excessive-housing-cost repair head. Migrated from the pre-record allowlist; admitted by axiom-encode#1518.",
+  "rulespec_pr": 1306,
+  "rulespec_ref": "c482ef6506c50b54236354926bbce1bcd6434132",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}

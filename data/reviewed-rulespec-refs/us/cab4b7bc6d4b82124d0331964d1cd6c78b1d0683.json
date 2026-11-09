@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "us",
+  "declared": null,
+  "pr_base_branch": "axiom/signed-backfill-us-35145159769-1",
+  "purpose": "Reviewed signed SNAP memo head for protected repair. Migrated from the pre-record allowlist; admitted by axiom-encode#1651.",
+  "rulespec_pr": null,
+  "rulespec_ref": "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}

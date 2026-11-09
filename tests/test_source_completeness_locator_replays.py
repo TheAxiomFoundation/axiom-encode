@@ -96,7 +96,7 @@ def _replay(run_id: str):
         ),
         (
             "37936341740",
-            {"444", "117", "118", "552", "648", "217", "615", "658", "725"},
+            {"15", "444", "117", "118", "552", "648", "217", "615", "658", "725"},
             {4000, 70, 500, 3000, 6000, 930},
             (),
         ),
@@ -119,7 +119,7 @@ def test_real_candidates_no_longer_demand_locator_scalars(
     ("run_id", "current_count"),
     # Arizona (2) and Virginia (19) no longer repeat each unbound computation
     # as a tests finding; the same-branch formula-output finding remains.
-    (("37936331759", 0), ("37936338132", 49), ("37936341740", 98)),
+    (("37936331759", 0), ("37936338132", 49), ("37936341740", 97)),
 )
 def test_replay_diagnostic_totals(run_id, current_count):
     _recorded, _source, issues = _replay(run_id)

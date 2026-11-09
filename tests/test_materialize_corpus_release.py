@@ -17,6 +17,12 @@ import yaml
 from axiom_encode.corpus_resolver import MAX_RELEASE_OBJECT_BYTES
 
 ROOT = Path(__file__).parents[1]
+RELEASE_FETCH_WORKFLOWS = {
+    "issue233-canada-source-diagnostic.yml",
+    "prepare-all-state-snap-queue.yml",
+    "targeted-signed-reencode.yml",
+    "validate-snap-queue-activation.yml",
+}
 _SPEC = importlib.util.spec_from_file_location(
     "materialize_corpus_release",
     ROOT / "scripts" / "materialize_corpus_release.py",
@@ -187,7 +193,9 @@ def test_every_release_object_fetch_uses_the_resolver_cap() -> None:
                     assert re.findall(
                         r"--max-filesize(?:[= ]+|['\"]\s*,\s*['\"])([^\s'\",]+)", curl
                     ) == [str(cap)], (workflow.name, curl)
-    assert len(fetch_steps) >= 5, fetch_steps
+    assert RELEASE_FETCH_WORKFLOWS <= {
+        workflow_name for workflow_name, _ in fetch_steps
+    }, fetch_steps
 
 
 @pytest.mark.parametrize(
@@ -211,16 +219,14 @@ def test_release_object_fetch_audit_handles_shell_and_python_argv(
 ) -> None:
     workflows = tmp_path / ".github" / "workflows"
     workflows.mkdir(parents=True)
-    steps = [
-        {
-            "name": f"Fetch {index}",
-            "run": f"url='https://example/releases/object.json'\n{curl}",
-        }
-        for index in range(5)
-    ]
-    (workflows / "fetch.yml").write_text(
-        yaml.safe_dump({"jobs": {"fetch": {"steps": steps}}})
-    )
+    step = {
+        "name": "Fetch release",
+        "run": f"url='https://example/releases/object.json'\n{curl}",
+    }
+    for filename in RELEASE_FETCH_WORKFLOWS:
+        (workflows / filename).write_text(
+            yaml.safe_dump({"jobs": {"fetch": {"steps": [step]}}})
+        )
     monkeypatch.setattr(f"{__name__}.ROOT", tmp_path)
 
     if valid:
