@@ -225,9 +225,16 @@ def test_mixed_percentage_slash_is_no_division(
 
 @pytest.mark.parametrize(
     "numeral",
-    ["2 6/7 %", "2 6/7 per  cent", "2 6/7 per\ncent", "2  6/7 per cent", "2\t6/7%"],
+    [
+        "2 6/7 %",
+        "2 6/7 per  cent",
+        "2 6/7 per\ncent",
+        "2  6/7 per cent",
+        "2\t6/7%",
+        "2 6/7 PER CENT",
+    ],
 )
-def test_a_mixed_percentage_may_space_its_marker(numeral: str) -> None:
+def test_a_mixed_percentage_may_space_or_capitalize_its_marker(numeral: str) -> None:
     assert "divide" not in sc._formula_operation_kinds(f"{numeral} of the difference")
 
 
@@ -516,6 +523,37 @@ def test_a_parenthesis_after_a_line_break_keeps_its_cues(line_break: str) -> Non
 def test_a_cue_that_runs_past_the_title_stays() -> None:
     text = "See regulation 57 (gilt for residents) nicht."
     assert [item[2] for item in cues(text, CITATION)] == ["gilt for residents) nicht"]
+
+
+@pytest.mark.parametrize(
+    ("text", "cue"),
+    [
+        (
+            "regulation 14(6)(a) (persons to whom regulation 5 does not apply)",
+            "does not apply",
+        ),
+        ("regulation 14(6A) (persons if absent)", "if"),
+        ("regulation 7(circumstances if absent)", "if"),
+    ],
+)
+def test_a_title_may_follow_subdivisions_or_touch_its_number(
+    text: str, cue: str
+) -> None:
+    assert cue in [item[2] for item in cues(text)]
+    assert cue not in [item[2] for item in cues(text, CITATION)]
+
+
+def test_a_long_parenthesis_on_a_number_is_no_subdivision() -> None:
+    text = "regulation 7(circumstances) (persons if absent)"
+    assert "if" in [item[2] for item in cues(text, CITATION)]
+
+
+def test_the_title_filter_stops_at_the_end_of_a_reference_list() -> None:
+    text = (
+        "See regulation 15 (absentees) or 19 (students). "
+        "A sum of 5 (persons if absent) applies."
+    )
+    assert "if" in [item[2] for item in cues(text, CITATION)]
 
 
 def test_title_that_opens_with_when_is_a_title() -> None:
