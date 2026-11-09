@@ -203,9 +203,9 @@ each side as a number (dtype decimal, integer or Money).
 - A pair of a `value` answer and a yes/no answer is a link error: a number
   cannot be compared with a yes/no result.
 - Gate: the two rules must have the same unit when both have one.
-- A constant inside `min` or `max`, next to a fact-dependent value, is also a
-  threshold for value generation (a cap or a floor). This applies to all
-  links.
+- For a value link, a constant inside `min` or `max`, next to a
+  fact-dependent value, is also a threshold for value generation (a cap or a
+  floor). A yes/no link does not use these, so its grid does not change.
 
 The record of a `value` link keeps format v1 and adds:
 

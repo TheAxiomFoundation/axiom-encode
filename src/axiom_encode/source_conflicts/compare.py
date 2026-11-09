@@ -103,9 +103,11 @@ def _number(output: Mapping[str, Any], name: str) -> Decimal:
     inner = value.get("value") if isinstance(value, dict) else None
     if isinstance(inner, (int, str)) and not isinstance(inner, bool):
         try:
-            return Decimal(str(inner))
+            number = Decimal(str(inner))
         except ArithmeticError:
-            pass
+            number = None
+        if number is not None and number.is_finite():
+            return number
     raise CompareError(
         f"the engine result of '{name}' is not a number: "
         f"{json.dumps(output, sort_keys=True)[:300]}"
@@ -246,7 +248,11 @@ def compare(
     for side in SIDES:
         spec, artifact = link.sides[side], artifacts[side]
         derived_names, _, _ = artifact.closure([*spec.outputs, *spec.guards])
-        for threshold in artifact.thresholds(derived_names, fixed_slots[side]):
+        for threshold in artifact.thresholds(
+            derived_names,
+            fixed_slots[side],
+            bounds=all(link.sides[each].combine == VALUE for each in SIDES),
+        ):
             reached: dict[str, None] = {}
             for slot in sorted(threshold.inputs):
                 group, name = supplied[side].get(
@@ -702,7 +708,19 @@ def compare(
         record["comparison"] = {
             "kind": "value",
             "tolerance": canonical_decimal(link.tolerance),
-            "unit": (artifacts["a"].rule(link.sides["a"].outputs[0]) or {}).get("unit"),
+            "unit": next(
+                (
+                    unit
+                    for unit in (
+                        (artifacts[side].rule(link.sides[side].outputs[0]) or {}).get(
+                            "unit"
+                        )
+                        for side in SIDES
+                    )
+                    if unit
+                ),
+                None,
+            ),
         }
         if not link.facts and len(cases) == 1:
             # One evaluation with no fact: give both numbers, conflict or not.

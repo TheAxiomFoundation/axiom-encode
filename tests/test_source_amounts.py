@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from decimal import Decimal
@@ -231,8 +232,10 @@ def test_an_engine_result_that_is_no_number_is_an_error(tmp_path):
 def test_a_constant_in_min_or_max_is_a_threshold():
     artifact = Artifact(artifact_payload("amount_b"), "2027-01-01")
     derived, _, _ = artifact.closure([RB + "income_threshold_for_month"])
-    assert artifact.thresholds(derived, {}) == []
-    (threshold,) = artifact.thresholds(derived, {"federal_wage_rate": "7.25"})
+    assert artifact.thresholds(derived, {}, bounds=True) == []
+    (threshold,) = artifact.thresholds(
+        derived, {"federal_wage_rate": "7.25"}, bounds=True
+    )
     assert (threshold.value, threshold.inputs) == (
         Decimal("7.25"),
         frozenset({"state_wage_rate"}),
@@ -671,3 +674,128 @@ def test_real_engine_compares_a_parameter_with_a_derived_number(real_engine, tmp
         "580",
     )
     assert group["witness"]["facts"] == {} and record["counts"]["run"] == 1
+
+
+# -- findings of the review -------------------------------------------------
+
+
+def test_a_yes_no_record_is_byte_identical_to_the_one_before_this_feature(tmp_path):
+    # Pinned on the branch before numeric outputs (source-question-file).
+    rendered = render_record(run_compare(tmp_path=tmp_path))
+    assert (
+        hashlib.sha256(rendered.encode()).hexdigest()
+        == "90aea8919c1a2fadffde99ca1561f61f63409f6cbc3bd909108e8e35f3eefdf8"
+    )
+
+
+def test_min_and_max_constants_are_thresholds_for_value_links_only(tmp_path):
+    artifact = Artifact(artifact_payload("amount_b"), "2027-01-01")
+    derived, _, _ = artifact.closure([RB + "income_threshold_for_month"])
+    fixed = {"federal_wage_rate": "7.25"}
+    assert artifact.thresholds(derived, fixed) == []
+    assert len(artifact.thresholds(derived, fixed, bounds=True)) == 1
+
+    # A yes/no rule min(hours, 100) >= 80: the cap 100 adds no value to the grid.
+    payloads = {path: artifact_payload(name) for path, name in MODULES.items()}
+    rule = next(
+        item
+        for item in payloads["us/statutes/999/1/a.yaml"]["program"]["derived"]
+        if item["name"] == "work_requirement_met"
+    )
+    comparison = rule["expr"]["items"][1]
+    comparison["left"] = {
+        "kind": "min",
+        "items": [
+            comparison["left"],
+            {"kind": "literal", "value": {"kind": "integer", "value": 100}},
+        ],
+    }
+    rule["versions"][0]["expr"] = rule["expr"]
+    record = run_compare(tmp_path=tmp_path, engine=FakeEngine(payloads))
+    assert record["facts"]["work_hours"]["values"] == ["0", "79", "80", "81"]
+    assert record["counts"]["grid"] == 224
+
+
+def test_a_small_unquoted_tolerance_is_a_number():
+    doc = document()
+    doc["tolerance"] = 0.00001
+    assert parse_link(doc).tolerance == Decimal("0.00001")
+    doc["tolerance"] = 1e-7
+    assert parse_link(doc).tolerance == Decimal("1E-7")
+    for bad in (float("nan"), float("inf")):
+        doc["tolerance"] = bad
+        with pytest.raises(LinkError, match="link.tolerance must be a number"):
+            parse_link(doc)
+
+
+@pytest.mark.parametrize("text", ["NaN", "Infinity", "-Infinity"])
+def test_a_number_that_is_not_finite_is_an_error_not_a_crash(tmp_path, text):
+    class NotFinite(FakeEngine):
+        def run(self, artifact, request):
+            response = super().run(artifact, request)
+            for result in response["results"]:
+                for output in result["outputs"].values():
+                    output["value"] = {"kind": "decimal", "value": text}
+            return response
+
+    fake = NotFinite({path: artifact_payload(name) for path, name in MODULES.items()})
+    with pytest.raises(CompareError, match="is not a number"):
+        run(tmp_path, fake=fake)
+    with pytest.raises(LinkGateError, match="parameter .* is not a number"):
+        run(
+            tmp_path,
+            constant_link(),
+            constant_engine(set_regulation_hours(text, "decimal")),
+        )
+
+
+def test_the_record_unit_comes_from_the_side_that_has_one(tmp_path):
+    payloads = {path: artifact_payload(name) for path, name in MODULES.items()}
+    payloads["us/statutes/999/2/a.yaml"]["program"]["derived"][0]["unit"] = None
+    record = run(tmp_path, fake=FakeEngine(payloads))
+    assert record["comparison"]["unit"] == "USD"
+
+
+def test_tolerance_applies_to_a_negative_difference_too(tmp_path):
+    doc = document()
+    doc["fixed"][SA + "input.federal_minimum_wage"]["value"] = "8"
+    doc["facts"]["state_wage"]["values"] = ["0"]
+    doc["facts"]["state_elects_own_wage"]["values"] = [False]
+    # a = 640, b = 580: b - a = -60.
+    (group,) = run(tmp_path, doc)["witness_groups"]
+    assert group["direction"] == {"a": "higher", "b": "lower"}
+    assert group["witness"]["difference"] == "-60"
+    doc["tolerance"] = "59.99"
+    assert run(tmp_path, doc)["counts"]["differ"] == 1
+    doc["tolerance"] = 60
+    assert run(tmp_path, doc)["counts"]["differ"] == 0
+
+
+def test_a_guard_skips_households_in_a_value_link(tmp_path):
+    doc = document()
+    doc["b"]["module"] = "us/regulations/99-cfr/1/2.yaml"
+    doc["b"]["outputs"] = ["us:regulations/99-cfr/1/2#monthly_income_threshold"]
+    doc["facts"] = {
+        "covered": {
+            "kind": "bool",
+            "b": "us:regulations/99-cfr/1/2#input.individual_is_covered",
+        }
+    }
+    doc["fixed"] = {
+        SA + "input.federal_minimum_wage": {"kind": "decimal", "value": "7"},
+        "us:regulations/99-cfr/1/2#input.minimum_wage_rate": {
+            "kind": "decimal",
+            "value": "7.25",
+        },
+    }
+    doc["guards"] = {"b": ["us:regulations/99-cfr/1/2#individual_in_scope"]}
+    record = run(tmp_path, doc)
+    assert record["counts"]["run"] == 2
+    assert record["counts"]["skipped_by_guard"] == 1
+    assert record["counts"]["differ"] == 1
+    (group,) = record["witness_groups"]
+    assert group["witness"]["facts"] == {"covered": True}
+    assert (group["witness"]["a"]["result"], group["witness"]["b"]["result"]) == (
+        "560",
+        "580",
+    )

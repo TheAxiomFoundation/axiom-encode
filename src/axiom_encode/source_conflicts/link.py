@@ -108,7 +108,12 @@ def to_decimal(value: object) -> Decimal | None:
     if isinstance(value, int):
         return Decimal(value)
     if isinstance(value, float):
-        value = repr(value)
+        # repr can use an exponent (1e-05), which the text pattern refuses.
+        try:
+            number = Decimal(repr(value))
+        except InvalidOperation:
+            return None
+        return number if number.is_finite() else None
     if isinstance(value, str) and _NUMBER.fullmatch(value):
         try:
             return Decimal(value)

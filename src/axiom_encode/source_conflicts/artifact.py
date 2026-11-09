@@ -106,7 +106,11 @@ class Artifact:
                 "is a table (an indexed parameter); only one value can be compared",
             )
         value = _literal(values["0"]) if isinstance(values["0"], dict) else None
-        if isinstance(value, bool) or not isinstance(value, Decimal):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, Decimal)
+            or not value.is_finite()
+        ):
             return None, "is not a number"
         return value, None
 
@@ -421,12 +425,18 @@ class Artifact:
         return memo[name]
 
     def thresholds(
-        self, derived_names: Iterable[str], fixed: Mapping[str, object]
+        self,
+        derived_names: Iterable[str],
+        fixed: Mapping[str, object],
+        *,
+        bounds: bool = False,
     ) -> list[Threshold]:
         """Constants that the rules compare a fact-dependent value with.
 
-        A comparison gives one, and so does a constant inside ``min`` or
-        ``max`` next to a fact-dependent value.
+        A comparison gives one. With ``bounds``, so does a constant inside
+        ``min`` or ``max`` next to a fact-dependent value (a cap or a floor);
+        the compare step asks for these for a value link only, so the grid of
+        a yes/no link does not change.
         """
 
         found: list[Threshold] = []
@@ -438,6 +448,8 @@ class Artifact:
                 continue
             for node in self._walk(expression):
                 if node.get("kind") in ("min", "max"):
+                    if not bounds:
+                        continue
                     # A cap or a floor: min(amount, 500) changes at 500.
                     items = list(_children(node))
                     folded = [self.fold(item, fixed, memo) for item in items]
