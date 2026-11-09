@@ -9319,6 +9319,7 @@ def _evaluate_generated_artifact_with_repairs(
                 amendment_documents=amendment_documents,
                 legacy_replacement=legacy_replacement,
                 replacement_overlay_scope=replacement_overlay_scope,
+                axiom_rules_engine_ref=axiom_rules_engine_ref,
             )
             if synthesized:
                 print("  auto_complete_source_cases:" + ",".join(synthesized))
@@ -9356,6 +9357,7 @@ def _append_synthesized_complete_source_companion_cases(
     amendment_documents: Sequence[CorpusAmendmentDocument] = (),
     legacy_replacement: LegacyReplacementContract | None,
     replacement_overlay_scope: bool,
+    axiom_rules_engine_ref: str | None = None,
 ) -> list[str]:
     """Append engine-executed companion cases that the validator credits.
 
@@ -9419,6 +9421,7 @@ def _append_synthesized_complete_source_companion_cases(
                 execution_git_origin=execution_git_origin,
                 legacy_replacement=legacy_replacement,
                 replacement_overlay_scope=replacement_overlay_scope,
+                axiom_rules_engine_ref=axiom_rules_engine_ref,
             )
             synthesized = pipeline.synthesize_complete_source_companion_cases(
                 validation_file,

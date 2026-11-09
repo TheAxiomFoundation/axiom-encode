@@ -45,6 +45,7 @@ def _run_loop(tmp_path: Path, *, issues, complete: bool, repairs):
             source_text="Source body",
             local_corpus_release=object(),
             require_complete_source_unit=complete,
+            axiom_rules_engine_ref="engine-pin",
         )
     assert result is metrics
     return ev, rep, synth
@@ -57,6 +58,8 @@ def test_synthesis_runs_when_no_other_repair_applies(tmp_path):
 
     synthesize.assert_called_once()
     assert synthesize.call_args.kwargs["source_text"] == "Source body"
+    # Synthesized expectations come from the same pinned engine as evaluation.
+    assert synthesize.call_args.kwargs["axiom_rules_engine_ref"] == "engine-pin"
     # The loop re-evaluates after appending; an unchanged artifact then stops it.
     assert evaluate.call_count == 2
     assert repair.call_count == 1
@@ -299,11 +302,100 @@ def test_append_builds_the_pipeline_exactly_as_evaluation_does(staged, tmp_path)
             amendment_documents=(amendment,),
             legacy_replacement=None,
             replacement_overlay_scope=False,
+            axiom_rules_engine_ref="engine-pin",
         )
 
     kwargs = build.call_args.kwargs
+    assert kwargs["axiom_rules_engine_ref"] == "engine-pin"
     assert kwargs["oracle"] == "policyengine"
     assert kwargs["policyengine_rule_hint"] == "household_benefit"
     assert kwargs["amendment_documents"] == (amendment,)
     assert kwargs["source_metadata"] == {"k": "v"}
     assert kwargs["require_complete_source_unit"] is True
+
+
+def _stubbed_synthesis_pipeline(tmp_path, monkeypatch, *, failing_cases=()):
+    from axiom_encode.harness import validator_pipeline as vp
+
+    rules_file = tmp_path / "module.yaml"
+    rules_file.write_text("format: rulespec/v1\nrules: []\n")
+    test_file = tmp_path / "module.test.yaml"
+    test_file.write_text("- name: model_case\n  period: 2026-01\n")
+    pipeline = vp.ValidatorPipeline.__new__(vp.ValidatorPipeline)
+    pipeline.require_complete_source_unit = True
+    pipeline.policy_repo_path = tmp_path
+    pipeline.enforce_repository_layout = False
+    calls = {"payload_checks": [], "screened": [], "order": []}
+    compiled_payload = {"program": {"strict": True}}
+
+    def compile_artifact(_rules, _out):
+        calls["order"].append("compile")
+        return SimpleNamespace(returncode=0), compiled_payload
+
+    def analysis(_content, **_kwargs):
+        calls["order"].append("analysis")
+        return SimpleNamespace(issues=[], companion_test_obligations=("o",))
+
+    def payload_issues(_content, _cases, **kwargs):
+        calls["payload_checks"].append(kwargs.get("compiled_payload"))
+        return []
+
+    def run_cases(**kwargs):
+        calls["screened"].append([case["name"] for case in kwargs["cases"]])
+        return [
+            f"Test case `{case['name']}` failed"
+            for case in kwargs["cases"]
+            if case["name"] in failing_cases
+        ]
+
+    monkeypatch.setattr(pipeline, "_rulespec_test_path", lambda _f: test_file)
+    monkeypatch.setattr(pipeline, "_source_texts_for_rulespec_content", lambda _c: {})
+    monkeypatch.setattr(
+        pipeline, "_proof_source_texts_for_rulespec_content", lambda *_a, **_k: {}
+    )
+    monkeypatch.setattr(
+        pipeline, "_register_validation_temporary_root", lambda _p: None
+    )
+    monkeypatch.setattr(pipeline, "_compile_rulespec_to_artifact", compile_artifact)
+    monkeypatch.setattr(pipeline, "_complete_source_unit_analysis", analysis)
+    monkeypatch.setattr(pipeline, "_companion_test_payload_issues", payload_issues)
+    monkeypatch.setattr(pipeline, "_run_rulespec_test_cases", run_cases)
+    monkeypatch.setattr(vp, "propose_companion_cases", lambda *_a, **_k: ["p"])
+
+    def synthesize(*, analyze_cases, test_cases, **_kwargs):
+        analyze_cases(test_cases)
+        return [{"name": "auto_a"}, {"name": "auto_b"}, {"name": "auto_c"}]
+
+    monkeypatch.setattr(vp, "synthesize_companion_cases", synthesize)
+    return pipeline, rules_file, calls, compiled_payload
+
+
+def test_synthesis_credits_against_the_compiled_program_ci_checks(
+    tmp_path, monkeypatch
+):
+    pipeline, rules_file, calls, compiled_payload = _stubbed_synthesis_pipeline(
+        tmp_path, monkeypatch
+    )
+
+    accepted = pipeline.synthesize_complete_source_companion_cases(rules_file)
+
+    assert [case["name"] for case in accepted] == ["auto_a", "auto_b", "auto_c"]
+    # CI skips the static input check for strict-read programs, so the baseline
+    # and every trial must see the compiled payload, compiled before them.
+    assert calls["order"][0] == "compile"
+    assert calls["payload_checks"]
+    assert all(payload is compiled_payload for payload in calls["payload_checks"])
+
+
+def test_runner_screen_keeps_the_prefix_before_the_first_failing_case(
+    tmp_path, monkeypatch
+):
+    pipeline, rules_file, calls, _payload = _stubbed_synthesis_pipeline(
+        tmp_path, monkeypatch, failing_cases=("auto_b",)
+    )
+
+    accepted = pipeline.synthesize_complete_source_companion_cases(rules_file)
+
+    # auto_c was credited after auto_b, so it never stands without it.
+    assert [case["name"] for case in accepted] == ["auto_a"]
+    assert calls["screened"] == [["auto_a"], ["auto_b"]]

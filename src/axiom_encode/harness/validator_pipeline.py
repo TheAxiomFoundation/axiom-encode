@@ -39429,9 +39429,6 @@ class ValidatorPipeline:
 
         if not self.require_complete_source_unit:
             return []
-        # The budget covers the baseline analysis and every trial; only the
-        # one compile and the final runner screen fall outside it.
-        deadline = time.monotonic() + time_budget_seconds
         test_path = self._rulespec_test_path(rules_file)
         if not rules_file.exists() or not test_path.exists():
             return []
@@ -39457,46 +39454,12 @@ class ValidatorPipeline:
             )
             and self.enforce_repository_layout
         )
-
-        def analyze_cases(cases: list[dict[str, Any]]) -> SimpleNamespace | None:
-            # Credit only against the same findings CI raises for the file:
-            # the complete-source analysis plus the static companion checks.
-            analysis = self._complete_source_unit_analysis(
-                content,
-                validation_source_texts=validation_source_texts,
-                proof_source_texts=proof_source_texts,
-                test_cases=cases,
-                rules_file=rules_file,
-            )
-            if analysis is None:
-                return None
-            return SimpleNamespace(
-                issues=[
-                    *self._companion_test_payload_issues(
-                        content,
-                        cases,
-                        rules_file=rules_file,
-                        strict_layout_checks=strict_layout_checks,
-                    ),
-                    *analysis.issues,
-                ],
-                companion_test_obligations=analysis.companion_test_obligations,
-            )
-
-        baseline = analyze_cases(test_cases)
-        if baseline is None or not baseline.companion_test_obligations:
-            return []
-        analysis = baseline
-        proposals = propose_companion_cases(
-            analysis.companion_test_obligations,
-            rules_payload=rules_payload,
-            test_cases=test_cases,
-        )
-        if not proposals:
-            return []
         with tempfile.TemporaryDirectory() as tmpdir:
             self._register_validation_temporary_root(Path(tmpdir))
             compiled_path = Path(tmpdir) / "compiled.json"
+            # Compile first: CI's static companion checks depend on the
+            # compiled program (strict-read IR skips the static input check),
+            # so the baseline and every trial must see the same payload.
             try:
                 compile_result, compiled_payload = self._compile_rulespec_to_artifact(
                     rules_file, compiled_path
@@ -39504,6 +39467,46 @@ class ValidatorPipeline:
             except Exception:
                 return []
             if compile_result.returncode != 0 or not isinstance(compiled_payload, dict):
+                return []
+            # The budget covers the baseline analysis and every trial; only the
+            # one compile and the final runner screen fall outside it.
+            deadline = time.monotonic() + time_budget_seconds
+
+            def analyze_cases(cases: list[dict[str, Any]]) -> SimpleNamespace | None:
+                # Credit only against the same findings CI raises for the file:
+                # the complete-source analysis plus the static companion checks.
+                analysis = self._complete_source_unit_analysis(
+                    content,
+                    validation_source_texts=validation_source_texts,
+                    proof_source_texts=proof_source_texts,
+                    test_cases=cases,
+                    rules_file=rules_file,
+                )
+                if analysis is None:
+                    return None
+                return SimpleNamespace(
+                    issues=[
+                        *self._companion_test_payload_issues(
+                            content,
+                            cases,
+                            rules_file=rules_file,
+                            strict_layout_checks=strict_layout_checks,
+                            compiled_payload=compiled_payload,
+                        ),
+                        *analysis.issues,
+                    ],
+                    companion_test_obligations=analysis.companion_test_obligations,
+                )
+
+            baseline = analyze_cases(test_cases)
+            if baseline is None or not baseline.companion_test_obligations:
+                return []
+            proposals = propose_companion_cases(
+                baseline.companion_test_obligations,
+                rules_payload=rules_payload,
+                test_cases=test_cases,
+            )
+            if not proposals:
                 return []
 
             def evaluate_case(
@@ -39526,13 +39529,18 @@ class ValidatorPipeline:
                 max_analyses=max_analyses,
                 time_budget_seconds=max(0.0, deadline - time.monotonic()),
             )
-            if accepted and self._run_rulespec_test_cases(
-                rules_file=rules_file,
-                compiled_path=compiled_path,
-                compiled_payload=compiled_payload,
-                cases=accepted,
-            ):
-                return []
+            # Each case was credited against the model's cases plus the cases
+            # accepted before it, so keep the longest prefix the companion test
+            # runner passes; a later case never stands without its predecessors.
+            for index, case in enumerate(accepted):
+                if self._run_rulespec_test_cases(
+                    rules_file=rules_file,
+                    compiled_path=compiled_path,
+                    compiled_payload=compiled_payload,
+                    cases=[case],
+                ):
+                    accepted = accepted[:index]
+                    break
         return accepted
 
     def _rulespec_companion_input_entities(
