@@ -521,20 +521,34 @@ def test_locator_spans_are_linear_in_long_sources():
 
 @pytest.mark.parametrize(
     "citation, source",
+    ((PIA_STATUTE, "The Social Security Amendments of 1983 and 1,983,000."),),
+)
+def test_locator_that_shadows_another_token_keeps_main_inventory(citation, source):
+    assert _occurrences(source, citation) == _main_occurrences(source, citation)
+
+
+@pytest.mark.parametrize(
+    "citation, source, operative",
     (
-        # Main collapses `62,000` into the earlier `62`, so its demand for 62
-        # also carries the operative amount: the inventory stays main's.
-        (SNAP_REGULATION, "See 62 FR 61344. The cap is 62,000 households."),
+        # Main's extractor no longer collapses `62,000` into the earlier `62`,
+        # so the locator numbers drop and the operative amount stays demanded.
+        (
+            SNAP_REGULATION,
+            "See 62 FR 61344. The cap is 62,000 households.",
+            62000.0,
+        ),
         (
             EITC_STATUTE,
             "[(g) Repealed. Pub. L. 111–226, title II, § 219(a)(2) , Aug. 10, "
             "2010 , 124 Stat. 2403 ] (h) The limit is 124,000 dollars.",
+            124000.0,
         ),
-        (PIA_STATUTE, "The Social Security Amendments of 1983 and 1,983,000."),
     ),
 )
-def test_locator_that_shadows_another_token_keeps_main_inventory(citation, source):
-    assert _occurrences(source, citation) == _main_occurrences(source, citation)
+def test_locator_next_to_a_grouped_amount_keeps_the_amount(citation, source, operative):
+    removed = _assert_only_locator_digits_removed(source, citation)
+    assert removed
+    assert [value for value, *_ in _occurrences(source, citation)] == [operative]
 
 
 def _analysis(source: str, citation: str):
