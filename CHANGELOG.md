@@ -1,3 +1,11 @@
+## 0.2.2351
+
+- Keep US bibliographic locators out of complete-source numeric recall (#1898)
+- Demand every source-stated threshold of a conjoined condition as a companion-test boundary (#1937)
+- Ground decimal rates from flattened percentage tables (#1648)
+- Label U.S. branches in English, drop German sentence markers in U.S. text, and read U.S. citation ranges (#1896)
+- Keep titled reference lists out of complete-source numeric recall (#2149)
+
 ## 0.2.2350
 
 - Harden optional retired-manifest inventory reconciliation (#1566)
