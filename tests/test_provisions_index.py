@@ -486,15 +486,23 @@ exit 1
 """
 
 
-def _publish_step() -> dict[str, Any]:
+def _workflow_step(step_id: str) -> dict[str, Any]:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
     )
     return next(
         step
         for step in workflow["jobs"]["encode"]["steps"]
-        if step.get("id") == "publish_lane_pull_request"
+        if step.get("id") == step_id
     )
+
+
+def _publish_step() -> dict[str, Any]:
+    return _workflow_step("publish_lane_pull_request")
+
+
+def _refresh_step() -> dict[str, Any]:
+    return _workflow_step("refresh_provisions_index")
 
 
 def _publish_fixture(tmp_path: Path, *, python: str) -> dict[str, Any]:
@@ -572,6 +580,8 @@ def _publish_fixture(tmp_path: Path, *, python: str) -> dict[str, Any]:
         "QUEUE_MANIFEST_SHA256": "",
         "REPAIR_RUN_ID": "",
         "RULESPEC_CHECKOUT": "rulespec-us",
+        "PRIOR_STATUS": "success",
+        "PREPARED_BRANCH": LANE_BRANCH,
     }
     return {
         "env": env,
@@ -584,13 +594,41 @@ def _publish_fixture(tmp_path: Path, *, python: str) -> dict[str, Any]:
 
 
 def _run_publish(fixture: dict[str, Any]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["bash", "-c", str(_publish_step()["run"])],
-        cwd=fixture["workspace"],
-        env=fixture["env"],
-        capture_output=True,
-        text=True,
-        check=False,
+    """Run the token-free refresh step, then (if it passed) the publish step."""
+
+    results = []
+    for step in (_refresh_step(), _publish_step()):
+        result = subprocess.run(
+            ["bash", "-c", str(step["run"])],
+            cwd=fixture["workspace"],
+            env=fixture["env"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        results.append(result)
+        if result.returncode != 0:
+            break
+    return subprocess.CompletedProcess(
+        ["bash"],
+        results[-1].returncode,
+        "".join(result.stdout for result in results),
+        "".join(result.stderr for result in results),
+    )
+
+
+def test_the_refresh_step_holds_no_repository_token() -> None:
+    refresh = _refresh_step()
+    assert "GH_TOKEN" not in (refresh.get("env") or {})
+    assert "secrets." not in yaml.safe_dump(refresh)
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    ids = [step.get("id") for step in workflow["jobs"]["encode"]["steps"]]
+    assert (
+        ids.index("reviewed_lane_pull_request_branch")
+        < ids.index("refresh_provisions_index")
+        < ids.index("publish_lane_pull_request")
     )
 
 
@@ -717,8 +755,8 @@ def test_a_refresh_timeout_takes_the_error_path(tmp_path: Path) -> None:
     assert "Reverse index: `error`" in (tmp_path / "gh-body.txt").read_text()
 
 
-def test_the_publish_step_bounds_and_rolls_back_the_refresh() -> None:
-    command = str(_publish_step()["run"])
+def test_the_refresh_step_bounds_and_rolls_back_the_refresh() -> None:
+    command = str(_refresh_step()["run"])
     assert 'timeout "${AXIOM_INDEX_REFRESH_TIMEOUT:-900}"' in command
     assert command.index('reset -q --hard "$lane_head"') < command.index(
         'rev-parse HEAD)" = "$lane_head"'
