@@ -2266,14 +2266,15 @@ _LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
 # A title names a provision. A parenthesis counts as one only when space on the
 # item's own line separates it from the number and it opens with a letter; it
 # may hold parenthesized pairs one level deep ("(... to whom regulation 14(6)
-# does not apply)"). These never count, so their item keeps its number: a bare subdivision marker
-# ("5 (a)"), a parenthesis glued to its number ("5(a)"), one that opens with a
-# number word and restates an amount ("19 (nineteen) weeks"), and one that opens
-# with a word carrying on the amount or limiting the reference ("19 (or more)
-# weeks", "500 (per annum)", "5 (except paragraph 2)"). A parenthesis left open
-# reaches to some later close, so neither does one that holds a sentence break
-# or runs past 300 characters outside a nested pair. A list ends at its first
-# untitled item: in "regulation 15 (absentees) or 19 weeks" the 19 stays.
+# does not apply)"). These never count, so their item keeps its number: a bare
+# subdivision marker ("5 (a)"), a parenthesis glued to its number ("5(a)"), one
+# that opens with a number word and restates an amount ("19 (nineteen) weeks"),
+# and one that opens with a word carrying on the amount or limiting the
+# reference ("19 (or more) weeks", "500 (per annum)", "5 (except paragraph 2)").
+# A parenthesis left open reaches to some later close, so one that holds a full
+# stop or semicolon before a capital letter or opening bracket, or runs past
+# 300 characters outside a nested pair, doesn't count either. A list ends at its
+# first untitled item: in "regulation 15 (absentees) or 19 weeks" the 19 stays.
 _ENGLISH_REFERENCE_KEYWORD = (
     r"(?:articles?|sections?|secs?\.?|regulations?|paragraphs?|"
     r"sub-?paragraphs?|subsections?|parts?|chapters?|schedules?)"
