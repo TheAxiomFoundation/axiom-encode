@@ -27,6 +27,8 @@ def _body(target: str, run: str, extra: str = "") -> str:
 def _run_payload(citation: str, path: str = SIGNED) -> dict:
     return {
         "path": path,
+        "event": "workflow_dispatch",
+        "head_branch": "main",
         "display_title": (
             f"Targeted signed RuleSpec re-encode [adhoc:adhoc:adhoc] {citation}"
         ),
@@ -263,7 +265,10 @@ def test_a_run_whose_citation_is_not_listed_fails():
 
 
 def test_a_run_name_without_a_citation_fails():
-    payload = {"path": SIGNED, "display_title": "Targeted signed RuleSpec re-encode"}
+    payload = {
+        **_run_payload("x/y/z"),
+        "display_title": "Targeted signed RuleSpec re-encode",
+    }
     _, errors, _ = check(
         _body("us/statute/26/21", "1"),
         repository=REPO,
@@ -378,9 +383,140 @@ def test_the_workflow_runs_the_module_on_every_body_change():
         for step in steps
         if step.get("name") == "Check Encoding-Target and Fixes-Run"
     )
-    assert "python3 -I src/axiom_encode/pr_linkage.py" in check_step["run"]
+    assert 'python3 -I "$checker"' in check_step["run"]
     assert "--verify-runs" in check_step["run"]
     assert "$GITHUB_EVENT_PATH" in check_step["run"]
     # The body never passes through an expression into the shell.
     assert "github.event.pull_request.body" not in json.dumps(workflow)
     assert set(check_step["env"]) == {"GITHUB_TOKEN"}
+
+
+# --- review-fix cycle 1 ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "- Encoding-Target: none\n- Fixes-Run: none\n",
+        "* **Encoding-Target:** none\n* **Fixes-Run:** none\n",
+        "**Encoding-Target**: none\n__Fixes-Run__: none\n",
+        "   Encoding-Target: none\nFixes-Run: none\n",
+    ],
+)
+def test_list_and_bold_markup_counts(body):
+    assert parse(body).errors == []
+
+
+def test_an_indented_code_block_does_not_count():
+    body = "    Encoding-Target: none\n    Fixes-Run: none\n"
+    assert "missing" in parse(body).errors[0]
+    tabbed = "\tEncoding-Target: none\n\tFixes-Run: none\n"
+    assert "missing" in parse(tabbed).errors[0]
+
+
+def test_an_unclosed_comment_inside_a_fence_hides_nothing():
+    body = "```html\n<!-- start\n```\n\nEncoding-Target: none\nFixes-Run: none\n"
+    assert parse(body).errors == []
+
+
+def test_a_fence_inside_a_comment_opens_no_code_block():
+    body = "<!--\n```\n-->\nEncoding-Target: none\nFixes-Run: none\n"
+    assert parse(body).errors == []
+
+
+def test_text_around_an_inline_comment_still_counts():
+    body = "Encoding-Target: none <!-- generic -->\nFixes-Run: <!-- x --> none\n"
+    assert parse(body).errors == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"https://github.com/{REPO}/actions/runs/42409703021/job/123456",
+        f"https://github.com/{REPO}/actions/runs/42409703021?pr=2156",
+        f"https://github.com/{REPO}/actions/runs/42409703021/attempts/2/job/9#step:3:1",
+    ],
+)
+def test_run_urls_copied_from_the_ui_are_normalized(url):
+    result = parse(_body("us/statute/26/21", url), REPO)
+    assert result.errors == []
+    assert result.linkage.signed_runs == ["42409703021"]
+
+
+@pytest.mark.parametrize(
+    ("event", "branch"),
+    [("push", "main"), ("workflow_dispatch", "feature/x"), (None, None)],
+)
+def test_a_signed_run_off_main_or_not_dispatched_fails(event, branch):
+    payload = {
+        **_run_payload("us/statute/26/21"),
+        "event": event,
+        "head_branch": branch,
+    }
+    _, errors, _ = check(
+        _body("us/statute/26/21", "1"),
+        repository=REPO,
+        fetch=_fetch({"1": (200, payload)}),
+    )
+    assert "not a workflow_dispatch run on main" in errors[0]
+
+
+def test_a_secondary_rate_limit_403_is_retried(monkeypatch):
+    import email.message
+    import urllib.error
+
+    headers = email.message.Message()
+    headers["retry-after"] = "60"
+
+    def raise_403(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, 403, "rate", headers, None)
+
+    monkeypatch.setattr(pr_linkage.urllib.request, "urlopen", raise_403)
+    assert pr_linkage.github_fetch("t")("repos/x/y/actions/runs/1") == (429, None)
+
+    plain = email.message.Message()
+
+    def raise_plain_403(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, 403, "forbidden", plain, None)
+
+    monkeypatch.setattr(pr_linkage.urllib.request, "urlopen", raise_plain_403)
+    assert pr_linkage.github_fetch("t")("repos/x/y/actions/runs/1") == (403, None)
+
+
+def test_the_workflow_runs_the_base_branch_checker():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/pr-linkage.yml").read_text())
+    steps = workflow["jobs"]["linkage"]["steps"]
+    checkout = next(
+        step for step in steps if "actions/checkout" in step.get("uses", "")
+    )
+    assert checkout["with"]["fetch-depth"] == 2
+    run = next(
+        step
+        for step in steps
+        if step.get("name") == "Check Encoding-Target and Fixes-Run"
+    )["run"]
+    assert "git show HEAD^1:src/axiom_encode/pr_linkage.py" in run
+
+
+def test_every_automation_that_opens_a_pull_request_here_writes_both_lines():
+    # A pull request this repository's workflows open against this repository
+    # must pass the check, except the version-bump App's, which is exempt.
+    opened = []
+    for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+        if path.name == "encoder-version-bump.yml":
+            continue
+        workflow = yaml.safe_load(path.read_text())
+        for job_name, job in workflow["jobs"].items():
+            for step in job.get("steps", []):
+                run = step.get("run", "")
+                if "gh pr create" in run or (
+                    '"repos/$GITHUB_REPOSITORY/pulls"' in run and "POST" in run
+                ):
+                    opened.append((path.name, job_name, run))
+    assert {name for name, _, _ in opened} == {
+        "finalize-signed-snap-queue.yml",
+        "prepare-all-state-snap-queue.yml",
+    }
+    for name, job_name, run in opened:
+        assert "Encoding-Target: none" in run, (name, job_name)
+        assert "Fixes-Run: none" in run, (name, job_name)

@@ -333,7 +333,10 @@ jobs:
             "RuleSpec tip: \`${NEW_RULESPEC_REF}\`" \
             "Finalizer run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             '' \
-            'This draft records merged queue items and activates the next bounded tranche. Run the required independent review-fix cycle before merge.')"
+            'This draft records merged queue items and activates the next bounded tranche. Run the required independent review-fix cycle before merge.' \
+            '' \
+            'Encoding-Target: none' \
+            'Fixes-Run: none')"
           gh api --method POST "repos/$GITHUB_REPOSITORY/pulls" \
             -f title="Finalize protected SNAP queue tranche" \
             -f head="TheAxiomFoundation:${BRANCH}" \

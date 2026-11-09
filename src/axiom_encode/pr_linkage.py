@@ -22,13 +22,15 @@ as the targeted signed re-encode takes them). ``Fixes-Run`` lists run ids:
   id that ``encoding_db`` logs (8 lowercase hex characters, or a full UUID).
 
 Each line appears exactly once, values are comma-separated, a value appears
-once, and ``none`` stands alone. Lines inside HTML comments and fenced code
-blocks do not count, so the pull request template's guidance and quoted
-examples are ignored.
+once, and ``none`` stands alone. A line may sit in a list item or have its key
+in bold. Lines inside HTML comments, fenced code blocks and indented (four
+space) code blocks do not count, so the pull request template's guidance and
+quoted examples are ignored.
 
 With ``--verify-runs`` each signed run id is looked up through the GitHub REST
 API (read-only). The run must exist in the repository, come from
-``.github/workflows/targeted-signed-reencode.yml``, and its run name must end
+``.github/workflows/targeted-signed-reencode.yml`` as a ``workflow_dispatch``
+on ``main`` (so its run name is the reviewed one), and its run name must end
 with a citation that ``Encoding-Target`` lists. Local run ids live only in a
 local database and are checked for format only.
 
@@ -41,7 +43,8 @@ Pull requests opened by the encoder version-bump App from this repository are
 exempt, as in ``version_provenance.hand_picked_version``.
 
 This module uses only the standard library, so CI runs it with ``python3 -I``
-without installing the project.
+without installing the project. CI runs the base branch's copy, so a pull
+request cannot loosen the check that judges it.
 """
 
 from __future__ import annotations
@@ -68,10 +71,13 @@ BUMP_APP_LOGIN = "axiom-encoder-version-bump[bot]"
 SIGNED_WORKFLOW_PATH = ".github/workflows/targeted-signed-reencode.yml"
 MAX_RUNS = 20
 
-_HTML_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
-_FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_BOLD = r"(?:\*\*|__)?"
+# Up to three spaces of indent (four is a code block), an optional list marker
+# and bold around the key: `- **Encoding-Target:** none` counts.
 _LINE = re.compile(
-    rf"^[ \t]*({re.escape(TARGET_KEY)}|{re.escape(RUN_KEY)})[ \t]*:(.*)$",
+    rf"^ {{0,3}}(?:[-*+][ \t]+)?{_BOLD}"
+    rf"({re.escape(TARGET_KEY)}|{re.escape(RUN_KEY)}){_BOLD}[ \t]*:{_BOLD}(.*)$",
     re.IGNORECASE,
 )
 _JURISDICTION = r"[a-z]{2}(?:-[a-z0-9]{2,})?"
@@ -83,7 +89,8 @@ LOCAL_RUN = re.compile(
 )
 _RUN_URL = re.compile(
     r"https://github\.com/(?P<repo>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)"
-    r"/actions/runs/(?P<id>[0-9]+)(?:/attempts/[0-9]+)?/?"
+    r"/actions/runs/(?P<id>[0-9]+)(?:/attempts/[0-9]+)?(?:/job/[0-9]+)?/?"
+    r"(?:[?#]\S*)?"
 )
 # run-name: "Targeted signed RuleSpec re-encode [<queue>:<item>:<sha>] <citation>"
 _RUN_TITLE_CITATION = re.compile(r"\]\s+(\S+)\s*$")
@@ -105,23 +112,47 @@ class Result:
 
 
 def _visible_lines(body: str) -> list[str]:
-    """The body's lines outside HTML comments and fenced code blocks."""
-    text = _HTML_COMMENT.sub("", body.replace("\r\n", "\n").replace("\r", "\n"))
+    """The body's lines outside HTML comments and fenced code blocks.
+
+    One pass, so a `<!--` inside a fence does not hide the rest of the body
+    and a fence inside a comment does not open a code block.
+    """
     lines: list[str] = []
     fence: str | None = None
-    for line in text.split("\n"):
-        match = _FENCE.match(line)
-        if fence is None:
-            if match:
-                fence = match.group(1)
-                continue
-            lines.append(line)
-        elif (
-            match
-            and match.group(1)[0] == fence[0]
-            and len(match.group(1)) >= len(fence)
-        ):
-            fence = None
+    in_comment = False
+    for line in body.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if fence is not None:
+            match = _FENCE.match(line)
+            if match and match.group(1)[0] == fence[0]:
+                if len(match.group(1)) >= len(fence):
+                    fence = None
+            continue
+        visible = ""
+        rest = line
+        while rest:
+            if in_comment:
+                end = rest.find("-->")
+                if end < 0:
+                    rest = ""
+                else:
+                    in_comment = False
+                    rest = rest[end + 3 :]
+            else:
+                start = rest.find("<!--")
+                if start < 0:
+                    visible += rest
+                    rest = ""
+                else:
+                    visible += rest[:start]
+                    in_comment = True
+                    rest = rest[start + 4 :]
+        if visible.strip() == "" and line.strip() != "":
+            continue
+        match = _FENCE.match(visible)
+        if match and visible == line:
+            fence = match.group(1)
+            continue
+        lines.append(visible)
     return lines
 
 
@@ -268,6 +299,12 @@ def github_fetch(token: str, api_url: str = "https://api.github.com") -> Fetch:
             with urllib.request.urlopen(request, timeout=20) as response:
                 return response.status, json.load(response)
         except urllib.error.HTTPError as error:
+            # A secondary rate limit answers 403 with these headers; retry it.
+            if error.code == 403 and (
+                error.headers.get("retry-after")
+                or error.headers.get("x-ratelimit-remaining") == "0"
+            ):
+                return 429, None
             return error.code, None
         except (urllib.error.URLError, TimeoutError, OSError, ValueError):
             return 0, None
@@ -312,6 +349,17 @@ def verify_signed_runs(
             errors.append(
                 f"{RUN_KEY}: run {run_id} is a run of {path or 'an unknown workflow'}, "
                 f"not of {SIGNED_WORKFLOW_PATH}; use local:<id> for a local run"
+            )
+            continue
+        if (
+            payload.get("event") != "workflow_dispatch"
+            or payload.get("head_branch") != "main"
+        ):
+            errors.append(
+                f"{RUN_KEY}: run {run_id} is not a workflow_dispatch run on main "
+                f"(event {payload.get('event')!r}, branch "
+                f"{payload.get('head_branch')!r}), so its run name is not the "
+                "reviewed one"
             )
             continue
         title = str(payload.get("display_title") or payload.get("name") or "")

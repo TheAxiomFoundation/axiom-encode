@@ -34,17 +34,26 @@ jobs:
         if: github.event_name == 'pull_request'
         with:
           persist-credentials: false
-          sparse-checkout: src/axiom_encode/pr_linkage.py
-          sparse-checkout-cone-mode: false
+          # The pull request's merge commit and its first parent, the base.
+          fetch-depth: 2
 
-      # The body comes from the event payload, never through the shell. The
-      # module is standard-library only, so no environment is installed.
+      # The base branch's checker judges the pull request, so a pull request
+      # cannot loosen the check that runs on it (ci.yml still tests its own
+      # copy). Only before the checker reaches main does the pull request's
+      # copy run. The body comes from the event payload, never through the
+      # shell. The module is standard-library only, so nothing is installed.
       - name: Check Encoding-Target and Fixes-Run
         if: github.event_name == 'pull_request'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          python3 -I src/axiom_encode/pr_linkage.py \
+          set -euo pipefail
+          checker="$RUNNER_TEMP/pr_linkage.py"
+          if ! git show HEAD^1:src/axiom_encode/pr_linkage.py > "$checker"; then
+            echo "::notice::the base has no checker yet; running the pull request's copy"
+            cp src/axiom_encode/pr_linkage.py "$checker"
+          fi
+          python3 -I "$checker" \
             --event "$GITHUB_EVENT_PATH" --repository "$GITHUB_REPOSITORY" \
             --verify-runs
 
