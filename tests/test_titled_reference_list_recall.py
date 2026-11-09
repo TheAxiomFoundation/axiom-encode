@@ -11,19 +11,20 @@ scalar representation"), and any re-encode of regulation 14 meets it.
 
 Invariants pinned here:
 
-* every item number of a titled list leaves the recall inventory;
+* every keyword-less item number of a titled list leaves the recall inventory;
+* the pass blanks those numbers in place and nothing else, so a title, a keyword
+  and a line break stay as they were;
 * a title's own amounts stay, as do a following untitled quantity and amounts
   outside the list;
 * a parenthesis that does not name a provision keeps its item out of the list:
   a bare marker, a glued or wrapped parenthesis, one that opens with a number
   word or with a word carrying on the amount or limiting the reference, one
   that holds a sentence break, and one that runs past 300 characters;
-* a list on a line the extractor reads as a heading stays whole, and that
-  check agrees with the extractor's own heading pattern;
-* on the generated lists, which include all of those shapes, the pass adds no
-  demand;
-* the pass keeps every title verbatim and every line break, and blanks the
-  rest of the list in place, so the recall text keeps its length there.
+* a unit or number after the last title keeps the whole list out of the pass;
+* a list on a line the extractor reads as a heading changes nothing, because
+  the keyword that makes the line a heading stays;
+* on the generated lists, which mix those shapes with citations, escaped line
+  breaks and leading numbers, the pass adds no demand.
 """
 
 from __future__ import annotations
@@ -131,8 +132,6 @@ def test_regulation_14_demands_only_its_rate() -> None:
             id="untitled-tail-after-one-word-titles",
         ),
         pytest.param(
-            # A keyword left before "(persons)" would read as a reference to
-            # that title, and the reference would run on into the untitled 7.
             "A person to whom regulation 5 (persons), regulation 6 (persons) or "
             "7 persons apply.",
             [7.0],
@@ -148,6 +147,48 @@ def test_regulation_14_demands_only_its_rate() -> None:
             "19 (persons subject to immigration control) applies for 5 persons.",
             [5.0],
             id="list-across-a-line-break",
+        ),
+        pytest.param(
+            "regulation 15\t(x y) or 16\t(y z) applies", [], id="tab-before-a-title"
+        ),
+        pytest.param(
+            "regulation\n15 (x y) or 16 (y z) applies",
+            [],
+            id="keyword-and-number-on-two-lines",
+        ),
+        pytest.param(
+            "regulation 15 (x y)\nor 16 (y z) applies",
+            [],
+            id="line-break-before-a-separator",
+        ),
+        pytest.param(
+            "regulation 15 (x y), and\n16 (y z) applies",
+            [],
+            id="line-break-after-a-separator",
+        ),
+        pytest.param(
+            f"section 5 ({chr(0xC9)}ligibilit{chr(0xE9)}), 6 ({chr(0xC9)}tude) applies",
+            [],
+            id="title-that-opens-with-an-accent",
+        ),
+        pytest.param(
+            "section 5 (cc), 6 (dl) applies", [6.0], id="roman-markers-of-two-letters"
+        ),
+        pytest.param(
+            "regulation 15 (absentees), 16 (persons)\n7 persons apply",
+            [7.0],
+            id="digit-on-the-next-line-stays",
+        ),
+        pytest.param(
+            "regulation 15 (absentees), 16 (persons), 17 (seventeen)",
+            [17.0, 17.0],
+            id="a-refused-item-keeps-its-number",
+        ),
+        pytest.param(
+            "A person to whom subsection 17 (a) and\nsub-paragraph 90 "
+            "(applications) and\n38 (absentees), 7",
+            [7.0],
+            id="chain-across-lines",
         ),
     ],
 )
@@ -396,10 +437,124 @@ def test_a_single_titled_reference_is_no_list() -> None:
     assert sc._ENGLISH_TITLED_REFERENCE_LIST.search("regulation 15 (absentees)") is None
 
 
-def test_a_month_in_parentheses_reads_as_a_title() -> None:
-    # Intended limit: only the listed openings refuse a parenthesis, so any
-    # other word-led parenthesis after a number reads as a title.
-    assert recall_values("section 5 (commencement), 1 (January) 2020") == [2020.0]
+def test_a_word_led_parenthesis_with_no_unit_reads_as_a_title() -> None:
+    # Intended limit: with no unit or number after it, any word-led parenthesis
+    # outside the refused openings reads as a title.
+    assert recall_values("section 5 (fees), 25 (individuals) and 50 (couples)") == []
+
+
+_UNITS_AFTER_A_TITLE = (
+    "months",
+    "month",
+    "weeks",
+    "week",
+    "years",
+    "year",
+    "days",
+    "day",
+    "hours",
+    "hour",
+    "per cent",
+    "percent",
+    "%",
+    "pounds",
+    "pound",
+    "dollars",
+    "dollar",
+    "euros",
+    "euro",
+    "pence",
+)
+
+
+@pytest.mark.parametrize("unit", _UNITS_AFTER_A_TITLE)
+@pytest.mark.parametrize("gap", (" ", "", "\n"))
+def test_a_unit_after_the_last_title_keeps_the_list_out_of_the_pass(
+    unit: str, gap: str
+) -> None:
+    text = f"under regulation 5 (exceptions), 12 (for a couple, 24){gap}{unit} apply"
+    text = text.replace("(for a couple", "(in the case of a couple")
+    with titled_list_pass_disabled():
+        before = recall_values(text)
+
+    assert sc._ENGLISH_TITLED_REFERENCE_LIST.search(text) is None
+    assert recall_values(text) == before
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param(
+            "Subject to regulation 5 (exceptions), 12 (in the case of a couple, "
+            "24) months must pass",
+            [12.0, 24.0],
+            id="months",
+        ),
+        pytest.param(
+            "Subject to section 5 (exemptions), 10 (in the case of a pensioner, "
+            "15) per cent of income",
+            [10.0, 15.0],
+            id="per-cent",
+        ),
+        pytest.param(
+            "section 5 (rates), 10 (gross) or 20 (net) per cent",
+            [10.0, 20.0],
+            id="every-item-of-the-list-stays",
+        ),
+        pytest.param(
+            "section 5 (commencement), 1 (January) 2020",
+            [1.0, 2020.0],
+            id="number-on-the-same-line",
+        ),
+    ],
+)
+def test_an_amount_after_the_last_title_keeps_every_item(
+    text: str, expected: list[float]
+) -> None:
+    assert recall_values(text) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    "word",
+    ("weekly", "monthly", "yearly", "daytime", "hourly", "percentage", "poundage"),
+)
+def test_a_word_that_only_begins_like_a_unit_leaves_the_list_alone(word: str) -> None:
+    text = f"regulation 5 (exceptions), 12 (persons) {word} apply"
+
+    assert sc._ENGLISH_TITLED_REFERENCE_LIST.search(text) is not None
+    assert 12.0 not in recall_values(text)
+
+
+@pytest.mark.parametrize("fraction", (0xBC, 0xBD, 0xBE, 0x2150, 0x215E))
+def test_a_vulgar_fraction_opens_no_title(fraction: int) -> None:
+    text = f"section 5 (rates) and 2 ({chr(fraction)}) applies"
+
+    assert sc._ENGLISH_TITLED_REFERENCE_LIST.search(text) is None
+
+
+@pytest.mark.parametrize(
+    "line_break",
+    (
+        "\n",
+        "\r",
+        "\x0b",
+        "\x0c",
+        "\x1c",
+        "\x1d",
+        "\x1e",
+        "\x85",
+        chr(0x2028),
+        chr(0x2029),
+    ),
+)
+def test_a_title_after_any_line_break_is_no_title(line_break: str) -> None:
+    text = f"if regulation 15{line_break}(absentees) or 19{line_break}(persons) applies"
+    with titled_list_pass_disabled():
+        before = recall_values(text)
+
+    assert 19.0 in before
+    assert sc._ENGLISH_TITLED_REFERENCE_LIST.search(text) is None
+    assert recall_values(text) == before
 
 
 @pytest.mark.parametrize(
@@ -458,8 +613,28 @@ def test_a_month_in_parentheses_reads_as_a_title() -> None:
             id="wrapped-onto-a-heading-by-a-form-feed",
         ),
         pytest.param(
-            "\xa0(1) Part 9 (applications) or 10 (decisions) apply to 7 persons.",
-            id="guard-errs-toward-leaving-the-list-alone",
+            "Section 5 Part 9 (applications) or 10 (decisions) apply to 7 persons.",
+            id="behind-a-citation",
+        ),
+        pytest.param(
+            "Regulation 3 Part 9 (applications), 10 (decisions) and 11",
+            id="behind-a-citation-with-an-untitled-last-item",
+        ),
+        pytest.param(
+            "Paragraph 12 Schedule 1 (students) or 2 (persons) apply to 7 persons.",
+            id="behind-a-paragraph-citation",
+        ),
+        pytest.param(
+            "Art. 3 Part 9 (applications) or 10 (decisions) apply to 7 persons.",
+            id="behind-an-abbreviated-citation",
+        ),
+        pytest.param(
+            "Absatz 2 Part 9 (applications) or 10 (decisions) apply to 7 persons.",
+            id="behind-a-german-citation",
+        ),
+        pytest.param(
+            "foo\\n Part 9 (applications) or 10 (decisions) apply to 7 persons.",
+            id="behind-an-escaped-line-break",
         ),
     ],
 )
@@ -471,7 +646,7 @@ def test_a_heading_line_stays_as_it_was(text: str) -> None:
     assert recall_values(text) == before
 
 
-def test_a_keyword_before_the_list_does_not_guard_a_later_line() -> None:
+def test_a_list_on_the_line_after_a_heading_leaves_recall() -> None:
     # "Part 3" closes its own line, so the list that follows still leaves.
     assert (
         recall_values(
@@ -510,6 +685,14 @@ _LINE_OPENINGS = (
     chr(0x2019),
     chr(0x201C) + " ",
     "A person to whom ",
+    "Section 5 ",
+    "Regulation 3 ",
+    "Art. 3 ",
+    "Absatz 2 ",
+    "Nr. 3 ",
+    "1. Article 5 ",
+    "foo\\n ",
+    "\xa0",
 )
 _HEADING_KEYWORDS = ("Part", "PART", "part", "Chapter", "Schedule")
 
@@ -519,13 +702,13 @@ _HEADING_KEYWORDS = ("Part", "PART", "part", "Chapter", "Schedule")
     st.lists(st.sampled_from(_LINE_OPENINGS), max_size=3).map("".join),
     st.sampled_from(_HEADING_KEYWORDS),
 )
-def test_the_heading_check_agrees_with_the_extractor(
+def test_a_line_the_extractor_reads_as_a_heading_changes_nothing(
     opening: str, keyword: str
 ) -> None:
     text = f"{opening}{keyword} 9 (applications) or 10 (decisions) apply to 7 persons."
-    match = sc._ENGLISH_TITLED_REFERENCE_LIST.search(text)
-    assert match is not None
+    assert sc._ENGLISH_TITLED_REFERENCE_LIST.search(text) is not None
     with titled_list_pass_disabled():
+        before = recall_values(text)
         recall = sc.authoritative_numeric_recall_text(
             text, corpus_citation_path=CITATION
         )
@@ -535,13 +718,10 @@ def test_the_heading_check_agrees_with_the_extractor(
         )
     )
 
-    assert sc._titled_list_touches_heading_line(match) is reads_as_heading
-
-
-def test_the_heading_check_mirrors_the_extractors_quote_characters() -> None:
-    pattern = sc._ENGLISH_HEADING_LINE_OPENING
-    for quote in _STRUCTURAL_SOURCE_QUOTE_CHARS:
-        assert pattern.match(f"{quote}Part 9") is not None
+    if reads_as_heading:
+        assert recall_values(text) == before
+    else:
+        assert not Counter(recall_values(text)) - Counter(before)
 
 
 def test_unclosed_title_finishes_and_changes_nothing() -> None:
@@ -550,17 +730,6 @@ def test_unclosed_title_finishes_and_changes_nothing() -> None:
         before = recall_values(text)
 
     assert recall_values(text) == before
-
-
-def test_the_heading_check_stays_linear_on_a_long_blank_run() -> None:
-    # Only the pass: the extractor's own cost grows faster than the text here.
-    blank = " " * 200_000
-    text = f"{blank}\n(1) {blank}Part 9 (x y) or 10 (y z) applies to 7."
-
-    assert (
-        sc._ENGLISH_TITLED_REFERENCE_LIST.sub(sc._blank_titled_reference_list, text)
-        == text
-    )
 
 
 _KEYWORDS = (
@@ -619,12 +788,12 @@ _TITLE_WORDS = (
 )
 
 
-TitledList = tuple[str, list[str], list[str], list[float]]
+TitledList = tuple[str, list[str], list[str], list[float], str]
 
 
 @st.composite
 def titled_lists(draw: st.DrawFn) -> TitledList:
-    """A titled reference list, its item numbers and titles, and title amounts."""
+    """A titled reference list, its numbers, titles, amounts and expected blanking."""
     keyword = draw(st.sampled_from(_KEYWORDS))
     keyword = draw(st.sampled_from((keyword, keyword.capitalize())))
     count = draw(st.integers(min_value=2, max_value=5))
@@ -632,6 +801,7 @@ def titled_lists(draw: st.DrawFn) -> TitledList:
     titles: list[str] = []
     amounts: list[float] = []
     parts: list[str] = []
+    blanked: list[str] = []
     for index in range(count):
         number = str(draw(st.integers(min_value=1, max_value=99))) + draw(
             st.sampled_from(("", "", "A", "ZB"))
@@ -646,6 +816,7 @@ def titled_lists(draw: st.DrawFn) -> TitledList:
         item = f"{number} {title}"
         if index == 0:
             parts.append(f"{keyword} {item}")
+            blanked.append(f"{keyword} {item}")
         else:
             separator = draw(st.sampled_from(_SEPARATORS))
             # A singular Part, Chapter or Schedule that opens a line reads as
@@ -655,9 +826,11 @@ def titled_lists(draw: st.DrawFn) -> TitledList:
             )
             repeat = f"{keyword} " if may_repeat and draw(st.booleans()) else ""
             parts.append(f"{separator}{repeat}{item}")
+            kept_number = number if repeat else " " * len(number)
+            blanked.append(f"{separator}{repeat}{kept_number} {title}")
         numbers.append(number)
         titles.append(title)
-    return "".join(parts), numbers, titles, sorted(amounts)
+    return "".join(parts), numbers, titles, sorted(amounts), "".join(blanked)
 
 
 _SETTINGS = settings(
@@ -668,7 +841,7 @@ _SETTINGS = settings(
 @_SETTINGS
 @given(titled_lists())
 def test_only_item_numbers_leave_recall(case: TitledList) -> None:
-    reference_list, numbers, _titles, amounts = case
+    reference_list, numbers, _titles, amounts, _blanked = case
     text = f"A person to whom {reference_list} applies is not entitled."
     with titled_list_pass_disabled():
         before = recall_values(text)
@@ -683,7 +856,7 @@ def test_only_item_numbers_leave_recall(case: TitledList) -> None:
 @_SETTINGS
 @given(titled_lists(), st.integers(min_value=1, max_value=99))
 def test_untitled_tail_keeps_its_obligation(case: TitledList, tail: int) -> None:
-    reference_list, _numbers, _titles, amounts = case
+    reference_list, _numbers, _titles, amounts, _blanked = case
     text = f"A person to whom {reference_list} or {tail} persons apply."
 
     assert recall_values(text) == sorted([*amounts, float(tail)])
@@ -691,24 +864,16 @@ def test_untitled_tail_keeps_its_obligation(case: TitledList, tail: int) -> None
 
 @_SETTINGS
 @given(titled_lists())
-def test_blanking_keeps_only_titles(case: TitledList) -> None:
-    reference_list, _numbers, titles, _amounts = case
+def test_the_pass_blanks_the_keyword_less_numbers_and_nothing_else(
+    case: TitledList,
+) -> None:
+    reference_list, _numbers, _titles, _amounts, blanked = case
     text = f"A person to whom {reference_list} applies."
     matches = list(sc._ENGLISH_TITLED_REFERENCE_LIST.finditer(text))
 
     assert len(matches) == 1
-    match = matches[0]
-    assert match.group(0) == reference_list
-    blanked = sc._blank_titled_reference_list(match)
-    assert len(blanked) == len(reference_list)
-    assert all(
-        replacement in (" ", original)
-        for original, replacement in zip(reference_list, blanked)
-    )
-    assert blanked.split() == " ".join(titles).split()
-    assert [c for c in blanked if c in "\r\n"] == [
-        c for c in reference_list if c in "\r\n"
-    ]
+    assert matches[0].group(0) == reference_list
+    assert sc._blank_titled_reference_list(matches[0]) == blanked
 
 
 _HOSTILE_KEYWORDS = (*_KEYWORDS, "Part", "PART", "Chapter", "Schedule", "SCHEDULE")
@@ -724,6 +889,7 @@ _HOSTILE_TITLES = (
     "applications",
     "persons aged 65 or over",
     "see regulation 14(6)",
+    "persons: absentees",
     "rate of 10%",
     "or more",
     "per week",
@@ -736,7 +902,7 @@ _HOSTILE_TITLES = (
     "paragraph 21 & 22",
     "Part 3",
 )
-_HOSTILE_GAPS = (" ", " ", "", "\t", "  ", "\n")
+_HOSTILE_GAPS = (" ", " ", "", "\t", "  ", "\n", "\x0c", chr(0x2028))
 _HOSTILE_SEPARATORS = (*_SEPARATORS, ",\n\n")
 _HOSTILE_PREFIXES = (
     "",
@@ -752,6 +918,17 @@ _HOSTILE_PREFIXES = (
     "12 months and ",
     "25 per cent of ",
     "  ",
+    "Section 5 ",
+    "Regulation 3 ",
+    "Paragraph 12 ",
+    "Art. 3 ",
+    "Absatz 2 ",
+    "Nr. 3 ",
+    "1. Article 5 ",
+    "foo\\n ",
+    "7 ",
+    "12 ",
+    "3A ",
 )
 _HOSTILE_TAILS = (
     "",
@@ -775,7 +952,7 @@ _HOSTILE_TAILS = (
 
 @st.composite
 def hostile_texts(draw: st.DrawFn) -> str:
-    """A text built to tempt the pass: every shape a review found adding a demand."""
+    """A text built to tempt the pass into adding a demand."""
 
     def item() -> str:
         return (
