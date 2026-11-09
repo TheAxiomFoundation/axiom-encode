@@ -64,3 +64,59 @@ def test_codex_reviewer_defaults_to_the_encoder_model(monkeypatch):
     validator_pipeline._run_codex_reviewer_cli("review this")
     cmd = seen["cmd"]
     assert cmd[cmd.index("--model") + 1] == "gpt-6-luna"
+
+
+def test_only_the_codex_reviewer_receives_the_supervisor_codex_home(monkeypatch):
+    """Codex needs a home to start; the Claude reviewer never gets one."""
+    monkeypatch.setattr(validator_pipeline, "resolve_codex_cli", lambda: "codex")
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return SimpleNamespace(output="", returncode=0)
+
+    monkeypatch.setattr(
+        validator_pipeline, "_run_subprocess_with_idle_timeout", fake_run
+    )
+    validator_pipeline._run_codex_reviewer_cli("review this")
+    monkeypatch.delenv("AXIOM_ENCODE_REVIEWER_CLI", raising=False)
+    validator_pipeline.run_claude_code("review this", model="m")
+
+    (codex_cmd, codex_options), (claude_cmd, claude_options) = calls
+    assert codex_cmd[0] == "codex"
+    assert codex_cmd[codex_cmd.index("--sandbox") + 1] == "read-only"
+    assert codex_options["include_supervisor_codex_home"] is True
+    assert claude_cmd[0] == "claude"
+    assert "include_supervisor_codex_home" not in claude_options
+    assert "CODEX_HOME" not in claude_options["env"]
+
+
+def test_reviewer_subprocess_sees_only_the_captured_codex_home(monkeypatch, tmp_path):
+    """A real child gets the supervisor's home, never the ambient one."""
+    import sys
+
+    from axiom_encode import signing_broker
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "ambient"))
+    monkeypatch.setattr(
+        signing_broker, "_trusted_codex_home", str(tmp_path / "supervisor")
+    )
+    script = "import json,os; print(json.dumps(os.environ.get('CODEX_HOME')))"
+
+    opted_in = validator_pipeline._run_subprocess_with_idle_timeout(
+        [sys.executable, "-c", script],
+        timeout=10,
+        idle_timeout=10,
+        include_supervisor_codex_home=True,
+    )
+    default = validator_pipeline._run_subprocess_with_idle_timeout(
+        [sys.executable, "-c", script],
+        timeout=10,
+        idle_timeout=10,
+        env={"CODEX_HOME": str(tmp_path / "caller")},
+    )
+
+    assert opted_in.returncode == 0
+    assert json.loads(opted_in.output) == str(tmp_path / "supervisor")
+    assert default.returncode == 0
+    assert json.loads(default.output) is None
