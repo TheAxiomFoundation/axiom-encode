@@ -86,9 +86,16 @@ def test_blank_stub_header_keeps_bordered_table_context():
     assert not numeric_value_is_grounded(0.01, tokens)
 
 
-@pytest.mark.parametrize("extra", ["7.65", "(a)", "3"])
+@pytest.mark.parametrize(
+    "extra",
+    ["7.65", "(a)", "3", "(iv)", "see note (a)", "1.5 hours", "(B) Joint returns"],
+)
 def test_inline_row_wider_than_header_is_not_a_rate_row(extra):
     source = f"| Children | Percentage | | --- | --- | | 1 | 3 | {extra} |"
+    tokens = _tokenize_numeric_occurrences_from_text(source, profile="en-US").grounding
+    assert not numeric_value_is_grounded(0.03, tokens)
+    assert not numeric_value_is_grounded(0.0765, tokens)
+    source = f"{source} | 2 | 4 |"
     tokens = _tokenize_numeric_occurrences_from_text(source, profile="en-US").grounding
     assert not numeric_value_is_grounded(0.03, tokens)
     assert not numeric_value_is_grounded(0.0765, tokens)

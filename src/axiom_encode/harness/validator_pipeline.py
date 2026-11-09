@@ -14982,11 +14982,17 @@ def _inline_pipe_table_rate_cell_spans(
                 break
             if tail < len(line) and line[tail] != "|":
                 next_pipe = line.find("|", tail)
-                # Prose between tables has words and punctuation. A decimal or
-                # "(a)" alone is an extra cell, which makes the row too wide.
+                # Prose between tables has words and punctuation, and the pipe
+                # after it opens a new header. A decimal or "(iv)" cell, or any
+                # text closed by a row-ending pipe, is an extra cell instead,
+                # which makes the row wider than its header.
                 gap = line[tail:next_pipe]
-                if next_pipe >= 0 and not (
-                    re.search(r"[.!?()]", gap) and re.search(r"[^\W\d_]{2,}", gap)
+                after = line[next_pipe + 1 :].lstrip()
+                if next_pipe >= 0 and (
+                    not after
+                    or after.startswith("|")
+                    or not re.search(r"[.!?()]", gap)
+                    or not re.search(r"[^\W\d_]{2,}", gap)
                 ):
                     break
             rate_cells.extend(row_cells[column] for column in sorted(columns))
