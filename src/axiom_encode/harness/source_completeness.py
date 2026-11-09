@@ -23271,6 +23271,7 @@ def _retain_bare_punctuation_computations(
                     for label_start, label_end in worksheet_labels
                     if piece_start <= label_start < label_end <= piece_end
                 ),
+                display_path=owner.display_path if owner else None,
                 computation_chapeaux=previous.computation_chapeaux if previous else (),
             )
             if _rounding_clause_refers_to_previous_result(

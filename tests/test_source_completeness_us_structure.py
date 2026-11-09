@@ -447,3 +447,40 @@ def test_list_shapes_that_name_no_branch_here_leave_it_reported():
     issues = structure("7 CFR 273.4(a)(1)(i), (ii)")
     assert not any(roman_ii in issue for issue in issues), issues
     assert not any("273/4(a)(1)(i) [" in issue for issue in issues), issues
+
+
+def test_retained_punctuation_computation_keeps_the_owner_printed_case():
+    source = "The payment must be calculated as income / savings."
+    position = source.index(" / ") + 1
+    owner = completeness.SourceStructureBranch(
+        ("a", "6", "i", "a"),
+        "subparagraph",
+        "(A)",
+        source,
+        0,
+        len(source),
+        display_path=("a", "6", "i", "A"),
+    )
+    existing = (
+        completeness.SourceStructureBranch(
+            ("a",), "formula-clause", "first operand", source[:position], 0, position
+        ),
+        completeness.SourceStructureBranch(
+            ("b",),
+            "formula-clause",
+            "second operand",
+            source[position + 1 :],
+            position + 1,
+            len(source),
+        ),
+    )
+    retained = completeness._retain_bare_punctuation_computations(
+        source,
+        branches=(owner,),
+        obligations=existing,
+        deferred_intervals=(),
+        worksheet_labels=(),
+    )
+    (replacement,) = [branch for branch in retained if branch.text == source]
+    assert replacement.path == owner.path
+    assert replacement.display_path == owner.display_path
