@@ -12,19 +12,21 @@ scalar representation"), and any re-encode of regulation 14 meets it.
 Invariants pinned here:
 
 * every keyword-less item number of a titled list leaves the recall inventory;
-* the pass blanks those numbers in place and nothing else, so a title, a keyword
-  and a line break stay as they were;
+* the pass overwrites those numbers in place and nothing else, so a title, a
+  keyword and a line break stay as they were;
+* a reference earlier in the text stops at an overwritten number;
 * a title's own amounts stay, as do a following untitled quantity and amounts
   outside the list;
 * a parenthesis that does not name a provision keeps its item out of the list:
   a bare marker, a glued or wrapped parenthesis, one that opens with a number
   word or with a word carrying on the amount or limiting the reference, one
   that holds a sentence break, and one that runs past 300 characters;
-* a unit or number after the last title keeps the whole list out of the pass;
+* a number on the same line or a listed unit after the last title keeps the
+  whole list out of the pass;
 * a list on a line the extractor reads as a heading changes nothing, because
   the keyword that makes the line a heading stays;
-* on the generated lists, which mix those shapes with citations, escaped line
-  breaks and leading numbers, the pass adds no demand.
+* on generated lists, including lists right after another reference, the pass
+  adds no demand.
 """
 
 from __future__ import annotations
@@ -443,7 +445,7 @@ def test_a_keyword_may_stand_apart_from_its_number(gap: str) -> None:
 
     assert (
         sc._ENGLISH_TITLED_REFERENCE_LIST.sub(sc._blank_titled_reference_list, text)
-        == f"if regulation{gap}15 (x y) or    (y z) applies"
+        == f"if regulation{gap}15 (x y) or ## (y z) applies"
     )
 
 
@@ -451,20 +453,115 @@ def test_a_word_led_parenthesis_with_no_unit_reads_as_a_title() -> None:
     # Intended limit: with no unit or number after it, any word-led parenthesis
     # outside the refused openings reads as a title.
     assert recall_values("section 5 (fees), 25 (individuals) and 50 (couples)") == []
+    assert recall_values(
+        "under regulation 5 (exceptions), 12 (in the case of a couple, 24) "
+        "consecutive months apply"
+    ) == [24.0]
 
 
-def test_a_reference_can_reach_past_a_heading_line_and_a_blanked_number() -> None:
-    # Intended limit: the heading line blanks, so the reference on the line before
-    # it continues through the title, which reads as a subdivision once its number
-    # goes, and through the numbers after the list.
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param(
+            "A person to whom Schedule 43(x) and\nPART 40 (absentees) or\n"
+            "37 (persons), 7 and 8",
+            [7.0, 8.0],
+            id="across-a-heading-line",
+        ),
+        pytest.param(
+            "Under Part 3 and regulation 15 (absentees) or 19 (persons), 7 and 8",
+            [7.0, 8.0],
+            id="numbers-after-the-list",
+        ),
+        pytest.param(
+            "Under Part 3 and regulation 15 (absentees) or 19 (persons), 7.5",
+            [7.5],
+            id="decimal-after-the-list",
+        ),
+        pytest.param(
+            "Under Part 3 and regulation 15 (absentees) or 19 (persons), Part 7 or 8",
+            [],
+            id="reference-after-the-list",
+        ),
+        pytest.param(
+            "Under Part 3, paragraph 15 (absentees), 19 (persons), 28 days after "
+            "the date",
+            [28.0],
+            id="days-after-the-list",
+        ),
+        pytest.param(
+            "Under Part 3 and sections 4 (interpretation) and 5 (commencement), "
+            "7 and 8",
+            [7.0, 8.0],
+            id="plural-keyword",
+        ),
+        pytest.param(
+            "column 3 and regulation 15 (absentees), 19 (persons), 7 weeks",
+            [7.0, 49.0],
+            id="weeks-after-the-list",
+        ),
+    ],
+)
+def test_a_reference_before_the_list_stops_at_an_overwritten_number(
+    text: str, expected: list[float]
+) -> None:
+    assert recall_values(text) == expected
+
+
+_REFERENCES_BEFORE_A_LIST = (
+    "Under Part 3 and ",
+    "Under Part 3 or ",
+    "Under Part 3, ",
+    "Under Schedule 1, ",
+    "Under Schedule 1(a) and ",
+    "column 3 and ",
+    "step 2 and ",
+    "subsections 1 and ",
+)
+_ONE_WORD_TITLES = ("persons", "absentees", "applications", "interpretation")
+_QUANTITIES_AFTER_A_LIST = (
+    ", 7.5",
+    ", Part 7 or 8",
+    ", 7 and 8",
+    ", 28 days after the date",
+    " or 7 persons",
+    ", 7 weeks",
+)
+
+
+@settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(
+    prefix=st.sampled_from(_REFERENCES_BEFORE_A_LIST),
+    keyword=st.sampled_from(
+        ("regulation", "section", "paragraph", "article", "Regulation", "Section")
+    ),
+    first_title=st.sampled_from(_ONE_WORD_TITLES),
+    last_title=st.sampled_from(_ONE_WORD_TITLES),
+    separator=st.sampled_from((", ", " and ", " or ", ", and ", ", or ")),
+    tail=st.sampled_from(_QUANTITIES_AFTER_A_LIST),
+    first=st.integers(min_value=10, max_value=99),
+    last=st.integers(min_value=10, max_value=99),
+)
+def test_a_reference_before_the_list_gains_nothing_from_the_pass(
+    prefix: str,
+    keyword: str,
+    first_title: str,
+    last_title: str,
+    separator: str,
+    tail: str,
+    first: int,
+    last: int,
+) -> None:
     text = (
-        "A person to whom Schedule 43(x) and\nPART 40 (absentees) or\n"
-        "37 (persons), 7 and 8"
+        f"{prefix}{keyword} {first} ({first_title}){separator}"
+        f"{last} ({last_title}){tail}"
     )
     with titled_list_pass_disabled():
-        assert recall_values(text) == [7.0, 8.0]
+        before = Counter(recall_values(text))
+    after = Counter(recall_values(text))
 
-    assert recall_values(text) == []
+    assert not after - before
+    assert not (before - after) - Counter([float(last)])
 
 
 _UNITS_AFTER_A_TITLE = (
@@ -538,6 +635,18 @@ def test_an_amount_after_the_last_title_keeps_every_item(
     text: str, expected: list[float]
 ) -> None:
     assert recall_values(text) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    "space", (" ", "\t", "\xa0", chr(0x2003), chr(0x2009), chr(0x202F))
+)
+def test_a_number_after_the_last_title_may_follow_any_same_line_space(
+    space: str,
+) -> None:
+    assert recall_values(f"section 5 (commencement), 1 (January){space}2020") == [
+        1.0,
+        2020.0,
+    ]
 
 
 @pytest.mark.parametrize(
@@ -759,12 +868,29 @@ def test_a_line_the_extractor_reads_as_a_heading_changes_nothing(
         assert not Counter(recall_values(text)) - Counter(before)
 
 
-def test_unclosed_title_finishes_and_changes_nothing() -> None:
+def test_an_unclosed_title_changes_nothing() -> None:
     text = "regulation 15 (absentees) or 19 (" + "persons not entitled " * 2000
     with titled_list_pass_disabled():
         before = recall_values(text)
 
     assert recall_values(text) == before
+
+
+def test_the_source_map_loses_only_the_overwritten_numbers() -> None:
+    text = "if regulation 15 (absentees) or 19 (persons) applies"
+    source_map = sc._NumericRecallSourceMap(list(range(len(text))))
+
+    mapped = sc.authoritative_numeric_recall_text(
+        text, corpus_citation_path=CITATION, _source_map=source_map
+    )
+
+    assert mapped == sc.authoritative_numeric_recall_text(
+        text, corpus_citation_path=CITATION
+    )
+    overwritten = mapped.index("##")
+    assert source_map.offsets[overwritten : overwritten + 2] == [None, None]
+    assert mapped[overwritten + 3 :] == text[text.index("(persons)") :]
+    assert source_map.offsets[-1] == len(text) - 1
 
 
 _KEYWORDS = (
@@ -861,7 +987,7 @@ def titled_lists(draw: st.DrawFn) -> TitledList:
             )
             repeat = f"{keyword} " if may_repeat and draw(st.booleans()) else ""
             parts.append(f"{separator}{repeat}{item}")
-            kept_number = number if repeat else " " * len(number)
+            kept_number = number if repeat else "#" * len(number)
             blanked.append(f"{separator}{repeat}{kept_number} {title}")
         numbers.append(number)
         titles.append(title)
