@@ -1,0 +1,12 @@
+{
+  "seconds": 154.2779894169944,
+  "passed": true,
+  "issues": [],
+  "details": {
+    "same_case_snapshot": {
+      "clone_seconds": 0.062181040993891656,
+      "closure_files": 3,
+      "executed_cases": 21
+    }
+  }
+}

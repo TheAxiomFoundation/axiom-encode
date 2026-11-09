@@ -21,6 +21,13 @@ on:
       - scripts/provision_verification_supervisor.py
       - .github/workflows/provision-selftest.yml
 
+# A new push to a pull request cancels that pull request's older run of this
+# workflow, so runs for superseded heads stop holding runners. Each push to
+# main keys its own group, so nothing cancels it or makes it wait.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   selftest:
     runs-on: ubuntu-latest
@@ -30,11 +37,11 @@ jobs:
       matrix:
         python-version: ["3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Python ${{ matrix.python-version }}
         id: py
-        uses: actions/setup-python@v6.2.0
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ matrix.python-version }}
 

@@ -1,0 +1,39 @@
+--- Source: us/statute/26/26/b ---
+For purposes of this part—
+
+(1) In general The term “regular tax liability” means the tax imposed by this chapter for the taxable year.
+
+(2) Exception for certain taxes For purposes of paragraph (1), any tax imposed by any of the following provisions shall not be treated as tax imposed by this chapter: (A) section 55 (relating to minimum tax), (B) section 59A (relating to base erosion and anti-abuse tax), (C) subsection (m)(5)(B), (q), (t), or (v) of section 72 (relating to additional taxes on certain distributions), (D) section 143(m) (relating to recapture of proration of Federal subsidy from use of mortgage bonds and mortgage credit certificates), (E) section 530(d)(4) (relating to additional tax on certain distributions from Coverdell education savings accounts), (F) section 531 (relating to accumulated earnings tax), (G) section 541 (relating to personal holding company tax), (H) section 1351(d)(1) (relating to recoveries of foreign expropriation losses), (I) section 1374 (relating to tax on certain built-in gains of S corporations), (J) section 1375 (relating to tax imposed when passive investment income of corporation having subchapter C earnings and profits exceeds 25 percent of gross receipts), (K) subparagraph (A) of section 7518(g)(6) (relating to nonqualified withdrawals from capital construction funds taxed at highest marginal rate), (L) sections 871(a) and 881 (relating to certain income of nonresident aliens and foreign corporations), (M) section 860E(e) (relating to taxes with respect to certain residual interests), (N) section 884 (relating to branch profits tax), (O) sections 453( l )(3) and 453A(c) (relating to interest on certain deferred tax liabilities), [(P) Repealed. Pub. L. 115–141, div. U, title IV, § 401(b)(2) , Mar. 23, 2018 , 132 Stat. 1201 .] (Q) section 220(f)(4) (relating to additional tax on Archer MSA distributions not used for qualified medical expenses), (R) section 138(c)(2) (relating to penalty for distributions from Medicare Advantage MSA not used for qualified medical expenses if minimum balance not maintained), (S) sections 106(e)(3)(A)(ii), 223(b)(8)(B)(i)(II), and 408(d)(9)(D)(i)(II) (relating to certain failures to maintain high deductible health plan coverage), (T) section 170( o )(3)(B) (relating to recapture of certain deductions for fractional gifts), (U) section 223(f)(4) (relating to additional tax on health savings account distributions not used for qualified medical expenses), (V) subsections (a)(1)(B)(i) and (b)(4)(A) of section 409A (relating to interest and additional tax with respect to certain deferred compensation), (W) section 36(f) (relating to recapture of homebuyer credit), (X) section 457A(c)(1)(B) (relating to determinability of amounts of compensation), (Y) section 529A(c)(3)(A) (relating to additional tax on ABLE account distributions not used for qualified disability expenses), and (Z) section 24(j)(2) (relating to excess advance payments).
+
+--- Source: us/statute/26/55/d/2 ---
+The exemption amount of any taxpayer shall be reduced (but not below zero) by an amount equal to 25 percent of the amount by which the alternative minimum taxable income of the taxpayer exceeds—
+
+(A) $150,000 in the case of a taxpayer described in paragraph (1)(A),
+
+(B) $112,500 in the case of a taxpayer described in paragraph (1)(B), and
+
+(C) 50 percent of the dollar amount applicable under subparagraph (A) in the case of a taxpayer described in subparagraph (C) or (D) of paragraph (1).
+
+In the case of a taxpayer described in paragraph (1)(C), alternative minimum taxable income shall be increased by the lesser of (i) 25 percent of the excess of alternative minimum taxable income (determined without regard to this sentence) over the minimum amount of such income (as so determined) for which the exemption amount under paragraph (1)(C) is zero, or (ii) such exemption amount (determined without regard to this paragraph).
+
+--- Source: us/statute/26/55/b/1 ---
+In the case of a taxpayer other than a corporation—
+
+(A) In general The tentative minimum tax for the taxable year is the sum of— (i) 26 percent of so much of the taxable excess as does not exceed $175,000, plus (ii) 28 percent of so much of the taxable excess as exceeds $175,000. The amount determined under the preceding sentence shall be reduced by the alternative minimum tax foreign tax credit for the taxable year.
+
+(B) Taxable excess For purposes of this subsection, the term “taxable excess” means so much of the alternative minimum taxable income for the taxable year as exceeds the exemption amount.
+
+(C) Married individual filing separate return In the case of a married individual filing a separate return, subparagraph (A) shall be applied by substituting 50 percent of the dollar amount otherwise applicable under clause (i) and clause (ii) thereof. For purposes of the preceding sentence, marital status shall be determined under section 7703.
+
+(D) Alternative minimum taxable income The term “alternative minimum taxable income” means the taxable income of the taxpayer for the taxable year— (i) determined with the adjustments provided in section 56 and section 58, and (ii) increased by the amount of the items of tax preference described in section 57. If a taxpayer is subject to the regular tax, such taxpayer shall be subject to the tax imposed by this section (and, if the regular tax is determined by reference to an amount other than taxable income, such amount shall be treated as the taxable income of such taxpayer for purposes of the preceding sentence).
+
+--- Source: us/statute/26/56/b/1 ---
+(A) In general No deduction shall be allowed— (i) for any miscellaneous itemized deduction (as defined in section 67(b)), or (ii) for any taxes described in paragraph (1), (2), or (3) of section 164(a) or clause (ii) of section 164(b)(5)(A). Clause (ii) shall not apply to any amount allowable in computing adjusted gross income.
+
+(B) Interest In determining the amount allowable as a deduction for interest, subsections (d) and (h) of section 163 shall apply, except that— (i) in lieu of the exception under section 163(h)(2)(D), the term “personal interest” shall not include any qualified housing interest (as defined in subsection (e)), (ii) interest on any specified private activity bond (and any amount treated as interest on a specified private activity bond under section 57(a)(5)(B)), and any deduction referred to in section 57(a)(5)(A), shall be treated as includible in gross income (or as deductible) for purposes of applying section 163(d), (iii) in lieu of the exception under section 163(d)(3)(B)(i), the term “investment interest” shall not include any qualified housing interest (as defined in subsection (e)), and (iv) the adjustments of this section and sections 57 and 58 shall apply in determining net investment income under section 163(d).
+
+(C) Treatment of certain recoveries No recovery of any tax to which subparagraph (A)(ii) applied shall be included in gross income for purposes of determining alternative minimum taxable income.
+
+(D) Standard deduction and deduction for personal exemptions not allowed The standard deduction under section 63(c), the deduction for personal exemptions under section 151, and the deduction under section 642(b) shall not be allowed.
+
+(E) Section 68 not applicable Section 68 shall not apply.

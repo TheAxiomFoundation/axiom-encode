@@ -79,13 +79,16 @@ class VerifiedCorpusReleaseObject:
     selector_sha256: str
     scopes: tuple[VerifiedReleaseScope, ...]
     artifacts: tuple[VerifiedReleaseArtifact, ...]
+    git_commit: str
+    r2_bucket: str
 
 
 def canonical_release_object_bytes(payload: Mapping[str, Any]) -> bytes:
     """Return the signed canonical JSON representation of a release object."""
 
-    unsigned = copy.deepcopy(dict(payload))
-    unsigned.pop("signature", None)
+    # Serialization never mutates, so dropping the top-level signature from a
+    # shallow copy suffices; verify_release_object already works on a deep copy.
+    unsigned = {key: value for key, value in payload.items() if key != "signature"}
     return json.dumps(
         unsigned,
         sort_keys=True,
@@ -141,6 +144,29 @@ def verify_release_object(
         break
     else:
         raise CorpusReleaseObjectError("release object signature is invalid")
+    return verified
+
+
+def verify_pinned_release_object_content(
+    payload: Mapping[str, Any],
+    *,
+    name: str,
+    content_sha256: str,
+) -> VerifiedCorpusReleaseObject:
+    """Validate a release object's schema and bind it to a pinned content digest.
+
+    This does not check the signature. It is for callers that already hold
+    the exact content digest from a trusted pin (a RuleSpec
+    ``.axiom/toolchain.toml``): the digest covers every artifact's sha256, so
+    it alone binds the artifact bytes. Anything that reads corpus text must
+    still use :func:`verify_release_object`.
+    """
+
+    verified = _validate_unsigned_release_object(copy.deepcopy(dict(payload)))
+    if verified.name != name or verified.content_sha256 != content_sha256:
+        raise CorpusReleaseObjectError(
+            "release object does not match the pinned name and content digest"
+        )
     return verified
 
 
@@ -283,6 +309,8 @@ def _validate_unsigned_release_object(
         selector_sha256=selector_sha256,
         scopes=scopes,
         artifacts=artifacts,
+        git_commit=git["commit"],
+        r2_bucket=r2["bucket"],
     )
 
 
@@ -446,6 +474,21 @@ def _validate_scope_artifact_membership(
     artifacts: Sequence[VerifiedReleaseArtifact],
 ) -> None:
     by_path = {artifact.path: artifact for artifact in artifacts}
+    # One pass groups source artifacts by the scope directory they sit under.
+    # Scope components match _SCOPE_COMPONENT_RE and so contain no "/": a path
+    # starts with "data/corpus/sources/<j>/<d>/<v>/" exactly when its fourth
+    # through sixth segments are (<j>, <d>, <v>) and a seventh segment follows.
+    source_paths_by_scope: dict[tuple[str, str, str], list[str]] = {}
+    for path, artifact in by_path.items():
+        if artifact.artifact_class != "sources" or not path.startswith(
+            "data/corpus/sources/"
+        ):
+            continue
+        parts = path.split("/", 6)
+        if len(parts) == 7:
+            source_paths_by_scope.setdefault((parts[3], parts[4], parts[5]), []).append(
+                path
+            )
     claimed: set[str] = set()
     for scope in scopes:
         prefix = f"{scope.jurisdiction}/{scope.document_class}/{scope.version}"
@@ -465,12 +508,9 @@ def _validate_scope_artifact_membership(
             raise CorpusReleaseObjectError(
                 f"release scope row count does not match its provisions artifact: {prefix}"
             )
-        source_prefix = f"data/corpus/sources/{prefix}/"
-        source_paths = [
-            path
-            for path, artifact in by_path.items()
-            if path.startswith(source_prefix) and artifact.artifact_class == "sources"
-        ]
+        source_paths = source_paths_by_scope.get(
+            (scope.jurisdiction, scope.document_class, scope.version), []
+        )
         if not source_paths:
             raise CorpusReleaseObjectError(
                 f"release scope lacks source artifacts: {prefix}"

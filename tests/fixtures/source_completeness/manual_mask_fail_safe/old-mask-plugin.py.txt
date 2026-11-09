@@ -1,0 +1,15 @@
+"""Load the frozen review-head implementation for regression reproduction."""
+
+from pathlib import Path
+
+
+def pytest_configure(config):
+    from axiom_encode.harness import manual_locator_metadata, source_completeness
+
+    metadata = Path(__file__).with_name("manual_locator_metadata_old.py")
+    exec(
+        compile(metadata.read_text(), str(metadata), "exec"),
+        manual_locator_metadata.__dict__,
+    )
+    frozen = Path(__file__).with_name("source_completeness_old.py")
+    exec(compile(frozen.read_text(), str(frozen), "exec"), source_completeness.__dict__)

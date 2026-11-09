@@ -14,8 +14,12 @@ DIRECT_VARIABLES = {
         "il_income_tax_before_non_refundable_credits"
     ),
 }
-ORACLE_MERGE = "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
-ENCODER_VERSION = "0.2.1998"
+ORACLE_MERGE = "9434ce833bacbc60bc1572ea0245913ff4e48501"
+# The version that pyproject.toml, uv.lock and __init__.py must agree on, read
+# from pyproject.toml so a version bump does not edit this test (axiom-encode#2048).
+ENCODER_VERSION = tomllib.loads(
+    (Path(__file__).parents[1] / "pyproject.toml").read_text()
+)["project"]["version"]
 FALLBACK_TEXT = """  - legal_id_prefix: "us-il:"
     country: us
     mapping_type: not_comparable

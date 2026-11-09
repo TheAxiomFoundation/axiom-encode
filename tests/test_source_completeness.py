@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import dataclasses
 import functools
 import hashlib
-import time
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode.harness import source_completeness as completeness_module
 from axiom_encode.harness import validator_pipeline as validator_pipeline_module
@@ -30,6 +32,8 @@ from axiom_encode.harness.validator_pipeline import (
     find_ungrounded_numeric_issues_scoped,
     numeric_value_is_grounded,
 )
+from axiom_encode.prompts.encoder import ENCODER_PROMPT
+from tests.scaling import assert_linear_growth, lowest_work
 
 CORPUS_CITATION_PATH = "de/statute/estg/32a"
 DE_NUMERIC_OCCURRENCE_EXTRACTOR = functools.partial(
@@ -811,6 +815,570 @@ def test_parent_chapeau_proof_does_not_absorb_first_structural_child():
     assert clauses[0].text.rstrip().endswith("criterion:")
     assert "forty qualifying quarters" not in clauses[0].text
     assert not completeness_module._source_conjunctive_fact_gates(clauses[0].text)
+
+
+def test_exact_conjunct_excerpt_owns_only_its_source_subclause():
+    source = (
+        "Basic categorical eligibility exists when the budgetary unit does not "
+        "have a disqualified participant, and all budgetary unit participants "
+        "receive a listed benefit."
+    )
+    excerpt = "all budgetary unit participants receive a listed benefit"
+    rule = _ky_derived_rule(
+        "all_participants_receive_listed_benefit",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="all_participants_receive_listed_benefit_fact",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [excerpt]
+    assert not completeness_module._source_conjunctive_fact_gates(clauses[0].text)
+
+
+def test_coordinated_list_chapeau_is_narrowed_with_multiple_formula_excerpts():
+    source = """\
+Basic categorical eligibility exists when the budgetary unit does not have a disqualified participant, and all budgetary unit participants receive any of the following:
+
+● TANF CA Benefits
+● SSI This includes participants whose SSI benefits are in no pay or suspend status.
+"""
+    excerpt = "all budgetary unit participants receive any of the following"
+    rule = _ky_derived_rule(
+        "participant_receives_listed_benefit",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="participant_receives_tanf or participant_receives_ssi",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+        narrow_conjunctive_excerpt=False,
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [excerpt]
+    assert not completeness_module._source_conjunctive_fact_gates(clauses[0].text)
+
+
+def test_exact_physical_bullet_proof_owns_only_its_item():
+    source = (
+        "Eligibility exists when all of the following apply:\n\n"
+        "● Gross income does not exceed the limit\n\n"
+        "● The unit does not meet basic categorical eligibility\n\n"
+        "● Disqualified participant resources are within the limit\n\n"
+        "NOTE Resources from certain disqualified participants are counted in full."
+    )
+    citation = "us-az/manual/des/faa5/na-categorical-eligibility/block-4"
+    excerpt = "The unit does not meet basic categorical eligibility"
+    rule = _ky_derived_rule(
+        "unit_does_not_meet_basic_categorical_eligibility",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="not unit_meets_basic_categorical_eligibility",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path=citation,
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == ["● " + excerpt]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) < 2
+
+    chapeau = "Eligibility exists when all of the following apply:"
+    parent_rule = _ky_derived_rule(
+        "eligibility",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="gross_income_within_limit and unit_not_bce and resources_within_limit",
+        excerpt=chapeau,
+    )
+    parent_clauses, parent_ambiguous = (
+        completeness_module._source_condition_clauses_owned_by_excerpt(
+            chapeau,
+            rule=parent_rule,
+            source_text=source,
+            branches=recognize_source_structure(source),
+            corpus_citation_path=citation,
+        )
+    )
+    assert not parent_ambiguous
+    assert (
+        len(completeness_module._source_conjunctive_fact_gates(parent_clauses[0].text))
+        == 3
+    )
+    note = "Resources from certain disqualified participants are counted in full."
+    note_rule = _ky_derived_rule(
+        "disqualified_participant_resources_counted_in_full",
+        source="Arizona DES FAA5",
+        dtype="Money",
+        formula="disqualified_participant_resources",
+        excerpt=note,
+    )
+    note_clauses, note_ambiguous = (
+        completeness_module._source_condition_clauses_owned_by_excerpt(
+            note,
+            rule=note_rule,
+            source_text=source,
+            branches=recognize_source_structure(source),
+            corpus_citation_path=citation,
+        )
+    )
+    assert not note_ambiguous
+    assert [clause.text for clause in note_clauses] == ["NOTE " + note]
+
+
+def test_bullet_item_does_not_merge_independent_sentences():
+    source = (
+        "● The applicant is eligible if the applicant is a resident and a citizen. "
+        "The spouse is eligible if the spouse has income and is disabled."
+    )
+    excerpt = "The applicant is eligible if the applicant is a resident and a citizen"
+    rule = _ky_derived_rule(
+        "applicant_is_eligible",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="applicant_is_resident and applicant_is_citizen",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+    )
+
+    assert not ambiguous
+    assert len(clauses) == 1
+    assert "spouse" not in clauses[0].text
+
+
+def test_nested_bullet_chapeau_keeps_child_gates():
+    source = (
+        "● The applicant is eligible if all of the following apply:\n"
+        "  • The applicant is a resident\n"
+        "  • The applicant is disabled"
+    )
+    citation = "us-az/manual/des/faa5/na-categorical-eligibility/block-4"
+    chapeau = "The applicant is eligible if all of the following apply:"
+    parent = _ky_derived_rule(
+        "applicant_is_eligible",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="applicant_is_resident and applicant_is_disabled",
+        excerpt=chapeau,
+    )
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        chapeau,
+        rule=parent,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path=citation,
+    )
+
+    assert not ambiguous
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+    child_excerpt = "The applicant is a resident"
+    child = _ky_derived_rule(
+        "applicant_is_resident",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="applicant_residence_fact",
+        excerpt=child_excerpt,
+    )
+    child_clauses, child_ambiguous = (
+        completeness_module._source_condition_clauses_owned_by_excerpt(
+            child_excerpt,
+            rule=child,
+            source_text=source,
+            branches=recognize_source_structure(source),
+            corpus_citation_path=citation,
+        )
+    )
+    assert not child_ambiguous
+    assert "disabled" not in child_clauses[0].text
+
+
+def test_later_nested_chapeau_does_not_capture_prior_bullet_proof():
+    source = (
+        "Eligibility exists when all of the following apply:\n"
+        "● The applicant is a resident\n"
+        "● The applicant is eligible if all of the following apply:\n"
+        "  • The applicant is disabled\n"
+        "  • The applicant is a citizen"
+    )
+    excerpt = "The applicant is a resident"
+    rule = _ky_derived_rule(
+        "applicant_is_resident",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="applicant_residence_fact",
+        excerpt=excerpt,
+    )
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+    )
+
+    assert not ambiguous
+    assert len(clauses) == 1
+    assert clauses[0].text.strip() == "● " + excerpt
+
+
+def test_coordinated_list_chapeau_retains_preposed_conditions():
+    source = (
+        "If the applicant is a resident and the applicant is a citizen, the "
+        "agency approves the application and pays any of the following:\n\n"
+        "● A credit\n"
+        "● A refund."
+    )
+    excerpt = "pays any of the following"
+    rule = _ky_derived_rule(
+        "listed_benefit_is_paid",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+        narrow_conjunctive_excerpt=False,
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+def test_coordinated_list_chapeau_retains_trailing_conditions():
+    source = (
+        "The agency approves the application and pays any of the following: "
+        "● a credit or ● a refund if the applicant is a resident and the "
+        "applicant is a citizen."
+    )
+    excerpt = "pays any of the following"
+    rule = _ky_derived_rule(
+        "listed_benefit_is_paid",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+        narrow_conjunctive_excerpt=False,
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+def test_multi_conjunct_excerpt_retains_conditional_context():
+    source = (
+        "Applicants are eligible when the applicant is a resident and the "
+        "applicant is a citizen and the applicant has income."
+    )
+    excerpt = "the applicant is a citizen and the applicant has income"
+    rule = _ky_derived_rule(
+        "citizens_with_income_are_eligible",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="applicant_is_a_citizen and applicant_has_income",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 3
+
+
+@pytest.mark.parametrize(
+    "excerpt",
+    [
+        "the spouse qualifies",
+        "the spouse qualifies if the spouse is a resident",
+    ],
+)
+def test_coordinated_excerpt_retains_its_trailing_condition(excerpt: str):
+    source = (
+        "The taxpayer must file and the spouse qualifies if the spouse is a "
+        "resident and the spouse is a citizen."
+    )
+    rule = _ky_derived_rule(
+        "spouse_qualifies",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="spouse_is_resident and spouse_is_citizen",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["If", "Only if", "(a) If", "For this program, if"],
+)
+def test_coordinated_consequence_retains_preposed_conditions(prefix: str):
+    source = (
+        f"{prefix} the applicant is a resident and the applicant is a citizen, the "
+        "agency approves the application and pays the credit."
+    )
+    excerpt = "pays the credit"
+    rule = _ky_derived_rule(
+        "credit_is_paid",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+def test_excerpt_crossing_into_consequence_retains_preposed_conditions():
+    source = (
+        "If the applicant is a resident and the applicant is a citizen, the "
+        "agency approves the application and pays the credit."
+    )
+    excerpt = "the applicant is a citizen, the agency approves the application"
+    rule = _ky_derived_rule(
+        "application_is_approved",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+def test_coordinated_consequence_retains_shared_trailing_conditions():
+    source = (
+        "The agency accepts the application and approves the benefit and pays "
+        "the credit if the applicant is a resident and the applicant is a citizen."
+    )
+    excerpt = "approves the benefit"
+    rule = _ky_derived_rule(
+        "benefit_is_approved",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+def test_data_relation_is_structural_during_conjunctive_gate_expansion():
+    citation_path = "us-az/manual/des/faa5/na-categorical-eligibility/block-3"
+    source = (
+        "Basic categorical eligibility exists when the budgetary unit does not "
+        "have a disqualified participant, and all budgetary unit participants "
+        "receive a listed benefit."
+    )
+    first_excerpt = "the budgetary unit does not have a disqualified participant"
+    second_excerpt = "all budgetary unit participants receive a listed benefit"
+    payload = {
+        "format": "rulespec/v1",
+        "module": {"source_verification": {"corpus_citation_path": citation_path}},
+        "rules": [
+            {
+                "name": "member_of_budgetary_unit",
+                "kind": "data_relation",
+                "data_relation": {
+                    "predicate": "member_of_budgetary_unit",
+                    "arity": 2,
+                    "arguments": ["Person", "Household"],
+                },
+            },
+            _ky_derived_rule(
+                "no_participant_is_disqualified",
+                source="Arizona DES FAA5",
+                dtype="Judgment",
+                formula=(
+                    "count_where(member_of_budgetary_unit, "
+                    "participant_is_disqualified) == 0"
+                ),
+                excerpt=first_excerpt,
+            ),
+            _ky_derived_rule(
+                "all_participants_receive_listed_benefit",
+                source="Arizona DES FAA5",
+                dtype="Judgment",
+                formula=(
+                    "count_where(member_of_budgetary_unit, "
+                    "participant_receives_listed_benefit) "
+                    "== len(member_of_budgetary_unit)"
+                ),
+                excerpt=second_excerpt,
+            ),
+            {
+                **_ky_derived_rule(
+                    "basic_categorical_eligibility",
+                    source="Arizona DES FAA5",
+                    dtype="Judgment",
+                    formula=(
+                        "no_participant_is_disqualified and "
+                        "all_participants_receive_listed_benefit"
+                    ),
+                    excerpt=first_excerpt,
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "condition",
+                                "source": {
+                                    "corpus_citation_path": citation_path,
+                                    "excerpt": first_excerpt,
+                                },
+                            },
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "condition",
+                                "source": {
+                                    "corpus_citation_path": citation_path,
+                                    "excerpt": second_excerpt,
+                                },
+                            },
+                        ]
+                    }
+                },
+            },
+        ],
+        "inputs": [
+            _ky_boolean_input(
+                "participant_is_disqualified", "The participant is disqualified."
+            ),
+            _ky_boolean_input(
+                "participant_receives_listed_benefit",
+                "The participant receives a listed benefit.",
+            ),
+        ],
+    }
+
+    result = _analyze(
+        yaml.safe_dump(payload, sort_keys=False),
+        source,
+        corpus_citation_path=citation_path,
+        test_cases=[],
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=(
+            EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR
+        ),
+    )
+
+    assert not _has_issue(result, "source-explicit-conditions")
+
+    principal_rule = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "basic_categorical_eligibility"
+    )
+    principal_rule["versions"][0]["formula"] = "no_participant_is_disqualified"
+    incomplete_result = _analyze(
+        yaml.safe_dump(payload, sort_keys=False),
+        source,
+        corpus_citation_path=citation_path,
+        test_cases=[],
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=(
+            EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR
+        ),
+    )
+
+    assert _has_issue(
+        incomplete_result,
+        "source-explicit-conditions",
+        "basic_categorical_eligibility",
+    )
 
 
 def test_parenthetical_condition_does_not_absorb_later_conjunctions():
@@ -1724,6 +2292,55 @@ def test_negative_dependent_source_forms_reject_positive_opposites(
 
 
 @pytest.mark.parametrize(
+    "text",
+    (
+        (
+            "The child was disabled and dependent on the person prior to the "
+            "child's 18th birthday."
+        ),
+        (
+            "The child was disabled and dependent on the veteran prior to the "
+            "child's 18th birthday."
+        ),
+    ),
+)
+def test_coordinated_dependent_adjective_is_positive(text: str):
+    assert completeness_module._source_gate_predicate_polarities(text) == {
+        "dependent": False
+    }
+
+
+def test_coordinated_dependent_adjective_retains_positive_split_gate():
+    gates = completeness_module._source_conjunctive_fact_gates(
+        "A child qualifies provided that the child was disabled and dependent "
+        "on the veteran prior to the child's 18th birthday."
+    )
+
+    assert gates == (
+        (frozenset({"child"}), frozenset({"disabled"})),
+        (
+            frozenset({"child"}),
+            frozenset({"birthday", "dependent", "prior", "th", "veteran"}),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "A child qualifies provided that the child was neither disabled nor "
+        "dependent on the veteran prior to the child's 18th birthday.",
+        "A child qualifies provided that the child was not disabled nor dependent "
+        "on the veteran prior to the child's 18th birthday.",
+    ),
+)
+def test_negative_coordinated_dependent_adjective_is_not_positive(source: str):
+    gates = completeness_module._source_conjunctive_fact_gates(source)
+
+    assert "dependent" not in gates[1][1]
+
+
+@pytest.mark.parametrize(
     ("fact_clause", "positive_name", "positive_description"),
     (
         (
@@ -1763,6 +2380,184 @@ def test_double_negative_income_parity_is_explicitly_positive(text: str):
     assert completeness_module._source_gate_explicit_polarities(text) == {
         "income": False
     }
+
+
+def test_income_ceiling_uses_numeric_amount_without_reversing_income_polarity():
+    source = (
+        "Eligibility exists when all of the following apply:\n"
+        "● Gross income does not exceed the limit\n"
+        "● The unit does not meet basic categorical eligibility\n"
+        "● Disqualified participant resources are within the limit"
+    )
+    payload = {
+        "inputs": [
+            {"name": "gross_income", "dtype": "Money"},
+            {
+                "name": "unit_does_not_meet_basic_categorical_eligibility",
+                "dtype": "Judgment",
+            },
+            {
+                "name": "disqualified_participant_resources_within_limit",
+                "dtype": "Judgment",
+            },
+        ]
+    }
+    evidence = completeness_module._terminal_gate_evidence(payload, care_source_text="")
+    gates = completeness_module._source_conjunctive_fact_gates(source)
+
+    assert completeness_module._source_gate_predicate_polarities(
+        "Gross income does not exceed the limit"
+    ) == {"income": False}
+    assert completeness_module._terminal_names_corroborate_source_gates(
+        frozenset(evidence), gates, terminal_evidence=evidence
+    )
+    assert not completeness_module._terminal_names_corroborate_source_gates(
+        frozenset(evidence) - {"disqualified_participant_resources_within_limit"},
+        gates,
+        terminal_evidence=evidence,
+    )
+    assert not completeness_module._terminal_names_corroborate_source_gates(
+        frozenset({"gross_income"}),
+        ((frozenset(), frozenset({"no_income", "unit"})),),
+        terminal_evidence=evidence,
+    )
+    assert not completeness_module._terminal_names_corroborate_source_gates(
+        frozenset({"gross_income"}),
+        ((frozenset(), frozenset({"income", "gross"})),),
+        terminal_evidence=evidence,
+    )
+
+
+def test_income_tax_amount_cannot_corroborate_income_ceiling():
+    payload = {"inputs": [{"name": "spouse_income_tax", "dtype": "Money"}]}
+    evidence = completeness_module._terminal_gate_evidence(payload, care_source_text="")
+
+    assert not completeness_module._terminal_names_corroborate_source_gates(
+        frozenset(evidence),
+        ((frozenset({"spouse"}), frozenset({"income", "limit"})),),
+        terminal_evidence=evidence,
+    )
+
+
+def test_boolean_income_existence_cannot_corroborate_income_ceiling():
+    payload = {"inputs": [{"name": "spouse_has_income", "dtype": "Judgment"}]}
+    evidence = completeness_module._terminal_gate_evidence(payload, care_source_text="")
+
+    assert not completeness_module._terminal_names_corroborate_source_gates(
+        frozenset(evidence),
+        ((frozenset({"spouse"}), frozenset({"income", "limit"})),),
+        terminal_evidence=evidence,
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "source_predicates", "expected"),
+    (
+        ("spouse_has_income_below_limit", {"income", "below", "limit"}, True),
+        ("spouse_income_does_not_exceed_limit", {"income", "exceed"}, True),
+        ("spouse_has_income_above_limit", {"income", "below", "limit"}, False),
+        ("spouse_has_income", {"income", "below", "limit"}, False),
+    ),
+)
+def test_boolean_income_comparison_requires_explicit_matching_comparator(
+    name: str, source_predicates: set[str], expected: bool
+):
+    payload = {"inputs": [{"name": name, "dtype": "Judgment"}]}
+    evidence = completeness_module._terminal_gate_evidence(payload, care_source_text="")
+
+    assert (
+        completeness_module._terminal_names_corroborate_source_gates(
+            frozenset(evidence),
+            ((frozenset({"spouse"}), frozenset(source_predicates)),),
+            terminal_evidence=evidence,
+        )
+        is expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("source_comparison", "terminal_name", "expected"),
+    (
+        ("does not exceed the limit", "spouse_income_does_not_exceed_limit", True),
+        (
+            "does not exceed the limit",
+            "spouse_has_income_that_does_exceed_limit",
+            False,
+        ),
+        ("within the limit", "spouse_has_income_within_limit", True),
+        ("under the limit", "spouse_has_income_under_limit", True),
+        ("not below the limit", "spouse_has_income_below_limit", False),
+        ("exceeds the limit", "spouse_income_does_not_exceed_limit", False),
+        ("exceeds the limit", "spouse_has_income_above_limit", True),
+        ("no greater than the limit", "spouse_has_income_below_limit", True),
+        ("not more than the limit", "spouse_has_income_above_limit", False),
+        ("no less than the limit", "spouse_has_income_below_limit", False),
+        ("no less than the limit", "spouse_has_income_at_least_limit", True),
+        ("that doesn't exceed the limit", "spouse_has_income_below_limit", True),
+        (
+            "that doesn't exceed the limit",
+            "spouse_has_income_that_does_exceed_limit",
+            False,
+        ),
+    ),
+)
+def test_income_comparison_direction_is_preserved_from_source_text(
+    source_comparison: str, terminal_name: str, expected: bool
+):
+    source = (
+        f"Eligibility exists if the spouse has income {source_comparison} "
+        "and the applicant is disabled"
+    )
+    gates = completeness_module._source_conjunctive_fact_gates(source)
+    payload = {"inputs": [{"name": terminal_name, "dtype": "Judgment"}]}
+    evidence = completeness_module._terminal_gate_evidence(payload, care_source_text="")
+
+    assert (
+        completeness_module._terminal_names_corroborate_source_gates(
+            frozenset(evidence), gates[:1], terminal_evidence=evidence
+        )
+        is expected
+    )
+
+
+def test_negated_income_ceiling_cannot_match_unnegated_terminal():
+    source = (
+        "Eligibility exists if it is not true that spouse income does not exceed "
+        "the limit and the applicant is disabled"
+    )
+    gates = completeness_module._source_conjunctive_fact_gates(source)
+    payload = {
+        "inputs": [{"name": "spouse_income_does_not_exceed_limit", "dtype": "Judgment"}]
+    }
+    evidence = completeness_module._terminal_gate_evidence(payload, care_source_text="")
+
+    assert not completeness_module._terminal_names_corroborate_source_gates(
+        frozenset(evidence), gates[:1], terminal_evidence=evidence
+    )
+
+
+def test_age_comparison_before_income_does_not_reverse_income_ceiling():
+    source = (
+        "Eligibility exists if the spouse over age 65 has income below the limit "
+        "and the applicant is disabled"
+    )
+    gates = completeness_module._source_conjunctive_fact_gates(source)
+    payload = {
+        "inputs": [{"name": "spouse_has_income_below_limit", "dtype": "Judgment"}]
+    }
+    evidence = completeness_module._terminal_gate_evidence(payload, care_source_text="")
+
+    assert completeness_module._terminal_names_corroborate_source_gates(
+        frozenset(evidence), gates[:1], terminal_evidence=evidence
+    )
+
+
+def test_plural_incomes_do_not_crash_semantic_gate_tokenization():
+    tokens = completeness_module._source_gate_semantic_tokens(
+        "The combined incomes of both spouses are below the limit"
+    )
+
+    assert "income_upper_bound" in tokens
 
 
 @pytest.mark.parametrize(
@@ -3338,10 +4133,10 @@ def test_same_source_gate_diagnostics_are_grouped_capped_and_cached(monkeypatch)
         selector_calls += 1
         return original(formula, **kwargs)
 
-    def counted_gate_scan(source_clause):
+    def counted_gate_scan(source_clause, **kwargs):
         nonlocal gate_calls
         gate_calls += 1
-        return original_gate_scan(source_clause)
+        return original_gate_scan(source_clause, **kwargs)
 
     monkeypatch.setattr(
         completeness_module,
@@ -7877,6 +8672,24 @@ def test_cfr_source_reference_alias_matches_canonical_source_paths():
     ) == {("a", "3")}
 
 
+def test_usc_source_reference_alias_matches_scoped_statute_paths():
+    assert completeness_module._paths_from_source_reference(
+        "7 USC 2012(j)(5)(A)",
+        corpus_citation_path="us/statute/7/2012/j",
+    ) == {("5", "a")}
+    assert completeness_module._paths_from_source_reference(
+        "7 U.S.C. 2012(j)(5)(A)",
+        corpus_citation_path="us/statute/7/2012/j",
+    ) == {("5", "a")}
+    assert (
+        completeness_module._paths_from_source_reference(
+            "7 USC 2012(k)(5)(A)",
+            corpus_citation_path="us/statute/7/2012/j",
+        )
+        == set()
+    )
+
+
 def test_cfr_parent_and_child_source_aliases_cover_complete_structure():
     source = """\
 (a) A person is eligible only if one of the following applies:
@@ -8024,30 +8837,81 @@ def test_ordered_dotted_labels_are_structural_without_semantic_guessing():
     ]
 
 
+@given(rows=st.integers(min_value=1, max_value=40))
+@settings(deadline=None)
+def test_structure_growth_fixtures_preserve_rejected_and_nested_outputs(rows):
+    assert recognize_source_structure("A. prose\nQ. prose\n" * rows) == ()
+    source = (
+        "A. Start.\n"
+        + "".join(f"({index}) Row {index}.\n" for index in range(1, rows + 1))
+        + "B. End."
+    )
+    assert [branch.path for branch in recognize_source_structure(source)] == [
+        ("a",),
+        *(("a", str(index)) for index in range(1, rows + 1)),
+        ("b",),
+    ]
+
+
 def test_rejected_dotted_candidates_are_scanned_with_bounded_runtime():
-    source = "A. prose\nQ. prose\n" * 40_000
+    def recognition_work(repeats, *, sample=True):
+        source = "A. prose\nQ. prose\n" * repeats
 
-    started = time.perf_counter()
-    branches = recognize_source_structure(source)
-    elapsed = time.perf_counter() - started
+        def check(branches):
+            assert branches == ()
 
-    assert branches == ()
-    assert elapsed < 1.5
+        if not sample:
+            check(recognize_source_structure(source))
+            return None
+        return lowest_work(
+            lambda: recognize_source_structure(source),
+            check,
+            setup=completeness_module.re.purge,
+        )
+
+    # A native suffix copy at each candidate costs a few percent of the
+    # recognizer's scan at a few thousand repeats, so it needs a 128x pair to
+    # outgrow the linear work, including under coverage. Correct code stays
+    # near a CPU second at the large size. A Python-level quadratic would take
+    # hours at that size, so a short first step fails it first: the scan
+    # without its break took 41-47 CPU seconds plain and 151-163 under
+    # coverage on a 4-vCPU Linux machine.
+    assert_linear_growth(recognition_work(250), recognition_work(2_500), input_ratio=10)
+    assert_linear_growth(
+        recognition_work(1_000), recognition_work(128_000), input_ratio=128
+    )
+    recognition_work(40_000, sample=False)
 
 
 def test_accepted_nested_markers_are_closed_with_bounded_runtime():
-    source = (
-        "A. Start.\n"
-        + "".join(f"({index}) Row {index}.\n" for index in range(1, 20_001))
-        + "B. End."
-    )
+    def recognition_work(rows, *, sample=True):
+        source = (
+            "A. Start.\n"
+            + "".join(f"({index}) Row {index}.\n" for index in range(1, rows + 1))
+            + "B. End."
+        )
 
-    started = time.perf_counter()
-    branches = recognize_source_structure(source)
-    elapsed = time.perf_counter() - started
+        def check(branches):
+            assert len(branches) == rows + 2
+            assert [branch.path for branch in branches] == [
+                ("a",),
+                *(("a", str(index)) for index in range(1, rows + 1)),
+                ("b",),
+            ]
 
-    assert len(branches) == 20_002
-    assert elapsed < 1.5
+        if not sample:
+            check(recognize_source_structure(source))
+            return None
+        return lowest_work(
+            lambda: recognize_source_structure(source),
+            check,
+            setup=completeness_module.re.purge,
+        )
+
+    # The old closer searched all following markers for every row. Check a
+    # finite pair before retaining the original large output fixture.
+    assert_linear_growth(recognition_work(500), recognition_work(8_000), input_ratio=16)
+    recognition_work(20_000, sample=False)
 
 
 @pytest.mark.parametrize(
@@ -8466,20 +9330,30 @@ rules: []
 
 
 def test_parenthesized_cfr_outline_is_recognized_with_bounded_runtime():
-    source = (
-        "(a) Start.\n"
-        + "".join(f"({index}) Item {index}.\n" for index in range(1, 20_001))
-        + "(b) End."
-    )
+    def outline_work(items, *, sample=True):
+        source = (
+            "(a) Start.\n"
+            + "".join(f"({index}) Item {index}.\n" for index in range(1, items + 1))
+            + "(b) End."
+        )
 
-    started = time.perf_counter()
-    branches = recognize_source_structure(source)
-    elapsed = time.perf_counter() - started
+        def check(branches):
+            assert len(branches) == items + 2
+            assert branches[-2].path == ("a", str(items))
+            assert branches[-1].path == ("b",)
 
-    assert len(branches) == 20_002
-    assert branches[-2].path == ("a", "20000")
-    assert branches[-1].path == ("b",)
-    assert elapsed < 1.5
+        if not sample:
+            check(recognize_source_structure(source))
+            return None
+        return lowest_work(lambda: recognize_source_structure(source), check)
+
+    # A per-marker scan of the markers found so far costs a small share of
+    # a short outline, so its quadratic term needs a 64x pair to clear the
+    # bound. Check growth before the original outlines, so quadratic failure
+    # cases stay finite.
+    assert_linear_growth(outline_work(250), outline_work(16_000), input_ratio=64)
+    outline_work(5_000, sample=False)
+    outline_work(20_000, sample=False)
 
 
 def test_parenthesized_nonoutline_without_root_sequence_remains_flat():
@@ -9346,6 +10220,53 @@ def test_editorial_slash_date_does_not_create_computation_obligation():
     )
     assert source_states_explicit_computation(
         "The amount is computed by dividing income by the divisor."
+    )
+
+
+def test_snap_table_range_plus_labels_do_not_create_computation_obligation():
+    source = (
+        "Table 2: Standard Deductions Household Size 1 2 3 4 5 6+ "
+        "48 States & District of Columbia $209 $209 $209 $223 $261 $299 "
+        "Table 5: Maximum Asset Limits Household with at least 1 member "
+        "age 60+ or disabled $4,500 All other households $3,000"
+    )
+    assert not source_states_explicit_computation(source)
+    assert source_states_explicit_computation(source + " Benefit = 300 - 30.")
+    assert source_states_explicit_computation("Benefit = 6+ 48.")
+
+
+def test_snap_fy2026_geographic_label_is_not_a_numeric_policy_value():
+    source = (
+        "Page 2 of 2 Deductions Household Size 1 2 3 4 5 6+ "
+        "48 States & District of Columbia $209 $209 $209 $223 $261 $299 "
+        "Table 2: Standard Deductions Alaska Guam $358 $420 $358 $420 "
+        "$358 $420 $358 $445 $358 $522 $374 $598 Hawaii $295 $295 $295 "
+        "$295 $300 $344 Virgin Islands $184 $184 $185 $223 $261 $299 "
+        "Table 3: Maximum Excess Shelter Deductions 48 States & Virgin "
+        "District of Alaska Guam Hawaii Islands Columbia $744 $1,189 $873 "
+        "$1,003 $586 Table 4: Homeless Shelter Deduction 48 States & Virgin "
+        "District of Alaska Guam Hawaii Islands Columbia $198.99 $198.99 "
+        "$198.99 $198.99 $198.99 Table 5: Maximum Asset Limits Household "
+        "with at All other least 1 member households age 60+ or disabled "
+        "$4,500 $3,000"
+    )
+    cleaned = authoritative_numeric_recall_text(
+        source,
+        corpus_citation_path="us/guidance/usda/fns/snap-fy2026-cola/page-2",
+    )
+    values = [item.value for item in EN_NUMERIC_OCCURRENCE_EXTRACTOR(cleaned)]
+
+    assert 48 not in values
+    assert 209 in values
+    assert 744 in values
+    assert 4500 in values
+    assert "$48" in authoritative_numeric_recall_text(
+        "A separate $48 amount applies to a SNAP household.",
+        corpus_citation_path="us/guidance/usda/fns/snap-fy2026-cola/page-2",
+    )
+    assert "48 States" in authoritative_numeric_recall_text(
+        source,
+        corpus_citation_path="us/guidance/example/page-1",
     )
 
 
@@ -10320,20 +11241,76 @@ def test_formula_interval_uses_controlled_comparison_as_stronger_lower_bound(
 
 
 def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtime():
-    source = "income greater than 1" + (" " * 10_000) + "x 2"
+    def interval_for(width):
+        return completeness_module._formula_interval_from_text(
+            "income greater than 1" + " " * width + "x 2",
+            extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        )
 
-    started = time.perf_counter()
-    interval = completeness_module._formula_interval_from_text(
-        source,
-        extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
-    )
-    elapsed = time.perf_counter() - started
+    def check(interval):
+        assert interval is not None
+        assert interval.lower is not None
+        assert interval.lower.value == 1
+        assert interval.upper is None
 
-    assert interval is not None
-    assert interval.lower is not None
-    assert interval.lower.value == 1
-    assert interval.upper is None
-    assert elapsed < 0.5
+    def work(width):
+        def check_batch(intervals):
+            for interval in intervals:
+                check(interval)
+
+        # One batch size for both widths keeps the narrow sample above the
+        # CPU floor without changing the ratio.
+        return lowest_work(lambda: [interval_for(width) for _ in range(8)], check_batch)
+
+    # A regex scanning the raw space run from every position is quadratic in
+    # the gap. Correct code is not linear beyond a few hundred spaces either:
+    # an existing optional-currency pattern backtracks across the run, so the
+    # pairs stay narrow. The first step stops a cubic scan before it reaches
+    # widths where it runs for minutes; the second catches a quadratic one in
+    # plain runs. Under coverage the fixed cost of each call can hide a
+    # quadratic gap scan here, so the next test measures the gap parser alone.
+    assert_linear_growth(work(32), work(256), input_ratio=8)
+    assert_linear_growth(work(64), work(1_024), input_ratio=16)
+    # Keep the original 10,000-space rejection, once and untimed.
+    check(interval_for(10_000))
+
+
+def test_formula_upper_gap_parser_stays_linear_on_wide_space_runs(monkeypatch):
+    original = completeness_module._formula_conjoined_bound
+
+    def arguments(width):
+        seen = []
+
+        def spy(text, occurrences):
+            seen.append((text, occurrences))
+            return original(text, occurrences)
+
+        monkeypatch.setattr(completeness_module, "_formula_conjoined_bound", spy)
+        completeness_module._formula_interval_from_text(
+            "income greater than 1" + " " * width + "x 2",
+            extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        )
+        monkeypatch.undo()
+        (called,) = seen
+        return called
+
+    def work(width):
+        text, occurrences = arguments(width)
+
+        def check(bounds):
+            assert bounds == [None] * 8
+
+        return lowest_work(
+            lambda: [original(text, occurrences) for _ in range(8)], check
+        )
+
+    # The interval parser's own patterns cap the test above at 1,024 spaces.
+    # Called alone with the arguments that parser passes it, the gap parser
+    # stays linear far wider, where a quadratic scan of the gap outgrows the
+    # fixed cost of each call even under coverage. The short first step fails
+    # a cubic scan before the wide pair would run it for minutes.
+    assert_linear_growth(work(125), work(500), input_ratio=4)
+    assert_linear_growth(work(500), work(8_000), input_ratio=16)
 
 
 def test_formula_interval_skips_arithmetic_from_before_real_comparator():
@@ -20590,6 +21567,41 @@ rules: []
 
 
 @pytest.mark.parametrize(
+    ("cited_branch", "accepted"),
+    [
+        ("(a)(1)", True),
+        ("(a)", False),
+        ("(a)(2)", False),
+    ],
+)
+def test_source_bound_regulation_runtime_gap_requires_exact_branch(
+    cited_branch: str, accepted: bool
+):
+    content = f"""\
+format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: us:regulations/7/273/10/a/1#agency_plan_contents
+      reason: >-
+        Cannot be computed until the agency policies document and submission
+        event required by us/regulation/7/273/10{cited_branch} are encoded.
+rules: []
+"""
+    source = "(a) Agency plans shall contain:\n1. Agency shall submit plan policies."
+
+    result = _analyze(
+        content,
+        source,
+        corpus_citation_path="us/regulation/7/273/10",
+        test_cases=[],
+    )
+
+    assert _has_issue(result, "(a)", "deferral") is not accepted
+
+
+@pytest.mark.parametrize(
     "reason",
     [
         "Absatz 6 hängt von Absatz 5 ab.",
@@ -20981,6 +21993,136 @@ def test_guidance_structural_number_cleanup_preserves_substantive_values():
     }
 
     assert values == {1, 2}
+
+
+def _us_legacy_numeric_recall_values(
+    source: str,
+    corpus_citation_path: str = "us-wa/manual/dshs/eaz/example",
+) -> set[float]:
+    """US citation paths use the legacy numeric profile in production."""
+
+    cleaned = authoritative_numeric_recall_text(
+        source,
+        corpus_citation_path=corpus_citation_path,
+    )
+    return {
+        occurrence.value
+        for occurrence in extract_typed_numeric_inventory_occurrences_from_text(
+            cleaned,
+            profile="legacy",
+        )
+    }
+
+
+def test_us_manual_code_and_policy_references_are_not_numeric_recall_values():
+    # WA DSHS EAZ manual and Utah DWS eligibility manual cross-references.
+    source = (
+        "See WAC 388-450-0015 for excludable income. We must consider countable "
+        "liquid resources under WAC 388-470-0055 when determining eligibility. "
+        "If the client is a migrant use WAC 388-406-0021, then see "
+        "WAC 388-450-0230. For exceptions refer to policy 770-2. Refer to "
+        "policy 770-3 to determine when no notice is required. At least one "
+        "member is elderly or disabled according to policy 254. A household "
+        "may not have over $100 in liquid assets. Advance notice is defined as "
+        "10 days. Verification must arrive before the 60th day after the date "
+        "of application."
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {10, 60, 100}
+
+
+def test_us_policy_reference_does_not_swallow_following_value():
+    source = (
+        "Under policy 254, 3 members qualify. See policies 770-2 and 770-3; "
+        "4 days apply."
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {3, 4}
+
+
+def test_numbered_manual_section_headings_are_not_numeric_recall_values():
+    # Maryland FIA SNAP Manual section 214 page 5 and Utah DWS policy 770-1.
+    source = (
+        "SNAP MANUAL UTILITY ALLOWANCES\n\n"
+        "214.2 Shared Utility Costs (continued)\n\n"
+        "D. The household pays $35 of the cost.\n\n"
+        "214.3 Telephone Allowance\n\n"
+        "A. The telephone allowance is $27.\n\n"
+        "770-1 Advance Notice of Adverse Action\n\n"
+        "Advance notice is 10 days."
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {10, 27, 35}
+
+
+def test_leading_values_that_are_not_section_headings_stay_in_numeric_recall():
+    source = (
+        "7.65 Percent\n"
+        "2.5 Times the standard applies to each member.\n"
+        "1.5 percent of gross income is excluded.\n"
+        "12.5 Months\n"
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {0.015, 0.0765, 2.5, 12.5}
+
+
+def test_us_form_contact_and_form_number_identifiers_are_not_numeric_recall():
+    # Kansas K-40ES voucher instructions.
+    source = (
+        "Mail to: Estimated Tax, Kansas Department of Revenue, PO Box 3506, "
+        "Topeka KS 66625-3506. Questions? Call 785-368-8222 or (785) 368-8222. "
+        "Use Schedule K-210 to figure any underpayment. Topeka, KS 66625- 3506. "
+        "Pay if your tax is $500 or more."
+    )
+
+    assert _us_legacy_numeric_recall_values(
+        source,
+        "us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1",
+    ) == {500}
+
+
+@pytest.mark.parametrize(
+    "corpus_citation_path",
+    ["de/statute/estg/32", "dk/statute/lbk-603-2025/x/paragraf-2", ""],
+)
+def test_us_locator_masks_do_not_apply_outside_us_citation_paths(
+    corpus_citation_path: str,
+):
+    # A German thousands separator would otherwise read as a heading label.
+    cleaned = authoritative_numeric_recall_text(
+        "1.000 Euro Freibetrag pro Kind\n",
+        corpus_citation_path=corpus_citation_path,
+    )
+
+    assert "1.000" in cleaned
+
+
+@pytest.mark.parametrize(
+    ("corpus_citation_path", "source", "kept"),
+    (
+        (
+            "uk-harrow/manual/council-tax-reduction-scheme-2026-2027",
+            "12.50 Weekly Allowance\n",
+            "12.50",
+        ),
+        (
+            "uk-harrow/manual/council-tax-reduction-scheme-2026-2027",
+            "Under policy 2 adults must sign.",
+            "policy 2",
+        ),
+        ("de/manual/x", "1.500 Euro Freibetrag pro Kind\n", "1.500"),
+        # The gate reads the leading jurisdiction, not any `us/` segment.
+        ("de/manual/us/x", "1.500 Euro Freibetrag pro Kind\n", "1.500"),
+    ),
+)
+def test_us_manual_locator_masks_do_not_apply_to_other_manuals(
+    corpus_citation_path: str, source: str, kept: str
+):
+    cleaned = authoritative_numeric_recall_text(
+        source, corpus_citation_path=corpus_citation_path
+    )
+
+    assert kept in cleaned
 
 
 def test_guidance_footnote_cleanup_preserves_numbered_rules_and_categories():
@@ -21667,6 +22809,97 @@ def test_capitalized_center_without_address_keeps_numeric_value(
 )
 def test_guidance_boilerplate_and_history_do_not_require_paired_cases(source: str):
     assert not completeness_module._source_exception_requires_paired_witness(source)
+
+
+def test_flattened_fns_income_table_captions_are_not_computations():
+    rows = " ".join(f"{size} $1,305 $1,630 $1,500" for size in range(1, 9))
+    table = (
+        "Household Size 48 States, D.C., Guam, Virgin Islands Alaska Hawaii "
+        f"{rows} Each additional member $459 $574 $528"
+    )
+    source = " ".join(
+        f"{heading} ({rate} Percent of Poverty Level) {table}"
+        for heading, rate in (
+            ("Net Monthly Income Eligibility Standards", 100),
+            ("Gross Monthly Income Eligibility Standards", 130),
+            (
+                "Gross Monthly Income Eligibility Standards for Households "
+                "Where Elderly Disabled Are a Separate Household",
+                165,
+            ),
+        )
+    )
+
+    masked = completeness_module._without_precomputed_income_table_percentage_captions(
+        source
+    )
+
+    assert "Percent of Poverty Level" not in masked
+    assert masked.count("Each additional member $459 $574 $528") == 3
+    assert len(masked) == len(source)
+    assert not source_states_explicit_computation(source)
+    assert source_states_explicit_computation(
+        source + " The limit is computed as 130 percent of the poverty level."
+    )
+    assert source_states_explicit_computation(
+        source.replace("8 $1,305 $1,630 $1,500", "8 $1,305 $1,630", 1)
+    )
+
+
+def test_signed_fns_cola_page_three_keeps_tables_without_footer_case_pairs():
+    source = (
+        (
+            Path(__file__).parent
+            / "fixtures/source_completeness/fns_snap_fy2026_cola_memo_page_3.txt"
+        )
+        .read_text()
+        .strip()
+    )
+    assert hashlib.sha256(source.encode()).hexdigest() == (
+        "114f27400c106a83d67fc98d79c7a7f5351ecbb9ffb79bdcd448d46c955392b4"
+    )
+    assert not source_states_explicit_computation(source)
+    assert not completeness_module._source_exception_requires_paired_witness(source)
+    recalled = EN_NUMERIC_OCCURRENCE_EXTRACTOR(
+        authoritative_numeric_recall_text(source)
+    )
+    assert {459, 596, 757, 871, 8567, 9311} <= {item.value for item in recalled}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "Each additional member $757 $946 $871 through their guidance "
+            "portal, except to establish historical facts."
+        ),
+        (
+            "Guidance documents lack the force and effect of law, unless "
+            "expressly authorized by statute or"
+        ),
+    ],
+)
+def test_split_fns_guidance_footer_requires_no_claimant_case_pair(source: str):
+    assert not completeness_module._source_exception_requires_paired_witness(source)
+
+
+def test_split_guidance_footer_does_not_hide_joined_eligibility_condition():
+    source = (
+        "Guidance documents lack the force and effect of law, unless expressly "
+        "authorized by statute or applicants are eligible if citizens."
+    )
+
+    assert completeness_module._source_exception_requires_paired_witness(source)
+
+
+def test_split_guidance_footer_does_not_hide_joined_increment_condition():
+    source = (
+        "If household size exceeds eight, add $757 for each additional member. "
+        "Guidance documents lack the force and effect of law, unless expressly "
+        "authorized by statute or"
+    )
+
+    assert completeness_module._source_exception_requires_paired_witness(source)
 
 
 @pytest.mark.parametrize(
@@ -23420,6 +24653,463 @@ def test_terminal_alabama_act_and_code_history_is_not_numeric_recall():
     ]
 
 
+ARMENIAN_MINIMUM_WAGE_SOURCE = """\
+Հայաստանի Հանրապետությունում նվազագույն ամսական աշխատավարձը սահմանել 75000 դրամ:
+(1-ին հոդվածը փոփ. 11.11.05 ՀՕ-221-Ն, 28.11.06 ՀՕ-200-Ն,
+05.11.07 ՀՕ-252-Ն, 27.11.08 ՀՕ-200-Ն, 16.11.10 ՀՕ-164-Ն,
+13.11.12 ՀՕ-200-Ն, 20.06.13 ՀՕ-61-Ն, 12.12.13 ՀՕ-187-Ն,
+01.12.14 ՀՕ-205-Ն, 19.11.19 ՀՕ-223-Ն, 07.12.22 ՀՕ-501-Ն)"""
+
+
+ARMENIAN_MINIMUM_WAGE_LEAD = (
+    "Հայաստանի Հանրապետությունում նվազագույն ամսական աշխատավարձը սահմանել 75000 դրամ:"
+)
+
+
+def _mask_ledgers(source: str, *ledgers: str) -> str:
+    """The recall text with each ledger's body masked in place, never deleted.
+
+    Masking keeps every recall-text position on its source character, which
+    the numeric recall source map relies on. The parentheses stay so the
+    lines around the ledger are never joined by whitespace alone.
+    """
+
+    for ledger in ledgers:
+        assert source.count(ledger) == 1
+        source = source.replace(
+            ledger, ledger[0] + " " * (len(ledger) - 2) + ledger[-1]
+        )
+    return source
+
+
+ARMENIAN_MINIMUM_WAGE_LEDGER = ARMENIAN_MINIMUM_WAGE_SOURCE.removeprefix(
+    ARMENIAN_MINIMUM_WAGE_LEAD + "\n"
+)
+
+
+def test_terminal_armenian_amendment_history_is_not_numeric_recall():
+    cleaned = authoritative_numeric_recall_text(ARMENIAN_MINIMUM_WAGE_SOURCE)
+    inventory = extract_typed_numeric_inventory_occurrences_from_text(
+        cleaned,
+        profile="legacy",
+    )
+
+    assert cleaned == _mask_ledgers(
+        ARMENIAN_MINIMUM_WAGE_SOURCE, ARMENIAN_MINIMUM_WAGE_LEDGER
+    )
+    assert cleaned.split("\n", 1)[0] == ARMENIAN_MINIMUM_WAGE_LEAD
+    assert [(item.value, item.raw) for item in inventory] == [(75000.0, "75000")]
+
+
+@pytest.mark.parametrize(
+    ("article_label", "law_identifier"),
+    (
+        ("147-րդ", "ՀՕ-538-Ն"),
+        ("293․1‑ին", "Հ-538-Ն"),
+        ("1֊ին", "ՀՕ֊538֊Ն"),
+    ),
+)
+def test_armenian_history_filter_accepts_arlis_punctuation_variants(
+    article_label,
+    law_identifier,
+):
+    ledger = f"({article_label} հոդվածը լրաց․, փոփ․ 07․12․22 {law_identifier})"
+    source = f"Շահառուին վճարել 500 դրամ:\n{ledger}"
+
+    assert authoritative_numeric_recall_text(source) == _mask_ledgers(source, ledger)
+
+
+def test_armenian_history_filter_accepts_crlf_source_text():
+    source = ARMENIAN_MINIMUM_WAGE_SOURCE.replace("\n", "\r\n")
+    ledger = ARMENIAN_MINIMUM_WAGE_LEDGER.replace("\n", "\r\n")
+
+    assert authoritative_numeric_recall_text(source) == _mask_ledgers(source, ledger)
+
+
+def test_armenian_history_filter_accepts_uppercase_action_abbreviation():
+    ledger = "(1-ին հոդվածը Փոփ. 07.12.22 ՀՕ-538-Ն)"
+    source = f"Շահառուին վճարել 500 դրամ:\n{ledger}"
+
+    assert authoritative_numeric_recall_text(source) == _mask_ledgers(source, ledger)
+
+
+def test_armenian_history_filter_accepts_semicolon_separator():
+    ledger = "(1-ին հոդվածը փոփ; 07.12.22 ՀՕ-538-Ն)"
+    source = f"Շահառուին վճարել 500 դրամ:\n{ledger}"
+
+    cleaned = authoritative_numeric_recall_text(source)
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(500.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert cleaned == _mask_ledgers(source, ledger)
+    assert not _has_issue(result, "numeric-recall")
+
+
+@pytest.mark.parametrize(
+    "parenthetical",
+    (
+        "(1-ին հոդվածը վերանայվել 07.12.22 ՀՕ-538-Ն)",
+        "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն, լրացուցիչ 500 դրամ)",
+    ),
+)
+def test_armenian_history_filter_rejects_unrecognized_ledger_residue(parenthetical):
+    source = f"Շահառուին վճարել 500 դրամ:\n{parenthetical}"
+
+    assert authoritative_numeric_recall_text(source) == source
+
+
+def test_armenian_history_filter_does_not_strip_inline_parenthetical():
+    source = "Շահառուին վճարել 500 դրամ: (1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+
+    assert authoritative_numeric_recall_text(source) == source
+
+
+@pytest.mark.parametrize(
+    "parenthetical",
+    (
+        "(1-ին հոդվածը փոփ. 07.12.22)",
+        "(1-ին և 2-րդ հոդվածները փոփ. 07.12.22 ՀՕ-538-Ն)",
+        "(հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)",
+        "(1-ին հոդվածը ուժը կորցրել 07.12.22 ՀՕ-538-Ն)",
+        "(Օրենքը փոփ. 07.12.22 ՀՕ-538-Ն)",
+        "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ա)",
+        "(1-ին հոդվածը փոփ. 7.12.22 ՀՕ-538-Ն)",
+        "(1-ին հոդվածը փոփ. (տե՛ս) 07.12.22 ՀՕ-538-Ն)",
+    ),
+)
+def test_armenian_history_filter_keeps_shapes_outside_prompt_contract(parenthetical):
+    source = f"Շահառուին վճարել 500 դրամ:\n{parenthetical}"
+
+    assert authoritative_numeric_recall_text(source) == source
+
+
+def test_armenian_history_filter_keeps_ledger_nested_inside_outer_parenthetical():
+    source = (
+        "Շահառուին վճարել 500 դրամ:\n"
+        "(անցումային պայման\n"
+        "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)\n"
+        ")"
+    )
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(500.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert authoritative_numeric_recall_text(source) == source
+    assert _has_issue(result, "numeric-recall", "value 538")
+
+
+@pytest.mark.parametrize(
+    ("parenthetical", "expected_recalled_value"),
+    (
+        ("(1-ին հոդվածը փոփ. 07.12.222 ՀՕ-538-Ն)", "value 538"),
+        (
+            "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն08.12.22 ՀՕ-539-Ն)",
+            "value 539",
+        ),
+        ("(1֊ին հոդվածը 07.12.22 ՀՕ֊538֊ՆԽՄԲ.)", "value 1"),
+    ),
+)
+def test_armenian_history_filter_keeps_malformed_token_sequences(
+    parenthetical,
+    expected_recalled_value,
+):
+    source = f"Շահառուին վճարել 500 դրամ:\n{parenthetical}"
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(500.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert authoritative_numeric_recall_text(source) == source
+    assert _has_issue(result, "numeric-recall", expected_recalled_value)
+
+
+@pytest.mark.parametrize(
+    "law_identifier",
+    ("07.12.22 հօ-538-ն", "07.12.22 ՀՕ-538-ն", "07.12.22 հՕ-538-Ն"),
+)
+def test_armenian_history_filter_keeps_lowercased_law_identifier(law_identifier):
+    """Case folding covers the action abbreviation only, never the citation.
+
+    The prompt contract spells the identifier `Հ-N[-N]-Ն`/`ՀՕ-N[-N]-Ն`, so a
+    lowercased identifier is an unrecognized parenthetical whose numbers must
+    survive into the recall text.
+    """
+
+    source = (
+        "Շահառուին վճարել 500 դրամ:\n"
+        f"(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն, {law_identifier})"
+    )
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(500.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert authoritative_numeric_recall_text(source) == source
+    assert _has_issue(result, "numeric-recall", "value 538")
+
+
+def _armenian_prompt_contract() -> str:
+    """The Armenian ARLIS bullet as the encoder actually emits it."""
+
+    start = ENCODER_PROMPT.index("- In Armenian ARLIS text")
+    return ENCODER_PROMPT[start:][: ENCODER_PROMPT[start:].index("\n- ", 1)]
+
+
+@pytest.mark.parametrize(
+    "separator",
+    (" ", "\t", ", ", " , ", "; ", " ; ", ",", ";"),
+)
+def test_armenian_prompt_permitted_separators_are_stripped_by_validator(separator):
+    """Parity: every separator the prompt permits, the validator must accept.
+
+    A prompt-following encoder that omits a semicolon-separated ledger would
+    otherwise draw a spurious numeric-recall failure.
+    """
+
+    contract = _armenian_prompt_contract()
+    assert "only whitespace, commas, or semicolons may separate these items" in contract
+
+    ledger = f"(1-ին հոդվածը փոփ.{separator}07.12.22 ՀՕ-538-Ն)"
+    source = f"Շահառուին վճարել 500 դրամ:\n{ledger}"
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(500.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert authoritative_numeric_recall_text(source) == _mask_ledgers(source, ledger)
+    assert not _has_issue(result, "numeric-recall")
+
+
+def test_armenian_prompt_permitted_year_widths_match_validator():
+    """Parity: the prompt permits `DD.MM.YY` and `DD.MM.YYYY`, and nothing else."""
+
+    contract = _armenian_prompt_contract()
+    assert "`DD.MM.YY` or\n  `DD.MM.YYYY` date" in contract
+
+    lead = "Շահառուին վճարել 500 դրամ:"
+    for year in ("22", "2022"):
+        ledger = f"(1-ին հոդվածը փոփ. 07.12.{year} ՀՕ-538-Ն)"
+        source = f"{lead}\n{ledger}"
+        assert authoritative_numeric_recall_text(source) == _mask_ledgers(
+            source, ledger
+        )
+    for year in ("2", "222", "20222"):
+        source = f"{lead}\n(1-ին հոդվածը փոփ. 07.12.{year} ՀՕ-538-Ն)"
+        assert authoritative_numeric_recall_text(source) == source
+
+
+def test_armenian_prompt_keeps_nested_parentheticals_per_contract():
+    """Parity: the prompt keeps nested parentheticals, so the validator must too."""
+
+    contract = _armenian_prompt_contract()
+    assert "contains no nested parenthetical" in contract
+    assert "unpaired-date, nested, or otherwise unrecognized parenthetical" in contract
+
+    ledger = "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+    lead = "Շահառուին վճարել 500 դրամ:"
+    nested = f"{lead}\n(անցումային պայման\n{ledger}\n)"
+    standalone = f"{lead}\n{ledger}"
+
+    assert authoritative_numeric_recall_text(nested) == nested
+    assert authoritative_numeric_recall_text(standalone) == _mask_ledgers(
+        standalone, ledger
+    )
+
+
+def test_armenian_history_filter_strips_ledger_after_closed_outer_parenthetical():
+    """Depth, not "is there a preceding `(`", decides nesting.
+
+    Once an outer parenthetical closes, the next standalone ledger is back at
+    depth zero and must still be recognized.
+    """
+
+    lead = "Շահառուին վճարել 500 դրամ:"
+    ledger = "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+    source = f"{lead}\n(արտաքին\nպայման)\n{ledger}"
+
+    assert authoritative_numeric_recall_text(source) == _mask_ledgers(source, ledger)
+
+
+def test_armenian_history_filter_keeps_ledger_nested_two_levels_deep():
+    source = (
+        "Շահառուին վճարել 500 դրամ:\n"
+        "(արտաքին\n(ներքին\n(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)\n)\n)"
+    )
+
+    assert authoritative_numeric_recall_text(source) == source
+
+
+def test_armenian_history_filter_separates_nested_and_standalone_ledgers():
+    """A nested ledger is kept while a standalone one in the same source goes."""
+
+    source = (
+        "Շահառուին վճարել 500 դրամ:\n"
+        "(անցումային պայման\n(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)\n)\n"
+        "(2-րդ հոդվածը խմբ. 08.12.22 ՀՕ-539-Ն)"
+    )
+    cleaned = authoritative_numeric_recall_text(source)
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(500.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert "538" in cleaned
+    assert "539" not in cleaned
+    assert _has_issue(result, "numeric-recall", "value 538")
+
+
+def test_armenian_history_filter_keeps_ledger_under_unbalanced_open_parenthesis():
+    """An unclosed `(` upstream leaves the candidate nested; fail closed."""
+
+    source = "Շահառուին վճարել 500 դրամ: տես (ա\n(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+
+    assert authoritative_numeric_recall_text(source) == source
+
+
+def test_armenian_history_filter_continues_after_rejected_ledger():
+    rejected = "(1-ին հոդվածը փոփ. 07.12.22)"
+    accepted = "(2-րդ հոդվածը խմբ. 08.12.22 ՀՕ-539-Ն)"
+    source = f"Շահառուին վճարել 500 դրամ:\n{rejected}\n{accepted}"
+
+    assert authoritative_numeric_recall_text(source) == _mask_ledgers(source, accepted)
+
+
+def test_armenian_history_filter_strips_adjacent_standalone_ledgers():
+    first = "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+    second = "(2-րդ հոդվածը խմբ. 08.12.22 ՀՕ-539-Ն)"
+    source = f"Շահառուին վճարել 500 դրամ:\n{first}\n{second}"
+
+    assert authoritative_numeric_recall_text(source) == _mask_ledgers(
+        source, first, second
+    )
+
+
+def test_armenian_history_filter_preserves_later_effective_date_note():
+    effective_date_note = (
+        "(հոդվածը 01.03.23 ՀՕ-101-Ն օրենքի փոփոխության մասով ուժի մեջ է "
+        "մտնում 2024 թվականի հուլիսի 1-ից)"
+    )
+    source = ARMENIAN_MINIMUM_WAGE_SOURCE + "\n" + effective_date_note
+
+    cleaned = authoritative_numeric_recall_text(source)
+
+    assert "ՀՕ-221-Ն" not in cleaned
+    assert effective_date_note in cleaned
+    assert "75000 դրամ" in cleaned
+
+
+def test_armenian_history_filter_keeps_minimum_wage_in_strict_recall():
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        ARMENIAN_MINIMUM_WAGE_SOURCE,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert _has_issue(result, "numeric-recall", "value 75000")
+    assert not _has_issue(result, "numeric-recall", "value 221")
+    assert not _has_issue(result, "numeric-recall", "value 501")
+
+
+def test_armenian_history_filter_accepts_grounded_minimum_wage_candidate():
+    result = _analyze(
+        """\
+format: rulespec/v1
+rules:
+  - name: minimum_monthly_wage
+    kind: parameter
+    dtype: Money
+    unit: AMD
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: 75000
+""",
+        ARMENIAN_MINIMUM_WAGE_SOURCE,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert not _has_issue(result, "numeric-recall")
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        ARMENIAN_MINIMUM_WAGE_SOURCE.removesuffix(")") + ", շահառուին վճարել 500 դրամ)",
+        ARMENIAN_MINIMUM_WAGE_SOURCE + "\nՇահառուին վճարել լրացուցիչ 500 դրամ:",
+    ),
+)
+def test_armenian_history_shape_does_not_hide_operative_amount(source):
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(75000.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert _has_issue(result, "numeric-recall", "value 500")
+
+
 @pytest.mark.parametrize(
     "source",
     (
@@ -24366,6 +26056,53 @@ rules:
 
     assert principal_paths == {("2",)}
     assert principal_rule_paths["annual_tax"] == {("2",)}
+
+
+def test_interpretation_excerpt_cannot_cover_a_complete_source_obligation():
+    source = "(1) Die Hauptregel gilt."
+    payload = {
+        "format": "rulespec/v1",
+        "module": {
+            "source_verification": {"corpus_citation_path": CORPUS_CITATION_PATH},
+            "interpretations": [
+                {
+                    "id": "main-rule-reading",
+                    "question": "Which rule applies?",
+                    "texts": [
+                        {
+                            "corpus_citation_path": CORPUS_CITATION_PATH,
+                            "excerpt": source,
+                        }
+                    ],
+                    "reading": "The main rule applies.",
+                    "alternatives": [
+                        {"id": "another-rule", "reading": "Another rule applies."}
+                    ],
+                    "basis": "The source states the main rule.",
+                    "status": "open",
+                    "affects": ["unrelated_output"],
+                }
+            ],
+        },
+        "rules": [
+            {
+                "name": "unrelated_output",
+                "kind": "derived",
+                "dtype": "Money",
+                "source": "de/statute/other/99 Absatz 1",
+                "versions": [
+                    {"effective_from": "2026-01-01", "formula": "unrelated_value"}
+                ],
+            }
+        ],
+    }
+
+    interpreted = _analyze(yaml.safe_dump(payload), source, test_cases=[])
+    del payload["module"]["interpretations"]
+    baseline = _analyze(yaml.safe_dump(payload), source, test_cases=[])
+
+    assert _has_issue(interpreted, "(1)", "source branch")
+    assert interpreted.issues == baseline.issues
 
 
 def test_unstructured_formula_requires_principal_output_bound_to_source_unit():
@@ -32415,6 +34152,182 @@ def test_boundary_witness_rejects_effect_invariant_root_behind_dependency():
 
 
 @pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "When gross income exceeds 200% of the current federal poverty level "
+            "(FPL), the unit is not categorically eligible."
+        ),
+        (
+            "When gross income exceeds 200% of the current FPL, the unit is "
+            "not categorically eligible."
+        ),
+    ],
+)
+def test_imported_percent_rate_witness_uses_scaled_source_boundary(source: str):
+    branch = completeness_module.SourceStructureBranch(
+        ("ece",), "paragraph", "ECE", source, 0, len(source)
+    )
+    boundary = LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR(source)[0]
+    rule = {
+        "name": "ece_blocked",
+        "kind": "derived",
+        "dtype": "Judgment",
+        "versions": [
+            {
+                "formula": (
+                    "considered and gross_income > "
+                    "imported_fpl_rate * current_federal_poverty_level_amount"
+                )
+            }
+        ],
+    }
+    case = {
+        "name": "March at the ceiling",
+        "period": "2026-03",
+        "input": {
+            "considered": True,
+            "gross_income": 2000,
+            "current_federal_poverty_level_amount": 1000,
+        },
+        "output": {"ece_blocked": "not_holds"},
+    }
+    common = {
+        "principal_rules": {"ece_blocked": rule},
+        "principal_rule_paths": {"ece_blocked": {("ece",)}},
+        "numeric_value_is_grounded": numeric_value_is_grounded,
+        "formula_environment": {"imported_fpl_rate": 2.0},
+        "extract_numeric_occurrences": (LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR),
+    }
+
+    assert completeness_module._branch_boundary_test_witnesses(
+        branch, boundary, asserted_by_rule={"ece_blocked": [case]}, **common
+    )
+    for rejected_case in (
+        {**case, "input": {**case["input"], "gross_income": 1900}},
+        {**case, "input": {**case["input"], "current_federal_poverty_level_amount": 0}},
+    ):
+        assert not completeness_module._branch_boundary_test_witnesses(
+            branch,
+            boundary,
+            asserted_by_rule={"ece_blocked": [rejected_case]},
+            **common,
+        )
+    assert not completeness_module._branch_boundary_test_witnesses(
+        branch,
+        boundary,
+        asserted_by_rule={"ece_blocked": [case]},
+        **{**common, "formula_environment": {"imported_fpl_rate": 1.85}},
+    )
+
+
+@pytest.mark.parametrize(
+    "formula",
+    [
+        (
+            "if gross_income > imported_fpl_rate * "
+            "current_federal_poverty_level_amount: not_holds else: holds"
+        ),
+        (
+            "not (gross_income > imported_fpl_rate * "
+            "current_federal_poverty_level_amount)"
+        ),
+        (
+            "if gross_income <= imported_fpl_rate * "
+            "current_federal_poverty_level_amount: "
+            "gross_income <= imported_fpl_rate * "
+            "current_federal_poverty_level_amount else: not_holds"
+        ),
+        (
+            "(gross_income > imported_fpl_rate * "
+            "current_federal_poverty_level_amount) or "
+            "(gross_income == imported_fpl_rate * "
+            "current_federal_poverty_level_amount)"
+        ),
+    ],
+)
+def test_scaled_percent_boundary_rejects_reversed_eligibility(formula: str):
+    source = (
+        "The unit is eligible when gross income exceeds 200% of the current "
+        "federal poverty level."
+    )
+    branch = completeness_module.SourceStructureBranch(
+        ("ece",), "paragraph", "ECE", source, 0, len(source)
+    )
+    boundary = LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR(source)[0]
+    rule = {
+        "name": "eligible",
+        "kind": "derived",
+        "dtype": "Judgment",
+        "versions": [{"formula": formula}],
+    }
+    case = {
+        "name": "at the ceiling",
+        "period": "2026-03",
+        "input": {
+            "gross_income": 2000,
+            "current_federal_poverty_level_amount": 1000,
+        },
+        "output": {"eligible": "holds"},
+    }
+
+    assert not completeness_module._branch_boundary_test_witnesses(
+        branch,
+        boundary,
+        principal_rules={"eligible": rule},
+        principal_rule_paths={"eligible": {("ece",)}},
+        asserted_by_rule={"eligible": [case]},
+        numeric_value_is_grounded=numeric_value_is_grounded,
+        formula_environment={"imported_fpl_rate": 2.0},
+        extract_numeric_occurrences=(LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR),
+    )
+
+
+def test_scaled_percent_boundary_rejects_wrong_side_effect():
+    source = (
+        "The unit is eligible when gross income exceeds 200% of the current "
+        "federal poverty level."
+    )
+    branch = completeness_module.SourceStructureBranch(
+        ("ece",), "paragraph", "ECE", source, 0, len(source)
+    )
+    rule = {
+        "name": "eligible",
+        "kind": "derived",
+        "dtype": "Judgment",
+        "versions": [
+            {
+                "formula": (
+                    "(gross_income > imported_fpl_rate * "
+                    "current_federal_poverty_level_amount and false) or "
+                    "gross_income < imported_fpl_rate * "
+                    "current_federal_poverty_level_amount"
+                )
+            }
+        ],
+    }
+    case = {
+        "period": "2026-03",
+        "input": {
+            "gross_income": 2000,
+            "current_federal_poverty_level_amount": 1000,
+        },
+        "output": {"eligible": "not_holds"},
+    }
+
+    assert not completeness_module._branch_boundary_test_witnesses(
+        branch,
+        LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR(source)[0],
+        principal_rules={"eligible": rule},
+        principal_rule_paths={"eligible": {("ece",)}},
+        asserted_by_rule={"eligible": [case]},
+        numeric_value_is_grounded=numeric_value_is_grounded,
+        formula_environment={"imported_fpl_rate": 2.0},
+        extract_numeric_occurrences=LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+    )
+
+
+@pytest.mark.parametrize(
     "formula",
     [
         "if refund_applies: max(0, credit_amount - tax_liability) else: 0",
@@ -34495,6 +36408,21 @@ def test_federal_except_tokens_cannot_bind_age_witness_to_joint_return_clause():
     )
 
 
+def test_cash_assistance_acronym_binds_full_selector_to_source_condition():
+    condition = (
+        "when the budgetary unit is CA eligible, but no CA benefit is being paid"
+    )
+
+    assert completeness_module._source_exception_selector_is_relevant(
+        condition,
+        "participant_is_cash_assistance_eligible_but_no_cash_assistance_benefit_is_paid",
+    )
+    assert not completeness_module._source_exception_selector_is_relevant(
+        condition,
+        "participant_receives_refugee_cash_assistance",
+    )
+
+
 @pytest.mark.parametrize("reverse_clause_order", [False, True])
 def test_age_qualification_witness_is_not_allocated_to_joint_return_clause(
     reverse_clause_order: bool,
@@ -35303,6 +37231,79 @@ def test_inability_or_unwillingness_is_active_missing_documentation_condition():
         "When the person is unable or unwilling to provide documentation.",
         "is_unable_or_unwilling",
     )
+
+
+def test_failure_to_provide_activates_negated_provided_selector():
+    source = "If the sponsored alien fails to provide consent, the alien is ineligible."
+
+    assert not completeness_module._source_exception_selector_active_value(
+        source,
+        "sponsored_alien_provided_required_consent",
+    )
+    assert completeness_module._source_exception_selector_active_value(
+        source,
+        "sponsored_alien_not_provided_required_consent",
+    )
+
+
+def test_formula_interval_recognizes_under_the_age_of_boundary():
+    interval = completeness_module._formula_interval_from_text(
+        "if a full-time student under the age of 22",
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+    )
+
+    assert interval is not None
+    assert interval.lower is None
+    assert interval.upper is not None and interval.upper.value == 22
+    assert not interval.upper_inclusive
+
+
+def test_numeric_age_witness_does_not_require_non_numeric_selector_tokens():
+    source = "An unmarried full-time student under the age of 22 is eligible."
+    branch = completeness_module.SourceStructureBranch(
+        path=("a", "4", "iii"),
+        kind="number",
+        label="(iii)",
+        text=source,
+        start=0,
+        end=len(source),
+    )
+    witness = completeness_module._ExceptionWitness(
+        rule_name="student_child_under_age_limit",
+        selector_name="member_age",
+        active_value=True,
+        blocks=False,
+        boolean_effect=True,
+        zeroes=False,
+        numeric_transition=(22.0, 21.0),
+        relational_transitions=(("member_age", "<", "student_age_limit"),),
+        case_pair_identity=(1, 2),
+    )
+    rule = {
+        "name": "student_child_under_age_limit",
+        "source": "7 CFR 273.4(a)(4)(iii)",
+        "versions": [{"formula": "member_age < student_age_limit"}],
+    }
+
+    assert witness in completeness_module._exception_witnesses_for_branch(
+        branch,
+        principal_rules={"student_child_under_age_limit": rule},
+        principal_rule_paths={"student_child_under_age_limit": {("a", "4", "iii")}},
+        asserted_by_rule={"student_child_under_age_limit": []},
+        toggled_exception_selectors={witness},
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+    )
+
+    for unrelated_selector in ("member_income", "completely_unrelated"):
+        unrelated = dataclasses.replace(witness, selector_name=unrelated_selector)
+        assert unrelated not in completeness_module._exception_witnesses_for_branch(
+            branch,
+            principal_rules={"student_child_under_age_limit": rule},
+            principal_rule_paths={"student_child_under_age_limit": {("a", "4", "iii")}},
+            asserted_by_rule={"student_child_under_age_limit": []},
+            toggled_exception_selectors={unrelated},
+            extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        )
 
 
 @pytest.mark.parametrize(
@@ -43005,6 +45006,25 @@ def test_eu_regulation_identifiers_are_not_division_formulas(citation):
     )
 
 
+def test_parenthesized_see_reference_title_is_not_a_formula_clause():
+    source = (
+        "When a participant meets the elderly or disabled definition, the "
+        "budgetary unit receives special considerations. "
+        "(See Elderly or Have a Disability - NA Special Considerations )"
+    )
+    branches = recognize_source_structure(source)
+
+    assert not source_states_explicit_computation(
+        "(See Elderly or Have a Disability - NA Special Considerations )"
+    )
+    assert not completeness_module._source_formula_branches(
+        source,
+        branches=branches,
+        active_branches=branches,
+        deferred_paths=set(),
+    )
+
+
 def test_estg32_regulation_title_does_not_create_formula_clause_witnesses():
     source = """(4) 1Ein Kind wird berücksichtigt, wenn es eine Freiwilligentätigkeit
 im Rahmen des Europäischen Solidaritätskorps im Sinne der
@@ -43642,6 +45662,86 @@ def test_irs_revenue_procedure_headings_are_not_numeric_obligations(suffix):
     assert "Low-Income Housing Credit." in cleaned
 
 
+def test_fns_fy2026_income_page_two_flattened_table_preserves_all_currency_cells():
+    source = (
+        (
+            Path(__file__).parent
+            / "fixtures/source_completeness/fns_snap_fy2026_income_standards_page_2.txt"
+        )
+        .read_text()
+        .strip()
+    )
+    citation_path = (
+        "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards/page-2"
+    )
+    # Exact committed corpus provision body, not a synthetic table excerpt.
+    assert hashlib.sha256(source.encode()).hexdigest() == (
+        "f5d38b6b863f107f0c0e9a4c08ed8443bf4f3432b624860e66c1a899d251bcfc"
+    )
+    cleaned = authoritative_numeric_recall_text(
+        source, corpus_citation_path=citation_path
+    )
+    inventory = EN_NUMERIC_OCCURRENCE_EXTRACTOR(cleaned)
+    grounding = EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR(cleaned)
+    currency_values = {
+        2152,
+        2689,
+        2474,
+        2909,
+        3635,
+        3344,
+        3665,
+        4581,
+        4215,
+        4421,
+        5527,
+        5085,
+        5177,
+        6473,
+        5956,
+        5934,
+        7419,
+        6826,
+        6690,
+        8365,
+        7696,
+        7446,
+        9311,
+        8567,
+        757,
+        946,
+        871,
+    }
+    assert currency_values <= {item.value for item in inventory}
+    assert currency_values <= {item.value for item in grounding}
+    for occurrence in inventory:
+        if occurrence.value in currency_values:
+            assert cleaned[occurrence.start : occurrence.end].replace(",", "").isdigit()
+
+    content = "format: rulespec/v1\nmodule: {}\nrules: []\n"
+    all_values = tuple(sorted({item.value for item in inventory}))
+    covered = _analyze(
+        content,
+        source,
+        corpus_citation_path=citation_path,
+        artifact_numeric_values=all_values,
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        test_cases=[],
+    )
+    assert not _has_issue(covered, "numeric-recall"), covered.issues
+    missing = _analyze(
+        content,
+        source,
+        corpus_citation_path=citation_path,
+        artifact_numeric_values=tuple(value for value in all_values if value != 2474),
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        test_cases=[],
+    )
+    assert _has_issue(missing, "numeric-recall", "2474"), missing.issues
+
+
 @pytest.mark.parametrize(
     "source",
     [
@@ -44261,3 +46361,423 @@ def test_dakg_review_reference_accepts_explicit_missing_state_without_redundant_
     covered, issues = _dakg_review_deferral(reason=reason, typed=typed)
     assert covered == {("2", "satz-3")}
     assert not issues
+
+
+@pytest.mark.parametrize(
+    ("selector", "extra", "expected"),
+    [
+        ("year <= start + duration - 1", {}, (2004.0,)),
+        ("start + duration - 1 >= year", {}, (2004.0,)),
+        ("year <= (start + duration - 1) + 1", {}, (2005.0,)),
+        ("False and year <= start + duration - 1", {}, ()),
+        ("True or year <= start + duration - 1", {}, ()),
+        ("unknown and year <= start + duration - 1", {}, ()),
+        ("year < 0 < start + duration - 1", {}, ()),
+        ("0 < year <= start + duration - 1", {}, (2004.0,)),
+        ("year <= household_start + duration - 1", {"household_start": 2000}, ()),
+        ("year <= max(start + duration - 1, 2000)", {}, ()),
+        ("year <= start ** duration", {}, ()),
+        ("year <= start + flag", {"flag": True}, ()),
+    ],
+)
+def test_computed_comparison_evidence_is_constant_complete_and_reached(
+    selector, extra, expected
+):
+    constants = {"start": 2000, "duration": 5}
+    assert (
+        completeness_module._reached_constant_comparison_values(
+            selector,
+            constant_environment=constants,
+            execution_environment={**constants, "year": 2002, **extra},
+        )
+        == expected
+    )
+
+
+def test_computed_comparison_evidence_requires_execution_environment():
+    assert (
+        completeness_module._reached_constant_comparison_values(
+            "year <= start + duration - 1",
+            constant_environment={"start": 2000, "duration": 5},
+            execution_environment=None,
+        )
+        == ()
+    )
+
+
+@pytest.mark.parametrize("start", [2000, 2017])
+def test_formula_witness_accepts_computed_transition_end_year(start):
+    source = f"(A) With respect to an individual who attains early retirement age in the 5-year period consisting of the calendar years {start} through {start + 4}, the age increase factor shall be equal to two-twelfths of the number of months in the period beginning with January {start} and ending with December of the year in which the individual attains early retirement age."
+    branch = completeness_module.SourceStructureBranch(
+        ("3", "a"), "formula-clause", "transition", source, 0, len(source)
+    )
+    constants = {"start": start, "duration": 5, "factor": 2}
+    execution = completeness_module._FormulaExecution(
+        trace=(
+            completeness_module._FormulaTraceStep(
+                "if", ("year >= start and year <= start + duration - 1",), 0
+            ),
+        ),
+        leaf="factor * elapsed_years",
+        evaluated_value=None,
+        evaluates_to_zero=False,
+        constant_environment=constants,
+    )
+    kwargs = dict(
+        interval=completeness_module._formula_branch_interval(
+            branch,
+            extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        ),
+        formula_environment={},
+        execution_environment={**constants, "year": start + 2, "elapsed_years": 3},
+        extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+    assert completeness_module._formula_execution_matches_source_branch(
+        execution, branch, **kwargs
+    )
+    wrong = completeness_module._FormulaExecution(
+        trace=(
+            completeness_module._FormulaTraceStep(
+                "if", ("year >= start and year <= start + duration",), 0
+            ),
+        ),
+        leaf=execution.leaf,
+        evaluated_value=None,
+        evaluates_to_zero=False,
+        constant_environment=constants,
+    )
+    assert not completeness_module._formula_execution_matches_source_branch(
+        wrong, branch, **kwargs
+    )
+
+
+@pytest.mark.parametrize("invalid", [True, float("inf"), float("nan")])
+def test_computed_comparison_rejects_nonfinite_and_boolean_constants(invalid):
+    constants = {"start": 2000, "duration": invalid}
+    assert (
+        completeness_module._reached_constant_comparison_values(
+            "year <= start + duration - 1",
+            constant_environment=constants,
+            execution_environment={**constants, "year": 2002},
+        )
+        == ()
+    )
+
+
+def test_computed_comparison_uses_only_selected_temporal_parameters():
+    temporal = completeness_module._TemporalFormulaValue(
+        (("2000-01-01", "2004-12-31", 2000), ("2017-01-01", "2021-12-31", 2017)),
+        (),
+    )
+    for period, expected in (("2002-01-01", 2004.0), ("2019-01-01", 2021.0)):
+        constants = completeness_module._formula_environment_for_case(
+            {"start": temporal, "duration": 5}, {"period": period}
+        )
+        assert completeness_module._reached_constant_comparison_values(
+            "year <= start + duration - 1",
+            constant_environment=constants,
+            execution_environment={**constants, "year": int(period[:4])},
+        ) == (expected,)
+    assert (
+        completeness_module._reached_constant_comparison_values(
+            "year <= start + duration - 1",
+            constant_environment={"start": temporal, "duration": 5},
+            execution_environment={"start": 2000, "duration": 5, "year": 2002},
+        )
+        == ()
+    )
+
+
+def _published_income_table_fixture(rate: int = 130) -> str:
+    rows = " ".join(
+        f"{size} ${1000 + size} ${2000 + size} ${3000 + size}" for size in range(1, 9)
+    )
+    return (
+        f"Gross Monthly Income Eligibility Standards ({rate} Percent of Poverty Level)\n\n"
+        "Household Size 48 States, DC, Guam, Virgin Islands Alaska Hawaii "
+        f"{rows} Each additional person $100 $200 $300"
+    )
+
+
+def test_precomputed_income_table_captions_are_not_computation():
+    source = "\n\n".join(
+        _published_income_table_fixture(rate) for rate in (100, 130, 165)
+    )
+    assert not source_states_explicit_computation(source)
+    assert not completeness_module._source_states_nonrounding_computation(source)
+    masked = completeness_module._without_precomputed_income_table_percentage_captions(
+        source
+    )
+    assert len(masked) == len(source)
+    assert masked.index("$1001") == source.index("$1001")
+    assert "Each additional person $100 $200 $300" in masked
+    # Computation classification must not alter the original numeric inventory.
+    assert {100.0, 130.0, 165.0, 1001.0, 2001.0, 3008.0, 200.0, 300.0}.issubset(
+        {item.value for item in EN_NUMERIC_OCCURRENCE_EXTRACTOR(source)}
+    )
+
+
+def test_exact_fns_fy2026_one_line_table_caption_is_not_a_computation():
+    source = (
+        (
+            Path(__file__).parent
+            / "fixtures/source_completeness/fns_snap_fy2026_income_standards_page_2.txt"
+        )
+        .read_text()
+        .strip()
+    )
+    citation_path = (
+        "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards/page-2"
+    )
+    assert hashlib.sha256(source.encode()).hexdigest() == (
+        "f5d38b6b863f107f0c0e9a4c08ed8443bf4f3432b624860e66c1a899d251bcfc"
+    )
+    assert source_states_explicit_computation(source)
+    assert not source_states_explicit_computation(
+        source, corpus_citation_path=citation_path
+    )
+    assert not completeness_module._source_states_nonrounding_computation(
+        source, corpus_citation_path=citation_path
+    )
+    result = _analyze(
+        "format: rulespec/v1\nmodule: {}\nrules: []\n",
+        source,
+        corpus_citation_path=citation_path,
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        test_cases=[],
+    )
+    assert not _has_issue(result, "formula-output"), result.issues
+    # The computation-only view must never erase the 165% caption or the
+    # published dollar cells from independent source-recall obligations.
+    recalled = EN_NUMERIC_OCCURRENCE_EXTRACTOR(
+        authoritative_numeric_recall_text(source, corpus_citation_path=citation_path)
+    )
+    assert {165, 2152, 2474, 8567, 871} <= {item.value for item in recalled}
+
+
+def test_exact_fns_fy2026_composed_income_tables_are_published_values():
+    source = (
+        (
+            Path(__file__).parent
+            / "fixtures/source_completeness/fns_snap_fy2026_income_standards_composed.txt"
+        )
+        .read_text()
+        .strip()
+    )
+    citation_path = "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards"
+    assert hashlib.sha256(source.encode()).hexdigest() == (
+        "4145775814ee480173e064c402eb67fc270c05227073b93f23a3e200ddda23e7"
+    )
+    assert source_states_explicit_computation(source)
+    assert not source_states_explicit_computation(
+        source, corpus_citation_path=citation_path
+    )
+    assert not completeness_module._source_formula_branches(
+        source,
+        corpus_citation_path=citation_path,
+        branches=(),
+        active_branches=(),
+        deferred_paths=set(),
+    )
+    result = _analyze(
+        "format: rulespec/v1\nmodule: {}\nrules: []\n",
+        source,
+        corpus_citation_path=citation_path,
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        test_cases=[],
+    )
+    assert not _has_issue(result, "formula-output"), result.issues
+    assert not _has_issue(result, "formula branch"), result.issues
+    assert _has_issue(result, "numeric"), result.issues
+    recall_text = authoritative_numeric_recall_text(
+        source, corpus_citation_path=citation_path
+    )
+    recalled = EN_NUMERIC_OCCURRENCE_EXTRACTOR(recall_text)
+    assert (
+        sum(item.start > 0 and recall_text[item.start - 1] == "$" for item in recalled)
+        == 81
+    )
+    assert {1305, 4513, 459, 1696, 5867, 596, 2152, 8567, 871} <= {
+        item.value for item in recalled
+    }
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda source: source.replace("$8,567", ""),
+        lambda source: source + " The limit is computed as 165% of poverty.",
+    ],
+)
+def test_fns_fy2026_composed_income_table_mask_fails_closed(mutation):
+    source = (
+        (
+            Path(__file__).parent
+            / "fixtures/source_completeness/fns_snap_fy2026_income_standards_composed.txt"
+        )
+        .read_text()
+        .strip()
+    )
+    citation_path = "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards"
+    assert source_states_explicit_computation(
+        mutation(source), corpus_citation_path=citation_path
+    )
+    assert source_states_explicit_computation(
+        source, corpus_citation_path="us/guidance/example/income-table"
+    )
+    assert completeness_module._source_formula_branches(
+        source,
+        corpus_citation_path="us/guidance/example/income-table",
+        branches=(),
+        active_branches=(),
+        deferred_paths=set(),
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda source: source.replace("$8,567", ""),
+        lambda source: source + " The limit is computed as 165% of poverty.",
+    ],
+)
+def test_fns_fy2026_one_line_table_caption_fails_closed_when_changed(mutation):
+    source = (
+        (
+            Path(__file__).parent
+            / "fixtures/source_completeness/fns_snap_fy2026_income_standards_page_2.txt"
+        )
+        .read_text()
+        .strip()
+    )
+    citation_path = (
+        "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards/page-2"
+    )
+    assert source_states_explicit_computation(
+        mutation(source), corpus_citation_path=citation_path
+    )
+    assert source_states_explicit_computation(
+        source, corpus_citation_path="us/guidance/example/income-table"
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda source: source.replace("8 $1008 $2008 $3008", ""),
+        lambda source: source.replace("Each additional person $100 $200 $300", ""),
+        lambda source: source.replace("$2001", "amount calculated separately"),
+        lambda source: source.replace(
+            "Household Size", "Income is calculated for household size"
+        ),
+        lambda source: source.replace("\n", " "),
+    ],
+)
+def test_percentage_caption_without_complete_table_stays_computational(mutation):
+    assert source_states_explicit_computation(
+        mutation(_published_income_table_fixture())
+    )
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "The income limit is 130 percent of the poverty level.",
+        "The limit is computed by multiplying the poverty level by 1.3.",
+        "The additional-person limit equals the eight-person limit plus $100.",
+        "The result is rounded to the nearest whole dollar.",
+    ],
+)
+def test_income_table_caption_mask_preserves_adjacent_computation(instruction):
+    source = _published_income_table_fixture() + "\n\n" + instruction
+    assert source_states_explicit_computation(source)
+
+
+def test_income_table_amounts_still_require_numeric_coverage():
+    source = _published_income_table_fixture()
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="us/guidance/example/income-table",
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+        ),
+    )
+    assert _has_issue(result, "numeric")
+
+
+@pytest.mark.parametrize("principal", ["net * rate", "net *\nrate"])
+@pytest.mark.parametrize("leaf", ["base - deduction", "base -\ndeduction"])
+def test_reached_witness_expands_supported_multiline_arithmetic(principal, leaf):
+    rules = {
+        "net": {
+            "name": "net",
+            "kind": "derived",
+            "dtype": "Decimal",
+            "versions": [{"effective_from": "2025-01-01", "formula": leaf}],
+        }
+    }
+    case = {
+        "period": "2025-01-01",
+        "input": {"base": 100, "deduction": 20, "rate": 0.25},
+        "output": {"net": 80},
+    }
+    dependencies = completeness_module._case_asserted_dependency_environment(
+        rules, case, formula_environment={}
+    )
+    assert dependencies == {"net": 80}
+    expanded = completeness_module._expand_reached_formula_dependencies(
+        principal,
+        principal_rules=rules,
+        case=case,
+        formula_environment={},
+        dependency_environment=dependencies,
+    )
+    assert expanded == "(base - deduction) * rate"
+
+
+@pytest.mark.parametrize("assertions", [{}, {"net": 81}])
+def test_multiline_witness_does_not_inline_uncorroborated_dependency(assertions):
+    rules = {
+        "net": {
+            "name": "net",
+            "kind": "derived",
+            "dtype": "Decimal",
+            "versions": [{"formula": "base -\ndeduction"}],
+        }
+    }
+    case = {
+        "input": {"base": 100, "deduction": 20, "rate": 0.25},
+        "output": assertions,
+    }
+    dependencies = completeness_module._case_asserted_dependency_environment(
+        rules, case, formula_environment={}
+    )
+    assert "net" not in dependencies
+    assert (
+        completeness_module._expand_reached_formula_dependencies(
+            "net *\nrate",
+            principal_rules=rules,
+            case=case,
+            formula_environment={},
+            dependency_environment=dependencies,
+        )
+        == "net * rate"
+    )
+
+
+@pytest.mark.parametrize("formula", ["net +", "net; other", "net = other"])
+def test_multiline_dependency_expansion_preserves_invalid_expression(formula):
+    assert (
+        completeness_module._expand_reached_formula_dependencies(
+            formula,
+            principal_rules={},
+            case={"input": {}},
+            formula_environment={},
+            dependency_environment={},
+        )
+        == formula
+    )

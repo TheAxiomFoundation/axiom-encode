@@ -1,0 +1,11 @@
+{
+  "citation": "ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit",
+  "source_release": "ca-rulespec-2026-07-21-oracle-complete-v2",
+  "release_sha256": "5acdb15ce948857a13baf9088c2179951716edd47a0327c078b4e97be6eb0ef4",
+  "candidate_status": "Unchanged rejected native candidate, diagnostic fixture, not policy clearance",
+  "hashes": {
+    "candidate.txt": "8f5c3e0874b4e509c65b68394fcf01404cdba682bdada61b1e7b95c64fc47b2e",
+    "controls.json": "007e2a41b6dec2c4f371a6a7bf83e7395bda886c0bf59aedcf4db59665a34213",
+    "source.txt": "7637ab494fc385b938e9e3ce4d5f3b1af8bc331ad644fe3cedefaee8434028ee"
+  }
+}

@@ -6,6 +6,25 @@ regeneration alone does not fix a validator or source defect. Queue dispatches,
 authenticated repair replays and existing repository-wide overrides retain their
 established behavior. This is a cost limit, not a signing or validation waiver.
 
+Reviewed-candidate promotions do not reset generation failure history. The
+workflow records a model-free marker only after constructing a queue without
+any model-capable operation; known model-free successes and failures are neutral.
+A success resets the streak only with the explicit completed-model-capable-queue
+marker, after all signing checkpoints succeed. Historical generic encode-step
+successes cannot distinguish generation from promotion and are conservatively
+neutral, including genuine historical successes without that evidence. Historical
+ambiguous failures still count. No attempt is deleted, and the existing lookback,
+lookup-error handling and limits are unchanged.
+
+An authenticated replay of a failed legacy-primary plus direct-dependent
+transaction must resubmit the exact prior corpus-artifact transport input,
+including its boundary cases and export run IDs. The prior failure artifact must
+bind the same primary citation, in-place legacy path, dependent citation,
+generated lanes, and candidate checksums. The replay still validates and signs
+the candidate on the current protected path; it does not waive source coverage,
+required cases, dependent validation, or exact-head CI. A missing or changed
+artifact binding fails closed rather than becoming a fresh budget-exempt encode.
+
 For a reviewed retry that must leave concurrent citations at their existing
 limits, set the repository Actions variable `ATTEMPT_BUDGET_BY_CITATION_JSON`
 to an object keyed by exact, case-sensitive corpus citation paths. For example:
@@ -37,3 +56,23 @@ reviewed retry. Preserve other operators' entries when changing the variable.
 it takes precedence over numeric limits and should not be used for an isolated
 retry while another citation is being worked on. All protected environment,
 source, behavior, completeness and signature gates remain in force.
+
+## Retaining a primary while repairing dependents
+
+A failed single-target run can supply the retained primary for a later request
+with one or two direct dependents. Keep the primary citation, replacement path,
+corpus and engine identities bound to the prior artifact. Leave source/test
+bundles, refreshes, legacy moves and queue inputs empty. A second dependent
+requires a first dependent. The workflow first applies the existing strict
+target-artifact checks. If they fail with two dependents requested, the request
+stops. With one dependent, it may try the existing strict dependent-artifact
+checks. The extractor's transaction identity checks are unchanged.
+
+After a candidate authenticates, failures in candidate validation or RuleSpec
+base-advance verification terminate the request; they never select another
+lane. The current direct-dependency inventory is still checked before model
+execution. Retained bytes go only to the selected primary; each newly requested
+dependent receives its own source-complete native generation and validation.
+Diagnostics record the prior run, selected candidate lane and hashes separately
+from the requested dependent citations. This does not certify the new dependents
+as part of the old artifact or waive any signing or publication check.

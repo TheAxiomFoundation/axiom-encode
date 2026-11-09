@@ -7,13 +7,18 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 import re
+import stat
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
+
+if TYPE_CHECKING:
+    from axiom_encode.corpus_release import VerifiedCorpusReleaseObject
 
 SCHEMA = "axiom-encode/signed-encoding-queue/v1"
 ACTIVATION_CHANGED_FILES = (
@@ -41,6 +46,12 @@ ALLOWED_STATUSES = frozenset(
 SELECTABLE_STATUSES = frozenset({"pending", "retryable"})
 TERMINAL_STATUSES = frozenset({"blocked", "completed", "no-executable-rule"})
 MAX_BATCH_SIZE = 4
+# Branches a queue may open its draft RuleSpec pull requests against. The
+# canonical-layout cutover branch is the original target; ``main`` is where
+# production encodes have landed since the targeted workflow started
+# accepting main-ancestor refs (prepare_signed_backfill's "main" admission).
+DEFAULT_PR_BASE_BRANCH = "hard-cut/canonical-layout-us"
+APPROVED_PR_BASE_BRANCHES = frozenset({DEFAULT_PR_BASE_BRANCH, "main"})
 EXPECTED_COUNTS = {"total": 831, "us-or": 530, "us-ut": 301}
 ALL_STATE_EXPECTED_COUNTS = {
     "total": 17784,
@@ -263,6 +274,11 @@ def _logical_source_units(records: list[dict[str, Any]]) -> list[dict[str, Any]]
     )
 
 
+def _require_approved_pr_base_branch(value: object) -> None:
+    if value not in APPROVED_PR_BASE_BRANCHES:
+        raise ValueError("SNAP queue PR base branch is not approved")
+
+
 def _require_sha(value: object, label: str) -> str:
     if not isinstance(value, str) or SHA_PATTERN.fullmatch(value) is None:
         raise ValueError(f"{label} must be a full lowercase commit SHA")
@@ -285,6 +301,163 @@ def _json_sha256(payload: object) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def _uses_corpus_lock_files(corpus_root: Path) -> bool:
+    """True when the corpus checkout keeps its bytes in lock files.
+
+    The same test as ``axiom_encode.corpus_materialize.corpus_uses_lock_files``,
+    made without importing ``axiom_encode``, so a checkout without lock files
+    reaches the same checks in the same order as before lock files existed.
+    """
+
+    try:
+        return stat.S_ISDIR(os.lstat(corpus_root / ".axiom/corpus-locks").st_mode)
+    except OSError:
+        return False
+
+
+def _resolved_lock_checkout_root(corpus_root: Path) -> Path:
+    """A lock-file checkout's root with any symlink resolved, used for every step.
+
+    The materializer refuses a symlinked root; reads followed one before the
+    switch. Resolving once means the checks, placement, hashing and reads all
+    see the same directory. Symlinks under the root are still refused.
+    """
+
+    return Path(os.path.realpath(corpus_root))
+
+
+def _manual_source_paths(corpus_root: Path, jurisdiction: str) -> list[Path]:
+    """The provisions files a corpus checkout holds in one state's manual directory.
+
+    A checkout that tracks its corpus bytes lists the directory. A checkout
+    that keeps them in lock files (``.axiom/corpus-locks/``) also lists every
+    file its locks pin there: the files a pre-switch checkout of the same
+    content holds. So a locked scope the release omits fails the build, as a
+    tracked one does.
+    """
+
+    directory = corpus_root / "data/corpus/provisions" / jurisdiction / "manual"
+    if not _uses_corpus_lock_files(corpus_root):
+        return sorted(directory.glob("*.jsonl"))
+    from axiom_encode.corpus_materialize import locked_directory_listing
+
+    locked = locked_directory_listing(corpus_root, "provisions", jurisdiction, "manual")
+    return sorted(
+        {*directory.glob("*.jsonl"), *(corpus_root / path for path in locked)}
+    )
+
+
+def _place_release_sources(
+    corpus_root: Path,
+    release: VerifiedCorpusReleaseObject,
+    source_paths: list[Path],
+) -> None:
+    """Put a lock-file checkout's queue sources in place with the signed release's bytes.
+
+    Every source must be a release artifact. A missing one is placed from the
+    first source whose bytes hash to the release's sha256 and byte count
+    (``axiom_encode.corpus_materialize``), and only where the checkout's own
+    lock pins those bytes. A present one counts only if it has the release's
+    size and its lock, when it has one, pins the release's bytes; the hash
+    check that follows compares its bytes with the release. Anything else
+    fails the build before a byte is hashed or read.
+    """
+
+    from axiom_encode.corpus_materialize import (
+        NO_FETCH_ENV,
+        CorpusMaterializationError,
+        destination_state,
+        fetch_disabled,
+        locked_directory_listing,
+        materialize_release_artifacts,
+        present_file_note,
+        release_sources,
+    )
+
+    artifacts = {artifact.path: artifact for artifact in release.artifacts}
+    by_path = {}
+    for source_path in source_paths:
+        relative = source_path.relative_to(corpus_root).as_posix()
+        if relative not in artifacts:
+            raise ValueError(f"signed release omits queue source artifact: {relative}")
+        by_path[relative] = artifacts[relative]
+    selected = list(by_path.values())
+    root = _resolved_lock_checkout_root(corpus_root)
+    # Every source directory's locks must be usable, as build-snap's listing
+    # requires of the manual directories: a present file over a lock that
+    # pins nothing must not pass for one that has no lock.
+    for directory in sorted({tuple(path.split("/")[2:5]) for path in by_path}):
+        try:
+            locked_directory_listing(root, *directory)
+        except CorpusMaterializationError as exc:
+            raise ValueError(f"cannot place queue sources: {exc}") from exc
+    unplaced: dict[str, str] = {}
+    if fetch_disabled():
+        for artifact in selected:
+            try:
+                if destination_state(root, artifact) != "present":
+                    unplaced[artifact.path] = "missing"
+                    continue
+            except CorpusMaterializationError as exc:
+                unplaced[artifact.path] = str(exc)
+                continue
+            note = present_file_note(root, artifact, release.git_commit)
+            if note is not None:
+                unplaced[artifact.path] = note
+        action = f"{NO_FETCH_ENV} is set, and {len(unplaced)} of"
+        hint = (
+            f"Unset {NO_FETCH_ENV} to place them, or place them first "
+            "(`axiom-encode corpus-fetch`, or `axiom-corpus-ingest corpus fetch`)."
+        )
+    else:
+        try:
+            report = materialize_release_artifacts(
+                root,
+                selected,
+                sources=lambda: release_sources(
+                    root, git_commit=release.git_commit, r2_bucket=release.r2_bucket
+                ),
+                release_commit=release.git_commit,
+            )
+        except CorpusMaterializationError as exc:
+            raise ValueError(f"cannot place queue sources: {exc}") from exc
+        if report.materialized:
+            counts = ", ".join(f"{k} {v}" for k, v in report.source_counts().items())
+            print(
+                f"prepare_signed_queue: placed {len(report.materialized)} corpus "
+                f"release artifact(s) ({report.bytes_materialized:,} bytes) from "
+                f"{counts}",
+                file=sys.stderr,
+            )
+        # notes: present by size, but the lock pins other bytes.
+        unplaced = {
+            **report.notes,
+            **report.failed,
+            **report.skipped,
+            **report.modified,
+        }
+        action = f"cannot place {len(unplaced)} of"
+        hint = (
+            "Where no source had the bytes, place them first (`axiom-encode "
+            "corpus-fetch` with R2 read credentials, or `axiom-corpus-ingest "
+            "corpus fetch`), or check the corpus out with full history so git "
+            "objects can supply files committed before the switch."
+        )
+    if unplaced:
+        reasons = [f"{path}: {reason}" for path, reason in sorted(unplaced.items())]
+        if len(reasons) > 10:
+            reasons[10:] = [f"... and {len(reasons) - 10} more"]
+        raise ValueError(
+            f"{action} {len(selected)} queue source artifact(s) of corpus release "
+            f"{release.name} in the lock-file corpus checkout {root}:\n"
+            + "\n".join(reasons)
+            + "\n"
+            + hint
+            + " Where a lock pins other bytes than the release, the release does "
+            "not match the locks at corpus_ref, its own git.commit."
+        )
+
+
 def _git(corpus_root: Path, *args: str) -> str:
     result = subprocess.run(
         ["git", "-C", str(corpus_root), *args],
@@ -293,6 +466,20 @@ def _git(corpus_root: Path, *args: str) -> str:
         text=True,
     )
     return result.stdout.strip()
+
+
+def _verify_corpus_checkout(corpus_root: Path, corpus_ref: str) -> None:
+    """The corpus checkout is a clean checkout of exactly ``corpus_ref``."""
+
+    try:
+        head = _git(corpus_root, "rev-parse", "HEAD")
+        checkout_status = _git(corpus_root, "status", "--porcelain")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValueError("corpus_root must be a readable Git checkout") from exc
+    if head != corpus_ref:
+        raise ValueError(f"corpus checkout HEAD {head} does not match {corpus_ref}")
+    if checkout_status:
+        raise ValueError("corpus checkout is not clean")
 
 
 def _verify_corpus_provenance(
@@ -306,15 +493,7 @@ def _verify_corpus_provenance(
 
     if RELEASE_NAME_PATTERN.fullmatch(release_name) is None:
         raise ValueError("release_name is malformed")
-    try:
-        head = _git(corpus_root, "rev-parse", "HEAD")
-        checkout_status = _git(corpus_root, "status", "--porcelain")
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise ValueError("corpus_root must be a readable Git checkout") from exc
-    if head != corpus_ref:
-        raise ValueError(f"corpus checkout HEAD {head} does not match {corpus_ref}")
-    if checkout_status:
-        raise ValueError("corpus checkout is not clean")
+    _verify_corpus_checkout(corpus_root, corpus_ref)
 
     manifest_path = corpus_root / "manifests/releases" / f"{release_name}.json"
     release = _load_json(manifest_path)
@@ -417,6 +596,8 @@ def _verify_signed_release_binding(
     if not isinstance(git, dict) or git.get("commit") != corpus_ref:
         raise ValueError("signed release Git provenance does not match corpus_ref")
 
+    if _uses_corpus_lock_files(corpus_root):
+        _place_release_sources(corpus_root, verified, source_paths)
     artifacts = {artifact.path: artifact for artifact in verified.artifacts}
     for source_path in source_paths:
         relative = source_path.relative_to(corpus_root).as_posix()
@@ -442,6 +623,7 @@ def build_snap_queue(
     release_public_key_path: Path,
     state: str,
     pause_reason: str | None,
+    pr_base_branch: str = DEFAULT_PR_BASE_BRANCH,
 ) -> dict[str, Any]:
     """Build the reviewed Oregon and Utah SNAP source-unit inventory."""
 
@@ -449,9 +631,16 @@ def build_snap_queue(
     _require_sha(rulespec_ref, "rulespec_ref")
     _require_sha(rules_engine_ref, "rules_engine_ref")
     _require_digest(release_content_sha256, "release_content_sha256")
-    provisions = corpus_root / "data/corpus/provisions"
-    or_paths = sorted((provisions / "us-or/manual").glob("*.jsonl"))
-    ut_paths = sorted((provisions / "us-ut/manual").glob("*.jsonl"))
+    _require_approved_pr_base_branch(pr_base_branch)
+    if _uses_corpus_lock_files(corpus_root):
+        corpus_root = _resolved_lock_checkout_root(corpus_root)
+        # Read no lock file until the checkout is the queue's exact clean
+        # commit, after the same release-name check provenance makes first.
+        if RELEASE_NAME_PATTERN.fullmatch(release_name) is None:
+            raise ValueError("release_name is malformed")
+        _verify_corpus_checkout(corpus_root, corpus_ref)
+    or_paths = _manual_source_paths(corpus_root, "us-or")
+    ut_paths = _manual_source_paths(corpus_root, "us-ut")
     source_paths = or_paths + ut_paths
     release_manifest_sha256 = _verify_corpus_provenance(
         corpus_root,
@@ -560,7 +749,7 @@ def build_snap_queue(
             "country": "us",
             "max_batch_size": MAX_BATCH_SIZE,
             "open_pr": True,
-            "pr_base_branch": "hard-cut/canonical-layout-us",
+            "pr_base_branch": pr_base_branch,
             "rules_engine_ref": rules_engine_ref,
             "rulespec_ref": rulespec_ref,
         },
@@ -586,6 +775,7 @@ def build_all_state_snap_queue(
     release_public_key_path: Path,
     state: str,
     pause_reason: str | None,
+    pr_base_branch: str = DEFAULT_PR_BASE_BRANCH,
 ) -> dict[str, Any]:
     """Build the signed all-state SNAP logical source-unit inventory."""
 
@@ -593,6 +783,9 @@ def build_all_state_snap_queue(
     _require_sha(rulespec_ref, "rulespec_ref")
     _require_sha(rules_engine_ref, "rules_engine_ref")
     _require_digest(release_content_sha256, "release_content_sha256")
+    _require_approved_pr_base_branch(pr_base_branch)
+    if _uses_corpus_lock_files(corpus_root):
+        corpus_root = _resolved_lock_checkout_root(corpus_root)
 
     inventory_path = corpus_root / ALL_STATE_INVENTORY_PATH
     try:
@@ -747,7 +940,7 @@ def build_all_state_snap_queue(
             "country": "us",
             "max_batch_size": MAX_BATCH_SIZE,
             "open_pr": True,
-            "pr_base_branch": "hard-cut/canonical-layout-us",
+            "pr_base_branch": pr_base_branch,
             "rules_engine_ref": rules_engine_ref,
             "rulespec_ref": rulespec_ref,
         },
@@ -864,8 +1057,7 @@ def validate_queue(payload: dict[str, Any]) -> None:
         raise ValueError("queue dispatch binding is missing")
     if dispatch.get("country") != "us":
         raise ValueError("SNAP queue country must be us")
-    if dispatch.get("pr_base_branch") != "hard-cut/canonical-layout-us":
-        raise ValueError("SNAP queue PR base branch is not approved")
+    _require_approved_pr_base_branch(dispatch.get("pr_base_branch"))
     if dispatch.get("open_pr") is not True:
         raise ValueError("SNAP queue must publish draft pull requests")
     if dispatch.get("max_batch_size") != MAX_BATCH_SIZE:
@@ -1494,8 +1686,13 @@ def verify_paused_transition(
     if toolchain_repin:
         if previous["state"] != "paused":
             raise ValueError("paused queue toolchain repin requires a paused base")
+        # A pristine toolchain repin may also move the queue to another
+        # approved base branch (validate_queue bounds the value): the
+        # rulespec_ref it carries must be that branch's exact tip, which the
+        # validate workflow checks live before regenerating the queue.
         unchanged_dispatch_fields = set(queue["dispatch"]) - {
             "corpus_ref",
+            "pr_base_branch",
             "rules_engine_ref",
             "rulespec_ref",
         }
@@ -1813,6 +2010,9 @@ def reconcile_candidates(
                     "dispatchable": False,
                     "reason": "merged-rulespec-pr",
                     "history_url": merged_pr.get("html_url"),
+                    # Protected queue jobs only execute on attempt 1. Later
+                    # skipped reruns must not change the evidence attempt.
+                    "target_run_attempt": 1,
                     "target_run_url": target_run.get("html_url"),
                 }
             )
@@ -1932,6 +2132,7 @@ def finalization_target_plan(
             {
                 "id": item["id"],
                 "pull_request_url": item["history_url"],
+                "target_run_attempt": item["target_run_attempt"],
                 "target_run_url": item["target_run_url"],
             }
             for item in reconciled["items"]
@@ -1969,6 +2170,7 @@ def _verify_target_evidence(
         raise ValueError(f"{item['id']} target evidence contains a non-object")
     actor = run.get("actor")
     expected_run_url = decision["target_run_url"]
+    expected_run_attempt = decision["target_run_attempt"]
     if (
         run.get("status") != "completed"
         or run.get("conclusion") != "success"
@@ -2000,7 +2202,7 @@ def _verify_target_evidence(
         "queue_manifest_sha256": dispatch_queue_sha256(payload),
         "rulespec_base": payload["dispatch"]["rulespec_ref"],
         "schema": "axiom-encode/targeted-reencode-artifact/v1",
-        "workflow_run_attempt": 1,
+        "workflow_run_attempt": expected_run_attempt,
         "workflow_run_id": str(run_id),
     }
     mismatches = [
@@ -2070,9 +2272,21 @@ def _verify_target_evidence(
             run.get("head_sha"),
             f"{item['id']} target run head",
         ),
-        "target_run_attempt": 1,
+        "target_run_attempt": expected_run_attempt,
         "target_run_url": expected_run_url,
     }
+
+
+def _is_never_activated(payload: dict[str, Any]) -> bool:
+    return (
+        payload["state"] == "paused"
+        and payload.get("activation") is None
+        and payload.get("suspension") is None
+        and all(
+            item["status"] == "pending" and item["attempt"] == 1
+            for item in payload["items"]
+        )
+    )
 
 
 def finalize_and_repin(
@@ -2102,7 +2316,14 @@ def finalize_and_repin(
         raise ValueError("finalizer_run_attempt must be 1")
     _validate_green_check_runs(check_runs)
     previous_queue_object_sha256 = _json_sha256(payload)
-    if new_rulespec_ref == payload["dispatch"]["rulespec_ref"]:
+    # A queue that has run a tranche must advance so the new base carries
+    # its merged items. A never-activated queue (no suspension evidence,
+    # every item pending on attempt 1) has nothing to carry: its first
+    # activation may use the exact tip its authenticated paused repin pinned,
+    # which the checks below still require to be the live, green branch tip.
+    if new_rulespec_ref == payload["dispatch"]["rulespec_ref"] and not (
+        _is_never_activated(payload)
+    ):
         raise ValueError("new_rulespec_ref must advance the queue base")
     if reviewed_rulespec_refs is None:
         try:
@@ -2112,7 +2333,15 @@ def finalize_and_repin(
 
         reviewed_rulespec_refs = REVIEWED_RULESPEC_REFS
     country = payload["dispatch"]["country"]
-    if (country, new_rulespec_ref) not in reviewed_rulespec_refs:
+    pr_base_branch = payload["dispatch"]["pr_base_branch"]
+    # A queue on ``main`` advances to main's exact protected tip. This
+    # relies on rulespec-us branch protection (main only moves by merged,
+    # reviewed pull requests), the same assumption behind
+    # prepare_signed_backfill's main-ancestor admission; the exact-remote-tip
+    # check below is the gate. Any other base needs an allowlisted head.
+    if pr_base_branch != "main" and (
+        (country, new_rulespec_ref) not in reviewed_rulespec_refs
+    ):
         raise ValueError(
             "new_rulespec_ref is not independently reviewed and allowlisted"
         )
@@ -2400,6 +2629,11 @@ def main() -> None:
     build.add_argument("--release-public-key", type=Path, required=True)
     build.add_argument("--state", choices=("active", "paused"), required=True)
     build.add_argument("--pause-reason")
+    build.add_argument(
+        "--pr-base-branch",
+        choices=sorted(APPROVED_PR_BASE_BRANCHES),
+        default=DEFAULT_PR_BASE_BRANCH,
+    )
 
     build_all = subparsers.add_parser("build-snap-all-states")
     build_all.add_argument("corpus_root", type=Path)
@@ -2413,6 +2647,11 @@ def main() -> None:
     build_all.add_argument("--release-public-key", type=Path, required=True)
     build_all.add_argument("--state", choices=("active", "paused"), required=True)
     build_all.add_argument("--pause-reason")
+    build_all.add_argument(
+        "--pr-base-branch",
+        choices=sorted(APPROVED_PR_BASE_BRANCHES),
+        default=DEFAULT_PR_BASE_BRANCH,
+    )
 
     validate = subparsers.add_parser("validate")
     validate.add_argument("queue", type=Path)
@@ -2537,6 +2776,7 @@ def main() -> None:
                     release_public_key_path=args.release_public_key,
                     state=args.state,
                     pause_reason=args.pause_reason,
+                    pr_base_branch=args.pr_base_branch,
                 )
             )
         elif args.command == "build-snap-all-states":
@@ -2553,6 +2793,7 @@ def main() -> None:
                     release_public_key_path=args.release_public_key,
                     state=args.state,
                     pause_reason=args.pause_reason,
+                    pr_base_branch=args.pr_base_branch,
                 )
             )
         elif args.command == "validate":

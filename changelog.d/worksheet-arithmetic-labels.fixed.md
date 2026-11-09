@@ -1,0 +1,1 @@
+Recognize corroborated worksheet subtraction output labels as structural metadata and separate their arithmetic from the following notice condition without dropping source thresholds or changing proof text.
