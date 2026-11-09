@@ -110,6 +110,9 @@ excuses a new regression nor fails other PRs.
 
 `snapshot --check` reports drift without writing.
 
+Two PRs that both change findings conflict in `snapshot.json` (at least in
+`totals`). Merge `main` into the second one and rerun `snapshot`.
+
 ## Rule for false-positive fix PRs
 
 Every PR that fixes a validator false positive:

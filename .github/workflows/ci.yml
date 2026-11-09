@@ -397,6 +397,4 @@ jobs:
             push) args=(--base-ref 'HEAD^1') ;;
           esac
           .venv/bin/python -I scripts/replay_us_failure_bundles.py ci \
-            "${args[@]}" --jobs auto \
-            --out "$RUNNER_TEMP/replay-report.json" \
-            --summary "$GITHUB_STEP_SUMMARY"
+            "${args[@]}" --jobs auto --summary "$GITHUB_STEP_SUMMARY"

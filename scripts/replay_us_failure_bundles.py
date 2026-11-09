@@ -1564,6 +1564,25 @@ def read_snapshot_at(ref: str, *, repo: Path = REPO_ROOT) -> dict[str, Any] | No
     )
     if resolved.returncode != 0:
         raise ValueError(f"git cannot resolve the base ref {ref!r}")
+    commit = resolved.stdout.strip()
+    listed = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "ls-tree",
+            "--name-only",
+            commit,
+            "--",
+            SNAPSHOT_REPO_PATH,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if listed.returncode != 0:
+        raise ValueError(f"git cannot list {SNAPSHOT_REPO_PATH} at {ref!r}")
+    if listed.stdout.strip() != SNAPSHOT_REPO_PATH:
+        return None
     shown = subprocess.run(
         [
             "git",
@@ -1576,7 +1595,7 @@ def read_snapshot_at(ref: str, *, repo: Path = REPO_ROOT) -> dict[str, Any] | No
         text=True,
     )
     if shown.returncode != 0:
-        return None
+        raise ValueError(f"git cannot read {SNAPSHOT_REPO_PATH} at {ref!r}")
     return json.loads(shown.stdout)
 
 
@@ -1728,7 +1747,7 @@ def run_gate(
     }
     try:
         cases = load_fixtures(fixtures)
-    except (OSError, ValueError, KeyError, UnicodeDecodeError) as exc:
+    except (*BUNDLE_ERRORS, KeyError) as exc:
         failures["replay errors"].append(f"fixture load error: {exc}")
         cases = []
     report = build_report(cases, jobs=jobs)
