@@ -2302,11 +2302,12 @@ _ENGLISH_TITLE_GAP = rf"[^\S{_LINE_BREAK_CHARS}]+"
 _ENGLISH_TITLED_REFERENCE_ITEM = (
     rf"\d+[A-Za-z]*{_ENGLISH_TITLE_GAP}{_ENGLISH_REFERENCE_TITLE}"
 )
-# A unit or number after the last title makes that item an amount with an aside
-# ("12 (in the case of a couple, 24) months", "1 (January) 2020"). The possessive
-# repeat stops the pattern from falling back to the items before it.
+# A number on the same line or one of these units after the last title makes that
+# item an amount with an aside ("12 (in the case of a couple, 24) months", "1
+# (January) 2020"). The possessive repeat stops the pattern from falling back to
+# the items before it.
 _ENGLISH_AMOUNT_AFTER_TITLE = (
-    r"[ \t]*+\d|\s*+(?:per\s*cent\b|%|"
+    rf"[^\S{_LINE_BREAK_CHARS}]*+\d|\s*+(?:per\s*cent\b|%|"
     r"(?:week|month|year|day|hour|pound|dollar|euro)s?\b|pence\b)"
 )
 _ENGLISH_TITLED_REFERENCE_LIST = re.compile(
@@ -16050,12 +16051,14 @@ def _irs_page_locator_numeric_recall_spans(
 
 
 def _blank_titled_reference_list(match: re.Match[str]) -> str:
-    """Blank the keyword-less item numbers of a titled reference list in place.
+    """Overwrite the keyword-less item numbers of a titled reference list in place.
 
     Later passes read a keyword-led item as any other reference, and its keyword
     can make a line a Part, Chapter or Schedule heading, so those items stay. A
     title can state an amount of its own ("regulation 15 (persons aged 65 or
-    over) or 19 (...)"), so the titles stay too.
+    over) or 19 (...)"), so the titles stay too. A placeholder takes each number's
+    place because an earlier reference reads on through spaces: "Part 3 and
+    regulation 15 (absentees) or 19 (persons), 7 and 8" would lose the 7 and 8.
     """
     matched = match.group(0)
     kept = list(matched)
@@ -16064,7 +16067,7 @@ def _blank_titled_reference_list(match: re.Match[str]) -> str:
     for item in _ENGLISH_TITLED_REFERENCE_ITEM_TITLE.finditer(matched):
         if item.group("keyword") is None:
             start, end = item.span("number")
-            kept[start:end] = " " * (end - start)
+            kept[start:end] = "#" * (end - start)
     return "".join(kept)
 
 
