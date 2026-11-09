@@ -2306,7 +2306,7 @@ _ENGLISH_TITLED_REFERENCE_ITEM = (
 # ("12 (in the case of a couple, 24) months", "1 (January) 2020"). The possessive
 # repeat stops the pattern from falling back to the items before it.
 _ENGLISH_AMOUNT_AFTER_TITLE = (
-    r"[ \t]*+\d|\s*+(?:per\s*cent\b|percent\b|%|"
+    r"[ \t]*+\d|\s*+(?:per\s*cent\b|%|"
     r"(?:week|month|year|day|hour|pound|dollar|euro)s?\b|pence\b)"
 )
 _ENGLISH_TITLED_REFERENCE_LIST = re.compile(

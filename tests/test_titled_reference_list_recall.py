@@ -437,6 +437,16 @@ def test_a_single_titled_reference_is_no_list() -> None:
     assert sc._ENGLISH_TITLED_REFERENCE_LIST.search("regulation 15 (absentees)") is None
 
 
+@pytest.mark.parametrize("gap", ("  ", "\n", "\t"))
+def test_a_keyword_may_stand_apart_from_its_number(gap: str) -> None:
+    text = f"if regulation{gap}15 (x y) or 16 (y z) applies"
+
+    assert (
+        sc._ENGLISH_TITLED_REFERENCE_LIST.sub(sc._blank_titled_reference_list, text)
+        == f"if regulation{gap}15 (x y) or    (y z) applies"
+    )
+
+
 def test_a_word_led_parenthesis_with_no_unit_reads_as_a_title() -> None:
     # Intended limit: with no unit or number after it, any word-led parenthesis
     # outside the refused openings reads as a title.
@@ -469,6 +479,8 @@ _UNITS_AFTER_A_TITLE = (
     "hours",
     "hour",
     "per cent",
+    "per  cent",
+    "per\ncent",
     "percent",
     "%",
     "pounds",
@@ -486,8 +498,8 @@ _UNITS_AFTER_A_TITLE = (
 def test_a_unit_after_the_last_title_keeps_the_list_out_of_the_pass(
     unit: str, gap: str
 ) -> None:
-    text = f"under regulation 5 (exceptions), 12 (for a couple, 24){gap}{unit} apply"
-    text = text.replace("(for a couple", "(in the case of a couple")
+    title = "(in the case of a couple, 24)"
+    text = f"under regulation 5 (exceptions), 12 {title}{gap}{unit} apply"
     with titled_list_pass_disabled():
         before = recall_values(text)
 
