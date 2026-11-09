@@ -30,8 +30,8 @@ Invariants pinned here:
   in text with no citation path, it does;
 * a condition word leaves only from inside a UK cross-reference's title. Operative
   text, a parenthesis that opens with a limiting word, one with a full stop or
-  semicolon before a capital or an opening bracket, and every other corpus keep
-  their cues;
+  semicolon and space before a capital or an opening parenthesis, and every other
+  corpus keep their cues;
 * the cue filters only remove: the filtered cues are a subset of the unfiltered
   cues, and the difference holds only the cues they target;
 * against a decimal runtime value, a Money assertion of a whole number below 2^53
