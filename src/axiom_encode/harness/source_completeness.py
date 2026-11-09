@@ -2275,28 +2275,44 @@ _ENGLISH_LEGAL_CITATION = re.compile(
 # A coordinated list of titled references, as UK instruments print them:
 # "regulation 15 (persons not entitled to council tax reduction: absentees),
 # regulation 16 (...) or 19 (...)". _ENGLISH_LEGAL_CITATION removes each
-# keyword-led item, but the title after an item ends its number list, so a
-# keyword-less item such as that 19 stayed behind as an amount. A title opens
-# with a letter, so "(3)" or "(10%)" never reads as one, and it may hold one
-# nested pair ("(... to whom regulation 14(6) does not apply)"). A parenthesis
-# that only spells out a number ("19 (nineteen) weeks") restates an amount, so
-# it is no title. Every item must carry its own title: in "regulation 15
-# (absentees) or 19 weeks" the 19 stays.
+# keyword-led item, but its number list stops at the title, so a keyword-less
+# item such as that 19 stayed behind as an amount.
+#
+# A title names a provision. A parenthesis counts as one only when a space on
+# the item's own line separates it from the number and it opens with a letter;
+# it may hold one nested pair ("(... to whom regulation 14(6) does not apply)").
+# These never count, so a list that needs one stays as it was: a bare
+# subdivision marker ("5 (a)"), a parenthesis glued to its number ("5(a)"), one
+# that opens with a number word and restates an amount ("19 (nineteen) weeks"),
+# and one that opens with a word carrying on the amount or limiting the
+# reference ("19 (or more) weeks", "500 (per annum)", "5 (except paragraph 2)").
+# A parenthesis left open reaches to some later close, so neither does one that
+# holds a sentence break or runs past 300 characters outside a nested pair.
+# Every item must carry its own title: in "regulation 15 (absentees) or 19
+# weeks" the 19 stays.
 _ENGLISH_REFERENCE_KEYWORD = (
     r"(?:articles?|sections?|secs?\.?|regulations?|paragraphs?|"
     r"sub-?paragraphs?|subsections?|parts?|chapters?|schedules?)"
 )
-_ENGLISH_NUMBER_WORD = (
-    r"(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
-    r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
-    r"thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million)"
+_ENGLISH_NON_TITLE_OPENING = (
+    r"(?:or|and|but|plus|minus|less|per|for|up\s+to|at\s+(?:least|most)|"
+    r"(?:not|no)\s+(?:more|less|fewer|exceeding)|more\s+than|except|excluding|"
+    r"with\s+the\s+exception\s+of|other\s+than|only\s+if|provided\s+that|unless|"
+    r"if|subject\s+to|notwithstanding|save|apart\s+from|read\s+with|"
+    r"as\s+modified\s+by|which\s+does\s+not\s+apply|so\s+far\s+as|"
+    r"in\s+so\s+far\s+as|insofar\s+as|to\s+the\s+extent|where)"
 )
+# The title patterns compile with IGNORECASE, so the capital that starts a
+# sentence needs its own case-sensitive group.
+_ENGLISH_TITLE_CHARACTER = r"(?![.;]\s+(?-i:[(A-Z]))[^()]"
 _ENGLISH_REFERENCE_TITLE = (
     r"\((?=[^\W\d_])"
-    rf"(?!{_ENGLISH_NUMBER_WORD}(?:[\s-]+(?:{_ENGLISH_NUMBER_WORD}|and))*\s*\))"
-    r"(?:[^()]|\([^()]*\))*\)"
+    r"(?!(?:[a-z]|[ivxlcdm]+)\))"
+    rf"(?!(?:{_ENGLISH_NUMBER_WORD}|{_ENGLISH_NON_TITLE_OPENING})\b)"
+    rf"(?:{_ENGLISH_TITLE_CHARACTER}|\((?:{_ENGLISH_TITLE_CHARACTER})*\))"
+    r"{1,300}\)"
 )
-_ENGLISH_TITLED_REFERENCE_ITEM = rf"\d+[A-Za-z]*[^\S\r\n]*{_ENGLISH_REFERENCE_TITLE}"
+_ENGLISH_TITLED_REFERENCE_ITEM = rf"\d+[A-Za-z]*[^\S\r\n]+{_ENGLISH_REFERENCE_TITLE}"
 _ENGLISH_TITLED_REFERENCE_LIST = re.compile(
     rf"\b{_ENGLISH_REFERENCE_KEYWORD}\s+{_ENGLISH_TITLED_REFERENCE_ITEM}"
     r"(?:\s*(?:,\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)"
@@ -2304,23 +2320,31 @@ _ENGLISH_TITLED_REFERENCE_LIST = re.compile(
     flags=re.IGNORECASE,
 )
 _ENGLISH_TITLED_REFERENCE_ITEM_TITLE = re.compile(
-    rf"\d+[A-Za-z]*[^\S\r\n]*(?P<title>{_ENGLISH_REFERENCE_TITLE})",
+    rf"\d+[A-Za-z]*[^\S\r\n]+(?P<title>{_ENGLISH_REFERENCE_TITLE})",
     flags=re.IGNORECASE,
 )
 # One titled reference, which may name a subdivision first: "regulation 14(6)
-# (title)". A parenthesis that opens with a limiting word narrows the reference
-# instead of naming it, as in "paragraph 7 (except paragraph 112)".
+# (title)".
 _ENGLISH_TITLED_REFERENCE = re.compile(
     rf"\b{_ENGLISH_REFERENCE_KEYWORD}\s+\d+[A-Za-z]*(?:\([^()\s]{{1,8}}\))*"
     rf"[^\S\r\n]*(?P<title>{_ENGLISH_REFERENCE_TITLE})",
     flags=re.IGNORECASE,
 )
-_ENGLISH_REFERENCE_LIMITING_OPENING = re.compile(
-    r"\(\s*(?:except|excluding|other\s+than|unless|if|subject\s+to|notwithstanding|"
-    r"save|apart\s+from|but|or|and|so\s+far\s+as|in\s+so\s+far\s+as|insofar\s+as|"
-    r"to\s+the\s+extent|where)\b",
+# What numeric recall deletes from the start of a line, once each.
+_RECALL_LINE_MARKER = r"\((?:\d+[a-z]?|[a-z])\)(?:[ \t]+bis[ \t]+\(\d+[a-z]?\))?"
+_RECALL_LINE_NUMBER = r"\d+[a-z]?\."
+# The extractor blanks a whole line that opens with a singular Part, Chapter or
+# Schedule heading, after numeric recall has deleted the line's marker and
+# number (_STRUCTURAL_SOURCE_HEADING_PATTERN in validator_pipeline, which
+# imports this module). The quote characters mirror its
+# _STRUCTURAL_SOURCE_QUOTE_CHARS. Possessive runs keep a long blank run linear.
+_ENGLISH_HEADING_LINE_OPENING = re.compile(
+    rf"\s*+(?:{_RECALL_LINE_MARKER}\s*+)?(?:{_RECALL_LINE_NUMBER}\s++)?"
+    r"[\"'`“”‘’]*+(?:part|chapter|schedule)\b",
     flags=re.IGNORECASE,
 )
+# Far enough back to see any marker, number and indentation before a heading.
+_ENGLISH_HEADING_LINE_LOOKBACK = 64
 # A complete parenthesis containing only a Statutes at Large volume/page
 # reference is bibliographic metadata. Do not accept dollar signs, ranges,
 # additional text, or a citation split across lines.
@@ -16075,23 +16099,41 @@ def _irs_page_locator_numeric_recall_spans(
         yield line.span("page")
 
 
+def _titled_list_touches_heading_line(match: re.Match[str]) -> bool:
+    """Whether a line of this titled reference list reads as a heading."""
+    source = match.string
+    before = source[
+        max(0, match.start() - _ENGLISH_HEADING_LINE_LOOKBACK) : match.start()
+    ]
+    # The sentinel keeps the list's own line when the window ends in a break.
+    line_head = (before + "x").splitlines()[-1][:-1]
+    return any(
+        _ENGLISH_HEADING_LINE_OPENING.match(line)
+        for line in (line_head + match.group(0)).splitlines()
+    )
+
+
 def _blank_titled_reference_list(match: re.Match[str]) -> str:
     """Keep each title of a titled reference list and blank the rest in place.
 
     The item numbers leave the recall text. A title can state an amount of its
     own ("regulation 15 (persons aged 65 or over) or 19 (...)"), so the titles
-    stay as written. The keywords go with the numbers: a keyword left before a
-    one-word title such as "(absentees)" reads as a reference to a lettered
-    subdivision, and the extractor's structural pass would carry it on through
-    the list and into a following untitled quantity ("... or 7 persons").
+    stay as written, and so do the line breaks that later passes read. The
+    keywords go with the numbers: a keyword left before a one-word title reads
+    as a reference to that title, and the extractor's reference pattern then
+    runs on into a following quantity ("regulation 6 (persons) or 7 persons").
+
+    A list on a heading line stays whole. The extractor drops that line because
+    of its keyword, so blanking the keyword would bring the rest of the line
+    back as demands.
     """
     matched = match.group(0)
-    kept = [" "] * len(matched)
-    keyword = re.match(rf"{_ENGLISH_REFERENCE_KEYWORD}\s+", matched, re.IGNORECASE)
-    position = keyword.end() if keyword is not None else 0
-    # Each item consumes its whole title, so the next search starts past any
-    # number inside a title ("regulation 14(6)") and lands on the next item.
-    for item in _ENGLISH_TITLED_REFERENCE_ITEM_TITLE.finditer(matched, position):
+    if _titled_list_touches_heading_line(match):
+        return matched
+    kept = [char if char in "\r\n" else " " for char in matched]
+    # Each item consumes its whole title, so a number inside a title
+    # ("regulation 14(6)") never starts the next item.
+    for item in _ENGLISH_TITLED_REFERENCE_ITEM_TITLE.finditer(matched):
         start, end = item.span("title")
         kept[start:end] = matched[start:end]
     return "".join(kept)
@@ -16319,13 +16361,13 @@ def authoritative_numeric_recall_text(
     cleaned = sub(_ENGLISH_LEGAL_CITATION, "", cleaned)
     cleaned = sub(_STRUCTURAL_REFERENCE, "", cleaned)
     cleaned = sub(
-        r"(?m)^[ \t]*\((?:\d+[a-z]?|[a-z])\)(?:[ \t]+bis[ \t]+\(\d+[a-z]?\))?",
+        rf"(?m)^[ \t]*{_RECALL_LINE_MARKER}",
         "",
         cleaned,
         flags=re.IGNORECASE,
     )
     cleaned = sub(
-        r"(?m)^[ \t]*\d+[a-z]?\.[ \t]+",
+        rf"(?m)^[ \t]*{_RECALL_LINE_NUMBER}[ \t]+",
         "",
         cleaned,
         flags=re.IGNORECASE,
@@ -32543,13 +32585,7 @@ def _uk_reference_title_spans(source_text: str) -> tuple[tuple[int, int], ...]:
                 source_text, reference_list.start(), reference_list.end()
             )
         )
-    return tuple(
-        sorted(
-            span
-            for span in titles
-            if not _ENGLISH_REFERENCE_LIMITING_OPENING.match(source_text, span[0])
-        )
-    )
+    return tuple(sorted(titles))
 
 
 def _is_uk_reference_title_cue(source_text: str, match: re.Match[str]) -> bool:
