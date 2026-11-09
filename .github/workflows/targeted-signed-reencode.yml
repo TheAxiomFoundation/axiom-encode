@@ -39,7 +39,7 @@ on:
         required: false
         type: string
       source_bundle_json:
-        description: 'Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3; legacy citation array/refresh object, v2-v5 contract, or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} for an authenticated failed ordinary single-target repair'
+        description: 'Atomic source input: corpus-artifact-transport/v1 wrapping v3 with signed corpus/provision export run IDs (fresh, or exact authenticated legacy-primary repair after dependent failure); corpus-provision-prefetch/v1 wrapping exact v2-v3 with signed provision run IDs; legacy citation array/refresh object, v2-v5 contract, or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} for an authenticated failed ordinary single-target repair'
         required: false
         default: "[]"
         type: string
@@ -53,7 +53,7 @@ on:
         required: false
         type: string
       replace_legacy_rulespec_path:
-        description: Exact noncanonical legacy primary replaced by a fresh model encode
+        description: Exact legacy primary replaced in place or by an ordinary unique normalized path with a fresh model encode
         required: false
         type: string
       legacy_exact_dependent_rulespec_path:
@@ -145,6 +145,33 @@ jobs:
         with:
           path: axiom-encode
           persist-credentials: false
+          # Full history: the version check below walks back to the latest bump.
+          fetch-depth: 0
+
+      # The encoder version is assigned after merge (axiom-encode#2048), so
+      # main can briefly hold encoder changes that no bump covers yet. The
+      # provisioner refuses that head inside the encode job, after the
+      # production-signing approval, and the budget below would count the run.
+      # Refusing it here skips the encode job instead: no approval is used and
+      # enforce_attempt_budget.py treats the run as neutral.
+      - name: Refuse an encoder head that no version bump covers
+        run: |
+          python3 -I "$GITHUB_WORKSPACE/axiom-encode/src/axiom_encode/version_provenance.py" \
+            check --repo "$GITHUB_WORKSPACE/axiom-encode" --ref HEAD
+
+      # Before the production-signing gate: a run that cannot fetch its pinned
+      # corpus would fail after approval and waste the signing review. Only the
+      # presence of the secrets is evaluated here; no step's environment or log
+      # receives a value.
+      - name: Require corpus read credentials before the signing gate
+        env:
+          HAS_CORPUS_READ: ${{ secrets.R2_CORPUS_READ_ACCESS_KEY_ID != '' && secrets.R2_CORPUS_READ_SECRET_ACCESS_KEY != '' }}
+        run: |
+          if [ "$HAS_CORPUS_READ" != true ]; then
+            echo "R2 corpus read credentials are not available to axiom-encode, so the signed re-encode could not fetch R2-stored corpus scopes after approval. Grant this repository access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials, then re-dispatch." >&2
+            python axiom-encode/scripts/infra_issue.py record infra:require-corpus-read-credentials "R2 corpus read credentials are not available to axiom-encode, so the signed re-encode could not fetch R2-stored corpus scopes after approval. Grant this repository access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials, then re-dispatch." || true
+            exit 1
+          fi
 
       - name: Enforce failed-attempt budget
         env:
@@ -224,6 +251,7 @@ jobs:
               [ "$GITHUB_RUN_ATTEMPT" != "1" ] || \
               [[ ! "$QUEUE_DISPATCHER_RUN_ID" =~ ^[0-9]+$ ]]; then
               echo "queue target must be created by an authenticated dispatcher" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:validate-country-routing-input "queue target must be created by an authenticated dispatcher" || true
               exit 1
             fi
             python axiom-encode/scripts/prepare_signed_queue.py \
@@ -378,16 +406,19 @@ jobs:
             local checkout="$3"
             if [[ ! "$requested" =~ $sha_pattern ]]; then
               echo "$label ref must be a full lowercase commit SHA" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:verify-immutable-checkout-identities "$label ref must be a full lowercase commit SHA" || true
               exit 1
             fi
             actual="$(git -C "$checkout" rev-parse HEAD)"
             if [ "$actual" != "$requested" ]; then
               echo "$label checkout resolved to $actual, expected $requested" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:verify-immutable-checkout-identities "$label checkout resolved to $actual, expected $requested" || true
               exit 1
             fi
           }
           if [[ ! "$GITHUB_SHA" =~ $sha_pattern ]]; then
             echo "GITHUB_SHA must be a full lowercase commit SHA" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:verify-immutable-checkout-identities "GITHUB_SHA must be a full lowercase commit SHA" || true
             exit 1
           fi
           test "$(git -C axiom-encode rev-parse HEAD)" = "$GITHUB_SHA"
@@ -488,6 +519,15 @@ jobs:
           rm -rf "$RUNNER_TEMP/axiom-verification-site-packages"
           uv pip install --python .venv/bin/python \
             --target "$RUNNER_TEMP/axiom-verification-site-packages" ".[api]"
+
+      - name: Bind rules engine to declared revision
+        env:
+          RULES_ENGINE_REF: ${{ inputs.rules_engine_ref }}
+        run: |
+          set -euo pipefail
+          axiom-encode/.venv/bin/python -m axiom_encode.entrypoint engine-bind \
+            --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine" \
+            --pin "$RULES_ENGINE_REF"
 
       - name: Build protected axiom-compose runtime
         if: ${{ steps.axiom_compose.outputs.enabled == 'true' }}
@@ -592,6 +632,7 @@ jobs:
           OPEN_PR: ${{ inputs.open_pr }}
           PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
           EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
           GH_TOKEN: ${{ github.token }}
           LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
@@ -651,6 +692,7 @@ jobs:
                ! jq -e 'type == "array" and length == 0' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
                ! jq -e 'type == "array" and length == 0' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
               echo "signed tests-only revision is limited to the reviewed memo head and exact target" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:resolve-trusted-prior-run-repair-candidate "signed tests-only revision is limited to the reviewed memo head and exact target" || true
               exit 1
             fi
             candidate_tests_path="${REPLACE_RULESPEC_PATH%.yaml}.test.yaml"
@@ -675,6 +717,7 @@ jobs:
           if [[ ! "$REPAIR_RUN_ID" =~ ^[0-9]+$ ]] || \
              [ "$REPAIR_RUN_ID" = "$GITHUB_RUN_ID" ]; then
             echo "repair_run_id must identify a different decimal workflow run" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:resolve-trusted-prior-run-repair-candidate "repair_run_id must identify a different decimal workflow run" || true
             exit 1
           fi
           # The supported transaction determines the replay lane. Derive its
@@ -696,7 +739,11 @@ jobs:
                [ -z "$REPLACE_RULESPEC_PATH" ]; } || \
              { [ "$repair_tests_only" = "true" ] && \
                [ -z "$REPLACE_RULESPEC_PATH" ]; } || \
-             [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+             { [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ] && {
+                 [ "$REPLACE_LEGACY_RULESPEC_PATH" != "$REPLACE_RULESPEC_PATH" ] || \
+                 [ -z "$DEPENDENT_CITATION" ] || \
+                 [ "$source_bundle_json" != "[]" ] || \
+                 [ "$primary_required_test_cases_json" = "[]" ]; }; } || \
              [ -n "$LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
              [ -n "$SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
              { [ -n "$SECOND_DEPENDENT_CITATION" ] && {
@@ -714,7 +761,8 @@ jobs:
              ! jq -e 'type == "array" and length == 0' \
                <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" \
                > /dev/null; then
-            echo "repair replay is limited to one non-legacy target and at most two fresh direct dependents, with at most one exact source or test bundle, artifact-bound imports, and without refreshes or queue authorization" >&2
+            echo "repair replay is limited to an authenticated target with at most two fresh direct dependents; legacy replay also requires its exact target path, one dependent, and prior boundary tests; queue authorization, canonical refreshes, invalid signed imports, and conflicting source bundles are not allowed" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:resolve-trusted-prior-run-repair-candidate "repair replay is limited to an authenticated target with at most two fresh direct dependents; legacy replay also requires its exact target path, one dependent, and prior boundary tests; queue authorization, canonical refreshes, invalid signed imports, and conflicting source bundles are not allowed" || true
             exit 1
           fi
 
@@ -790,6 +838,8 @@ jobs:
               --existing-signed-imports-json "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" \
               --repair-lane "$REPAIR_RUN_LANE" \
               --replace-rulespec-path "$repair_rulespec_path" \
+              --replace-legacy-rulespec-path "${REPLACE_LEGACY_RULESPEC_PATH:-}" \
+              --dependent-citation "${DEPENDENT_CITATION:-}" \
               --transaction-citation "$CITATION" \
               --transaction-rulespec-path "$REPLACE_RULESPEC_PATH" \
               --workflow-run-id "$REPAIR_RUN_ID" \
@@ -801,7 +851,8 @@ jobs:
           retained_primary=false
           if [ "$REPAIR_RUN_LANE" = "dependent" ] && \
              [ "$source_bundle_json" = "[]" ] && \
-             [ "$primary_required_test_cases_json" = "[]" ]; then
+             { [ "$primary_required_test_cases_json" = "[]" ] || \
+               [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ]; }; then
             dependent_repair_citation="$repair_citation"
             dependent_repair_rulespec_path="$repair_rulespec_path"
             REPAIR_RUN_LANE=target
@@ -815,6 +866,10 @@ jobs:
               cp "$RUNNER_TEMP/repair-primary-candidate.json" \
                 "$RUNNER_TEMP/repair-candidate.json"
             else
+              if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ]; then
+                cat "$RUNNER_TEMP/repair-primary-probe.log" >&2
+                exit 1
+              fi
               REPAIR_RUN_LANE=dependent
               repair_citation="$dependent_repair_citation"
               repair_rulespec_path="$dependent_repair_rulespec_path"
@@ -823,6 +878,7 @@ jobs:
           if [ "$retained_primary" != "true" ]; then
             if [ -n "${SECOND_DEPENDENT_CITATION:-}" ]; then
               echo "two fresh dependents require an authenticated single-target primary candidate" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:resolve-trusted-prior-run-repair-candidate "two fresh dependents require an authenticated single-target primary candidate" || true
               exit 1
             fi
             extract_authenticated_repair \
@@ -877,16 +933,19 @@ jobs:
       - name: Validate atomic source inputs
         if: steps.retired_source_metadata_request.outputs.enabled != 'true'
         env:
+          CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           REPAIR_TESTS_ONLY: ${{ steps.repair_candidate.outputs.tests_only }}
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
           EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
           LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
           LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
           QUEUE_ID: ${{ inputs.queue_id }}
           REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          REPAIR_RUN_LANE: ${{ steps.repair_candidate.outputs.lane }}
           REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
           REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
@@ -915,11 +974,14 @@ jobs:
           if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
              [ "$primary_required_test_cases_json" != "[]" ]; then
             if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
-               [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
-               [ -n "${REPAIR_RUN_ID:-}" ] || \
+               { [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
+               { [ -n "${REPAIR_RUN_ID:-}" ] && \
+                 [ "${REPAIR_RUN_LANE:-}" != "target" ]; } || \
                [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
                [ -n "${QUEUE_ID:-}" ] || \
-               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               { [ -n "${DEPENDENT_CITATION:-}" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
                [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
                [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
                [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
@@ -932,6 +994,7 @@ jobs:
                ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
                ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
               echo "required tests on fresh legacy replacements cannot mix transaction modes" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:validate-atomic-source-inputs "required tests on fresh legacy replacements cannot mix transaction modes" || true
               exit 1
             fi
             canonical_refresh_primary_required_test_cases_json="[]"
@@ -961,6 +1024,7 @@ jobs:
                ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
                ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
               echo "required tests on fresh ordinary replacements cannot mix transaction modes" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:validate-atomic-source-inputs "required tests on fresh ordinary replacements cannot mix transaction modes" || true
               exit 1
             fi
             axiom-encode/.venv/bin/python axiom-encode/scripts/prepare_signed_backfill.py \
@@ -1019,6 +1083,7 @@ jobs:
             | jq -e 'type == "array" and all(.[]; type == "string" and length > 0)' \
               > /dev/null; then
             echo "retained successor paths must be a JSON array of non-empty strings" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:validate-atomic-source-inputs "retained successor paths must be a JSON array of non-empty strings" || true
             exit 1
           fi
           retained_successor_paths=()
@@ -1051,11 +1116,13 @@ jobs:
               [ -n "$REPAIR_RUN_ID" ] || \
               [ -n "$QUEUE_ID" ]; }; then
             echo "canonical refresh bundles cannot mix with imports, composition bundles, legacy/dependent migration, repair replay, or queue authorization" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:validate-atomic-source-inputs "canonical refresh bundles cannot mix with imports, composition bundles, legacy/dependent migration, repair replay, or queue authorization" || true
             exit 1
           fi
           if [ "$normalized_source_bundle" != "[]" ] && \
              [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
             echo "source bundles require legacy replacements to merge first" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:validate-atomic-source-inputs "source bundles require legacy replacements to merge first" || true
             exit 1
           fi
           if [ "$normalized_source_bundle" != "[]" ] && \
@@ -1066,6 +1133,7 @@ jobs:
                [ -n "$SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
                [ "${#retained_successor_paths[@]}" -gt 0 ]; }; then
             echo "source-bundle replacements cannot include dependent migrations" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:validate-atomic-source-inputs "source-bundle replacements cannot include dependent migrations" || true
             exit 1
           fi
           if [ -n "$QUEUE_ID" ] && \
@@ -1073,6 +1141,7 @@ jobs:
               [ "$normalized_source_bundle" != "[]" ] || \
               [ "$normalized_existing_imports" != "[]" ]; }; then
             echo "queue-authorized re-encodes cannot add source inputs until queue generation identity binds them" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:validate-atomic-source-inputs "queue-authorized re-encodes cannot add source inputs until queue generation identity binds them" || true
             exit 1
           fi
 
@@ -1163,6 +1232,7 @@ jobs:
           )
           if [ "${#release_pin[@]}" -ne 2 ]; then
             echo "RuleSpec toolchain did not yield exactly one corpus release pin" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-signed-corpus-release-object "RuleSpec toolchain did not yield exactly one corpus release pin" || true
             exit 1
           fi
           release_name="${release_pin[0]}"
@@ -1191,10 +1261,12 @@ jobs:
           trap - EXIT
           if [[ ! "$release_commit" =~ ^[0-9a-f]{40}$ ]]; then
             echo "Signed release provenance is not a full lowercase commit SHA" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-signed-corpus-release-object "Signed release provenance is not a full lowercase commit SHA" || true
             exit 1
           fi
           git -C axiom-corpus merge-base --is-ancestor "$release_commit" HEAD || {
             echo "Pinned corpus checkout predates signed release provenance" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-signed-corpus-release-object "Pinned corpus checkout predates signed release provenance" || true
             exit 1
           }
           if [ -n "$EXPORT_RUN" ]; then
@@ -1207,15 +1279,186 @@ jobs:
           fi
           echo "release_object=axiom-corpus/releases/${release_name}/${release_sha}.json" >> "$GITHUB_OUTPUT"
 
+      - name: Select authenticated signed provision export runs
+        env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+        run: |
+          set -euo pipefail
+          axiom-encode/.venv/bin/python -m axiom_encode.corpus_artifact_transport \
+            provision-run-ids > "$RUNNER_TEMP/corpus-provision-run-ids.txt"
+          jq -R -s 'split("\n") | map(select(length > 0))' \
+            "$RUNNER_TEMP/corpus-provision-run-ids.txt" > "$RUNNER_TEMP/corpus-provision-run-ids.json"
+
+      - name: Download authenticated provision export metadata
+        env:
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          export_run_0="$(jq -r '.[0] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_0" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_0" > "$RUNNER_TEMP/corpus-provision-0-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_0/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-0-artifacts.json"
+          fi
+          export_run_1="$(jq -r '.[1] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_1" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_1" > "$RUNNER_TEMP/corpus-provision-1-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_1/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-1-artifacts.json"
+          fi
+          export_run_2="$(jq -r '.[2] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_2" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_2" > "$RUNNER_TEMP/corpus-provision-2-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_2/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-2-artifacts.json"
+          fi
+          export_run_3="$(jq -r '.[3] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_3" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_3" > "$RUNNER_TEMP/corpus-provision-3-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_3/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-3-artifacts.json"
+          fi
+          export_run_4="$(jq -r '.[4] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_4" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_4" > "$RUNNER_TEMP/corpus-provision-4-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_4/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-4-artifacts.json"
+          fi
+          export_run_5="$(jq -r '.[5] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_5" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_5" > "$RUNNER_TEMP/corpus-provision-5-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_5/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-5-artifacts.json"
+          fi
+          export_run_6="$(jq -r '.[6] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_6" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_6" > "$RUNNER_TEMP/corpus-provision-6-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_6/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-6-artifacts.json"
+          fi
+          export_run_7="$(jq -r '.[7] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_7" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_7" > "$RUNNER_TEMP/corpus-provision-7-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_7/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-7-artifacts.json"
+          fi
+          export_run_8="$(jq -r '.[8] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_8" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_8" > "$RUNNER_TEMP/corpus-provision-8-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_8/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-8-artifacts.json"
+          fi
+          export_run_9="$(jq -r '.[9] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_9" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_9" > "$RUNNER_TEMP/corpus-provision-9-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_9/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-9-artifacts.json"
+          fi
+          export_run_10="$(jq -r '.[10] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_10" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_10" > "$RUNNER_TEMP/corpus-provision-10-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_10/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-10-artifacts.json"
+          fi
+
+      - name: Validate authenticated provision export metadata
+        env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+        run: |
+          set -euo pipefail
+          : > "$RUNNER_TEMP/corpus-provision-artifact-ids.txt"
+          mapfile -t export_runs < "$RUNNER_TEMP/corpus-provision-run-ids.txt"
+          for index in "${!export_runs[@]}"; do
+            export_run="${export_runs[$index]}"
+            artifact_id="$(env -u GH_TOKEN axiom-encode/.venv/bin/python \
+              -m axiom_encode.corpus_artifact_transport validate-export \
+              --provision-run-id "$export_run" --corpus-checkout axiom-corpus \
+              --run-metadata "$RUNNER_TEMP/corpus-provision-${index}-run.json" \
+              --artifact-metadata "$RUNNER_TEMP/corpus-provision-${index}-artifacts.json")"
+            printf '%s\n' "$artifact_id" >> "$RUNNER_TEMP/corpus-provision-artifact-ids.txt"
+          done
+          jq -R -s 'split("\n") | map(select(length > 0))' \
+            "$RUNNER_TEMP/corpus-provision-artifact-ids.txt" > "$RUNNER_TEMP/corpus-provision-artifact-ids.json"
+
+      - name: Download authenticated provision export archives
+        env:
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          artifact_id_0="$(jq -r '.[0] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_0" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_0/zip" > "$RUNNER_TEMP/corpus-provision-0.zip"
+          fi
+          artifact_id_1="$(jq -r '.[1] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_1" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_1/zip" > "$RUNNER_TEMP/corpus-provision-1.zip"
+          fi
+          artifact_id_2="$(jq -r '.[2] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_2" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_2/zip" > "$RUNNER_TEMP/corpus-provision-2.zip"
+          fi
+          artifact_id_3="$(jq -r '.[3] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_3" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_3/zip" > "$RUNNER_TEMP/corpus-provision-3.zip"
+          fi
+          artifact_id_4="$(jq -r '.[4] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_4" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_4/zip" > "$RUNNER_TEMP/corpus-provision-4.zip"
+          fi
+          artifact_id_5="$(jq -r '.[5] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_5" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_5/zip" > "$RUNNER_TEMP/corpus-provision-5.zip"
+          fi
+          artifact_id_6="$(jq -r '.[6] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_6" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_6/zip" > "$RUNNER_TEMP/corpus-provision-6.zip"
+          fi
+          artifact_id_7="$(jq -r '.[7] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_7" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_7/zip" > "$RUNNER_TEMP/corpus-provision-7.zip"
+          fi
+          artifact_id_8="$(jq -r '.[8] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_8" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_8/zip" > "$RUNNER_TEMP/corpus-provision-8.zip"
+          fi
+          artifact_id_9="$(jq -r '.[9] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_9" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_9/zip" > "$RUNNER_TEMP/corpus-provision-9.zip"
+          fi
+          artifact_id_10="$(jq -r '.[10] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_10" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_10/zip" > "$RUNNER_TEMP/corpus-provision-10.zip"
+          fi
+
+      - name: Prefetch authenticated signed provision members
+        env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+          TRUST_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
+          RELEASE_OBJECT: ${{ steps.pinned_corpus_release.outputs.release_object }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          mapfile -t export_runs < "$RUNNER_TEMP/corpus-provision-run-ids.txt"
+          for index in "${!export_runs[@]}"; do
+            export_run="${export_runs[$index]}"
+            env -u GH_TOKEN axiom-encode/.venv/bin/python \
+              -m axiom_encode.corpus_artifact_transport materialize \
+              --provision-run-id "$export_run" --corpus-checkout axiom-corpus \
+              --toolchain "$RULESPEC_CHECKOUT/.axiom/toolchain.toml" \
+              --release-object "$RELEASE_OBJECT" \
+              --run-metadata "$RUNNER_TEMP/corpus-provision-${index}-run.json" \
+              --artifact-metadata "$RUNNER_TEMP/corpus-provision-${index}-artifacts.json" \
+              --archive "$RUNNER_TEMP/corpus-provision-${index}.zip"
+          done
+
       - name: Fetch pinned corpus provision objects
         shell: bash
         env:
           RELEASE_OBJECT: ${{ steps.pinned_corpus_release.outputs.release_object }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # Read-only corpus credentials, shared with this repository as the
+          # organization secrets R2_CORPUS_READ_* (the rulespec repositories use
+          # the same pair). Only this step holds any R2 credential.
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_CORPUS_READ_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_CORPUS_READ_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
           if [ -d axiom-corpus/.axiom/corpus-locks ]; then
+            # Only a lock-pinned corpus fetches from R2; a lockless (git-history)
+            # pin reads its provisions from the checkout and needs no credential.
+            if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
+              echo "R2 corpus read credentials are not available to this workflow; locked corpus scopes stored only in R2 cannot be fetched. Grant axiom-encode access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials." >&2
+              python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-corpus-provision-objects "R2 corpus read credentials are not available to this workflow; locked corpus scopes stored only in R2 cannot be fetched. Grant axiom-encode access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials." || true
+              exit 1
+            fi
             provision_paths_json="$(jq -e \
               '[.content.artifacts[] | select(.artifact_class == "provisions") | .path]
                | if length > 0 then . else error("no provision artifacts") end' \
@@ -1225,7 +1468,7 @@ jobs:
             for path in "${provision_paths[@]}"; do
               case "$path" in
                 data/corpus/provisions/*) fetch_args+=(--path "$path") ;;
-                *) echo "Unsafe corpus provision artifact path: $path" >&2; exit 1 ;;
+                *) echo "Unsafe corpus provision artifact path: $path" >&2; python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-corpus-provision-objects "Unsafe corpus provision artifact path: $path" || true; exit 1 ;;
               esac
             done
             uv run --project axiom-corpus --locked --python 3.14 \
@@ -1234,6 +1477,7 @@ jobs:
           else
             test -d axiom-corpus/data/corpus/provisions || {
               echo "Pinned corpus checkout has neither locks nor provisions" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-corpus-provision-objects "Pinned corpus checkout has neither locks nor provisions" || true
               exit 1
             }
           fi
@@ -1357,6 +1601,7 @@ jobs:
           REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
           SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
+          CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
           set -euo pipefail
@@ -1385,6 +1630,13 @@ jobs:
              [ -z "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
             cascade_args+=(--allow-proof-import-subset)
           fi
+          if [ -n "$CORPUS_EXPORT_RUN_ID" ] && \
+             [ -n "$DEPENDENT_CITATION" ] && \
+             [ -z "$SECOND_DEPENDENT_CITATION" ] && \
+             [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
+             [ "$REPLACE_RULESPEC_PATH" = "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
+            cascade_args+=(--allow-source-bound-dependent-alias)
+          fi
           cascade_args+=(--json)
           cascade_args+=("${dependent_citations[@]}")
           cascade_result="$("${cascade_args[@]}")"
@@ -1394,7 +1646,7 @@ jobs:
             'type == "array" and length == $count and all(.[]; type == "string" and length > 0)' \
             <<< "$dependent_paths_json" > /dev/null
           case "$cascade_mode" in
-            all-direct|all-direct-proof-chain|proof-import-subset|proof-import-subset-chain|proof-import-chain) ;;
+            all-direct|all-direct-proof-chain|proof-import-subset|proof-import-subset-chain|proof-import-chain|source-bound-proof-alias) ;;
             *)
               echo "dependent cascade returned an invalid scheduling mode" >&2
               exit 1
@@ -1406,10 +1658,12 @@ jobs:
       - name: Verify existing signed imports
         if: steps.retired_source_metadata_request.outputs.enabled != 'true'
         env:
+          CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
           EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
           LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
           LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
@@ -1417,6 +1671,7 @@ jobs:
           REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
           QUEUE_ID: ${{ inputs.queue_id }}
           REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          REPAIR_RUN_LANE: ${{ steps.repair_candidate.outputs.lane }}
           REPAIR_TESTS_ONLY: ${{ steps.repair_candidate.outputs.tests_only }}
           RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
@@ -1445,11 +1700,14 @@ jobs:
           if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
              [ "$primary_required_test_cases_json" != "[]" ]; then
             if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
-               [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
-               [ -n "${REPAIR_RUN_ID:-}" ] || \
+               { [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
+               { [ -n "${REPAIR_RUN_ID:-}" ] && \
+                 [ "${REPAIR_RUN_LANE:-}" != "target" ]; } || \
                [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
                [ -n "${QUEUE_ID:-}" ] || \
-               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               { [ -n "${DEPENDENT_CITATION:-}" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
                [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
                [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
                [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
@@ -1649,6 +1907,7 @@ jobs:
         id: prepare_encode_apply
         if: steps.retired_source_metadata_request.outputs.enabled != 'true'
         env:
+          CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
           PYTHONUNBUFFERED: "1"
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
@@ -1735,6 +1994,7 @@ jobs:
               --backend openai
               --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
               --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
+              --axiom-rules-engine-ref "$RULES_ENGINE_REF"
               --policy-repo-path "$RULESPEC_CHECKOUT"
               --output "$RUNNER_TEMP/generated/$output_lane"
               --emit-final-rejected-candidate \
@@ -2023,7 +2283,8 @@ jobs:
           scheduled_dependent_paths_json="[]"
           if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ] || \
              [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain" ] || \
-             [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ]; then
+             [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ] || \
+             [ "${DEPENDENT_CASCADE_MODE:-}" = "source-bound-proof-alias" ]; then
             scheduled_dependent_paths_json="$(
               jq -cn \
                 --arg first "$dependent_rulespec_path" \
@@ -2072,11 +2333,14 @@ jobs:
           if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
              [ "$primary_required_test_cases_json" != "[]" ]; then
             if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
-               [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
-               [ -n "${REPAIR_RUN_ID:-}" ] || \
+               { [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
+               { [ -n "${REPAIR_RUN_ID:-}" ] && \
+                 [ "${REPAIR_RUN_LANE:-}" != "target" ]; } || \
                [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
                [ -n "${QUEUE_ID:-}" ] || \
-               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               { [ -n "${DEPENDENT_CITATION:-}" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
                [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
                [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
                [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
@@ -2411,7 +2675,11 @@ jobs:
           declare -f run_signed_encode checkpoint_signed_changes \
             > "$signing_queue/functions.sh"
           operation_index=0
+          model_generation=false
           queue_operation() {
+            case "$1" in
+              encode|second-dependent) model_generation=true ;;
+            esac
             printf '%s\0' "$@" > "$signing_queue/operation.$operation_index"
             operation_index=$((operation_index + 1))
           }
@@ -2474,6 +2742,7 @@ jobs:
               --repo "$RULESPEC_CHECKOUT"
               --rulespec-path "$REPLACE_RULESPEC_PATH"
               --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
+              --axiom-rules-engine-ref "$RULES_ENGINE_REF"
               --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
               --run-id "$GITHUB_RUN_ID"
             )
@@ -2515,7 +2784,8 @@ jobs:
               primary_target_only=true
               if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ] || \
                  [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain" ] || \
-                 [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ]; then
+                 [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ] || \
+                 [ "${DEPENDENT_CASCADE_MODE:-}" = "source-bound-proof-alias" ]; then
                 primary_target_only=false
               fi
               queue_operation encode \
@@ -2540,6 +2810,8 @@ jobs:
               dependent_replacement_path=""
               if [ -n "${REPAIR_CANDIDATE_ROOT:-}" ] && \
                  [ "$REPAIR_RUN_LANE" = "dependent" ]; then
+                dependent_replacement_path="$dependent_rulespec_path"
+              elif [ "${DEPENDENT_CASCADE_MODE:-}" = "source-bound-proof-alias" ]; then
                 dependent_replacement_path="$dependent_rulespec_path"
               fi
               queue_operation encode \
@@ -2573,6 +2845,9 @@ jobs:
             fi
           fi
 
+          # Publish only after the entire queue has been constructed. Failure
+          # before this point remains historically ambiguous/conservative.
+          echo "model_generation=$model_generation" >> "$GITHUB_OUTPUT"
           printf '0\n' > "$signing_queue/cursor"
           cat > "$signing_queue/advance.sh" <<'ADVANCE'
           # Each invocation runs key-free post-signing work and prepares one request.
@@ -2912,6 +3187,15 @@ jobs:
           test "$PRIOR_STATUS" = success
           bash "$RUNNER_TEMP/signed-encode/advance.sh" --require-complete
 
+      - name: Record model-free signing transaction
+        id: model_free_transaction
+        if: ${{ !cancelled() && steps.prepare_encode_apply.outputs.model_generation == 'false' }}
+        run: echo 'The constructed signing queue contains no model-capable operation.'
+
+      - name: Record completed model-capable generation
+        if: ${{ steps.prepare_encode_apply.outputs.model_generation == 'true' && steps.encode_apply.outcome == 'success' }}
+        run: echo 'The model-capable signing queue completed successfully.'
+
       - name: Summarize model spend
         id: run_cost_summary
         # Telemetry only (axiom-encode#1495): prices this run's recorded
@@ -3210,11 +3494,15 @@ jobs:
               os.environ["RULESPEC_REF"], "--",
               ".axiom/encoding-manifests",
           )
-          deleted_manifest_paths = git_paths(
+          deleted_paths = git_paths(
               "diff", "--name-only", "--diff-filter=D", "-z",
               os.environ["RULESPEC_REF"], "--",
-              ".axiom/encoding-manifests",
           )
+          deleted_manifest_paths = {
+              path for path in deleted_paths
+              if path.parts[:2] == (".axiom", "encoding-manifests")
+              or path.parts[1:3] == (".axiom", "encoding-manifests")
+          }
           manifest_paths.update(
               git_paths(
                   "ls-files", "--others", "--exclude-standard", "-z", "--",
@@ -4131,14 +4419,62 @@ jobs:
                                   "legacy replacement scheduled dependent "
                                   "retains an old reference"
                               )
-                  expected_old_manifest = Path(
+                  canonical_old_manifest = Path(
                       ".axiom/encoding-manifests"
                   ) / Path(legacy_source_path).with_suffix(".json")
+                  source_parts = Path(legacy_source_path).parts
+                  historical_old_manifest = (
+                      Path(source_parts[0])
+                      / ".axiom/encoding-manifests"
+                      / Path(*source_parts[1:]).with_suffix(".json")
+                  )
+                  receipt_legacy = receipt.get("legacy")
+                  receipt_old_manifest = (
+                      receipt_legacy.get("manifest")
+                      if isinstance(receipt_legacy, dict)
+                      else None
+                  )
+                  claimed_old_manifest = (
+                      receipt_old_manifest.get("path")
+                      if isinstance(receipt_old_manifest, dict)
+                      else canonical_old_manifest.as_posix()
+                  )
+                  if (
+                      not isinstance(claimed_old_manifest, str)
+                      or claimed_old_manifest not in {
+                          canonical_old_manifest.as_posix(),
+                          historical_old_manifest.as_posix(),
+                      }
+                  ):
+                      raise SystemExit(
+                          "legacy replacement old manifest path differs"
+                      )
+                  expected_old_manifest = Path(claimed_old_manifest)
+                  if expected_old_manifest == historical_old_manifest:
+                      old_manifest_bytes = git_blob(
+                          expected_old_manifest,
+                          label="historical legacy replacement manifest",
+                          max_bytes=1024 * 1024,
+                      )
+                      if (
+                          not isinstance(receipt_old_manifest, dict)
+                          or replacement.get("legacy_manifest_path")
+                          != expected_old_manifest.as_posix()
+                          or receipt_old_manifest.get("sha256")
+                          != hashlib.sha256(old_manifest_bytes).hexdigest()
+                          or replacement.get("legacy_manifest_sha256")
+                          != receipt_old_manifest.get("sha256")
+                      ):
+                          raise SystemExit(
+                              "historical legacy replacement manifest binding differs"
+                          )
                   if legacy_source_path == normalized_replacement_path:
-                      if expected_old_manifest != relative_path:
+                      if relative_path != canonical_old_manifest:
                           raise SystemExit(
                               "in-place legacy replacement manifest path differs"
                           )
+                      if expected_old_manifest == historical_old_manifest:
+                          expected_deleted_manifest_paths.add(expected_old_manifest)
                       live_primary = (
                           Path(os.environ["RULESPEC_CHECKOUT"])
                           / normalized_replacement_path

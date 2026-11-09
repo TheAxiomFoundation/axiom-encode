@@ -30,6 +30,7 @@ from typing import Any, Iterable, Optional
 
 from pydantic import ValidationError
 
+from .checks import ValidationIssue
 from .encode_timing import iteration_timing_payload
 from .repo_routing import is_composition_policy_repo_root
 from .run_log import (
@@ -76,6 +77,19 @@ COVERAGE_FIELDS = (
 )
 
 
+def _issue_finding(issue: Any, *, code: str, severity: Severity) -> Finding:
+    """A typed issue's own finding (its check id is the code); else the gate's."""
+    if isinstance(issue, ValidationIssue) and issue.definition() is not None:
+        return Finding(
+            code=issue.check,
+            severity=severity,
+            message=str(issue),
+            locator=issue.subject.locator(),
+            evidence=issue.evidence,
+        )
+    return Finding(code=code, severity=severity, message=issue)
+
+
 def _severity_for(kind: str) -> Severity:
     return {
         "critical": Severity.critical,
@@ -107,7 +121,7 @@ def _gate_events_from_metrics(metrics: Any) -> list[dict[str, Any]]:
                 "status": StageStatus.passed if compile_pass else StageStatus.failed,
                 "reason_code": None if compile_pass else "compile_error",
                 "findings": [
-                    Finding(code="compile_error", severity=Severity.critical, message=m)
+                    _issue_finding(m, code="compile_error", severity=Severity.critical)
                     for m in (getattr(metrics, "compile_issues", None) or [])
                 ],
             }
@@ -147,7 +161,7 @@ def _gate_events_from_metrics(metrics: Any) -> list[dict[str, Any]]:
                 "status": StageStatus.passed if ci_pass else StageStatus.failed,
                 "reason_code": None if ci_pass else "ci_failure",
                 "findings": [
-                    Finding(code="ci_failure", severity=Severity.critical, message=m)
+                    _issue_finding(m, code="ci_failure", severity=Severity.critical)
                     for m in (getattr(metrics, "ci_issues", None) or [])
                 ],
             }

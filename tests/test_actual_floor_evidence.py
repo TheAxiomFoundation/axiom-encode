@@ -208,7 +208,16 @@ def pair(world):  # noqa: F811
     )
 
 
-def test_actual_negative_positive_pair(pair):
+@pytest.mark.parametrize("strict_echo", [False, True])
+def test_actual_negative_positive_pair(pair, tmp_path, strict_echo):
+    from tests.test_same_case_execution import restage_witness_records
+
+    pair["evidence"] = restage_witness_records(
+        pair["evidence"],
+        [case for cases in pair["asserted_by_rule"].values() for case in cases],
+        tmp_path,
+        strict_echo,
+    )
     assert len(floor.witnesses(**pair)) == 1
 
 

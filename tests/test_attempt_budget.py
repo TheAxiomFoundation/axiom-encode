@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
+import yaml
 
 import scripts.enforce_attempt_budget as budget_mod
 from scripts.enforce_attempt_budget import (
     ENCODE_JOB_NAME,
     ENCODE_STEP_NAME,
+    MODEL_FREE_STEP_NAME,
+    MODEL_SUCCESS_STEP_NAME,
     evaluate_attempt_budget,
     make_encode_job_checker,
     run_citation,
@@ -18,6 +23,68 @@ from scripts.enforce_attempt_budget import (
 
 CITATION = "us-ky/statute/krs/141.020/document-1"
 DE_CITATION = "de/statute/estg/78"
+
+
+@pytest.mark.parametrize(
+    "operations, expected",
+    [
+        (["command", "checkpoint", "copy-guard"], "false"),
+        (["encode", "checkpoint"], "true"),
+        (["command", "second-dependent"], "true"),
+    ],
+)
+def test_workflow_budget_markers_follow_constructed_queue(
+    tmp_path, operations, expected
+):
+    workflow = yaml.safe_load(
+        (
+            Path(__file__).parents[1] / ".github/workflows/targeted-signed-reencode.yml"
+        ).read_text()
+    )
+    steps = workflow["jobs"]["encode"]["steps"]
+    prepare = next(step for step in steps if step.get("id") == "prepare_encode_apply")
+    script = prepare["run"]
+    queue_function = script[
+        script.index("operation_index=0") : script.index(
+            'if [ "$reviewed_candidate_promotion" = "true" ]; then',
+            script.index("operation_index=0"),
+        )
+    ]
+    completed = subprocess.run(
+        [
+            "bash",
+            "-eu",
+            "-c",
+            queue_function
+            + "\n"
+            + "\n".join(
+                f"queue_operation {operation} argument" for operation in operations
+            )
+            + '\nprintf "%s" "$model_generation"',
+        ],
+        env={"signing_queue": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert completed.stdout == expected
+    output = 'echo "model_generation=$model_generation" >> "$GITHUB_OUTPUT"'
+    assert script.index(output) > script.rindex("queue_operation checkpoint")
+    assert script.index(output) < script.index('bash "$signing_queue/advance.sh"')
+    free = next(step for step in steps if step.get("name") == MODEL_FREE_STEP_NAME)
+    success = next(
+        step for step in steps if step.get("name") == MODEL_SUCCESS_STEP_NAME
+    )
+    assert (
+        free["if"]
+        == "${{ !cancelled() && steps.prepare_encode_apply.outputs.model_generation == 'false' }}"
+    )
+    assert (
+        success["if"]
+        == "${{ steps.prepare_encode_apply.outputs.model_generation == 'true' && steps.encode_apply.outcome == 'success' }}"
+    )
+    assert not free.get("continue-on-error") and not success.get("continue-on-error")
+    assert "secrets." not in str(free) + str(success)
 
 
 def _run(
@@ -365,10 +432,14 @@ class TestEncodeJobChecker:
         assert decision.exhausted
 
     def test_real_success_still_resets_streak(self) -> None:
+        successful_generation = self._encode_job("success", job_conclusion="success")
+        successful_generation["steps"].append(
+            {"name": MODEL_SUCCESS_STEP_NAME, "conclusion": "success"}
+        )
         fetch, _ = self._jobs_fixture(
             {
                 1: [self._encode_job("failure")],
-                2: [self._encode_job("success", job_conclusion="success")],
+                2: [successful_generation],
                 3: [self._encode_job("failure")],
             }
         )
@@ -386,6 +457,78 @@ class TestEncodeJobChecker:
         )
         assert decision.streak == 1
         assert not decision.exhausted
+
+    @pytest.mark.parametrize(
+        "promotion_conclusion", ["success", "failure", "timed_out"]
+    )
+    @pytest.mark.parametrize("historical", [False, True])
+    def test_promotion_never_erases_failed_generation_history(
+        self, promotion_conclusion, historical
+    ) -> None:
+        promotion = self._encode_job(
+            promotion_conclusion, job_conclusion=promotion_conclusion
+        )
+        if not historical:
+            promotion["steps"].append(
+                {"name": MODEL_FREE_STEP_NAME, "conclusion": "success"}
+            )
+        jobs = {
+            1: [self._encode_job("failure")],
+            2: [self._encode_job("failure")],
+            3: [promotion],
+            4: [self._encode_job("failure")],
+        }
+        runs = [
+            _run(
+                i,
+                f"2026-08-12T0{i}:00:00Z",
+                promotion_conclusion if i == 3 else "failure",
+            )
+            for i in range(1, 5)
+        ]
+        fetch, _ = self._jobs_fixture(jobs)
+        before_third_failure = evaluate_attempt_budget(
+            runs[:3],
+            citation=CITATION,
+            budget=3,
+            current_run_id=99,
+            spent_model_tokens=make_encode_job_checker(fetch),
+        )
+        # Historical failures cannot be proven model-free; preserve them too.
+        expected = 3 if historical and promotion_conclusion != "success" else 2
+        assert before_third_failure.streak == expected
+        after = evaluate_attempt_budget(
+            runs,
+            citation=CITATION,
+            budget=3,
+            current_run_id=99,
+            spent_model_tokens=make_encode_job_checker(fetch),
+        )
+        assert after.streak == expected + 1
+        assert after.exhausted
+
+    @pytest.mark.parametrize("marker_conclusion", ["skipped", "failure", None])
+    def test_unsuccessful_model_marker_cannot_reset(self, marker_conclusion):
+        job = self._encode_job("success", job_conclusion="success")
+        job["steps"].append(
+            {"name": MODEL_SUCCESS_STEP_NAME, "conclusion": marker_conclusion}
+        )
+        assert not make_encode_job_checker(lambda _: [job])(
+            _run(1, "2026-08-12T01:00:00Z", "success")
+        )
+
+    def test_conflicting_markers_do_not_grant_reset_or_remove_failure(self):
+        job = self._encode_job("success", job_conclusion="success")
+        job["steps"].extend(
+            {"name": name, "conclusion": "success"}
+            for name in (MODEL_FREE_STEP_NAME, MODEL_SUCCESS_STEP_NAME)
+        )
+        assert not make_encode_job_checker(lambda _: [job])(
+            _run(1, "2026-08-12T01:00:00Z", "success")
+        )
+        assert make_encode_job_checker(lambda _: [job])(
+            _run(1, "2026-08-12T01:00:00Z", "failure")
+        )
 
 
 class TestMainExitContract:

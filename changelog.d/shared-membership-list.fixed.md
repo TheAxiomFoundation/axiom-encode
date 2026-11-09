@@ -1,0 +1,1 @@
+Preserve shared membership predicates on every subject in closed bulleted membership lists, rather than counting the list header as an extra condition. Require affirmative, matching terminal subjects and units; retain existing handling for unsupported or qualified clauses.

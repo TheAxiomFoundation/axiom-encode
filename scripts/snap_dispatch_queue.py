@@ -1010,11 +1010,15 @@ def tick(
     dry_run: bool = False,
     sleep: Callable[[float], None] = time.sleep,
     claimed_elsewhere: frozenset[int] = frozenset(),
+    unversioned_encoder: str | None = None,
 ) -> dict[str, Any]:
     """Reconcile finished runs, then dispatch the next pending items.
 
     ``claimed_elsewhere`` holds run ids other queues have recorded, so no
-    queue ever adopts or matches another queue's run.
+    queue ever adopts or matches another queue's run. ``unversioned_encoder``
+    is the version check's refusal for encoder main, if any: the queue then
+    holds instead of dispatching runs the provisioner would refuse after
+    their ``production-signing`` approval.
     """
 
     now = now or _now()
@@ -1055,6 +1059,11 @@ def tick(
     hold = None
     if state["state"] != "active":
         hold = "queue is paused"
+    elif unversioned_encoder:
+        hold = (
+            "encoder main has changes that no version bump covers yet; "
+            f"waiting for the post-merge bump ({unversioned_encoder})"
+        )
     elif target.corpus_release != state["build"]["corpus_release"]:
         hold = (
             f"rulespec-us main now pins corpus release {target.corpus_release}, "
@@ -1292,6 +1301,24 @@ def _queue_paths(state_dir: Path, queue_id: str | None) -> list[Path]:
     return sorted((state_dir / "queues").glob("*.json"))
 
 
+def unversioned_encoder_refusal(encoder_root: Path) -> str | None:
+    """The version check's refusal for the encoder checkout, or None.
+
+    Runs ``version_provenance`` as a script with ``-I``, as the re-encode
+    workflow does, so the check is the one the signed run applies.
+    """
+
+    script = encoder_root / "src" / "axiom_encode" / "version_provenance.py"
+    completed = subprocess.run(
+        [sys.executable, "-I", str(script), "check", "--repo", str(encoder_root)],
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode == 0:
+        return None
+    return completed.stderr.strip() or "the encoder version check failed"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -1354,6 +1381,9 @@ def main(argv: list[str] | None = None) -> int:
             if not token or not repo:
                 raise ValueError("tick needs GH_TOKEN and GITHUB_REPOSITORY")
             github = ApiGitHub(token)
+            unversioned = unversioned_encoder_refusal(
+                Path(__file__).resolve().parents[1]
+            )
             everything = {
                 path: load_state(path) for path in _queue_paths(args.state_dir, None)
             }
@@ -1374,6 +1404,7 @@ def main(argv: list[str] | None = None) -> int:
                             encoder_repo=repo,
                             dry_run=args.dry_run,
                             claimed_elsewhere=elsewhere,
+                            unversioned_encoder=unversioned,
                         )
                     )
                 except Exception as exc:  # noqa: BLE001 - keep ticking other queues

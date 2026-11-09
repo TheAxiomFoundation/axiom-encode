@@ -40,6 +40,8 @@ def pytest_configure(config):
 # This session's CI shard, once collection has chosen its tests; absent when unsharded.
 # Kept on the session's own config so a pytest run started inside a test cannot touch it.
 _SHARD_RUN = pytest.StashKey[dict]()
+# Every test this session collected, as the split sees it, before a shard keeps its own.
+COLLECTED_TESTS = pytest.StashKey[list]()
 
 
 @pytest.hookimpl(trylast=True)
@@ -53,17 +55,15 @@ def pytest_collection_modifyitems(config, items):
     # Taken out of the environment so a pytest that a test starts runs whole.
     spec = os.environ.pop(ci_shards.SHARD_ENV, None)
     report_path = os.environ.pop(ci_shards.REPORT_ENV, None)
+    tests = [ci_shards.collected(item) for item in items]
+    config.stash[COLLECTED_TESTS] = tests
     if spec is None:
         return
     try:
         shard, shards = ci_shards.parse_shard(spec)
     except ValueError as error:
         raise pytest.UsageError(str(error)) from error
-    units = [
-        ci_shards.unit_of(item.nodeid, item.name, getattr(item, "originalname", None))
-        for item in items
-    ]
-    keep, report = ci_shards.select(units, shard, shards, ci_shards.load_seconds())
+    keep, report = ci_shards.select(tests, shard, shards, ci_shards.load_seconds())
     deselected = [item for item, kept in zip(items, keep, strict=True) if not kept]
     items[:] = [item for item, kept in zip(items, keep, strict=True) if kept]
     if deselected:

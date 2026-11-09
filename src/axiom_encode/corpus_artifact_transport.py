@@ -39,6 +39,13 @@ REVIEWED_BLOBS = {
     "pyproject.toml": "d2e466184798193640ed498fe00c0546679c0099",
     "uv.lock": "438ba675bc1acd5d4228b466c7de116fc0a2ddc5",
 }
+# Corpus main raised PyMuPDF's declared minimum from 1.25.0 to 1.26.6 while
+# retaining the same locked 1.26.7 package and the reviewed exporter code.
+# Accept only the exact second dependency-file pair, never a mixed checkout.
+REVIEWED_PYMUPDF_RUNTIME_BLOB_PAIR = (
+    "9b2ffc55ce307d11f19bd85a223ff10c4beb9af0",
+    "1308da83ad1154d4d4bc6271742ac6581868b01a",
+)
 MAX_PAYLOAD = 16 * 1024 * 1024
 MAX_ARCHIVE = 17 * 1024 * 1024
 MAX_RECEIPT = 16 * 1024
@@ -57,6 +64,22 @@ def request_run_id(raw: str, dispatch: dict[str, str]) -> str:
     normalized = split_atomic_source_input(raw)
     resolve_atomic_repair_mode(raw, dispatch)
     return str(normalized["corpus_artifact_run_id"])
+
+
+def provision_run_ids(raw: str) -> list[str]:
+    """Return only strictly validated export IDs; the wrapper adds no source authority."""
+
+    try:
+        schema = json.loads(raw).get("schema")
+    except (AttributeError, ValueError, RecursionError):
+        return []
+    if schema not in {
+        "axiom-encode/corpus-artifact-transport/v1",
+        "axiom-encode/corpus-provision-prefetch/v1",
+    }:
+        return []
+    normalized = split_atomic_source_input(raw)
+    return list(normalized.get("provision_export_run_ids", []))
 
 
 def git(repo: Path, *args: str) -> str:
@@ -89,9 +112,18 @@ def validate_run(run: dict, run_id: str, corpus: Path) -> None:
         raise ValueError("corpus origin is not official")
     git(corpus, "merge-base", "--is-ancestor", REVIEWED_EXPORTER, head)
     git(corpus, "merge-base", "--is-ancestor", head, "refs/remotes/origin/main")
-    for path, blob in REVIEWED_BLOBS.items():
-        if git(corpus, "rev-parse", f"{head}:{path}") != blob:
-            raise ValueError("exporter implementation differs from reviewed blobs")
+    observed = {
+        path: git(corpus, "rev-parse", f"{head}:{path}") for path in REVIEWED_BLOBS
+    }
+    if any(
+        observed[path] != blob
+        for path, blob in REVIEWED_BLOBS.items()
+        if path not in {"pyproject.toml", "uv.lock"}
+    ) or (observed["pyproject.toml"], observed["uv.lock"]) not in {
+        (REVIEWED_BLOBS["pyproject.toml"], REVIEWED_BLOBS["uv.lock"]),
+        REVIEWED_PYMUPDF_RUNTIME_BLOB_PAIR,
+    }:
+        raise ValueError("exporter implementation differs from reviewed blobs")
 
 
 def select_artifact(document: dict, run: dict) -> dict:
@@ -317,7 +349,11 @@ def read_regular(path: Path, limit: int) -> bytes:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["request", "validate-export", "materialize"])
+    parser.add_argument(
+        "mode",
+        choices=["request", "provision-run-ids", "validate-export", "materialize"],
+    )
+    parser.add_argument("--provision-run-id")
     parser.add_argument("--corpus-checkout", type=Path)
     parser.add_argument("--toolchain", type=Path)
     parser.add_argument("--release-object", type=Path)
@@ -325,9 +361,19 @@ def main() -> None:
     parser.add_argument("--artifact-metadata", type=Path)
     parser.add_argument("--archive", type=Path)
     args = parser.parse_args()
-    run_id = request_run_id(
-        os.environ.get("ATOMIC_SOURCE_JSON") or "[]", dict(os.environ)
-    )
+    raw = os.environ.get("ATOMIC_SOURCE_JSON") or "[]"
+    if args.mode == "provision-run-ids":
+        for run_id in provision_run_ids(raw):
+            print(run_id)
+        return
+    if args.provision_run_id:
+        if args.mode not in {"validate-export", "materialize"}:
+            raise ValueError("provision run ID is not valid for this mode")
+        if args.provision_run_id not in provision_run_ids(raw):
+            raise ValueError("run ID is not authorized by exact provision wrapper")
+        run_id = args.provision_run_id
+    else:
+        run_id = request_run_id(raw, dict(os.environ))
     if args.mode == "request":
         print(run_id)
         return

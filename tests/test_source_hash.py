@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from axiom_encode.corpus_resolver import (
+    CorpusResolutionError,
     InvalidCorpusCitationError,
     InvalidCorpusReleaseError,
     LocalCorpusRelease,
@@ -1203,3 +1204,67 @@ def test_entrypoint_delegates_other_commands_to_cli(monkeypatch):
     monkeypatch.setattr("sys.argv", ["axiom-encode", "stats"])
 
     assert entrypoint.main() == 42
+
+
+def test_check_staleness_reads_the_checkout_as_it_is_now(tmp_path):
+    from axiom_encode.corpus_resolver import resolve_local_corpus_source
+
+    corpus_root = _write_corpus(tmp_path)
+    module_path = _write_module(tmp_path, source_text_sha256(SOURCE_TEXT))
+    release = _local_release(corpus_root)
+    assert resolve_local_corpus_source(CITATION_PATH, release).body == SOURCE_TEXT
+    assert check_staleness(module_path.parents[3], release) == []
+
+    provision_file = next(
+        (corpus_root / "data" / "corpus" / "provisions").rglob("*.jsonl")
+    )
+    provision_file.write_text(
+        json.dumps(_release_row(CITATION_PATH, "republished text")) + "\n",
+        encoding="utf-8",
+    )
+    stale = check_staleness(module_path.parents[3], release)
+
+    assert [(entry.module_path, entry.current_sha) for entry in stale] == [
+        (module_path, None)
+    ]
+    assert "do not match the verified release" in stale[0].resolution_error
+    # The release instance sees the changed file too and fails closed.
+    with pytest.raises(CorpusResolutionError, match="do not match the verified"):
+        resolve_local_corpus_source(CITATION_PATH, release)
+
+
+def test_check_staleness_rereads_even_when_the_fingerprint_cannot_see_a_change(
+    tmp_path, monkeypatch
+):
+    """Staleness re-hashes the checkout; it does not rely on the disk fingerprint.
+
+    The fingerprint is patched blind here, so a warm release keeps serving the
+    bytes it verified. The staleness check must still read the file as it is
+    now and report the altered bytes.
+    """
+
+    from axiom_encode import corpus_resolver
+    from axiom_encode.corpus_resolver import resolve_local_corpus_source
+
+    corpus_root = _write_corpus(tmp_path)
+    module_path = _write_module(tmp_path, source_text_sha256(SOURCE_TEXT))
+    release = _local_release(corpus_root)
+    monkeypatch.setattr(corpus_resolver, "_file_identity", lambda _path: None)
+    assert resolve_local_corpus_source(CITATION_PATH, release).body == SOURCE_TEXT
+    assert check_staleness(module_path.parents[3], release) == []
+
+    provision_file = next(
+        (corpus_root / "data" / "corpus" / "provisions").rglob("*.jsonl")
+    )
+    provision_file.write_text(
+        json.dumps(_release_row(CITATION_PATH, "republished text")) + "\n",
+        encoding="utf-8",
+    )
+    # Blind to the change, the warm release still serves what it verified.
+    assert resolve_local_corpus_source(CITATION_PATH, release).body == SOURCE_TEXT
+    stale = check_staleness(module_path.parents[3], release)
+
+    assert [(entry.module_path, entry.current_sha) for entry in stale] == [
+        (module_path, None)
+    ]
+    assert "do not match the verified release" in stale[0].resolution_error
