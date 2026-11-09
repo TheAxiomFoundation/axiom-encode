@@ -628,3 +628,39 @@ def test_run_lookups_stop_at_the_deadline():
         "Fixes-Run: run lookups passed the 150s deadline before run 3; "
         "the check fails closed, so rerun this job"
     ]
+
+
+# --- review-fix cycle 4 ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Encoding-Target: none\nSee notes <!--\nFixes-Run: none\n-->\n",
+        "Encoding-Target: none <!-- open\nFixes-Run: none\n",
+    ],
+)
+def test_a_mid_line_comment_left_open_fails_closed(body):
+    result = parse(body)
+    assert result.linkage is None
+    assert any("does not close on that line" in error for error in result.errors)
+
+
+def test_a_comment_block_after_a_list_marker_hides_to_its_close():
+    body = "Encoding-Target: none\n- <!--\n  Fixes-Run: none\n  -->\n"
+    assert parse(body).errors == [
+        "missing `Fixes-Run:` line; add it to the pull request body (use `Fixes-Run: none` for work that fixes no particular run)"
+    ]
+
+
+def test_comment_markers_in_code_spans_are_literal_text():
+    result = parse("Encoding-Target: none\nFixes-Run: none `<!--`, 123 `-->`\n")
+    # GitHub shows the whole value, run 123 included, so it must not pass.
+    assert result.linkage is None
+    assert result.errors
+    assert not any("missing" in error for error in result.errors)
+
+
+def test_a_fence_in_a_list_item_is_a_code_block():
+    body = "Encoding-Target: none\n- ```\n  Fixes-Run: none\n  ```\n"
+    assert any("missing `Fixes-Run:`" in error for error in parse(body).errors)

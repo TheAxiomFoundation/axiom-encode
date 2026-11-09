@@ -76,8 +76,10 @@ RATE_LIMIT_WAIT = 60.0
 # slow API ends in a fail-closed error rather than a cancelled job.
 VERIFY_DEADLINE = 180.0
 
-_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-_COMMENT_BLOCK = re.compile(r" {0,3}<!--")
+_LIST_MARKER = r"(?:(?:[-*+]|[0-9]{1,9}[.)])[ \t]+)?"
+_FENCE = re.compile(rf"^ {{0,3}}{_LIST_MARKER}(`{{3,}}|~{{3,}})")
+_COMMENT_BLOCK = re.compile(rf" {{0,3}}{_LIST_MARKER}<!--")
+_CODE_SPAN = re.compile(r"(`+)(?!`).*?(?<!`)\1(?!`)")
 _CLOSING_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*")
 _MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\((\S+)\)")
 _BOLD = r"(?:\*\*|__)?"
@@ -120,20 +122,29 @@ class Result:
     errors: list[str]
 
 
-def _visible_lines(body: str) -> list[str]:
+def _mask_code_spans(line: str) -> str:
+    """The line with inline code spans blanked, same length, for searching."""
+    return _CODE_SPAN.sub(lambda match: " " * len(match.group(0)), line)
+
+
+def _visible_lines(body: str, errors: list[str]) -> list[str]:
     """The body's lines outside HTML comments and fenced code blocks.
 
     One pass, so a `<!--` inside a fence does not hide the rest of the body
     and a fence inside a comment does not open a code block. A line that
-    starts with `<!--` hides everything up to the first `-->` (or the end of
-    the body), as GitHub does; a `<!--` later in a line hides text only up to
-    a `-->` on the same line, and is literal text otherwise. A fence closes
-    only on a bare fence line, as in CommonMark.
+    starts with `<!--` (after up to three spaces or a list marker) hides
+    everything up to the first `-->`, or to the end of the body, as GitHub
+    does. A `<!--` later in a line must close on the same line: GitHub may
+    hide following lines too, depending on paragraph rules this parser does
+    not model, so an unclosed one is an error (fail closed). `<!--` and `-->`
+    inside inline code spans are literal text. A fence (also after a list
+    marker) closes only on a bare fence line, as in CommonMark.
     """
     lines: list[str] = []
     fence: str | None = None
     in_comment = False
-    for line in body.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+    raw = body.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    for number, line in enumerate(raw, start=1):
         if fence is not None:
             match = _CLOSING_FENCE.fullmatch(line)
             if match and match.group(1)[0] == fence[0]:
@@ -142,11 +153,10 @@ def _visible_lines(body: str) -> list[str]:
             continue
         visible = ""
         rest = line
-        # A line that starts with `<!--` opens an HTML block that GitHub
-        # hides up to the first `-->`, or to the end of the body.
-        if not in_comment and _COMMENT_BLOCK.match(line):
+        block = None if in_comment else _COMMENT_BLOCK.match(line)
+        if block is not None:
             in_comment = True
-            rest = line[line.index("<!--") + 4 :]
+            rest = line[block.end() :]
         while rest:
             if in_comment:
                 end = rest.find("-->")
@@ -156,16 +166,22 @@ def _visible_lines(body: str) -> list[str]:
                     in_comment = False
                     rest = rest[end + 3 :]
                 continue
-            # Within a line, a comment counts only when it closes on the same
-            # line; otherwise the `<!--` is literal text, as GitHub shows it.
-            start = rest.find("<!--")
-            end = rest.find("-->", start + 4) if start >= 0 else -1
-            if end < 0:
+            masked = _mask_code_spans(rest)
+            start = masked.find("<!--")
+            if start < 0:
                 visible += rest
-                rest = ""
-            else:
+                break
+            end = masked.find("-->", start + 4)
+            if end < 0:
+                errors.append(
+                    f"line {number}: an HTML comment opens mid-line and does not "
+                    "close on that line; close it with `-->` on the same line, "
+                    "or start the line with `<!--`"
+                )
                 visible += rest[:start]
-                rest = rest[end + 3 :]
+                break
+            visible += rest[:start]
+            rest = rest[end + 3 :]
         if visible.strip() == "" and line.strip() != "":
             continue
         match = _FENCE.match(visible)
@@ -258,7 +274,7 @@ def parse(body: str | None, repository: str | None = None) -> Result:
     """Parse and check the format of a pull request body's linkage lines."""
     errors: list[str] = []
     found: dict[str, list[str]] = {TARGET_KEY: [], RUN_KEY: []}
-    for line in _visible_lines(body or ""):
+    for line in _visible_lines(body or "", errors):
         match = _LINE.match(line)
         if match is None:
             continue
