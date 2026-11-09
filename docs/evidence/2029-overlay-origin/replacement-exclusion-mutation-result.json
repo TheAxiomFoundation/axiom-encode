@@ -1,0 +1,36 @@
+{
+  "mutants": [
+    {
+      "lane": "eval",
+      "scope": "canonical",
+      "exit_code": 1,
+      "origin_assertion_failed": true,
+      "log_sha256": "0b2c49db76060453a4463c4c390ba81ab755f09a6dbe715c2d28dc3a7c485fa6"
+    },
+    {
+      "lane": "eval",
+      "scope": "legacy",
+      "exit_code": 1,
+      "origin_assertion_failed": true,
+      "log_sha256": "889d4f6f7d938d3c424b14bb9816804f30f56574fc8573e24c66a16c0cb9d216"
+    },
+    {
+      "lane": "apply",
+      "scope": "canonical",
+      "exit_code": 1,
+      "origin_assertion_failed": true,
+      "log_sha256": "bb7e2bd7cb068abc2b3d23ba4bfdf240b8fc492a280ed8887212292771c13f41"
+    },
+    {
+      "lane": "apply",
+      "scope": "legacy",
+      "exit_code": 1,
+      "origin_assertion_failed": true,
+      "log_sha256": "8c34844d450e487b92ef37ca846936fa013d843f39f8351e81e2050f8cbe7e8a"
+    }
+  ],
+  "production_unchanged": {
+    "src/axiom_encode/cli.py": "c9def567adcedfb53b9d637ec48972b563df27f1a8a840a082a61834bfad8101",
+    "src/axiom_encode/harness/evals.py": "90d52e1cadcf9d7e9dc86b6de935ceaaff722ad163d43909367a1b872f9cb382"
+  }
+}

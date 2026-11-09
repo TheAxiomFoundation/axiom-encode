@@ -1,4 +1,5 @@
-These verbatim bodies come from the pinned `nz-rulespec-2026-07-25` release,
+Unless an entry below names another release, these verbatim bodies come from
+the pinned `nz-rulespec-2026-07-25` release,
 manifest `fec362b985739f27910f0e950fc03e298528a42cdff6f694b19c9ed0850c8405`.
 Sections 71, 72 and 74 are from the Social Security Act 2018
 (`nz/statute/act/public/2018/0032/section/{71,72,74}`). The Schedule 4 Part 8
@@ -43,3 +44,39 @@ positively authenticated bare outline; it never changes this fallback.
 Their body SHA-256 values are, respectively,
 `146ba6bb66d83c3e7542983805223ae01cd234e9ba5602f988aa241e0c2cba0b` and
 `e5b7ca6907ad58193ee700d230f62dcc202592094cca709573eb1980eac05c1a`.
+
+`s220.txt` is section 220 of the Social Security Act 2018
+(`nz/statute/act/public/2018/0032/section/220`). It is the excerpt the NZ
+harness regressions have quoted since #1992, from the same
+`nz-rulespec-2026-07-25` release. It matches that release's row
+`nz/statute/act/public/2018/0032/section/220` byte for byte, apart from the
+trailing newline this file adds. Its body SHA-256 (with the trailing newline) is
+`ea0294e80f9b5df3c2402fe02e46ce9a60308bc32bef91a9d1b0cf8ad651aca4`. Its
+subsection (1) cites `subsection (2)`. Under a complete-section path that
+citation lets `bare_outline` own roots 1 and 2; root 3 follows the highest
+cited subsection, so its label stays an obligation.
+
+`nz_harness_defect_receipts.json` holds the replay receipts for both NZ
+harness fixes. For the outline admission: every `.txt` fixture under
+`tests/fixtures`, read under one complete-section path per jurisdiction, with
+the body hash, the outline from the pinned base module and from the current
+one, and, where they differ or for these NZ bodies, both numeric recalls. For
+the counterfactual gate: the count of fixture clauses compared and every
+clause whose conjunctive fact gates differ. Regenerate it with
+`uv run python scripts/nz_harness_defect_receipts.py --write`. The tests
+`tests/test_nz_s220_self_cited_outline.py` and
+`tests/test_nz_counterfactual_ceteris_paribus.py` replay it and require that
+only `s220.txt` and `amendment_2026_0054_s15_clause6a.txt` change.
+
+`amendment_2026_0054_s15_clause6a.txt` is replacement clause 6A of Schedule 4,
+Part 7 of the Social Security Act 2018, as quoted by section 15 of the
+amending Act 2026/54 (`nz/statute/act/public/2026/0054/section/15`), the
+Social Security (Jobseeker Support and Accommodation Supplement) Amendment Act
+2026, assented on 3 September 2026. Unlike the bodies above, it comes from the
+`nz-rulespec-2026-10-20` release, which carries ingest scope
+`2026-10-20-rulespec-nz-pco`; the July release predates the Act. It is the `6A` row of the
+`REPLACEMENT_TABLE` excerpt that the NZ harness regressions have quoted since
+#1992; it was not re-read from the corpus when this file was added. Its body
+SHA-256 (with the trailing newline) is `82263c4886395f02eda335092c6a530dabbdd73d6dd35ad4eaa18d4a9c71163e`. Its
+"(and their other circumstances were unchanged)" holds a counterfactual rate
+fixed and is not a fact the encoder must prove.

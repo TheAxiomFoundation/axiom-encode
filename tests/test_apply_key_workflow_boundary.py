@@ -12,6 +12,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.process_limits import HANG_TIMEOUT_SECONDS
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ".github/workflows/targeted-signed-reencode.yml"
 KEY_ENV = "AXIOM_ENCODE_APPLY_SIGNING_KEY"
@@ -237,7 +239,7 @@ def test_key_launcher_refuses_redirected_arguments_without_output(
         env={"RUNNER_TEMP": str(tmp_path), KEY_ENV: "dummy-key-material"},
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=HANG_TIMEOUT_SECONDS,
         check=False,
     )
     assert completed.returncode == 1

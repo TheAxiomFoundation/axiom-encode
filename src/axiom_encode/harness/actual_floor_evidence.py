@@ -25,7 +25,13 @@ from .imported_export_evidence import (
     _frame,
     _source,
 )
-from .same_case_execution import SameCaseEvidence, _payload, case_key, formula_witnesses
+from .same_case_execution import (
+    SameCaseEvidence,
+    _payload,
+    case_key,
+    formula_witnesses,
+    strict_explain_metadata,
+)
 
 _FLOOR = re.compile(
     r"Line (?P<target>\d+): Line (?P<left>\d+) minus line (?P<right>\d+) "
@@ -103,11 +109,7 @@ def _query(evidence: SameCaseEvidence, case: dict[str, Any]) -> dict[str, Any] |
         for key in ("entity_id", "period", "assessment_date")
     ):
         return None
-    if request.get("mode") != "explain" or response.get("metadata") != {
-        "requested_mode": "explain",
-        "actual_mode": "explain",
-        "fallback_reason": None,
-    }:
+    if not strict_explain_metadata(request, response):
         return None
     return query
 
