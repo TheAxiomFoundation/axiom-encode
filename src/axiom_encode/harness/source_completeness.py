@@ -535,6 +535,7 @@ _GERMAN_CARDINAL_VALUES = {
     "zehn": 10.0,
 }
 _SLASH_CONJUNCTION = re.compile(r"\b(?:and\s*/\s*or|und\s*/\s*oder)\b", re.IGNORECASE)
+_VULGAR_FRACTION_CHARS = f"{chr(0xBC)}-{chr(0xBE)}{chr(0x2150)}-{chr(0x215E)}"
 # A digit mixed percentage is one numeral. The slash of "2 6/7 per cent" divides
 # nothing, and its whole number, numerator and denominator state no amounts of
 # their own.
@@ -544,7 +545,7 @@ _DIGIT_MIXED_PERCENTAGE = re.compile(
 )
 _DIGIT_MIXED_NUMERAL = re.compile(
     rf"\d+(?:[^\S\r\n]+\d+[/{chr(0x2044)}]\d+|"
-    rf"[^\S\r\n]*[{chr(0xBC)}-{chr(0xBE)}{chr(0x2150)}-{chr(0x215E)}])"
+    rf"[^\S\r\n]*[{_VULGAR_FRACTION_CHARS}])"
 )
 # Agency-manual typography that the arithmetic recognizer would otherwise read
 # as operators: a month/year date (every page header of the Oregon eligibility
@@ -2272,24 +2273,25 @@ _ENGLISH_LEGAL_CITATION = re.compile(
     r"\d+(?:\.\d+)*(?:\s*(?:through|to|[-–—]|and|,)\s*\d+(?:\.\d+)*)*",
     flags=re.IGNORECASE,
 )
+# Every separator `str.splitlines` treats as a line boundary, not only `\n`.
+_LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
 # A coordinated list of titled references, as UK instruments print them:
 # "regulation 15 (persons not entitled to council tax reduction: absentees),
 # regulation 16 (...) or 19 (...)". _ENGLISH_LEGAL_CITATION removes each
 # keyword-led item, but its number list stops at the title, so a keyword-less
 # item such as that 19 stayed behind as an amount.
 #
-# A title names a provision. A parenthesis counts as one only when a space on
-# the item's own line separates it from the number and it opens with a letter;
-# it may hold one nested pair ("(... to whom regulation 14(6) does not apply)").
-# These never count, so a list that needs one stays as it was: a bare
-# subdivision marker ("5 (a)"), a parenthesis glued to its number ("5(a)"), one
-# that opens with a number word and restates an amount ("19 (nineteen) weeks"),
-# and one that opens with a word carrying on the amount or limiting the
-# reference ("19 (or more) weeks", "500 (per annum)", "5 (except paragraph 2)").
-# A parenthesis left open reaches to some later close, so neither does one that
-# holds a sentence break or runs past 300 characters outside a nested pair.
-# Every item must carry its own title: in "regulation 15 (absentees) or 19
-# weeks" the 19 stays.
+# A title names a provision. A parenthesis counts as one only when space on the
+# item's own line separates it from the number and it opens with a letter; it
+# may hold one nested pair ("(... to whom regulation 14(6) does not apply)").
+# These never count, so their item keeps its number: a bare subdivision marker
+# ("5 (a)"), a parenthesis glued to its number ("5(a)"), one that opens with a
+# number word and restates an amount ("19 (nineteen) weeks"), and one that opens
+# with a word carrying on the amount or limiting the reference ("19 (or more)
+# weeks", "500 (per annum)", "5 (except paragraph 2)"). A parenthesis left open
+# reaches to some later close, so neither does one that holds a sentence break
+# or runs past 300 characters outside a nested pair. Every item must carry its
+# own title: in "regulation 15 (absentees) or 19 weeks" the 19 stays.
 _ENGLISH_REFERENCE_KEYWORD = (
     r"(?:articles?|sections?|secs?\.?|regulations?|paragraphs?|"
     r"sub-?paragraphs?|subsections?|parts?|chapters?|schedules?)"
@@ -2305,46 +2307,44 @@ _ENGLISH_NON_TITLE_OPENING = (
 # The title patterns compile with IGNORECASE, so the capital that starts a
 # sentence needs its own case-sensitive group.
 _ENGLISH_TITLE_CHARACTER = r"(?![.;]\s+(?-i:[(A-Z]))[^()]"
+# Vulgar fractions count as word characters, and one opens an amount.
 _ENGLISH_REFERENCE_TITLE = (
-    r"\((?=[^\W\d_])"
+    rf"\((?=[^\W\d_{_VULGAR_FRACTION_CHARS}])"
     r"(?!(?:[a-z]|[ivxlcdm]+)\))"
     rf"(?!(?:{_ENGLISH_NUMBER_WORD}|{_ENGLISH_NON_TITLE_OPENING})\b)"
     rf"(?:{_ENGLISH_TITLE_CHARACTER}|\((?:{_ENGLISH_TITLE_CHARACTER})*\))"
     r"{1,300}\)"
 )
-_ENGLISH_TITLED_REFERENCE_ITEM = rf"\d+[A-Za-z]*[^\S\r\n]+{_ENGLISH_REFERENCE_TITLE}"
+_ENGLISH_TITLE_GAP = rf"[^\S{_LINE_BREAK_CHARS}]+"
+_ENGLISH_TITLED_REFERENCE_ITEM = (
+    rf"\d+[A-Za-z]*{_ENGLISH_TITLE_GAP}{_ENGLISH_REFERENCE_TITLE}"
+)
+# A unit or number after the last title makes that item an amount with an aside
+# ("12 (in the case of a couple, 24) months", "1 (January) 2020"). The possessive
+# repeat stops the pattern from falling back to the items before it.
+_ENGLISH_AMOUNT_AFTER_TITLE = (
+    r"[ \t]*+\d|\s*+(?:per\s*cent\b|%|"
+    r"(?:week|month|year|day|hour|pound|dollar|euro)s?\b|pence\b)"
+)
 _ENGLISH_TITLED_REFERENCE_LIST = re.compile(
     rf"\b{_ENGLISH_REFERENCE_KEYWORD}\s+{_ENGLISH_TITLED_REFERENCE_ITEM}"
     r"(?:\s*(?:,\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)"
-    rf"(?:{_ENGLISH_REFERENCE_KEYWORD}\s+)?{_ENGLISH_TITLED_REFERENCE_ITEM})+",
+    rf"(?:{_ENGLISH_REFERENCE_KEYWORD}\s+)?{_ENGLISH_TITLED_REFERENCE_ITEM})++"
+    rf"(?!{_ENGLISH_AMOUNT_AFTER_TITLE})",
     flags=re.IGNORECASE,
 )
 _ENGLISH_TITLED_REFERENCE_ITEM_TITLE = re.compile(
-    rf"\d+[A-Za-z]*[^\S\r\n]+(?P<title>{_ENGLISH_REFERENCE_TITLE})",
+    rf"(?P<keyword>{_ENGLISH_REFERENCE_KEYWORD}\s+)?(?P<number>\d+[A-Za-z]*)"
+    rf"{_ENGLISH_TITLE_GAP}(?P<title>{_ENGLISH_REFERENCE_TITLE})",
     flags=re.IGNORECASE,
 )
 # One titled reference, which may name a subdivision first: "regulation 14(6)
 # (title)".
 _ENGLISH_TITLED_REFERENCE = re.compile(
     rf"\b{_ENGLISH_REFERENCE_KEYWORD}\s+\d+[A-Za-z]*(?:\([^()\s]{{1,8}}\))*"
-    rf"[^\S\r\n]*(?P<title>{_ENGLISH_REFERENCE_TITLE})",
+    rf"[^\S{_LINE_BREAK_CHARS}]*(?P<title>{_ENGLISH_REFERENCE_TITLE})",
     flags=re.IGNORECASE,
 )
-# What numeric recall deletes from the start of a line, once each.
-_RECALL_LINE_MARKER = r"\((?:\d+[a-z]?|[a-z])\)(?:[ \t]+bis[ \t]+\(\d+[a-z]?\))?"
-_RECALL_LINE_NUMBER = r"\d+[a-z]?\."
-# The extractor blanks a whole line that opens with a singular Part, Chapter or
-# Schedule heading, after numeric recall has deleted the line's marker and
-# number (_STRUCTURAL_SOURCE_HEADING_PATTERN in validator_pipeline, which
-# imports this module). The quote characters mirror its
-# _STRUCTURAL_SOURCE_QUOTE_CHARS. Possessive runs keep a long blank run linear.
-_ENGLISH_HEADING_LINE_OPENING = re.compile(
-    rf"\s*+(?:{_RECALL_LINE_MARKER}\s*+)?(?:{_RECALL_LINE_NUMBER}\s++)?"
-    r"[\"'`“”‘’]*+(?:part|chapter|schedule)\b",
-    flags=re.IGNORECASE,
-)
-# Far enough back to see any marker, number and indentation before a heading.
-_ENGLISH_HEADING_LINE_LOOKBACK = 64
 # A complete parenthesis containing only a Statutes at Large volume/page
 # reference is bibliographic metadata. Do not accept dollar signs, ranges,
 # additional text, or a citation split across lines.
@@ -16099,43 +16099,22 @@ def _irs_page_locator_numeric_recall_spans(
         yield line.span("page")
 
 
-def _titled_list_touches_heading_line(match: re.Match[str]) -> bool:
-    """Whether a line of this titled reference list reads as a heading."""
-    source = match.string
-    before = source[
-        max(0, match.start() - _ENGLISH_HEADING_LINE_LOOKBACK) : match.start()
-    ]
-    # The sentinel keeps the list's own line when the window ends in a break.
-    line_head = (before + "x").splitlines()[-1][:-1]
-    return any(
-        _ENGLISH_HEADING_LINE_OPENING.match(line)
-        for line in (line_head + match.group(0)).splitlines()
-    )
-
-
 def _blank_titled_reference_list(match: re.Match[str]) -> str:
-    """Keep each title of a titled reference list and blank the rest in place.
+    """Blank the keyword-less item numbers of a titled reference list in place.
 
-    The item numbers leave the recall text. A title can state an amount of its
-    own ("regulation 15 (persons aged 65 or over) or 19 (...)"), so the titles
-    stay as written, and so do the line breaks that later passes read. The
-    keywords go with the numbers: a keyword left before a one-word title reads
-    as a reference to that title, and the extractor's reference pattern then
-    runs on into a following quantity ("regulation 6 (persons) or 7 persons").
-
-    A list on a heading line stays whole. The extractor drops that line because
-    of its keyword, so blanking the keyword would bring the rest of the line
-    back as demands.
+    Later passes read a keyword-led item as any other reference, and its keyword
+    can make a line a Part, Chapter or Schedule heading, so those items stay. A
+    title can state an amount of its own ("regulation 15 (persons aged 65 or
+    over) or 19 (...)"), so the titles stay too.
     """
     matched = match.group(0)
-    if _titled_list_touches_heading_line(match):
-        return matched
-    kept = [char if char in "\r\n" else " " for char in matched]
+    kept = list(matched)
     # Each item consumes its whole title, so a number inside a title
     # ("regulation 14(6)") never starts the next item.
     for item in _ENGLISH_TITLED_REFERENCE_ITEM_TITLE.finditer(matched):
-        start, end = item.span("title")
-        kept[start:end] = matched[start:end]
+        if item.group("keyword") is None:
+            start, end = item.span("number")
+            kept[start:end] = " " * (end - start)
     return "".join(kept)
 
 
@@ -16361,13 +16340,13 @@ def authoritative_numeric_recall_text(
     cleaned = sub(_ENGLISH_LEGAL_CITATION, "", cleaned)
     cleaned = sub(_STRUCTURAL_REFERENCE, "", cleaned)
     cleaned = sub(
-        rf"(?m)^[ \t]*{_RECALL_LINE_MARKER}",
+        r"(?m)^[ \t]*\((?:\d+[a-z]?|[a-z])\)(?:[ \t]+bis[ \t]+\(\d+[a-z]?\))?",
         "",
         cleaned,
         flags=re.IGNORECASE,
     )
     cleaned = sub(
-        rf"(?m)^[ \t]*{_RECALL_LINE_NUMBER}[ \t]+",
+        r"(?m)^[ \t]*\d+[a-z]?\.[ \t]+",
         "",
         cleaned,
         flags=re.IGNORECASE,
