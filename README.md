@@ -409,8 +409,33 @@ build/axiom-encode-signing-supervisor \
   --reason "superseded by the replacement source module"
 ```
 
-`retire` accepts only a module already covered by a verified model
-`encode --apply` manifest and includes its companion test automatically.
+By default, `retire` requires a verified model `encode --apply` manifest and
+includes its companion test automatically. To retire a protected module and its
+companion that no manifest or receipt covers, pass `--unreceipted` explicitly:
+
+```bash
+# Run under the same protected apply-signing supervisor shown above.
+axiom-encode retire \
+  uk-arun/policies/arun/council-tax-reduction.yaml \
+  --unreceipted \
+  --policy-repo-path ~/TheAxiomFoundation/rulespec-uk \
+  --corpus-path ~/TheAxiomFoundation/axiom-corpus \
+  --reason "superseded by section encodings after the corpus rebind"
+```
+
+The explicit flag prevents an expected receipted retirement from silently
+becoming an unreceipted one. This route refuses either file if any manifest or
+receipt covers it at the base. It writes a signed v5 receipt at the primary's
+canonical mirrored path, with tool `axiom-encode retire-unreceipted` and the
+sha256 of each deleted file's exact bytes. The receipt records its immutable
+retirement base, reason, encoder identity, waiver-set identity, and generation
+time; it claims no source attestation or execution. Verification replays the
+recorded base and also checks the pull request's protected base, so retain the
+Git history containing the retirement base. The guard checks the absence of
+both files, and `--all` continues to verify the receipt after retirement. Both
+routes use the same corpus, waiver, encoder-provenance, safe-target, and atomic
+transaction checks. Retire any stale validation-waiver record through the
+normal waiver-retirement flow after deleting its module.
 
 Canonicalize paths of already-authenticated v5 model encodings with the
 separate path-only workflow. The plan is deliberately minimal and binds one
