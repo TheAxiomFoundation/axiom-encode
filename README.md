@@ -280,6 +280,10 @@ facts to each module's inputs. The record's `review_state` is always
 between two sources. See
 [docs/source-conflict-compare.md](docs/source-conflict-compare.md).
 
+With `--question <file>` in place of `--link`, the step reads a question file:
+two or more documents that answer one question. It compares every pair and
+writes one record per pair and a summary into the `--out` directory.
+
 ```bash
 axiom-encode compare-sources \
   --link docs/source-conflicts/examples/us-medicaid-community-engagement.link.json \

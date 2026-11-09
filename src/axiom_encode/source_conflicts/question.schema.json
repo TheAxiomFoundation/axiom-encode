@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom-foundation.org/schemas/axiom-source-question/v1.json",
+  "title": "Axiom source question, version 1",
+  "description": "Several documents that answer one question. States the question, its canonical facts and constraints once, and lists two or more answers; each answer maps the canonical facts to one module's inputs. The compare step expands the file into one link per pair of answers (see link.schema.json for the shared definitions). The loader in question.py is the authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "id", "question", "entity", "period", "facts", "answers"],
+  "properties": {
+    "format": {"const": "axiom-source-question/v1"},
+    "id": {
+      "description": "Stable id of the question, with a jurisdiction prefix.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._/-]*(:[a-z0-9][a-z0-9._/-]*)+$"
+    },
+    "question": {"type": "string", "minLength": 1},
+    "entity": {"type": "string", "minLength": 1},
+    "period": {"$ref": "link.schema.json#/properties/period"},
+    "facts": {
+      "description": "The canonical facts of the question. The grid lists them in this order.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]*$", "not": {"enum": ["true", "false"]}},
+      "additionalProperties": {"$ref": "#/$defs/fact"}
+    },
+    "constraints": {
+      "description": "Conditions a real household meets, over the canonical facts.",
+      "type": "array",
+      "items": {"$ref": "link.schema.json#/$defs/constraint"}
+    },
+    "answers": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/answer"}},
+    "sampling": {"$ref": "link.schema.json#/properties/sampling"}
+  },
+  "$defs": {
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"$ref": "link.schema.json#/$defs/kind"},
+        "values": {"type": "array", "minItems": 1, "items": {"$ref": "link.schema.json#/$defs/value"}},
+        "step": {"$ref": "link.schema.json#/$defs/number"},
+        "min": {"$ref": "link.schema.json#/$defs/number"},
+        "max": {"$ref": "link.schema.json#/$defs/number"},
+        "note": {"type": "string", "minLength": 1}
+      }
+    },
+    "answer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "document_type", "jurisdiction", "corpus_citation_path", "module", "outputs", "combine"],
+      "properties": {
+        "id": {"description": "Short id, unique in the file. Pair ids are '<question id>:<answer a>~<answer b>'.", "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+        "label": {"type": "string", "minLength": 1},
+        "document_type": {"enum": ["statute", "regulation", "federal_guidance", "state_regulation", "state_guidance", "form_instructions", "third_party"]},
+        "jurisdiction": {"type": "string", "pattern": "^[a-z]{2}(-[a-z]{2})?$"},
+        "corpus_citation_path": {"type": "string", "pattern": "^[a-z]{2}(-[a-z]{2})?(/[A-Za-z0-9._-]+)+$"},
+        "effective_from": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+        "effective_to": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+        "module": {"description": "Module path relative to the RuleSpec checkout root.", "type": "string", "pattern": "\\.yaml$"},
+        "outputs": {"$ref": "link.schema.json#/$defs/names"},
+        "combine": {"enum": ["any", "all"]},
+        "inputs": {
+          "description": "Canonical fact -> request name of this module's input.",
+          "type": "object",
+          "additionalProperties": {"type": "string", "minLength": 1}
+        },
+        "derived": {"type": "object", "additionalProperties": {"$ref": "link.schema.json#/$defs/derived"}},
+        "fixed": {"type": "object", "additionalProperties": {"$ref": "link.schema.json#/$defs/fixed"}},
+        "guards": {"$ref": "link.schema.json#/$defs/names"},
+        "note": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

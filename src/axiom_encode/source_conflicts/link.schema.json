@@ -88,10 +88,9 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["kind"],
-      "anyOf": [{"required": ["a"]}, {"required": ["b"]}],
       "properties": {
         "kind": {"$ref": "#/$defs/kind"},
-        "a": {"description": "Request name of the input on side a.", "type": "string", "minLength": 1},
+        "a": {"description": "Request name of the input on side a. A fact needs an input on a side, or a place in a derived input.", "type": "string", "minLength": 1},
         "b": {"description": "Request name of the input on side b.", "type": "string", "minLength": 1},
         "values": {"description": "Explicit values. Without them the step takes the values from the modules' thresholds.", "type": "array", "minItems": 1, "items": {"$ref": "#/$defs/value"}},
         "step": {"description": "Distance of the values just below and above a threshold. Default 1.", "$ref": "#/$defs/number"},

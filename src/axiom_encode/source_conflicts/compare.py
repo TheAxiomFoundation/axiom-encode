@@ -432,6 +432,9 @@ def compare(
             return value
         return "zero" if _is_zero(value) else "nonzero"
 
+    # Per direction and deciding rules: the values each one-side fact takes
+    # in the witnesses. A fact with one value there is a condition.
+    conditions_seen: dict[tuple, dict[str, set]] = {}
     groups: dict[tuple, dict[str, Any]] = {}
     run = skipped_by_guard = differ = removed = removed_differ = 0
     removed_differ_by_constraint = [0] * len(link.constraints)
@@ -464,6 +467,11 @@ def compare(
             tuple(decided["b"][1]),
             tuple((name, one_side_value(name, case[name])) for name in one_side_facts),
         )
+        seen = conditions_seen.setdefault(
+            key[:4], {name: set() for name in one_side_facts}
+        )
+        for name, value in key[4]:
+            seen[name].add(value)
         weight = sum(1 for value in case.values() if not _is_zero(value))
         group = groups.get(key)
         if group is None:
@@ -500,6 +508,15 @@ def compare(
             "direction": {"a": key[0], "b": key[1]},
             "deciding_rules": {"a": list(key[2]), "b": list(key[3])},
             "one_side_facts": dict(key[4]),
+            "conditions": [
+                {
+                    "fact": name,
+                    "read_by": next(side for side in SIDES if name in read_by[side]),
+                    "value": next(iter(conditions_seen[key[:4]][name])),
+                }
+                for name in one_side_facts
+                if len(conditions_seen[key[:4]][name]) == 1
+            ],
             "count": group["count"],
             "witness": {
                 "facts": cases[position],

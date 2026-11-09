@@ -232,7 +232,7 @@ def mutate(path: list, value=None, *, delete: bool = False) -> dict:
             mutate(["facts", "work_hours", "kind"], "money"),
             "facts.work_hours.kind must be",
         ),
-        (mutate(["facts", "work_hours", "b"], delete=True), "must map to an input"),
+        (mutate(["facts", "monthly_income", "b"], delete=True), "must map to an input"),
         (
             mutate(["facts", "work_hours", "values"], ["0", True]),
             "must all be decimal values",

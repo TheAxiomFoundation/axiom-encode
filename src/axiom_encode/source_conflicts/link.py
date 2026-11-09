@@ -80,10 +80,12 @@ _SAMPLING_KEYS = {"max_combinations": False, "seed": False}
 class LinkError(ValueError):
     """The link file is malformed. ``problems`` lists every finding."""
 
+    heading = "invalid source-conflict link"
+
     def __init__(self, problems: list[str]):
         self.problems = list(problems)
         super().__init__(
-            "invalid source-conflict link:\n"
+            f"{self.heading}:\n"
             + "\n".join(f"- {problem}" for problem in self.problems)
         )
 
@@ -296,8 +298,6 @@ def _fact(name: str, value: object, problems: list[str]) -> Fact | None:
             text = _text(raw[side], f"{where}.{side}", problems)
             if text is not None:
                 inputs[side] = text
-    if not any(side in raw for side in SIDES):
-        problems.append(f"{where} must map to an input on side a, side b or both")
     values = None
     if "values" in raw:
         listed = raw["values"]
@@ -439,6 +439,14 @@ def parse_link(document: object) -> Link:
                 op=op,
                 of=of,
                 note=_note(entry, where, problems),
+            )
+
+    summed = {fact_name for entry in derived.values() for fact_name in entry.of}
+    for fact in facts.values():
+        if not fact.inputs and fact.name not in summed:
+            problems.append(
+                f"facts.{fact.name} must map to an input on side a, side b or both, "
+                "or be a fact of a derived input"
             )
 
     fixed: dict[str, FixedInput] = {}
@@ -622,26 +630,32 @@ class _UniqueKeyLoader(yaml.SafeLoader):
         return super().construct_mapping(node, deep=deep)
 
 
-def load_link(path: Path) -> Link:
-    """Read and validate a link file (``.json``, ``.yaml`` or ``.yml``)."""
+def read_document(path: Path, what: str = "link") -> object:
+    """Parse a ``.json``, ``.yaml`` or ``.yml`` file; refuse a repeated key."""
 
     path = Path(path)
     try:
         raw = path.read_bytes()
     except OSError as error:
         raise LinkError(
-            [f"cannot read the link file {path}: {error.strerror}"]
+            [f"cannot read the {what} file {path}: {error.strerror}"]
         ) from error
     if len(raw) > MAX_LINK_BYTES:
-        raise LinkError([f"the link file {path} is larger than {MAX_LINK_BYTES} bytes"])
+        raise LinkError(
+            [f"the {what} file {path} is larger than {MAX_LINK_BYTES} bytes"]
+        )
     try:
         text = raw.decode("utf-8")
         if path.suffix == ".json":
-            document = json.loads(text, object_pairs_hook=_unique_pairs)
-        elif path.suffix in (".yaml", ".yml"):
-            document = yaml.load(text, Loader=_UniqueKeyLoader)  # noqa: S506 - a SafeLoader
-        else:
-            raise LinkError([f"the link file {path} must end in .json, .yaml or .yml"])
+            return json.loads(text, object_pairs_hook=_unique_pairs)
+        if path.suffix in (".yaml", ".yml"):
+            return yaml.load(text, Loader=_UniqueKeyLoader)  # noqa: S506 - a SafeLoader
     except (UnicodeError, ValueError, yaml.YAMLError) as error:
-        raise LinkError([f"cannot parse the link file {path}: {error}"]) from error
-    return parse_link(document)
+        raise LinkError([f"cannot parse the {what} file {path}: {error}"]) from error
+    raise LinkError([f"the {what} file {path} must end in .json, .yaml or .yml"])
+
+
+def load_link(path: Path) -> Link:
+    """Read and validate a link file (``.json``, ``.yaml`` or ``.yml``)."""
+
+    return parse_link(read_document(path))
