@@ -1416,3 +1416,20 @@ def test_quick_tests_fail_outside_a_pull_request_merge_commit(tmp_path):
     code, _, argv = _run_quick_tests(repo)
 
     assert code != 0 and argv is None
+
+
+def test_replay_benchmark_passes_each_event_its_base():
+    (step,) = [
+        step
+        for step in CI["jobs"]["replay-benchmark"]["steps"]
+        if "replay_us_failure_bundles.py ci" in step.get("run", "")
+    ]
+    run = step["run"]
+
+    assert "pull_request) args=(--base-ref 'HEAD^1' --changed-since 'HEAD^1') ;;" in run
+    assert 'merge_group) args=(--base-ref "$MERGE_GROUP_BASE_SHA") ;;' in run
+    assert "push) args=(--base-ref 'HEAD^1') ;;" in run
+    assert step["env"]["MERGE_GROUP_BASE_SHA"] == (
+        "${{ github.event.merge_group.base_sha }}"
+    )
+    assert "if" not in step

@@ -607,6 +607,28 @@ def test_split_map_reads_json_objects_and_manifest_lines(tmp_path):
         load_split_map(bad)
 
 
+def test_compare_cli_hides_cases_held_out_only_in_the_before_report(tmp_path, capsys):
+    before = tmp_path / "before.json"
+    after = tmp_path / "after.json"
+    before.write_text(json.dumps(_report([_case("h", [TESTS], split=HELD_OUT)])))
+    after.write_text(json.dumps(_report([_case("h", [])])))
+
+    assert main(["compare", str(before), str(after), "--json"]) == 0
+    assert '"h"' not in capsys.readouterr().out
+
+
+def test_ci_cli_skips_the_replay_when_no_trigger_path_changed(tmp_path, capsys):
+    head = subprocess.run(
+        ["git", "-C", str(FIXTURES.parents[2]), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    assert main(["ci", "--changed-since", head, "--fixtures", str(tmp_path)]) == 0
+    assert "passes without a replay" in capsys.readouterr().out
+
+
 def test_compare_cli_hides_held_out_cases_in_json(tmp_path, capsys):
     before = tmp_path / "before.json"
     after = tmp_path / "after.json"
@@ -1006,6 +1028,20 @@ def test_run_gate_passes_and_fails_on_each_condition(tmp_path):
     # Against a base that pinned it clean, the same reason is needed and passes.
     _, failures = run_gate(root, base_snapshot=clean_base)
     assert not any(failures.values()), failures
+
+    # After that change merges, the base carries the reason and pins the
+    # fixture refused: the inherited reason is neither stale nor an excuse.
+    merged = json.loads(json.dumps(snapshot))
+    merged["allowed_regressions"] = {"first": "old reason"}
+    _, failures = run_gate(root, base_snapshot=merged)
+    assert not any(failures.values()), failures
+    inherited_clean = json.loads(json.dumps(clean_base))
+    inherited_clean["allowed_regressions"] = {"first": "old reason"}
+    _, failures = run_gate(root, base_snapshot=inherited_clean)
+    assert (
+        "clean fixture is now refused"
+        in (failures["clean or control fixtures refused"][0])
+    )
 
     # A fixture that does not load: a replay error.
     (root / SNAPSHOT_FILE).write_text(json.dumps(snapshot))

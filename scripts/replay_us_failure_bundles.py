@@ -1771,7 +1771,17 @@ def run_gate(
                 "snapshot.json is not what the snapshot command writes for this "
                 "replay (a hand edit?); rewrite it"
             )
-    allowed = (snapshot or {}).get("allowed_regressions") or {}
+    # Only the reasons this change adds count: a reason the base already
+    # carries (a regression accepted earlier) neither excuses a new failure
+    # nor counts as stale; the next snapshot rewrite drops it.
+    inherited = (base_snapshot or {}).get("allowed_regressions") or {}
+    allowed = {
+        case_id: reason
+        for case_id, reason in (
+            (snapshot or {}).get("allowed_regressions") or {}
+        ).items()
+        if inherited.get(case_id) != reason
+    }
     failures["clean or control fixtures refused"] = guard_violations(
         base_snapshot, report, allowed
     )
@@ -1846,11 +1856,18 @@ def hide_held_out(
 ) -> dict[str, Any]:
     """``diff`` with every held-out case id replaced by a count."""
 
-    rows = {r["id"]: r for r in [*before["cases"], *after["cases"]]}
+    before_rows = {r["id"]: r for r in before["cases"]}
+    after_rows = {r["id"]: r for r in after["cases"]}
     held_out = {
         case_id
-        for case_id in rows
-        if _case_split(case_id, rows[case_id], split_of=split_of) == HELD_OUT
+        for case_id in before_rows.keys() | after_rows.keys()
+        if _case_split(
+            case_id,
+            after_rows.get(case_id),
+            before_rows.get(case_id),
+            split_of=split_of,
+        )
+        == HELD_OUT
     }
 
     def visible(ids: Sequence[str]) -> list[str]:
@@ -1898,6 +1915,12 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
             print(line)
         return 1 if drift else 0
     errors = [f"{r['id']}: {r['error']}" for r in report["cases"] if r["error"]]
+    errors += [
+        f"{r['id']}: unresolved import or deferral provider "
+        f"{r['imports_unresolved'] + r['deferral_providers_unresolved']}"
+        for r in report["cases"]
+        if r["imports_unresolved"] or r["deferral_providers_unresolved"]
+    ]
     if errors:
         print("replay errors are never pinned:", *errors, sep="\n  ", file=sys.stderr)
         return 1

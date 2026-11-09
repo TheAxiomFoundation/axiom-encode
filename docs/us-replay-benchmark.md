@@ -69,9 +69,9 @@ changes (`REPLAY_TRIGGER_PATHS`: `src/axiom_encode/harness/`,
 `ci.yml`, `pyproject.toml`, `uv.lock`), and no other `axiom_encode` module
 that the replay loads changes, the job passes without a replay. Renames count
 both paths. The merge queue and pushes to `main` always replay. A manual
-dispatch on a branch checks errors and drift only; it has no base to guard
-against. The replay takes about 30 s
-with 4 workers; the job takes about 90 s with the dependency install.
+dispatch on a branch has no base snapshot: it checks errors, drift and
+controls only. The replay takes 30 to 55 s with 4 workers; the whole job took
+67 s on a GitHub runner.
 
 The job fails when:
 
@@ -104,7 +104,9 @@ Commit `tests/fixtures/us_replay_benchmark/snapshot.json`. The rewrite is a
 reviewable diff: one line per finding. The command refuses to pin replay
 errors. It also refuses to pin a finding on a fixture that the base pins clean
 (or on a control) unless you pass `--allow-regression ID=REASON` for it. A
-rewrite keeps only the reasons that it is given again.
+rewrite keeps only the reasons that it is given again. The gate counts only
+the reasons that a PR adds: a reason that the base already carries neither
+excuses a new regression nor fails other PRs.
 
 `snapshot --check` reports drift without writing.
 
