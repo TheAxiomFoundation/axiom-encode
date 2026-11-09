@@ -1484,12 +1484,15 @@ _SAME_ACT_SECTION_DEPENDENCY = re.compile(
     flags=re.IGNORECASE,
 )
 # Corpus document classes whose "section N of this act" can name a section of
-# the source's own enactment: statutes (codes and session laws) and guidance
-# law compilations that reproduce an act. In regulations, policies, manuals
+# the source's own enactment: statutes (codes and session laws), enacted
+# legislation (acts and bills), and guidance law compilations that reproduce
+# an act. In regulations, policies, manuals
 # and forms, "the Act" is a defined term for a separate, codified enabling
 # statute (42 CFR "section 1927 of the Act" is 42 U.S.C. 1396r-8), so a
 # reason naming it is not a same-act dependency.
-_SAME_ACT_SELF_REFERENCE_DOCUMENT_CLASSES = frozenset({"statute", "guidance"})
+_SAME_ACT_SELF_REFERENCE_DOCUMENT_CLASSES = frozenset(
+    {"statute", "legislation", "guidance"}
+)
 _USC_DEFERRAL_DEPENDENCY = re.compile(
     r"\b(?P<title>\d+)\s+U\.?\s*S\.?\s*C\.?(?:\s*[,;:])?\s*"
     r"(?:(?:§{1,2}|sections?)\s*)?"
@@ -9939,7 +9942,7 @@ def _reason_names_missing_same_act_dependency(
 
     The source branch must make itself subject to "section N of this act" (a
     self-reference, not the defined term "the Act"), and the source must be a
-    statute or a guidance law compilation; see
+    statute, enacted legislation, or a guidance law compilation; see
     `_SAME_ACT_SELF_REFERENCE_DOCUMENT_CLASSES`.
     """
 

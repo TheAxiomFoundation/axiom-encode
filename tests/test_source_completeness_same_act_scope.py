@@ -231,6 +231,16 @@ SAME_ACT_CASES = [
         id="wa-2023-c475-budget-proviso",
     ),
     pytest.param(
+        "us-la/legislation/act:1",
+        "(a) Subject to section 3 of this act, the credit shall be equal to "
+        "five percent of the qualified expenditures.\n\n"
+        "(b) The credit shall not exceed one thousand dollars.",
+        ("a",),
+        "3",
+        "this act",
+        id="synthetic-enacted-legislation-act",
+    ),
+    pytest.param(
         "us-pa/guidance/dli/uc-law/page-210",
         "(b) Payment of any bill rendered under subsection (a) shall be made "
         "not later than thirty days after such bill was mailed to the last "
