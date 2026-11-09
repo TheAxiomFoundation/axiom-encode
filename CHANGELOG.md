@@ -1,3 +1,8 @@
+## 0.2.2351
+
+- Label U.S. branches in English, drop German sentence markers in U.S. text, and read U.S. citation ranges (#1896)
+- Keep titled reference lists out of complete-source numeric recall (#2149)
+
 ## 0.2.2350
 
 - Harden optional retired-manifest inventory reconciliation (#1566)
