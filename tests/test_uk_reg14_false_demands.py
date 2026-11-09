@@ -1,4 +1,4 @@
-"""Three misreadings of regulation 14's wording in complete-source analysis.
+"""Four false refusals of regulation 14 in complete-source analysis.
 
 Signed re-encode run 41745442025 ended with refusals of regulation 14 of the
 Council Tax Reduction (Scotland) Regulations 2012 that came from three misreadings
@@ -14,6 +14,11 @@ reduction schemes across the UK repeat the same wording.
   this one: "regulation 57 (residents of a dwelling to whom regulation 14(6) does
   not apply)".
 
+A fourth false refusal waited behind those three. The run's candidate stated
+amount B as the integer 1, and the gate computes 0.99999999999999995. The gate
+accepted that residue only against a decimal 1.0, so it lost amount B from each
+case and still demanded those pairs from a model that had every one.
+
 Invariants pinned here:
 
 * a digit mixed percentage of an amount yields one rate, (whole + numerator /
@@ -21,13 +26,17 @@ Invariants pinned here:
 * its slash adds no division and no computation, and a real division in the same
   text still counts;
 * the collapse removes only occurrences nested in a mixed percentage;
-* in a UK corpus "falls" is never a condition cue; in every other corpus, and in
-  text with no citation path, it stays one;
+* in a UK corpus the cue reader never returns "falls"; in every other corpus, and
+  in text with no citation path, it does;
 * a condition word leaves only from inside a UK cross-reference's title. Operative
-  text, a parenthesis that opens with a limiting word, one that holds a sentence
-  break, and every other corpus keep their cues;
+  text, a parenthesis that opens with a limiting word, one with a full stop or
+  semicolon before a capital or an opening bracket, and every other corpus keep
+  their cues;
 * the cue filters only remove: the filtered cues are a subset of the unfiltered
-  cues, and the difference holds only the cues they target.
+  cues, and the difference holds only the cues they target;
+* against a decimal runtime value, a Money assertion of a whole number below 2^53
+  compares as its float does and as the test runner compares it; an integer
+  runtime value against an integer assertion stays exact.
 
 Known gap, pinned by test_known_gap_limbs_with_no_cue_of_their_own: regulation
 14(3)(b) states a condition in wording no cue reads, so a model that drops it
@@ -41,6 +50,7 @@ import functools
 import math
 import re
 from collections.abc import Iterator
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -48,6 +58,7 @@ import yaml
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
+from axiom_encode import cli
 from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness import validator_pipeline as vp
 
@@ -813,6 +824,84 @@ def test_fixture_module_parses() -> None:
 
 def test_a_model_of_each_limb_clears_the_gate() -> None:
     assert analyze((*SIX_CASES, LIMB_B_PAIR, LIMB_C_PAIR)) == []
+
+
+AMOUNT_B = f"{MODULE}#regulation_14_income_excess_reduction_amount"
+MONEY_RULE = {"dtype": "Money"}
+whole_amounts = st.one_of(
+    st.integers(min_value=-1000, max_value=1000),
+    st.integers(min_value=-(2**53) + 1, max_value=2**53 - 1),
+)
+residues = st.decimals(
+    min_value=Decimal("-1e-13"),
+    max_value=Decimal("1e-13"),
+    places=20,
+    allow_nan=False,
+    allow_infinity=False,
+)
+
+
+def state_amount_b_as_an_integer(built: dict[str, object]) -> dict[str, object]:
+    output = built["output"]
+    assert isinstance(output, dict)
+    if output[AMOUNT_B] != 1:
+        return built
+    return {**built, "output": {**output, AMOUNT_B: 1}}
+
+
+def test_the_gate_takes_a_whole_amount_b_as_the_test_runner_does() -> None:
+    cases = tuple(
+        state_amount_b_as_an_integer(built)
+        for built in (*SIX_CASES, LIMB_B_PAIR, LIMB_C_PAIR)
+    )
+    assert [
+        built["name"]
+        for built in cases
+        if isinstance(built["output"], dict) and type(built["output"][AMOUNT_B]) is int
+    ] == ["excess_income", "excess_income_small_maximum"]
+    assert analyze(cases) == []
+
+
+@PROPERTY_SETTINGS
+@given(whole_amounts, residues)
+def test_a_whole_money_assertion_compares_as_its_float_does(
+    whole: int, residue: Decimal
+) -> None:
+    runtime = Decimal(whole) + residue
+    assert sc._asserted_formula_runtime_values_equal(
+        MONEY_RULE, runtime, whole
+    ) == sc._asserted_formula_runtime_values_equal(MONEY_RULE, runtime, float(whole))
+
+
+@PROPERTY_SETTINGS
+@given(whole_amounts, residues)
+def test_the_gate_and_the_test_runner_agree_on_a_whole_money_assertion(
+    whole: int, residue: Decimal
+) -> None:
+    runtime = Decimal(whole) + residue
+    assert sc._asserted_formula_runtime_values_equal(
+        MONEY_RULE, runtime, whole
+    ) == cli._rulespec_scalar_matches({"kind": "decimal", "value": str(runtime)}, whole)
+
+
+@PROPERTY_SETTINGS
+@given(whole_amounts, whole_amounts)
+def test_an_integer_money_value_against_an_integer_assertion_stays_exact(
+    runtime: int, asserted: int
+) -> None:
+    assert sc._asserted_formula_runtime_values_equal(MONEY_RULE, runtime, asserted) == (
+        runtime == asserted
+    )
+
+
+@PROPERTY_SETTINGS
+@given(st.integers(min_value=2**52, max_value=2**53 - 2))
+def test_adjacent_integer_money_values_stay_unequal_at_one_binary64_step(
+    runtime: int,
+) -> None:
+    assert not sc._asserted_formula_runtime_values_equal(
+        MONEY_RULE, runtime, runtime + 1
+    )
 
 
 @pytest.mark.parametrize(

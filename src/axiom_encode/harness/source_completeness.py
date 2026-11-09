@@ -27827,7 +27827,7 @@ def _asserted_formula_runtime_values_equal(
 
     if _formula_runtime_values_equal(runtime, asserted):
         return True
-    if rule.get("dtype") != "Money" or type(asserted) is not float:
+    if rule.get("dtype") != "Money" or type(asserted) not in (float, int):
         return False
     runtime_number = _rulespec_runtime_decimal(runtime)
     asserted_number = _rulespec_runtime_decimal(asserted)
@@ -27839,7 +27839,7 @@ def _asserted_formula_runtime_values_equal(
         runtime_number,
         asserted_number,
         actual_kind="integer" if type(runtime) is int else "decimal",
-        expected_kind="decimal",
+        expected_kind="integer" if type(asserted) is int else "decimal",
     )
 
 
