@@ -38,10 +38,11 @@ installed. The repository workflows stage it from ``uv.lock``: ``uv export
 --no-deps``, then the commit-pinned ``axiom-oracles`` git dependency and the
 project itself with ``--no-deps``, then a diff against the ``uv sync --locked``
 environment. The issue233 Canada diagnostic passes instead the purelib of a
-``uv sync --frozen`` environment that nothing else in its job changes.
+``uv sync --frozen`` environment; that sync is its job's only uv call, the job
+installs nothing with pip, and only this script's call names the purelib.
 ``tests/test_verification_site_packages_lock.py`` enforces both forms, reads
-``--site-packages`` with this script's own argument parser, and rejects any
-command between staging and provisioning that names the staged tree.
+``--site-packages`` with this script's own argument parser, and fails a
+workflow whose text names the staged tree outside staging and this script's call.
 ``uv.lock`` does not pin build backends, so the sdists it pins, the git
 dependency and the project are built with whatever backend versions the index
 serves at run time; when the ``--encoder-*`` attestation arguments are given,
