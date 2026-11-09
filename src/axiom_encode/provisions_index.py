@@ -7,8 +7,9 @@ request and fails when the committed copy differs. Signed model applies never
 write the file, so every encoder pull request that adds a citation failed that
 check until someone regenerated the index by hand.
 
-The protected publish step must not run checkout code (it holds a repository
-write token), so this module reproduces the generator instead. It only
+The protected workflow must not run checkout code, so this module reproduces
+the generator instead. It runs in a token-free step; the publish step, which
+holds the repository write token, only re-checks the evidence with git. It only
 answers for a tree whose generator blob is one of
 :data:`SUPPORTED_GENERATOR_BLOBS`, the exact versions reproduced here. Any
 other generator, and any tree shape the generator would read differently from

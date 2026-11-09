@@ -340,7 +340,7 @@ def test_a_stale_index_gets_one_unsigned_derived_commit(tmp_path: Path) -> None:
     assert _git(repo, "rev-parse", "HEAD") == refreshed
 
 
-def test_a_current_index_adds_no_commit(tmp_path: Path) -> None:
+def test_a_lane_that_writes_the_index_itself_adds_no_commit(tmp_path: Path) -> None:
     repo, base, head = _lane_repo(tmp_path)
     _write(repo, pi.INDEX_PATH.as_posix(), _generator_output(repo))
     _git(repo, "commit", "-q", "-am", "lane already current")
@@ -761,3 +761,78 @@ def test_the_refresh_step_bounds_and_rolls_back_the_refresh() -> None:
     assert command.index('reset -q --hard "$lane_head"') < command.index(
         'rev-parse HEAD)" = "$lane_head"'
     )
+
+
+def _run_publish_step_only(
+    fixture: dict[str, Any],
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", "-c", str(_publish_step()["run"])],
+        cwd=fixture["workspace"],
+        env=fixture["env"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "case", ["not-index-only", "two-commits", "unrefreshed-moved", "missing"]
+)
+def test_the_publish_step_refuses_evidence_it_cannot_recheck(
+    tmp_path: Path, case: str
+) -> None:
+    fixture = _publish_fixture(tmp_path, python=sys.executable)
+    checkout = fixture["checkout"]
+    lane_head = fixture["lane_head"]
+    # Forge a lane head that the token-free refresh did not produce.
+    _write(checkout, pi.INDEX_PATH.as_posix(), '{"forged": true}\n')
+    _write(checkout, "us/statute/7/2015/smuggled.yaml", "smuggled: true\n")
+    if case == "two-commits":
+        _git(checkout, "add", "us/statute/7/2015/smuggled.yaml")
+        _git(checkout, "commit", "-q", "-m", "smuggled")
+        middle = _git(checkout, "rev-parse", "HEAD")
+        _git(checkout, "commit", "-q", "-am", "index")
+        assert middle != lane_head
+    else:
+        _git(checkout, "add", "-A")
+        _git(checkout, "commit", "-q", "-m", "forged")
+    forged = _git(checkout, "rev-parse", "HEAD")
+    evidence = fixture["runner"] / "targeted-reencode/provisions-index.json"
+    if case != "missing":
+        evidence.write_text(
+            json.dumps(
+                {
+                    "schema": "axiom-encode/provisions-index-refresh/v1",
+                    "mode": "current" if case == "unrefreshed-moved" else "refreshed",
+                    "head_before": lane_head,
+                    "head_after": forged,
+                }
+            )
+        )
+
+    result = _run_publish_step_only(fixture)
+
+    assert result.returncode != 0
+    # Nothing was pushed: the remote lane branch still has the seed head.
+    assert _remote_lane(fixture) == lane_head
+    assert not (tmp_path / "gh-body.txt").exists()
+
+
+def test_the_publish_step_accepts_a_real_refresh_evidence(tmp_path: Path) -> None:
+    # Independent of the runner's interpreter: refresh in-process, then run
+    # only the token step's git/jq checks and push.
+    fixture = _publish_fixture(tmp_path, python=sys.executable)
+    evidence = pi.refresh_lane_index(
+        fixture["checkout"], fixture["env"]["RULESPEC_REF"]
+    )
+    assert evidence["mode"] == "refreshed"
+    (fixture["runner"] / "targeted-reencode/provisions-index.json").write_text(
+        json.dumps(evidence)
+    )
+
+    result = _run_publish_step_only(fixture)
+
+    assert result.returncode == 0, result.stderr
+    assert _remote_lane(fixture) == evidence["head_after"]
+    assert "Reverse index: `refreshed`" in (tmp_path / "gh-body.txt").read_text()
