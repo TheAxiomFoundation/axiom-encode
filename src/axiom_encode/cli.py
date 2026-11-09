@@ -27882,10 +27882,13 @@ def _target_uses_per_file_waiver_bindings(policy_repo_path: Path) -> bool:
         completed = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "--verify", "--end-of-options", ref],
             capture_output=True,
-            env=_rulespec_migration_git_environment(),
+            env={**_rulespec_migration_git_environment(), "LC_ALL": "C"},
             check=False,
         )
-        if completed.returncode == 128:
+        if (
+            completed.returncode == 128
+            and completed.stderr.strip() == b"fatal: Needed a single revision"
+        ):
             continue  # the ref does not exist in this checkout
         candidate = completed.stdout.decode("ascii", errors="replace").strip()
         if (
