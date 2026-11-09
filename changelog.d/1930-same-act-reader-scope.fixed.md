@@ -1,0 +1,1 @@
+Scope the session-law ("section N of this act") deferral reader to statute and guidance law-compilation sources that self-reference their own act. Regulations, policies and manuals that name "section N of the Act" (a codified enabling statute) no longer pass as same-act dependencies.
