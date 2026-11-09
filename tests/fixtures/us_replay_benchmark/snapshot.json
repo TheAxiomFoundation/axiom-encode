@@ -2,17 +2,17 @@
  "schema": "axiom-encode/us-replay-snapshot/v2",
  "context": "workspace",
  "totals": {
-  "cases": 35,
-  "clean": 8,
-  "issues": 3282,
+  "cases": 45,
+  "clean": 12,
+  "issues": 3313,
   "rules": {
-   "complete-source-unit:declaration-collision": 1,
-   "complete-source-unit:deferral": 163,
-   "complete-source-unit:formula-output": 788,
-   "complete-source-unit:numeric-recall": 318,
-   "complete-source-unit:source-explicit-conditions": 5,
+   "complete-source-unit:declaration-collision": 2,
+   "complete-source-unit:deferral": 172,
+   "complete-source-unit:formula-output": 792,
+   "complete-source-unit:numeric-recall": 327,
+   "complete-source-unit:source-explicit-conditions": 6,
    "complete-source-unit:structure": 1847,
-   "complete-source-unit:tests": 160
+   "complete-source-unit:tests": 167
   }
  },
  "allowed_regressions": {},
@@ -195,6 +195,32 @@
     "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: us/statute/42/402/a(3) [Absatz 3, Nummer b] [exclude]: `Except as provided in subsection (q) and subsection (w), such individual’s old-age insurance benefit for any month shall be equal to his primar ... nce amount (as defined in section 415(a) of this title ) for such month.`. The evaluator recognized 14 directional formula-toggle witnesses from 5 distinct case pairs, but these do not cover every listed source condition. Check affected rule/path, source-selector relevance, active orientation, required effect, and distinct-condition witness allocation before adding cases. Recognized test pairs alone do not establish source coverage."
    ]
   },
+  "35863402410": {
+   "citation": "us/guidance/irs/notice-2025-67/page-4",
+   "control": false,
+   "issues": 13,
+   "rules": {
+    "complete-source-unit:deferral": 6,
+    "complete-source-unit:formula-output": 1,
+    "complete-source-unit:numeric-recall": 6
+   },
+   "error": null,
+   "findings": [
+    "[complete-source-unit:deferral] `module.deferred_outputs[0]` identifies source branch (source unit) (`<source-unit>`) but its deferral does not name an exact missing dependency, input, or runtime capability.\nRequired shape (adapt the output and cited dependency to the omitted branch):\nmodule:\n  deferred_outputs:\n    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax\n      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.\n`output` and `reason` are required; `blocked_by` is optional and, when present, must list exact absolute upstream RuleSpec outputs. When no external legal dependency exists, cite the exact current source branch and name its concrete source-stated missing input or runtime capability in the `reason` itself; the output path is not a source citation, and a generic claim that the branch is unavailable is invalid. When the authoritative branch is a bare `Repealed.` tombstone or a finite Louisiana `Repealed by Acts ...` session-law tombstone, cite that exact current source branch and affirmatively state the repeal in `reason`; do not invent a missing dependency or executable rule. Use the bounded form `<exact branch citation> is repealed.`, optionally adding the exact authenticated history either as `is repealed by <Acts citation>.` or as `is repealed. <Acts citation>.`, and/or adding `and supplies no operative rule`. For Louisiana delegated rates, use `no executable RuleSpec output for those <source-stated modifiers> rates is supplied in the available context`; do not repeat the dependency in that missing object or append a relative clause.",
+    "[complete-source-unit:deferral] `module.deferred_outputs[1]` identifies source branch (source unit) (`<source-unit>`) but its deferral does not name an exact missing dependency, input, or runtime capability.\nRequired shape (adapt the output and cited dependency to the omitted branch):\nmodule:\n  deferred_outputs:\n    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax\n      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.\n`output` and `reason` are required; `blocked_by` is optional and, when present, must list exact absolute upstream RuleSpec outputs. When no external legal dependency exists, cite the exact current source branch and name its concrete source-stated missing input or runtime capability in the `reason` itself; the output path is not a source citation, and a generic claim that the branch is unavailable is invalid. When the authoritative branch is a bare `Repealed.` tombstone or a finite Louisiana `Repealed by Acts ...` session-law tombstone, cite that exact current source branch and affirmatively state the repeal in `reason`; do not invent a missing dependency or executable rule. Use the bounded form `<exact branch citation> is repealed.`, optionally adding the exact authenticated history either as `is repealed by <Acts citation>.` or as `is repealed. <Acts citation>.`, and/or adding `and supplies no operative rule`. For Louisiana delegated rates, use `no executable RuleSpec output for those <source-stated modifiers> rates is supplied in the available context`; do not repeat the dependency in that missing object or append a relative clause.",
+    "[complete-source-unit:deferral] `module.deferred_outputs[2]` identifies source branch (source unit) (`<source-unit>`) but its deferral does not name an exact missing dependency, input, or runtime capability.\nRequired shape (adapt the output and cited dependency to the omitted branch):\nmodule:\n  deferred_outputs:\n    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax\n      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.\n`output` and `reason` are required; `blocked_by` is optional and, when present, must list exact absolute upstream RuleSpec outputs. When no external legal dependency exists, cite the exact current source branch and name its concrete source-stated missing input or runtime capability in the `reason` itself; the output path is not a source citation, and a generic claim that the branch is unavailable is invalid. When the authoritative branch is a bare `Repealed.` tombstone or a finite Louisiana `Repealed by Acts ...` session-law tombstone, cite that exact current source branch and affirmatively state the repeal in `reason`; do not invent a missing dependency or executable rule. Use the bounded form `<exact branch citation> is repealed.`, optionally adding the exact authenticated history either as `is repealed by <Acts citation>.` or as `is repealed. <Acts citation>.`, and/or adding `and supplies no operative rule`. For Louisiana delegated rates, use `no executable RuleSpec output for those <source-stated modifiers> rates is supplied in the available context`; do not repeat the dependency in that missing object or append a relative clause.",
+    "[complete-source-unit:deferral] `module.deferred_outputs[3]` identifies source branch (source unit) (`<source-unit>`) but its deferral does not name an exact missing dependency, input, or runtime capability.\nRequired shape (adapt the output and cited dependency to the omitted branch):\nmodule:\n  deferred_outputs:\n    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax\n      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.\n`output` and `reason` are required; `blocked_by` is optional and, when present, must list exact absolute upstream RuleSpec outputs. When no external legal dependency exists, cite the exact current source branch and name its concrete source-stated missing input or runtime capability in the `reason` itself; the output path is not a source citation, and a generic claim that the branch is unavailable is invalid. When the authoritative branch is a bare `Repealed.` tombstone or a finite Louisiana `Repealed by Acts ...` session-law tombstone, cite that exact current source branch and affirmatively state the repeal in `reason`; do not invent a missing dependency or executable rule. Use the bounded form `<exact branch citation> is repealed.`, optionally adding the exact authenticated history either as `is repealed by <Acts citation>.` or as `is repealed. <Acts citation>.`, and/or adding `and supplies no operative rule`. For Louisiana delegated rates, use `no executable RuleSpec output for those <source-stated modifiers> rates is supplied in the available context`; do not repeat the dependency in that missing object or append a relative clause.",
+    "[complete-source-unit:deferral] `module.deferred_outputs[4]` identifies source branch (source unit) (`<source-unit>`) but its deferral does not name an exact missing dependency, input, or runtime capability.\nRequired shape (adapt the output and cited dependency to the omitted branch):\nmodule:\n  deferred_outputs:\n    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax\n      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.\n`output` and `reason` are required; `blocked_by` is optional and, when present, must list exact absolute upstream RuleSpec outputs. When no external legal dependency exists, cite the exact current source branch and name its concrete source-stated missing input or runtime capability in the `reason` itself; the output path is not a source citation, and a generic claim that the branch is unavailable is invalid. When the authoritative branch is a bare `Repealed.` tombstone or a finite Louisiana `Repealed by Acts ...` session-law tombstone, cite that exact current source branch and affirmatively state the repeal in `reason`; do not invent a missing dependency or executable rule. Use the bounded form `<exact branch citation> is repealed.`, optionally adding the exact authenticated history either as `is repealed by <Acts citation>.` or as `is repealed. <Acts citation>.`, and/or adding `and supplies no operative rule`. For Louisiana delegated rates, use `no executable RuleSpec output for those <source-stated modifiers> rates is supplied in the available context`; do not repeat the dependency in that missing object or append a relative clause.",
+    "[complete-source-unit:deferral] `module.deferred_outputs[5]` identifies source branch (source unit) (`<source-unit>`) but its deferral does not name an exact missing dependency, input, or runtime capability.\nRequired shape (adapt the output and cited dependency to the omitted branch):\nmodule:\n  deferred_outputs:\n    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax\n      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.\n`output` and `reason` are required; `blocked_by` is optional and, when present, must list exact absolute upstream RuleSpec outputs. When no external legal dependency exists, cite the exact current source branch and name its concrete source-stated missing input or runtime capability in the `reason` itself; the output path is not a source citation, and a generic claim that the branch is unavailable is invalid. When the authoritative branch is a bare `Repealed.` tombstone or a finite Louisiana `Repealed by Acts ...` session-law tombstone, cite that exact current source branch and affirmatively state the repeal in `reason`; do not invent a missing dependency or executable rule. Use the bounded form `<exact branch citation> is repealed.`, optionally adding the exact authenticated history either as `is repealed by <Acts citation>.` or as `is repealed. <Acts citation>.`, and/or adding `and supplies no operative rule`. For Louisiana delegated rates, use `no executable RuleSpec output for those <source-stated modifiers> rates is supplied in the available context`; do not repeat the dependency in that missing object or append a relative clause.",
+    "[complete-source-unit:formula-output] Source-stated control source unit in us/guidance/irs/notice-2025-67/page-4 [source unit] has no principal derived/relation output (`derived` or `derived_relation`) and is not precisely deferred; parameter-only representation is invalid.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 24250 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 26250 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 36375 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 39375 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 40250 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 60375 has no named scalar representation. `module.summary` is not consulted."
+   ]
+  },
   "35891119107": {
    "citation": "us/guidance/irs/rev-proc-2025-32/page-13",
    "control": false,
@@ -362,6 +388,14 @@
     "[complete-source-unit:structure] Source branch .15 Cafeteria Plans. at us/guidance/irs/rev-proc-2025-32/page-18(15) [paragraph 15] is neither encoded nor precisely deferred."
    ]
   },
+  "36174590343": {
+   "citation": "us/guidance/irs/rev-proc-2025-32/page-14",
+   "control": false,
+   "issues": 0,
+   "rules": {},
+   "error": null,
+   "findings": []
+  },
   "36550604743": {
    "citation": "us/guidance/usda/fns/snap-fy2024-cola/page-2",
    "control": false,
@@ -369,6 +403,18 @@
    "rules": {},
    "error": null,
    "findings": []
+  },
+  "36596173514": {
+   "citation": "us-wv/manual/bfa/income-maintenance-manual/page-3",
+   "control": false,
+   "issues": 1,
+   "rules": {
+    "complete-source-unit:source-explicit-conditions": 1
+   },
+   "error": null,
+   "findings": [
+    "[complete-source-unit:source-explicit-conditions] Derived formula version(s) delegate multiple conjunctive factual gates stated in their exact authoritative source clause to too few terminal local inputs or canonical imports: `applicable_special_reduced_residential_service_discount_rate` versions[0] (`client_qualifies_for_special_reduced_residential_service_rate`, `month_is_in_winter`, `service_is_natural_gas_electric_or_water` for 6 source gates). Encode the source-stated facts as distinct local inputs or canonical imports, declare every local fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`), combine them in a source-proved derived Judgment, and test each gate. Reserve aggregate boundary statuses for source-atomic or externally determined conditions."
+   ]
   },
   "36608658862": {
    "citation": "us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1",
@@ -568,6 +614,26 @@
     "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: us-dc/statute/47/47-1807.02(a) [Absatz a, Nummer 2] [exclude]: `(2) For the taxable years beginning after December 31, 1975, a tax at the rate of 9% upon the taxable income of every corporation, whether dome ... years beginning after December 31, 1994, the rate of tax shall be 9.5%;`; us-dc/statute/47/47-1807.02(a) [Absatz a, Nummer 6] [change]: `(6) Subject to availability of funding and in accordance with § 47-181 , upon the taxable income of every corporation, whether domestic or foreign, a tax at the rate of 9%, 8.75%, 8.5%, or 8.25%.`; us-dc/statute/47/47-1807.02(c) [Absatz c] [change]: `(c) The taxes imposed by this section shall, during the 3 tax years beginning after June 30, 1981, be subject to the transition rules provided in § 47-2507 .`. The evaluator recognized 24 directional formula-toggle witnesses from 12 distinct case pairs, but these do not cover every listed source condition. Check affected rule/path, source-selector relevance, active orientation, required effect, and distinct-condition witness allocation before adding cases. Recognized test pairs alone do not establish source coverage."
    ]
   },
+  "36610775618": {
+   "citation": "us-md/guidance/dhs/fia/snap-manual-214/page-5",
+   "control": false,
+   "issues": 7,
+   "rules": {
+    "complete-source-unit:deferral": 2,
+    "complete-source-unit:numeric-recall": 3,
+    "complete-source-unit:tests": 2
+   },
+   "error": null,
+   "findings": [
+    "[complete-source-unit:deferral] `module.deferred_outputs[0]` identifies source branch (source unit) (`<source-unit>`) but its deferral does not name an exact missing dependency, input, or runtime capability.\nRequired shape (adapt the output and cited dependency to the omitted branch):\nmodule:\n  deferred_outputs:\n    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax\n      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.\n`output` and `reason` are required; `blocked_by` is optional and, when present, must list exact absolute upstream RuleSpec outputs. When no external legal dependency exists, cite the exact current source branch and name its concrete source-stated missing input or runtime capability in the `reason` itself; the output path is not a source citation, and a generic claim that the branch is unavailable is invalid. When the authoritative branch is a bare `Repealed.` tombstone or a finite Louisiana `Repealed by Acts ...` session-law tombstone, cite that exact current source branch and affirmatively state the repeal in `reason`; do not invent a missing dependency or executable rule. Use the bounded form `<exact branch citation> is repealed.`, optionally adding the exact authenticated history either as `is repealed by <Acts citation>.` or as `is repealed. <Acts citation>.`, and/or adding `and supplies no operative rule`. For Louisiana delegated rates, use `no executable RuleSpec output for those <source-stated modifiers> rates is supplied in the available context`; do not repeat the dependency in that missing object or append a relative clause.",
+    "[complete-source-unit:deferral] `module.deferred_outputs[1]` identifies source branch (source unit) (`<source-unit>`) but its deferral does not name an exact missing dependency, input, or runtime capability.\nRequired shape (adapt the output and cited dependency to the omitted branch):\nmodule:\n  deferred_outputs:\n    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax\n      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.\n`output` and `reason` are required; `blocked_by` is optional and, when present, must list exact absolute upstream RuleSpec outputs. When no external legal dependency exists, cite the exact current source branch and name its concrete source-stated missing input or runtime capability in the `reason` itself; the output path is not a source citation, and a generic claim that the branch is unavailable is invalid. When the authoritative branch is a bare `Repealed.` tombstone or a finite Louisiana `Repealed by Acts ...` session-law tombstone, cite that exact current source branch and affirmatively state the repeal in `reason`; do not invent a missing dependency or executable rule. Use the bounded form `<exact branch citation> is repealed.`, optionally adding the exact authenticated history either as `is repealed by <Acts citation>.` or as `is repealed. <Acts citation>.`, and/or adding `and supplies no operative rule`. For Louisiana delegated rates, use `no executable RuleSpec output for those <source-stated modifiers> rates is supplied in the available context`; do not repeat the dependency in that missing object or append a relative clause.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 214.2 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 214.3 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 214.4 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch C. formula clause 24 at us-md/guidance/dhs/fia/snap-manual-214/page-5(c) [Absatz c]. Exact source computation (characters 1645:1791): `LUA - Neither heat nor air conditioning is included in the billing to the SNAP household and the household pays an electric and phone bill. phone.`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-09-01, 2025-10-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: us-md/guidance/dhs/fia/snap-manual-214/page-5(b) [Absatz b] [change]: `Give the household the full allowance regardless of the amount paid on the bill or if the bill is shared among several households.`. The evaluator recognized 26 directional formula-toggle witnesses from 10 distinct case pairs, but these do not cover every listed source condition. Check affected rule/path, source-selector relevance, active orientation, required effect, and distinct-condition witness allocation before adding cases. Recognized test pairs alone do not establish source coverage."
+   ]
+  },
   "36635442145": {
    "citation": "us/regulation/42/457/800",
    "control": false,
@@ -595,6 +661,22 @@
    "findings": [
     "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 60 has no named scalar representation. `module.summary` is not consulted."
    ]
+  },
+  "36821800286": {
+   "citation": "us-or/manual/odhs/open/page-26",
+   "control": false,
+   "issues": 0,
+   "rules": {},
+   "error": null,
+   "findings": []
+  },
+  "36880457452": {
+   "citation": "us-ut/manual/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm",
+   "control": false,
+   "issues": 0,
+   "rules": {},
+   "error": null,
+   "findings": []
   },
   "37047738781": {
    "citation": "us-mo/statute/143.011",
@@ -643,6 +725,25 @@
     "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 3 at us-mo/statute/143.011 [source unit]. Exact source computation (characters 100:761): `The tax shall be determined by applying the tax table or the rate provided in section 143.021 , which is based upon the following rates: If the Missouri taxable income is: The tax is: $0 to $1,348: $0 Over $1,348 but not over $2,696: 2. ... r $8,088 but not over $9,436: $202 plus 4.5% of excess over $8,088 Over $9,436: $263 plus 4.7% of excess over $9,436 2.`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. No asserted candidate principal-output case has a usable period. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
     "[complete-source-unit:tests] Companion tests do not exercise every source-stated boundary input; missing: (1)=7000, (3)=3, (3)=2e+08.",
     "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: us-mo/statute/143.011 [source unit] [zero]: `The tax shall be determined by applying the tax table or the rate provided in section 143.021 , which is based upon the following rates: If the ... excess over $8,088 Over $9,436: $263 plus 4.7% of excess over $9,436 2.`; us-mo/statute/143.011(1) [Absatz 1] [change]: `(1) Notwithstanding the provisions of subsection 1 of this section to the contrary, beginning with the 2023 calendar year, the top rate of tax ... tion 1 of this section shall be four and ninety-five hundredths percent.`; us-mo/statute/143.011(2) [Absatz 2] [change]: `(2) A reduction in the rate of tax shall only occur if the amount of net general revenue collected in the previous fiscal year exceeds the high ... o such fiscal year by at least one hundred seventy-five million dollars.`; us-mo/statute/143.011(3) [Absatz 3] [change]: `(2) (a) A reduction in the rate of tax shall only occur if: a.`; us-mo/statute/143.011(3) [Absatz 3, Nummer b] [change]: `The bracket for income subject to the top rate of tax shall be eliminated once the top rate of tax has been reduced below the rate applicable t ... excess of the income in the second highest remaining income bracket. 5.`; us-mo/statute/143.011(3) [Absatz 3, Nummer b, Nummer 4] [change]: `(4) \"Percent increase in inflation\" , the percentage, if any, by which the CPI for the preceding calendar year exceeds the CPI for the year beginning September 1, 2014, and ending August 31, 2015.`. The evaluator recognized 7 directional formula-toggle witnesses from 2 distinct case pairs, but these do not cover every listed source condition. Check affected rule/path, source-selector relevance, active orientation, required effect, and distinct-condition witness allocation before adding cases. Recognized test pairs alone do not establish source coverage."
+   ]
+  },
+  "37047757269": {
+   "citation": "us-ri/guidance/tax/adv-2025-22/page-2",
+   "control": false,
+   "issues": 7,
+   "rules": {
+    "complete-source-unit:formula-output": 3,
+    "complete-source-unit:tests": 4
+   },
+   "error": null,
+   "findings": [
+    "[complete-source-unit:formula-output] Explicit source computation source unit formula clause 10 in us-ri/guidance/tax/adv-2025-22/page-2 [source unit] has no principal derived/relation output (`derived` or `derived_relation`) and is not precisely deferred; parameter-only representation is invalid. The formula-clause number is an internal punctuation-span ordinal, not a statutory paragraph number. If an existing path-covering principal output's formula already implements this computation, add the following proof atom to it. Otherwise create a principal `derived`/`derived_relation` output or precisely defer the computation. The required binding is a `versions[N].formula` proof atom whose `source.corpus_citation_path` is exactly `us-ri/guidance/tax/adv-2025-22/page-2` and whose `source.excerpt` is one contiguous verbatim excerpt that itself states the computation. Source locator at characters 1732:2022: `Income tax rate schedule for Tax Year 2026 (trusts and estates) Taxable income: Over But not over Pay + percent on excess of the amount over $ 0 $ 3,300 $ -- 3.75% $ 0 3,300 10,450 123.75 4.75% 3,300 10,450 -- 463.38 5.99% 10,450 Table is for non-grantor trusts and non-bankruptcy estates.`. A parameter rule, a citation-only proof atom, a non-formula proof path, or a shorter excerpt that does not itself state the computation cannot bind a principal output to this clause. Same structural owner has 3 missing formula clauses; repair or precisely defer the complete set in this attempt: `source unit formula clause 6` at characters 607:1270; `source unit formula clause 8` at characters 1342:1632; `source unit formula clause 10` at characters 1732:2022.",
+    "[complete-source-unit:formula-output] Explicit source computation source unit formula clause 6 in us-ri/guidance/tax/adv-2025-22/page-2 [source unit] has no principal derived/relation output (`derived` or `derived_relation`) and is not precisely deferred; parameter-only representation is invalid. The formula-clause number is an internal punctuation-span ordinal, not a statutory paragraph number. If an existing path-covering principal output's formula already implements this computation, add the following proof atom to it. Otherwise create a principal `derived`/`derived_relation` output or precisely defer the computation. The required binding is a `versions[N].formula` proof atom whose `source.corpus_citation_path` is exactly `us-ri/guidance/tax/adv-2025-22/page-2` and whose `source.excerpt` is one contiguous verbatim excerpt that itself states the computation. Source locator at characters 607:1270: `Uniform tax rate schedule for Tax Year 2025 (Personal Income Tax) Taxable income: Over But not over Pay + percent on excess of the amount over $ 0 $ 79,900 $ -- 3.75% $ 0 79,900 181,650 2,996.25 4.75% 79,900 181,650 -- 7,829.38 5.99% 18 ... e Division of Taxation posts the income tax rate schedule that will be used by fiduciaries for many trusts and estates.`. A parameter rule, a citation-only proof atom, a non-formula proof path, or a shorter excerpt that does not itself state the computation cannot bind a principal output to this clause. The displayed ` ... ` is only a bounded locator and is not source text; copy one contiguous verbatim computation-bearing excerpt from the cited character span instead. Same structural owner has 3 missing formula clauses; repair or precisely defer the complete set in this attempt: `source unit formula clause 6` at characters 607:1270; `source unit formula clause 8` at characters 1342:1632; `source unit formula clause 10` at characters 1732:2022.",
+    "[complete-source-unit:formula-output] Explicit source computation source unit formula clause 8 in us-ri/guidance/tax/adv-2025-22/page-2 [source unit] has no principal derived/relation output (`derived` or `derived_relation`) and is not precisely deferred; parameter-only representation is invalid. The formula-clause number is an internal punctuation-span ordinal, not a statutory paragraph number. If an existing path-covering principal output's formula already implements this computation, add the following proof atom to it. Otherwise create a principal `derived`/`derived_relation` output or precisely defer the computation. The required binding is a `versions[N].formula` proof atom whose `source.corpus_citation_path` is exactly `us-ri/guidance/tax/adv-2025-22/page-2` and whose `source.excerpt` is one contiguous verbatim excerpt that itself states the computation. Source locator at characters 1342:1632: `Income tax rate schedule for Tax Year 2025 (trusts and estates) Taxable income: Over But not over Pay + percent on excess of the amount over $ 0 $ 3,200 $ -- 3.75% $ 0 3,200 10,200 120.00 4.75% 3,200 10,200 -- 452.50 5.99% 10,200 Table is for non-grantor trusts and non-bankruptcy estates.`. A parameter rule, a citation-only proof atom, a non-formula proof path, or a shorter excerpt that does not itself state the computation cannot bind a principal output to this clause. Same structural owner has 3 missing formula clauses; repair or precisely defer the complete set in this attempt: `source unit formula clause 6` at characters 607:1270; `source unit formula clause 8` at characters 1342:1632; `source unit formula clause 10` at characters 1732:2022.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 1 at us-ri/guidance/tax/adv-2025-22/page-2 [source unit]. Exact source computation (characters 0:194): `RHODE ISLAND DIVISION OF TAXATION - PAGE 2 OF 4 Personal Income Tax: uniform rate schedule The Division of Taxation has recalculated tax bracket ranges for Tax Year 2026, as required by statute.`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2026-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 10 at us-ri/guidance/tax/adv-2025-22/page-2 [source unit]. Exact source computation (characters 1732:2022): `Income tax rate schedule for Tax Year 2026 (trusts and estates) Taxable income: Over But not over Pay + percent on excess of the amount over $ 0 $ 3,300 $ -- 3.75% $ 0 3,300 10,450 123.75 4.75% 3,300 10,450 -- 463.38 5.99% 10,450 Table is for non-grantor trusts and non-bankruptcy estates.`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. No asserted candidate principal-output case has a usable period. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 6 at us-ri/guidance/tax/adv-2025-22/page-2 [source unit]. Exact source computation (characters 607:1270): `Uniform tax rate schedule for Tax Year 2025 (Personal Income Tax) Taxable income: Over But not over Pay + percent on excess of the amount over $ 0 $ 79,900 $ -- 3.75% $ 0 79,900 181,650 2,996.25 4.75% 79,900 181,650 -- 7,829.38 5.99% 18 ... e Division of Taxation posts the income tax rate schedule that will be used by fiduciaries for many trusts and estates.`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. No asserted candidate principal-output case has a usable period. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 8 at us-ri/guidance/tax/adv-2025-22/page-2 [source unit]. Exact source computation (characters 1342:1632): `Income tax rate schedule for Tax Year 2025 (trusts and estates) Taxable income: Over But not over Pay + percent on excess of the amount over $ 0 $ 3,200 $ -- 3.75% $ 0 3,200 10,200 120.00 4.75% 3,200 10,200 -- 452.50 5.99% 10,200 Table is for non-grantor trusts and non-bankruptcy estates.`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. No asserted candidate principal-output case has a usable period. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number."
    ]
   },
   "37150620832": {
@@ -696,6 +797,26 @@
     "[complete-source-unit:tests] Companion tests do not demonstrate formula branch (D) formula clause 5 at us/statute/42/416/l(1) [Absatz 1, Nummer d]. Exact source computation (characters 619:922): `(D) with respect to an individual who attains early retirement age after December 31, 2016 , and before January 1, 2022 , 66 years of age plus the number of months in the age increase factor (as determined under paragraph (3)) for the calendar year in which such individual attains early retirement age;`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2000-01-01, 2026-01-01. The best-effort unbound-formula diagnostic scan was capped at 32 rules and 8 cases per rule; additional matching principal formulas may exist beyond the reported names. The best-effort dependency-corroboration diagnostic scan was capped at 32 rules and 8 cases per rule; additional missing dependency assertions may exist beyond the reported names. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number."
    ]
   },
+  "37526146015": {
+   "citation": "us/guidance/usda/fns/snap-fy2026-cola/page-2",
+   "control": false,
+   "issues": 0,
+   "rules": {},
+   "error": null,
+   "findings": []
+  },
+  "37717137328": {
+   "citation": "us/statute/7/2012/j",
+   "control": false,
+   "issues": 1,
+   "rules": {
+    "complete-source-unit:declaration-collision": 1
+   },
+   "error": null,
+   "findings": [
+    "[complete-source-unit:declaration-collision] Document-root input declaration(s) `member_meets_elderly_or_disabled_definition` also name local rules. Remove the colliding input declarations; local parameters, derived rules and aliases resolve before free inputs."
+   ]
+  },
   "37936331759": {
    "citation": "us-ok/statute/68-2906",
    "control": false,
@@ -703,6 +824,20 @@
    "rules": {},
    "error": null,
    "findings": []
+  },
+  "37983156312": {
+   "citation": "us/statute/42/1382c/f/2",
+   "control": false,
+   "issues": 2,
+   "rules": {
+    "complete-source-unit:deferral": 1,
+    "complete-source-unit:tests": 1
+   },
+   "error": null,
+   "findings": [
+    "[complete-source-unit:deferral] `module.deferred_outputs[0]` identifies source branch (source unit) (`<source-unit>`) but its deferral does not name an exact missing dependency, input, or runtime capability.\nRequired shape (adapt the output and cited dependency to the omitted branch):\nmodule:\n  deferred_outputs:\n    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax\n      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.\n`output` and `reason` are required; `blocked_by` is optional and, when present, must list exact absolute upstream RuleSpec outputs. When no external legal dependency exists, cite the exact current source branch and name its concrete source-stated missing input or runtime capability in the `reason` itself; the output path is not a source citation, and a generic claim that the branch is unavailable is invalid. When the authoritative branch is a bare `Repealed.` tombstone or a finite Louisiana `Repealed by Acts ...` session-law tombstone, cite that exact current source branch and affirmatively state the repeal in `reason`; do not invent a missing dependency or executable rule. Use the bounded form `<exact branch citation> is repealed.`, optionally adding the exact authenticated history either as `is repealed by <Acts citation>.` or as `is repealed. <Acts citation>.`, and/or adding `and supplies no operative rule`. For Louisiana delegated rates, use `no executable RuleSpec output for those <source-stated modifiers> rates is supplied in the available context`; do not repeat the dependency in that missing object or append a relative clause.",
+    "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: us/statute/42/1382c/f/2(a) [Absatz a] [exclude]: `(A) For purposes of determining eligibility for and the amount of benefits for any individual who is a child under age 18, such individual’s in ... mmissioner of Social Security to be inequitable under the circumstances.`; us/statute/42/1382c/f/2(b) [Absatz b] [exclude]: `(B) Subparagraph (A) shall not apply in the case of any child who has not attained the age of 18 years who—`. The evaluator recognized 28 directional formula-toggle witnesses from 9 distinct case pairs, but these do not cover every listed source condition. Check affected rule/path, source-selector relevance, active orientation, required effect, and distinct-condition witness allocation before adding cases. Recognized test pairs alone do not establish source coverage."
+   ]
   },
   "38083442606": {
    "citation": "us-nm/statute/7-2-39",

@@ -9,9 +9,9 @@ recorded failure classes, the origin of each context module, and the SHA-256
 of every file in the directory. `scripts/replay_us_failure_bundles.py` refuses
 a fixture whose bytes or file list differ from `fixture.json`.
 
-Only visible cases from public sources are committed. Held-out cases, hand
-failure-class labels, private-corpus sources and raw bundles stay outside the
-repository.
+Every committed fixture is public and visible. The private held-out set (built
+only from cases that were never committed), hand failure-class labels,
+private-corpus sources and raw bundles stay outside the repository.
 
 `context/` files come from the bundle's workspace. A `providers/` file comes
 from the RuleSpec repository at the run's `rulespec_ref`, for a module that the

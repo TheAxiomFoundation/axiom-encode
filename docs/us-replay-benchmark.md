@@ -7,7 +7,7 @@ corpus checkout. The `replay benchmark` CI job runs it as a required check.
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 35 committed
+(the `[complete-source-unit:*]` rules of the CI validator) over 45 committed
 fixtures in `tests/fixtures/us_replay_benchmark/`. Each fixture is a real
 candidate from a `targeted-reencode-failure` artifact of a signed run:
 
@@ -26,38 +26,39 @@ candidate from a `targeted-reencode-failure` artifact of a signed run:
   each context module and the SHA-256 of every file. Optional keys:
   `recorded_verdict` (default `rejected`; any other value marks a control, a
   candidate that production validation accepted) and `split` (`visible`, the
-  default, or `held_out`).
+  default, or `held_out`; only a private fixture set uses `held_out`).
 
 The replay passes the same inputs as `ValidatorPipeline._complete_source_unit_issues`:
 the citation's numeric profile, the companion test cases, imported symbol
 contents, resolved deferral providers and same-act aliases from the source
 metadata. `--no-context` leaves out the last three.
 
-The set has 27 distinct citations: federal statutes, CFR regulations, IRS and
+The set has 37 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, one Canadian CRA guide
 (three runs) and one Israeli statute. It has one control (an Arizona candidate
-that passed validation and then failed a provenance guard). At 0.2.2349, 8
-fixtures replay clean and 27 have 3,282 findings; four 7 CFR 273.7 candidates
+that passed validation and then failed a provenance guard). At 0.2.2349, 12
+fixtures replay clean and 33 have 3,313 findings; four 7 CFR 273.7 candidates
 hold 2,671 of them. Read clean counts and per-fixture changes, not only the
 total. The fixtures total about 3.3 MB and `snapshot.json` about 1.3 MB.
 
-## Visible and held-out cases
+## Public fixtures and the private held-out set
 
-The committed fixtures are the visible split of the maintainer's local
-benchmark of 2026-11-09 (59 cases). Cases are grouped by target, and a fixed
-hash order puts about 30% of the cases in a held-out split. The repository
-never holds:
+Every committed fixture is public and visible. The repository holds no
+held-out case and no held-out label: no held-out case id, expected outcome or
+count. It also never holds:
 
-- held-out cases (18 at the first cut);
 - hand failure-class labels (`expected_class` and related keys);
 - sources from a private-only corpus (12 CFR 1005 and 1006);
 - raw failure bundles.
 
-These stay in the maintainer's private benchmark. A maintainer replays the
-held-out cases weekly, and on any PR that claims a general fix, and reports
-only totals. `compare --split` reads a private case-to-split map and prints
-held-out cases as totals only (`--show-held-out` lists them, for the
-maintainer). A fix author looks only at visible cases.
+The held-out set is built only from cases that were never committed. It stays
+in the maintainer's private benchmark, outside the repository, and a
+maintainer replays it locally (`replay --fixtures <private fixture directory>`
+and `compare --split <private map>`). `compare --split` prints held-out cases
+as totals only (`--show-held-out` lists them, for the maintainer). The CI job
+replays only the committed fixtures and expects no held-out data. A case that
+is committed, now or in the past, is public and never goes back into the
+held-out set.
 
 ## The required CI check
 
@@ -118,8 +119,9 @@ Two PRs that both change findings conflict in `snapshot.json` (at least in
 Every PR that fixes a validator false positive:
 
 1. Adds the failing candidate as a fixture (`extract`, below), from public
-   sources only. A candidate from a private-only corpus or a held-out case
-   stays out of the repository; name the run in the PR body instead.
+   sources only. A candidate from a private-only corpus or a case of the
+   private held-out set stays out of the repository; do not name a held-out
+   run in the PR body.
 2. Rewrites the snapshot. The new fixture's false findings must be gone.
 3. Explains, in the PR body, every change to other fixtures: each removed
    finding checked against that fixture's `source.txt` (a removed true
@@ -127,19 +129,18 @@ Every PR that fixes a validator false positive:
 
 ## Fidelity
 
-Each case of the local benchmark was replayed with the encoder source of its
-own run (38 encoder commits). 51 cases reproduce the recorded completeness
-findings exactly and 4 within two findings; no replay errors. Three 7 CFR
-273.7 runs stopped before the completeness check in production; the replay
-finds 653 to 695 findings each.
+Each fixture was replayed with the encoder source of its own run. Almost all
+reproduce the recorded completeness findings exactly or within two findings,
+with no replay errors. Three 7 CFR 273.7 runs stopped before the completeness
+check in production; the replay finds 653 to 695 findings each.
 
 ## Limits
 
 - Only the completeness analyzer runs. Compilation, companion-test execution,
   oracles, proof-excerpt checks (`source_context` is not passed), literal
   grounding, guards, reviewers and signing are not measured. A fixture that
-  replays clean can still fail CI. Of 58 rejected cases in the local
-  benchmark, 31 also had a finding of such a kind.
+  replays clean can still fail CI. About half of the rejected cases also had
+  a finding of such a kind.
 - Context comes from the workspace snapshot, not from the live checkout.
   `extract --rulespec-root` fills a gap from a RuleSpec checkout at the run's
   `rulespec_ref`.
