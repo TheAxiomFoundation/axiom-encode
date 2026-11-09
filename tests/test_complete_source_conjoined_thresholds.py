@@ -344,3 +344,36 @@ def test_a_formula_clause_span_in_its_own_frame_does_not_hide_a_threshold():
     ]
     assert (90, 93) in clause_spans
 
+
+def test_an_inactive_childs_conjoined_threshold_is_read_on_its_active_parent():
+    # Only (a) is active, so _source_boundary_obligations reads the children's
+    # text on (a) and demands `$300`. The `$500` it drops is demanded on the
+    # same text, not cut off at the first (inactive) child.
+    text = (
+        "(a) In general.—A household is eligible if its gross income is less "
+        "than $900 and its countable income is less than $700, subject to the "
+        "following:\n"
+        "(1) A household is eligible if its countable income is less than $500 "
+        "and its net income is less than $300.\n"
+        "(2) Reserved.\n"
+        "(b) Other.\n"
+    )
+    branches = recognize_source_structure(text, corpus_citation_path=CITATION)
+    roots = completeness_module._active_or_root_source_branches(
+        text,
+        branches=branches,
+        active_branches=[branch for branch in branches if branch.path == ("a",)],
+        deferred_paths=set(),
+    )
+    assert [branch.path for branch in roots] == [("a",)]
+    existing = completeness_module._source_boundary_obligations(
+        roots, extract_numeric_occurrences=EXTRACT
+    )
+    assert sorted(occurrence.raw for _b, occurrence in existing) == ["300", "700"]
+    new = completeness_module._source_conjoined_threshold_obligations(
+        roots,
+        branches=branches,
+        existing=existing,
+        extract_numeric_occurrences=EXTRACT,
+    )
+    assert sorted(occurrence.raw for _b, occurrence, *_ in new) == ["500", "900"]

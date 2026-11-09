@@ -39743,6 +39743,8 @@ def _source_conjoined_threshold_obligations(
     clause under a permissive modal (`may`, `could`) is never a threshold. A
     value the branch already demands, or a span overlapping a demanded
     threshold, is not demanded again: a boundary witness is keyed by value.
+    Direct text is read against `boundary_branches`, as main's boundary demand
+    reads it; `branches` (all source branches) is not used for it.
     """
 
     # Values are claimed per path; spans only per branch object, because a
@@ -39776,8 +39778,11 @@ def _source_conjoined_threshold_obligations(
             # As in _source_boundary_obligations: a detached heading inside its
             # structural owner's text is read once, on that owner.
             continue
+        # Read the same text _source_boundary_obligations reads: it stops only
+        # at a descendant that is itself a boundary branch, so an inactive
+        # child's thresholds are inventoried on the active parent.
         direct_text = authoritative_numeric_recall_text(
-            _source_branch_direct_text(branch, branches=branches)
+            _source_branch_direct_text(branch, branches=boundary_branches)
         )
         direct_inventory = tuple(extract_numeric_occurrences(direct_text))
         for fragment_start, fragment in _source_boundary_fragments(direct_text):
