@@ -38,7 +38,7 @@ Fixes-Run: 42409703021
 ```
 
 - When you open a PR that fixes a failing encode, fill both lines from the run you are fixing. `Encoding-Target` is the run's corpus citation path (the `citation` input; the last word of the run name), not a `.yaml` path. `Fixes-Run` is the `targeted-signed-reencode.yml` run id (or its `actions/runs` URL); for a local encode, write `local:<encoding_runs id>` (the `run_id` the encoder logs).
-- List every encoding and run the PR fixes, comma-separated. CI checks that each signed run exists, is a `targeted-signed-reencode.yml` run, and that its citation is listed in `Encoding-Target`.
+- List every encoding and run the PR fixes, comma-separated. CI checks that each signed run exists, is a `targeted-signed-reencode.yml` `workflow_dispatch` run on `main`, and that its citation is listed in `Encoding-Target`. That is the run's primary citation (the last word of the run name); list it also when the fix is for a dependent the run repaired, and list the dependent too.
 - For generic work that fixes no particular encoding or run, write `Encoding-Target: none` and `Fixes-Run: none`. Do not omit the lines and do not guess a target.
 - PRs opened by the encoder version-bump App are exempt.
 

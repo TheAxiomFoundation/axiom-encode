@@ -43,8 +43,9 @@ Pull requests opened by the encoder version-bump App from this repository are
 exempt, as in ``version_provenance.hand_picked_version``.
 
 This module uses only the standard library, so CI runs it with ``python3 -I``
-without installing the project. CI runs the base branch's copy, so a pull
-request cannot loosen the check that judges it.
+without installing the project. CI runs the base branch's copy under
+``pull_request_target``, so a pull request cannot loosen the check that judges
+it.
 """
 
 from __future__ import annotations
@@ -70,13 +71,21 @@ NONE = "none"
 BUMP_APP_LOGIN = "axiom-encoder-version-bump[bot]"
 SIGNED_WORKFLOW_PATH = ".github/workflows/targeted-signed-reencode.yml"
 MAX_RUNS = 20
+RATE_LIMIT_WAIT = 60.0
+# All lookups together, inside the workflow's ten-minute job timeout, so a
+# slow API ends in a fail-closed error rather than a cancelled job.
+VERIFY_DEADLINE = 180.0
 
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_COMMENT_BLOCK = re.compile(r" {0,3}<!--")
+_CLOSING_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*")
+_MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\((\S+)\)")
 _BOLD = r"(?:\*\*|__)?"
 # Up to three spaces of indent (four is a code block), an optional list marker
-# and bold around the key: `- **Encoding-Target:** none` counts.
+# (bullet or number) and bold around the key: `- **Encoding-Target:** none`
+# counts. _clean strips bold, backticks, a link and a hard break from values.
 _LINE = re.compile(
-    rf"^ {{0,3}}(?:[-*+][ \t]+)?{_BOLD}"
+    rf"^ {{0,3}}(?:(?:[-*+]|[0-9]{{1,9}}[.)])[ \t]+)?{_BOLD}"
     rf"({re.escape(TARGET_KEY)}|{re.escape(RUN_KEY)}){_BOLD}[ \t]*:{_BOLD}(.*)$",
     re.IGNORECASE,
 )
@@ -115,20 +124,29 @@ def _visible_lines(body: str) -> list[str]:
     """The body's lines outside HTML comments and fenced code blocks.
 
     One pass, so a `<!--` inside a fence does not hide the rest of the body
-    and a fence inside a comment does not open a code block.
+    and a fence inside a comment does not open a code block. A line that
+    starts with `<!--` hides everything up to the first `-->` (or the end of
+    the body), as GitHub does; a `<!--` later in a line hides text only up to
+    a `-->` on the same line, and is literal text otherwise. A fence closes
+    only on a bare fence line, as in CommonMark.
     """
     lines: list[str] = []
     fence: str | None = None
     in_comment = False
     for line in body.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         if fence is not None:
-            match = _FENCE.match(line)
+            match = _CLOSING_FENCE.fullmatch(line)
             if match and match.group(1)[0] == fence[0]:
                 if len(match.group(1)) >= len(fence):
                     fence = None
             continue
         visible = ""
         rest = line
+        # A line that starts with `<!--` opens an HTML block that GitHub
+        # hides up to the first `-->`, or to the end of the body.
+        if not in_comment and _COMMENT_BLOCK.match(line):
+            in_comment = True
+            rest = line[line.index("<!--") + 4 :]
         while rest:
             if in_comment:
                 end = rest.find("-->")
@@ -137,15 +155,17 @@ def _visible_lines(body: str) -> list[str]:
                 else:
                     in_comment = False
                     rest = rest[end + 3 :]
+                continue
+            # Within a line, a comment counts only when it closes on the same
+            # line; otherwise the `<!--` is literal text, as GitHub shows it.
+            start = rest.find("<!--")
+            end = rest.find("-->", start + 4) if start >= 0 else -1
+            if end < 0:
+                visible += rest
+                rest = ""
             else:
-                start = rest.find("<!--")
-                if start < 0:
-                    visible += rest
-                    rest = ""
-                else:
-                    visible += rest[:start]
-                    in_comment = True
-                    rest = rest[start + 4 :]
+                visible += rest[:start]
+                rest = rest[end + 3 :]
         if visible.strip() == "" and line.strip() != "":
             continue
         match = _FENCE.match(visible)
@@ -156,9 +176,24 @@ def _visible_lines(body: str) -> list[str]:
     return lines
 
 
+def _clean(part: str) -> str:
+    """One value without the markdown an author may wrap it in."""
+    part = part.strip()
+    part = re.sub(r"\\$", "", part).strip()  # a backslash hard break
+    link = _MARKDOWN_LINK.fullmatch(part)
+    if link is not None:
+        part = link.group(1)
+    for _ in range(2):
+        part = part.strip().strip("`").strip()
+        part = re.sub(r"^(?:\*\*|__)|(?:\*\*|__)$", "", part).strip()
+        if part.startswith("<") and part.endswith(">") and "://" in part:
+            part = part[1:-1]
+    return part
+
+
 def _values(raw: str, key: str, errors: list[str]) -> list[str] | None:
     """Split a line's value; None after an error, [] for ``none``."""
-    parts = [part.strip().strip("`").strip() for part in raw.split(",")]
+    parts = [_clean(part) for part in raw.split(",")]
     if parts == [""]:
         errors.append(f"{key}: no value; write `{key}: {NONE}` if there is none")
         return None
@@ -282,7 +317,11 @@ def is_exempt(author: str, head_repository: str, repository: str) -> bool:
 Fetch = Callable[[str], tuple[int, dict | None]]
 
 
-def github_fetch(token: str, api_url: str = "https://api.github.com") -> Fetch:
+def github_fetch(
+    token: str,
+    api_url: str = "https://api.github.com",
+    sleep: Callable[[float], None] = time.sleep,
+) -> Fetch:
     """A read-only GET returning (status, json); status 0 on a network error."""
 
     def fetch(path: str) -> tuple[int, dict | None]:
@@ -299,11 +338,22 @@ def github_fetch(token: str, api_url: str = "https://api.github.com") -> Fetch:
             with urllib.request.urlopen(request, timeout=20) as response:
                 return response.status, json.load(response)
         except urllib.error.HTTPError as error:
-            # A secondary rate limit answers 403 with these headers; retry it.
-            if error.code == 403 and (
-                error.headers.get("retry-after")
-                or error.headers.get("x-ratelimit-remaining") == "0"
+            # A rate limit answers 403 or 429. Wait out a short retry-after
+            # (at most RATE_LIMIT_WAIT seconds) and report 429 so the caller
+            # retries; a longer wait fails closed after the retries.
+            if error.code == 429 or (
+                error.code == 403
+                and (
+                    error.headers.get("retry-after")
+                    or error.headers.get("x-ratelimit-remaining") == "0"
+                )
             ):
+                try:
+                    wait = float(error.headers.get("retry-after") or "")
+                except ValueError:
+                    wait = 0.0
+                if 0 < wait <= RATE_LIMIT_WAIT:
+                    sleep(wait)
                 return 429, None
             return error.code, None
         except (urllib.error.URLError, TimeoutError, OSError, ValueError):
@@ -323,10 +373,19 @@ def verify_signed_runs(
     *,
     attempts: int = 3,
     sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+    deadline: float = VERIFY_DEADLINE,
 ) -> list[str]:
     """Errors for signed run ids that are not this repository's signed runs."""
     errors: list[str] = []
+    started = clock()
     for run_id in linkage.signed_runs:
+        if clock() - started > deadline:
+            errors.append(
+                f"{RUN_KEY}: run lookups passed the {deadline:.0f}s deadline before "
+                f"run {run_id}; the check fails closed, so rerun this job"
+            )
+            break
         status, payload = 0, None
         for attempt in range(attempts):
             status, payload = fetch(f"repos/{repository}/actions/runs/{run_id}")

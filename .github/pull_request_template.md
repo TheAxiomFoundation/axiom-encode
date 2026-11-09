@@ -14,12 +14,14 @@ comma-separated, for example us/regulation/7/273/7. A citation, not a .yaml path
 
 Fixes-Run: the run(s) that showed the defect, comma-separated:
   - a targeted-signed-reencode run: its id (42409703021) or its actions/runs URL;
-    CI checks that the run exists and that Encoding-Target lists its citation;
+    CI checks that it is a workflow_dispatch run on main and that
+    Encoding-Target lists its citation (the last word of the run name, even
+    when the fix is for a dependent);
   - a local encode: local:<encoding_runs id>, for example local:1a2b3c4d.
 -->
 
-Encoding-Target: <citation path(s), or none>
-Fixes-Run: <run id(s), or none>
+Encoding-Target: REPLACE-with-citation-paths-or-none
+Fixes-Run: REPLACE-with-run-ids-or-none
 
 ## Checks
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -128,7 +129,7 @@ def test_none_body_is_missing():
         ("US/statute/26/21", "none", "not a corpus citation path"),
         ("us/statute/../21", "none", "not a corpus citation path"),
         ("us/statute/26 21", "none", "not a corpus citation path"),
-        ("<citation path(s), or none>", "none", "not a corpus citation path"),
+        ("REPLACE-with-citation-paths-or-none", "none", "not a corpus citation path"),
         ("us/statute/26/21", "", "no value"),
         ("us/statute/26/21", "run 123", "neither"),
         ("us/statute/26/21", "0123", "neither"),
@@ -172,8 +173,8 @@ def test_lines_in_html_comments_and_code_fences_do_not_count():
     # placeholders count, and they fail until replaced.
     assert parse(template).linkage is None
     filled = template.replace(
-        "Encoding-Target: <citation path(s), or none>", "Encoding-Target: none"
-    ).replace("Fixes-Run: <run id(s), or none>", "Fixes-Run: none")
+        "Encoding-Target: REPLACE-with-citation-paths-or-none", "Encoding-Target: none"
+    ).replace("Fixes-Run: REPLACE-with-run-ids-or-none", "Fixes-Run: none")
     assert parse(filled).errors == []
 
     fenced = "```text\nEncoding-Target: us/statute/26/21\nFixes-Run: 1\n```\n"
@@ -369,7 +370,8 @@ def test_cli_verify_runs_needs_a_token(tmp_path, monkeypatch):
 def test_the_workflow_runs_the_module_on_every_body_change():
     workflow = yaml.safe_load((ROOT / ".github/workflows/pr-linkage.yml").read_text())
     triggers = workflow[True]  # PyYAML reads the `on:` key as True.
-    assert set(triggers["pull_request"]["types"]) >= {
+    assert "pull_request" not in triggers
+    assert set(triggers["pull_request_target"]["types"]) >= {
         "opened",
         "edited",
         "synchronize",
@@ -383,7 +385,7 @@ def test_the_workflow_runs_the_module_on_every_body_change():
         for step in steps
         if step.get("name") == "Check Encoding-Target and Fixes-Run"
     )
-    assert 'python3 -I "$checker"' in check_step["run"]
+    assert "python3 -I src/axiom_encode/pr_linkage.py" in check_step["run"]
     assert "--verify-runs" in check_step["run"]
     assert "$GITHUB_EVENT_PATH" in check_step["run"]
     # The body never passes through an expression into the shell.
@@ -472,7 +474,13 @@ def test_a_secondary_rate_limit_403_is_retried(monkeypatch):
         raise urllib.error.HTTPError(request.full_url, 403, "rate", headers, None)
 
     monkeypatch.setattr(pr_linkage.urllib.request, "urlopen", raise_403)
-    assert pr_linkage.github_fetch("t")("repos/x/y/actions/runs/1") == (429, None)
+    waits: list[float] = []
+    fetch = pr_linkage.github_fetch("t", sleep=waits.append)
+    assert fetch("repos/x/y/actions/runs/1") == (429, None)
+    assert waits == [60.0]
+    headers.replace_header("retry-after", "3600")
+    assert fetch("repos/x/y/actions/runs/1") == (429, None)
+    assert waits == [60.0]  # too long to wait: fail closed after the retries
 
     plain = email.message.Message()
 
@@ -483,19 +491,41 @@ def test_a_secondary_rate_limit_403_is_retried(monkeypatch):
     assert pr_linkage.github_fetch("t")("repos/x/y/actions/runs/1") == (403, None)
 
 
-def test_the_workflow_runs_the_base_branch_checker():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/pr-linkage.yml").read_text())
+def test_the_workflow_runs_only_the_base_branch_checker():
+    # pull_request_target holds a token for the base repository, so no step
+    # may check out or run the pull request's code.
+    text = (ROOT / ".github/workflows/pr-linkage.yml").read_text()
+    workflow = yaml.safe_load(text)
     steps = workflow["jobs"]["linkage"]["steps"]
-    checkout = next(
-        step for step in steps if "actions/checkout" in step.get("uses", "")
+    checkouts = [step for step in steps if "uses" in step]
+    assert len(checkouts) == 1
+    assert "actions/checkout@" in checkouts[0]["uses"]
+    assert checkouts[0]["with"]["ref"] == "${{ github.event.pull_request.base.sha }}"
+    assert checkouts[0]["with"]["persist-credentials"] is False
+    assert checkouts[0]["with"]["sparse-checkout"] == "src/axiom_encode/pr_linkage.py"
+    assert workflow["permissions"] == {"contents": "read", "actions": "read"}
+    assert workflow["jobs"]["linkage"]["timeout-minutes"] * 60 > (
+        # The deadline is checked before each run; one run's lookup can then
+        # take three attempts of a 20 s timeout and a rate-limit wait, plus
+        # the 2 s and 4 s backoffs.
+        pr_linkage.VERIFY_DEADLINE + 3 * (20 + pr_linkage.RATE_LIMIT_WAIT) + 6
     )
-    assert checkout["with"]["fetch-depth"] == 2
-    run = next(
-        step
+    for step in steps:
+        assert "${{ github.event.pull_request." not in step.get("run", "")
+    for forbidden in ("head.sha", "head.ref", "merge_commit_sha", "refs/pull/"):
+        assert forbidden not in text
+    queue = next(
+        step for step in steps if step.get("if") == "github.event_name == 'merge_group'"
+    )
+    assert "uses" not in queue
+    assert all(
+        step.get("if")
+        in (
+            "github.event_name == 'pull_request_target'",
+            "github.event_name == 'merge_group'",
+        )
         for step in steps
-        if step.get("name") == "Check Encoding-Target and Fixes-Run"
-    )["run"]
-    assert "git show HEAD^1:src/axiom_encode/pr_linkage.py" in run
+    )
 
 
 def test_every_automation_that_opens_a_pull_request_here_writes_both_lines():
@@ -510,7 +540,8 @@ def test_every_automation_that_opens_a_pull_request_here_writes_both_lines():
             for step in job.get("steps", []):
                 run = step.get("run", "")
                 if "gh pr create" in run or (
-                    '"repos/$GITHUB_REPOSITORY/pulls"' in run and "POST" in run
+                    re.search(r"repos/\$\{?GITHUB_REPOSITORY\}?/pulls\b(?!/)", run)
+                    and re.search(r"POST|-X\s*POST", run)
                 ):
                     opened.append((path.name, job_name, run))
     assert {name for name, _, _ in opened} == {
@@ -520,3 +551,80 @@ def test_every_automation_that_opens_a_pull_request_here_writes_both_lines():
     for name, job_name, run in opened:
         assert "Encoding-Target: none" in run, (name, job_name)
         assert "Fixes-Run: none" in run, (name, job_name)
+
+
+# --- review-fix cycle 2 ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "**Encoding-Target: none**\n**Fixes-Run: none**\n",
+        "1. Encoding-Target: none\n2) Fixes-Run: none\n",
+        "Encoding-Target: none\\\nFixes-Run: none\n",
+    ],
+)
+def test_more_markdown_forms_count(body):
+    assert parse(body).errors == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        f"[run](https://github.com/{REPO}/actions/runs/42409703021)",
+        f"<https://github.com/{REPO}/actions/runs/42409703021>",
+        "**42409703021**",
+    ],
+)
+def test_linked_run_values_are_unwrapped(value):
+    result = parse(_body("us/statute/26/21", value), REPO)
+    assert result.errors == []
+    assert result.linkage.signed_runs == ["42409703021"]
+
+
+def test_a_fence_with_an_info_string_does_not_close_a_block():
+    body = "```python\nx\n```python\nEncoding-Target: none\nFixes-Run: none\n"
+    assert "missing" in parse(body).errors[0]
+
+
+def test_an_unclosed_comment_marker_in_prose_is_literal():
+    body = "Strip `<!--` blocks first.\n\nEncoding-Target: none\nFixes-Run: none\n"
+    assert parse(body).errors == []
+    closed_later = "<!-- a\nEncoding-Target: none\n-->\nFixes-Run: none\n"
+    assert "missing `Encoding-Target:`" in parse(closed_later).errors[0]
+
+
+def test_a_comment_block_opened_at_a_line_start_hides_the_rest():
+    # GitHub hides an unclosed `<!--` block to the end of the body.
+    body = "<!-- note\nEncoding-Target: none\nFixes-Run: none\n"
+    assert "missing" in parse(body).errors[0]
+    body = "   <!-- note\nEncoding-Target: none\nFixes-Run: none\n"
+    assert "missing" in parse(body).errors[0]
+
+
+def test_inline_markers_on_different_lines_hide_nothing():
+    body = (
+        "Handles `<!--` here.\nEncoding-Target: none\nFixes-Run: none\n"
+        "And `-->` there.\n"
+    )
+    assert parse(body).errors == []
+
+
+def test_run_lookups_stop_at_the_deadline():
+    now = [0.0]
+    calls: list[str] = []
+
+    def fetch(path):
+        calls.append(path)
+        now[0] += 100.0
+        return 200, _run_payload("us/statute/26/21")
+
+    linkage = Linkage(targets=["us/statute/26/21"], signed_runs=["1", "2", "3"])
+    errors = verify_signed_runs(
+        linkage, REPO, fetch, sleep=lambda s: None, clock=lambda: now[0], deadline=150
+    )
+    assert len(calls) == 2
+    assert errors == [
+        "Fixes-Run: run lookups passed the 150s deadline before run 3; "
+        "the check fails closed, so rerun this job"
+    ]

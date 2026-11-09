@@ -5,7 +5,12 @@ name: PR linkage
 # encoder fix links to its encodings exactly rather than by guesswork.
 # src/axiom_encode/pr_linkage.py holds the format and the checks.
 on:
-  pull_request:
+  # pull_request_target runs this file and the checker as they are on the base
+  # branch, so a pull request cannot edit the check that judges it, and a
+  # conflicted pull request (no merge ref) is still checked. It is safe here:
+  # no step checks out or runs the pull request's code, the token is
+  # read-only, and the body is read from the event payload as data.
+  pull_request_target:
     branches: [main]
     # `edited` reruns the check when the body changes (also when the base
     # branch changes, which is how a stacked pull request reaches main).
@@ -21,39 +26,31 @@ permissions:
   actions: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request_target' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 jobs:
   linkage:
     name: PR linkage
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
+      # The base commit only: never the pull request's head or merge ref.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request_target'
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
-          # The pull request's merge commit and its first parent, the base.
-          fetch-depth: 2
+          sparse-checkout: src/axiom_encode/pr_linkage.py
+          sparse-checkout-cone-mode: false
 
-      # The base branch's checker judges the pull request, so a pull request
-      # cannot loosen the check that runs on it (ci.yml still tests its own
-      # copy). Only before the checker reaches main does the pull request's
-      # copy run. The body comes from the event payload, never through the
-      # shell. The module is standard-library only, so nothing is installed.
+      # The module is standard-library only, so nothing is installed.
       - name: Check Encoding-Target and Fixes-Run
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request_target'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          checker="$RUNNER_TEMP/pr_linkage.py"
-          if ! git show HEAD^1:src/axiom_encode/pr_linkage.py > "$checker"; then
-            echo "::notice::the base has no checker yet; running the pull request's copy"
-            cp src/axiom_encode/pr_linkage.py "$checker"
-          fi
-          python3 -I "$checker" \
+          python3 -I src/axiom_encode/pr_linkage.py \
             --event "$GITHUB_EVENT_PATH" --repository "$GITHUB_REPOSITORY" \
             --verify-runs
 
