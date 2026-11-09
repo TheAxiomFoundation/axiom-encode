@@ -241,3 +241,21 @@ def test_malformed_floor_flag_is_an_argument_error(capsys):
     with pytest.raises(SystemExit):
         parser.parse_args(["--encoder-producer-floor", "main"])
     assert "full lowercase commit" in capsys.readouterr().err
+
+
+def test_a_below_floor_producer_keeps_the_pinned_issue_wording(graph):
+    """A switch to encoder main ratchets exact guard issue strings.
+
+    The pinned verifier at the floor and the encoder-main verifier with the
+    same floor must word a below-floor producer the same way, so the issue
+    is inherited, not new.
+    """
+
+    pinned = cli._encoder_producer_admission_issue(
+        _identity(graph.commits[0]), _expected(graph, pin=FLOOR)
+    )
+    floored = cli._encoder_producer_admission_issue(
+        _identity(graph.commits[0]), _verifier(graph, FLOOR)
+    )
+    assert pinned is not None
+    assert floored == pinned

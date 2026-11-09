@@ -93,6 +93,11 @@ def test_fenced_code_is_not_a_declaration():
     ) == ("tighten", [])
     # An unclosed fence hides the rest of the body, as GitHub renders it.
     assert check.validation_effect_issues("````\nValidation effect: none\n")[1]
+    # A longer closing fence closes the block; the text after it is visible.
+    assert check.validation_effect_issues(
+        "Validation effect: none\n```\nx\n````\nValidation effect: loosen\n"
+        "Changed checks: foo\n"
+    )[1]
 
 
 @pytest.mark.parametrize("checks", ["none", "a.b, none", "NONE"])
@@ -117,8 +122,9 @@ def test_workflow_runs_the_base_copy_without_pull_request_code():
     assert workflow["permissions"] == {"contents": "read"}
     steps = workflow["jobs"]["declared"]["steps"]
     checkout = steps[0]
-    assert checkout["with"]["ref"] == "${{ github.event.pull_request.base.sha }}"
+    assert checkout["with"]["ref"] == "${{ github.sha }}"
     assert checkout["with"]["persist-credentials"] is False
     run_step = steps[1]
     assert "github.event" not in run_step["run"]
+    assert "exit 0" not in run_step["run"]
     assert run_step["env"]["PR_BODY"] == "${{ github.event.pull_request.body }}"

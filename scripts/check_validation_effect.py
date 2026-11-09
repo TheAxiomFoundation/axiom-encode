@@ -23,9 +23,11 @@ _EFFECT_RE = re.compile(r"^\s*validation effect\s*:\s*(\S+)\s*$", re.I | re.M)
 _CHECKS_RE = re.compile(r"^\s*changed checks\s*:\s*(.+?)\s*$", re.I | re.M)
 _CHECK_ID_RE = re.compile(r"[a-z0-9][a-z0-9_.:/-]*")
 # A fenced code block, opened by three or more backticks or tildes at the
-# start of a line and closed by the same fence (or the end of the body).
+# start of a line and closed by a fence of the same character, at least as
+# long (CommonMark), or by the end of the body.
 _FENCE_RE = re.compile(
-    r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]{0,3}(?P=fence)[ \t]*$|\Z)",
+    r"^[ \t]{0,3}(?P<fence>(?P<char>[`~])(?P=char){2,})[^\n]*\n.*?"
+    r"(?:^[ \t]{0,3}(?P=fence)(?P=char)*[ \t]*$|\Z)",
     re.M | re.S,
 )
 

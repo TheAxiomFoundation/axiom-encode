@@ -27,7 +27,9 @@ jobs:
       # Run the base branch's checker (never pull request code).
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          # github.sha is the newest base-branch commit, the same commit
+          # as this workflow file; pull_request.base.sha can be older.
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Check the declared validation effect
         # The body is untrusted text: pass it in the environment, never in
@@ -35,10 +37,8 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          # Defensive: the base branch always has the checker once this
-          # workflow is on the base branch.
           if [ ! -f scripts/check_validation_effect.py ]; then
-            echo "::notice::the base branch has no validation-effect checker yet"
-            exit 0
+            echo "::error::the base branch has no validation-effect checker"
+            exit 1
           fi
           python3 -I scripts/check_validation_effect.py

@@ -33411,8 +33411,9 @@ def _encoder_producer_admission_issue(
     # The producer must still be on official first-parent main, at or after
     # the floor. Signature, digests and manifest format are checked by the
     # running verifier as before.
-    if floor is not None:
-        mismatch = "is not admitted by the encoder producer floor"
+    # The mismatch text stays the pinned wording: the base/head guard ratchet
+    # of a switch to the encoder-main verifier compares exact issue strings,
+    # so a producer below the floor must read as an inherited issue.
     pin = floor if floor is not None else expected["commit"]
     cache_key = (pin, core["commit"])
     cache = expected_encoder_identity.producer_admission_cache
