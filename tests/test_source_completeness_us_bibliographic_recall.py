@@ -640,22 +640,23 @@ def test_one_inconsistent_view_makes_both_views_keep_main_inventory(monkeypatch)
             annual_spans=((start, start + 3),)
         ),
     )
+    citation = "us/statute/42/1"
+    source_view = _cleaned(source, citation)
     filtered = completeness._us_locator_filtered_inventory
     calls = []
 
-    def second_view_inconsistent(text, **kwargs):
+    def unrepresented_view_inconsistent(text, **kwargs):
         inventory = filtered(text, **kwargs)
         calls.append(text)
-        if len(calls) == 2:
+        if text != source_view:
             return dataclasses.replace(inventory, consistent=False)
         return inventory
 
     monkeypatch.setattr(
-        completeness, "_us_locator_filtered_inventory", second_view_inconsistent
+        completeness, "_us_locator_filtered_inventory", unrepresented_view_inconsistent
     )
-    citation = "us/statute/42/1"
     branch = _analysis(source, citation)
-    assert len(calls) == 2
+    assert sorted(text == source_view for text in calls) == [False, True]
     with monkeypatch.context() as patch:
         patch.setattr(completeness, NEW_LOCATORS, ())
         main = _analysis(source, citation)
