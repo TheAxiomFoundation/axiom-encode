@@ -1,3 +1,28 @@
+## 0.2.2348
+
+- Assign the encoder version after merge, not in each pull request (#2048). The new `Encoder version bump` workflow runs on every push to `main`. When encoder-affecting files changed after the latest bump, it writes the next version into `pyproject.toml`, `src/axiom_encode/__init__.py` and `uv.lock`, adds a `CHANGELOG.md` header that lists the pull requests merged since the previous bump by title (it leaves out bump pull requests), and opens a bump pull request with auto-merge on. It leaves the towncrier fragments in `changelog.d/` alone. The workflow opens the pull request with a token of the `axiom-encoder-version-bump` GitHub App, made on each run from the `ENCODER_VERSION_BUMP_APP_CLIENT_ID` variable and the `ENCODER_VERSION_BUMP_APP_KEY` secret of the `encoder-version-bump` environment, whose branch rule allows only `main`. It closes, holds for or auto-merges only this repository's pull requests that the App opened, never a fork's or a person's pull request with the same branch name, and it auto-merges only the bump commit it built or verified (`--match-head-commit`).
+- The bump writes one more than the highest version any first-parent commit of `main` declared, so a merge that lowered the version never makes it reissue a used number.
+- Once the bump workflow is on `main`, the required `lint` job refuses a pull request that changes the encoder version lines unless the App opened it from this repository (`version_provenance.py pull-request`). Open pull requests drop their hand bumps; one whose `lint` check passed before this landed must be pushed again, because a merge-queue run does not repeat the check.
+- Add `axiom_encode.version_provenance`, a standard-library check of the version rule at any git ref. It applies the same rule as the `--apply` guard: no encoder-affecting file may change after the latest version bump. It refuses a shallow clone, whose boundary commit would read as a bump. On the head's first-parent history it also needs a bump when the head declares a version below one that `main` already declared, or when an encoder file changed after `main` first reached the head's version at another commit; the `--apply` guard and the provisioner apply the same two rules.
+- Count a deleted encoder file, both sides of a moved one and a non-ASCII file name as encoder changes, in `version_provenance`, the `--apply` guard and the provisioner (`--no-renames --diff-filter=ACDMRT -z`). Before, each of these needed no bump. A differential test over random histories holds the three copies to one verdict.
+- Read the history that the version rule checks, including each commit's first parent, without replacement refs, grafts (including an `info/grafts` file), the commit graph or ambient `GIT_*` values, in `version_provenance`, the `--apply` guard and the provisioner, so a local history rewrite cannot hide an unversioned encoder change. `ci_parity.encoder_version_at_pin` reads the version files through the same helper. The `--apply` guard now also refuses a shallow clone.
+- Refuse an encoder head that no bump covers in the re-encode workflow's attempt-budget job. The encode job is then skipped, so an ad hoc dispatch made before the bump lands uses no production-signing approval. The attempt budget treats such a run as neutral when it can look up the run's jobs; past its ten job lookups (or on a lookup error) it still counts a failed run, as before. Queue dispatches skip that job, so the SNAP queue tick holds and the protected SNAP queue workflow refuses to dispatch while `main` is unversioned.
+- `ci_parity.encoder_version_at_pin` refuses a pin whose encoder files changed after its version bump.
+- `test_current_encoder_affecting_changes_are_behind_version_bump` now runs only with `AXIOM_ENCODE_REQUIRE_VERSION_BUMP=1`, because a pull request no longer carries a bump. CI sets it on bump pull requests (`automation/encoder-version-*` heads).
+- Add `.github/workflows/encoder-version-bump.yml` and `src/axiom_encode/version_provenance.py` to `CODEOWNERS`.
+
+## 0.2.2344
+
+- Integrate the independently reviewed nested-condition and physical-alternative source checks; refresh encoder version provenance for the combined tree.
+
+## 0.2.2338
+
+- Check bounded physical allowance alternatives as shared prerequisites plus complete alternative factual groups, using signed granting paths and an explicit shared-set input naming contract. Preserve billing, action, causal, distinct-count, entity, period, proof-ownership, and temporal requirements; unknown contracts remain conservative. This is not complete semantic equivalence, legal-alternative coverage, or validation of raw caller classifications.
+
+## 0.2.2337
+
+- Preserve closed nested physical reason alternatives as one required factual gate inside an all-of condition, rather than requiring mutually alternative reasons simultaneously or treating a closed navigation list as operative conditions. Unknown continuations remain conservative; negative or qualified terminal evidence cannot corroborate a positive reason. This narrows a source-explicit-condition opacity check, not Boolean equivalence, source completeness as a whole, or oracle validation.
+
 ## 0.2.2299
 
 - Preserve the original checkout identity when validating staged eval and apply overlays, so same-case source witnesses execute against the candidate closure while retaining exact Git, file, and engine binding checks.
