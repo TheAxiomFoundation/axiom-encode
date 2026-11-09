@@ -84,6 +84,12 @@ _RULE_SIGNAL = re.compile(
 )
 
 
+def has_rule_signal(text: str) -> bool:
+    """Return whether ``text`` has a rule word, an amount or a rate."""
+
+    return _RULE_SIGNAL.search(text) is not None
+
+
 def rule_signal_outside_contents_entries(
     text: str, labels: Sequence[str] = ()
 ) -> str | None:

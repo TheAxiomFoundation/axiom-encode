@@ -37200,6 +37200,7 @@ def _run_encode_attempts_with_retries(
     pre_encode_gate, prepared_source = _evaluate_encode_pre_encode_gate(
         args,
         resolved_policy_checkout_path=resolved_policy_checkout_path,
+        apply_signing_broker=apply_signing_broker,
     )
     if pre_encode_gate is not None:
         for finding in pre_encode_gate.findings:
@@ -37428,6 +37429,7 @@ def _evaluate_encode_pre_encode_gate(
     args,
     *,
     resolved_policy_checkout_path: Path | None = None,
+    apply_signing_broker: SigningBroker | None = None,
 ) -> tuple[GateResult | None, _PreparedEncodeSource | None]:
     """Run the pre-encode gate once, on the target the first try will resolve.
 
@@ -37449,6 +37451,11 @@ def _evaluate_encode_pre_encode_gate(
     # The first try's own preflights, in its order; when one of them would
     # stop the try, the gate leaves that failure to the try.
     try:
+        if getattr(args, "apply", False) is True and not apply_signing_broker:
+            return None, None
+        engine_ref = getattr(args, "axiom_rules_engine_ref", None)
+        if engine_ref is not None:
+            require_engine_ref_sha(engine_ref, description="axiom_rules_engine_ref")
         _rulespec_dependency_roots_from_args(args)
         _resolve_optional_axiom_compose_path(getattr(args, "axiom_compose_path", None))
         if args.backend == "codex" and codex_auth_error():
@@ -37457,10 +37464,12 @@ def _evaluate_encode_pre_encode_gate(
             args.corpus_path,
             label="Axiom Corpus",
         )
-        _resolve_explicit_existing_directory(
+        axiom_rules_path = _resolve_explicit_existing_directory(
             args.axiom_rules_path,
             label="Axiom rules engine",
         )
+        if engine_ref is not None:
+            _pinned_apply_engine_binding(axiom_rules_path, engine_ref)
         policy_checkout_path = resolved_policy_checkout_path
         if policy_checkout_path is None:
             policy_checkout_path = _resolve_explicit_existing_directory(

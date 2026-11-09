@@ -14531,6 +14531,55 @@ class TestCmdEncode:
         assert exit_code == 0
         assert resolve.call_count == 1
 
+    def test_encode_pre_encode_gate_leaves_an_invalid_engine_ref_to_the_try(
+        self, tmp_path
+    ):
+        # The body would block, but the try's engine-ref preflight comes first.
+        args = self._make_args(
+            tmp_path, corpus_body=".", axiom_rules_engine_ref="not-a-sha"
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as model_call,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises(Exception, match="axiom_rules_engine_ref"):
+                cmd_encode(args)
+
+        model_call.assert_not_called()
+        assert EncodingDB(args.db).get_recent_runs(limit=1) == []
+
+    def test_encode_pre_encode_gate_defers_to_the_part_heading_refusal(self, tmp_path):
+        """The resolver's #1825 refusal (#2035) fires first; the gate defers.
+
+        The gate records nothing for a target the resolver refuses, so the
+        user sees main's refusal and message, unchanged.
+        """
+        from axiom_encode.corpus_resolver import CorpusDescendantStructureError
+
+        args = self._make_args(tmp_path)
+        refusal = CorpusDescendantStructureError(
+            "Active corpus source 'us/statute/26/1' has heading-only descendant "
+            "'us/statute/26/1/a': a part heading with no body (#1825)"
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as model_call,
+            patch(
+                "axiom_encode.cli.resolve_corpus_source_unit", side_effect=refusal
+            ) as resolve,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises(
+                CorpusDescendantStructureError, match="heading-only descendant"
+            ):
+                cmd_encode(args)
+
+        # Once in the gate, once in the first try, which raises it.
+        assert resolve.call_count == 2
+        model_call.assert_not_called()
+        assert EncodingDB(args.db).get_recent_runs(limit=1) == []
+
     def test_encode_pre_encode_gate_leaves_preflight_failures_to_the_try(
         self, tmp_path
     ):

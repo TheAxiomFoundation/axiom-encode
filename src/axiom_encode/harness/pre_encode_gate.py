@@ -20,6 +20,7 @@ from ..source_text_signals import (
     CONTENTS_MARKER,
     TOC_LEADER,
     TOC_MIN_LEADERS,
+    has_rule_signal,
     is_table_of_contents,
     rule_signal_outside_contents_entries,
     text_outside_contents_entries,
@@ -205,7 +206,16 @@ def check_toc_page(body: str, labels: Sequence[str] = ()) -> str | None:
 # its text), not a target-selection error; a heading-only body is selection.
 EMPTY_BODY_REASON = "source body is empty"
 PUNCTUATION_BODY_REASON = "source body has only punctuation"
-_CORPUS_CONTENT_REASONS = frozenset({EMPTY_BODY_REASON, PUNCTUATION_BODY_REASON})
+ELLIPSIS_BODY_REASON = "source body is only an ellipsis or dotted placeholder"
+_CORPUS_CONTENT_REASONS = frozenset(
+    {EMPTY_BODY_REASON, PUNCTUATION_BODY_REASON, ELLIPSIS_BODY_REASON}
+)
+# Reasons that only report. An editorial omission shown by an ellipsis or
+# dotted placeholder (". . . . .") has its own encoder contract: the prompt and
+# the validator accept a `status: deferred` artifact for it, so the gate does
+# not stop it. A lone "." or an empty body stays an extraction gap and blocks.
+_ADVISORY_REASONS = frozenset({ELLIPSIS_BODY_REASON})
+_ELLIPSIS_BODY_RE = re.compile(r"^(?:\.\s*){3,}$|^(?:…\s*)+$")
 
 
 def _marker_key(value: str) -> str:
@@ -237,6 +247,8 @@ def check_no_operative_text(
     if not remaining:
         return EMPTY_BODY_REASON
     if not any(character.isalnum() for character in remaining):
+        if _ELLIPSIS_BODY_RE.fullmatch(remaining):
+            return ELLIPSIS_BODY_REASON
         return PUNCTUATION_BODY_REASON
     label_found = False
     for label in sorted(
@@ -246,6 +258,11 @@ def check_no_operative_text(
             label_found = True
             remaining = re.sub(re.escape(label), " ", remaining, flags=re.IGNORECASE)
     if not label_found:
+        return None
+    # A label can copy the body's own rule ("Applicants must be 18."), as when
+    # an extractor takes the heading from the first line. A body with a rule
+    # word, amount or rate is never judged heading-only.
+    if has_rule_signal(body):
         return None
     remaining = _normalize_space(remaining).strip(_EDGE_PUNCTUATION)
     if not remaining:
@@ -337,7 +354,7 @@ def evaluate_pre_encode_gate(
                 mode=mode,
                 reason=empty_reason,
                 evidence=(source.citation_path,),
-                advisory=source.amendment_context,
+                advisory=source.amendment_context or empty_reason in _ADVISORY_REASONS,
                 **(
                     {"failure_class": CORPUS, "subclass": "content"}
                     if empty_reason in _CORPUS_CONTENT_REASONS

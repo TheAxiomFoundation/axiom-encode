@@ -539,3 +539,156 @@ def test_contents_page_numbers_and_revision_dates_are_locators():
     body = "12 (07/2026) Chapter 3 Table of Contents Page 12\n" + CONTENTS_ENTRIES
 
     assert check_toc_page(body, ("Page 12", "Oregon Notebook 12")) is not None
+
+
+# -- cycle review: main's deferred contract and copied headings -------------
+
+
+@pytest.mark.parametrize("body", [". . . . . . .", "...", "…", " . . . \n . . . "])
+def test_an_ellipsis_placeholder_only_reports(body):
+    """Main encodes an editorial omission as `status: deferred` on purpose.
+
+    The prompt and the validator both accept that artifact, so the gate
+    records the finding but does not stop the encode.
+    """
+
+    result = evaluate_pre_encode_gate(_source(body))
+
+    assert _checks(result) == [(CHECK_NO_OPERATIVE_TEXT, False)]
+    assert not result.blocked
+    assert (result.findings[0].failure_class, result.findings[0].subclass) == (
+        "corpus",
+        "content",
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Applicants must be 18.",
+        "Income not counted.",
+        "The standard deduction is $198.",
+    ],
+)
+def test_a_heading_that_copies_a_rule_body_does_not_block(body):
+    assert check_no_operative_text(body, (body,), "us-or/manual/snap/a/1") is None
+    assert not evaluate_pre_encode_gate(_source(body, labels=(body,))).blocked
+
+
+# -- order against the resolver's part-heading refusal (#2035) --------------
+#
+# The resolver refuses a bodyless part heading before the gate runs, and the
+# gate never sees a source the resolver refused. The gate's heading-only check
+# judges only a body-bearing row whose body is its heading, so no input reaches
+# both. These tests pin that order on real corpus rows.
+
+_CCR_ROOT = "us/regulation/8-ccr-1403-1"
+
+
+def _gate_or_refusal(tmp_path: Path, rows: list[dict], target: str):
+    from axiom_encode.corpus_resolver import CorpusResolutionError
+    from axiom_encode.harness.evals import resolve_corpus_source_unit
+
+    release = _write_rows(tmp_path / "axiom-corpus", rows)
+    try:
+        unit = resolve_corpus_source_unit(target, release)
+    except RepealedCorpusSourceError as exc:
+        return evaluate_pre_encode_gate(None, repealed_reason=str(exc)), None
+    except CorpusResolutionError as exc:
+        return None, exc
+    return evaluate_pre_encode_gate(GateSource.from_source_unit(unit)), None
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        # A part heading only.
+        [
+            {"citation_path": _CCR_ROOT, "body": None},
+            {
+                "citation_path": f"{_CCR_ROOT}/3.100",
+                "body": None,
+                "heading": "3.100 PART A",
+            },
+        ],
+        # A part heading next to a body that is only its own heading.
+        [
+            {"citation_path": _CCR_ROOT, "body": None},
+            {
+                "citation_path": f"{_CCR_ROOT}/3.100",
+                "body": None,
+                "heading": "3.100 PART A",
+                "ordinal": 1,
+            },
+            {
+                "citation_path": f"{_CCR_ROOT}/3.101",
+                "body": "3.101 Residency",
+                "heading": "3.101 Residency",
+                "ordinal": 2,
+            },
+        ],
+    ],
+)
+def test_the_resolvers_part_heading_refusal_comes_before_the_gate(tmp_path, rows):
+    gate, refusal = _gate_or_refusal(tmp_path, rows, _CCR_ROOT)
+
+    assert gate is None
+    assert isinstance(refusal, InvalidActiveCorpusSourceError)
+    assert not isinstance(refusal, RepealedCorpusSourceError)
+    assert "heading-only descendant" in str(refusal)
+    assert f"{_CCR_ROOT}/3.100" in str(refusal)
+
+
+def test_a_section_heading_only_body_reaches_only_the_gate(tmp_path):
+    gate, refusal = _gate_or_refusal(
+        tmp_path,
+        [
+            {
+                "citation_path": f"{_CCR_ROOT}/3.101",
+                "body": "3.101 Residency",
+                "heading": "3.101 Residency",
+            }
+        ],
+        f"{_CCR_ROOT}/3.101",
+    )
+
+    assert refusal is None
+    assert _checks(gate) == [(CHECK_NO_OPERATIVE_TEXT, True)]
+    assert gate.findings[0].failure_class == "selection"
+    assert gate.findings[0].reason == "source body is only its heading"
+
+
+def test_a_heading_with_a_short_operative_sentence_passes_both(tmp_path):
+    gate, refusal = _gate_or_refusal(
+        tmp_path,
+        [
+            {
+                "citation_path": f"{_CCR_ROOT}/3.101",
+                "body": "3.101 Residency\nApplicants must reside in Colorado.",
+                "heading": "3.101 Residency",
+            }
+        ],
+        f"{_CCR_ROOT}/3.101",
+    )
+
+    assert refusal is None
+    assert gate.findings == ()
+
+
+def test_a_repealed_section_reaches_only_the_gates_repealed_check(tmp_path):
+    gate, refusal = _gate_or_refusal(
+        tmp_path,
+        [
+            {
+                "citation_path": f"{_CCR_ROOT}/3.101",
+                "body": None,
+                "heading": "3.101 Residency",
+                "metadata": {"status": "repealed"},
+            }
+        ],
+        f"{_CCR_ROOT}/3.101",
+    )
+
+    assert refusal is None
+    assert _checks(gate) == [(CHECK_REPEALED_TARGET, True)]
+    assert gate.findings[0].failure_class == "selection"
