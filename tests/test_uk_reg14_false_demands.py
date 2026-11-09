@@ -1,4 +1,4 @@
-"""Complete-source demands that regulation 14's text does not make.
+"""Three misreadings of regulation 14's wording in complete-source analysis.
 
 Signed re-encode run 41745442025 ended with refusals of regulation 14 of the
 Council Tax Reduction (Scotland) Regulations 2012 that came from three misreadings
@@ -18,15 +18,20 @@ Invariants pinned here:
 
 * a digit mixed percentage yields one rate, (whole + numerator / denominator) /
   100, and its parts yield nothing;
-* its slash adds no division, and a real division in the same text still counts;
+* its slash adds no division and no computation, and a real division in the same
+  text still counts;
 * the collapse removes only occurrences nested in a mixed percentage;
-* outside a German-language corpus "falls" is never a condition cue; inside one,
-  and in text with no citation path, it stays one;
+* in a UK corpus "falls" is never a condition cue; in every other corpus, and in
+  text with no citation path, it stays one;
 * a condition word leaves only from inside a UK cross-reference's title. Operative
-  text, a parenthesis that opens with a limiting word, and every other corpus keep
-  their cues;
+  text, a parenthesis that opens with a limiting word, one that holds a sentence
+  break, and every other corpus keep their cues;
 * the cue filters only remove: the filtered cues are a subset of the unfiltered
   cues, and the difference is exactly the cues they target.
+
+Known gap, pinned by test_known_gap_limbs_with_no_cue_of_their_own: regulation
+14(3)(b), (7)(a) and (7)(b) state conditions in wording no cue reads, so a model
+that drops one of them passes this gate.
 """
 
 from __future__ import annotations
@@ -60,14 +65,23 @@ PROPERTY_SETTINGS = settings(
     suppress_health_check=[HealthCheck.too_slow],
 )
 
-ENGLISH_CORPORA = (
+UK_CORPORA = (
     CITATION,
     "uk-adur/manual/council-tax-reduction-scheme-2026-2027/page-8",
+)
+GERMAN_CORPORA = (
+    "de/statute/estg/32a",
+    "de-by/statute/x/1",
+    "ch/sr/642.11/36",
+    "ch-zh/statute/x/1",
+    "at/gesetz/estg/33",
+    "at-wien/statute/x/1",
+)
+OTHER_ENGLISH_CORPORA = (
     "us/statute/26/32",
     "nz/act/2007/97/MA1",
     "ca/statute/income-tax-act/118",
 )
-GERMAN_CORPORA = ("de/statute/estg/32a", "ch/sr/642.11/36", "at/gesetz/estg/33")
 
 
 def occurrences(text: str) -> tuple[sc.NumericOccurrenceLike, ...]:
@@ -95,10 +109,12 @@ def cues(text: str, citation: str = "") -> list[tuple[int, int, str]]:
     return [(match.start(), match.end(), match.group(0).lower()) for match in matches]
 
 
-mixed_numbers = st.tuples(
-    st.integers(min_value=1, max_value=99),
-    st.integers(min_value=1, max_value=19),
-    st.integers(min_value=2, max_value=20),
+mixed_numbers = st.integers(min_value=2, max_value=20).flatmap(
+    lambda denominator: st.tuples(
+        st.integers(min_value=1, max_value=99),
+        st.integers(min_value=1, max_value=denominator - 1),
+        st.just(denominator),
+    )
 )
 percent_markers = st.sampled_from([" per cent", " percent", "%"])
 
@@ -161,9 +177,9 @@ def test_digit_and_worded_mixed_percentages_agree(words: str, digits: str) -> No
 
 @pytest.mark.parametrize(
     "numeral",
-    ["2 ½ per cent", "12 ¼ percent", "2½ per cent"],
+    ["2 ½ per cent", "12 ¼ percent", "2½ per cent", f"2 6{chr(0x2044)}7 per cent"],
 )
-def test_vulgar_fraction_percentage_is_one_rate(numeral: str) -> None:
+def test_other_fraction_characters_read_as_one_rate(numeral: str) -> None:
     text = f"amount B is {numeral} of the excess"
     start = text.index(numeral)
     end = start + len(numeral)
@@ -195,10 +211,31 @@ def test_mixed_percentage_slash_is_no_division(
         "1/2 of income",
         "the 2 6/7 ratio",
         "on 15 3/7 per person",
+        "amount B is 1.5 3/4 per cent of the difference",
     ],
 )
 def test_other_slashes_stay_divisions(text: str) -> None:
     assert "divide" in sc._formula_operation_kinds(text)
+
+
+def test_a_mixed_number_with_no_rate_keeps_its_parts() -> None:
+    assert {item.value for item in occurrences("the sum of 3 1/2 times the rate")} == {
+        1.0,
+        2.0,
+        3.0,
+        3.5,
+    }
+
+
+@PROPERTY_SETTINGS
+@given(number=mixed_numbers, marker=percent_markers)
+def test_a_stated_mixed_percentage_is_no_computation(
+    number: tuple[int, int, int], marker: str
+) -> None:
+    whole, numerator, denominator = number
+    numeral = f"{whole} {numerator}/{denominator}{marker}"
+    assert not sc.source_states_explicit_computation(f"The rate is {numeral}.")
+    assert sc.source_states_explicit_computation(f"The rate is {numeral}, plus 4 / 5.")
 
 
 def test_mixed_percentage_masking_keeps_offsets() -> None:
@@ -217,10 +254,17 @@ FALLS_CLAUSES = (
 )
 
 
-@pytest.mark.parametrize("citation", ENGLISH_CORPORA)
+@pytest.mark.parametrize("citation", UK_CORPORA)
 @pytest.mark.parametrize("clause", FALLS_CLAUSES)
-def test_english_falls_is_no_condition(citation: str, clause: str) -> None:
+def test_the_english_verb_is_no_condition_in_a_uk_corpus(
+    citation: str, clause: str
+) -> None:
     assert [cue for cue in cues(clause, citation) if cue[2] == "falls"] == []
+
+
+@pytest.mark.parametrize("citation", OTHER_ENGLISH_CORPORA)
+def test_other_english_corpora_keep_the_cue(citation: str) -> None:
+    assert [cue[2] for cue in cues(FALLS_CLAUSES[0], citation)] == ["falls"]
 
 
 @pytest.mark.parametrize("citation", GERMAN_CORPORA)
@@ -235,7 +279,7 @@ def test_falls_stays_a_cue_when_no_citation_names_a_language() -> None:
 
 @PROPERTY_SETTINGS
 @given(
-    citation=st.sampled_from(ENGLISH_CORPORA),
+    citation=st.sampled_from(UK_CORPORA),
     before=st.sampled_from(["if the day", "the day", "unless the week"]),
     after=st.sampled_from(["within a week", "to be disregarded", "if income is low"]),
 )
@@ -290,7 +334,7 @@ def title_cues(text: str, title: str, citation: str) -> list[tuple[int, int, str
 @given(
     title=titles,
     form=reference_forms,
-    citation=st.sampled_from([CITATION, ENGLISH_CORPORA[1]]),
+    citation=st.sampled_from(UK_CORPORA),
 )
 def test_condition_word_in_a_uk_reference_title_is_no_cue(
     title: str, form: str, citation: str
@@ -340,10 +384,53 @@ def test_other_corpora_keep_cues_inside_titles(
         ("regulation 5 (other than paragraph (b) if it applies)", "if"),
         ("section 7 (unless paragraph 3 applies)", "unless"),
         ("section 7 (if any)", "if"),
+        ("section 7 (notwithstanding paragraph 3)", "notwithstanding"),
     ],
 )
 def test_limiting_parenthesis_keeps_its_cue(reference: str, cue: str) -> None:
     assert cue in [item[2] for item in cues(f"under {reference}", CITATION)]
+
+
+@pytest.mark.parametrize(
+    "opening",
+    [
+        "excluding paragraph 3",
+        "save paragraph 3",
+        "apart from paragraph 3",
+        "but paragraph 3",
+        "and paragraph 3",
+        "so far as paragraph 3 applies",
+        "in so far as paragraph 3 applies",
+        "insofar as paragraph 3 applies",
+        "to the extent paragraph 3 applies",
+        "where paragraph 3 applies",
+        "with the exception of paragraph 3",
+        "only if paragraph 3 applies",
+        "provided that paragraph 3 applies",
+        "read with paragraph 3",
+        "as modified by paragraph 3",
+    ],
+)
+def test_a_parenthesis_that_opens_by_limiting_the_reference_keeps_its_cues(
+    opening: str,
+) -> None:
+    text = f"under section 7 ({opening} if it applies)"
+    assert cues(text, CITATION) == cues(text)
+    assert "if" in [item[2] for item in cues(text, CITATION)]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "See paragraph 5 (average income. The amount is nil if absent.) End.",
+        "See paragraph 5 (average income; The amount is nil if absent.) End.",
+        "See paragraph 5 (average income. (1) The amount is nil if absent) End.",
+        "See paragraph 5 (" + "q" * 301 + " if absent) End.",
+    ],
+)
+def test_a_parenthesis_left_open_keeps_its_cues(text: str) -> None:
+    assert cues(text, CITATION) == cues(text)
+    assert "if" in [item[2] for item in cues(text, CITATION)]
 
 
 def test_title_that_opens_with_when_is_a_title() -> None:
@@ -374,6 +461,25 @@ def test_condition_cue_scope_restores_and_nests() -> None:
             assert sc._CONDITION_CUE_CITATION_PATH.get() == "de/statute/estg/32a"
         assert sc._CONDITION_CUE_CITATION_PATH.get() == CITATION
     assert sc._CONDITION_CUE_CITATION_PATH.get() == ""
+
+
+def test_the_analysis_reads_every_cue_in_the_scope_of_its_citation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scopes: list[str] = []
+    matcher = sc._source_exception_or_applicability_matches
+
+    def recording_matcher(*args: object, **kwargs: object) -> object:
+        scopes.append(sc._CONDITION_CUE_CITATION_PATH.get())
+        return matcher(*args, **kwargs)
+
+    monkeypatch.setattr(
+        sc, "_source_exception_or_applicability_matches", recording_matcher
+    )
+    analyze(SIX_CASES)
+
+    assert scopes
+    assert set(scopes) == {CITATION}
 
 
 def test_exception_branches_read_the_citation_they_are_given() -> None:
@@ -536,7 +642,9 @@ LIMB_C_PAIR = case(
     "both_routes_without_alternative",
     relevant_person_is_entitled_to_alternative_maximum_reduction_because_of_resident_income=False,
 )
-FALSE_DEMANDS = (
+# What the gate quoted before the three fixes, each anchored on the slash of the
+# rate, the verb "falls" or a word inside another provision's title.
+MISREAD_ANCHORS = (
     "formula clause 12",
     "subject to immigration control",
     "the day falls within",
@@ -546,15 +654,17 @@ FALSE_DEMANDS = (
 )
 
 
-def analyze(cases: tuple[dict[str, object], ...]) -> list[str]:
+def analyze(
+    cases: tuple[dict[str, object], ...], module: str = PARAGRAPH_LIMBS
+) -> list[str]:
     bindings = vp.collect_artifact_numeric_bindings(
-        PARAGRAPH_LIMBS,
+        module,
         extract_named_scalars=vp.extract_named_scalar_occurrences,
         imported_symbol_contents=(),
     )
     profile = vp._numeric_profile_for_citation_path(CITATION)
     result = sc.analyze_complete_source_unit(
-        PARAGRAPH_LIMBS,
+        module,
         REGULATION_14,
         corpus_citation_path=CITATION,
         test_cases=list(cases),
@@ -592,7 +702,7 @@ def test_a_model_of_each_limb_clears_the_gate() -> None:
         ),
     ],
 )
-def test_the_gate_still_demands_the_real_conditions(
+def test_the_gate_still_demands_the_conditions_its_cues_read(
     cases: tuple[dict[str, object], ...], demanded: list[str]
 ) -> None:
     issues = analyze(cases)
@@ -601,6 +711,32 @@ def test_the_gate_still_demands_the_real_conditions(
     missing = issues[0].split("missing:", 1)[1].split("The evaluator", 1)[0]
     for condition in demanded:
         assert condition in missing
-    assert missing.count("uk/regulation/ssi/2012/319/14 [source unit]") == len(demanded)
-    for false_demand in FALSE_DEMANDS:
-        assert false_demand not in issues[0]
+    for anchor in MISREAD_ANCHORS:
+        assert anchor not in issues[0]
+
+
+def test_known_gap_limbs_with_no_cue_of_their_own() -> None:
+    # No cue reads "is not a person to whom", "does not include" or "where".
+    # Regulation 14(3)(b) carried a demand only through "subject to" in the title
+    # of regulation 19, (7)(a) only through "falls", and (7)(b) only through "does
+    # not apply" in the title of regulation 57, so dropping (3)(b) passes the gate.
+    without_paragraph_3_b = PARAGRAPH_LIMBS
+    for limb in (
+        "and not regulation_15_applies",
+        "and not regulation_16_applies",
+        "and not regulation_19_applies",
+    ):
+        assert limb in without_paragraph_3_b
+        without_paragraph_3_b = without_paragraph_3_b.replace(limb, "")
+    cases_without_paragraph_3_b = tuple(
+        {
+            **test_case,
+            "output": {
+                **test_case["output"],
+                f"{MODULE}#regulation_14_common_conditions_satisfied": "holds",
+            },
+        }
+        for test_case in (*SIX_CASES, LIMB_B_PAIR, LIMB_C_PAIR)
+    )
+
+    assert analyze(cases_without_paragraph_3_b, without_paragraph_3_b) == []

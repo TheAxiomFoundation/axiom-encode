@@ -539,7 +539,7 @@ _SLASH_CONJUNCTION = re.compile(r"\b(?:and\s*/\s*or|und\s*/\s*oder)\b", re.IGNOR
 # nothing, and its whole number, numerator and denominator state no amounts of
 # their own.
 _DIGIT_MIXED_PERCENTAGE = re.compile(
-    r"(?<![\d/.,])\d+[^\S\r\n]+\d+/\d+(?=\s*(?:%|per\s*cent\b|percent\b))",
+    r"(?<![\d/.,])\d+[^\S\r\n]+\d+/\d+(?=\s*(?:%|per\s*cent\b))",
     flags=re.IGNORECASE,
 )
 _DIGIT_MIXED_NUMERAL = re.compile(
@@ -5173,7 +5173,9 @@ def source_states_explicit_computation(
         )
     )
     return bool(
-        _has_substantive_arithmetic_expression(computation_text)
+        _has_substantive_arithmetic_expression(
+            _without_digit_mixed_percentage_slashes(computation_text)
+        )
         or _source_imperative_arithmetic_operations(computation_text)
         or _COMPUTATION_LANGUAGE.search(computation_text)
         or _EXCESS_BOUND_TAX_RATE_LANGUAGE.search(computation_text)
@@ -32510,24 +32512,21 @@ def _source_exception_or_applicability_matches(
     )
 
 
-# The corpora whose text can be German, the only language in which "falls" joins
-# a condition to a rule.
-_GERMAN_LANGUAGE_CORPUS_NAMESPACES = frozenset({"at", "ch", "de", "li"})
+def _condition_cues_read_uk_text() -> bool:
+    """Whether the condition-cue reader sees text from a UK corpus."""
+
+    namespace = _CONDITION_CUE_CITATION_PATH.get().split("/", 1)[0]
+    return namespace == "uk" or namespace.startswith("uk-")
 
 
 def _is_english_verb_falls(match: re.Match[str]) -> bool:
-    """Exclude the verb in ``the day falls within a week``.
+    """Exclude the verb in ``the day falls within a week`` from a UK corpus.
 
-    Text with no citation path keeps the cue: nothing says its language.
+    "falls" joins a condition to a rule only in German. Other corpora keep the
+    cue, and so does text with no citation path, since nothing says its language.
     """
 
-    if match.group(0).lower() != "falls":
-        return False
-    citation_path = _CONDITION_CUE_CITATION_PATH.get()
-    return (
-        bool(citation_path)
-        and citation_path.split("/", 1)[0] not in _GERMAN_LANGUAGE_CORPUS_NAMESPACES
-    )
+    return match.group(0).lower() == "falls" and _condition_cues_read_uk_text()
 
 
 @functools.lru_cache(maxsize=4096)
@@ -32561,8 +32560,7 @@ def _is_uk_reference_title_cue(source_text: str, match: re.Match[str]) -> bool:
     provision that cites it.
     """
 
-    namespace = _CONDITION_CUE_CITATION_PATH.get().split("/", 1)[0]
-    if namespace != "uk" and not namespace.startswith("uk-"):
+    if not _condition_cues_read_uk_text():
         return False
     return any(
         start < match.start() and match.end() < end
