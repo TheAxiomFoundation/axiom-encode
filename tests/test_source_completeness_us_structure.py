@@ -437,6 +437,11 @@ def test_us_citation_list_counts_only_when_nothing_qualifies_it():
         "\n§ 273.9",
         "\n: of 7 CFR 273.9",
         "\nes/statute/x",
+        "\nNext line",
+        "\nNote: only for aliens",
+        "\nExcluding 7 CFR 273.9",
+        "\n[of 7 CFR 273.9]",
+        "\n* of 7 CFR 273.9",
     ):
         assert _listed(f"7 CFR 273.4(a)(1) and (c)(1){tail}") == {("a", "1")}, tail
     assert _listed(
@@ -448,10 +453,11 @@ def test_us_citation_list_counts_only_when_nothing_qualifies_it():
         "",
         ".",
         "; 7 CFR 273.9",
-        "\nNext line",
         "\n7 CFR 273.9",
         "\nus/regulation/7/273/9",
         "\nus-co/regulation/1/2",
+        "\nUS/regulation/7/273/9",
+        "\n\n",
         " of this section",
     ):
         assert _listed(f"7 CFR 273.4(a)(1) and (c)(1){tail}") == {

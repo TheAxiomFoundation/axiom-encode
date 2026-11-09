@@ -6963,17 +6963,13 @@ _US_DESIGNATION_LIST_CONTINUATION = re.compile(
 # followed by another citation of the same unit. Anything else (`of 7 CFR
 # 273.9`, `in 7 CFR 273.9`, `under ...`, `as defined in ...`, `, 7 CFR
 # 273.9`, `(relating to ...) of ...`, `are not implemented`) may qualify the
-# listed items, so the list is not read. A line break does not end the
-# citation when the next line goes on in lowercase prose, a qualifier word in
-# any case (`Of`, `In`), a comma, a parenthesis, a dash or a quote, so a
-# qualifier wrapped onto the next line (`(2)\nof 7 CFR 273.9`) still stops
-# the list; a U.S. corpus path (`us/...`, `us-co/...`) or a line that starts
-# with another citation (`7 CFR 273.9`) starts a new citation.
+# listed items, so the list is not read. A line break ends the citation only
+# when the rest is blank or the next line starts a new citation: a title
+# number (`7 CFR 273.9`), a U.S. corpus path (`us/...`, `us-co/...`) or `;`.
+# Any other next line (`of 7 CFR 273.9`, `Note: only for aliens`, `Excluding
+# ...`) may qualify the listed items, so the list is not read.
 _US_DESIGNATION_LIST_TERMINAL = re.compile(
-    r"[ \t]*(?:$|[;.]|\r?\n(?!\s*(?:[,:(§\-–—\"'“‘]|"
-    r"(?:of|in|under|as|for|by|from|with|except|unless|subject|relating|"
-    r"other|are|is|see|which|including|that|where|when|if)\b|"
-    r"(?!us(?:-[a-z0-9]+)?/)(?-i:[a-z]))))|"
+    r"[ \t]*(?:$|[;.]|\r?\n(?=\s*(?:$|;|\d|us(?:-[a-z0-9]+)?/)))|"
     r"\s+of\s+this\s+(?:section|subsection|paragraph|subparagraph|clause|"
     r"subclause|part|subpart|chapter|subchapter|title|rule|regulation)\b",
     flags=re.IGNORECASE,
