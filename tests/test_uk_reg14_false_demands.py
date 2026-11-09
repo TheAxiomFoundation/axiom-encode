@@ -16,8 +16,8 @@ reduction schemes across the UK repeat the same wording.
 
 Invariants pinned here:
 
-* a digit mixed percentage yields one rate, (whole + numerator / denominator) /
-  100, and its parts yield nothing;
+* a digit mixed percentage of an amount yields one rate, (whole + numerator /
+  denominator) / 100, and its parts yield nothing;
 * its slash adds no division and no computation, and a real division in the same
   text still counts;
 * the collapse removes only occurrences nested in a mixed percentage;
@@ -27,11 +27,11 @@ Invariants pinned here:
   text, a parenthesis that opens with a limiting word, one that holds a sentence
   break, and every other corpus keep their cues;
 * the cue filters only remove: the filtered cues are a subset of the unfiltered
-  cues, and the difference is exactly the cues they target.
+  cues, and the difference holds only the cues they target.
 
 Known gap, pinned by test_known_gap_limbs_with_no_cue_of_their_own: regulation
-14(3)(b), (7)(a) and (7)(b) state conditions in wording no cue reads, so a model
-that drops one of them passes this gate.
+14(3)(b) states a condition in wording no cue reads, so a model that drops it
+passes this gate.
 """
 
 from __future__ import annotations
@@ -175,6 +175,17 @@ def test_digit_and_worded_mixed_percentages_agree(words: str, digits: str) -> No
     assert math.isclose(worded[0].value, digit[0].value)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "amount B is 2\n6/7 per cent of the difference",
+        "amount B is 2 6 / 7 per cent of the difference",
+    ],
+)
+def test_a_split_or_spaced_mixed_percentage_keeps_its_parts(text: str) -> None:
+    assert {2.0, 6.0} <= {item.value for item in occurrences(text)}
+
+
 def test_a_numeral_with_a_fraction_slash_has_no_parts() -> None:
     numeral = f"2 6{chr(0x2044)}7"
     text = f"amount B is {numeral} per cent of the excess"
@@ -213,6 +224,14 @@ def test_mixed_percentage_slash_is_no_division(
 
 
 @pytest.mark.parametrize(
+    "numeral",
+    ["2 6/7 %", "2 6/7 per  cent", "2 6/7 per\ncent", "2  6/7 per cent", "2\t6/7%"],
+)
+def test_a_mixed_percentage_may_space_its_marker(numeral: str) -> None:
+    assert "divide" not in sc._formula_operation_kinds(f"{numeral} of the difference")
+
+
+@pytest.mark.parametrize(
     "text",
     [
         "income / 2",
@@ -221,6 +240,12 @@ def test_mixed_percentage_slash_is_no_division(
         "the 2 6/7 ratio",
         "on 15 3/7 per person",
         "amount B is 1.5 3/4 per cent of the difference",
+        "amount B is 1.25 3/4 per cent of the difference",
+        "amount B is 3/4 1/2 per cent of the difference",
+        "amount B is 1,5 3/4 per cent of the difference",
+        "amount B is 2 6 / 7 per cent of the difference",
+        "amount B is 2\n6/7 per cent of the difference",
+        "amount B is 2 6/7 per centum of the difference",
     ],
 )
 def test_other_slashes_stay_divisions(text: str) -> None:
@@ -273,6 +298,14 @@ def test_the_english_verb_is_no_condition_in_a_uk_corpus(
 
 @pytest.mark.parametrize("citation", OTHER_ENGLISH_CORPORA)
 def test_other_english_corpora_keep_the_cue(citation: str) -> None:
+    assert [cue[2] for cue in cues(FALLS_CLAUSES[0], citation)] == ["falls"]
+
+
+@pytest.mark.parametrize(
+    "citation",
+    ("ukraine/law/1", "UK/regulation/ssi/2012/319/14", "uk_old/x/1", "gb/x/1"),
+)
+def test_a_namespace_that_only_resembles_uk_keeps_the_cue(citation: str) -> None:
     assert [cue[2] for cue in cues(FALLS_CLAUSES[0], citation)] == ["falls"]
 
 
@@ -726,11 +759,9 @@ def test_the_gate_still_demands_the_conditions_its_cues_read(
 
 
 def test_known_gap_limbs_with_no_cue_of_their_own() -> None:
-    # No cue reads "is not a person to whom", "does not include" or "where".
-    # Regulation 14(3)(b) carried a demand only through "subject to" in the title
-    # of regulation 19, (7)(a) only through "falls", and (7)(b) only through "does
-    # not apply" in the title of regulation 57, so dropping (3)(b) passes the gate.
-    # Issue 2153 tracks the cues that would read them.
+    # No cue reads "is not a person to whom", and regulation 14(3)(b) carried a
+    # demand only through "subject to" in the title of regulation 19, so dropping
+    # (3)(b) passes the gate. Issue 2153 tracks a cue for that wording.
     without_paragraph_3_b = PARAGRAPH_LIMBS
     for limb in (
         "and not regulation_15_applies",
