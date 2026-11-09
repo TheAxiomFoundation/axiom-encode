@@ -1,0 +1,104 @@
+1
+Subject to this Act, a tax, to be known as goods and services tax, shall be charged in accordance with the provisions of this Act at the rate of 15 % on the supply (but not including an exempt supply) in New Zealand of goods and services, on or after 1 October 1986, by a registered person in the course or furtherance of a taxable activity carried on by that person, by reference to the value of that supply.
+2
+For the purposes of this Act, goods and services shall be deemed to be supplied in New Zealand if the supplier is resident in New Zealand, and shall be deemed to be supplied outside New Zealand if the supplier is a non-resident .
+2B
+To the extent to which a supply of services consists of the facilitation of inbound tour operations, the supply is chargeable with tax under subsection (1), and section 11A does not apply to that part of the supply.
+2C
+Despite subsection (2B), the part of the supply that consists of the facilitation of inbound tour operations is charged at the rate of 0% if—
+a
+a registered person supplies the services in the period from 1 July 2007 to 30 June 2008 (the transitional period ); and
+b
+the consideration for the supply is an amount quantified—
+i
+on the basis of the person's gross margin attributable to the facilitation of inbound tour operations; or
+ii
+by other means that the Commissioner is able to verify.
+2D
+For the purposes of subsection (2C)﻿(b), the amount of the consideration must be—
+a
+calculated for each of the person's taxable periods that fall in the transitional period:
+b
+for any days in the person's taxable period that fall outside the transitional period, apportioned on a pro rata basis.
+2E
+If a registered person has supplied services in the transitional period by way of the facilitation of inbound tour operations and tax was paid under this section in relation to the services, the person is entitled to a refund of the amount of tax paid. They must apply for the refund within the period that starts on the date of Royal assent of the Taxation (Consequential Rate Alignment and Remedial Matters) Act 2009 and ends 6 months after that date.
+2F
+For the purposes of subsections (2B) and (2C), services that consist of the facilitation of inbound tour operations means the services that a registered person provides in packaging 1 or more domestic tourism products and services in New Zealand and selling them outside New Zealand to a non-resident person. The tourism products and services may include accommodation, meals, transport, and other activities.
+3
+Despite subsection (2), goods and services are treated as being supplied in New Zealand if the supplier is a non-resident and —
+a
+the goods are in New Zealand at the time of the supply and are not distantly taxable goods to which paragraph (ab) applies; or
+ab
+the goods are distantly taxable goods to which subsection (4E) does not apply; or
+b
+the services, other than listed services, are physically performed in New Zealand by a person who is in New Zealand at the time the services are performed; or
+c
+the services are remote services supplied to a person resident in New Zealand, other than services that are physically performed in New Zealand by a person who is in New Zealand at the time the services are performed; or
+d
+the services are listed services referred to in section 8C .
+4
+Despite subsection (3), if a supplier who is a non-resident supplies goods and services, to which subsection (3)﻿(a) or (b) would apply but for this subsection, to a registered person for the purposes of carrying on the registered person's taxable activity, the goods and services are treated as being supplied outside New Zealand unless the supplier chooses to treat the supply as made in New Zealand .
+4B
+Despite subsection (2), a supply of goods or services that is treated as not being made in New Zealand by subsections (4) , (4D), or (4E) is treated as being made in New Zealand if—
+a
+the goods or services are supplied by a non-resident to a resident; and
+b
+the recipient of the supply—
+i
+estimates at the time of acquisition that the percentage intended use of the goods or services is less than 95%; or
+ii
+determines at the end of an adjustment period that the percentage actual use of the goods or services is less than 95% ; and
+bb
+for a supply of goods,—
+i
+the goods are part of a consignment of goods having a value for the purposes of schedule 4 of the Customs and Excise Act 2018 that is less than or equal to the entry value threshold; and
+ii
+the recipient does not pay the amount of tax levied on the goods to the New Zealand Customs Service or to the supplier; and
+c
+the supply would be a taxable supply if made in New Zealand by a registered person in the course or furtherance of a taxable activity carried on by the registered person.
+4C
+An allocation of costs by a non-resident to a resident is treated as being a supply of services that satisfies section 8(4B)﻿(a) and (c) , and the amount provided to the non-resident by the resident under the allocation is treated as being the consideration for the supply.
+4D
+Despite subsection (3), if a non-resident supplier supplies remote services to which subsection (3)﻿(c) would apply but for this subsection to a registered person for the purposes of carrying on the registered person’s taxable activity, the services are treated as being supplied outside New Zealand unless the supplier chooses to treat the supply as made in New Zealand.
+4E
+Despite subsection (3), if a non-resident is the supplier of distantly taxable goods, to which subsection (3)﻿(ab) would apply but for this subsection, to a registered person for the purposes of carrying on the registered person’s taxable activity, the goods are treated as being supplied outside New Zealand, except if subsection (4F) applies to the supply.
+4F
+Subsection (4E) does not apply to treat goods as being supplied outside New Zealand if—
+a
+the non-resident supplier chooses that this subsection apply to the supply of the goods; and
+b
+at the time of the election, the non-resident supplier reasonably expects that more than 50% of the value of the supplies made by the non-resident supplier to persons in New Zealand during the period of 12 months from the election will be made to persons who are not registered persons; and
+c
+the value of the supply is less than or equal to $1,000.
+4G
+Despite subsections (4D) and (4E), if an election is made under section 19K(9) to provide taxable supply information for a supply in circumstances when the supply was incorrectly treated as being made in New Zealand when the supply should have been treated as being made outside New Zealand, the supply is treated as being made in New Zealand.
+5
+Subsections (3), (4), (4B), and (4D) do not apply to supplies of telecommunications services.
+6
+Despite subsection (2), telecommunications services are treated as being supplied in New Zealand if the supplier is a non-resident and a person, physically in New Zealand, initiates the supply from a telecommunications supplier, whether or not the person initiates the supply on behalf of another person.
+7
+Subsection (6) does not apply to—
+a
+supplies made between telecommunications suppliers:
+b
+inbound mobile roaming services supplied to a non-resident person.
+8
+Despite subsection (6) and section 8A , telecommunications services supplied by a non-resident to a registered person for the purposes of carrying on the registered person's taxable activity are treated as being supplied outside New Zealand unless the supplier and the recipient of the services agree that this subsection will not apply to the supply.
+8B
+Despite subsection (6) but subject to subsection (8), a supply of telecommunications services is treated as being supplied in New Zealand if—
+a
+the services are outbound mobile roaming services supplied by a non–resident; and
+b
+the recipient of the supply is outside New Zealand when the services are supplied.
+9
+For the purposes of subsection (6) and section 11AB , the person who initiates a supply of telecommunications services is the person who—
+a
+is identified by the supplier of the services as being—
+i
+the person who controls the commencement of the supply:
+ii
+the person who pays for the services:
+iii
+the person who contracts for the supply; and
+b
+if more than 1 person satisfies paragraph (a), is the person who appears highest on the list in that paragraph.

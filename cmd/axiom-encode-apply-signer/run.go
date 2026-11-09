@@ -25,6 +25,9 @@ type runOptions struct {
 	pythonRuntimeRoots []string
 	pythonImportRoots  []string
 	pythonPackageRoot  string
+	codexAuthPath      string
+	codexAuthOutbox    string
+	codexCLIConfigPath string
 	binding            contextBinding
 	command            []string
 }
@@ -229,6 +232,14 @@ func startSupervisor(options runOptions, supervisorSocket *os.File) (*exec.Cmd, 
 	}
 	if options.pythonPackageRoot != "" {
 		arguments = append(arguments, "--trusted-python-package-root", options.pythonPackageRoot)
+	}
+	if options.codexAuthPath != "" {
+		arguments = append(
+			arguments,
+			"--codex-subscription-auth", options.codexAuthPath,
+			"--codex-auth-outbox", options.codexAuthOutbox,
+			"--trusted-codex-cli-config", options.codexCLIConfigPath,
+		)
 	}
 	arguments = append(arguments, "--")
 	arguments = append(arguments, options.command...)

@@ -79,8 +79,13 @@ class TestPathInside:
 
 
 class TestPinnedCodexCLI:
-    def _archive(self, tmp_path: Path, binary: bytes) -> Path:
-        source = tmp_path / "package/vendor/aarch64-apple-darwin/bin/codex"
+    def _archive(
+        self,
+        tmp_path: Path,
+        binary: bytes,
+        member: str = "package/vendor/aarch64-apple-darwin/bin/codex",
+    ) -> Path:
+        source = tmp_path / member
         source.parent.mkdir(parents=True)
         source.write_bytes(binary)
         archive = tmp_path / "codex.tgz"
@@ -102,19 +107,44 @@ class TestPinnedCodexCLI:
             "e89718aa1969bfc4a471277bdc4679a3a3529293de0a309909822dfd67ddb77a"
         )
 
-    @pytest.mark.parametrize("machine", ["arm64", "aarch64"])
-    def test_installs_exact_hash_pinned_binary(self, tmp_path, monkeypatch, machine):
+    def test_reviewed_linux_x64_release_pin(self):
+        pin = provisioner._CODEX_CLI_PINS[("linux", "x64")]
+        assert provisioner._CODEX_CLI_VERSION == "0.159.0"
+        assert pin["url"] == (
+            "https://registry.npmjs.org/@openai/codex/-/codex-0.159.0-linux-x64.tgz"
+        )
+        assert pin["member"] == "package/vendor/x86_64-unknown-linux-musl/bin/codex"
+        assert pin["archive_sha256"] == (
+            "27a80e1904c7337fe65d94f881779ba7700f42a8a87f3d06352b543b0115df98"
+        )
+        assert pin["sha256"] == (
+            "d2752c52353401f7f6efbfcea68796f4f7a3d3e4769f5d1da53fa49d4856b72f"
+        )
+
+    @pytest.mark.parametrize(
+        ("platform_name", "machine", "pin_key"),
+        [
+            ("darwin", "arm64", ("darwin", "arm64")),
+            ("darwin", "aarch64", ("darwin", "arm64")),
+            ("linux", "x86_64", ("linux", "x64")),
+            ("linux", "amd64", ("linux", "x64")),
+        ],
+    )
+    def test_installs_exact_hash_pinned_binary(
+        self, tmp_path, monkeypatch, platform_name, machine, pin_key
+    ):
         binary = b"#!/bin/sh\necho codex-cli-test\n"
-        archive = self._archive(tmp_path, binary)
-        monkeypatch.setattr(provisioner.sys, "platform", "darwin")
+        pin = provisioner._CODEX_CLI_PINS[pin_key]
+        archive = self._archive(tmp_path, binary, pin["member"])
+        monkeypatch.setattr(provisioner.sys, "platform", platform_name)
         monkeypatch.setattr(provisioner.platform, "machine", lambda: machine)
         monkeypatch.setitem(
-            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            pin,
             "sha256",
             provisioner.hashlib.sha256(binary).hexdigest(),
         )
         monkeypatch.setitem(
-            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            pin,
             "archive_sha256",
             hashlib.sha256(archive.read_bytes()).hexdigest(),
         )
@@ -525,6 +555,18 @@ class TestTrustedGit:
             (["rev-parse", "--is-inside-work-tree"], None),
             (["rev-parse", "--show-toplevel"], None),
             (["rev-parse", "--verify", "HEAD^{commit}"], None),
+            (
+                ["rev-parse", "--verify", "--end-of-options", "HEAD^{commit}"],
+                None,
+            ),
+            (
+                ["rev-parse", "--verify", "--end-of-options", f"{head}^{{commit}}"],
+                None,
+            ),
+            (
+                ["rev-parse", "--verify", "--end-of-options", f"{head}^{{tree}}"],
+                None,
+            ),
             (["rev-parse", f"{head}^{{commit}}"], None),
             (["rev-parse", f"{head}^{{tree}}"], None),
             (["status", "--porcelain"], None),
@@ -570,6 +612,33 @@ class TestTrustedGit:
                     "-z",
                     "HEAD",
                     "HEAD",
+                ],
+                None,
+            ),
+            (
+                [
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--diff-filter=ACDMRT",
+                    "-z",
+                    "--end-of-options",
+                    "HEAD",
+                    "--",
+                ],
+                None,
+            ),
+            (
+                [
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--diff-filter=ACDMRT",
+                    "-z",
+                    "--end-of-options",
+                    head,
+                    head,
+                    "--",
                 ],
                 None,
             ),
@@ -629,6 +698,10 @@ class TestTrustedGit:
             ),
             (["ls-tree", "-r", "-z", "HEAD"], None),
             (["ls-tree", "-r", "-l", "-z", "--full-tree", head], None),
+            (["ls-tree", "-z", "--full-tree", "--", head, "a.txt"], None),
+            (["ls-tree", "-r", "-l", "-z", "--full-tree", "--", head], None),
+            (["ls-tree", "-z", "--", head, "a.txt"], None),
+            (["ls-tree", "-r", "-z", "--", head], None),
             (
                 [
                     "grep",
@@ -648,6 +721,8 @@ class TestTrustedGit:
             (["merge-base", "--is-ancestor", "HEAD", "HEAD"], None),
             (["rev-list", "--parents", "-n", "1", "HEAD"], None),
             (["show", "HEAD:a.txt"], None),
+            (["show", "--end-of-options", "HEAD:a.txt", "--"], None),
+            (["show", "--end-of-options", f"{head}:a.txt", "--"], None),
         )
         for command, command_input in allowed_commands:
             subprocess.run(
@@ -698,6 +773,16 @@ class TestTrustedGit:
                 "-z",
                 "HEAD",
             ],
+            [
+                "diff",
+                "--name-only",
+                "--no-renames",
+                "--diff-filter=ACDMRT",
+                "-z",
+                "--end-of-options",
+                head,
+                "--",
+            ],
         )
         for command in filtered_worktree_commands:
             refused_filter = subprocess.run(
@@ -710,6 +795,19 @@ class TestTrustedGit:
             assert refused_filter.returncode != 0
             assert "refused worktree filter for" in refused_filter.stderr
         assert not marker.exists()
+        guarded_worktree_diff = filtered_worktree_commands[-1]
+        for attribute in ("text eol=lf", "ident", "working-tree-encoding=UTF-16"):
+            (repository / ".gitattributes").write_text(f"*.txt {attribute}\n")
+            refused_attribute = subprocess.run(
+                [str(wrapper), "-C", str(repository), *guarded_worktree_diff],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=clean_environment,
+            )
+            assert refused_attribute.returncode == 126
+            assert "refused content-transforming attribute" in refused_attribute.stderr
+            assert not marker.exists()
         for driver in ("unspecified", "unset"):
             (repository / ".gitattributes").write_text(f"*.txt filter={driver}\n")
             subprocess.run(
@@ -811,14 +909,42 @@ class TestTrustedGit:
             ],
             ["rev-parse", f"{head}^{{blob}}"],
             ["rev-parse", f"{head}^{{tree}}", "--verify"],
+            ["rev-parse", "--end-of-options", "--verify", "HEAD^{commit}"],
+            ["rev-parse", "--verify", "--end-of-options", "HEAD^{tree}"],
             ["merge-base", "--octopus", "HEAD", "HEAD"],
             ["remote", "add", "blocked", "https://example.invalid/repo.git"],
             ["remote", "update"],
             ["rev-list", "--all"],
             ["rev-parse", "--git-dir"],
             ["show", "--stat", "HEAD"],
+            ["show", "--end-of-options", "HEAD:a.txt"],
+            ["show", "--end-of-options", "HEAD:../a.txt", "--"],
+            ["ls-tree", "-z", "--full-tree", "--", "HEAD", "a.txt"],
+            ["ls-tree", "-z", "--full-tree", "--", head, "../a.txt"],
+            ["ls-tree", "-r", "-z", "--", head, "a.txt"],
             ["status", "--short"],
         )
+        for unsafe_ref in (
+            "--output=option-ref-output",
+            "-p",
+            "--ext-diff",
+            "--no-index",
+        ):
+            refused_arguments += (
+                ["rev-parse", "--verify", "--end-of-options", unsafe_ref],
+                [
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--diff-filter=ACDMRT",
+                    "-z",
+                    "--end-of-options",
+                    unsafe_ref,
+                    "--",
+                ],
+                ["show", "--end-of-options", f"{unsafe_ref}:a.txt", "--"],
+                ["ls-tree", "-z", "--full-tree", "--", unsafe_ref, "a.txt"],
+            )
         for command in refused_arguments:
             refused = subprocess.run(
                 [str(wrapper), "-C", str(repository), *command],
@@ -2100,6 +2226,102 @@ class TestEncoderSnapshotProvisioning:
         staging = tmp_path / "staging"
         staging.mkdir()
         with pytest.raises(SystemExit, match="after the latest version bump"):
+            self._export(repo, head, staging)
+
+    def _commit_record(self, repo: Path, relative: str, raw: bytes) -> str:
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+        path.chmod(0o644)
+        self._git(repo, "add", ".")
+        self._git(repo, "commit", "-q", "-m", "admit reviewed head", "--no-verify")
+        return self._git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    def test_exports_committed_reviewed_rulespec_records_verbatim(self, tmp_path):
+        from axiom_encode.prepare_signed_backfill import (
+            load_reviewed_rulespec_records,
+            reviewed_rulespec_refs_from_records,
+        )
+
+        repo = tmp_path / "axiom-encode"
+        self._init_encoder_repo(repo)
+        sha = "a" * 40
+        payload = {
+            "base_sha": None,
+            "binding": None,
+            "country": "us",
+            "declared": None,
+            "pr_base_branch": None,
+            "purpose": "Test admission.",
+            "rulespec_pr": None,
+            "rulespec_ref": sha,
+            "schema": "axiom-encode/reviewed-rulespec-admission/v1",
+        }
+        raw = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode()
+        relative = f"data/reviewed-rulespec-refs/us/{sha}.json"
+        # Admission records are data: no version bump is needed to provision.
+        head = self._commit_record(repo, relative, raw)
+        # A dirty worktree record must not reach the runtime.
+        (repo / "data/reviewed-rulespec-refs/us" / f"{'b' * 40}.json").write_bytes(
+            raw.replace(sha.encode(), b"b" * 40)
+        )
+        staging = tmp_path / "staging"
+        staging.mkdir()
+
+        self._export(repo, head, staging)
+
+        exported = staging / "reviewed-rulespec-refs"
+        assert sorted(
+            path.relative_to(exported).as_posix() for path in exported.rglob("*")
+        ) == ["us", f"us/{sha}.json"]
+        record = exported / "us" / f"{sha}.json"
+        assert record.read_bytes() == raw
+        assert stat.S_IMODE(record.stat().st_mode) == 0o644
+        assert stat.S_IMODE((exported / "us").stat().st_mode) == 0o755
+        assert reviewed_rulespec_refs_from_records(
+            load_reviewed_rulespec_records(exported)
+        ) == {("us", sha)}
+
+    def test_commit_without_records_exports_empty_record_root(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        head = self._init_encoder_repo(repo)
+        staging = tmp_path / "staging"
+        staging.mkdir()
+
+        self._export(repo, head, staging)
+
+        exported = staging / "reviewed-rulespec-refs"
+        assert exported.is_dir() and not any(exported.iterdir())
+
+    def test_refuses_executable_reviewed_rulespec_record(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        self._init_encoder_repo(repo)
+        record = repo / "data/reviewed-rulespec-refs/us" / f"{'a' * 40}.json"
+        record.parent.mkdir(parents=True)
+        record.write_text("{}\n")
+        record.chmod(0o755)
+        self._git(repo, "add", ".")
+        self._git(repo, "commit", "-q", "-m", "exec record", "--no-verify")
+        head = self._git(repo, "rev-parse", "HEAD").stdout.strip()
+        staging = tmp_path / "staging"
+        staging.mkdir()
+
+        with pytest.raises(SystemExit, match="unsupported reviewed RuleSpec record"):
+            self._export(repo, head, staging)
+
+    def test_refuses_symlinked_reviewed_rulespec_record(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        self._init_encoder_repo(repo)
+        directory = repo / "data/reviewed-rulespec-refs/us"
+        directory.mkdir(parents=True)
+        (directory / f"{'a' * 40}.json").symlink_to("/etc/passwd")
+        self._git(repo, "add", ".")
+        self._git(repo, "commit", "-q", "-m", "symlink record", "--no-verify")
+        head = self._git(repo, "rev-parse", "HEAD").stdout.strip()
+        staging = tmp_path / "staging"
+        staging.mkdir()
+
+        with pytest.raises(SystemExit, match="unsupported reviewed RuleSpec record"):
             self._export(repo, head, staging)
 
     def test_rejects_shallow_history(self, tmp_path):
