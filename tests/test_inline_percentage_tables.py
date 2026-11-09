@@ -77,3 +77,67 @@ def test_second_inline_percentage_table_after_prose_has_own_context():
     assert numeric_value_is_grounded(0.0765, tokens)
     assert numeric_value_is_grounded(0.0865, tokens)
     assert not numeric_value_is_grounded(0.01, tokens)
+
+
+def test_blank_stub_header_keeps_bordered_table_context():
+    source = "| | Percentage | | --- | --- |\n| 1 | 7.65 |"
+    tokens = _tokenize_numeric_occurrences_from_text(source, profile="en-US").grounding
+    assert numeric_value_is_grounded(0.0765, tokens)
+    assert not numeric_value_is_grounded(0.01, tokens)
+
+
+@pytest.mark.parametrize("extra", ["7.65", "(a)", "3"])
+def test_inline_row_wider_than_header_is_not_a_rate_row(extra):
+    source = f"| Children | Percentage | | --- | --- | | 1 | 3 | {extra} |"
+    tokens = _tokenize_numeric_occurrences_from_text(source, profile="en-US").grounding
+    assert not numeric_value_is_grounded(0.03, tokens)
+    assert not numeric_value_is_grounded(0.0765, tokens)
+
+
+@pytest.mark.parametrize(
+    ("source", "grounded", "ungrounded"),
+    [
+        # Inline table, then a bordered continuation row of a different width.
+        (
+            "| C | Percentage | | --- | --- | | 1 | 7.65 |\n| 2 | 3 | 34 |",
+            (0.0765,),
+            (0.34, 0.03, 0.02),
+        ),
+        # Inline table, then a separate bordered table on following lines.
+        (
+            "| A | B | | --- | --- | | 1 | 2 |\n| C | Percentage |\n"
+            "| --- | --- |\n| 1 | 7.65 |",
+            (0.0765,),
+            (0.01, 0.02),
+        ),
+        # Bordered table, then an inline table in the same pipe block.
+        (
+            "| C | Percentage |\n| --- | --- |\n| 1 | 7.65 |\n"
+            "| X | Percentage | | --- | --- | | 2 | 8.65 |",
+            (0.0765, 0.0865),
+            (0.01, 0.02),
+        ),
+        # Two inline tables on consecutive lines.
+        (
+            "| C | Percentage | | --- | --- | | 1 | 7.65 |\n"
+            "| C | Percentage | | --- | --- | | 2 | 8.65 |",
+            (0.0765, 0.0865),
+            (0.01, 0.02),
+        ),
+        # A separator row after the inline table is not a value row.
+        (
+            "| C | Percentage | | --- | --- | | 1 | 7.65 |\n| --- | --- |\n"
+            "| 2 | 8.65 |",
+            (0.0765, 0.0865),
+            (0.02,),
+        ),
+    ],
+)
+def test_inline_table_next_to_multiline_tables(source, grounded, ungrounded):
+    tokens = _tokenize_numeric_occurrences_from_text(source, profile="en-US").grounding
+    for value in grounded:
+        assert numeric_value_is_grounded(value, tokens), value
+    for value in ungrounded:
+        assert not numeric_value_is_grounded(value, tokens), value
+    for token in tokens:
+        assert source[token.start : token.end] == token.raw

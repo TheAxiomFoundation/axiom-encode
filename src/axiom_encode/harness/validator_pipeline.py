@@ -14918,7 +14918,9 @@ def _inline_pipe_table_rate_cell_spans(
             header_end -= 1
         if not header_end or line[header_end - 1] != "|":
             continue
-        recognized = True
+        # Only a validated header marks the line as an inline table. A header
+        # that fails validation (for example a blank stub-column cell, which a
+        # flattened row boundary makes ambiguous) keeps the bordered-table path.
         continuation_columns = frozenset()
         continuation_width = None
         header_pipes = [
@@ -14980,7 +14982,12 @@ def _inline_pipe_table_rate_cell_spans(
                 break
             if tail < len(line) and line[tail] != "|":
                 next_pipe = line.find("|", tail)
-                if next_pipe >= 0 and not re.search(r"[.!?()]", line[tail:next_pipe]):
+                # Prose between tables has words and punctuation. A decimal or
+                # "(a)" alone is an extra cell, which makes the row too wide.
+                gap = line[tail:next_pipe]
+                if next_pipe >= 0 and not (
+                    re.search(r"[.!?()]", gap) and re.search(r"[^\W\d_]{2,}", gap)
+                ):
                     break
             rate_cells.extend(row_cells[column] for column in sorted(columns))
             previous_table_end = cursor
