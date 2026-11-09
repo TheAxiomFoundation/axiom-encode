@@ -112,6 +112,9 @@ class FakeEngine:
             return all(values) if kind == "and" else any(values)
         if kind == "not":
             return not self._value(program, node["item"], inputs)
+        if kind in ("min", "max"):
+            values = [self._value(program, item, inputs) for item in node["items"]]
+            return min(values) if kind == "min" else max(values)
         if kind == "add":
             return sum(
                 (self._value(program, item, inputs) for item in node["items"]),
@@ -152,6 +155,14 @@ class FakeEngine:
                 holds = self._value(
                     program, rule["expr"], by_entity[query["entity_id"]]
                 )
+                if isinstance(holds, Decimal):
+                    outputs[name] = {
+                        "kind": "scalar",
+                        "dtype": rule["dtype"],
+                        "unit": rule.get("unit"),
+                        "value": {"kind": "decimal", "value": str(holds)},
+                    }
+                    continue
                 outputs[name] = {
                     "kind": "judgment",
                     "outcome": "holds" if holds else "not_holds",

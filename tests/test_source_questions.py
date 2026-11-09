@@ -665,7 +665,9 @@ def test_module_discovery_skips_question_files(tmp_path):
     assert [path.relative_to(checkout).as_posix() for path in found] == [
         "us/policies/demo-agency/work-requirement-faq.yaml",
         "us/regulations/99-cfr/1/2.yaml",
+        "us/regulations/99-cfr/1/3.yaml",
         "us/statutes/999/1/a.yaml",
+        "us/statutes/999/2/a.yaml",
     ]
     assert cli._proof_atom_kind_normalization_module_paths(checkout) == found
     # Anything else that is YAML outside the module roots is still refused.

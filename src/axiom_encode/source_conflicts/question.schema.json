@@ -29,7 +29,8 @@
       "items": {"$ref": "link.schema.json#/$defs/constraint"}
     },
     "answers": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/answer"}},
-    "sampling": {"$ref": "link.schema.json#/properties/sampling"}
+    "sampling": {"$ref": "link.schema.json#/properties/sampling"},
+    "tolerance": {"description": "For pairs of answers with combine value: the largest absolute difference that is not a conflict. Default 0.", "$ref": "link.schema.json#/$defs/number"}
   },
   "$defs": {
     "fact": {
@@ -59,7 +60,7 @@
         "effective_to": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
         "module": {"description": "Module path relative to the RuleSpec checkout root.", "type": "string", "pattern": "\\.yaml$"},
         "outputs": {"$ref": "link.schema.json#/$defs/names"},
-        "combine": {"enum": ["any", "all"]},
+        "combine": {"enum": ["any", "all", "value"]},
         "inputs": {
           "description": "Canonical fact -> request name of this module's input.",
           "type": "object",

@@ -24,7 +24,7 @@ import yaml
 
 from .artifact import Artifact, ArtifactError
 from .gates import LinkGateError, check_link, side_inputs
-from .link import SIDES, Link, canonical_decimal
+from .link import SIDES, VALUE, Link, canonical_decimal
 from .values import (
     SAMPLING_METHOD,
     combination,
@@ -94,6 +94,20 @@ def _truth(output: Mapping[str, Any], name: str) -> bool:
         return value["value"]
     raise CompareError(
         f"the engine result of '{name}' is not a yes/no value: "
+        f"{json.dumps(output, sort_keys=True)[:300]}"
+    )
+
+
+def _number(output: Mapping[str, Any], name: str) -> Decimal:
+    value = output.get("value")
+    inner = value.get("value") if isinstance(value, dict) else None
+    if isinstance(inner, (int, str)) and not isinstance(inner, bool):
+        try:
+            return Decimal(str(inner))
+        except ArithmeticError:
+            pass
+    raise CompareError(
+        f"the engine result of '{name}' is not a number: "
         f"{json.dumps(output, sort_keys=True)[:300]}"
     )
 
@@ -333,7 +347,8 @@ def compare(
     for side in SIDES:
         spec, artifact = link.sides[side], artifacts[side]
         queried = [*spec.outputs, *spec.guards]
-        side_rows: list[dict[str, bool]] = []
+        numbers = set(spec.outputs) if spec.combine == VALUE else set()
+        side_rows: list[dict[str, Any]] = []
         for offset in range(0, len(cases), BATCH):
             inputs, queries = [], []
             for position in range(offset, min(offset + BATCH, len(cases))):
@@ -394,7 +409,12 @@ def compare(
                 outputs = result.get("outputs") or {}
                 try:
                     side_rows.append(
-                        {name: _truth(outputs[name], name) for name in queried}
+                        {
+                            name: (_number if name in numbers else _truth)(
+                                outputs[name], name
+                            )
+                            for name in queried
+                        }
                     )
                 except KeyError as error:
                     raise CompareError(
@@ -402,8 +422,12 @@ def compare(
                     ) from error
         rows[side] = side_rows
 
-    def decide(side: str, row: Mapping[str, bool]) -> tuple[bool, list[str]]:
+    value_mode = all(link.sides[side].combine == VALUE for side in SIDES)
+
+    def decide(side: str, row: Mapping[str, Any]) -> tuple[Any, list[str]]:
         spec = link.sides[side]
+        if spec.combine == VALUE:
+            return row[spec.outputs[0]], list(spec.outputs)
         truths = [row[name] for name in spec.outputs]
         if spec.combine == "any":
             result = any(truths)
@@ -445,7 +469,13 @@ def compare(
             for guard in link.sides[side].guards
         )
         decided = {side: decide(side, rows[side][position]) for side in SIDES}
-        differs = guarded and decided["a"][0] != decided["b"][0]
+        if value_mode:
+            difference = decided["b"][0] - decided["a"][0]
+            differs = guarded and abs(difference) > link.tolerance
+            directions = ("lower", "higher") if difference > 0 else ("higher", "lower")
+        else:
+            differs = guarded and decided["a"][0] != decided["b"][0]
+            directions = (decided["a"][0], decided["b"][0])
         if broken[position]:
             removed += 1
             if differs:
@@ -461,8 +491,7 @@ def compare(
             continue
         differ += 1
         key = (
-            decided["a"][0],
-            decided["b"][0],
+            *directions,
             tuple(decided["a"][1]),
             tuple(decided["b"][1]),
             tuple((name, one_side_value(name, case[name])) for name in one_side_facts),
@@ -481,6 +510,11 @@ def compare(
                 "values": {name: [] for name in fact_names},
             }
         group["count"] += 1
+        if value_mode:
+            group["differences"] = (
+                min(group.get("differences", (difference,))[0], difference),
+                max(group.get("differences", (difference,))[-1], difference),
+            )
         for name in fact_names:
             if case[name] not in group["values"][name]:
                 group["values"][name].append(case[name])
@@ -506,6 +540,10 @@ def compare(
     ordered = sorted(
         groups.items(), key=lambda item: (item[1]["weight"], item[1]["position"])
     )
+
+    def shown(value: Any) -> Any:
+        return canonical_decimal(value) if isinstance(value, Decimal) else value
+
     witness_groups = []
     deciding_all: dict[str, dict[str, None]] = {side: {} for side in SIDES}
     for key, group in ordered:
@@ -528,13 +566,13 @@ def compare(
                 "facts": cases[position],
                 **{
                     side: {
-                        "result": decided_result,
+                        "result": shown(decide(side, rows[side][position])[0]),
                         "outputs": {
-                            name: rows[side][position][name]
+                            name: shown(rows[side][position][name])
                             for name in link.sides[side].outputs
                         },
                     }
-                    for side, decided_result in (("a", key[0]), ("b", key[1]))
+                    for side in SIDES
                 },
             },
             "fact_values": {
@@ -542,6 +580,14 @@ def compare(
                 for name, values in zip(fact_names, value_lists)
             },
         }
+        if value_mode:
+            a_value, b_value = (decide(side, rows[side][position])[0] for side in SIDES)
+            entry["witness"]["difference"] = canonical_decimal(b_value - a_value)
+            low, high = group["differences"]
+            entry["difference"] = {
+                "min": canonical_decimal(low),
+                "max": canonical_decimal(high),
+            }
         witness_groups.append(entry)
         for side, names in (("a", key[2]), ("b", key[3])):
             deciding_all[side].update(dict.fromkeys(names))
@@ -573,7 +619,7 @@ def compare(
         )
         if note
     ]
-    return {
+    record = {
         "format": RECORD_FORMAT,
         "id": link.id,
         "review_state": "unreviewed",
@@ -623,6 +669,16 @@ def compare(
         "warnings": warnings,
         "witness_groups": witness_groups,
     }
+    if value_mode:
+        # A yes/no record has no such key, so its bytes are unchanged.
+        record["comparison"] = {
+            "kind": "value",
+            "tolerance": canonical_decimal(link.tolerance),
+            "unit": (artifacts["a"].derived(link.sides["a"].outputs[0]) or {}).get(
+                "unit"
+            ),
+        }
+    return record
 
 
 def render_record(record: Mapping[str, Any]) -> str:

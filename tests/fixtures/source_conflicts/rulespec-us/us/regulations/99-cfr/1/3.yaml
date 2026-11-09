@@ -1,0 +1,43 @@
+format: rulespec/v1
+module:
+  summary: |-
+    Fixture regulation for the source-conflict compare step, with an amount.
+    The monthly income threshold is the applicable minimum wage multiplied by
+    80 hours; a State that elects it uses its own minimum wage when higher.
+rules:
+  - name: hours_for_threshold
+    kind: parameter
+    dtype: Count
+    source: Fixture regulation 3 (a)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us/regulation/99/1/3
+              excerpt: "multiplied by 80 hours"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          80
+
+  - name: income_threshold_for_month
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    unit: USD
+    source: Fixture regulation 3 (a), (b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/regulation/99/1/3
+              excerpt: "a State may use its own minimum wage when it is higher"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if state_elects_own_minimum_wage: max(federal_wage_rate, state_wage_rate) * hours_for_threshold else: federal_wage_rate * hours_for_threshold

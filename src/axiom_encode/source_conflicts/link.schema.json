@@ -58,6 +58,7 @@
         "b": {"$ref": "#/$defs/names"}
       }
     },
+    "tolerance": {"description": "Only with combine value: two numbers differ when their absolute difference is larger than this. Default 0 (exact).", "$ref": "#/$defs/number"},
     "sampling": {
       "type": "object",
       "additionalProperties": false,
@@ -80,7 +81,7 @@
         "label": {"type": "string", "minLength": 1},
         "module": {"description": "Module path relative to the RuleSpec checkout root.", "type": "string", "pattern": "\\.yaml$"},
         "outputs": {"description": "Rule ids that decide the question on this side.", "$ref": "#/$defs/names"},
-        "combine": {"description": "any: the side says yes when one output holds. all: when every output holds.", "enum": ["any", "all"]},
+        "combine": {"description": "any: the side says yes when one output holds. all: when every output holds. value: the side gives the number of its one output rule; both sides must then use value.", "enum": ["any", "all", "value"]},
         "note": {"type": "string", "minLength": 1}
       }
     },

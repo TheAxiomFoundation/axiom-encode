@@ -35,6 +35,7 @@ from .link import (
     _ID,
     KINDS,
     LINK_FORMAT,
+    VALUE,
     Link,
     LinkError,
     _keys,
@@ -42,6 +43,7 @@ from .link import (
     _text,
     parse_link,
     read_document,
+    to_decimal,
 )
 
 QUESTION_FORMAT = "axiom-source-question/v1"
@@ -69,6 +71,7 @@ _TOP_KEYS = {
     "constraints": False,
     "answers": True,
     "sampling": False,
+    "tolerance": False,
 }
 _FACT_KEYS = {
     "kind": True,
@@ -330,6 +333,11 @@ def _pair_document(
         document["guards"] = guards
     if "sampling" in raw:
         document["sampling"] = raw["sampling"]
+    if "tolerance" in raw and all(
+        encoding["side"].get("combine") == VALUE for encoding in sides.values()
+    ):
+        # The tolerance is for pairs of numbers; a yes/no pair does not take it.
+        document["tolerance"] = raw["tolerance"]
     return document, tuple(dropped)
 
 
@@ -349,6 +357,10 @@ def parse_question(document: object) -> Question:
             "'us:medicaid/community-engagement-met-for-month'"
         )
     _text(raw.get("question"), "question", problems)
+    if "tolerance" in raw:
+        tolerance = to_decimal(raw["tolerance"])
+        if tolerance is None or tolerance < 0:
+            problems.append("tolerance must be a number that is not negative")
 
     raw_facts = raw.get("facts")
     if not isinstance(raw_facts, dict) or not raw_facts:
@@ -580,6 +592,11 @@ def compare_question(
                         "direction": group["direction"],
                         "count": group["count"],
                         "conditions": group["conditions"],
+                        **(
+                            {"difference": group["difference"]}
+                            if "difference" in group
+                            else {}
+                        ),
                     }
                     for group in record["witness_groups"]
                 ],

@@ -1,0 +1,43 @@
+format: rulespec/v1
+module:
+  summary: |-
+    Fixture statute for the source-conflict compare step, with an amount. The
+    monthly income threshold is the federal minimum wage multiplied by 80
+    hours.
+rules:
+  - name: threshold_hours
+    kind: parameter
+    dtype: Count
+    source: Fixture statute 2 (a)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us/statute/999/2/a
+              excerpt: "multiplied by 80 hours"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          80
+
+  - name: monthly_income_threshold
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    unit: USD
+    source: Fixture statute 2 (a)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/999/2/a
+              excerpt: "the Federal minimum wage multiplied by 80 hours"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          federal_minimum_wage * threshold_hours

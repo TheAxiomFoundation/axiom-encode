@@ -1,0 +1,308 @@
+{
+ "artifact_format_version": 2,
+ "engine_version": "0.2.2",
+ "metadata": {
+  "evaluation_order": [
+   "income_threshold_for_month"
+  ],
+  "fast_path": {
+   "blockers": [],
+   "compatible": true,
+   "strategy": "generic_bulk"
+  },
+  "input_catalog": [
+   {
+    "canonical_request_name": "us:regulations/99-cfr/1/3#input.federal_wage_rate",
+    "request_names": [
+     "us:regulations/99-cfr/1/3#input.federal_wage_rate"
+    ],
+    "slot": "federal_wage_rate"
+   },
+   {
+    "canonical_request_name": "us:regulations/99-cfr/1/3#input.state_elects_own_minimum_wage",
+    "request_names": [
+     "us:regulations/99-cfr/1/3#input.state_elects_own_minimum_wage"
+    ],
+    "slot": "state_elects_own_minimum_wage"
+   },
+   {
+    "canonical_request_name": "us:regulations/99-cfr/1/3#input.state_wage_rate",
+    "request_names": [
+     "us:regulations/99-cfr/1/3#input.state_wage_rate"
+    ],
+    "slot": "state_wage_rate"
+   }
+  ]
+ },
+ "program": {
+  "derived": [
+   {
+    "dtype": "decimal",
+    "entity": "Person",
+    "expr": {
+     "condition": {
+      "kind": "comparison",
+      "left": {
+       "kind": "input",
+       "name": "state_elects_own_minimum_wage"
+      },
+      "op": "eq",
+      "right": {
+       "kind": "literal",
+       "value": {
+        "kind": "bool",
+        "value": true
+       }
+      }
+     },
+     "else_expr": {
+      "kind": "mul",
+      "left": {
+       "kind": "input",
+       "name": "federal_wage_rate"
+      },
+      "right": {
+       "index": {
+        "kind": "literal",
+        "value": {
+         "kind": "integer",
+         "value": 0
+        }
+       },
+       "kind": "parameter_lookup",
+       "parameter": "hours_for_threshold"
+      }
+     },
+     "kind": "if",
+     "then_expr": {
+      "kind": "mul",
+      "left": {
+       "items": [
+        {
+         "kind": "input",
+         "name": "federal_wage_rate"
+        },
+        {
+         "kind": "input",
+         "name": "state_wage_rate"
+        }
+       ],
+       "kind": "max"
+      },
+      "right": {
+       "index": {
+        "kind": "literal",
+        "value": {
+         "kind": "integer",
+         "value": 0
+        }
+       },
+       "kind": "parameter_lookup",
+       "parameter": "hours_for_threshold"
+      }
+     }
+    },
+    "id": "us:regulations/99-cfr/1/3#income_threshold_for_month",
+    "name": "income_threshold_for_month",
+    "period": "Month",
+    "semantics": "scalar",
+    "source": "Fixture regulation 3 (a), (b)",
+    "source_url": null,
+    "unit": "USD",
+    "versions": [
+     {
+      "effective_from": "0001-01-01",
+      "expr": {
+       "condition": {
+        "kind": "comparison",
+        "left": {
+         "kind": "input",
+         "name": "state_elects_own_minimum_wage"
+        },
+        "op": "eq",
+        "right": {
+         "kind": "literal",
+         "value": {
+          "kind": "bool",
+          "value": true
+         }
+        }
+       },
+       "else_expr": {
+        "kind": "mul",
+        "left": {
+         "kind": "input",
+         "name": "federal_wage_rate"
+        },
+        "right": {
+         "index": {
+          "kind": "literal",
+          "value": {
+           "kind": "integer",
+           "value": 0
+          }
+         },
+         "kind": "parameter_lookup",
+         "parameter": "hours_for_threshold"
+        }
+       },
+       "kind": "if",
+       "then_expr": {
+        "kind": "mul",
+        "left": {
+         "items": [
+          {
+           "kind": "input",
+           "name": "federal_wage_rate"
+          },
+          {
+           "kind": "input",
+           "name": "state_wage_rate"
+          }
+         ],
+         "kind": "max"
+        },
+        "right": {
+         "index": {
+          "kind": "literal",
+          "value": {
+           "kind": "integer",
+           "value": 0
+          }
+         },
+         "kind": "parameter_lookup",
+         "parameter": "hours_for_threshold"
+        }
+       }
+      },
+      "semantics": "scalar"
+     }
+    ]
+   }
+  ],
+  "module": {
+   "summary": "Fixture regulation for the source-conflict compare step, with an amount.\nThe monthly income threshold is the applicable minimum wage multiplied by\n80 hours; a State that elects it uses its own minimum wage when higher."
+  },
+  "parameters": [
+   {
+    "id": "us:regulations/99-cfr/1/3#hours_for_threshold",
+    "indexed_by": null,
+    "name": "hours_for_threshold",
+    "source": "Fixture regulation 3 (a)",
+    "source_url": null,
+    "unit": null,
+    "versions": [
+     {
+      "effective_from": "0001-01-01",
+      "values": {
+       "0": {
+        "kind": "integer",
+        "value": 80
+       }
+      }
+     }
+    ]
+   }
+  ],
+  "relations": [],
+  "units": [
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "GBP"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "USD"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "EUR"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "CHF"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "NOK"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "GHS"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 0,
+    "name": "GHp"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "NGN"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 0,
+    "name": "UGX"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "ZMW"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "ETB"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 0,
+    "name": "RWF"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "TZS"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "DKK"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "AMD"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "ILS"
+   },
+   {
+    "kind": "count",
+    "name": "count"
+   },
+   {
+    "kind": "count",
+    "name": "person"
+   },
+   {
+    "kind": "ratio",
+    "name": "ratio"
+   },
+   {
+    "kind": "custom",
+    "label": "judgment",
+    "name": "status"
+   }
+  ]
+ }
+}

@@ -392,7 +392,11 @@ class Artifact:
     def thresholds(
         self, derived_names: Iterable[str], fixed: Mapping[str, object]
     ) -> list[Threshold]:
-        """Constants that the rules compare a fact-dependent value with."""
+        """Constants that the rules compare a fact-dependent value with.
+
+        A comparison gives one, and so does a constant inside ``min`` or
+        ``max`` next to a fact-dependent value.
+        """
 
         found: list[Threshold] = []
         memo: dict[str, Decimal | bool | None] = {}
@@ -402,6 +406,26 @@ class Artifact:
             if expression is None:
                 continue
             for node in self._walk(expression):
+                if node.get("kind") in ("min", "max"):
+                    # A cap or a floor: min(amount, 500) changes at 500.
+                    items = list(_children(node))
+                    folded = [self.fold(item, fixed, memo) for item in items]
+                    inputs: set[str] = set()
+                    for item, value in zip(items, folded):
+                        if value is None:
+                            inputs |= self._expression_inputs(item) - set(fixed)
+                    for value in folded:
+                        if (
+                            isinstance(value, Decimal)
+                            and not isinstance(value, bool)
+                            and inputs
+                        ):
+                            found.append(
+                                Threshold(
+                                    value, rule.get("id") or name, frozenset(inputs)
+                                )
+                            )
+                    continue
                 if node.get("kind") != "comparison":
                     continue
                 left, right = node.get("left"), node.get("right")

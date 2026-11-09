@@ -62,10 +62,14 @@ twice in one mapping.
 | `constraints` | Conditions a real household meets: `rule`, optional `note`. |
 | `guards` | Per side, rules that must hold for a household to be compared. |
 | `sampling` | `max_combinations` (default 20,000, at most 1,000,000) and `seed` (default 0). |
+| `tolerance` | Only with `combine: value`. Default 0. |
 
 `combine: any` means the side says yes when one output holds; `all` when every
-output holds. Outputs and guards must be yes/no rules (Judgment or bool). A
-comparison of amounts is not in v1.
+output holds. Their outputs must be yes/no rules (Judgment or bool). Guards are
+always yes/no rules.
+
+`combine: value` compares a number (see "Numbers" below). Both sides must then
+use `value`, and each side names exactly one output rule.
 
 A derived or fixed input goes to each side whose compiled artifact accepts its
 name. An input has exactly one supplier.
@@ -179,14 +183,44 @@ lean on an input that its partner supplies.
 With `--question`, `--out` is a directory. The step removes the pair records
 of an earlier run from it, so the directory matches `summary.json`.
 
+## Numbers
+
+Some questions have a number as the answer: a threshold, an amount, a count.
+With `combine: value` on both sides, the step compares the one output rule of
+each side as a number (dtype decimal, integer or Money).
+
+- Two numbers differ when the absolute difference is larger than `tolerance`.
+  `tolerance` is a top-level key of the link or of the question file. The
+  default is 0: exact equality. In a question file, the tolerance applies to
+  the pairs of two `value` answers.
+- A pair of a `value` answer and a yes/no answer is a link error: a number
+  cannot be compared with a yes/no result.
+- Gate: the two rules must have the same unit when both have one.
+- A constant inside `min` or `max`, next to a fact-dependent value, is also a
+  threshold for value generation (a cap or a floor). This applies to all
+  links.
+
+The record of a `value` link keeps format v1 and adds:
+
+- `comparison`: `{"kind": "value", "tolerance": ..., "unit": ...}`;
+- in each witness group, `direction` is `{"a": "lower", "b": "higher"}` or the
+  reverse, and `difference` gives the smallest and largest `b - a` in the
+  group;
+- in each witness, `a.result` and `b.result` are the two numbers, and
+  `difference` is `b - a`.
+
+A yes/no link has none of these keys. Its record and its link hash do not
+change.
+
 ## Gates
 
 The gates run on the link and the two compiled artifacts before any household
 is compared. Each failure is an error (exit 1), and the error lists all
 findings.
 
-1. Each output and guard is a derived rule of its side's artifact, is a yes/no
-   rule, and has the link's entity and period kind.
+1. Each output and guard is a derived rule of its side's artifact, has the kind
+   that `combine` needs (yes/no, or a number for `value`), and has the link's
+   entity and period kind.
 2. Each fact input is in its side's input catalog
    (`metadata.input_catalog[].canonical_request_name`). Each derived and fixed
    input is in at least one catalog.
@@ -308,8 +342,8 @@ fixture modules in `tests/fixtures/source_conflicts/` with the real engine.
 ## What the step does not find
 
 - A difference in a provision that no module encodes, or that a module defers.
-- A difference with no yes/no outcome in the compared rules: amounts,
-  deadlines, notices, order of steps.
+- A difference with no yes/no or numeric outcome in the compared rules:
+  deadlines, notices, order of steps, text.
 - A difference that needs a value the grid does not hold.
 - A difference between two modules with no link.
 
