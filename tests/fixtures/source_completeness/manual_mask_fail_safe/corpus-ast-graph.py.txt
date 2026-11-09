@@ -1,0 +1,73 @@
+"""Compare a conservative cross-module declaration dependency graph."""
+from __future__ import annotations
+import ast
+import hashlib
+import json
+from pathlib import Path
+
+HERE=Path(__file__).resolve().parent
+
+
+def sha(data):return hashlib.sha256(data).hexdigest()
+
+
+class Graph:
+    def __init__(self,root):self.root=root;self.parsed={};self.nodes={}
+    def module(self,name):
+        if name in self.parsed:return self.parsed[name]
+        path=self.root/Path(*name.split('.')).with_suffix('.py')
+        if not path.exists():path=self.root/Path(*name.split('.'))/'__init__.py'
+        if not path.exists():return {},{}
+        definitions={};imports={}
+        for node in ast.parse(path.read_bytes()).body:
+            if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef)):definitions[node.name]=node
+            elif isinstance(node,ast.Assign):
+                for target in node.targets:
+                    if isinstance(target,ast.Name):definitions[target.id]=node
+            elif isinstance(node,ast.AnnAssign) and isinstance(node.target,ast.Name):definitions[node.target.id]=node
+            elif isinstance(node,ast.ImportFrom):
+                prefix=name.split('.')[:-node.level] if node.level else []
+                module='.'.join(prefix+([node.module] if node.module else []))
+                for alias in node.names:imports[alias.asname or alias.name]=(module,alias.name)
+        self.parsed[name]=definitions,imports
+        return definitions,imports
+    def walk(self,module,entry):
+        pending=[(module,entry)]
+        while pending:
+            mod,name=pending.pop();key=f'{mod}:{name}'
+            if key in self.nodes:continue
+            definitions,imports=self.module(mod)
+            if name in imports:
+                imported,entry=imports[name]
+                if imported.startswith('axiom_encode.'):
+                    self.nodes[key]={'import':[imported,entry]};pending.append((imported,entry))
+                else:self.nodes[key]={'external_import':[imported,entry]}
+                continue
+            if name not in definitions:continue
+            node=definitions[name]
+            references=sorted({n.id for n in ast.walk(node) if isinstance(n,ast.Name) and isinstance(n.ctx,ast.Load)}&(definitions.keys()|imports.keys()))
+            self.nodes[key]={'ast_sha256':sha(ast.dump(node,include_attributes=False).encode()),'references':references}
+            pending.extend((mod,reference) for reference in references)
+        return self.nodes
+
+
+def main():
+    report={'proof':'Conservative global-name dependency graph; imported package declarations recurse to their exact snapshot files. Unchanged external imports share the locked interpreter/environment.'}
+    for label,entry_module,entry in [('recall','axiom_encode.harness.source_completeness','authoritative_numeric_recall_text'),('extractor','axiom_encode.harness.validator_pipeline','extract_typed_numeric_inventory_occurrences_from_text')]:
+        old=Graph(HERE/'old-main-package/src').walk(entry_module,entry)
+        current=Graph(HERE/'current-main-package/src').walk(entry_module,entry)
+        changed=sorted(key for key in old.keys()&current.keys() if old[key]!=current[key])
+        added=sorted(current.keys()-old.keys());removed=sorted(old.keys()-current.keys())
+        report[label]={'old_declaration_count':len(old),'current_declaration_count':len(current),'changed':changed,'added':added,'removed':removed,'old_graph_sha256':sha(json.dumps(old,sort_keys=True).encode()),'current_graph_sha256':sha(json.dumps(current,sort_keys=True).encode())}
+        print(label,json.dumps(report[label]),flush=True)
+        (HERE/f'baseline-{label}-graphs.json').write_text(json.dumps({'old':old,'current':current},indent=2,sort_keys=True)+'\n')
+    assert report['recall']['changed']==['axiom_encode.harness.source_completeness:authoritative_numeric_recall_text']
+    assert not report['recall']['added'] and not report['recall']['removed']
+    assert report['extractor']['changed']==['axiom_encode.harness.validator_pipeline:_clean_source_text_for_numeric_extraction_tracked']
+    assert report['extractor']['added']==[f'axiom_encode.harness.validator_pipeline:{x}' for x in ('_COLLAPSED_CURRENCY_TABLE_ROW_BOUNDARY_PATTERN','_COLLAPSED_SIZE_TABLE_ROW_PATTERN','_INLINE_TABLE_VALUE_PATTERN','_TABLE_HEADING_PREFIX_PATTERN')]
+    assert not report['extractor']['removed']
+    report['all_assertions_passed']=True
+    (HERE/'baseline-ast-proof.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
+
+
+if __name__ == "__main__": main()

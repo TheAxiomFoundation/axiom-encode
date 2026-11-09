@@ -35,6 +35,8 @@ jobs:
         && github.ref == 'refs/heads/main'
         && github.run_attempt == 1
       }}
+    # Provision this environment with main-only deployment branches.
+    environment: snap-queue-finalization
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -142,6 +144,11 @@ jobs:
             item_id="$(jq -r '.id' <<< "$target")"
             run_url="$(jq -r '.target_run_url' <<< "$target")"
             run_id="${run_url##*/}"
+            # The plan identifies the protected evidence attempt, including
+            # when the run's current attempt is a later skipped rerun.
+            run_attempt="$(jq -er '
+              .target_run_attempt | select(type == "number" and . == 1)
+            ' <<< "$target")"
             item_root="$RUNNER_TEMP/target-evidence-$item_id"
             mkdir "$item_root"
             gh api \
@@ -154,19 +161,26 @@ jobs:
               --header "X-GitHub-Api-Version: $api_version" \
               "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?filter=all&per_page=100" \
               > "$item_root/jobs.json"
-            gh api \
+            gh api --paginate --slurp \
               --header "Accept: application/vnd.github+json" \
               --header "X-GitHub-Api-Version: $api_version" \
               "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" \
               > "$item_root/artifacts.json"
             archive_url="$(jq -er \
-              --arg name "targeted-reencode-$run_id" '
+              --arg name "targeted-reencode-${run_id}-${run_attempt}" \
+              --arg prefix "targeted-reencode-${run_id}-" \
+              --arg legacy "targeted-reencode-$run_id" \
+              --argjson run_id "$run_id" '
                 [
-                  .artifacts[]
-                  | select(.name == $name and .expired == false)
-                  | .archive_download_url
+                  .[].artifacts[]
+                  | select(.name == $legacy or (.name | startswith($prefix)))
                 ]
-                | if length == 1 then .[0] else error("target artifact is unavailable") end
+                | if length == 1
+                    and .[0].name == $name
+                    and .[0].expired == false
+                    and .[0].workflow_run.id == $run_id
+                  then .[0].archive_download_url
+                  else error("target artifact attempt is missing or ambiguous") end
               ' "$item_root/artifacts.json")"
             gh api "$archive_url" > "$item_root/artifact.zip"
             mkdir "$item_root/artifact"
@@ -306,10 +320,11 @@ jobs:
         env:
           BRANCH: ${{ steps.activation.outputs.branch }}
           EXPECTED_HEAD_SHA: ${{ steps.activation.outputs.head_sha }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN }}
           NEW_RULESPEC_REF: ${{ inputs.new_rulespec_ref }}
         run: |
           set -euo pipefail
+          test -n "$GH_TOKEN"
           test "$(jq -r '.head_sha' "$RUNNER_TEMP/activation-commit.json")" = \
             "$EXPECTED_HEAD_SHA"
           body="$(printf '%s\n' \
