@@ -23,6 +23,7 @@ from scripts.audit_subdivision_recall_masks import (
     project_recall_removals,
     require_inventory_projections,
 )
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 
 @pytest.fixture
@@ -48,7 +49,7 @@ def pinned_baseline(tmp_path):
         cwd=Path(__file__).resolve().parents[1],
         capture_output=True,
         check=True,
-        timeout=60,
+        timeout=HANG_TIMEOUT_SECONDS,
     ).stdout
     assert hashlib.sha256(source).hexdigest() == reproduce.BASELINE_SHA256
     baseline = tmp_path / "baseline.py"

@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "us",
+  "declared": null,
+  "pr_base_branch": null,
+  "purpose": "rulespec-us commit on branch codex/issue233-only-related-consumer (no PR) that pins the merge commits of axiom-encode#1946 and axiom-rules-engine#261. GitHub records no review or CI run for this commit itself. Artifact-only, no policy clearance; this unbound record does not authorize reviewed-candidate module promotion. Admitted by axiom-encode#1948.",
+  "rulespec_pr": null,
+  "rulespec_ref": "953974517465e51c9f25c4f5fd21dc4d306af174",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}

@@ -847,7 +847,8 @@ def test_retry_candidate_formatter_explicitly_handles_missing_tests():
     )
 
     assert "No companion test file was present" in section
-    assert "you may omit unchanged named inputs, named rules" in section
+    assert "you may omit unchanged named units, named inputs, named rules" in section
+    assert "obsolete named unit, input, rule, or companion case" in section
     assert "input removal is accepted only after no repaired rule" in section
     assert "`repair_remove: true`" in section
 
@@ -1009,6 +1010,66 @@ def test_repair_candidate_overlay_restores_omitted_named_items(tmp_path):
     assert "input:omitted_input" in repairs
     assert "test:preserved_case" in repairs
     assert "resolved_deferred_output:us:section#added" in repairs
+
+
+def test_repair_candidate_overlay_removes_only_defined_local_rule_self_imports(
+    tmp_path,
+):
+    artifact_root = tmp_path / "generated"
+    rulespec_file = artifact_root / "regulations" / "7-cfr" / "273" / "7.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(
+        "format: rulespec/v1\n"
+        "imports:\n"
+        "  - us:regulations/7-cfr/273/7#new_local_rule\n"
+        "  - us:regulations/7-cfr/273/7#unresolved_rule\n"
+        "  - us-az:regulations/7-cfr/273/7#new_local_rule\n"
+        "  - us:regulations/7-cfr/273/5#external_rule\n"
+        "rules:\n"
+        "  - name: new_local_rule\n"
+        "    kind: parameter\n"
+        "    dtype: Count\n"
+        "    versions: [{effective_from: '2026-01-01', formula: 2}]\n",
+        encoding="utf-8",
+    )
+    candidate = ValidationRetryCandidate(
+        rulespec=(
+            "format: rulespec/v1\n"
+            "imports:\n"
+            "  - us:regulations/7-cfr/273/7#preserved_local_rule\n"
+            "rules:\n"
+            "  - name: preserved_local_rule\n"
+            "    kind: parameter\n"
+            "    dtype: Count\n"
+            "    versions: [{effective_from: '2026-01-01', formula: 1}]\n"
+        )
+    )
+
+    repairs = evals_module._overlay_validation_retry_candidate(
+        rulespec_file,
+        artifact_root=artifact_root,
+        candidate=candidate,
+        target_ref_prefix="us:regulations/7-cfr/273/7",
+    )
+
+    payload = yaml.safe_load(rulespec_file.read_text(encoding="utf-8"))
+    assert payload["imports"] == [
+        "us:regulations/7-cfr/273/7#unresolved_rule",
+        "us-az:regulations/7-cfr/273/7#new_local_rule",
+        "us:regulations/7-cfr/273/5#external_rule",
+    ]
+    assert {rule["name"] for rule in payload["rules"]} == {
+        "new_local_rule",
+        "preserved_local_rule",
+    }
+    assert (
+        "removed_local_rule_self_import:us:regulations/7-cfr/273/7#new_local_rule"
+        in repairs
+    )
+    assert (
+        "removed_local_rule_self_import:us:regulations/7-cfr/273/7#preserved_local_rule"
+        in repairs
+    )
 
 
 def test_repair_candidate_overlay_removes_unreferenced_input(tmp_path):
@@ -1450,7 +1511,7 @@ def test_repair_candidate_overlay_normalizes_destination_root_deferrals(tmp_path
 def test_run_model_eval_appends_repair_parameters_after_existing_public_parameters():
     parameters = list(inspect.signature(run_model_eval).parameters)
 
-    assert parameters[-7:] == [
+    assert parameters[-8:-1] == [
         "required_import_targets",
         "legacy_replacement",
         "replacement_overlay_scope",
@@ -1459,6 +1520,9 @@ def test_run_model_eval_appends_repair_parameters_after_existing_public_paramete
         "accept_valid_retry_candidate",
         "codex_reasoning_effort",
     ]
+
+    assert parameters[-1] == "axiom_rules_engine_ref"
+    assert inspect.signature(run_model_eval).parameters[parameters[-1]].default is None
 
 
 def test_workspace_prompt_requires_each_atomic_composition_import(tmp_path):
@@ -3508,6 +3572,284 @@ rules:
     assert find_admin_agency_aggregate_entity_issues(content, source_text) == []
 
 
+def test_admin_agency_aggregate_scopes_mixed_regulation_to_rule_paragraph():
+    source_text = (
+        "(a) Work requirements. Each household member who is not exempt must "
+        "comply with SNAP work requirements.\n"
+        "(i) Register for work or be registered by the State agency.\n"
+        "(b) State agency quality control. The State agency shall calculate "
+        "its payment error rate from the quality control sample.\n"
+        "(c) Other requirements.\n"
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_paths:
+      - us/regulation/7/273/7
+      - us/statute/7/2015/d/2
+rules:
+  - name: snap_member_work_requirement_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.7(a)(1)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: member_not_exempt
+  - name: state_agency_payment_error_rate
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Year
+    source: 7 CFR 273.7(b)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: payment_error_rate
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate`" in issues[0]
+
+
+def test_admin_agency_aggregate_uses_statutory_rule_proof_in_mixed_source():
+    source_text = (
+        "(a) Each household member must comply with SNAP work requirements.\n"
+        "(b) State agency quality control. The State agency shall calculate "
+        "its payment error rate from the quality control sample.\n"
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/7
+rules:
+  - name: snap_member_statutory_work_registration_exemption_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 U.S.C. 2015(d)(2)
+    versions:
+      - effective_from: '2025-07-04'
+        formula: member_cares_for_dependent_child_under_six
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/7/2015/d/2
+              excerpt: a parent or other member of a household with responsibility for the care of a dependent child under age six
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/7/2015/d/2
+              excerpt: a bona fide student enrolled at least half time in any recognized school
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/7/2015/d/2
+              excerpt: a person between the ages of sixteen and eighteen who is not a head of a household
+"""
+
+    assert find_admin_agency_aggregate_entity_issues(content, source_text) == []
+
+
+def test_admin_agency_aggregate_incomplete_proof_keeps_source_context():
+    source_text = (
+        "The State agency's payment error rate determines its liability. "
+        "The amount is multiplied by 6 percent, and 10 percent."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: state_agency_payment_error_rate_liability
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    source: 7 CFR 275.23(d)(2)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: issued_allotments * payment_error_rate * 0.10
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/regulation/7/275/23
+              excerpt: 6 percent, and 10 percent.
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate_liability`" in issues[0]
+
+
+def test_admin_agency_aggregate_paragraph_keeps_governing_introduction():
+    source_text = (
+        "The State agency's payment error rate determines its liability.\n"
+        "(a) The amount is multiplied by 6 percent, and 10 percent.\n"
+        "(b) Other requirements.\n"
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: state_agency_payment_error_rate_liability
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    source: 7 CFR 275.23(a)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: issued_allotments * payment_error_rate * 0.10
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate_liability`" in issues[0]
+
+
+def test_admin_agency_aggregate_same_statute_proof_keeps_source_context():
+    source_text = (
+        "The State agency's payment error rate is calculated using the "
+        "allotments issued to each household member."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2025
+rules:
+  - name: state_agency_payment_error_rate
+    kind: derived
+    entity: Household
+    dtype: Decimal
+    period: Year
+    source: 7 U.S.C. 2025(c)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: payment_error_rate
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/7/2025
+              excerpt: allotments issued to each household member
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate`" in issues[0]
+
+
+def test_admin_agency_aggregate_cross_statute_fragment_keeps_source_context():
+    source_text = (
+        "The State agency's payment error rate is calculated using the "
+        "allotments issued to each household member."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: state_agency_payment_error_rate
+    kind: derived
+    entity: Household
+    dtype: Decimal
+    period: Year
+    source: 7 U.S.C. 2025(c)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: payment_error_rate
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/7/2025
+              excerpt: allotments issued to each household member
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate`" in issues[0]
+
+
+def test_admin_agency_aggregate_nested_roman_does_not_end_paragraph():
+    source_text = (
+        "".join(f"({letter}) Other requirements.\n" for letter in "abcdefg")
+        + "(h) Each household member is counted for the following State agency measure.\n"
+        + "(1) Calculation.\n"
+        + "(i) The State agency shall calculate its payment error rate from the quality control sample.\n"
+        + "(i) Other rules.\n"
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: state_agency_payment_error_rate
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Year
+    source: 7 CFR 275.23(h)(1)(i)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: payment_error_rate
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate`" in issues[0]
+
+
+def test_admin_agency_aggregate_mixed_citation_disables_person_scope():
+    source_text = (
+        "(a) Each household member must comply with work requirements.\n"
+        "(b) The following persons are exempt from work requirements.\n"
+        "(c) Other requirements.\n"
+        "(h) The State agency shall calculate its payment error rate from "
+        "the quality control sample.\n"
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/7
+rules:
+  - name: state_agency_payment_error_rate
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Year
+    source: 7 CFR 273.7(a)(1); 7 CFR 273.7(h)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: payment_error_rate
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate`" in issues[0]
+
+
 def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
     assert _source_identifier_to_relative_rulespec_path(
         "us/regulation/7/273/10"
@@ -3533,6 +3875,24 @@ def test_resolve_corpus_source_unit_accepts_form_citation_path(tmp_path):
     assert source_unit.citation_path == citation
     assert source_unit.source == "local"
     assert source_unit.body == "CMS Medicaid, CHIP, and BHP eligibility levels table"
+
+
+def test_resolve_corpus_source_unit_accepts_rulemaking_citation_path(tmp_path):
+    # Federal Register instruments live under us/rulemaking/...; the citation
+    # must resolve verbatim instead of being mangled through
+    # citation_to_citation_path into us/statute/us/rulemaking/...
+    citation = "us/rulemaking/fr/2026-03829"
+    corpus_release = _write_test_corpus_provision(
+        tmp_path,
+        citation_path=citation,
+        body="Termination of certain IEEPA tariff actions",
+    )
+
+    source_unit = resolve_corpus_source_unit(citation, corpus_release)
+
+    assert source_unit.citation_path == citation
+    assert source_unit.source == "local"
+    assert source_unit.body == "Termination of certain IEEPA tariff actions"
 
 
 def test_resolve_corpus_source_unit_slices_before_bracketed_sibling(tmp_path):
@@ -16524,15 +16884,35 @@ class TestOpenAIEvalRequest:
 
     def test_post_openai_eval_request_returns_at_case_wall_deadline(self):
         release_request = threading.Event()
+        real_remaining = evals_module._remaining_eval_case_budget_seconds
+        first_budget = True
+
+        def remaining_request_budget():
+            nonlocal first_budget
+            if first_budget:
+                first_budget = False
+                # Always enter the request's wall-deadline helper. Queueing
+                # before the attempt must not satisfy the test by expiring
+                # the case budget before the blocked request is attempted.
+                return 0.05
+            # Keep the real post-request budget check: without the helper's
+            # deadline it raises only after the blocked request returns.
+            return real_remaining()
 
         def block_beyond_deadline(*_args, **_kwargs):
-            release_request.wait(timeout=1)
+            # 120s remains well beyond the 30s assertion even when the
+            # deadline is broken; finally releases any fallback request thread.
+            release_request.wait(timeout=120)
             return Mock(status_code=200)
 
         started = evals_module.time.monotonic()
         try:
             with (
                 evals_module._active_eval_case_budget(0.05),
+                patch(
+                    "axiom_encode.harness.evals._remaining_eval_case_budget_seconds",
+                    side_effect=remaining_request_budget,
+                ),
                 patch(
                     "axiom_encode.harness.evals.requests.post",
                     side_effect=block_beyond_deadline,
@@ -16547,7 +16927,9 @@ class TestOpenAIEvalRequest:
         finally:
             release_request.set()
 
-        assert evals_module.time.monotonic() - started < 0.5
+        # The correct path has a 0.05s deadline: even the observed 81x
+        # scheduling inflation is 4.05s, comfortably below this 30s limit.
+        assert evals_module.time.monotonic() - started < 30
         assert exc_info.value.timeout_stage == "case_budget"
 
     def test_post_openai_eval_request_rejects_response_after_case_deadline(
@@ -24590,3 +24972,72 @@ def test_openai_generation_gates_cover_gpt_6_models(model, extended, explicit_ca
         evals_module._openai_model_supports_explicit_prompt_cache(model)
         is explicit_cache
     )
+
+
+_ARMENIAN_LEDGER_SOURCE = (
+    "Հայաստանի Հանրապետությունում նվազագույն ամսական աշխատավարձը "
+    "սահմանել 75000 դրամ:\n"
+    "(1-ին հոդվածը փոփ. 11.11.05 ՀՕ-221-Ն, 07.12.22 ՀՕ-501-Ն)"
+)
+
+
+def _armenian_minimum_wage_metrics(tmp_path, source_text, *, complete):
+    citation = "am/statute/act-172160/article-1"
+    corpus_release = _write_test_corpus_provision(
+        tmp_path, citation_path=citation, body=source_text
+    )
+    rulespec_file = tmp_path / "statutes" / "act-172160" / "article-1.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(
+        f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {citation}
+rules:
+  - name: minimum_monthly_wage
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2023-01-01'
+        formula: 75000
+"""
+    )
+    compile_result = ValidationResult("compile", True, issues=[])
+    ci_result = ValidationResult("ci", True, issues=[])
+    with (
+        patch.object(
+            ValidatorPipeline, "_run_compile_check", return_value=compile_result
+        ),
+        patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+    ):
+        return evaluate_artifact(
+            rulespec_file=rulespec_file,
+            policy_repo_root=_canonical_rulespec_content_root(tmp_path, "am"),
+            axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+            source_text=source_text,
+            local_corpus_release=corpus_release,
+            source_citation_path=citation,
+            require_complete_source_unit=complete,
+        )
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_eval_numeric_coverage_skips_validated_armenian_ledger(tmp_path, complete):
+    # The prompt tells the encoder not to encode a recognized ledger's numbers,
+    # so the eval coverage metric must not demand them either.
+    metrics = _armenian_minimum_wage_metrics(
+        tmp_path, _ARMENIAN_LEDGER_SOURCE, complete=complete
+    )
+
+    assert metrics.numeric_occurrence_issues == []
+    assert metrics.source_numeric_occurrence_count == 1
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_eval_numeric_coverage_keeps_unrecognized_armenian_parenthetical(
+    tmp_path, complete
+):
+    source = _ARMENIAN_LEDGER_SOURCE.removesuffix(")") + ", լրացուցիչ 500 դրամ)"
+    metrics = _armenian_minimum_wage_metrics(tmp_path, source, complete=complete)
+
+    assert any("500" in issue for issue in metrics.numeric_occurrence_issues)

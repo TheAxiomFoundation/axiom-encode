@@ -96,6 +96,61 @@ the output directory are not a second validation layout.
 explicit `--rulespec-dependency-root` pointing to the canonical country
 checkout; ambient environment and sibling checkout discovery are not used.
 
+### Engine pin differentials
+
+Bind both engine checkouts with `engine-bind --axiom-rules-engine-path <checkout>
+--pin <40-hex-ref>` first. The differential requires verified binding receipts,
+checks each checkout's HEAD independently, and does not change a policy pin:
+
+```bash
+axiom-encode engine-pin-diff --root /path/to/rulespec-dk/dk \
+  --old-engine /path/to/old-engine --old-engine-ref "$OLD_REF" \
+  --new-engine /path/to/new-engine --new-engine-ref "$NEW_REF" \
+  --as-of 2026-10-27 --out-dir /path/to/evidence
+```
+
+Optional positional paths are relative to `--root` and select modules, companion
+files, or directories. Cross-country imports use `--rulespec-dependency-root`;
+composition modules also require `--axiom-compose-path`. Each engine compiles its
+own artifacts through the validation pipeline. Companion requests reuse the
+`test` request builder and preserve all outputs together, in Explain and Fast.
+Parameter-only expectations retain `test`'s shared parameter evaluator and are
+recorded separately as `companion_parameters`, not represented as runtime-derived
+outputs. They reuse translated flat inputs, including table rows; parameter
+errors never replace runtime outcomes, and parameter changes have an independent
+DIFF comparison even alongside an expected derived refusal.
+Boundary probes inventory dated single-version derived rules, including the
+engine's top-level `formula` shorthand, and query the day before, the day of,
+and the day after each effective start and end. They prefer a direct or
+dependent-output companion; missing companions are marked `no_case`.
+
+Boundary periods retain their original duration; inputs and relations move by
+the same day delta. Current-period probes run Explain on both engines: months
+use calendar months, tax years retain their fiscal start, benefit weeks retain
+their weekday, and custom periods tile the original duration from its start.
+Calendar periods are finalized before translating input and relation intervals,
+preserving their coverage when month or fiscal-year lengths change. Date-valued
+facts are not changed. Published requests and independently compiled artifacts
+live under `--out-dir`, outside `--root`'s repository and every
+`--rulespec-dependency-root` checkout. Compilation uses a fresh private temporary
+directory under the system temporary directory, removed afterward. The command
+rejects a symlinked output directory or any symlink inside an existing output directory, and creates output
+without following links.
+
+`report.json` retains refs, binary digests, module blob SHAs, requests, values and
+errors. `report.md` lists classification counts and every non-PASS comparison.
+Only a precisely identified out-of-window formula refusal is expected, and only
+after an old success or an old date refusal at the same period start (a dated
+parameter with no value yet, or another rule with no formula version); companion
+cases affected this way are flagged for encoder repair. Matching missing-input
+refusals count as incomplete coverage. DIFF, new-engine PARITY_BREAK, and
+incomplete preparations or executions exit nonzero.
+Old-only parity breaks are evidence, not a migration gate. Do not move a pin
+with an unexplained on/after-start outcome change or new Explain/Fast disagreement.
+Cross-pin classification uses Explain as the established companion-runner
+baseline; each engine's Explain/Fast comparison and all four raw outcomes are
+retained, so an old Fast defect alone cannot turn into a blocking migration diff.
+
 Git probes for RuleSpec checkout identity and configuration use a 10-second
 timeout per attempt and retry once on timeout. On loaded hosts, set
 `AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS` to a finite positive number of seconds
@@ -154,6 +209,48 @@ overrides the directory and `OPENAI_API_KEY` in the environment also satisfies
 the check. When neither is present `encode` stops with a clear error before
 starting a run. Other backends stay available explicitly with
 `--backend claude` or `--backend openai`.
+
+`encode` verifies the pinned corpus release before it starts a run. A protected
+run gets the trust roots from its attached signing broker. Without a broker,
+pass the public roots on the command line for a verification-only local run,
+as `axiom-encode ci` does:
+
+```bash
+uv run axiom-encode encode us/statute/26/1 \
+  --corpus-path ../axiom-corpus \
+  --axiom-rules-engine-path ../axiom-rules-engine \
+  --policy-repo-path ../rulespec-us \
+  --corpus-release-public-key "$AXIOM_CORPUS_RELEASE_PUBLIC_KEY" \
+  --apply-public-key "$AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY" \
+  --eval-public-key "$AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY" \
+  --no-sync
+```
+
+The three values are the public keys in the repository's Actions variables of
+the same names; the encoder never reads them from the environment itself.
+This run conveys no signing capability. It refuses `--apply`, and it refuses
+to start when a signing broker is attached, `AXIOM_ENCODE_TRUSTED_RUNTIME=1` is
+set, or it runs in CI (`GITHUB_ACTIONS=true` or `CI` set). Without a broker and without these keys, `encode` stops with
+`A protected signing broker is required to verify the pinned corpus release
+object`.
+
+The generalist reviewer runs the `claude` CLI (or the `codex` CLI fallback) on
+the signed-in subscription. Only in the verification-only local run above,
+and only when no signing broker is attached, the trusted runtime is off and
+the run is not in CI, the encoder resolves the reviewer binary from your
+`PATH` and starts it with a small allowlisted environment:
+your account home and user name, the per-user `TMPDIR`,
+`CODEX_HOME`/`CLAUDE_CONFIG_DIR` when set, and your `PATH` in the same order
+(relative entries made absolute), so an `#!/usr/bin/env node` launcher finds
+the same `node` as in your shell, followed by the reviewer binary's directory
+and the system directories. API keys and other ambient variables are not
+forwarded. Every
+other run, including a run under the verification supervisor of #1622, keeps
+the sandboxed reviewer environment unchanged. If no reviewer CLI can start,
+the run prints `generalist_review=error reviewer_unavailable: ...` and records
+a failed review; it does not skip the review silently. Run `claude` or
+`codex login` once before a local encode. Broader local setup is tracked in
+#1622.
 
 Use `encode --codex-reasoning-effort high` to select Codex's reasoning effort
 for every generation and retry. The default is `low`; the value is passed as
@@ -312,8 +409,33 @@ build/axiom-encode-signing-supervisor \
   --reason "superseded by the replacement source module"
 ```
 
-`retire` accepts only a module already covered by a verified model
-`encode --apply` manifest and includes its companion test automatically.
+By default, `retire` requires a verified model `encode --apply` manifest and
+includes its companion test automatically. To retire a protected module and its
+companion that no manifest or receipt covers, pass `--unreceipted` explicitly:
+
+```bash
+# Run under the same protected apply-signing supervisor shown above.
+axiom-encode retire \
+  uk-arun/policies/arun/council-tax-reduction.yaml \
+  --unreceipted \
+  --policy-repo-path ~/TheAxiomFoundation/rulespec-uk \
+  --corpus-path ~/TheAxiomFoundation/axiom-corpus \
+  --reason "superseded by section encodings after the corpus rebind"
+```
+
+The explicit flag prevents an expected receipted retirement from silently
+becoming an unreceipted one. This route refuses either file if any manifest or
+receipt covers it at the base. It writes a signed v5 receipt at the primary's
+canonical mirrored path, with tool `axiom-encode retire-unreceipted` and the
+sha256 of each deleted file's exact bytes. The receipt records its immutable
+retirement base, reason, encoder identity, waiver-set identity, and generation
+time; it claims no source attestation or execution. Verification replays the
+recorded base and also checks the pull request's protected base, so retain the
+Git history containing the retirement base. The guard checks the absence of
+both files, and `--all` continues to verify the receipt after retirement. Both
+routes use the same corpus, waiver, encoder-provenance, safe-target, and atomic
+transaction checks. Retire any stale validation-waiver record through the
+normal waiver-retirement flow after deleting its module.
 
 Canonicalize paths of already-authenticated v5 model encodings with the
 separate path-only workflow. The plan is deliberately minimal and binds one
@@ -365,9 +487,12 @@ axiom-encode guard-generated \
 CI must supply `PROTECTED_BASE_REF` from its trusted review or dispatch context.
 When retired source metadata migration receipts are present, `--all` requires
 this protected base to admit each receipt's complete transaction, including
-every rewritten importer and replacement owner. The receipt's own
-`base_commit` does not establish which base CI trusts. Without an explicit
-protected base, the guard refuses the receipt and names its path.
+every rewritten importer and replacement owner. A receipt that is already in
+the protected base and unchanged is settled history: the guard replays it and
+judges later changes under the ordinary rules, while editing or removing it is
+still refused. The receipt's own `base_commit` does not establish which base CI
+trusts. Without an explicit protected base, the guard refuses the receipt and
+names its path.
 
 That guard protects atomic RuleSpec YAML under `legislation/`, `policies/`,
 `regulations/`, and `statutes/` unless it matches a root-owned encoder apply

@@ -4,6 +4,7 @@ This is input admission, not a source validator or a generated-output exemption.
 Every admitted rule must survive unchanged and pass the ordinary proof pipeline.
 """
 
+import copy
 import re
 from decimal import Decimal, InvalidOperation
 
@@ -151,6 +152,48 @@ def _same_typed_value(left, right) -> bool:
         elif left != right:
             return False
     return True
+
+
+def carry_forward_external_proved_rules(payload, admission: dict | None) -> list[str]:
+    """Carry forward only verified legacy rules that admission locks unchanged.
+
+    The ordinary preservation check still runs after every overlay repair. This
+    step cannot invent or alter a rule: the admission derives each mapping from
+    the existing RuleSpec and independently verified corpus evidence.
+    """
+
+    required = admission.get("required_unchanged_rules", []) if admission else []
+    if not required:
+        return []
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list) or any(not isinstance(rule, dict) for rule in rules):
+        raise ValueError("External source replacement requires a rules list")
+    names = [rule.get("name") for rule in rules]
+    if any(not isinstance(name, str) or not name for name in names):
+        raise ValueError("External source replacement requires named rules")
+    if len(set(names)) != len(names):
+        raise ValueError("External source replacement has duplicate rule names")
+    required_names = [rule.get("name") for rule in required if isinstance(rule, dict)]
+    if (
+        len(required_names) != len(required)
+        or any(not isinstance(name, str) or not name for name in required_names)
+        or len(set(required_names)) != len(required_names)
+    ):
+        raise ValueError("External source admission has invalid required rules")
+    indices = {name: index for index, name in enumerate(names)}
+    restored = []
+    for original in required:
+        name = original["name"]
+        index = indices.get(name)
+        if index is None:
+            indices[name] = len(rules)
+            rules.append(copy.deepcopy(original))
+        elif _same_typed_value(rules[index], original):
+            continue
+        else:
+            rules[index] = copy.deepcopy(original)
+        restored.append(name)
+    return restored
 
 
 def external_parameter_preservation_issues(

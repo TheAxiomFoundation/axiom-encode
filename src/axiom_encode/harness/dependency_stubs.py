@@ -90,6 +90,7 @@ _CORPUS_PROVISION_KINDS = {
     "policy",
     "regulation",
     "regulations",
+    "rulemaking",
     "statute",
     "statutes",
 }
@@ -554,7 +555,15 @@ def _candidate_corpus_paths_for_import_target(
 
 def _looks_like_corpus_citation_path(identifier: str) -> bool:
     parts = identifier.split("/")
-    return len(parts) >= 3 and parts[1] in _CORPUS_PROVISION_KINDS
+    # ``jurisdiction:root/...`` and bare ``root/...`` import targets are
+    # RuleSpec paths, not corpus citations, even when the next segment names a
+    # corpus kind (``policies/rulemaking/...``).
+    return (
+        len(parts) >= 3
+        and ":" not in parts[0]
+        and parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS
+        and parts[1] in _CORPUS_PROVISION_KINDS
+    )
 
 
 def _jurisdiction_for_rules_repo(rules_repo_root: Path) -> str:
@@ -574,7 +583,13 @@ def _corpus_kind_and_rest(parts: tuple[str, ...]) -> tuple[str, tuple[str, ...]]
     if head in {"regulation", "regulations"}:
         return "regulation", parts[1:]
     if head in {"policy", "policies"}:
+        if len(parts) >= 3 and parts[1] == "rulemaking":
+            # policies/rulemaking/ is the reserved output namespace for
+            # <jurisdiction>/rulemaking/... (Federal Register) sources.
+            return "rulemaking", parts[2:]
         return "policy", parts[1:]
+    if head == "rulemaking":
+        return "rulemaking", parts[1:]
     if head in {"guidance", "legislation"}:
         return head, parts[1:]
     return "policy", parts
