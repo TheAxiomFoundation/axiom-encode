@@ -1094,7 +1094,11 @@ def test_long_negated_dependency_retains_base_deferral_rejection(count):
         numeric_value_is_grounded=vp.numeric_value_is_grounded,
     )
     assert any("deferral" in issue for issue in result.issues)
-    assert any("structure" in issue for issue in result.issues)
+    # Branch (1) stays open. Its structure finding is folded into the rejected
+    # deferral's finding, which lists it, instead of being repeated.
+    assert any(
+        "1" in sc.split_imprecise_deferral_branches(issue)[1] for issue in result.issues
+    )
 
 
 @pytest.mark.parametrize("percentage", ["20 percent", "20 per cent"])
