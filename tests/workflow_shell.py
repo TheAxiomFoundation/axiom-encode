@@ -257,9 +257,9 @@ class Command:
     assignments: tuple[str, ...] = ()
     # Each redirection as (operator, target), as written, including those of a
     # caller such as `bash -c '...' > log`. An operator drops its file
-    # descriptor (`3>` reads as `>`), and a heredoc's target is its delimiter.
-    # A line that only redirects (`> "$f"`, `exec 3> "$f"`) is a command with
-    # no words.
+    # descriptor (`3>` reads as `>`), and a heredoc's target is the placeholder
+    # that stands for its body. A line that only redirects (`> "$f"`,
+    # `exec 3> "$f"`) is a command with no words.
     redirects: tuple[tuple[str, str], ...] = ()
 
     @property
@@ -1111,13 +1111,17 @@ def expand(found: list[Command], table: dict) -> list[Command]:
     return expanded
 
 
-def python_module(words: tuple[str, ...]) -> str | None:
-    """The module ``python ... -m MODULE`` runs, or None for a script or -c."""
+def python_program(words: tuple[str, ...]) -> tuple[str, int, bool] | None:
+    """What ``python ...`` runs, as (its name, the index of its first argument,
+    whether it is a module), or None for ``-c``, stdin or no program."""
     index = 1
     while index < len(words):
         arg = words[index]
-        if arg == "--" or not arg.startswith("-") or arg == "-":
+        if arg == "-":
             return None
+        if arg == "--" or not arg.startswith("-"):
+            script = index + 1 if arg == "--" else index
+            return (words[script], script + 1, False) if script < len(words) else None
         if arg.startswith("--"):
             index += 2 if arg == "--check-hash-based-pycs" else 1
             continue
@@ -1127,13 +1131,23 @@ def python_module(words: tuple[str, ...]) -> str | None:
                 return None
             if letter == "m":
                 if rest:
-                    return rest
-                return words[index + 1] if index + 1 < len(words) else None
+                    return rest, index + 1, True
+                return (
+                    (words[index + 1], index + 2, True)
+                    if index + 1 < len(words)
+                    else None
+                )
             if letter in "WX":
                 index += 0 if rest else 1  # its value is the rest or the next word
                 break
         index += 1
     return None
+
+
+def python_module(words: tuple[str, ...]) -> str | None:
+    """The module ``python ... -m MODULE`` runs, or None for a script or -c."""
+    program = python_program(words)
+    return program[0] if program is not None and program[2] else None
 
 
 def load_uv_options() -> dict:

@@ -42,6 +42,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import sysconfig
 from collections import defaultdict
 from pathlib import Path
@@ -992,6 +993,82 @@ def test_python_module_follows_python_option_syntax():
     assert module(("python", "-X", "dev", "-m", "pip")) == "pip"
     assert module(("python", "-c", 'print("python -m pip install")')) is None
     assert module(("python", "script.py", "-m", "pip")) is None
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param([], id="no-options"),
+        pytest.param(["-I", "-S"], id="flags"),
+        pytest.param(["-IS"], id="flag-cluster"),
+        pytest.param(["-X", "utf8"], id="dash-x-separate"),
+        pytest.param(["-Xutf8"], id="dash-x-attached"),
+        pytest.param(["-W", "ignore"], id="dash-w-separate"),
+        pytest.param(["-Wignore"], id="dash-w-attached"),
+        pytest.param(["--check-hash-based-pycs", "default"], id="long-valued"),
+        pytest.param(["--"], id="double-dash"),
+    ],
+)
+def test_python_program_finds_the_script_the_interpreter_runs(tmp_path, options):
+    script = tmp_path / "show.py"
+    script.write_text("import json, sys; print(json.dumps(sys.argv[1:]))\n")
+    words = ("python", *options, str(script), "--flag", "value")
+
+    name, arguments, module = workflow_shell.python_program(words)
+    result = subprocess.run(
+        [sys.executable, *options, str(script), "--flag", "value"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert (name, module) == (str(script), False)
+    assert list(words[arguments:]) == json.loads(result.stdout)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param(["-m", "show"], id="separate"),
+        pytest.param(["-mshow"], id="attached"),
+        pytest.param(["-B", "-m", "show"], id="after-a-flag"),
+        pytest.param(["-Bm", "show"], id="ending-a-cluster"),
+        pytest.param(["-Bmshow"], id="attached-to-a-cluster"),
+    ],
+)
+def test_python_program_finds_the_module_the_interpreter_runs(tmp_path, options):
+    (tmp_path / "show.py").write_text(
+        "import json, sys; print(json.dumps(sys.argv[1:]))\n"
+    )
+    words = ("python", *options, "--flag", "value")
+
+    name, arguments, module = workflow_shell.python_program(words)
+    result = subprocess.run(
+        [sys.executable, *options, "--flag", "value"],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=tmp_path,
+    )
+
+    assert (name, module) == ("show", True)
+    assert list(words[arguments:]) == json.loads(result.stdout)
+
+
+@pytest.mark.parametrize(
+    "words",
+    [
+        ("python",),
+        ("python", "-"),
+        ("python", "-c", "print(1)"),
+        ("python", "-Ic", "print(1)"),
+        ("python", "-m"),
+        ("python", "--"),
+        ("python", "-X", "utf8"),
+    ],
+)
+def test_python_program_is_none_without_a_script_or_module(words):
+    assert workflow_shell.python_program(words) is None
 
 
 def test_uv_option_table_matches_the_pinned_uv():

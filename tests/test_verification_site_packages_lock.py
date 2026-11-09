@@ -32,12 +32,23 @@ script. So ``pip3``, ``python -m pip``, ``"$VAR" -m pip``, the
   assignment touches it.
 - Outside the verification staging steps, which must equal the canonical block
   line for line, two commands may name a protected tree: its locked install
-  and its provisioner. No other command, assignment or redirection does.
-- Every provision of the verification supervisor resolves, with the
-  provisioner's own argument parser, a ``--site-packages`` that is the staged
-  tree or the purelib of a ``uv sync --locked``/``--frozen`` environment that
-  nothing in the job changes. The provisioner's selftest alone is exempt from
-  this rule.
+  and its provisioner. Any other command, assignment or redirection that names
+  one fails, and so does any other text in the workflow: a loop header, an
+  array, a heredoc, a wrapper's option or a YAML key such as ``env:``. Comment
+  lines and step names may name a tree.
+- Every provision of either provisioner resolves its ``--site-packages`` with
+  that provisioner's own argument parser. The compose runtime's must be its
+  locked tree. The verification supervisor's must be the staged tree or, in the
+  issue233 diagnostic, the purelib of a ``uv sync --locked``/``--frozen``
+  environment. That job runs no other uv call and installs nothing with pip,
+  and nothing else in it names the purelib, assigns ``site`` again or names the
+  environment outside its ``bin/`` directory.
+- No provision runs after a failed step (``always()``, ``failure()`` or
+  ``cancelled()`` in its ``if:``), and a staging step carries no key that
+  would let its ``diff`` fail without stopping the job.
+
+Only the provisions in the provisioner's selftest escape these last two rules;
+its throwaway tree verifies and signs nothing.
 
 The staging steps are then executed against a fake ``uv`` to prove their
 fail-closed paths. As in ``test_workflow_toolchain_pins.py``, the threat model
@@ -59,15 +70,18 @@ import os
 import re
 import subprocess
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from tests import workflow_shell
-from tests.test_workflow_toolchain_pins import _script_commands
+from tests.test_workflow_toolchain_pins import _script_commands, _strings
 from tests.workflow_shell import Command
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,6 +98,7 @@ EXEMPT_WORKFLOWS = frozenset({"provision-selftest.yml"})
 
 SITE_PACKAGES = "$RUNNER_TEMP/axiom-verification-site-packages"
 BUILD_CONSTRAINTS = "$RUNNER_TEMP/axiom-verification-build-constraints.txt"
+COMPOSE_SITE_PACKAGES = "$RUNNER_TEMP/axiom-compose-site-packages"
 VERIFICATION_PROVISIONER = "provision_verification_supervisor.py"
 COMPOSE_PROVISIONER = "provision_axiom_compose_runtime.py"
 # Each protected tree, by the directory name every spelling of its path
@@ -130,16 +145,40 @@ PURELIB = (
     'site="$($python_path -c '
     '\'import sysconfig; print(sysconfig.get_paths()["purelib"])\')"'
 )
+# What names a locked environment's purelib, or the environment outside bin/.
+PURELIB_NAME = re.compile(r"\$\{?site\b|\.venv(?!/bin/)")
+PURELIB_ASSIGNMENT = re.compile(r"\bsite\+?=")
+# A step with one of these in its `if:` runs after an earlier step failed.
+RUNS_AFTER_FAILURE = re.compile(r"always\(\)|failure\(\)|cancelled\(\)", re.IGNORECASE)
 
 
 def _logical_lines(script: str) -> list[str]:
-    joined = re.sub(r"\\\n\s*", " ", script)
-    lines = []
-    for line in joined.splitlines():
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#"):
-            lines.append(re.sub(r"\s+", " ", stripped))
+    """``script``'s lines, with continuations joined as bash joins them: a
+    comment ends at its newline, even after a trailing backslash, and a blank
+    line ends a continuation."""
+    lines: list[str] = []
+    pending = ""
+    for raw in script.splitlines():
+        text = raw.strip()
+        comment = text.startswith("#")
+        if text.endswith("\\") and not comment:
+            pending += f"{text[:-1]} "
+            continue
+        logical = pending if comment else f"{pending}{text}"
+        pending = ""
+        if logical.strip():
+            lines.append(re.sub(r"\s+", " ", logical.strip()))
+    if pending.strip():
+        lines.append(re.sub(r"\s+", " ", pending.strip()))
     return lines
+
+
+def _code_lines(strings: Iterable[str]) -> Iterator[str]:
+    """Each line of ``strings`` that holds more than a comment."""
+    for text in strings:
+        for line in text.splitlines():
+            if not line.lstrip().startswith("#"):
+                yield line
 
 
 @functools.cache
@@ -154,12 +193,17 @@ def _load_workflows(directory: Path = WORKFLOWS) -> dict[str, dict]:
     return copy.deepcopy(dict(_parsed_workflows(directory)))
 
 
-def _steps(workflows: dict[str, dict]):
+def _every_step(workflows: dict[str, dict]):
     for name, workflow in workflows.items():
         for job_name, job in (workflow.get("jobs") or {}).items():
             for index, step in enumerate(job.get("steps") or []):
-                if "run" in step:
-                    yield name, job_name, index, step
+                yield name, job_name, index, step
+
+
+def _steps(workflows: dict[str, dict]):
+    for name, job_name, index, step in _every_step(workflows):
+        if "run" in step:
+            yield name, job_name, index, step
 
 
 def _commands(name: str, job: str, script: str) -> list[Command]:
@@ -417,38 +461,55 @@ def _parser(script: str) -> argparse.ArgumentParser:
     return _script_module(script.removesuffix(".py"))._argument_parser()
 
 
-def _provision(command: Command) -> tuple[str, argparse.Namespace | None] | None:
-    """The provisioner ``command`` runs and the arguments its own parser
-    resolves (None if the parser refuses them), or None for any other command."""
-    for index, word in enumerate(command.words):
-        for script in PROTECTED_TREES.values():
-            stem = script.removesuffix(".py")
-            if word.rsplit("/", 1)[-1] == script or word in {stem, f"scripts.{stem}"}:
-                try:
-                    with contextlib.redirect_stderr(io.StringIO()):
-                        args = _parser(script).parse_args(
-                            list(command.words[index + 1 :])
-                        )
-                except SystemExit:
-                    return script, None
-                return script, args
+def _provisioner(name: str) -> str | None:
+    """The provisioner script that ``name``, a path or a module, is, if any."""
+    for script in PROTECTED_TREES.values():
+        stem = script.removesuffix(".py")
+        if name.rsplit("/", 1)[-1] == script or name in {stem, f"scripts.{stem}"}:
+            return script
     return None
 
 
+def _provision(command: Command) -> tuple[str, argparse.Namespace | None] | None:
+    """The provisioner ``command`` runs and the arguments its own parser
+    resolves (None if the parser refuses them), or None for any other command,
+    including one that only reads the provisioner's file."""
+    if not command.words:
+        return None
+    script, arguments = _provisioner(command.words[0]), 1
+    if script is None and (
+        PYTHON.fullmatch(command.program) or command.words[0].startswith("$")
+    ):
+        program = workflow_shell.python_program(command.words)
+        if program is None:
+            return None
+        script, arguments = _provisioner(program[0]), program[1]
+    if script is None:
+        return None
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            return script, _parser(script).parse_args(list(command.words[arguments:]))
+    except SystemExit:
+        return script, None
+
+
 def _changes_an_environment(commands: list[Command]) -> bool:
-    for command in commands:
-        if _runs_pip(command) and {"install", "uninstall"} & set(command.words):
-            return True
-        parsed = _uv_arguments(command)
-        if parsed is not None and parsed[0] in {
-            "pip install",
-            "pip sync",
-            "pip uninstall",
-            "add",
-            "remove",
-        }:
-            return True
-    return False
+    """Whether ``commands`` do more to a locked environment than sync it: a pip
+    install or uninstall, or a second uv call of any kind."""
+    return sum(_uv_arguments(command) is not None for command in commands) > 1 or any(
+        _runs_pip(command) and {"install", "uninstall"} & set(command.words)
+        for command in commands
+    )
+
+
+def _names_more_than_its_purelib(job: dict) -> bool:
+    """Whether ``job``'s text, comments aside, names the purelib beyond its one
+    assignment and its one provision, or the environment outside ``bin/``."""
+    lines = list(_code_lines(_strings(job)))
+    return (
+        sum(len(PURELIB_NAME.findall(line)) for line in lines) != 1
+        or sum(len(PURELIB_ASSIGNMENT.findall(line)) for line in lines) != 1
+    )
 
 
 def _provision_violations(
@@ -463,11 +524,19 @@ def _provision_violations(
         run = step["run"]
         for command in _commands(name, job, run):
             provision = _provision(command)
-            if provision is None or provision[0] != VERIFICATION_PROVISIONER:
+            if provision is None:
+                continue
+            where = f"{name}:{job}[{index}]"
+            script, args = provision
+            if RUNS_AFTER_FAILURE.search(str(step.get("if", ""))):
+                violations.append(f"{where}: provisions after a failed step")
+            if script == COMPOSE_PROVISIONER:
+                if args is None or str(args.site_packages) != COMPOSE_SITE_PACKAGES:
+                    violations.append(
+                        f"{where}: the compose provision does not read its locked tree"
+                    )
                 continue
             provisions += 1
-            where = f"{name}:{job}[{index}]"
-            args = provision[1]
             if args is None:
                 violations.append(f"{where}: the provisioner refuses its arguments")
                 continue
@@ -499,9 +568,11 @@ def _provision_violations(
                     violations.append(f"{where}: $site is not {python}'s purelib")
                 if not synced:
                     violations.append(f"{where}: no `uv sync --locked|--frozen`")
-                if any(
-                    _changes_an_environment(_commands(name, job, s["run"]))
-                    for _, s in job_steps
+                job_commands = [
+                    c for _, s in job_steps for c in _commands(name, job, s["run"])
+                ]
+                if _changes_an_environment(job_commands) or (
+                    _names_more_than_its_purelib(workflows[name]["jobs"][job])
                 ):
                     violations.append(
                         f"{where}: the job changes the locked environment"
@@ -512,7 +583,7 @@ def _provision_violations(
 
 
 def _is_verification_staging(name: str, step: dict) -> bool:
-    return name in STAGING and f'site_packages="{SITE_PACKAGES}"' in step["run"]
+    return name in STAGING and f'site_packages="{SITE_PACKAGES}"' in step.get("run", "")
 
 
 def _tree_mentions(command: Command, tree: str) -> list[tuple[str, str]]:
@@ -548,22 +619,51 @@ def _tree_violations(
     workflows: dict[str, dict], exempt: frozenset[str] = frozenset()
 ) -> tuple[list[str], dict[str, int]]:
     violations: list[str] = []
-    consumers: dict[str, int] = defaultdict(int)
-    for name, job, index, step in _steps(workflows):
+    consumers: Counter[str] = Counter()
+    for name, workflow in workflows.items():
+        if name in exempt:
+            continue
+        # `env:` at these levels reaches every step below it.
+        outer = {
+            "workflow": {k: v for k, v in workflow.items() if k != "jobs"},
+            **{
+                f"job {job}": {k: v for k, v in body.items() if k != "steps"}
+                for job, body in (workflow.get("jobs") or {}).items()
+            },
+        }
+        for scope, keys in outer.items():
+            lines = list(_code_lines(_strings(keys)))
+            for tree in PROTECTED_TREES:
+                if any(tree in line for line in lines):
+                    violations.append(f"{name}: the {scope} keys name {tree}")
+    for name, job, index, step in _every_step(workflows):
         if name in exempt or _is_verification_staging(name, step):
             continue
         where = f"{name}:{job}[{index}]"
-        for command in _commands(name, job, step["run"]):
+        consumed: Counter[str] = Counter()
+        for command in _commands(name, job, step.get("run", "")):
             for tree in PROTECTED_TREES:
                 if not _tree_mentions(command, tree):
                     continue
                 if _consumes(command, tree):
-                    consumers[tree] += 1
+                    consumed[tree] += 1
                 else:
                     violations.append(
                         f"{where}: names {tree} outside its staging, locked "
                         f"install and provisioner: {command.line}"
                     )
+        consumers.update(consumed)
+        # The reader keeps no `for` header, array word, heredoc body or wrapper
+        # option, and it never reads YAML keys, so count the step's text too.
+        lines = list(
+            _code_lines(_strings({k: v for k, v in step.items() if k != "name"}))
+        )
+        for tree in PROTECTED_TREES:
+            if sum(line.count(tree) for line in lines) > consumed[tree]:
+                violations.append(
+                    f"{where}: its text names {tree} outside its locked install "
+                    "and provisioner"
+                )
     return violations, dict(consumers)
 
 
@@ -696,7 +796,82 @@ def test_the_selftest_stages_the_locked_pyyaml():
 
 @pytest.mark.parametrize("workflow", STAGING)
 def test_staging_step_is_exactly_the_locked_install(workflow):
-    assert _logical_lines(_staging_step(workflow)["run"]) == _canonical_staging()
+    step = _staging_step(workflow)
+
+    assert _logical_lines(step["run"]) == _canonical_staging()
+    # `continue-on-error` or `if:` would let a job provision a tree that failed
+    # the diff.
+    assert set(step) <= {"name", "run", "working-directory"}
+
+
+@pytest.mark.parametrize(
+    ("script", "expected"),
+    [
+        pytest.param(
+            '# Drop one package. \\\nrm -rf "$x"\n',
+            ['rm -rf "$x"'],
+            id="a-comment-ends-at-its-newline",
+        ),
+        pytest.param("a \\\n  b\n", ["a b"], id="a-continuation-joins"),
+        pytest.param("a \\\n# b\nc\n", ["a", "c"], id="a-comment-ends-a-continuation"),
+        pytest.param(
+            "a \\\n# b \\\nc\n",
+            ["a", "c"],
+            id="a-continued-comment-still-ends-at-its-newline",
+        ),
+        pytest.param("a \\\n\nc\n", ["a", "c"], id="a-blank-line-ends-a-continuation"),
+    ],
+)
+def test_logical_lines_read_continuations_as_bash_does(script, expected):
+    assert _logical_lines(script) == expected
+
+
+@settings(max_examples=60, deadline=None)
+@given(
+    st.lists(
+        st.sampled_from(
+            [
+                "echo a",
+                "echo b \\",
+                "# note",
+                "# note \\",
+                "   # indented \\",
+                "",
+                "  echo c",
+                "echo d # trailing",
+            ]
+        ),
+        max_size=8,
+    )
+)
+def test_logical_lines_run_what_bash_runs(lines):
+    def run(text: str) -> str:
+        return subprocess.run(
+            ["/bin/bash", "-c", text], capture_output=True, text=True, check=True
+        ).stdout
+
+    script = "\n".join(lines) + "\n"
+
+    assert run("\n".join(_logical_lines(script)) + "\n") == run(script)
+
+
+def test_bash_ends_a_comment_at_its_newline():
+    result = subprocess.run(
+        ["/bin/bash", "-c", "# a comment \\\necho ran\n"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert result.stdout == "ran\n"
+
+
+@pytest.mark.parametrize("workflow", STAGING)
+def test_a_command_behind_a_comment_breaks_the_canonical_block(workflow):
+    run = _staging_step(workflow)["run"]
+    hidden = f'{run}# Drop one package. \\\nrm -rf "$site_packages/requests"\n'
+
+    assert _logical_lines(hidden) != _canonical_staging()
 
 
 def test_every_production_provision_consumes_a_locked_tree():
@@ -805,6 +980,11 @@ def test_an_unlocked_install_after_staging_is_rejected(workflow, mutation, place
     assert set(violations) - set(baseline), f"{line!r} was not caught"
 
 
+# What the verification provisioner requires, beyond the trees a case varies.
+PROVISION_ARGUMENTS = (
+    "--supervisor s --apply-root a --eval-root e --corpus-release-root c --git g"
+)
+
 # Writes into a protected tree that name it without installing anything.
 TREE_WRITES = {
     "remove-a-package": f'rm -rf "{SITE_PACKAGES}/requests"',
@@ -819,8 +999,21 @@ TREE_WRITES = {
     "export-to-later-steps": f'echo "TREE={SITE_PACKAGES}" >> "$GITHUB_ENV"',
     "second-mention-in-the-provision": (
         f"sudo .venv/bin/python scripts/{VERIFICATION_PROVISIONER} --site-packages "
-        f'"{SITE_PACKAGES}" --destination "{SITE_PACKAGES}/copy"'
+        f'"{SITE_PACKAGES}" --destination "{SITE_PACKAGES}/copy" {PROVISION_ARGUMENTS}'
     ),
+    "loop-header": (
+        f'for cache in "{SITE_PACKAGES}"/*/__pycache__; do rm -rf "$cache"; done'
+    ),
+    "array": f'trees=("{SITE_PACKAGES}")',
+    "array-append": f'trees+=("{SITE_PACKAGES}")',
+    "python-heredoc": (
+        "python3 - <<'PY'\n"
+        "import os, shutil\n"
+        'shutil.rmtree(os.path.join(os.environ["RUNNER_TEMP"],'
+        ' "axiom-verification-site-packages", "requests"))\n'
+        "PY"
+    ),
+    "wrapper-option": f'env -C "{SITE_PACKAGES}" rm -rf requests',
 }
 
 
@@ -832,6 +1025,62 @@ def test_a_write_into_the_staged_tree_is_rejected(workflow, mutation):
     step["run"] = f"{TREE_WRITES[mutation]}\n{step['run']}"
 
     assert _new_violations(workflows), f"{TREE_WRITES[mutation]!r} was not caught"
+
+
+def test_a_provision_that_names_its_tree_twice_does_not_consume_it():
+    (command, *_) = workflow_shell.commands(
+        TREE_WRITES["second-mention-in-the-provision"]
+    )
+
+    assert _provision(command)[1] is not None
+    assert not _consumes(command, "axiom-verification-site-packages")
+
+
+GITHUB_TREE = "${{ runner.temp }}/axiom-verification-site-packages"
+YAML_TREE_KEYS = {
+    "step-env": lambda _workflow, _job, step: step.setdefault("env", {}).update(
+        TREE=GITHUB_TREE
+    ),
+    "working-directory": lambda _workflow, _job, step: step.update(
+        {"working-directory": GITHUB_TREE}
+    ),
+    "cache-path": lambda _workflow, job, _step: job["steps"].insert(
+        0, {"uses": "actions/cache@0", "with": {"path": GITHUB_TREE}}
+    ),
+    "job-env": lambda _workflow, job, _step: job.setdefault("env", {}).update(
+        TREE=GITHUB_TREE
+    ),
+    "workflow-env": lambda workflow, _job, _step: workflow.setdefault("env", {}).update(
+        TREE=GITHUB_TREE
+    ),
+}
+
+
+@pytest.mark.parametrize("workflow", STAGING)
+@pytest.mark.parametrize("key", sorted(YAML_TREE_KEYS))
+def test_a_yaml_key_naming_a_protected_tree_is_rejected(workflow, key):
+    workflows = _load_workflows()
+    step = _provision_step(workflow, workflows)
+    job = next(
+        job
+        for job in workflows[workflow]["jobs"].values()
+        if any(candidate is step for candidate in job.get("steps", []))
+    )
+    YAML_TREE_KEYS[key](workflows[workflow], job, step)
+
+    assert _new_violations(workflows), f"{key} was not caught"
+
+
+@pytest.mark.parametrize("key", ["comment", "step-name"])
+def test_a_comment_or_step_name_may_name_a_protected_tree(key):
+    workflows = _load_workflows()
+    step = _provision_step("bulk-encode.yml", workflows)
+    if key == "comment":
+        step["run"] = f"# Reads {SITE_PACKAGES}.\n{step['run']}"
+    else:
+        step["name"] = f"Provision from {SITE_PACKAGES}"
+
+    assert not _new_violations(workflows)
 
 
 @pytest.mark.parametrize(
@@ -851,6 +1100,18 @@ def test_a_write_into_the_compose_runtime_is_rejected(line):
     step["run"] = step["run"].replace(marker, f"{line}\n{marker}")
 
     assert _new_violations(workflows), f"{line!r} was not caught"
+
+
+def test_a_compose_provision_of_another_tree_is_rejected():
+    workflows = _load_workflows()
+    step = _compose_step(workflows)
+    locked = '--site-packages "$RUNNER_TEMP/axiom-compose-site-packages"'
+    assert step["run"].count(locked) == 1
+    step["run"] = step["run"].replace(locked, '--site-packages "$RUNNER_TEMP/other"')
+
+    violations, _ = _provision_violations(workflows)
+
+    assert any("does not read its locked tree" in v for v in violations), violations
 
 
 def test_the_compose_runtime_install_must_stay_hash_required():
@@ -933,6 +1194,16 @@ def test_the_compose_runtime_install_builds_nothing():
         'uv pip uninstall --python "$python_path" pyyaml',
         '"$python_path" -m pip uninstall -y pyyaml',
         "(cd axiom-encode && uv remove pyyaml)",
+        "(cd axiom-encode && uv venv --clear)",
+        "(cd axiom-encode && uv sync --frozen --extra dev)",
+        'rm -rf "$site/yaml"',
+        'rm -rf "${site}/yaml"',
+        'echo "import os" > "$site/evil.pth"',
+        'cp evil.py "$site/"',
+        'for hook in "$site"/*.pth; do rm "$hook"; done',
+        "rm -rf axiom-encode/.venv/lib/python3.14/site-packages/yaml",
+        "rm -rf axiom-encode/.venv",
+        'site="$RUNNER_TEMP/unlocked"',
     ],
 )
 def test_a_locked_venv_provision_rejects_any_change_to_the_environment(mutation):
@@ -995,6 +1266,86 @@ def test_a_provision_uses_the_value_its_parser_keeps():
 
     assert violations == []
     assert provisions == len(STAGING) + len(LOCKED_VENV_PROVISIONS)
+
+
+@pytest.mark.parametrize(
+    "interpreter",
+    [
+        ".venv/bin/python scripts/",
+        "python3.13 -I -S scripts/",
+        '"$PYBIN" -X utf8 scripts/',
+        "python3 -Wignore scripts/",
+        "python3 -- scripts/",
+        "./scripts/",
+        "$HOME/bin/",
+    ],
+)
+def test_every_way_of_running_the_provisioner_is_a_provision(interpreter):
+    workflows = _load_workflows()
+    step = _provision_step("bulk-encode.yml", workflows)
+    line = (
+        f"{interpreter}{VERIFICATION_PROVISIONER} --destination d "
+        f'--site-packages "$RUNNER_TEMP/other" {PROVISION_ARGUMENTS}'
+    )
+    step["run"] = f"{line}\n{step['run']}"
+
+    violations, _ = _provision_violations(workflows)
+
+    assert any("$RUNNER_TEMP/other is not locked" in v for v in violations), violations
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "python3 -m scripts.provision_verification_supervisor",
+        "python3 -Imscripts.provision_verification_supervisor",
+    ],
+)
+def test_running_the_provisioner_as_a_module_is_a_provision(module):
+    workflows = _load_workflows()
+    step = _provision_step("bulk-encode.yml", workflows)
+    line = (
+        f'{module} --destination d --site-packages "$RUNNER_TEMP/other" '
+        f"{PROVISION_ARGUMENTS}"
+    )
+    step["run"] = f"{line}\n{step['run']}"
+
+    violations, _ = _provision_violations(workflows)
+
+    assert any("$RUNNER_TEMP/other is not locked" in v for v in violations), violations
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        f"sha256sum scripts/{VERIFICATION_PROVISIONER}",
+        f"git diff --quiet -- scripts/{VERIFICATION_PROVISIONER}",
+        f"python -m ruff check scripts/{VERIFICATION_PROVISIONER}",
+        f"python3 tools/lint.py scripts/{VERIFICATION_PROVISIONER}",
+    ],
+)
+def test_reading_the_provisioner_is_not_a_provision(line):
+    workflows = _load_workflows()
+    step = _provision_step("bulk-encode.yml", workflows)
+    step["run"] = f"{line}\n{step['run']}"
+
+    violations, provisions = _provision_violations(workflows)
+
+    assert violations == []
+    assert provisions == len(STAGING) + len(LOCKED_VENV_PROVISIONS)
+
+
+@pytest.mark.parametrize(
+    "condition",
+    ["${{ always() }}", "${{ !cancelled() }}", "failure()", "${{ Always() }}"],
+)
+def test_a_provision_never_runs_after_a_failed_staging_step(condition):
+    workflows = _load_workflows()
+    _provision_step("bulk-encode.yml", workflows)["if"] = condition
+
+    violations, _ = _provision_violations(workflows)
+
+    assert any("after a failed step" in v for v in violations), violations
 
 
 @pytest.mark.parametrize(
