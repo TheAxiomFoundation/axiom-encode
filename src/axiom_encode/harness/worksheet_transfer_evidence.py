@@ -12,13 +12,12 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Sequence
 
-import yaml
-
 from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness import source_path_evidence as paths
 from axiom_encode.harness import source_path_shadow as shadow
 from axiom_encode.harness import worksheet_operation_evidence as operations
 from axiom_encode.harness.proof_validator import validate_rulespec_proofs
+from axiom_encode.yaml_serialization import safe_dump_yaml
 
 RELATION = "has_t2036_calculation_unit"
 UNIT = "t2036_calculation_unit_credit"
@@ -137,7 +136,7 @@ class WorksheetTransferEvidence:
 
 
 def _additional_claimant(rules, source_text, citation, spans, core=None):
-    branches = sc.recognize_source_structure(source_text)
+    branches = sc.recognize_source_structure(source_text, corpus_citation_path=citation)
     for name, rule in rules.items():
         if name in {UNIT, *OUTPUTS}:
             continue
@@ -363,8 +362,17 @@ def certify_worksheet_transfers(
     ) != ("Integer", "Person", "Year", None):
         return _failure("wrong source payable count contract")
     new_rules = [rules[n] for n in (RELATION, UNIT, *OUTPUTS)]
+    proof_payload = {**payload, "rules": new_rules}
+    # Interpretations refer to the full module, not this temporary proof view.
+    # The shared validation gate checks them against the original declarations.
+    if isinstance(proof_payload.get("module"), Mapping):
+        proof_payload["module"] = {
+            key: value
+            for key, value in proof_payload["module"].items()
+            if key != "interpretations"
+        }
     issues = validate_rulespec_proofs(
-        yaml.safe_dump({**payload, "rules": new_rules}),
+        safe_dump_yaml(proof_payload),
         require_policy_proofs=True,
         source_texts=source_context,
     ).issues

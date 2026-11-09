@@ -6,6 +6,25 @@ regeneration alone does not fix a validator or source defect. Queue dispatches,
 authenticated repair replays and existing repository-wide overrides retain their
 established behavior. This is a cost limit, not a signing or validation waiver.
 
+Reviewed-candidate promotions do not reset generation failure history. The
+workflow records a model-free marker only after constructing a queue without
+any model-capable operation; known model-free successes and failures are neutral.
+A success resets the streak only with the explicit completed-model-capable-queue
+marker, after all signing checkpoints succeed. Historical generic encode-step
+successes cannot distinguish generation from promotion and are conservatively
+neutral, including genuine historical successes without that evidence. Historical
+ambiguous failures still count. No attempt is deleted, and the existing lookback,
+lookup-error handling and limits are unchanged.
+
+An authenticated replay of a failed legacy-primary plus direct-dependent
+transaction must resubmit the exact prior corpus-artifact transport input,
+including its boundary cases and export run IDs. The prior failure artifact must
+bind the same primary citation, in-place legacy path, dependent citation,
+generated lanes, and candidate checksums. The replay still validates and signs
+the candidate on the current protected path; it does not waive source coverage,
+required cases, dependent validation, or exact-head CI. A missing or changed
+artifact binding fails closed rather than becoming a fresh budget-exempt encode.
+
 For a reviewed retry that must leave concurrent citations at their existing
 limits, set the repository Actions variable `ATTEMPT_BUDGET_BY_CITATION_JSON`
 to an object keyed by exact, case-sensitive corpus citation paths. For example:

@@ -1,3 +1,161 @@
+## 0.2.2348
+
+- Assign the encoder version after merge, not in each pull request (#2048). The new `Encoder version bump` workflow runs on every push to `main`. When encoder-affecting files changed after the latest bump, it writes the next version into `pyproject.toml`, `src/axiom_encode/__init__.py` and `uv.lock`, adds a `CHANGELOG.md` header that lists the pull requests merged since the previous bump by title (it leaves out bump pull requests), and opens a bump pull request with auto-merge on. It leaves the towncrier fragments in `changelog.d/` alone. The workflow opens the pull request with a token of the `axiom-encoder-version-bump` GitHub App, made on each run from the `ENCODER_VERSION_BUMP_APP_CLIENT_ID` variable and the `ENCODER_VERSION_BUMP_APP_KEY` secret of the `encoder-version-bump` environment, whose branch rule allows only `main`. It closes, holds for or auto-merges only this repository's pull requests that the App opened, never a fork's or a person's pull request with the same branch name, and it auto-merges only the bump commit it built or verified (`--match-head-commit`).
+- The bump writes one more than the highest version any first-parent commit of `main` declared, so a merge that lowered the version never makes it reissue a used number.
+- Once the bump workflow is on `main`, the required `lint` job refuses a pull request that changes the encoder version lines unless the App opened it from this repository (`version_provenance.py pull-request`). Open pull requests drop their hand bumps; one whose `lint` check passed before this landed must be pushed again, because a merge-queue run does not repeat the check.
+- Add `axiom_encode.version_provenance`, a standard-library check of the version rule at any git ref. It applies the same rule as the `--apply` guard: no encoder-affecting file may change after the latest version bump. It refuses a shallow clone, whose boundary commit would read as a bump. On the head's first-parent history it also needs a bump when the head declares a version below one that `main` already declared, or when an encoder file changed after `main` first reached the head's version at another commit; the `--apply` guard and the provisioner apply the same two rules.
+- Count a deleted encoder file, both sides of a moved one and a non-ASCII file name as encoder changes, in `version_provenance`, the `--apply` guard and the provisioner (`--no-renames --diff-filter=ACDMRT -z`). Before, each of these needed no bump. A differential test over random histories holds the three copies to one verdict.
+- Read the history that the version rule checks, including each commit's first parent, without replacement refs, grafts (including an `info/grafts` file), the commit graph or ambient `GIT_*` values, in `version_provenance`, the `--apply` guard and the provisioner, so a local history rewrite cannot hide an unversioned encoder change. `ci_parity.encoder_version_at_pin` reads the version files through the same helper. The `--apply` guard now also refuses a shallow clone.
+- Refuse an encoder head that no bump covers in the re-encode workflow's attempt-budget job. The encode job is then skipped, so an ad hoc dispatch made before the bump lands uses no production-signing approval. The attempt budget treats such a run as neutral when it can look up the run's jobs; past its ten job lookups (or on a lookup error) it still counts a failed run, as before. Queue dispatches skip that job, so the SNAP queue tick holds and the protected SNAP queue workflow refuses to dispatch while `main` is unversioned.
+- `ci_parity.encoder_version_at_pin` refuses a pin whose encoder files changed after its version bump.
+- `test_current_encoder_affecting_changes_are_behind_version_bump` now runs only with `AXIOM_ENCODE_REQUIRE_VERSION_BUMP=1`, because a pull request no longer carries a bump. CI sets it on bump pull requests (`automation/encoder-version-*` heads).
+- Add `.github/workflows/encoder-version-bump.yml` and `src/axiom_encode/version_provenance.py` to `CODEOWNERS`.
+
+## 0.2.2344
+
+- Integrate the independently reviewed nested-condition and physical-alternative source checks; refresh encoder version provenance for the combined tree.
+
+## 0.2.2338
+
+- Check bounded physical allowance alternatives as shared prerequisites plus complete alternative factual groups, using signed granting paths and an explicit shared-set input naming contract. Preserve billing, action, causal, distinct-count, entity, period, proof-ownership, and temporal requirements; unknown contracts remain conservative. This is not complete semantic equivalence, legal-alternative coverage, or validation of raw caller classifications.
+
+## 0.2.2337
+
+- Preserve closed nested physical reason alternatives as one required factual gate inside an all-of condition, rather than requiring mutually alternative reasons simultaneously or treating a closed navigation list as operative conditions. Unknown continuations remain conservative; negative or qualified terminal evidence cannot corroborate a positive reason. This narrows a source-explicit-condition opacity check, not Boolean equivalence, source completeness as a whole, or oracle validation.
+
+## 0.2.2299
+
+- Preserve the original checkout identity when validating staged eval and apply overlays, so same-case source witnesses execute against the candidate closure while retaining exact Git, file, and engine binding checks.
+
+## 0.2.2298
+
+- Type validator issues from declared checks. Each converted issue is a `ValidationIssue` (a `str` whose value is the unchanged message) that names its check id, subject (citation, branch or clause with the branch's source span, module and line, rule, test case or field), expected and found values, a short evidence excerpt and a stable fingerprint. Checks declare `title`, `requires`, `why`, `fix`, `cause` and their code site next to the code that runs them. Converted: complete-source-unit `structure`, `formula-output`, `numeric-recall`, `deferral`, `source-explicit-conditions` and `tests` (split into ten checks), proof source evidence (not found, out of scope) and the rules-engine compile failure.
+- Add each failed check's declared fix, with expected versus found per subject, to the model's retry feedback after the unchanged validator messages. Feedback with no typed issue is byte-identical.
+- Record the bounded `axiom-encode/validation-issue/v2` list (it has every v1 field name proposed in #1660, but a typed issue's `kind`, `value`, `clause` and `locator` values differ from v1; it carries the definitions of the checks it names) per try in its own key `iterations[].errors[].issue_document`, apart from the v1 `issues` list, in the outcome as `validation_issues`, and in the failure bundle as the optional `issues.json` field `typed_issues`; the bundle verifier, the repair extractor and the repair-feedback reader accept it. The 128 KiB bound covers the whole serialized document. A record whose message is cut to 2,000 characters keeps `message_sha256` of the full message, so a `--repair-candidate-root` replay re-types it with its check and fix. The workflow's repair extractor writes only the candidate pair, as before, so a workflow repair replay has no prior issues to re-type. Compile issues name the module by its repo-relative path, with the jurisdiction first when the policy repo is a jurisdiction content root, so `us` and `us-ky` modules at one relative path stay distinct. Branch subjects carry the branch's source span, so two computations in one paragraph get distinct fingerprints. A missing-boundary issue's fingerprint names only its own boundary. On the deferred-apply path, the final try of an overlay rejection records the overlay's typed issues; the legacy non-deferred path still logs the run before apply validation, so its final try has no overlay issues. `validation_failure_counts` now counts a typed issue under `<gate>:<check id>` instead of its message class, so trends over the old classes break at this version for those issues. Run-log `gate.compile` and `gate.ci` findings use the check id as their code.
+- Publish the registry with `axiom-encode checks [--json]` and `src/axiom_encode/data/check_registry.json`. Record `infra:<step>` issues (annotation, step summary, `$RUNNER_TEMP/axiom-infra-issues.jsonl`) for the refusals of the six targeted re-encode steps before the signing supervisor, without changing their messages or exit codes. `tests/test_checks.py` fails when untyped `issues.append` sites or unrecorded workflow refusals increase, or when a check lacks `fix` or `why`.
+
+## 0.2.2270
+
+- Integrate current source-completeness updates with the reviewed explicit engine-pin and portable provenance checks.
+
+## 0.2.2266
+
+- Integrate current source-bound amendment relation guidance with the reviewed explicit engine-pin and portable provenance checks.
+
+## 0.2.2265
+
+- Integrate current authenticated source-transport support with the reviewed explicit apply-engine revision and portable provenance checks.
+
+## 0.2.2264
+
+- Support eleven authenticated signed provision exports for the current pinned corpus release, including the atomic transport's distinct primary run and all bounded workflow metadata and archive slots. Keep exact source-contract and export-byte verification.
+
+## 0.2.2263
+
+- Prefetch authenticated signed corpus provision exports for protected runs whose release provisions are R2-only, with exact exporter, archive, release, and provision-byte checks. Admit the reviewed PyMuPDF exporter dependency-file pair.
+- Allow one authenticated Arizona corpus export and up to seven distinct signed provision exports in the same fresh protected transaction, without altering the source contract or the reviewed Canadian repair-head admission.
+- Bind historical Arizona SNAP manifest-owner replacement to the signed receipt and original Git bytes throughout protected packaging and publication; retain the canonical in-place manifest path and existing retired-source-metadata migration dispatches.
+- Refresh the encoder version after merging current main's engine-binding changes into the authenticated Arizona provision-export branch.
+
+## 0.2.2262
+
+- Reject explicit apply engine pins that disagree with checkout HEAD before binary resolution and independently reject mismatched captured bindings when constructing portable signed provenance. Preserve the signed schema and legacy unpinned behavior.
+
+## 0.2.2261
+
+- Cover fresh and retained candidate engine-pin forwarding through actual validation entrypoints, and clarify that local pre-generation binding can build a clean matching engine checkout.
+
+## 0.2.2260
+
+- Forward the declared engine revision through native generation, retained-candidate and repair reevaluation, and apply validation so source witnesses use the verified runtime binding. Preserve optional unpinned callers.
+
+## 0.2.2259
+
+- Bind manifest refresh validation to the declared engine revision and verified binary through apply checks, creating the engine receipt before the protected runtime. Preserve byte-identical obsolete manual aliases only when independently verified canonical base and head receipts cover unchanged live files; retain changed-receipt and full-census verification.
+
+## 0.2.2258
+
+- Forward the reviewed dependent finding through all Arizona corpus-transport preflights, admit canonical shallow historical-owner deletions, and refresh the encoder version after current main.
+
+## 0.2.2257
+
+- Refresh the encoder version after merging the reviewed Canadian repair-head admission into the Arizona ECE transport branch.
+
+## 0.2.2254
+
+- Recognize completed signed in-place source-bound dependents in the legacy replacement census, retaining source-citation, primary-proof, and fresh-manifest checks.
+
+## 0.2.2253
+
+- Regenerate Arizona ECE's proof-pinned dependent from its own signed FAA5 source in the same protected legacy replacement transaction, and verify both source bindings and the updated proof hash before publication.
+
+## 0.2.2252
+
+- Admit authenticated in-place legacy Arizona ECE replacement from a signed corpus artifact while preserving the existing RuleSpec identity and dependent references; keep distinct-path moves and unsupported transport modes rejected.
+- Admit the exact reviewed Canadian repair head for all protected artifact-only modes, including manifest refresh and reviewed-candidate promotion. Preserve publication restrictions and every signing and validation gate; link the admission evidence.
+
+## 0.2.2248
+
+- Add reviewed `repealed_tombstone` coverage exemptions for the exact repealed leaf scopes 26 USC 3121(a)(3), 3121(a)(17) and 3306(b)(3), bound to the signed corpus bytes, with their review evidence. The operative parent paragraphs and every other scope keep their coverage demands.
+
+## 0.2.2247
+
+- Add bounded authenticated corpus artifact transport for fresh complete-source replacements, binding the official reviewed exporter, run and artifact metadata, archive bytes, signed release, immutable and current scope locks, and protected signing workflow without granting source authority.
+
+## 0.2.2246
+
+- Verify a closed printed net-income row using independently executed floored and retained signed values with authenticated informational referral identities. Preserve source operands, version frames, and refusal for missing or conflicting evidence; do not infer loss eligibility or execute downstream policies.
+
+- Accept an optional nonempty descriptive `source` on imported entered-amount observations and direct worksheet entered-condition wrappers without treating that text as proof or changing canonical identity, formula, type, frame, or proof checks.
+
+## 0.2.2243
+
+- Verify a complete source repayment alternative group only when every top-level alternative and every owner version has its own executed threshold pair. Preserve partial conditions, leaf-level coverage, and separate floor/advisory obligations.
+
+## 0.2.2242
+
+- Verify exact source repayment thresholds using separately executed equality and above-threshold cases, authenticated entered observations and branch-required worksheet facts. Preserve generic boundary evaluation and separate compound-condition and advisory obligations.
+
+## 0.2.2241
+
+- Verify signed numeric representation of exact printed bracket-format instructions using authenticated operand ownership and separate actual negative and nonnegative executions. Preserve floor, advisory, repayment and boundary obligations.
+
+## 0.2.2240
+
+- Recognize referral URLs inside verified printed arithmetic rows without treating URL punctuation as calculation operators. Require exact source-bound local operand order, all-version proofs and matching executed formulas; preserve advisory text and separate condition checks.
+
+## 0.2.2239
+
+- Verify sparse worksheet choices using exact source-bound entered observations and separately executed cases. Require the selected-only worksheet fact, preserve canonical ownership and unchanged common facts, and keep generic paired-condition and boundary checks unchanged.
+
+## 0.2.2238
+
+- Verify source-bound subtraction floors using separate actual negative and positive cases, canonical imported operand proofs and exact execution receipts. Preserve legacy paired-condition and boundary checks, including unresolved sparse worksheet branches.
+
+## 0.2.2237
+
+- Verify imported formula witnesses against pinned, isolated compilation and exact-case Explain execution, while retaining original repository checks and separate boundary and paired-condition obligations.
+
+## 0.2.2236
+
+- Bind imported entered-line observations to their canonical providers and authenticated source proofs. Check complete repayment alternative trees, strict thresholds and result branches before treating their conditions as explicit, while preserving ordinary execution and source checks.
+
+## 0.2.2235
+
+- Preserve verified whole-form reference locations when extracting computation clauses, so a referral such as Step 4 is not mistaken for an arithmetic operand. Keep real amounts and malformed references subject to the existing checks.
+
+## 0.2.2234
+
+- Recognize complete printed-form referrals and label typography without treating them as arithmetic. Keep condition proofs within their source rows while preserving inherited repayment guards and conditional branches.
+
+## 0.2.2233
+
+- Preserve printed form operation rows and inherited conditions during source-clause recognition. Bind complete Add-range proof excerpts to their unique source context while retaining structural ownership and selected-version checks.
+
+## 0.2.2232
+
+- Distinguish complete slip-box referrals, coordinated printed line labels, and corroborated form footers from numeric policy values, preserving amounts, source offsets, and unrelated completeness checks.
+
 ## 0.2.2230
 
 - Keep a person responsible for a family-type resource distinct from a Family claimant in source-scope validation, while retaining genuine Family and Household requirements.
