@@ -29,12 +29,13 @@ COMBINE = ("any", "all")
 DERIVED_OPERATORS = ("sum",)
 DEFAULT_MAX_COMBINATIONS = 20_000
 DEFAULT_SEED = 0
+MAX_COMBINATIONS_LIMIT = 1_000_000
 MAX_LINK_BYTES = 1_000_000
 
 _ID = re.compile(r"[a-z0-9][a-z0-9._/-]*(?::[a-z0-9][a-z0-9._/-]*)+")
 _FACT = re.compile(r"[a-z][a-z0-9_]*")
-_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
-_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
 _RESERVED_FACTS = ("true", "false")
 
 _TOP_KEYS = {
@@ -342,7 +343,9 @@ def _fact(name: str, value: object, problems: list[str]) -> Fact | None:
 
 
 def _canonical(link_fields: dict[str, Any]) -> str:
-    return json.dumps(link_fields, sort_keys=True, separators=(",", ":"))
+    # Key order is kept: the order of the facts sets the grid order, the
+    # sample and the witness that is chosen, so it is part of the link.
+    return json.dumps(link_fields, separators=(",", ":"))
 
 
 def parse_link(document: object) -> Link:
@@ -492,8 +495,15 @@ def parse_link(document: object) -> Link:
         sampling = _keys(raw["sampling"], _SAMPLING_KEYS, "sampling", problems) or {}
         if "max_combinations" in sampling:
             value = sampling["max_combinations"]
-            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-                problems.append("sampling.max_combinations must be a positive integer")
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or not 1 <= value <= MAX_COMBINATIONS_LIMIT
+            ):
+                problems.append(
+                    "sampling.max_combinations must be an integer from 1 to "
+                    f"{MAX_COMBINATIONS_LIMIT}"
+                )
             else:
                 max_combinations = value
         if "seed" in sampling:
@@ -589,6 +599,29 @@ def parse_link(document: object) -> Link:
     )
 
 
+def _unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    # A repeated key would replace a fact or a constraint without a trace.
+    mapping: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in mapping:
+            raise ValueError(f"the key '{key}' appears twice in one mapping")
+        mapping[key] = value
+    return mapping
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """``yaml.SafeLoader`` that refuses a key that appears twice in a mapping."""
+
+    def construct_mapping(self, node, deep=False):
+        seen = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=True)
+            if key in seen:
+                raise ValueError(f"the key '{key}' appears twice in one mapping")
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+
 def load_link(path: Path) -> Link:
     """Read and validate a link file (``.json``, ``.yaml`` or ``.yml``)."""
 
@@ -604,11 +637,11 @@ def load_link(path: Path) -> Link:
     try:
         text = raw.decode("utf-8")
         if path.suffix == ".json":
-            document = json.loads(text)
+            document = json.loads(text, object_pairs_hook=_unique_pairs)
         elif path.suffix in (".yaml", ".yml"):
-            document = yaml.safe_load(text)
+            document = yaml.load(text, Loader=_UniqueKeyLoader)  # noqa: S506 - a SafeLoader
         else:
             raise LinkError([f"the link file {path} must end in .json, .yaml or .yml"])
-    except (UnicodeError, json.JSONDecodeError, yaml.YAMLError) as error:
+    except (UnicodeError, ValueError, yaml.YAMLError) as error:
         raise LinkError([f"cannot parse the link file {path}: {error}"]) from error
     return parse_link(document)

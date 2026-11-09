@@ -104,10 +104,29 @@ class Artifact:
         return chosen
 
     def expression(self, rule: Mapping[str, Any]) -> Mapping[str, Any] | None:
-        version = self._effective(rule)
-        if version is not None and isinstance(version.get("expr"), dict):
-            return version["expr"]
+        """The formula in force at the period start; ``None`` when there is none.
+
+        A rule with versions but none in force has no formula on that date,
+        as in the engine; its top-level formula is not used then.
+        """
+
+        if rule.get("versions"):
+            version = self._effective(rule)
+            if version is None:
+                return None
+            if isinstance(version.get("expr"), dict):
+                return version["expr"]
         return rule.get("expr") if isinstance(rule.get("expr"), dict) else None
+
+    def without_version(self, derived_names: Iterable[str]) -> list[str]:
+        """Ids of the derived rules with no version in force at the period start."""
+
+        return [
+            self.rule_id(name)
+            for name in derived_names
+            if (self._derived.get(name) or {}).get("versions")
+            and self._effective(self._derived[name]) is None
+        ]
 
     # -- dependencies -----------------------------------------------------
 
@@ -268,7 +287,10 @@ class Artifact:
         return _literal(value) if isinstance(value, dict) else None
 
     def fold(
-        self, node: Mapping[str, Any], fixed: Mapping[str, object], _depth: int = 0
+        self,
+        node: Mapping[str, Any],
+        fixed: Mapping[str, object],
+        _memo: dict[str, Decimal | bool | None] | None = None,
     ) -> Decimal | bool | None:
         """The constant value of ``node``, or ``None`` when it depends on a fact.
 
@@ -277,8 +299,7 @@ class Artifact:
         arithmetic fold; anything else is not a constant here.
         """
 
-        if _depth > 200:
-            return None
+        memo: dict[str, Decimal | bool | None] = {} if _memo is None else _memo
         kind = node.get("kind")
         if kind == "literal":
             value = node.get("value")
@@ -288,15 +309,21 @@ class Artifact:
         if kind == "input":
             return _plain(fixed.get(node.get("name")))
         if kind == "derived":
-            expression = self.expression(self._derived.get(node.get("name")) or {})
-            return (
-                None if expression is None else self.fold(expression, fixed, _depth + 1)
-            )
-        if kind not in ("add", "sub", "mul", "div", "min", "max", "neg"):
+            return self._fold_rule(node.get("name"), fixed, memo)
+        if kind in ("sub", "mul", "div"):
+            operands = [
+                self.fold(node[key], fixed, memo)
+                if isinstance(node.get(key), dict)
+                else None
+                for key in ("left", "right")
+            ]
+        elif kind in ("add", "min", "max", "neg"):
+            operands = [self.fold(child, fixed, memo) for child in _children(node)]
+        else:
             return None
-        operands = [self.fold(child, fixed, _depth + 1) for child in _children(node)]
         if not operands or any(
-            not isinstance(operand, Decimal) for operand in operands
+            isinstance(operand, bool) or not isinstance(operand, Decimal)
+            for operand in operands
         ):
             return None
         try:
@@ -306,19 +333,54 @@ class Artifact:
                 return min(operands)
             if kind == "max":
                 return max(operands)
-            if kind == "neg" and len(operands) == 1:
-                return -operands[0]
-            if len(operands) != 2:
-                return None
-            left = self.fold(node["left"], fixed, _depth + 1)
-            right = self.fold(node["right"], fixed, _depth + 1)
+            if kind == "neg":
+                return -operands[0] if len(operands) == 1 else None
+            left, right = operands
             if kind == "sub":
                 return left - right
             if kind == "mul":
                 return left * right
             return left / right
-        except (KeyError, TypeError, DivisionByZero, InvalidOperation):
+        except (DivisionByZero, InvalidOperation):
             return None
+
+    def _fold_rule(
+        self,
+        name: str,
+        fixed: Mapping[str, object],
+        memo: dict[str, Decimal | bool | None],
+    ) -> Decimal | bool | None:
+        """Fold one derived rule once; rules it reads fold first, without recursion depth.
+
+        A chain of rules is walked with an explicit stack, so neither a long
+        chain nor a rule that many rules read costs more than one fold each.
+        """
+
+        stack = [name]
+        while stack:
+            current = stack[-1]
+            if current in memo:
+                stack.pop()
+                continue
+            expression = self.expression(self._derived.get(current) or {})
+            if expression is None:
+                memo[current] = None
+                stack.pop()
+                continue
+            waiting = [
+                item.get("name")
+                for item in self._walk(expression)
+                if item.get("kind") == "derived"
+                and item.get("name") not in memo
+                and item.get("name") not in stack
+            ]
+            if waiting:
+                stack.extend(dict.fromkeys(waiting))
+                continue
+            memo[current] = None  # a rule that reads itself is not a constant
+            memo[current] = self.fold(expression, fixed, memo)
+            stack.pop()
+        return memo[name]
 
     def thresholds(
         self, derived_names: Iterable[str], fixed: Mapping[str, object]
@@ -326,6 +388,7 @@ class Artifact:
         """Constants that the rules compare a fact-dependent value with."""
 
         found: list[Threshold] = []
+        memo: dict[str, Decimal | bool | None] = {}
         for name in derived_names:
             rule = self._derived.get(name) or {}
             expression = self.expression(rule)
@@ -338,10 +401,10 @@ class Artifact:
                 if not isinstance(left, dict) or not isinstance(right, dict):
                     continue
                 for constant, other in ((left, right), (right, left)):
-                    value = self.fold(constant, fixed)
+                    value = self.fold(constant, fixed, memo)
                     if (
                         not isinstance(value, Decimal)
-                        or self.fold(other, fixed) is not None
+                        or self.fold(other, fixed, memo) is not None
                     ):
                         continue
                     inputs = self._expression_inputs(other) - set(fixed)

@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 _TOKEN = re.compile(
-    r"\s*(?:(?P<number>\d+(?:\.\d+)?)"
+    r"\s*(?:(?P<number>[0-9]+(?:\.[0-9]+)?)"
     r"|(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
     r"|(?P<op>>=|<=|==|!=|>|<|\+|-|\*))"
 )

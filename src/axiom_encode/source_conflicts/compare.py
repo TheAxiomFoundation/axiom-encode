@@ -244,9 +244,15 @@ def compare(
 
     # A side reads a fact through the input the fact maps, or through a
     # derived input over the fact that the side's artifact accepts.
+    # An input that no compared rule reads (a gate warning) does not count.
     read_by: dict[str, set[str]] = {side: set() for side in SIDES}
     for side in SIDES:
-        for group, name in supplied[side].values():
+        spec, artifact = link.sides[side], artifacts[side]
+        _, _, slots = artifact.closure([*spec.outputs, *spec.guards])
+        read_names = {artifact.request_name_by_slot.get(slot) for slot in slots}
+        for request_name, (group, name) in supplied[side].items():
+            if request_name not in read_names:
+                continue
             if group == "facts":
                 read_by[side].add(name)
             elif group == "derived":
@@ -275,6 +281,15 @@ def compare(
             record["thresholds"] = thresholds[name]
         fact_records[name] = record
 
+    empty = [name for name, values in zip(fact_names, value_lists) if not values]
+    if empty:
+        raise LinkGateError(
+            [
+                f"facts.{name}: no value is left between its min and max, so there "
+                "is no household to compare"
+                for name in empty
+            ]
+        )
     size = grid_size(value_lists)
     indices, sampled = select_indices(size, link.max_combinations, link.seed)
     cases = [
@@ -292,15 +307,21 @@ def compare(
             ]
         )
     constraint_problems = []
+    scope = (
+        f"{len(cases)} combinations sampled from {size} "
+        "(raise sampling.max_combinations to test more)"
+        if sampled
+        else f"{len(cases)} combinations"
+    )
     for number, constraint in enumerate(link.constraints):
-        if cases and all(number in found for found in broken):
+        if all(number in found for found in broken):
             constraint_problems.append(
                 f"constraints[{number}] ({constraint.rule}) removes every one of the "
-                f"{len(cases)} combinations; it is too strong for these values"
+                f"{scope}; it is too strong for these values"
             )
-    if cases and not constraint_problems and all(broken):
+    if not constraint_problems and all(broken):
         constraint_problems.append(
-            f"the constraints together remove every one of the {len(cases)} combinations"
+            f"the constraints together remove every one of the {scope}"
         )
     if constraint_problems:
         raise LinkGateError(constraint_problems)
@@ -457,6 +478,15 @@ def compare(
                 group["values"][name].append(case[name])
         if group["weight"] is None or weight < group["weight"]:
             group.update(weight=weight, position=position)
+
+    if run and skipped_by_guard == run:
+        raise LinkGateError(
+            [
+                f"the guards skip every one of the {run} households that meet the "
+                "constraints, so nothing is compared; check the guards and the "
+                "fixed inputs they read"
+            ]
+        )
 
     modules = _ModuleRules(rulespec_root)
     ordered = sorted(

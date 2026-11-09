@@ -298,7 +298,19 @@ def mutate(path: list, value=None, *, delete: bool = False) -> dict:
         (mutate(["guards", "c"], ["x"]), "guards has the unknown key 'c'"),
         (
             mutate(["sampling"], {"max_combinations": 0}),
-            "max_combinations must be a positive integer",
+            "max_combinations must be an integer from 1 to",
+        ),
+        (
+            mutate(["sampling"], {"max_combinations": 10**7}),
+            "max_combinations must be an integer from 1 to",
+        ),
+        (
+            mutate(["period", "start"], "٢٠٢٧-01-01"),
+            "period.start must be a YYYY-MM-DD date",
+        ),
+        (
+            mutate(["fixed", B + "input.minimum_wage_rate", "value"], "٧"),
+            "value must be a decimal value",
         ),
         (mutate(["sampling"], {"seed": -1}), "seed must be a non-negative integer"),
     ],
@@ -866,6 +878,12 @@ def test_witnesses_group_by_direction_deciding_rules_and_one_side_facts(tmp_path
         for group in record["witness_groups"]
     ]
     assert len(keys) == len(set(keys)) > 1
+    assert {tuple(group["one_side_facts"]) for group in record["witness_groups"]} == {
+        ("monthly_income", "agency_counts_income_as_hours")
+    }
+    assert {
+        group["one_side_facts"]["monthly_income"] for group in record["witness_groups"]
+    } == {"zero", "nonzero"}
     assert (
         sum(group["count"] for group in record["witness_groups"])
         == record["counts"]["differ"]
@@ -1082,3 +1100,150 @@ def test_real_engine_gives_the_record_the_fixture_artifacts_give(real_engine, tm
     for volatile in (record, expected):
         volatile["engine"]["version"] = None
     assert copy.deepcopy(record) == expected
+
+
+# -- findings of the review -------------------------------------------------
+
+
+def test_a_key_that_appears_twice_is_refused(tmp_path):
+    as_yaml = tmp_path / "link.yaml"
+    as_yaml.write_text(LINK.read_text() + "constraints: []\n")
+    with pytest.raises(LinkError, match="the key 'constraints' appears twice"):
+        load_link(as_yaml)
+    nested = tmp_path / "nested.yaml"
+    text = LINK.read_text()
+    assert "  service_hours:\n    kind: decimal\n" in text
+    nested.write_text(
+        text.replace(
+            "  service_hours:\n    kind: decimal\n",
+            "  work_hours:\n    kind: decimal\n",
+        )
+    )
+    with pytest.raises(LinkError, match="the key 'work_hours' appears twice"):
+        load_link(nested)
+    as_json = tmp_path / "link.json"
+    as_json.write_text('{"format": "x", "id": "us:a", "id": "us:b"}')
+    with pytest.raises(LinkError, match="the key 'id' appears twice"):
+        load_link(as_json)
+
+
+def test_link_hash_changes_with_the_order_of_the_facts():
+    doc = document()
+    reordered = copy.deepcopy(doc)
+    reordered["facts"] = {
+        name: doc["facts"][name] for name in reversed(list(doc["facts"]))
+    }
+    assert parse_link(reordered).sha256 != parse_link(doc).sha256
+    top_level = {key: doc[key] for key in reversed(list(doc))}
+    assert parse_link(top_level).sha256 == parse_link(doc).sha256
+
+
+def test_a_rule_with_no_version_in_force_has_no_formula():
+    payload = artifact_payload("a")
+    rule = payload["program"]["derived"][0]
+    rule["versions"][0]["effective_from"] = "2028-01-01"
+    artifact = Artifact(payload, "2027-01-01")
+    assert artifact.expression(rule) is None
+    assert artifact.without_version(["work_requirement_met"]) == [
+        A + "work_requirement_met"
+    ]
+    with pytest.raises(
+        LinkGateError, match="has no formula version in force on 2027-01-01"
+    ):
+        check_link(parse_link(document()), {"a": artifact, "b": artifacts()["b"]})
+    later = Artifact(payload, "2028-01-01")
+    assert later.without_version(["work_requirement_met"]) == []
+    assert later.expression(rule) == rule["versions"][0]["expr"]
+
+
+def test_constant_folding_of_a_long_rule_chain_is_linear():
+    def number(value):
+        return {"kind": "literal", "value": {"kind": "integer", "value": value}}
+
+    payload = artifact_payload("a")
+    program = payload["program"]
+    program["derived"].append(
+        {
+            "name": "r0",
+            "id": "us:x#r0",
+            "expr": {"kind": "mul", "left": number(1), "right": number(7)},
+        }
+    )
+    for index in range(1, 400):
+        previous = {"kind": "derived", "name": f"r{index - 1}"}
+        program["derived"].append(
+            {
+                "name": f"r{index}",
+                "id": f"us:x#r{index}",
+                "expr": {
+                    "kind": "sub",
+                    "left": {"kind": "mul", "left": previous, "right": number(2)},
+                    "right": previous,
+                },
+            }
+        )
+    artifact = Artifact(payload, "2027-01-01")
+    # Without a memo this takes 2**400 steps.
+    assert artifact.fold({"kind": "derived", "name": "r399"}, {}) == Decimal(7)
+    unknown = {
+        "kind": "sub",
+        "left": number(1),
+        "right": {"kind": "input", "name": "x"},
+    }
+    assert artifact.fold(unknown, {}) is None
+    assert artifact.fold(unknown, {"x": "3"}) == Decimal(-2)
+    by_zero = {"kind": "div", "left": number(1), "right": number(0)}
+    assert artifact.fold(by_zero, {}) is None
+
+
+def test_gate_a_fact_with_no_value_fails(tmp_path):
+    doc = document()
+    doc["facts"]["monthly_income"].update(min=5, max=6)
+    with pytest.raises(LinkGateError, match="facts.monthly_income: no value is left"):
+        run_compare(doc, tmp_path)
+
+
+def test_gate_guards_that_skip_every_household_fail(tmp_path):
+    doc = document()
+    doc["fixed"][B + "input.individual_is_covered"]["value"] = False
+    with pytest.raises(
+        LinkGateError, match="the guards skip every one of the 96 households"
+    ):
+        run_compare(doc, tmp_path)
+
+
+def test_gate_constraint_message_names_the_sample(tmp_path):
+    doc = document()
+    doc["sampling"] = {"max_combinations": 1}
+    doc["constraints"] = [{"rule": "work_hours >= 1"}]
+    with pytest.raises(LinkGateError, match="1 combinations sampled from 224"):
+        run_compare(doc, tmp_path)
+
+
+def test_an_input_no_compared_rule_reads_does_not_make_a_fact_two_sided(tmp_path):
+    payload = artifact_payload("a")
+    payload["metadata"]["input_catalog"].append(
+        {
+            "slot": "unused_flag",
+            "canonical_request_name": A + "input.unused_flag",
+            "request_names": [A + "input.unused_flag"],
+        }
+    )
+    engine = FakeEngine(
+        {
+            "us/statutes/999/1/a.yaml": payload,
+            "us/regulations/99-cfr/1/2.yaml": artifact_payload("b"),
+        }
+    )
+    doc = document()
+    doc["facts"]["agency_counts_income_as_hours"]["a"] = A + "input.unused_flag"
+    record = run_compare(doc, tmp_path, engine)
+    assert record["warnings"] == [
+        f"side a: input '{A}input.unused_flag' (facts) is not read by the compared rules"
+    ]
+    assert record["facts"]["agency_counts_income_as_hours"]["read_by"] == ["b"]
+    (group,) = record["witness_groups"]
+    assert group["one_side_facts"] == {
+        "monthly_income": "nonzero",
+        "agency_counts_income_as_hours": True,
+    }

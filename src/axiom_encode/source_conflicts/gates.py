@@ -96,6 +96,11 @@ def check_link(link: Link, artifacts: Mapping[str, Artifact]) -> list[str]:
                 )
 
         derived_names, _, required_slots = artifact.closure(queried)
+        for rule_id in artifact.without_version(derived_names):
+            problems.append(
+                f"side {side}: rule '{rule_id}' has no formula version in force on "
+                f"{link.period['start']}, the start of the link's period"
+            )
         supplied = side_inputs(link, side, artifact)
         for slot in required_slots:
             request_name = artifact.request_name_by_slot.get(slot)

@@ -46,7 +46,8 @@ axiom-encode compare-sources \
 
 A link is a JSON or YAML file. Schema:
 `src/axiom_encode/source_conflicts/link.schema.json`. The loader
-(`link.py`) is the authority and refuses unknown keys.
+(`link.py`) is the authority. It refuses unknown keys and a key that appears
+twice in one mapping.
 
 | Key | Meaning |
 |---|---|
@@ -60,7 +61,7 @@ A link is a JSON or YAML file. Schema:
 | `fixed` | Inputs held constant, keyed by input name: `kind`, `value`. |
 | `constraints` | Conditions a real household meets: `rule`, optional `note`. |
 | `guards` | Per side, rules that must hold for a household to be compared. |
-| `sampling` | `max_combinations` (default 20,000) and `seed` (default 0). |
+| `sampling` | `max_combinations` (default 20,000, at most 1,000,000) and `seed` (default 0). |
 
 `combine: any` means the side says yes when one output holds; `all` when every
 output holds. Outputs and guards must be yes/no rules (Judgment or bool). A
@@ -100,8 +101,14 @@ findings.
    skips an input behind a short circuit.
 4. Each supplied input's kind matches its use in the rules (yes/no against
    number).
-5. No constraint removes every combination, alone or together with the others.
-   This is an error, not a warning: such a link can only report "no conflict".
+5. Each compared rule has a formula version in force at the period start.
+6. Each fact has at least one value (a `min` and `max` can leave none).
+7. No constraint removes every combination, alone or together with the others.
+   When the grid is sampled, this gate tests the sample, and the error says so.
+8. The guards do not skip every household that meets the constraints.
+
+Gates 6 to 8 are errors, not warnings: such a link can only report
+"no conflict". Gate 8 runs after the engine, because a guard is a rule.
 
 A supplied input that no compared rule reads is a warning in the record.
 
@@ -147,7 +154,7 @@ give the same bytes: the record holds no time, host or path.
 | `id` | The link's id. |
 | `review_state` | Always `unreviewed`. A later review sets `source_conflict`, `encoding_error` or `refinement_or_option`; this step never does. |
 | `conflict` | `true` when a household differs. |
-| `link.sha256` | Hash of the normalized link (file format and number spelling do not change it). |
+| `link.sha256` | Hash of the normalized link. File format and number spelling do not change it. The order of the facts does: it sets the grid order, the sample and the witness that is chosen. |
 | `rulespec` | `commit` of the checkout, and `dirty` when tracked files differ from it. |
 | `engine` | `commit` bound, and the artifact's engine `version`. |
 | `sides.a`, `sides.b` | `label`, `module`, `module_sha256`, `outputs`, `combine`, `guards`, and `rules`. |
@@ -202,6 +209,10 @@ fixture modules in `tests/fixtures/source_conflicts/` with the real engine.
   deadlines, notices, order of steps.
 - A difference that needs a value the grid does not hold.
 - A difference between two modules with no link.
+
+The step reads the expression kinds that the RuleSpec lowering emits today. An
+input behind a node kind that it does not know (for example an optional input
+with a default) is still found as an input, but is not classified by kind.
 
 ## Package layout
 
