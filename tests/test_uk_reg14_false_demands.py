@@ -279,6 +279,20 @@ def test_mixed_percentage_masking_keeps_offsets() -> None:
     assert masked == "amount B is 2 6 7 per cent of X and 4/5"
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "3/4 1/2 per cent",
+        "1.5 3/4 per cent",
+        "1,5 3/4 per cent",
+        "2 6 / 7 per cent",
+        "2\n6/7 per cent",
+    ],
+)
+def test_the_mask_leaves_every_other_numeral_alone(text: str) -> None:
+    assert sc._without_digit_mixed_percentage_slashes(text) == text
+
+
 FALLS_CLAUSES = (
     "the day falls within a week in respect of which the person has no income",
     "the week in which the day falls and the applicable amount",
@@ -474,6 +488,34 @@ def test_a_parenthesis_that_opens_by_limiting_the_reference_keeps_its_cues(
 def test_a_parenthesis_left_open_keeps_its_cues(text: str) -> None:
     assert cues(text, CITATION) == cues(text)
     assert "if" in [item[2] for item in cues(text, CITATION)]
+
+
+@pytest.mark.parametrize(
+    "line_break",
+    (
+        "\n",
+        "\r",
+        "\x0b",
+        "\x0c",
+        "\x1c",
+        "\x1d",
+        "\x1e",
+        "\x85",
+        chr(0x2028),
+        chr(0x2029),
+    ),
+)
+def test_a_parenthesis_after_a_line_break_keeps_its_cues(line_break: str) -> None:
+    text = (
+        f"See regulation 57{line_break}"
+        "(residents to whom regulation 14(6) does not apply)."
+    )
+    assert "does not apply" in [item[2] for item in cues(text, CITATION)]
+
+
+def test_a_cue_that_runs_past_the_title_stays() -> None:
+    text = "See regulation 57 (gilt for residents) nicht."
+    assert [item[2] for item in cues(text, CITATION)] == ["gilt for residents) nicht"]
 
 
 def test_title_that_opens_with_when_is_a_title() -> None:
