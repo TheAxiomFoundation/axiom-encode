@@ -788,6 +788,7 @@ def real_composed_maryland_source(tmp_path_factory):
     )
     records = resolver._read_descendant_records(
         artifact,
+        rows=artifact.rows,
         citation_path=fixture["citation"],
         active_scopes=frozenset((scope,)),
         provisions_root=provisions,

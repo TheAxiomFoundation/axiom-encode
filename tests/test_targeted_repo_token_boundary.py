@@ -6,6 +6,8 @@ from typing import NamedTuple
 import pytest
 import yaml
 
+from tests.process_limits import HANG_TIMEOUT_SECONDS
+
 ROOT = Path(__file__).resolve().parents[1]
 
 # These are the complete external-command and builtin sets used by the token
@@ -379,7 +381,7 @@ def test_publication_reports_preparation_failure_without_publishing(
         env={"PRIOR_STATUS": "failure"},
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=HANG_TIMEOUT_SECONDS,
         check=False,
     )
     assert completed.returncode == 1
