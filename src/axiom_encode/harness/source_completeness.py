@@ -6965,11 +6965,13 @@ _US_DESIGNATION_LIST_CONTINUATION = re.compile(
 # 273.9`, `(relating to ...) of ...`, `are not implemented`) may qualify the
 # listed items, so the list is not read. A line break ends the citation only
 # when the rest is blank or the next line starts a new citation: a title
-# number (`7 CFR 273.9`), a U.S. corpus path (`us/...`, `us-co/...`) or `;`.
+# and code name (`7 CFR 273.9`, `26 U.S.C. 32`), a U.S. corpus path
+# (`us/...`, `us-co/...`) or `;`.
 # Any other next line (`of 7 CFR 273.9`, `Note: only for aliens`, `Excluding
 # ...`) may qualify the listed items, so the list is not read.
 _US_DESIGNATION_LIST_TERMINAL = re.compile(
-    r"[ \t]*(?:$|[;.]|\r?\n(?=\s*(?:$|;|\d|us(?:-[a-z0-9]+)?/)))|"
+    r"[ \t]*(?:$|[;.]|\r?\n(?=\s*(?:$|;|us(?:-[a-z0-9]+)?/|"
+    r"\d+\s*(?:C\.?\s?F\.?\s?R|U\.?\s?S\.?\s?C)(?![A-Za-z]))))|"
     r"\s+of\s+this\s+(?:section|subsection|paragraph|subparagraph|clause|"
     r"subclause|part|subpart|chapter|subchapter|title|rule|regulation)\b",
     flags=re.IGNORECASE,

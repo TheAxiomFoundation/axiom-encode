@@ -442,6 +442,9 @@ def test_us_citation_list_counts_only_when_nothing_qualifies_it():
         "\nExcluding 7 CFR 273.9",
         "\n[of 7 CFR 273.9]",
         "\n* of 7 CFR 273.9",
+        "\n2 of which apply only to aliens",
+        "\n12(b) of 7 CFR 273.9",
+        "\n3. Except aliens",
     ):
         assert _listed(f"7 CFR 273.4(a)(1) and (c)(1){tail}") == {("a", "1")}, tail
     assert _listed(
@@ -454,6 +457,8 @@ def test_us_citation_list_counts_only_when_nothing_qualifies_it():
         ".",
         "; 7 CFR 273.9",
         "\n7 CFR 273.9",
+        "\n7 C.F.R. 273.9",
+        "\n26 U.S.C. 32",
         "\nus/regulation/7/273/9",
         "\nus-co/regulation/1/2",
         "\nUS/regulation/7/273/9",
