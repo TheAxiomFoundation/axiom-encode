@@ -21,8 +21,8 @@ Invariants pinned here:
   a bare marker, a glued or wrapped parenthesis, one that opens with a number
   word or with a word carrying on the amount or limiting the reference, one
   that holds a sentence break, and one that runs past 300 characters;
-* a number on the same line or a listed unit after the last title keeps the
-  whole list out of the pass;
+* a number on the same line or a listed unit right after the last title keeps
+  the whole list out of the pass;
 * a list on a line the extractor reads as a heading changes nothing, because
   the keyword that makes the line a heading stays;
 * on generated lists, including lists right after another reference, the pass
@@ -592,6 +592,8 @@ _UNITS_AFTER_A_TITLE = (
     "per  cent",
     "per\ncent",
     "percent",
+    "per centum",
+    "per  centum",
     "%",
     "pounds",
     "pound",
@@ -599,7 +601,11 @@ _UNITS_AFTER_A_TITLE = (
     "dollar",
     "euros",
     "euro",
+    "cents",
+    "cent",
     "pence",
+    "penny",
+    "pennies",
 )
 
 
@@ -636,6 +642,16 @@ def test_a_unit_after_the_last_title_keeps_the_list_out_of_the_pass(
             "section 5 (rates), 10 (gross) or 20 (net) per cent",
             [10.0, 20.0],
             id="every-item-of-the-list-stays",
+        ),
+        pytest.param(
+            "section 5 (rates), 10 (gross) or 20 (net) per centum",
+            [10.0, 20.0],
+            id="per-centum",
+        ),
+        pytest.param(
+            "section 5 (rates), 10 (gross) or 20 (net) cents",
+            [10.0, 20.0],
+            id="cents",
         ),
         pytest.param(
             "section 5 (commencement), 1 (January) 2020",

@@ -2265,15 +2265,15 @@ _LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
 #
 # A title names a provision. A parenthesis counts as one only when space on the
 # item's own line separates it from the number and it opens with a letter; it
-# may hold one nested pair ("(... to whom regulation 14(6) does not apply)").
-# These never count, so their item keeps its number: a bare subdivision marker
+# may hold parenthesized pairs one level deep ("(... to whom regulation 14(6)
+# does not apply)"). These never count, so their item keeps its number: a bare subdivision marker
 # ("5 (a)"), a parenthesis glued to its number ("5(a)"), one that opens with a
 # number word and restates an amount ("19 (nineteen) weeks"), and one that opens
 # with a word carrying on the amount or limiting the reference ("19 (or more)
 # weeks", "500 (per annum)", "5 (except paragraph 2)"). A parenthesis left open
 # reaches to some later close, so neither does one that holds a sentence break
-# or runs past 300 characters outside a nested pair. Every item must carry its
-# own title: in "regulation 15 (absentees) or 19 weeks" the 19 stays.
+# or runs past 300 characters outside a nested pair. A list ends at its first
+# untitled item: in "regulation 15 (absentees) or 19 weeks" the 19 stays.
 _ENGLISH_REFERENCE_KEYWORD = (
     r"(?:articles?|sections?|secs?\.?|regulations?|paragraphs?|"
     r"sub-?paragraphs?|subsections?|parts?|chapters?|schedules?)"
@@ -2302,13 +2302,14 @@ _ENGLISH_TITLE_GAP = rf"[^\S{_LINE_BREAK_CHARS}]+"
 _ENGLISH_TITLED_REFERENCE_ITEM = (
     rf"\d+[A-Za-z]*{_ENGLISH_TITLE_GAP}{_ENGLISH_REFERENCE_TITLE}"
 )
-# A number on the same line or one of these units after the last title makes that
-# item an amount with an aside ("12 (in the case of a couple, 24) months", "1
-# (January) 2020"). The possessive repeat stops the pattern from falling back to
-# the items before it.
+# A number on the same line or one of these units right after the last title
+# makes that item an amount with an aside ("12 (in the case of a couple, 24)
+# months", "1 (January) 2020"). The possessive repeat stops the pattern from
+# falling back to the items before it.
 _ENGLISH_AMOUNT_AFTER_TITLE = (
-    rf"[^\S{_LINE_BREAK_CHARS}]*+\d|\s*+(?:per\s*cent\b|%|"
-    r"(?:week|month|year|day|hour|pound|dollar|euro)s?\b|pence\b)"
+    rf"[^\S{_LINE_BREAK_CHARS}]*+\d|\s*+(?:per\s*cent(?:um)?\b|%|"
+    r"(?:week|month|year|day|hour|pound|dollar|euro|cent)s?\b|"
+    r"penn(?:y|ies)\b|pence\b)"
 )
 _ENGLISH_TITLED_REFERENCE_LIST = re.compile(
     rf"\b{_ENGLISH_REFERENCE_KEYWORD}\s+{_ENGLISH_TITLED_REFERENCE_ITEM}"
@@ -16057,8 +16058,9 @@ def _blank_titled_reference_list(match: re.Match[str]) -> str:
     can make a line a Part, Chapter or Schedule heading, so those items stay. A
     title can state an amount of its own ("regulation 15 (persons aged 65 or
     over) or 19 (...)"), so the titles stay too. A placeholder takes each number's
-    place because an earlier reference reads on through spaces: "Part 3 and
-    regulation 15 (absentees) or 19 (persons), 7 and 8" would lose the 7 and 8.
+    place because an earlier reference reads on through spaces: "Under Part 3
+    and regulation 15 (absentees) or 19 (persons), 7 and 8" would lose the 7 and
+    8.
     """
     matched = match.group(0)
     kept = list(matched)
