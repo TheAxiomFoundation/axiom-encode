@@ -37464,12 +37464,12 @@ def _evaluate_encode_pre_encode_gate(
             args.corpus_path,
             label="Axiom Corpus",
         )
-        axiom_rules_path = _resolve_explicit_existing_directory(
+        # The try binds the engine's bytes (_pinned_apply_engine_binding) once,
+        # after the gate; hashing the binary here too would double that cost.
+        _resolve_explicit_existing_directory(
             args.axiom_rules_path,
             label="Axiom rules engine",
         )
-        if engine_ref is not None:
-            _pinned_apply_engine_binding(axiom_rules_path, engine_ref)
         policy_checkout_path = resolved_policy_checkout_path
         if policy_checkout_path is None:
             policy_checkout_path = _resolve_explicit_existing_directory(
