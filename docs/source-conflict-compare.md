@@ -56,7 +56,7 @@ twice in one mapping.
 | `question` | Optional. The question in words. |
 | `entity`, `period` | The entity of every compared rule and input, and the period to query (`period_kind`, `start`, `end`). v1 compares one entity with no relations. |
 | `a`, `b` | The two sides: `label`, `module` (path in the checkout), `outputs` (rule ids), `combine`, optional `note`. |
-| `facts` | Shared facts. Each has a `kind` (`bool`, `integer`, `decimal`) and the input it maps to on side `a`, side `b` or both. Optional: `values`, `step`, `min`, `max`, `note`. |
+| `facts` | Shared facts. Each has a `kind` (`bool`, `integer`, `decimal`) and the input it maps to on side `a`, side `b` or both (a fact that is only part of a `derived` input needs none). Optional: `values`, `step`, `min`, `max`, `note`. |
 | `derived` | Inputs that one side takes and the other computes, keyed by input name: `kind`, `op`, `of` (facts). The only operator in v1 is `sum`. |
 | `fixed` | Inputs held constant, keyed by input name: `kind`, `value`. |
 | `constraints` | Conditions a real household meets: `rule`, optional `note`. |
@@ -83,6 +83,108 @@ agency_lacks_hours_documentation == true
 
 Operators: `>= <= > < == !=`, `+`, `-`, and `*` between a number and a fact. A
 bool fact, `true` and `false` can only stand alone on a side of `==` or `!=`.
+
+## The question file
+
+A link compares two modules. Several documents can answer the same question: a
+statute, its regulation, federal guidance, state guidance. A **question file**
+is the hub form for that. It states the question, its canonical facts and its
+constraints once, and lists two or more **answers**. Each answer is one
+document's encoding. N answers need N input maps, not N x (N - 1) / 2 links.
+
+The question file is a sidecar. It does not change the RuleSpec format
+(`format: rulespec/v1` stays) and no module is edited, so no file hash, signed
+manifest or import hash changes.
+
+Format `axiom-source-question/v1`. Schema:
+`src/axiom_encode/source_conflicts/question.schema.json`.
+
+| Key | Meaning |
+|---|---|
+| `id` | Stable id of the question (`us:medicaid/community-engagement-met-for-month`). |
+| `question`, `entity`, `period`, `sampling` | As in a link. |
+| `facts` | The canonical facts: `kind`, optional `values`, `step`, `min`, `max`, `note`. No input names here. |
+| `constraints` | Over the canonical facts. |
+| `answers` | Two or more answers. |
+
+Each answer:
+
+| Key | Meaning |
+|---|---|
+| `id` | Short id, unique in the file (`42-cfr-435-552`). |
+| `label`, `module`, `outputs`, `combine`, `note` | As a side of a link. |
+| `inputs` | Canonical fact -> this module's input name. |
+| `derived`, `fixed` | As in a link, keyed by this module's input names. |
+| `guards` | Rules of this module that must hold. |
+| `document_type` | One of `statute`, `regulation`, `federal_guidance`, `state_regulation`, `state_guidance`, `form_instructions`, `third_party`. |
+| `jurisdiction`, `corpus_citation_path` | `us` or `us-co`; the corpus path of the document. |
+| `effective_from`, `effective_to` | Optional dates of the document. A period start outside them is a warning. |
+
+```bash
+axiom-encode compare-sources \
+  --question docs/source-conflicts/examples/us-medicaid-community-engagement.question.json \
+  --rulespec-root <rulespec checkout> \
+  --axiom-rules-engine-path <engine checkout> \
+  --out <directory>
+```
+
+The step expands the file into one link for each pair of answers and runs the
+pair compare on it, with no change in behaviour. It writes into `--out`:
+
+- one conflict record for each pair, `<answer a>~<answer b>.json`, in the record
+  format below, with the id `<question id>:<answer a>~<answer b>`;
+- `summary.json`, format `axiom-source-question-summary/v1`: the answers with
+  their metadata, and for each pair its record file, `conflict`, `run`,
+  `differ` and the direction, count and conditions of each witness group.
+
+Rules of the expansion:
+
+- Answers are ordered by document type (the order of the list above), then by
+  id. So a statute is side `a` of a regulation, and a pair's id and sides do
+  not depend on the order of the answers in the file.
+- A pair holds only the facts that one of its two answers reads.
+- A constraint over a fact that neither answer of a pair reads is not applied
+  to that pair. The pair record lists it in `constraints_not_applied`, and the
+  summary has a warning.
+- Two answers that both supply one input must give the same definition.
+- Question gates: at least two answers, unique answer ids, each canonical fact
+  used by at least one answer. All link gates then run for each pair. A gate
+  failure of one pair fails the question: it gives all of its records or none.
+
+A pair record of a question has three more fields than a link record:
+`source_question` (the question's id and hash), `sides.*.answer` (the answer's
+metadata) and `constraints_not_applied`.
+
+`docs/source-conflicts/examples/us-medicaid-community-engagement.question.json`
+is the H.R.1 example as a question with two answers. Its one pair expands to
+the example link, and gives the same result: 1,536 run, 8 differ, 1 group,
+with the conditions `agency_converts_income_to_hours = true` and
+`agency_lacks_hours_documentation = true`.
+
+Place of a question file in a RuleSpec repository:
+`<jurisdiction>/questions/**/<name>.question.yaml` (for example
+`us/questions/medicaid/community-engagement.question.yaml`). A question file
+is not a module. In axiom-encode, `_rulespec_module_paths` and the SNAP
+readiness scan skip a `.question.yaml` file under `<jurisdiction>/questions/`,
+so a question file there needs no signed manifest, no companion test and no
+`format: rulespec/v1`. Nothing else is skipped: any other file in
+`questions/` is refused as before, a symlink is refused, and a
+`.question.yaml` file in a module root is refused. The engine compiles a
+module of a checkout that holds a `questions/` tree with no change.
+
+Open points for the place: the validators of each RuleSpec repository (its
+`.axiom/repository-structure.yaml` path rules) must allow the path; and the
+fallback layout gate of `ci_parity` (used only for a repository with no
+structure file) still lists a question file as a layout problem.
+
+Each gate failure of a pair names the pair and its two answers. Each answer
+must stand alone: its `inputs`, `derived` and `fixed` names must be inputs of
+its own module, and it must supply every input that its own rules read. An
+answer cannot lean on an input that its partner supplies.
+
+With `--question`, `--out` is a directory. The step removes the pair records
+that the earlier `summary.json` in it lists, so the directory matches the new
+summary. It touches no other file and writes through no link.
 
 ## Gates
 
@@ -166,7 +268,7 @@ give the same bytes: the record holds no time, host or path.
 | `counts` | `grid`, `combinations` (after sampling), `removed_by_constraints`, `removed_that_differ`, `run`, `skipped_by_guard`, `differ`, `witness_groups`. |
 | `sampled`, `sampling` | Whether the grid was sampled, and the method, cap and seed. |
 | `warnings` | Gate warnings. |
-| `witness_groups` | The witnesses, grouped. |
+| `witness_groups` | The witnesses, grouped. Each group: `direction`, `deciding_rules`, `one_side_facts`, `conditions`, `count`, `witness`, `fact_values`. |
 
 `run` counts the combinations that meet every constraint. `differ` counts those
 that pass the guards and get different results.
@@ -178,6 +280,13 @@ rules of a yes are the outputs that hold; of a no, all outputs. For `all` it is
 the reverse. Each group has its `count`, the values each fact takes in the
 group (`fact_values`), and one `witness`: the household with the fewest facts
 that are not zero or false, and the first of those in grid order.
+
+Each group also has `conditions`: the facts that only one side reads and that
+have one value in all witnesses with the same direction and deciding rules
+(a bool by its value, a number as `zero` or `nonzero`). Example for H.R.1:
+`agency_converts_income_to_hours = true` and
+`agency_lacks_hours_documentation = true`. A condition holds for the values
+that the grid tested; it is not a proof for all values.
 
 ## Example: H.R.1 Medicaid community engagement
 

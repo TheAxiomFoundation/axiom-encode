@@ -1,0 +1,84 @@
+# Fixture question for tests/test_source_questions.py: three documents answer
+# whether a person meets a monthly work requirement.
+format: axiom-source-question/v1
+id: us:fixture/work-requirement-met-for-month
+question: Does a person meet the work requirement for a month?
+entity: Person
+period:
+  period_kind: month
+  start: "2027-01-01"
+  end: "2027-02-01"
+facts:
+  work_hours:
+    kind: decimal
+  service_hours:
+    kind: decimal
+  monthly_income:
+    kind: decimal
+  agency_counts_income_as_hours:
+    kind: bool
+  enrolled_student:
+    kind: bool
+constraints:
+  - rule: monthly_income >= work_hours * 7.25
+    note: Work hours are paid at least the minimum wage.
+answers:
+  - id: statute
+    label: Fixture statute (a)
+    document_type: statute
+    jurisdiction: us
+    corpus_citation_path: us/statute/999/1/a
+    module: us/statutes/999/1/a.yaml
+    outputs:
+      - us:statutes/999/1/a#work_requirement_met
+    combine: any
+    derived:
+      us:statutes/999/1/a#input.monthly_total_hours:
+        kind: decimal
+        op: sum
+        of: [work_hours, service_hours]
+        note: The statute takes total hours as an input.
+    fixed:
+      us:statutes/999/1/a#input.subject_to_requirement:
+        kind: bool
+        value: true
+  - id: regulation
+    label: Fixture regulation (a)
+    document_type: regulation
+    jurisdiction: us
+    corpus_citation_path: us/regulation/99/1/2
+    effective_from: "2026-10-01"
+    module: us/regulations/99-cfr/1/2.yaml
+    outputs:
+      - us:regulations/99-cfr/1/2#hours_path_met
+    combine: any
+    inputs:
+      work_hours: us:regulations/99-cfr/1/2#input.documented_hours
+      service_hours: us:regulations/99-cfr/1/2#input.service_hours
+      monthly_income: us:regulations/99-cfr/1/2#input.income_for_month
+      agency_counts_income_as_hours: us:regulations/99-cfr/1/2#input.agency_counts_income_as_hours
+    fixed:
+      us:regulations/99-cfr/1/2#input.individual_is_covered:
+        kind: bool
+        value: true
+      us:regulations/99-cfr/1/2#input.minimum_wage_rate:
+        kind: decimal
+        value: "7.25"
+    guards:
+      - us:regulations/99-cfr/1/2#individual_in_scope
+  - id: guidance
+    label: Fixture agency FAQ, questions 1 and 4
+    document_type: federal_guidance
+    jurisdiction: us
+    corpus_citation_path: us/policy/demo-agency/work-requirement-faq
+    module: us/policies/demo-agency/work-requirement-faq.yaml
+    outputs:
+      - us:policies/demo-agency/work-requirement-faq#requirement_treated_as_met
+    combine: any
+    inputs:
+      enrolled_student: us:policies/demo-agency/work-requirement-faq#input.enrolled_student
+    derived:
+      us:policies/demo-agency/work-requirement-faq#input.hours_of_work_and_service:
+        kind: decimal
+        op: sum
+        of: [work_hours, service_hours]

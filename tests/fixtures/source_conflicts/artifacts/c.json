@@ -1,0 +1,253 @@
+{
+ "artifact_format_version": 2,
+ "engine_version": "0.2.2",
+ "metadata": {
+  "evaluation_order": [
+   "requirement_treated_as_met"
+  ],
+  "fast_path": {
+   "blockers": [],
+   "compatible": true,
+   "strategy": "generic_bulk"
+  },
+  "input_catalog": [
+   {
+    "canonical_request_name": "us:policies/demo-agency/work-requirement-faq#input.enrolled_student",
+    "request_names": [
+     "us:policies/demo-agency/work-requirement-faq#input.enrolled_student"
+    ],
+    "slot": "enrolled_student"
+   },
+   {
+    "canonical_request_name": "us:policies/demo-agency/work-requirement-faq#input.hours_of_work_and_service",
+    "request_names": [
+     "us:policies/demo-agency/work-requirement-faq#input.hours_of_work_and_service"
+    ],
+    "slot": "hours_of_work_and_service"
+   }
+  ]
+ },
+ "program": {
+  "derived": [
+   {
+    "dtype": "judgment",
+    "entity": "Person",
+    "expr": {
+     "items": [
+      {
+       "kind": "comparison",
+       "left": {
+        "kind": "input",
+        "name": "hours_of_work_and_service"
+       },
+       "op": "gte",
+       "right": {
+        "index": {
+         "kind": "literal",
+         "value": {
+          "kind": "integer",
+          "value": 0
+         }
+        },
+        "kind": "parameter_lookup",
+        "parameter": "guidance_monthly_hours"
+       }
+      },
+      {
+       "kind": "comparison",
+       "left": {
+        "kind": "input",
+        "name": "enrolled_student"
+       },
+       "op": "eq",
+       "right": {
+        "kind": "literal",
+        "value": {
+         "kind": "bool",
+         "value": true
+        }
+       }
+      }
+     ],
+     "kind": "or"
+    },
+    "id": "us:policies/demo-agency/work-requirement-faq#requirement_treated_as_met",
+    "name": "requirement_treated_as_met",
+    "period": "Month",
+    "semantics": "judgment",
+    "source": "Fixture guidance, questions 1 and 4",
+    "source_url": null,
+    "unit": null,
+    "versions": [
+     {
+      "effective_from": "0001-01-01",
+      "expr": {
+       "items": [
+        {
+         "kind": "comparison",
+         "left": {
+          "kind": "input",
+          "name": "hours_of_work_and_service"
+         },
+         "op": "gte",
+         "right": {
+          "index": {
+           "kind": "literal",
+           "value": {
+            "kind": "integer",
+            "value": 0
+           }
+          },
+          "kind": "parameter_lookup",
+          "parameter": "guidance_monthly_hours"
+         }
+        },
+        {
+         "kind": "comparison",
+         "left": {
+          "kind": "input",
+          "name": "enrolled_student"
+         },
+         "op": "eq",
+         "right": {
+          "kind": "literal",
+          "value": {
+           "kind": "bool",
+           "value": true
+          }
+         }
+        }
+       ],
+       "kind": "or"
+      },
+      "semantics": "judgment"
+     }
+    ]
+   }
+  ],
+  "module": {
+   "summary": "Fixture agency guidance for the source-conflict compare step. It repeats\nthe 80 hours of work and community service, and also treats a person who\nis enrolled as a student as meeting the work requirement."
+  },
+  "parameters": [
+   {
+    "id": "us:policies/demo-agency/work-requirement-faq#guidance_monthly_hours",
+    "indexed_by": null,
+    "name": "guidance_monthly_hours",
+    "source": "Fixture guidance, question 1",
+    "source_url": null,
+    "unit": null,
+    "versions": [
+     {
+      "effective_from": "0001-01-01",
+      "values": {
+       "0": {
+        "kind": "integer",
+        "value": 80
+       }
+      }
+     }
+    ]
+   }
+  ],
+  "relations": [],
+  "units": [
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "GBP"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "USD"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "EUR"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "CHF"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "NOK"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "GHS"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 0,
+    "name": "GHp"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "NGN"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 0,
+    "name": "UGX"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "ZMW"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "ETB"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 0,
+    "name": "RWF"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "TZS"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "DKK"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "AMD"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "ILS"
+   },
+   {
+    "kind": "count",
+    "name": "count"
+   },
+   {
+    "kind": "count",
+    "name": "person"
+   },
+   {
+    "kind": "ratio",
+    "name": "ratio"
+   },
+   {
+    "kind": "custom",
+    "label": "judgment",
+    "name": "status"
+   }
+  ]
+ }
+}

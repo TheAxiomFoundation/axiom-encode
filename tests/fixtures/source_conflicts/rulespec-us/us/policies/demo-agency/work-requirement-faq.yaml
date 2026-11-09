@@ -1,0 +1,42 @@
+format: rulespec/v1
+module:
+  summary: |-
+    Fixture agency guidance for the source-conflict compare step. It repeats
+    the 80 hours of work and community service, and also treats a person who
+    is enrolled as a student as meeting the work requirement.
+rules:
+  - name: guidance_monthly_hours
+    kind: parameter
+    dtype: Count
+    source: Fixture guidance, question 1
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us/policy/demo-agency/work-requirement-faq
+              excerpt: "at least 80 hours"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          80
+
+  - name: requirement_treated_as_met
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: Fixture guidance, questions 1 and 4
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/policy/demo-agency/work-requirement-faq
+              excerpt: "an enrolled student is treated as meeting the requirement"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          hours_of_work_and_service >= guidance_monthly_hours or enrolled_student

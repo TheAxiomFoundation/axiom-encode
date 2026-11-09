@@ -149,7 +149,10 @@ from .constants import (
     RULESPEC_COMPOSITION_SPEC_ROOT,
     RULESPEC_FILE_SUFFIX,
     RULESPEC_FILESYSTEM_ROOTS,
+    RULESPEC_QUESTION_FILE_SUFFIX,
+    RULESPEC_QUESTION_ROOT,
     RULESPEC_TEST_FILE_SUFFIX,
+    is_rulespec_question_path,
 )
 from .corpus_resolver import (
     PROOF_EVIDENCE_SEGMENT_SEPARATOR,
@@ -7319,6 +7322,14 @@ def _rulespec_module_paths(checkout: Path) -> list[Path]:
             if not candidate.is_file():
                 continue
             relative = candidate.relative_to(content_root)
+            if is_rulespec_question_path(relative.parts):
+                continue
+            if candidate.name.endswith(RULESPEC_QUESTION_FILE_SUFFIX):
+                raise ValueError(
+                    "A source-question file must be under "
+                    f"<jurisdiction>/{RULESPEC_QUESTION_ROOT}/, not in a module root: "
+                    f"{candidate}"
+                )
             yaml_like = candidate.suffix.lower() in {".yaml", ".yml"}
             if yaml_like and candidate.suffix != RULESPEC_FILE_SUFFIX:
                 raise ValueError(

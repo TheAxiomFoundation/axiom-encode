@@ -16,6 +16,7 @@ from axiom_encode.constants import (
     RULESPEC_COMPOSITION_SPEC_ROOT,
     RULESPEC_FILE_SUFFIX,
     RULESPEC_TEST_FILE_SUFFIX,
+    is_rulespec_question_path,
 )
 from axiom_encode.corpus_resolver import (
     ActiveCorpusBodyRow,
@@ -218,6 +219,8 @@ def _iter_snap_rulespec_payloads(repo: Path) -> list[tuple[Path, dict[str, Any]]
             raise SnapReadinessConfigurationError(
                 f"RuleSpec content must not contain symlinks: {rulespec_file}"
             )
+        if is_rulespec_question_path(relative.parts):
+            continue
         if not rulespec_file.is_file():
             continue
         if rulespec_file.suffix == ".yml":
