@@ -20,7 +20,6 @@ import functools
 import hashlib
 import json
 import re
-import time
 from pathlib import Path
 
 import pytest
@@ -37,6 +36,7 @@ from axiom_encode.harness.validator_pipeline import (
     extract_typed_numeric_occurrences_from_text,
     numeric_value_is_grounded,
 )
+from tests.scaling import assert_linear_growth, lowest_work
 
 FIXTURES = Path(__file__).parent / "fixtures/source_completeness"
 FORMULA_CLAUSE = re.compile(r"source unit formula clause (\d+) in ")
@@ -216,15 +216,37 @@ def test_masking_keeps_offsets():
 
 
 def test_bullet_check_stays_linear_on_long_bodies():
-    # 8,000 bullets in one body took seconds when every bullet re-scanned
-    # the whole prefix.
-    source = "Item one • Item two is here. " * 8000
+    def masking_work(repeats, *, sample=True):
+        source = "Item one • Item two is here. " * repeats
+        expected = source.replace("•", completeness_module._TYPOGRAPHY_MASK)
 
-    started = time.perf_counter()
-    masked = completeness_module._without_manual_typography_operators(source)
+        def check(masked):
+            assert masked == expected
+            assert "•" not in masked
 
-    assert time.perf_counter() - started < 2
-    assert "•" not in masked
+        if not sample:
+            check(completeness_module._without_manual_typography_operators(source))
+            return None
+
+        def check_batch(results):
+            assert len(results) == 8
+            for masked in results:
+                check(masked)
+
+        # Fresh short operations keep the small CPU sample measurable while
+        # the historical whole-prefix scans still finish at the large size.
+        return lowest_work(
+            lambda: tuple(
+                completeness_module._without_manual_typography_operators(source)
+                for _ in range(8)
+            ),
+            check_batch,
+            setup=re.purge,
+        )
+
+    # Re-scanning each bullet's whole prefix makes this operation quadratic.
+    assert_linear_growth(masking_work(32), masking_work(512), input_ratio=16)
+    masking_work(8_000, sample=False)
 
 
 @pytest.mark.parametrize(

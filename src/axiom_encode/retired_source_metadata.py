@@ -21,7 +21,10 @@ from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 from yaml.tokens import AliasToken, AnchorToken
 
 from .constants import RULESPEC_ATOMIC_MODULE_ROOTS
-from .corpus_resolver import normalize_corpus_identifier
+from .corpus_resolver import (
+    normalize_corpus_identifier,
+    require_canonical_corpus_citation_path,
+)
 from .harness.validator_pipeline import _parse_rulespec_target
 from .proof_hash_migration import (
     _proof_import_scalar_nodes,
@@ -221,6 +224,10 @@ _UniqueLoader.add_constructor("tag:yaml.org,2002:map", _construct_mapping)
 def _yaml(raw: bytes) -> tuple[str, dict[str, object], MappingNode]:
     try:
         text = raw.decode("utf-8")
+        if re.search(r"\r(?!\n)|[\x85\u2028\u2029]", text):
+            raise RetiredSourceMetadataError(
+                "RuleSpec contains an unsupported YAML line break"
+            )
         payload = yaml.load(text, Loader=_UniqueLoader)
         root = yaml.compose(text)
     except (UnicodeError, yaml.YAMLError, RecursionError) as exc:
@@ -293,8 +300,10 @@ def _block_span(
     if field == "values":
         _require_canonical_value_node(value, column=6, text=text)
     content_end = _last_content_end(value)
-    # A literal scalar's terminal newline is part of its payload. Ordinary
-    # scalar marks precede their newline; preserve unrelated trailing blank lines.
+    # Block-scalar end marks include their terminal newline and any trailing
+    # blank lines consumed by YAML, including |+ history. Ordinary scalar marks
+    # precede their newline, so blank lines after ordinary scalars stay outside
+    # the removed span.
     if content_end > start and text[content_end - 1 : content_end] == "\n":
         end = content_end
     else:
@@ -305,7 +314,9 @@ def _block_span(
     return start, end
 
 
-def _normalized_paths(raw: object, *, label: str) -> tuple[str, ...]:
+def _citation_paths(
+    raw: object, *, label: str, canonical: bool = False
+) -> tuple[str, ...]:
     if (
         not isinstance(raw, list)
         or not raw
@@ -313,11 +324,42 @@ def _normalized_paths(raw: object, *, label: str) -> tuple[str, ...]:
     ):
         raise RetiredSourceMetadataError(f"{label} must be a non-empty citation list")
     try:
-        return tuple(normalize_corpus_identifier(item) for item in raw)
+        parse = (
+            require_canonical_corpus_citation_path
+            if canonical
+            else normalize_corpus_identifier
+        )
+        return tuple(parse(item) for item in raw)
     except (TypeError, ValueError) as exc:
         raise RetiredSourceMetadataError(
-            f"{label} contains an invalid corpus identifier"
+            f"{label} must contain exact canonical corpus citation paths"
+            if canonical
+            else f"{label} contains an invalid corpus identifier"
         ) from exc
+
+
+def _typed_structure(value: object) -> object:
+    """Return a type-preserving YAML form with stable nonfinite float values."""
+
+    if isinstance(value, dict):
+        return (
+            "mapping",
+            frozenset(
+                (_typed_structure(key), _typed_structure(item))
+                for key, item in value.items()
+            ),
+        )
+    if isinstance(value, (list, tuple)):
+        return (type(value).__name__, tuple(_typed_structure(item) for item in value))
+    if isinstance(value, set):
+        return ("set", frozenset(_typed_structure(item) for item in value))
+    if isinstance(value, float):
+        return ("float", value.hex())
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return (type(value).__name__, value.isoformat())
+    if value is None or isinstance(value, (str, bool, int, bytes)):
+        return (type(value).__name__, value)
+    raise RetiredSourceMetadataError("RuleSpec contains an unsupported YAML value")
 
 
 def _history(value: object) -> object:
@@ -470,7 +512,9 @@ def rewrite_source_metadata(
                 + _SHAPE_DECISION
             )
         raw_paths = verification["corpus_citation_paths"]
-        paths = _normalized_paths(raw_paths, label="corpus_citation_paths")
+        paths = _citation_paths(
+            raw_paths, label="corpus_citation_paths", canonical=True
+        )
         candidates = [
             item
             for item in paths
@@ -494,7 +538,7 @@ def rewrite_source_metadata(
                 raise RetiredSourceMetadataError(
                     "upstream_source_check is inconsistent with plural citation history"
                 )
-            checked = _normalized_paths(
+            checked = _citation_paths(
                 upstream.get("checked_paths"),
                 label="upstream_source_check.checked_paths",
             )
@@ -521,7 +565,7 @@ def rewrite_source_metadata(
         updated = updated[:start] + replacement + updated[end:]
     after = updated.encode("utf-8")
     _, actual, _ = _yaml(after)
-    if actual != expected:
+    if _typed_structure(actual) != _typed_structure(expected):
         raise RetiredSourceMetadataError(
             "migration changed unrelated RuleSpec structure"
         )
@@ -687,6 +731,7 @@ def build_migration(
     *,
     base_tree: str,
     base_files: Mapping[str, bytes],
+    prior_manifests: Mapping[str, Mapping[str, str]] | None = None,
 ) -> RetiredSourceMetadataMigration:
     """Plan primaries, leaves-first fixed-point pins, and their durable receipt."""
 
@@ -758,6 +803,10 @@ def build_migration(
         MigrationFile(Path(path), base_files[path], final[path], path in rewritten)
         for path in ordered_paths
     )
+    if prior_manifests is not None and set(prior_manifests) != set(ordered_paths):
+        raise RetiredSourceMetadataError(
+            "prior owners must cover every migrated file exactly"
+        )
     receipt = {
         "schema_version": RECEIPT_SCHEMA_V2
         if plan.payload["schema_version"] == PLAN_SCHEMA_V2
@@ -773,6 +822,11 @@ def build_migration(
                 "before_sha256": _sha256(item.before),
                 "after_sha256": _sha256(item.after),
                 "primary": item.primary,
+                **(
+                    {"prior_manifest": dict(prior_manifests[item.path.as_posix()])}
+                    if prior_manifests is not None
+                    else {}
+                ),
             }
             for item in files
         ],
@@ -799,6 +853,7 @@ def verify_migration_replay(
     receipt_raw: bytes,
     *,
     base_files: Mapping[str, bytes],
+    prior_manifests: Mapping[str, Mapping[str, str]] | None = None,
 ) -> RetiredSourceMetadataMigration:
     """Require exact receipt schema and byte-identical deterministic replay."""
 
@@ -828,7 +883,10 @@ def verify_migration_replay(
         raise RetiredSourceMetadataError("migration receipt plan is not an object")
     plan = load_plan_bytes(canonical_json_bytes(receipt["plan"]))
     migration = build_migration(
-        plan, base_tree=receipt["base_tree"], base_files=base_files
+        plan,
+        base_tree=receipt["base_tree"],
+        base_files=base_files,
+        prior_manifests=prior_manifests,
     )
     if migration.receipt_bytes != receipt_raw:
         raise RetiredSourceMetadataError(

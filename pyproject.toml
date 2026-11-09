@@ -81,6 +81,7 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/axiom_encode"]
+artifacts = ["src/axiom_encode/harness/data/coverage_exemptions.jsonl"]
 
 [tool.hatch.build.targets.sdist]
 include = [

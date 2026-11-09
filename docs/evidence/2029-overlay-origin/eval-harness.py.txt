@@ -1,0 +1,45 @@
+from pathlib import Path
+import json,hashlib,time,subprocess,shutil,sys
+from dataclasses import asdict
+from types import SimpleNamespace
+from axiom_encode import cli
+from axiom_encode.harness import evals,validator_pipeline as v
+from axiom_encode.corpus_resolver import LocalCorpusRelease
+L=Path('/Users/pavelmakarchuk/axiom-api-catalog-readiness/.local/catalog-readiness');N=L/'independent-t89-preflight/run39536963804';D=Path(__file__).parent;A=D.parent;mode=sys.argv[1];O=D/('actual-'+mode);O.mkdir(exist_ok=False);R=O/'rulespec-ca';src=N/'reviewed-head-preflight/rulespec-ca'
+subprocess.run(['git','clone','--no-local','--no-hardlinks',str(src),str(R)],check=True,capture_output=True)
+subprocess.run(['git','-C',str(R),'remote','set-url','origin','https://github.com/TheAxiomFoundation/rulespec-ca.git'],check=True)
+assert subprocess.check_output(['git','-C',str(R),'rev-parse','HEAD'],text=True).strip()=='94789006ce372a1967c258ef47c12b15a1fe511e'
+rel=Path('policies/cra/t1-2025/t1-income-net-taxable-income/step-3.yaml');root=O/'generated';f=root/'openai-gpt-6-sol'/rel;f.parent.mkdir(parents=True);f.write_bytes((A/'signed-proof-diagnostic-only/step-3.yaml').read_bytes());f.with_suffix('.test.yaml').write_bytes((A/'verified/generated/target/final-rejected-candidate'/rel.with_suffix('.test.yaml')).read_bytes())
+T=L/'canada-pr27-readonly-triage';E=L/'worktrees/retirement/engine-895-review';release=LocalCorpusRelease(T/'newer-runtime-diagnostic/axiom-corpus','ca-rulespec-2026-07-21-oracle-complete-v2','5acdb15ce948857a13baf9088c2179951716edd47a0327c078b4e97be6eb0ef4',(T/'release-public-key.pem').read_text());pin='89571cc2a938707fd60a5489b951135345697296';citation='ca/policy/cra/t1-2025/t1-income-net-taxable-income/step-3';unit=evals.resolve_corpus_source_unit(citation,release)
+def inventory(root):return {str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*') if p.is_file() and '.git' not in p.relative_to(root).parts}
+before={'base':inventory(R),'generated':inventory(root)};(O/'before.json').write_text(json.dumps(before,indent=2)+'\n')
+class Probe(v.ValidatorPipeline):
+ def _complete_source_unit_issues(self,content,**kwargs):
+  evidence=kwargs.get('execution_evidence');key=hashlib.sha256(content.encode()).hexdigest()
+  if evidence:
+   (O/('execution-'+key+'.json')).write_text(json.dumps({'case_count':len(evidence.records),'artifact_sha256':hashlib.sha256(evidence.artifact_bytes).hexdigest(),'requests_responses':[{'case_index':r.case_index,'request':json.loads(r.request_json),'response':json.loads(r.response_json)} for r in evidence.records]},indent=2)+'\n')
+  result=super()._complete_source_unit_issues(content,**kwargs)
+  (O/('source-issues-'+key+'.json')).write_text(json.dumps(result,indent=2)+'\n');return result
+ def _run_rulespec_ci(self,file):
+  result=super()._run_rulespec_ci(file)
+  (O/('ci-'+hashlib.sha256(file.read_bytes()).hexdigest()+'.json')).write_text(json.dumps({'passed':result.passed,'issues':result.issues,'details':result.details},indent=2,default=str)+'\n');return result
+# Observers delegate every check to the actual pipeline. No validator/compiler/
+# signing stub, model call or signing action is used by this diagnostic.
+evals.ValidatorPipeline=Probe;cli.ValidatorPipeline=Probe
+start=time.monotonic()
+try:
+ if mode=='eval':
+  result=evals.evaluate_artifact(f,R/'ca',E,unit.body,release,skip_reviewers=True,source_metadata=evals._source_metadata_with_attestation(unit,rulespec_root=R/'ca'),source_citation_path=citation,require_complete_source_unit=True,axiom_rules_engine_ref=pin)
+  value={'metrics':asdict(result)}
+ else:
+  context=A/'verified/generated/target/_eval_workspaces/openai-gpt-6-sol/ca-policy-cra-t1-2025-t1-income-net-taxable-income-step-3/workspace/context-manifest.json'
+  retained_attestation=json.loads(context.read_text())['source_metadata']['source_attestation']
+  assert retained_attestation['generation_input_sha256']==hashlib.sha256((context.parent/'source.txt').read_bytes()).hexdigest()
+  result=SimpleNamespace(output_file=str(f),runner='openai-gpt-6-sol',backend='openai',model='gpt-6-sol',tool=cli.APPLIED_ENCODING_MODEL_TOOL,citation=citation,generation_prompt_sha256=None,trace_file=None,context_manifest_file=str(context),source_attestation=retained_attestation)
+  with v._authoritative_corpus_scope(release):
+   ok,issues,supplemental=cli._validate_generated_encoding_in_policy_overlay_with_release(result,output_root=root,policy_repo_path=R/'ca',axiom_rules_path=E,axiom_rules_engine_ref=pin,local_corpus_release=release,validate_dependents=False,require_complete_source_unit=True)
+  value={'passed':ok,'issues':issues,'supplemental':{str(k):v for k,v in supplemental.items()},'validation_snapshot':getattr(result,cli._APPLY_VALIDATION_SNAPSHOT_ATTR,None)}
+ (O/'result.json').write_text(json.dumps({'seconds':time.monotonic()-start,**value,'limits':'Local deterministic validation-only diagnostic; no signing, generation, native/publication or reviewer clearance.'},indent=2,default=str)+'\n')
+ print(json.dumps({'mode':mode,'seconds':time.monotonic()-start,**value},default=str),flush=True)
+finally:
+ after={'base':inventory(R),'generated':inventory(root)};(O/'after.json').write_text(json.dumps(after,indent=2)+'\n');assert before==after,'Diagnostic input bytes changed'

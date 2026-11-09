@@ -15,7 +15,10 @@ import re
 import shutil
 import stat
 import subprocess
-from dataclasses import dataclass
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -152,6 +155,169 @@ def validate_retired_apply_inventory(value: object) -> dict[str, object]:
     }
 
 
+def _frozen_mapping_data(value: Mapping[str, Any]) -> tuple:
+    """Build an immutable open-addressed hash table, including all nested data."""
+
+    def freeze(item: Any) -> tuple:
+        if isinstance(item, dict):
+            return ("mapping", _frozen_mapping_data(item))
+        if isinstance(item, list):
+            return ("sequence", tuple(freeze(child) for child in item))
+        return ("scalar", item)
+
+    entries = tuple((key, freeze(item)) for key, item in value.items())
+    capacity = 2
+    while capacity < 2 * len(entries):
+        capacity *= 2
+    slots = [None] * capacity
+    for number, (key, _) in enumerate(entries):
+        slot = hash(key) & (capacity - 1)
+        while slots[slot] is not None:
+            slot = (slot + 1) & (capacity - 1)
+        slots[slot] = number
+    return entries, tuple(slots)
+
+
+def _frozen_value_view(value: tuple) -> Any:
+    kind, data = value
+    if kind == "mapping":
+        return tuple.__new__(_FrozenMapping, data)
+    if kind == "sequence":
+        return tuple(_frozen_value_view(item) for item in data)
+    return data
+
+
+class _FrozenMapping(tuple, Mapping[str, Any]):
+    """Mapping views over tuple-only storage, with expected O(1) lookup.
+
+    MappingProxyType cannot be used here: reflected comparison/union methods
+    can receive its mutable backing dict. Nested views are created on access;
+    only native tuples and scalar values are retained in the authority.
+    """
+
+    __slots__ = ()
+    __hash__ = None
+    __contains__ = Mapping.__contains__
+    __eq__ = Mapping.__eq__
+
+    def __ne__(self, other: object) -> bool:
+        return not self == other
+
+    def __getitem__(self, key: str) -> Any:
+        entries, slots = tuple.__iter__(self)
+        slot = hash(key) & (len(slots) - 1)
+        while (number := slots[slot]) is not None:
+            candidate, value = entries[number]
+            if candidate == key:
+                return _frozen_value_view(value)
+            slot = (slot + 1) & (len(slots) - 1)
+        raise KeyError(key)
+
+    def __iter__(self) -> Iterator[str]:
+        return (key for key, _ in tuple.__getitem__(self, 0))
+
+    def __len__(self) -> int:
+        return len(tuple.__getitem__(self, 0))
+
+    def __setstate__(self, state: object) -> None:
+        raise TypeError("retired apply inventory cannot restore state")
+
+    def __reduce__(self) -> Any:
+        raise TypeError("retired apply inventory cannot be pickled")
+
+    def __reduce_ex__(self, protocol: int) -> Any:
+        return self.__reduce__()
+
+    def __copy__(self) -> _FrozenMapping:
+        return self
+
+    def __deepcopy__(self, memo: dict) -> _FrozenMapping:
+        return self
+
+
+class RetiredApplyInventory(_FrozenMapping):
+    """Detached repository/path index with immutable tuple-only storage.
+
+    Only broker attachment constructs this view in production. The wire-schema
+    validator remains shared with the trust-file consumers; admission never
+    revalidates an instance of this class.
+    """
+
+    __slots__ = ()
+
+    def __new__(cls, value: object) -> RetiredApplyInventory:
+        validated = validate_retired_apply_inventory(value)
+        repositories = {}
+        for repository in validated["repositories"]:
+            repositories[repository["repository"]] = {
+                **repository,
+                "artifacts": {
+                    artifact["path"]: artifact for artifact in repository["artifacts"]
+                },
+            }
+        return tuple.__new__(cls, _frozen_mapping_data(repositories))
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        raise TypeError("retired apply inventory cannot be subclassed")
+
+
+@dataclass
+class _RetiredApplyOperation:
+    # Raw inputs are supported for standalone readers/tests. Hold the input as
+    # well as its id, so Python cannot recycle a key during this operation.
+    inventories: dict[int, tuple[object, RetiredApplyInventory]] = field(
+        default_factory=dict
+    )
+    cutoffs: dict[
+        tuple[int, Path, str, bool],
+        dict[str, tuple[Path, str, str, Mapping[str, Any]]],
+    ] = field(default_factory=dict)
+    sources: set[tuple[Path, str, str]] = field(default_factory=set)
+
+
+_operation: ContextVar[_RetiredApplyOperation | None] = ContextVar(
+    "retired_apply_operation", default=None
+)
+
+
+@contextmanager
+def retired_apply_operation() -> Iterator[None]:
+    """Scope frozen trust/history snapshots to exactly one guard invocation.
+
+    Nested operations get independent caches and restore the caller's scope.
+    Successful repository checks are reused only at the same checkout and
+    resolved HEAD. Live bytes and path history are always checked per artifact.
+    No cache survives return or exception from the operation.
+    """
+
+    token = _operation.set(_RetiredApplyOperation())
+    try:
+        yield
+    finally:
+        _operation.reset(token)
+
+
+def _inventory_index(inventory: object) -> RetiredApplyInventory:
+    operation = _operation.get()
+    if type(inventory) is RetiredApplyInventory:
+        if operation is not None:
+            operation.inventories.setdefault(id(inventory), (inventory, inventory))
+        return inventory
+    # isinstance honors a reassigned __class__, so a broker view re-classed to
+    # pose as a dict could otherwise be revalidated as a replacement inventory.
+    if type(inventory) is not dict:
+        raise ValueError("retired apply inventory must be a broker index or raw dict")
+    if operation is None:
+        return RetiredApplyInventory(inventory)
+    key = id(inventory)
+    if key not in operation.inventories:
+        operation.inventories[key] = (inventory, RetiredApplyInventory(inventory))
+    indexed = operation.inventories[key][1]
+    if type(indexed) is not RetiredApplyInventory:
+        raise ValueError("retired apply inventory cached index type changed")
+    return indexed
+
+
 @dataclass(frozen=True)
 class RetiredApplyContext:
     """Explicit artifact context; the frozen inventory is supplied separately."""
@@ -283,24 +449,29 @@ def _repository_cutoff(
     repo_path: Path,
     head_ref: str,
     retrospective: bool,
-) -> tuple[Path, str, str, dict[str, Any]]:
-    trusted = validate_retired_apply_inventory(inventory)
+) -> tuple[Path, str, str, Mapping[str, Any]]:
+    trusted = _inventory_index(inventory)
     checkout = Path(os.path.abspath(repo_path))
     if checkout.resolve(strict=True) != checkout:
         raise ValueError(
             "retired apply checkout must be canonical and contain no symlink"
         )
+    operation = _operation.get()
+    key = (id(trusted), checkout, head_ref, retrospective)
+    cached = operation.cutoffs.get(key) if operation is not None else None
+    if cached:
+        # HEAD is mutable even within a guard. Never key a snapshot by the
+        # symbolic string "HEAD", or reuse a different checkout's preflight.
+        head = _git_text(checkout, "rev-parse", "--verify", "HEAD^{commit}")
+        if head in cached:
+            return cached[head]
     repo = Path(_git_text(checkout, "rev-parse", "--show-toplevel"))
     if repo.resolve(strict=True) != repo:
         raise ValueError("retired apply Git root must be canonical")
     identity = _repository_identity(_git_text(repo, "remote", "get-url", "origin"))
     if identity is None or repo.name != identity.split("/", 1)[1]:
         raise ValueError("retired apply repository identity is not canonical")
-    repositories = trusted["repositories"]
-    assert isinstance(repositories, list)
-    repository = next(
-        (entry for entry in repositories if entry["repository"] == identity), None
-    )
+    repository = trusted.get(identity)
     if repository is None:
         raise ValueError("retired apply repository is not frozen in trusted inventory")
     if head_ref != "HEAD" and _COMMIT.fullmatch(head_ref) is None:
@@ -336,7 +507,10 @@ def _repository_cutoff(
         raise ValueError(
             "retired apply historical head must descend from the frozen cutoff"
         )
-    return repo, head, cutoff, repository
+    result = repo, head, cutoff, repository
+    if operation is not None:
+        operation.cutoffs.setdefault(key, {})[head] = result
+    return result
 
 
 def retrospective_head_issue(
@@ -353,7 +527,7 @@ def retrospective_head_issue(
 
 def _frozen_artifact(
     inventory: object, context: RetiredApplyContext
-) -> tuple[Path, str, str, dict[str, Any], bytes]:
+) -> tuple[Path, str, str, Mapping[str, Any], bytes]:
     repo, head, cutoff, repository = _repository_cutoff(
         inventory, context.repo_path, context.head_ref, context.retrospective
     )
@@ -363,9 +537,7 @@ def _frozen_artifact(
     # Preserve the lexical path, so relocated and symlinked files cannot turn
     # into a frozen artifact by resolving filesystem indirection.
     relative = _inventory_path(absolute.relative_to(repo).as_posix())
-    artifact = next(
-        (entry for entry in repository["artifacts"] if entry["path"] == relative), None
-    )
+    artifact = repository["artifacts"].get(relative)
     if artifact is None:
         raise ValueError(
             "retired apply artifact path is not frozen in trusted inventory"
@@ -377,12 +549,22 @@ def _frozen_artifact(
         )
     for covered in artifact["covered_files"]:
         source = covered.get("source_commit", cutoff)
-        if _git_text(repo, "rev-parse", "--verify", f"{source}^{{commit}}") != source:
-            raise ValueError("retired apply covered source commit is unavailable")
-        if not _git(repo, "merge-base", "--is-ancestor", source, cutoff, ancestry=True):
-            raise ValueError(
-                "retired apply covered source must be an ancestor of the cutoff"
-            )
+        operation = _operation.get()
+        source_key = repo, source, cutoff
+        if operation is None or source_key not in operation.sources:
+            if (
+                _git_text(repo, "rev-parse", "--verify", f"{source}^{{commit}}")
+                != source
+            ):
+                raise ValueError("retired apply covered source commit is unavailable")
+            if not _git(
+                repo, "merge-base", "--is-ancestor", source, cutoff, ancestry=True
+            ):
+                raise ValueError(
+                    "retired apply covered source must be an ancestor of the cutoff"
+                )
+            if operation is not None:
+                operation.sources.add(source_key)
         frozen_covered = _blob(repo, source, covered["path"])
         if hashlib.sha256(frozen_covered).hexdigest() != covered["sha256"]:
             raise ValueError(
