@@ -105,7 +105,8 @@ findings.
 6. Each fact has at least one value (a `min` and `max` can leave none).
 7. No constraint removes every combination, alone or together with the others.
    When the grid is sampled, this gate tests the sample, and the error says so.
-8. The guards do not skip every household that meets the constraints.
+8. The guards do not skip every household that meets the constraints. When the
+   grid is sampled, this gate tests the sample, and the error says so.
 
 Gates 6 to 8 are errors, not warnings: such a link can only report
 "no conflict". Gate 8 runs after the engine, because a guard is a rule.
@@ -154,7 +155,7 @@ give the same bytes: the record holds no time, host or path.
 | `id` | The link's id. |
 | `review_state` | Always `unreviewed`. A later review sets `source_conflict`, `encoding_error` or `refinement_or_option`; this step never does. |
 | `conflict` | `true` when a household differs. |
-| `link.sha256` | Hash of the normalized link. File format and number spelling do not change it. The order of the facts does: it sets the grid order, the sample and the witness that is chosen. |
+| `link.sha256` | Hash of the normalized link. File format and number spelling do not change it. The order of the facts, derived inputs and fixed inputs does: it sets the grid order, the sample and the witness that is chosen. |
 | `rulespec` | `commit` of the checkout, and `dirty` when tracked files differ from it. |
 | `engine` | `commit` bound, and the artifact's engine `version`. |
 | `sides.a`, `sides.b` | `label`, `module`, `module_sha256`, `outputs`, `combine`, `guards`, and `rules`. |
@@ -210,9 +211,10 @@ fixture modules in `tests/fixtures/source_conflicts/` with the real engine.
 - A difference that needs a value the grid does not hold.
 - A difference between two modules with no link.
 
-The step reads the expression kinds that the RuleSpec lowering emits today. An
-input behind a node kind that it does not know (for example an optional input
-with a default) is still found as an input, but is not classified by kind.
+The step reads the expression kinds that the RuleSpec lowering emits today. It
+does not see an input behind a node kind that it does not know (for example an
+optional input with a default): the input gets no supplier check, no kind
+check and no threshold.
 
 ## Package layout
 

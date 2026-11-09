@@ -480,9 +480,15 @@ def compare(
             group.update(weight=weight, position=position)
 
     if run and skipped_by_guard == run:
+        tested = (
+            f"{run} households of the sample of {len(cases)} from {size} "
+            "combinations (raise sampling.max_combinations to test more)"
+            if sampled
+            else f"{run} households"
+        )
         raise LinkGateError(
             [
-                f"the guards skip every one of the {run} households that meet the "
+                f"the guards skip every one of the {tested} that meet the "
                 "constraints, so nothing is compared; check the guards and the "
                 "fixed inputs they read"
             ]

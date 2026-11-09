@@ -544,7 +544,7 @@ def parse_link(document: object) -> Link:
         "id": link_id,
         "question": question,
         "entity": entity,
-        "period": dict(period),
+        "period": {key: period[key] for key in ("period_kind", "start", "end")},
         "sides": {
             key: {
                 "label": side.label,
@@ -642,6 +642,12 @@ def load_link(path: Path) -> Link:
             document = yaml.load(text, Loader=_UniqueKeyLoader)  # noqa: S506 - a SafeLoader
         else:
             raise LinkError([f"the link file {path} must end in .json, .yaml or .yml"])
-    except (UnicodeError, ValueError, yaml.YAMLError) as error:
+    except (
+        UnicodeError,
+        ValueError,
+        TypeError,
+        RecursionError,
+        yaml.YAMLError,
+    ) as error:
         raise LinkError([f"cannot parse the link file {path}: {error}"]) from error
     return parse_link(document)
