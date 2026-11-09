@@ -28,6 +28,20 @@ The encoder emits RuleSpec YAML artifacts. Source documents are expected to live
 - Apply this even to prompt, oracle, harness, and validation changes. For docs-only changes, run a lightweight cycle and record the cycle outcome and checks in the PR description or final handoff comment.
 - Do not merge encoder PRs while CI is red, stale, or still pending unless the user explicitly overrides that for an emergency.
 
+## PR Linkage
+
+Every PR body to `TheAxiomFoundation/axiom-encode` carries two lines, which the `PR linkage` check (`src/axiom_encode/pr_linkage.py`) enforces:
+
+```text
+Encoding-Target: us/regulation/7/273/7
+Fixes-Run: 42409703021
+```
+
+- When you open a PR that fixes a failing encode, fill both lines from the run you are fixing. `Encoding-Target` is the run's corpus citation path (the `citation` input; the last word of the run name), not a `.yaml` path. `Fixes-Run` is the `targeted-signed-reencode.yml` run id (or its `actions/runs` URL); for a local encode, write `local:<encoding_runs id>` (the `run_id` the encoder logs).
+- List every encoding and run the PR fixes, comma-separated. CI checks that each signed run exists, is a `targeted-signed-reencode.yml` run, and that its citation is listed in `Encoding-Target`.
+- For generic work that fixes no particular encoding or run, write `Encoding-Target: none` and `Fixes-Run: none`. Do not omit the lines and do not guess a target.
+- PRs opened by the encoder version-bump App are exempt.
+
 ## Main Components
 
 - `src/axiom_encode/cli.py` - public command surface

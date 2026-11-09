@@ -1,0 +1,53 @@
+name: PR linkage
+
+# Every pull request body names the encodings it fixes and the runs that showed
+# the defect (Encoding-Target: / Fixes-Run:, or an explicit `none`), so an
+# encoder fix links to its encodings exactly rather than by guesswork.
+# src/axiom_encode/pr_linkage.py holds the format and the checks.
+on:
+  pull_request:
+    branches: [main]
+    # `edited` reruns the check when the body changes (also when the base
+    # branch changes, which is how a stacked pull request reaches main).
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+  # If branch protection requires this check, the merge queue
+  # (axiom-encode#2048) needs it reported on the queue's temporary branch. The
+  # body was checked on the pull request; the queue run only reports success.
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  linkage:
+    name: PR linkage
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: github.event_name == 'pull_request'
+        with:
+          persist-credentials: false
+          sparse-checkout: src/axiom_encode/pr_linkage.py
+          sparse-checkout-cone-mode: false
+
+      # The body comes from the event payload, never through the shell. The
+      # module is standard-library only, so no environment is installed.
+      - name: Check Encoding-Target and Fixes-Run
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I src/axiom_encode/pr_linkage.py \
+            --event "$GITHUB_EVENT_PATH" --repository "$GITHUB_REPOSITORY" \
+            --verify-runs
+
+      - name: Report the pull request's check for the merge queue
+        if: github.event_name == 'merge_group'
+        run: echo "The linkage lines were checked on the pull request."
