@@ -647,6 +647,26 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         raise ValueError("atomic source JSON exceeds the maximum input size")
     payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
     if isinstance(payload, dict) and payload.get("schema") == (
+        "axiom-encode/reviewed-pr-promotion/v1"
+    ):
+        if set(payload) != {"schema", "transaction", "rulespec_pr"}:
+            raise ValueError(
+                "reviewed PR promotion requires exactly transaction and rulespec_pr"
+            )
+        number = payload["rulespec_pr"]
+        inner = payload["transaction"]
+        if type(number) is not int or number <= 0:
+            raise ValueError("reviewed PR promotion requires a positive PR number")
+        if (
+            not isinstance(inner, dict)
+            or inner.get("schema") != "axiom-encode/atomic-source-transaction/v5"
+        ):
+            raise ValueError("reviewed PR promotion requires an exact v5 transaction")
+        normalized = split_atomic_source_input(json.dumps(inner, allow_nan=False))
+        if normalized.get("reviewed_candidate_promotion") is not True:
+            raise ValueError("reviewed PR promotion requires promotion mode")
+        return {**normalized, "rulespec_pr": number}
+    if isinstance(payload, dict) and payload.get("schema") == (
         "axiom-encode/corpus-artifact-transport/v1"
     ):
         required_keys = {"schema", "transaction", "corpus_artifact_run_id"}
@@ -884,6 +904,7 @@ def immutable_atomic_source_contract(atomic_source_json: str) -> dict[str, objec
         "repair_mode",
         "corpus_artifact_run_id",
         "provision_export_run_ids",
+        "rulespec_pr",
     }.intersection(normalized):
         return normalized
     payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")

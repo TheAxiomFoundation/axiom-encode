@@ -1861,6 +1861,7 @@ def _publish_runtime_attestation(
     declared_version: str,
     package_tree_sha256: str,
     codex_cli: dict[str, str] | None = None,
+    reviewed_pr_admission: dict | None = None,
 ) -> Path:
     """Atomically publish the attestation into a root-owned prefix, fail-closed.
 
@@ -1896,6 +1897,8 @@ def _publish_runtime_attestation(
             "version": codex_cli["version"],
             "sha256": codex_cli["sha256"],
         }
+    if reviewed_pr_admission is not None:
+        attestation["reviewed_pr_admission"] = reviewed_pr_admission
     payload = json.dumps(attestation, indent=2, sort_keys=True) + "\n"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
@@ -2073,6 +2076,32 @@ def _load_retired_apply_inventory(path: Path) -> dict[str, object]:
         raise SystemExit(f"invalid retired apply frozen inventory: {exc}") from exc
 
 
+def _verify_reviewed_pr_selector(
+    encoder_package: Path, selector_path: Path, encoder_commit: str
+) -> dict:
+    """Use only the exported encoder's verifier, never caller approval JSON."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_provisioned_reviewed_pr_admission",
+        encoder_package / "reviewed_pr_admission.py",
+    )
+    if spec is None or spec.loader is None:
+        raise SystemExit("reviewed PR verifier is absent from attested encoder")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    with selector_path.open("rb") as selector_stream:
+        raw_selector = selector_stream.read(4097)
+    if len(raw_selector) > 4096:
+        raise SystemExit("reviewed PR selector is oversized")
+    selector = module.selector_from_payload(json.loads(raw_selector))
+    admission = module.verify_reviewed_pr(selector)
+    if admission["workflow_commit"] != encoder_commit:
+        raise SystemExit("reviewed PR run does not use the attested encoder commit")
+    return admission
+
+
 def provision(
     destination: Path,
     supervisor: Path,
@@ -2092,6 +2121,7 @@ def provision(
     retired_corpus_release_roots: tuple[str, ...] = (),
     retired_apply_roots: tuple[str, ...] = (),
     retired_apply_inventory_path: Path | None = None,
+    reviewed_pr_selector: Path | None = None,
 ) -> None:
     if any(not root.strip() for root in retired_corpus_release_roots):
         raise SystemExit(
@@ -2116,6 +2146,8 @@ def provision(
         encoder_git_root,
     )
     provision_encoder = all(arg is not None for arg in encoder_attestation_args)
+    if reviewed_pr_selector is not None and not provision_encoder:
+        raise SystemExit("reviewed PR admission requires an attested encoder snapshot")
     if (
         any(arg is not None for arg in encoder_attestation_args)
         and not provision_encoder
@@ -2149,6 +2181,14 @@ def provision(
             encoder_staging,
         )
     try:
+        reviewed_pr_admission = None
+        if reviewed_pr_selector is not None:
+            # Only selectors cross from the caller; authority is freshly read by
+            # code exported from the verified encoder commit, under root custody.
+            assert encoder_package is not None
+            reviewed_pr_admission = _verify_reviewed_pr_selector(
+                encoder_package, reviewed_pr_selector, encoder_commit
+            )
         runtime = destination / "python"
         _stage_runtime_tree(source_runtime, runtime, site_packages)
         package_tree_sha256: str | None = None
@@ -2205,6 +2245,7 @@ def provision(
                 declared_version,
                 package_tree_sha256,
                 codex_cli,
+                reviewed_pr_admission,
             )
         shutil.copy2(supervisor, destination / "axiom-encode-signing-supervisor")
         (destination / "axiom-encode-signing-supervisor").chmod(0o755)
@@ -2300,6 +2341,11 @@ def _argument_parser() -> argparse.ArgumentParser:
         "invariant) before its src/axiom_encode is archived into the runtime. Must "
         "have full history (fetch-depth: 0) for the version-bump check.",
     )
+    parser.add_argument(
+        "--reviewed-pr-selector",
+        type=Path,
+        help="Run-scoped selector only; attested verifier must fetch live GitHub approval before admission.",
+    )
     return parser
 
 
@@ -2326,4 +2372,5 @@ if __name__ == "__main__":
         tuple(args.retired_corpus_release_root),
         tuple(args.retired_apply_root),
         args.retired_apply_inventory,
+        args.reviewed_pr_selector,
     )
