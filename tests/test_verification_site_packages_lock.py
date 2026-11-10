@@ -65,6 +65,7 @@ import subprocess
 import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
+from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
 
@@ -211,7 +212,57 @@ def _steps(workflows: dict[str, dict]):
 
 
 def _commands(name: str, job: str, script: str) -> list[Command]:
-    return list(_script_commands(script, name, job))
+    commands = list(_script_commands(script, name, job))
+    # This one reviewed array has two bounded values, not arbitrary shell
+    # arguments. Recognize its complete definition and every textual use;
+    # unknown/reassigned arrays stay literal and fail the provisioner's parser.
+    definition = [
+        "reviewed_pr_args=()",
+        'if [ "$LIVE_PR_ADMISSION" = "true" ]; then',
+        'reviewed_pr_args+=(--reviewed-pr-selector "$RUNNER_TEMP/reviewed-pr-selector.json")',
+        "fi",
+    ]
+    lines = _logical_lines(script)
+    definitions = [
+        index
+        for index in range(len(lines))
+        if lines[index : index + len(definition)] == definition
+    ]
+    if len(definitions) != 1 or script.count("reviewed_pr_args") != 3:
+        return commands
+    expansion = '"${reviewed_pr_args[@]}"'
+    if script.count(expansion) != 1:
+        return commands
+    definition_end = definitions[0] + len(definition)
+    if not any(expansion in line for line in lines[definition_end:]):
+        return commands
+    for index, command in enumerate(commands):
+        if command.words[-1:] != ("${reviewed_pr_args[@]}",):
+            continue
+        disabled = replace(command, words=command.words[:-1])
+        enabled = replace(
+            command,
+            words=(
+                *command.words[:-1],
+                "--reviewed-pr-selector",
+                "$RUNNER_TEMP/reviewed-pr-selector.json",
+            ),
+        )
+        off, on = _provision(disabled), _provision(enabled)
+        if off is None or on is None or off[1] is None or on[1] is None:
+            continue
+        if off[0] != VERIFICATION_PROVISIONER or on[0] != off[0]:
+            continue
+        off_values, on_values = vars(off[1]).copy(), vars(on[1]).copy()
+        off_selector = off_values.pop("reviewed_pr_selector", None)
+        on_selector = on_values.pop("reviewed_pr_selector", None)
+        if (
+            off_selector is None
+            and on_selector == Path("$RUNNER_TEMP/reviewed-pr-selector.json")
+            and off_values == on_values
+        ):
+            commands[index] = enabled
+    return commands
 
 
 def _runs_pip(command: Command) -> bool:
@@ -1240,6 +1291,58 @@ def test_a_provision_uses_the_value_its_parser_keeps():
 
     assert violations == []
     assert provisions == len(STAGING) + len(LOCKED_VENV_PROVISIONS)
+
+
+def test_reviewed_selector_array_preserves_both_provision_argument_sets():
+    workflows = _load_workflows()
+    step = _provision_step("targeted-signed-reencode.yml", workflows)
+    commands = _commands("targeted-signed-reencode.yml", "encode", step["run"])
+    parsed = [result for command in commands if (result := _provision(command))]
+    assert len(parsed) == 1
+    assert parsed[0][1].reviewed_pr_selector == Path(
+        "$RUNNER_TEMP/reviewed-pr-selector.json"
+    )
+    assert str(parsed[0][1].site_packages) == SITE_PACKAGES
+    disabled_script = step["run"].replace('"${reviewed_pr_args[@]}"', "")
+    disabled = [
+        result
+        for command in _commands(
+            "targeted-signed-reencode.yml", "encode", disabled_script
+        )
+        if (result := _provision(command))
+    ]
+    assert len(disabled) == 1
+    assert disabled[0][1].reviewed_pr_selector is None
+    assert str(disabled[0][1].site_packages) == SITE_PACKAGES
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        ("reviewed_pr_args=()", "reviewed_pr_args=(--site-packages /tmp/unlocked)"),
+        (
+            "reviewed_pr_args=()",
+            "reviewed_pr_args=()\nreviewed_pr_args+=(--unknown value)",
+        ),
+        ("reviewed_pr_args=()", ""),
+        ('"${reviewed_pr_args[@]}"', '"${unknown_args[@]}"'),
+        ('"${reviewed_pr_args[@]}"', '"${reviewed_pr_args[*]}"'),
+        ('"${reviewed_pr_args[@]}"', '"${reviewed_pr_args[@]}" --unknown value'),
+        (
+            "reviewed_pr_args+=(--reviewed-pr-selector",
+            "reviewed_pr_args+=(--site-packages",
+        ),
+        ("reviewed_pr_args+=(--reviewed-pr-selector", "reviewed_pr_args+=(--unknown"),
+        ('if [ "$LIVE_PR_ADMISSION" = "true" ]; then', "if false; then"),
+    ],
+)
+def test_unrecognized_reviewed_selector_array_still_fails_closed(old, new):
+    workflows = _load_workflows()
+    step = _provision_step("targeted-signed-reencode.yml", workflows)
+    assert old in step["run"]
+    step["run"] = step["run"].replace(old, new)
+    violations, _ = _provision_violations(workflows)
+    assert any("provisioner refuses its arguments" in item for item in violations)
 
 
 @pytest.mark.parametrize(
