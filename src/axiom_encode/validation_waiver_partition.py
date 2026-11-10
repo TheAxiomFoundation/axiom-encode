@@ -352,6 +352,27 @@ def timing_observations(lines: Iterable[str]) -> dict[str, list[int]]:
     return observed
 
 
+def load_jobs_listing(text: str) -> Any:
+    """Decode a jobs listing: one JSON value, or several printed back to back.
+
+    ``gh api --paginate`` without ``--slurp`` prints one JSON object per page
+    with nothing between them, which ``json.loads`` rejects as extra data.
+    """
+    decoder = json.JSONDecoder()
+    values: list[Any] = []
+    index = 0
+    while True:
+        while index < len(text) and text[index].isspace():
+            index += 1
+        if index == len(text):
+            break
+        value, index = decoder.raw_decode(text, index)
+        values.append(value)
+    if not values:
+        raise ValueError("jobs JSON is empty")
+    return values[0] if len(values) == 1 else values
+
+
 def _iter_jobs(payload: Any) -> Iterator[Mapping[str, Any]]:
     """Accept one jobs page, a ``--slurp`` list of pages, or a bare job list."""
     if isinstance(payload, Mapping):

@@ -2107,8 +2107,8 @@ def main():
         type=Path,
         help=(
             "The same run's GitHub Actions jobs listing (gh api --paginate "
-            "--slurp repos/<owner>/<repo>/actions/runs/<run>/jobs); records each "
-            "shard's non-audit time as its partition baseline"
+            "[--slurp] repos/<owner>/<repo>/actions/runs/<run>/jobs); records "
+            "each shard's non-audit time as its partition baseline"
         ),
     )
     validation_waivers_costs_parser.add_argument(
@@ -5304,7 +5304,9 @@ def _cmd_validation_waivers_audit_costs(args) -> int:
     baselines = None
     if args.jobs_json is not None:
         baselines = _waiver_partition.partition_baselines_from_jobs(
-            json.loads(Path(args.jobs_json).read_text(encoding="utf-8")),
+            _waiver_partition.load_jobs_listing(
+                Path(args.jobs_json).read_text(encoding="utf-8")
+            ),
             workers=args.workers,
             audit_step=args.audit_step,
         )

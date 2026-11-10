@@ -16,11 +16,14 @@ cost tables:
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import itertools
 import json
 import os
 import re
+import time
+from concurrent.futures.process import BrokenProcessPool
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
@@ -344,7 +347,7 @@ def test_defaults_and_digest():
         partition_baseline_milliseconds={"us": 7},
     )
     costs = partition.parse_waiver_audit_costs(raw)
-    assert costs.sha256 == __import__("hashlib").sha256(raw).hexdigest()
+    assert costs.sha256 == hashlib.sha256(raw).hexdigest()
     assert costs.default_milliseconds == 30  # median_low
     assert costs.cost("us/missing.yaml") == 30
     assert costs.cost("us/a.yaml") == 1  # no module weighs nothing
@@ -493,6 +496,25 @@ def test_partition_baselines_from_jobs():
         partition.partition_baselines_from_jobs(page, workers=0)
 
 
+def test_jobs_listing_accepts_back_to_back_pages():
+    """`gh api --paginate` without `--slurp` prints pages with nothing between."""
+    first = {"total_count": 2, "jobs": [_job("us", job=(0, 3000), step=(1000, 1500))]}
+    second = {"total_count": 2, "jobs": [_job("us-ak", job=(0, 600), step=(100, 400))]}
+    expected = {"us": 2500 * 4 * 1000, "us-ak": 300 * 4 * 1000}
+    for text in (
+        json.dumps(first) + json.dumps(second),
+        json.dumps(first, indent=2) + "\n" + json.dumps(second) + "\n",
+        json.dumps([first, second]),
+    ):
+        listing = partition.load_jobs_listing(text)
+        assert partition.partition_baselines_from_jobs(listing, workers=4) == expected
+    assert partition.load_jobs_listing(" " + json.dumps(first) + "\n") == first
+    with pytest.raises(ValueError, match="empty"):
+        partition.load_jobs_listing(" \n")
+    with pytest.raises(ValueError):
+        partition.load_jobs_listing(json.dumps(first) + "{")
+
+
 def test_audit_costs_command_writes_a_loadable_table(tmp_path, capsys):
     log = tmp_path / "run.log"
     log.write_text(
@@ -600,12 +622,12 @@ def test_heartbeat_thread_beats_until_the_block_exits():
     beats = []
     progress = SimpleNamespace(heartbeat=lambda: beats.append(1))
     with partition.heartbeat_thread(progress, interval=0.001):
-        deadline = __import__("time").monotonic() + 10
-        while len(beats) < 3 and __import__("time").monotonic() < deadline:
+        deadline = time.monotonic() + 10
+        while len(beats) < 3 and time.monotonic() < deadline:
             pass
     stopped = len(beats)
     assert stopped >= 3
-    __import__("time").sleep(0.05)
+    time.sleep(0.05)
     assert len(beats) == stopped
 
 
@@ -694,6 +716,55 @@ def test_parallel_audit_beats_while_a_module_runs():
     ), heartbeats
     # Never more tasks in flight than workers.
     assert all(len(in_flight) <= 2 for in_flight in calls)
+
+
+def test_a_refused_submit_fails_only_after_every_module_is_accounted_for():
+    """A broken pool refuses new work. Every module still gets a start line,
+    completed modules' diagnostics still reach stderr, nothing hangs, and the
+    error raised is the one the interleaved split would have raised."""
+    paths = [f"us/{name}.yaml" for name in "abcd"]
+    refused = {"us/b.yaml", "us/d.yaml"}
+
+    class _RefusingPool(_FakePool):
+        def submit(self, fn, chunk, *args):
+            if chunk[0] in refused:
+                type(self).submitted.append((fn, tuple(chunk), args))
+                raise BrokenProcessPool(f"refused {chunk[0]}")
+            return super().submit(fn, chunk, *args)
+
+    _FakePool.submitted = []
+    _FakePool.path_of = {}
+    for path in paths:
+        _FakePool.chunk_results[path] = cli._WaiverAuditTaskResult(
+            [{"path": path, "passed": False, "fingerprint": f"fp-{path}"}],
+            f"diagnostic for {path}\n",
+        )
+    stderr = io.StringIO()
+    with (
+        patch.dict(os.environ, {cli._WAIVER_AUDIT_WORKERS_ENV: "2"}),
+        patch.object(
+            cli, "load_rulespec_local_corpus_release", return_value=_release_stub()
+        ),
+        patch.object(cli.concurrent.futures, "ProcessPoolExecutor", _RefusingPool),
+        redirect_stderr(stderr),
+        # With 2 workers, b ranks (1, 0) and d ranks (1, 1): b's error wins.
+        pytest.raises(BrokenProcessPool, match=r"refused us/b\.yaml"),
+    ):
+        cli._fingerprint_validation_waiver_modules_parallel(
+            [Path(path) for path in paths],
+            root=Path("/repo"),
+            corpus_path=Path("/corpus"),
+            axiom_rules_path=Path("/engine"),
+        )
+    lines = stderr.getvalue().splitlines()
+    assert [chunk[0] for _fn, chunk, _args in _FakePool.submitted] == paths
+    assert [line for line in lines if " start: " in line] == [
+        f"validation-waivers audit start: {path}" for path in paths
+    ]
+    assert [line for line in lines if line.startswith("diagnostic for ")] == [
+        "diagnostic for us/a.yaml",
+        "diagnostic for us/c.yaml",
+    ]
 
 
 def test_serial_audit_runs_inside_a_heartbeat(monkeypatch):
@@ -810,7 +881,7 @@ def test_whole_audit_with_a_table_audits_every_waiver_once(tmp_path):
     ]
     assert sorted(audited) == sorted(paths)
     assert len(audited) == len(set(audited))
-    digest = __import__("hashlib").sha256(table).hexdigest()
+    digest = hashlib.sha256(table).hexdigest()
     for key, (report, stderr) in reports.items():
         assert report["partition"]["cost_table_sha256"] == digest
         plan = [line for line in stderr.splitlines() if " plan: " in line]
