@@ -35387,8 +35387,9 @@ def _source_exception_effect_requirement(text: str) -> str:
         proposition = collapsed[: condition.start()]
         if _source_only_cue_joins_lifting_without(proposition, cue):
             return "enable"
-        negative_proposition = _source_negative_effect_matches(proposition)
-        positive_proposition = _source_direction_positive_effect_matches(proposition)
+        own_clause = _source_cue_own_proposition(collapsed, condition.start())
+        negative_proposition = _source_negative_effect_matches(own_clause)
+        positive_proposition = _source_direction_positive_effect_matches(own_clause)
         if (
             not negative_proposition
             and positive_proposition
@@ -35468,6 +35469,12 @@ def _source_exception_effect_requirement(text: str) -> str:
 # 1382(e)(1)(A)) states ineligibility.  After an existential "there is", the
 # article names something else: "there is not a qualified bilingual staff
 # person" (45 CFR 1302.33(c)(4)) says nothing of the clause's subject.
+_SOURCE_NEGATION = r"not|never|no\s+longer"
+# "never" and "no longer" negate only a modal: "if the provider is no longer
+# deemed eligible" states a fact, and a condition's words direct nothing.
+_SOURCE_NEGATED_ENTITLEMENT_OPENING = (
+    rf"(?:must|shall|will|may)\s+(?:{_SOURCE_NEGATION})|(?:does|do|is|are)\s+not"
+)
 _SOURCE_ELIGIBILITY_DETERMINATION = (
     r"(?:(?:determined|found|considered|deemed|treated|regarded|certified)\s+"
     r"(?:as\s+)?(?:an?\s+)?(?:categorically\s+)?|"
@@ -35587,15 +35594,31 @@ def _source_reversal_cue_requirement(
 ) -> str | None:
     """Direct an ``unless`` or ``except`` cue that opens the paired condition.
 
+    Each such cue reverses the effect of the clause it qualifies: an
+    exception to a prohibition permits, and an exception to an entitlement
+    excludes.  In "Except when the consumer consents, a debt collector must
+    not communicate", consent lifts the prohibition, so the pair must enable.
+    """
+
+    cue_span = _source_reversal_cue_span(
+        text, conditions, cross_references=cross_references
+    )
+    return None if cue_span is None else _source_effect_reversed_by_cue(text, cue_span)
+
+
+def _source_reversal_cue_span(
+    text: str,
+    conditions: tuple[re.Match[str], ...],
+    *,
+    cross_references: tuple[tuple[int, int], ...],
+) -> tuple[int, int] | None:
+    """Return the span of the ``unless`` or ``except`` cue that opens the pair.
+
     ``_source_exception_condition_text`` pairs the first ``unless``; failing
     that, the first ``if`` or ``when``, which a preceding ``except`` turns into
     an exception.  A cross-reference that states no condition of its own is
     the paired condition only when no other cue remains, and a bare
-    ``except`` opens it when no ``if`` or ``when`` follows.  Each such cue
-    reverses the effect of the clause it qualifies: an exception to a
-    prohibition permits, and an exception to an entitlement excludes.  In
-    "Except when the consumer consents, a debt collector must not
-    communicate", consent lifts the prohibition, so the pair must enable.
+    ``except`` opens it when no ``if`` or ``when`` follows.
     """
 
     if not conditions:
@@ -35641,20 +35664,32 @@ def _source_reversal_cue_requirement(
             cue_span = first.span()
         else:
             return None
-    return _source_effect_reversed_by_cue(text, cue_span)
+    return cue_span
 
 
 # A period after an abbreviation ("15 U.S.C. 1692c", "Pub. L. 117-169",
-# "Sec. 5", "No. 3", "et seq.") ends no sentence.
+# "Sec. 5", "No. 3", "et seq.") ends no sentence.  The period after a part's
+# letter ends one when a capital follows ("under part A. A household ...").
 _SOURCE_SENTENCE_BOUNDARY = re.compile(
-    r";|\.(?<!\b[A-Z]\.)(?<!\b[Ss]ec\.)(?<!\b[Nn]o\.)(?<!\b[Ss]eq\.)"
+    r";|\.(?:(?<!\b[A-Z]\.)|(?:(?<=\b[Pp]art [A-Z]\.)|(?<=\b[Ss]ubpart [A-Z]\.))"
+    r"(?=\s+[A-Z]))(?<!\b[Ss]ec\.)(?<!\b[Nn]o\.)(?<!\b[Ss]eq\.)"
     r"(?<!\b[Pp]ub\.)(?<!\b[Ss]tat\.)(?!\d)(?=\s|$)"
 )
+# The last period of an ellipsis marks words an excerpt leaves out, so it ends
+# a sentence only before a capital: "food stamps... if" continues one
+# (``_source_cue_own_proposition``).
+_SOURCE_EXCERPT_SENTENCE_BOUNDARY = re.compile(
+    rf"(?:{_SOURCE_SENTENCE_BOUNDARY.pattern})(?:(?<!\.\.\.)|(?=\s+[A-Z]))"
+)
 # An auxiliary before a reversal cue shows that a clause, not an introductory
-# phrase, precedes it.  A leading cue's condition ends at the first comma.
+# phrase, precedes it.  A leading cue's condition ends at the first comma.  A
+# capitalized "May" names the month ("In May, if the consumer objects").
+_SOURCE_CLAUSE_AUXILIARIES = (
+    r"is|are|was|were|be|been|being|shall|must|(?-i:may)|will|would|should|"
+    r"can|cannot|could|has|have|had|does|do|did"
+)
 _SOURCE_CLAUSE_AUXILIARY = re.compile(
-    r"\b(?:is|are|was|were|be|been|being|shall|must|may|will|would|should|"
-    r"can|could|has|have|had|does|do|did)\b",
+    rf"\b(?:{_SOURCE_CLAUSE_AUXILIARIES})\b",
     flags=re.IGNORECASE,
 )
 _SOURCE_LEADING_CONDITION_END = re.compile(r",")
@@ -35667,32 +35702,103 @@ _SOURCE_COORDINATE_CLAUSE = re.compile(
 )
 
 
+def _source_sentence_bounds(text: str, start: int, end: int) -> tuple[int, int]:
+    """Return the bounds of the sentence that holds ``start`` through ``end``."""
+
+    following = _SOURCE_SENTENCE_BOUNDARY.search(text, end)
+    return (
+        max(
+            (
+                match.end()
+                for match in _SOURCE_SENTENCE_BOUNDARY.finditer(text, 0, start)
+            ),
+            default=0,
+        ),
+        following.start() if following is not None else len(text),
+    )
+
+
+def _source_cue_own_proposition(text: str, cue_start: int) -> str:
+    """Return the words before the cue at ``cue_start`` that it can qualify.
+
+    When the cue's own sentence states an effect, they open after the last
+    period that ends a sentence, since an effect in an earlier sentence then
+    directs nothing: in "The debt collector must not call. A household is
+    eligible if it applies.", only the eligibility does.  A sentence that
+    states no effect can continue an earlier one ("The household is eligible.
+    This holds only if it applies."), so the cue then keeps the whole
+    proposition.  A semicolon keeps the clauses it joins in one sentence, as
+    "but" does, so a condition after both still reads both.  A cue that
+    follows a sentence end, a semicolon or a coordinate opener at once opens a
+    clause of its own, so no effect before it directs the condition: in "must
+    not call the consumer, and if the consumer objects, the debt collector
+    may write", the condition qualifies only the permission after it.  Any
+    other cue keeps the rest of its sentence, because a comma before "and" or
+    "or" can join nouns or set off an aside ("receives, or would have
+    received, its allotment, if ...").  An ellipsis marks words an excerpt
+    leaves out, so it ends a sentence only before a capital, which the cue's
+    own first letter can be: in "are eligible for food stamps... if they are
+    subject to Section 289", the condition qualifies the eligibility.
+    """
+
+    proposition = text[:cue_start]
+    boundaries = tuple(
+        match
+        for match in _SOURCE_EXCERPT_SENTENCE_BOUNDARY.finditer(text, 0, cue_start + 1)
+        if match.end() <= cue_start
+    )
+    sentence_start = max(
+        (match.end() for match in boundaries if match.group(0) == "."),
+        default=0,
+    )
+    sentence = proposition[sentence_start:]
+    opening = max(
+        (
+            *(
+                match.end() - sentence_start
+                for match in boundaries
+                if match.start() >= sentence_start
+            ),
+            *(match.end() for match in _SOURCE_COORDINATE_CLAUSE.finditer(sentence)),
+        ),
+        default=0,
+    )
+    if not sentence.strip() or (opening and not sentence[opening:].strip()):
+        return ""
+    if _source_negative_effect_matches(
+        sentence
+    ) or _source_direction_positive_effect_matches(sentence):
+        return sentence
+    return proposition
+
+
 def _source_effect_reversed_by_cue(
     text: str,
     cue_span: tuple[int, int],
 ) -> str | None:
     """Reverse the effect that a reversal cue qualifies in its own sentence.
 
-    A trailing cue qualifies the latest effect before it ("must not
-    communicate ... unless the attorney consents"); a leading cue qualifies
-    the effect after its condition ("Unless the person files a return, a
-    person is not eligible"), up to any coordinate clause that follows it.
-    The words of a trailing cue's own condition
-    are never its effect: in "The following households are categorically
-    eligible unless the entire household is disqualified", "disqualified"
-    belongs to the condition, so the cue directs nothing here.
+    A trailing cue qualifies the latest effect before it in its own clause
+    (``_source_trailing_clause_start``): "must not communicate ... unless
+    the attorney consents".  An effect in a condition that leads the
+    sentence, or in a coordinate clause before the cue's own, is never its
+    effect.  A leading cue qualifies the effect after its condition ("Unless
+    the person files a return, a person is not eligible"), up to any
+    coordinate clause that follows it, and so does a cue with no effect and
+    no auxiliary or modal verb before it in its clause, as one that opens a
+    coordinate clause ("The debt collector must not call the consumer, and
+    unless the consumer objects, the debt collector may write").  The words
+    of a trailing cue's own condition are never its effect: in "The
+    following households are categorically eligible unless the entire
+    household is disqualified", "disqualified" belongs to the condition, so
+    the cue directs nothing here.  A bar that only a reversal cue reads
+    (``_source_cue_qualified_bars``) is a negative effect, so its condition
+    enables.
     """
 
     cue_start, cue_end = cue_span
-    sentence_start = max(
-        (
-            match.end()
-            for match in _SOURCE_SENTENCE_BOUNDARY.finditer(text, 0, cue_start)
-        ),
-        default=0,
-    )
-    following = _SOURCE_SENTENCE_BOUNDARY.search(text, cue_end)
-    sentence_end = following.start() if following is not None else len(text)
+    sentence_start, sentence_end = _source_sentence_bounds(text, cue_start, cue_end)
+    clause_start = _source_trailing_clause_start(text, sentence_start, cue_start)
     effects = (
         *(
             (match.start(), match.end(), True)
@@ -35702,14 +35808,18 @@ def _source_effect_reversed_by_cue(
             (match.start(), match.end(), False)
             for match in _source_negative_effect_matches(text)
         ),
+        *(
+            (match.start(), match.end(), False)
+            for match in _source_cue_qualified_bars(text, cue_span)
+        ),
     )
     candidates = [
         effect
         for effect in effects
-        if effect[0] >= sentence_start and effect[1] <= cue_start
+        if effect[0] >= clause_start and effect[1] <= cue_start
     ]
     if not candidates:
-        if _SOURCE_CLAUSE_AUXILIARY.search(text, sentence_start, cue_start):
+        if _SOURCE_CLAUSE_AUXILIARY.search(text, clause_start, cue_start):
             # A clause precedes the cue, so the cue trails an effect this
             # reading does not recognize.
             return None
@@ -35845,7 +35955,7 @@ def _source_negative_effect_matches(text: str) -> tuple[re.Match[str], ...]:
                 match
                 for match in (
                     *re.finditer(
-                        r"\b(?:must|shall|will|may|does|do|is|are)\s+not\s+(?:be\s+)?"
+                        rf"\b(?:{_SOURCE_NEGATED_ENTITLEMENT_OPENING})\s+(?:be\s+)?"
                         rf"{_SOURCE_ELIGIBILITY_DETERMINATION}"
                         r"(?:apply|eligible|qualified|allowed|entitled)\b|"
                         rf"\bnot\s+{_SOURCE_ELIGIBILITY_DETERMINATION}"
@@ -35983,7 +36093,7 @@ _SOURCE_MODAL_ADVERBS = (
     r"normally|ordinarily|likewise|similarly|simultaneously|concurrently"
 )
 _SOURCE_MODAL_EFFECT = re.compile(
-    r"\b(?P<modal>must|may|shall)\b(?:\s+(?P<negation>not)\b)?"
+    rf"\b(?P<modal>must|may|shall)\b(?:\s+(?P<negation>{_SOURCE_NEGATION})\b)?"
     rf"(?P<adverbs>(?:[\s,]+(?:{_SOURCE_MODAL_ADVERBS})\b)*)"
     r"[\s,]+(?P<verb>[a-z]+)\b",
     flags=re.IGNORECASE,
@@ -36314,9 +36424,10 @@ def _source_modal_effect_matches(
 ) -> tuple[tuple[re.Match[str], ...], tuple[re.Match[str], ...]]:
     """Return modal prohibitions and permissions, in source order.
 
-    "must not", "may not" or "shall not" before a verb of conduct, and a
-    "No <subject> may" or "shall" clause, prohibit; "may" before a verb, not
-    negated, permits.  A "may" that only states a possibility ("it is
+    "must not", "may not" or "shall not" before a verb of conduct, with "no
+    longer" or "never" in place of "not", and a "No <subject> may" or "shall"
+    clause, prohibit; "may" before a verb, not negated, permits.  A "may"
+    that only states a possibility ("it is
     possible they may see the emails") or sits in an "as <subject> may
     require" clause permits nothing, and a capitalized "May" inside a clause
     names the month ("If the household applies in May benefits are
@@ -36359,6 +36470,473 @@ def _source_modal_prohibition_matches(text: str) -> tuple[re.Match[str], ...]:
     return _source_modal_effect_matches(text)[0]
 
 
+# Predicate words a name can state its claim with.  A prohibition participle
+# states the negative pole of a permission, as a disqualifying status does;
+# an entitlement, a permission or an obligation states the positive pole.
+_NAME_PROHIBITION_PARTICIPLES = frozenset(
+    {"banned", "barred", "disallowed", "forbidden", "precluded", "prohibited"}
+)
+_NAME_NEGATIVE_STATUSES = frozenset(
+    {"disqualified", "excluded", "ineligible", "unqualified"}
+)
+_NAME_POSITIVE_PREDICATES = frozenset(
+    {
+        "allowable",
+        "allowed",
+        "authorized",
+        "eligible",
+        "entitled",
+        "permissible",
+        "permitted",
+        "qualified",
+        "required",
+    }
+)
+# Predicate words that state a pole only after their subject, as the name's
+# predicate: ``communication_restricted``, ``communication_unlawful``,
+# ``application_denied_for_missed_interview`` and
+# ``snap_benefit_increase_blocked_for_pa_household`` read as negative, and
+# ``communication_lawful`` and ``communication_unrestricted`` as positive.
+# Unlike a prohibition participle, none of them gives a Judgment name that
+# opens with it a pole (``unlawful_dismissal_protection``), and "and" or "or"
+# after one makes it a modifier (``supported_living_restricted_or_blind``).
+_NAME_NEGATIVE_PREDICATES = frozenset(
+    {"blocked", "denied", "illegal", "impermissible", "restricted", "unlawful"}
+)
+_NAME_LAWFUL_PREDICATES = frozenset({"lawful", "unrestricted"})
+# Verbs that bar what follows them (``abawd_sanction_blocks_eligibility_
+# reestablishment``, ``section_6_precludes_universal_credit_entitlement``),
+# and their bare forms after "not" (``costs_do_not_bar_payments``).
+_NAME_BARRING_VERBS = frozenset(
+    {"bans", "bars", "blocks", "forbids", "precludes", "prevents", "prohibits"}
+)
+_NAME_BARRING_VERB_BASES = frozenset(
+    {"ban", "bar", "block", "forbid", "preclude", "prevent", "prohibit"}
+)
+# The words a name and a clause share for a bar.  ``_name_predicate_pole``
+# reads them in a name, and ``_source_barring_predicate_matches`` in a clause,
+# so a predicate that reads as negative in an output's name also reads as a
+# bar in the clause the output encodes.
+_SOURCE_BAR_WORDS = _NAME_PROHIBITION_PARTICIPLES | _NAME_NEGATIVE_PREDICATES
+_SOURCE_BAR_ADVERBS = r"expressly|specifically|otherwise|also|further|generally"
+_SOURCE_BARRED_STATE = re.compile(
+    r"\b(?:(?:shall|must|may|will|can)\s+)?(?:is|are|be|been|becomes?)\s+"
+    rf"(?:(?:{_SOURCE_BAR_ADVERBS})\s+)?"
+    rf"(?:{'|'.join(sorted(_SOURCE_BAR_WORDS))})\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_NEGATED_PERMISSION = re.compile(
+    rf"\b(?:is|are)\s+(?:{_SOURCE_NEGATION})\s+"
+    rf"(?:(?:{_SOURCE_BAR_ADVERBS})\s+)?"
+    rf"(?P<word>{'|'.join(sorted(_NAME_POSITIVE_PREDICATES))})\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_ENTITLEMENT_WORDS = frozenset({"allowed", "eligible", "entitled", "qualified"})
+_SOURCE_MODAL_STATE = re.compile(
+    r"\b(?:cannot|(?P<modal>shall|must|may|will|can)"
+    rf"(?:\s+(?P<negation>{_SOURCE_NEGATION}))?)\s+be\s+(?P<word>[a-z-]+)\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_NEGATED_CONDUCT = re.compile(
+    rf"\b(?:cannot|(?P<modal>will|can)(?:\s+(?P<negation>{_SOURCE_NEGATION}))?)"
+    rf"(?P<adverbs>(?:[\s,]+(?:{_SOURCE_MODAL_ADVERBS})\b)*)"
+    r"[\s,]+(?P<verb>[a-z]+)\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_IMPERATIVE_BAR = re.compile(
+    r"\bdo\s+not"
+    rf"(?P<adverbs>(?:[\s,]+(?:{_SOURCE_MODAL_ADVERBS})\b)*)"
+    r"[\s,]+(?P<verb>[a-z]+)\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_BARRING_VERB = re.compile(
+    rf"\b(?:{'|'.join(sorted(_NAME_BARRING_VERBS))})\b",
+    flags=re.IGNORECASE,
+)
+# Patterns whose "verb" group names the conduct a bar reaches.
+_SOURCE_BARRED_VERB_PATTERNS = frozenset(
+    {_SOURCE_MODAL_EFFECT, _SOURCE_NEGATED_CONDUCT, _SOURCE_IMPERATIVE_BAR}
+)
+# A negation just before a bar's "be" ("shall not be denied") reverses it.
+_SOURCE_NEGATION_BEFORE = re.compile(
+    r"\b(?:not|never|longer|cannot)\s+$",
+    flags=re.IGNORECASE,
+)
+# An imperative opens its clause, after any label or conjunction.
+_SOURCE_IMPERATIVE_OPENING = re.compile(
+    r"\s*(?:\([A-Za-z0-9]{1,4}\)\s*)*(?:(?:and|or|but|then)\s+)?",
+    flags=re.IGNORECASE,
+)
+# A determiner, preposition or relative pronoun before "bars" or "blocks" makes
+# it a noun ("the bars", "of blocks", "that blocks"), and so does a verb, a
+# preposition or a participle after it ("candy bars are taxable", "census blocks
+# in the tract", "census blocks identified as eligible").
+_SOURCE_BARRING_VERB_NOUN_BEFORE = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "any",
+        "at",
+        "by",
+        "each",
+        "every",
+        "for",
+        "from",
+        "in",
+        "of",
+        "on",
+        "or",
+        "such",
+        "that",
+        "the",
+        "these",
+        "those",
+        "under",
+        "which",
+        "who",
+        "with",
+    }
+)
+_SOURCE_BARRING_VERB_NOUN_AFTER = re.compile(
+    rf"\s*(?:{_SOURCE_CLAUSE_AUXILIARIES}|of|in|on|for|with|by|at|from|under|"
+    r"and|or|if|when|unless|except|that|which|who|per|[a-z]+(?:ed|ing))\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_WORD_BEFORE = re.compile(r"([\w'-]+)\s+$")
+_SOURCE_NEXT_WORD = re.compile(r"\s+[\w'-]")
+
+
+def _source_barring_predicate_matches(text: str) -> tuple[re.Match[str], ...]:
+    """Match the bars that only a reversal cue reads.
+
+    "The application shall be denied unless ...", "It is unlawful to sell
+    cigarettes unless ...", "A deduction is not permitted unless ...", "The
+    instrumentality shall not be exempt unless ...", "No payment may be made
+    unless ...", "A household cannot participate unless ...", "The agency
+    will not issue benefits unless ...", "Do not establish a claim unless
+    ..." and "The sanction bars eligibility unless ..." each state a bar that
+    the condition lifts.  A negated member ("shall not be denied", "is not
+    prohibited") states the opposite, so it is no bar.  After "be" a verb
+    whose negation sets no direction ("shall not be treated", "shall not be
+    terminated") and a comparative ("shall not be less than") state none
+    either.  Only ``_source_cue_qualified_bars`` calls this: a plain ``if``
+    keeps its reading of these clauses.  ``_source_negative_effect_matches``
+    reads the entitlement words ("is not allowed", "No credit shall be
+    allowed"): their conditions already enable, and an entitlement sets no
+    prohibition demand.
+    """
+
+    matches: list[re.Match[str]] = [
+        match
+        for match in _SOURCE_BARRED_STATE.finditer(text)
+        if not _SOURCE_NEGATION_BEFORE.search(
+            text, max(0, match.start() - 12), match.start()
+        )
+        and not _source_modal_has_no_subject(text, match.start())
+    ]
+    matches.extend(
+        match
+        for match in _SOURCE_NEGATED_PERMISSION.finditer(text)
+        if match.group("word").casefold() not in _SOURCE_ENTITLEMENT_WORDS
+    )
+    for match in _SOURCE_MODAL_STATE.finditer(text):
+        negated = match.group("modal") is None or match.group("negation") is not None
+        word = match.group("word").casefold()
+        if (
+            negated != _source_modal_has_no_subject(text, match.start())
+            and word not in _SOURCE_BAR_WORDS
+            and word not in _NAME_NEGATIVE_STATUSES
+            and word not in _NAME_NO_COMPARATIVES
+            and word not in _SOURCE_MODAL_NON_VERB_WORDS
+            and word not in _SOURCE_ENTITLEMENT_WORDS
+            and not (_name_participle_verbs(word) - {word})
+            & _SOURCE_PROHIBITION_EXCLUDED_VERBS
+        ):
+            matches.append(match)
+    for match in _SOURCE_NEGATED_CONDUCT.finditer(text):
+        negated = match.group("modal") is None or match.group("negation") is not None
+        if (
+            negated != _source_modal_has_no_subject(text, match.start())
+            and match.group("verb").casefold() not in _SOURCE_PROHIBITION_EXCLUDED_VERBS
+        ):
+            matches.append(match)
+    for match in _SOURCE_IMPERATIVE_BAR.finditer(text):
+        if match.group("verb").casefold() in _SOURCE_PROHIBITION_EXCLUDED_VERBS:
+            continue
+        prefix = _source_clause_prefix(text, match.start())
+        if match.group(0).startswith("Do") or (
+            prefix is not None and _SOURCE_IMPERATIVE_OPENING.fullmatch(prefix)
+        ):
+            matches.append(match)
+    matches.extend(
+        match
+        for match in _SOURCE_BARRING_VERB.finditer(text)
+        if _source_barring_verb_has_object(text, match)
+    )
+    return _source_outside_reported_content(
+        text, sorted(matches, key=lambda match: (match.start(), match.end()))
+    )
+
+
+def _source_barring_verb_has_object(text: str, match: re.Match[str]) -> bool:
+    """Say whether "bars" or "blocks" is a verb between subject and object."""
+
+    before = _SOURCE_WORD_BEFORE.search(text, max(0, match.start() - 40), match.start())
+    return (
+        before is not None
+        and before.group(1).casefold() not in _SOURCE_BARRING_VERB_NOUN_BEFORE
+        and _SOURCE_NEXT_WORD.match(text, match.end()) is not None
+        and _SOURCE_BARRING_VERB_NOUN_AFTER.match(text, match.end()) is None
+        and not _source_modal_has_no_subject(text, match.start())
+    )
+
+
+# Words that open a clause inside the one a reversal cue qualifies.
+_SOURCE_PREDICATE_TOKEN = re.compile(
+    r"\b(?:(?P<opener>who|whom|whose|which|that|whether|because|since|although|"
+    r"though|while|after|before|once|until|where|when|if)|"
+    rf"(?P<auxiliary>{_SOURCE_CLAUSE_AUXILIARIES}))\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _source_predicate_bars(
+    text: str,
+    bars: tuple[re.Match[str], ...],
+    clause_start: int,
+    clause_end: int,
+) -> tuple[re.Match[str], ...]:
+    """Keep the bars that are the predicate of a clause.
+
+    A bar in a clause that opens after the main predicate is not one: in
+    "The agency shall notify each household whose application is denied
+    unless ...", "shall" comes before the opener "whose".  Neither is a bar
+    that a later auxiliary follows with no opener between them.  When an
+    opener comes first, the words open with a subject's relative clause or a
+    subordinate clause, so a bar is the predicate only after a "who", "which"
+    or "that" clause that holds a verb of its own, with no auxiliary after
+    the bar: "An individual who violates this section is barred" states a
+    bar, and neither "A household whose application is denied shall notify
+    the agency" nor "a vendor that cannot demonstrate capability" does.  One
+    pass over the clause finds the tokens, so the check stays linear in its
+    length.
+    """
+
+    within = tuple(
+        bar for bar in bars if clause_start <= bar.start() and bar.end() <= clause_end
+    )
+    if not within:
+        return ()
+    tokens = tuple(_SOURCE_PREDICATE_TOKEN.finditer(text, clause_start, clause_end))
+    starts = tuple(token.start() for token in tokens)
+    last_auxiliary = max(
+        (token.start() for token in tokens if token.group("auxiliary")),
+        default=-1,
+    )
+    first_opener = next(
+        (index for index, token in enumerate(tokens) if token.group("opener")),
+        None,
+    )
+    subordinate_from = starts[first_opener] if first_opener else clause_end
+
+    def is_predicate(bar: re.Match[str]) -> bool:
+        if first_opener == 0:
+            return (
+                tokens[0].group("opener").casefold() in {"who", "which", "that"}
+                and bool(text[tokens[0].end() : bar.start()].strip())
+                and bar.end() > last_auxiliary
+            )
+        if bar.start() >= subordinate_from:
+            return False
+        following = bisect.bisect_left(starts, bar.end())
+        return following == len(tokens) or tokens[following].group("opener") is not None
+
+    return tuple(bar for bar in within if is_predicate(bar))
+
+
+def _source_coordinate_clause_start(
+    text: str, sentence_start: int, condition_start: int
+) -> int:
+    """Return where the clause that a trailing condition qualifies opens.
+
+    It opens after the last comma and coordinator before the condition when
+    the words after them state a clause: nothing at all, as when the
+    condition itself opens the coordinate clause ("..., and if ..."), or a
+    subject before a finite auxiliary ("..., and a household is not eligible
+    if ...").  Words that reach a relative pronoun or an infinitive first
+    continue a list of objects ("the parent, guardian, or relative to provide
+    information that has been provided"), an auxiliary right after the
+    coordinator joins verbs of one subject, and a comma after an earlier
+    condition cue sits inside that condition ("if the debt collector knows,
+    or can readily ascertain, the name").  Otherwise the clause opens with
+    the sentence.
+    """
+
+    coordinate = None
+    for coordinate in _SOURCE_COORDINATE_CLAUSE.finditer(
+        text, sentence_start, condition_start
+    ):
+        pass
+    if coordinate is None or _SOURCE_CONDITION_CUE_WORD.search(
+        text, sentence_start, coordinate.start()
+    ):
+        return sentence_start
+    words = text[coordinate.end() : condition_start]
+    first = _SOURCE_PREDICATE_TOKEN.search(words)
+    states_clause = not words.strip() or (
+        first is not None
+        and first.group("auxiliary") is not None
+        and bool(words[: first.start()].strip())
+        and _SOURCE_INFINITIVE_MARKER.search(words[: first.start()]) is None
+    )
+    return coordinate.end() if states_clause else sentence_start
+
+
+_SOURCE_CONDITION_CUE_WORD = re.compile(
+    r"\b(?:if|when|whenever|where|unless|provided)\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_INFINITIVE_MARKER = re.compile(r"\bto\s*$", flags=re.IGNORECASE)
+# A "that" right before a condition opens the clause the condition leads:
+# "shall require that, except in the case of ..., high-rise elevator
+# projects shall not be provided" (42 U.S.C. 1437d(a)).
+_SOURCE_THAT_BEFORE_CONDITION = re.compile(r"\bthat\s*,?\s*$", flags=re.IGNORECASE)
+# The exception markers that state a clause's own predicate
+# (``_EXCEPTION_LANGUAGE``).
+_SOURCE_PREDICATE_MARKER = re.compile(
+    r"\b(?:shall|does|do)\s+not\s+apply\b", flags=re.IGNORECASE
+)
+# The cues that open a condition with a verb of its own.  A phrase that
+# another marker opens ("Notwithstanding the foregoing", "Exception for
+# agency activities") has none, so a predicate before its comma is the
+# clause's own.
+_SOURCE_CLAUSE_CUE = re.compile(r"\b(?:if|when|where|unless)\b", flags=re.IGNORECASE)
+
+
+def _source_trailing_clause_start(
+    text: str,
+    sentence_start: int,
+    cue_start: int,
+    *,
+    markers: tuple[re.Match[str], ...] | None = None,
+) -> int:
+    """Return where the clause that a trailing cue qualifies opens.
+
+    It opens after any condition that leads the sentence, and then after any
+    coordinate clause before the cue: in "If the application is denied, the
+    agency shall notify the household unless ...", "is denied" belongs to
+    the leading condition, and in "If the household moves, the agency is
+    barred, and unless it appeals, the household is eligible", the cue opens
+    a clause of its own.  A condition with an auxiliary before it trails the
+    clause, as the cue does, and takes nothing away, unless a "that" right
+    before it opens the clause it leads.  A marker that holds its own
+    auxiliary ("does not apply", "shall not apply") is the clause's
+    predicate, so it ends the walk: in "The requirement does not apply,
+    except as provided in paragraph (b), unless the consumer consents", the
+    cue qualifies "does not apply".  So does one between a marker and the
+    comma that would close its phrase, unless a cue that opens a condition
+    ("if", "when", "where", "unless") comes first: in "Notwithstanding the
+    foregoing this prohibition shall not apply to (A) shares acquired by a
+    bank, ...", no phrase closes before the predicate, while "If the
+    requirement does not apply," is a condition.  A condition after words with no
+    auxiliary leads the rest of the clause only when an auxiliary follows
+    the comma that closes it, as "shall" does in "No person who, if
+    disabled, receives assistance shall be eligible unless ...".  Without
+    one the walk cannot tell where the clause's verb stands, as in "Der
+    Anspruch besteht nicht, wenn der Antrag fehlt, es sei denn ...", so the
+    condition stays in the clause.
+    """
+
+    start = sentence_start
+    for marker in (
+        _source_exception_or_applicability_matches(text) if markers is None else markers
+    ):
+        if marker.start() < start:
+            continue
+        if marker.start() >= cue_start:
+            break
+        if _SOURCE_PREDICATE_MARKER.match(text, marker.start()):
+            break
+        comma = text.find(",", marker.end(), cue_start)
+        if comma < 0:
+            break
+        predicate = _SOURCE_PREDICATE_MARKER.search(text, marker.end(), comma)
+        if predicate is not None and not _SOURCE_CLAUSE_CUE.search(
+            text, marker.start(), predicate.start()
+        ):
+            break
+        if _SOURCE_CLAUSE_AUXILIARY.search(text, start, marker.start()):
+            if not _SOURCE_THAT_BEFORE_CONDITION.search(text, start, marker.start()):
+                break
+        elif _strip_source_clause_marker(
+            text[start : marker.start()]
+        ).strip() and not _SOURCE_CLAUSE_AUXILIARY.search(text, comma + 1, cue_start):
+            break
+        start = comma + 1
+    return _source_coordinate_clause_start(text, start, cue_start)
+
+
+def _source_cue_qualified_bars(
+    text: str, cue_span: tuple[int, int]
+) -> tuple[re.Match[str], ...]:
+    """Return the bars of the clause a reversal cue qualifies.
+
+    A trailing cue qualifies the words before it in its clause
+    (``_source_trailing_clause_start``), and a leading cue the main clause
+    after its condition, up to any coordinate clause.  A cue leads when that
+    clause has no bar and no auxiliary or modal verb before it, as when the
+    cue opens a coordinate clause ("..., and unless the household appeals,
+    the household is barred").  A bar counts only as that clause's
+    predicate (``_source_predicate_bars``), so a "not" or a "no" elsewhere in
+    a subject or an object triggers nothing.
+    """
+
+    bars = _source_barring_predicate_matches(text)
+    if not bars:
+        return ()
+    cue_start, cue_end = cue_span
+    sentence_start, sentence_end = _source_sentence_bounds(text, cue_start, cue_end)
+    clause_start = _source_trailing_clause_start(text, sentence_start, cue_start)
+    trailing = _source_predicate_bars(text, bars, clause_start, cue_start)
+    if trailing or _SOURCE_CLAUSE_AUXILIARY.search(text, clause_start, cue_start):
+        return trailing
+    condition_end = _SOURCE_LEADING_CONDITION_END.search(text, cue_end, sentence_end)
+    if condition_end is None:
+        return ()
+    coordinate = _SOURCE_COORDINATE_CLAUSE.search(
+        text, condition_end.end(), sentence_end
+    )
+    return _source_predicate_bars(
+        text,
+        bars,
+        condition_end.end(),
+        sentence_end if coordinate is None else coordinate.start(),
+    )
+
+
+def _source_reversal_cue_bars(text: str) -> tuple[re.Match[str], ...]:
+    """Return the bars of the clause that the paired reversal cue qualifies."""
+
+    markers = _source_exception_or_applicability_matches(text)
+    if not markers or _source_qualification_exception_idiom(text, markers[0]):
+        return ()
+    cross_references = _source_cross_reference_spans(text)
+    skipped = _source_skippable_cross_reference_spans(
+        text, cross_references=cross_references, markers=markers
+    )
+    cue_span = _source_reversal_cue_span(
+        text,
+        tuple(
+            match
+            for match in markers
+            if not _source_span_is_within(match.span(), skipped)
+        ),
+        cross_references=cross_references,
+    )
+    return () if cue_span is None else _source_cue_qualified_bars(text, cue_span)
+
+
 _SOURCE_ONLY_BEFORE_CUE = re.compile(
     r"(?:\b(?:and|or|but)\s+)?\bonly\s*$",
     flags=re.IGNORECASE,
@@ -36393,18 +36971,26 @@ def _source_only_cue_joins_lifting_without(proposition: str, cue: str) -> bool:
 
 
 _SOURCE_CLAUSE_BOUNDARY = re.compile(r"[;:,]|\.(?!\d)")
+# A comma can join the nouns of a "No" subject, so it ends no clause there.
+_SOURCE_LIST_CLAUSE_BOUNDARY = re.compile(r"[;:]|\.(?!\d)")
 # Auxiliary and modal verbs: one of them after "No" shows that a verb, not
-# the subject's noun phrase, follows the "No".
+# the subject's noun phrase, follows the "No".  A capitalized "May" names the
+# month ("No payment in May may be made").
 _SOURCE_FINITE_AUXILIARIES = (
     r"is|are|was|were|has|have|had|does|do|did|"
-    r"may|might|shall|should|must|will|would|can|cannot|could"
+    r"(?-i:may)|might|shall|should|must|will|would|can|cannot|could"
 )
 # A subject before a modal, or the words before a prohibition noun, fits in
 # this many characters; scanning a fixed window keeps the matchers linear.
 _SOURCE_CLAUSE_PREFIX_WINDOW = 160
 
 
-def _source_clause_prefix(text: str, end: int) -> str | None:
+def _source_clause_prefix(
+    text: str,
+    end: int,
+    *,
+    boundaries: re.Pattern[str] = _SOURCE_CLAUSE_BOUNDARY,
+) -> str | None:
     """Return the text from the last clause boundary before ``end`` to ``end``.
 
     Return ``None`` when no boundary falls inside the window and the window
@@ -36415,7 +37001,7 @@ def _source_clause_prefix(text: str, end: int) -> str | None:
     start = max(0, end - _SOURCE_CLAUSE_PREFIX_WINDOW)
     window = text[start:end]
     boundary = None
-    for boundary in _SOURCE_CLAUSE_BOUNDARY.finditer(window):
+    for boundary in boundaries.finditer(window):
         pass
     if boundary is not None:
         return window[boundary.end() :]
@@ -36430,12 +37016,35 @@ def _source_modal_has_no_subject(text: str, modal_start: int) -> bool:
     or employee may disclose").  In "(C) No parent claiming qualifying child
     If the parents of an individual may claim such individual as a qualifying
     child" (26 U.S.C. 152(c)(4)(C)), "No" opens a run-in heading, and "If"
-    opens the condition whose modal follows.
+    opens the condition whose modal follows.  Commas can join the subject's
+    nouns too (``_source_no_subject_lists_nouns``).
     """
 
     return _source_no_subject_is_noun_phrase(
         _source_no_subject_remainder(text, modal_start),
         coordinated=True,
+    ) or _source_no_subject_lists_nouns(
+        _source_no_subject_remainder(
+            text, modal_start, boundaries=_SOURCE_LIST_CLAUSE_BOUNDARY
+        )
+    )
+
+
+def _source_no_subject_lists_nouns(remainder: str | None) -> bool:
+    """Recognize "No officer, director, or employee of a bank may".
+
+    "and", "or" or "nor" must join the last noun, and no segment of the list
+    may hold a word that ends a "No" subject.
+    """
+
+    if remainder is None or "," not in remainder:
+        return False
+    segments = remainder.split(",")
+    return re.search(
+        r"\b(?:and|or|nor)\b", segments[-1], flags=re.IGNORECASE
+    ) is not None and all(
+        _source_no_subject_is_noun_phrase(segment, coordinated=True)
+        for segment in segments
     )
 
 
@@ -36467,12 +37076,16 @@ def _source_no_subject_is_noun_phrase(
     ``coordinated`` lets them join its nouns.  In "No credit shall be allowed
     unless the taxpayer provides such information as the Secretary may
     require", "shall" and "unless" end the phrase before "may require", so
-    "No" is not the subject of "may".
+    "No" is not the subject of "may".  A capitalized article ends a heading
+    that opens with "No" and carries no punctuation: in "(3) No double benefit
+    A taxpayer may claim the credit", "A taxpayer" is the subject of "may".
     """
 
     if remainder is None:
         return False
-    relative = re.search(r"\b(?:who|that|which)\b", remainder, flags=re.IGNORECASE)
+    relative = re.search(
+        r"\b(?:who|whom|whose|that|which)\b", remainder, flags=re.IGNORECASE
+    )
     if relative is not None and not remainder[relative.end() :].strip():
         # The effect is the relative clause's own predicate: in "No person who
         # is eligible shall be denied benefits", "No" negates the denial, not
@@ -36482,16 +37095,51 @@ def _source_no_subject_is_noun_phrase(
     stops = f"before|but|if|unless|where|when|need|needs|{_SOURCE_FINITE_AUXILIARIES}"
     if not coordinated:
         stops = f"and|or|{stops}"
-    if not noun_phrase or re.search(
-        rf"[,;:]|\b(?:{stops})\b",
-        noun_phrase,
-        flags=re.IGNORECASE,
+    if (
+        not noun_phrase
+        or re.search(
+            rf"[,;:]|\b(?:{stops})\b",
+            noun_phrase,
+            flags=re.IGNORECASE,
+        )
+        or _source_heading_runs_into_clause(noun_phrase)
     ):
         return False
     return relative is None or not re.search(
         r",\s*(?:and|but|or|however)\b",
         remainder[relative.end() :],
         flags=re.IGNORECASE,
+    )
+
+
+# Words a capital "A" can letter: "No Part A benefit may be paid".
+_SOURCE_LETTERED_WORDS = frozenset(
+    {
+        "class",
+        "form",
+        "group",
+        "part",
+        "plan",
+        "schedule",
+        "subpart",
+        "subtitle",
+        "tier",
+        "title",
+        "type",
+    }
+)
+
+
+def _source_heading_runs_into_clause(noun_phrase: str) -> bool:
+    """Find a capitalized article that opens a clause after a run-in heading."""
+
+    return any(
+        match.group("article") != "A"
+        or match.group("before").casefold() not in _SOURCE_LETTERED_WORDS
+        for match in re.finditer(
+            r"(?P<before>[\w'-]+)\s+(?P<article>The|An?)\s+[a-z]",
+            noun_phrase,
+        )
     )
 
 
@@ -36507,7 +37155,12 @@ _SOURCE_NO_COMPARATIVE = (
 _SOURCE_RUN_IN_HEADING = r"[A-Z][A-Za-z\u2019'-]*\s+(?:[A-Za-z\u2019'-]+\s+){0,5}"
 
 
-def _source_no_subject_remainder(text: str, start: int) -> str | None:
+def _source_no_subject_remainder(
+    text: str,
+    start: int,
+    *,
+    boundaries: re.Pattern[str] = _SOURCE_CLAUSE_BOUNDARY,
+) -> str | None:
     """Return the words after the "No" or "Neither" that opens a clause.
 
     The clause runs from the last boundary before ``start``.  It may open
@@ -36520,7 +37173,7 @@ def _source_no_subject_remainder(text: str, start: int) -> str | None:
     subject.
     """
 
-    subject = _source_clause_prefix(text, start)
+    subject = _source_clause_prefix(text, start, boundaries=boundaries)
     if subject is None:
         return None
     subject = re.sub(
@@ -36565,8 +37218,21 @@ def _source_modal_states_possibility(text: str, modal_start: int) -> bool:
 # characters, as a cross-reference does; bounding them keeps each scan linear
 # in the clause's length.
 _SOURCE_PROHIBITION_SUBJECT_LIMIT = 200
+_SOURCE_PROHIBITION_NAME_NOUNS = frozenset(
+    {
+        "ban",
+        "bans",
+        "bar",
+        "bars",
+        "prohibition",
+        "prohibitions",
+        "restriction",
+        "restrictions",
+    }
+)
+_SOURCE_PROHIBITION_NOUN_PATTERN = "|".join(sorted(_SOURCE_PROHIBITION_NAME_NOUNS))
 _SOURCE_LIFTED_PROHIBITION = re.compile(
-    r"\b(?:prohibitions?|restrictions?)\b"
+    rf"\b(?:{_SOURCE_PROHIBITION_NOUN_PATTERN})\b"
     rf"(?P<between>(?:[^.;:]|\.(?=\d)){{0,{_SOURCE_PROHIBITION_SUBJECT_LIMIT}}}?)"
     r"\b(?:shall|does|do|will)\s+not\s+(?:be\s+)?apply\b",
     flags=re.IGNORECASE,
@@ -36574,7 +37240,7 @@ _SOURCE_LIFTED_PROHIBITION = re.compile(
 
 
 _SOURCE_APPLIED_PROHIBITION = re.compile(
-    r"\b(?:prohibitions?|restrictions?)\b"
+    rf"\b(?:{_SOURCE_PROHIBITION_NOUN_PATTERN})\b"
     rf"(?P<between>(?:[^.;:]|\.(?=\d)){{0,{_SOURCE_PROHIBITION_SUBJECT_LIMIT}}}?)"
     r"\b(?:(?:shall|will|must)\s+(?:continue\s+to\s+)?|continues?\s+to\s+|"
     r"still\s+)?(?:appl(?:y|ies)|(?:is|are)\s+(?:still\s+)?applicable)\b",
@@ -36826,7 +37492,7 @@ def _source_negative_output_predicate_matches(
             r"\b(?:must|shall|will|is|are)\s+(?:be\s+)?"
             r"(?:classif\w*\s+as|deem\w*(?:\s+as)?|treat\w*(?:\s+as)?)\s+"
             r"(?:an?\s+)?(?:ineligible|excluded|disqualified|unqualified)\b|"
-            r"\b(?:shall|does|do|is|are|will)\s+not\s+(?:be\s+)?"
+            rf"\b(?:{_SOURCE_NEGATED_ENTITLEMENT_OPENING})\s+(?:be\s+)?"
             rf"{_SOURCE_ELIGIBILITY_DETERMINATION}"
             r"(?:apply|eligible|qualified|allowed|entitled)\b|"
             r"\bnicht\s+berechtigt\b",
@@ -36924,28 +37590,6 @@ def _rule_output_polarity(
     )
 
 
-# Predicate words a name can state its claim with.  A prohibition participle
-# states the negative pole of a permission, as a disqualifying status does;
-# an entitlement, a permission or an obligation states the positive pole.
-_NAME_PROHIBITION_PARTICIPLES = frozenset(
-    {"banned", "barred", "disallowed", "forbidden", "precluded", "prohibited"}
-)
-_NAME_NEGATIVE_STATUSES = frozenset(
-    {"disqualified", "excluded", "ineligible", "unqualified"}
-)
-_NAME_POSITIVE_PREDICATES = frozenset(
-    {
-        "allowable",
-        "allowed",
-        "authorized",
-        "eligible",
-        "entitled",
-        "permissible",
-        "permitted",
-        "qualified",
-        "required",
-    }
-)
 _NAME_MODALS = frozenset(
     {"can", "could", "may", "must", "shall", "should", "will", "would"}
 )
@@ -37025,27 +37669,6 @@ _NAME_NEGATION_BRIDGES = frozenset(
     }
 )
 _NAME_NEGATION_BRIDGE_LIMIT = 3
-# Predicate words that state a pole only after their subject, as the name's
-# predicate: ``communication_restricted``, ``communication_unlawful``,
-# ``application_denied_for_missed_interview`` and
-# ``snap_benefit_increase_blocked_for_pa_household`` read as negative, and
-# ``communication_lawful`` and ``communication_unrestricted`` as positive.
-# Unlike a prohibition participle, none of them gives a Judgment name that
-# opens with it a pole (``unlawful_dismissal_protection``), and "and" or "or"
-# after one makes it a modifier (``supported_living_restricted_or_blind``).
-_NAME_NEGATIVE_PREDICATES = frozenset(
-    {"blocked", "denied", "illegal", "impermissible", "restricted", "unlawful"}
-)
-_NAME_LAWFUL_PREDICATES = frozenset({"lawful", "unrestricted"})
-# Verbs that bar what follows them (``abawd_sanction_blocks_eligibility_
-# reestablishment``, ``section_6_precludes_universal_credit_entitlement``),
-# and their bare forms after "not" (``costs_do_not_bar_payments``).
-_NAME_BARRING_VERBS = frozenset(
-    {"bans", "bars", "blocks", "forbids", "precludes", "prevents", "prohibits"}
-)
-_NAME_BARRING_VERB_BASES = frozenset(
-    {"ban", "bar", "block", "forbid", "preclude", "prevent", "prohibit"}
-)
 # Words after "no" that make it a limit ("no_more_than_two_allowed",
 # "no_later_than_the_due_date"), not a negator of the subject.
 _NAME_NO_COMPARATIVES = frozenset(
@@ -37065,6 +37688,11 @@ _NAME_NO_COMPARATIVES = frozenset(
         "sooner",
     }
 )
+# Words after "no" that can form a compound or an attribute
+# (``no_income_applicant``, ``no_cost_extension``, ``no_of_children``).
+_NAME_NO_COMPOUND_HEADS = frozenset(
+    {"cost", "fault", "income", "interest", "of", "show", "ssn"}
+)
 
 
 def _name_output_polarity(name: str, *, judgment: bool) -> bool | None:
@@ -37073,8 +37701,10 @@ def _name_output_polarity(name: str, *, judgment: bool) -> bool | None:
     The claim ends at the first condition word ("unless", "if", "when")
     after its first word (``communication_barred_unless_consumer_consents``).
     A modal in the claim is its predicate (``_name_modal_polarity``).
-    Without one, the claim's last predicate word decides
-    (``_name_predicate_pole``).  Either is reversed by a negator, "no" that
+    Without one, the claim's last predicate word before any "after" or "for"
+    that follows a predicate decides (``_name_predicate_pole``), so
+    ``household_eligible_after_application_denied`` reads as positive.
+    Either is reversed by a negator, "no" that
     opens its subject included (``no_medical_deduction_allowed``,
     ``no_credit_shall_be_allowed``).  A prohibition, restriction, bar or ban
     that applies (``place_of_employment_prohibition_applies``,
@@ -37110,7 +37740,7 @@ def _name_claim_polarity(
     has_modal, modal_pole = _name_modal_polarity(claim)
     if has_modal:
         return modal_pole
-    for index in range(len(claim) - 1, -1, -1):
+    for index in range(_name_predicate_clause_length(tokens, claim) - 1, -1, -1):
         pole = _name_predicate_pole(tokens, index)
         if pole is not None:
             return pole
@@ -37119,15 +37749,44 @@ def _name_claim_polarity(
             # Both readers look at most five words past the noun.
             following = tokens[index + 1 : index + 6]
             if _source_name_states_application(following):
-                return True
+                return not _name_no_opens_subject(tokens, index)
             if _source_name_states_nonapplication(following):
-                return False
+                return _name_no_opens_subject(tokens, index)
     if judgment and len(tokens) > 1:
         if tokens[0] in _NAME_PROHIBITION_PARTICIPLES:
             return True
         if tokens[0] in _NAME_NEGATORS and tokens[1] in _NAME_PROHIBITION_PARTICIPLES:
             return False
     return None
+
+
+def _name_predicate_clause_length(tokens: Sequence[str], claim: Sequence[str]) -> int:
+    """Return how many words of the claim hold its predicate.
+
+    An "after" or "for" that follows a predicate opens a phrase that states
+    when or for what the predicate holds, so a predicate word after it is a
+    fact (``appeal_allowed_after_application_denied``,
+    ``notice_required_for_application_denied``).
+    """
+
+    first = next(
+        (
+            index
+            for index in range(len(claim))
+            if _name_predicate_pole(tokens, index) is not None
+        ),
+        None,
+    )
+    if first is None:
+        return len(claim)
+    return next(
+        (
+            index
+            for index in range(first + 1, len(claim))
+            if claim[index] in {"after", "for"}
+        ),
+        len(claim),
+    )
 
 
 def _name_carries_disqualifying_status(tokens: Sequence[str]) -> bool:
@@ -37159,7 +37818,9 @@ def _name_modal_polarity(tokens: Sequence[str]) -> tuple[bool, bool | None]:
     read as negative; ``may_communicate`` and ``must_notify`` grant or
     oblige, so they read as positive.  A negated modal before an entitlement
     denies it (``must_not_be_allowed``), and before a prohibition lifts it
-    (``must_not_be_barred``).  A "no" that opens the modal's subject
+    (``must_not_be_barred``).  "never" and "no_longer" negate a modal as
+    "not" does (``may_never_communicate``, ``shall_no_longer_be_eligible``).
+    A "no" that opens the modal's subject
     (``_name_no_opens_subject``) negates the modal as a "not" after it does,
     so ``no_credit_shall_be_allowed`` reads as ``credit_shall_not_be_allowed``
     and ``no_household_may_not_participate`` as ``household_may_participate``.
@@ -37178,8 +37839,9 @@ def _name_modal_polarity(tokens: Sequence[str]) -> tuple[bool, bool | None]:
         if token == "cannot":
             negated, rest = True, tokens[index + 1 :]
         elif token in _NAME_MODALS and index + 1 < len(tokens):
-            negated = tokens[index + 1] == "not"
-            rest = tokens[index + 1 + int(negated) :]
+            negation = _name_modal_negation_length(tokens, index + 1)
+            negated = bool(negation)
+            rest = tokens[index + 1 + negation :]
         else:
             continue
         negated = negated != _name_no_opens_subject(tokens, index)
@@ -37206,6 +37868,14 @@ def _name_modal_polarity(tokens: Sequence[str]) -> tuple[bool, bool | None]:
             return True, False
         return True, None
     return False, None
+
+
+def _name_modal_negation_length(tokens: Sequence[str], index: int) -> int:
+    """Return how many words at ``index`` negate the modal before them."""
+
+    if tokens[index] in {"not", "never"}:
+        return 1
+    return 2 if tuple(tokens[index : index + 2]) == ("no", "longer") else 0
 
 
 def _name_determined_status_position(rest: Sequence[str], position: int) -> int:
@@ -37312,8 +37982,18 @@ def _name_predicate_negated(tokens: Sequence[str], index: int) -> bool:
     ``_NAME_NEGATION_BRIDGE_LIMIT`` bridge words (``not_barred``,
     ``not_determined_eligible``, ``no_longer_categorically_eligible``,
     ``review_refusal_no_longer_bars_eligibility``), and so does a "no" that
-    opens the word's subject (``_name_no_opens_subject``).
+    opens the word's subject (``_name_no_opens_subject``).  Both together
+    cancel, so ``no_household_not_eligible`` reads as positive, as
+    ``no_household_may_not_participate`` does.
     """
+
+    return _name_negator_precedes(tokens, index) != _name_no_opens_subject(
+        tokens, index
+    )
+
+
+def _name_negator_precedes(tokens: Sequence[str], index: int) -> bool:
+    """Find a "not", "never", "no_longer", "non" or "un" that negates the word."""
 
     if index and tokens[index - 1] in _NAME_NEGATORS:
         return True
@@ -37328,9 +38008,7 @@ def _name_predicate_negated(tokens: Sequence[str], index: int) -> bool:
         bridges += 1
     if position >= 0 and tokens[position] in {"never", "not"}:
         return True
-    if position >= 1 and tokens[position] == "longer" and tokens[position - 1] == "no":
-        return True
-    return _name_no_opens_subject(tokens, index)
+    return position >= 1 and tokens[position - 1 : position + 1] == ["no", "longer"]
 
 
 def _name_no_opens_subject(tokens: Sequence[str], index: int) -> bool:
@@ -37344,8 +38022,13 @@ def _name_no_opens_subject(tokens: Sequence[str], index: int) -> bool:
     ``no_household_with_no_income_allowed``,
     ``no_top_or_dor_indicator_blocks_submission``).  Any other "no" sits
     inside a noun phrase and opens nothing
-    (``shelter_expense_with_no_scheduled_interval_averaging_allowed``), and a
-    "no" before a comparative states a limit (``no_more_than_two_allowed``).
+    (``shelter_expense_with_no_scheduled_interval_averaging_allowed``), a
+    "no" before a comparative states a limit (``no_more_than_two_allowed``),
+    and a "no" before a compound head forms an attribute when another word
+    follows the head (``no_income_applicant_allowed``) or a noun comes before
+    the "no" (``household_no_income_eligible``).  A name that opens with "no"
+    and puts the predicate right after the head still negates it
+    (``no_interest_accrues``).
     """
 
     return any(
@@ -37355,6 +38038,10 @@ def _name_no_opens_subject(tokens: Sequence[str], index: int) -> bool:
             or tokens[position - 1] in _SOURCE_SELECTOR_GENERIC_ENTITY_TOKENS
         )
         and tokens[position + 1] not in _NAME_NO_COMPARATIVES
+        and not (
+            tokens[position + 1] in _NAME_NO_COMPOUND_HEADS
+            and (position or index > position + 2)
+        )
         for position in range(index)
     )
 
@@ -37399,20 +38086,6 @@ def _name_barred_verb_polarity(name: str, verbs: frozenset[str]) -> bool | None:
         if following is None or following in _SOURCE_PROHIBITED_NAME_FOLLOWERS:
             return _name_predicate_negated(tokens, index)
     return None
-
-
-_SOURCE_PROHIBITION_NAME_NOUNS = frozenset(
-    {
-        "ban",
-        "bans",
-        "bar",
-        "bars",
-        "prohibition",
-        "prohibitions",
-        "restriction",
-        "restrictions",
-    }
-)
 
 
 def _source_name_states_application(tokens: Sequence[str]) -> bool:
@@ -37515,9 +38188,19 @@ def _exception_reverses_negative_proposition(text: str) -> bool:
 
 
 def _negative_proposition_reversal_match(text: str) -> re.Match[str] | None:
-    """Select an exception cue attached to a preceding negative proposition."""
+    """Select an exception cue attached to a preceding negative proposition.
 
-    skipped = _source_skippable_cross_reference_spans(text)
+    The proposition is the cue's own clause (``_source_trailing_clause_start``),
+    so a negative effect in a condition that leads the sentence, or in a
+    coordinate clause before the cue's own, attaches nothing: in "If the
+    agency must not pay benefits, the household may appeal unless it moves",
+    "unless" qualifies "may appeal".  The readers still see the words before
+    the clause, so a "No" subject keeps its negation when a condition
+    interrupts it (``_source_has_negative_proposition``).
+    """
+
+    markers = _source_exception_or_applicability_matches(text)
+    skipped = _source_skippable_cross_reference_spans(text, markers=markers)
     reversals = tuple(
         match
         for match in re.finditer(
@@ -37531,13 +38214,42 @@ def _negative_proposition_reversal_match(text: str) -> re.Match[str] | None:
         (
             reversal
             for reversal in reversed(reversals)
-            if _source_has_negative_proposition(text[: reversal.start()])
+            if _source_has_negative_proposition(
+                text[: reversal.start()],
+                clause_start=_source_reversal_clause_start(
+                    text, reversal, markers=markers
+                ),
+            )
         ),
         None,
     )
 
 
-def _source_has_negative_proposition(text: str) -> bool:
+def _source_reversal_clause_start(
+    text: str,
+    reversal: re.Match[str],
+    *,
+    markers: tuple[re.Match[str], ...] | None = None,
+) -> int:
+    """Return where the clause that a reversal cue trails opens."""
+
+    sentence_start, _sentence_end = _source_sentence_bounds(
+        text, reversal.start(), reversal.end()
+    )
+    return _source_trailing_clause_start(
+        text, sentence_start, reversal.start(), markers=markers
+    )
+
+
+def _source_has_negative_proposition(text: str, *, clause_start: int = 0) -> bool:
+    """Return whether the last proposition in ``text`` is negative.
+
+    Only effects at or after ``clause_start`` count, though the readers see
+    the whole proposition: in "No person who, if disabled, receives
+    assistance shall be eligible", the clause opens after "disabled," and
+    "No" still negates "shall be eligible".
+    """
+
     boundary_matches = tuple(
         re.finditer(
             r"[.;]|,\s*(?:and|but|or|however)\b",
@@ -37545,9 +38257,11 @@ def _source_has_negative_proposition(text: str) -> bool:
             flags=re.IGNORECASE,
         )
     )
-    proposition = text[boundary_matches[-1].end() :] if boundary_matches else text
+    offset = boundary_matches[-1].end() if boundary_matches else 0
+    proposition = text[offset:]
     if _no_subject_eligibility_negative_proposition(proposition):
         return True
+    floor = clause_start - offset
     negative_matches = (
         *_source_negative_effect_matches(proposition),
         *re.finditer(
@@ -37558,9 +38272,16 @@ def _source_has_negative_proposition(text: str) -> bool:
             flags=re.IGNORECASE,
         ),
     )
-    latest_negative = max((match.start() for match in negative_matches), default=-1)
+    latest_negative = max(
+        (match.start() for match in negative_matches if match.start() >= floor),
+        default=-1,
+    )
     latest_positive = max(
-        (match.start() for match in _source_positive_effect_matches(proposition)),
+        (
+            match.start()
+            for match in _source_positive_effect_matches(proposition)
+            if match.start() >= floor
+        ),
         default=-1,
     )
     return latest_negative > latest_positive
@@ -38723,28 +39444,23 @@ def _selector_identifier_negation_count(normalized_name: str) -> int:
     return explicit_negation_count + int(has_negative_state)
 
 
-def _source_clause_states_prohibition(text: str) -> bool:
-    """Say whether the clause the paired condition qualifies states, applies
-    or lifts a prohibition.
+def _source_clause_prohibitions(text: str) -> tuple[re.Match[str], ...]:
+    """Return the prohibitions the clause the paired condition qualifies states.
 
-    Such a clause directs its condition by the pole of what it bars: the pair
-    must reach the prohibition (``exclude``) or the permission it restores
-    (``enable``).  An output can name either the prohibition or the
-    permission, so ``_exception_witness_satisfies_requirement`` holds the
-    pair to that direction only when ``_rule_output_polarity`` reads the
-    output's pole.  Only a prohibition inside the span that
+    Such a clause states, applies or lifts a prohibition, and it directs its
+    condition by the pole of what it bars: the pair must reach the
+    prohibition (``exclude``) or the permission it restores (``enable``).  An
+    output can name either the prohibition or the permission, so
+    ``_exception_witness_satisfies_requirement`` holds the pair to that
+    direction only when ``_rule_output_polarity`` reads the output's pole.
+    A bar that a reversal cue lifts (``_source_reversal_cue_bars``) counts as
+    well.  Only a prohibition inside the span that
     ``_source_condition_qualified_span`` returns counts, so a prohibition in
     the condition's own words, or in a coordinate clause after the clause the
     condition qualifies, does not.  Words reported in a that-clause state no
     prohibition of the clause, unless they carry every condition of it, as
     ``_source_exception_effect_requirement`` reads them.
     """
-
-    return bool(_source_clause_prohibitions(text))
-
-
-def _source_clause_prohibitions(text: str) -> tuple[re.Match[str], ...]:
-    """Return the prohibitions ``_source_clause_states_prohibition`` counts."""
 
     collapsed = _collapse_text(text)
     reported_rule = _source_reported_conditional_rule(collapsed)
@@ -38755,6 +39471,7 @@ def _source_clause_prohibitions(text: str) -> tuple[re.Match[str], ...]:
         (
             *_source_prohibition_output_matches(collapsed),
             *_source_lifted_prohibition_matches(collapsed),
+            *_source_reversal_cue_bars(collapsed),
         ),
     )
     if not matches:
@@ -38766,12 +39483,12 @@ def _source_clause_prohibitions(text: str) -> tuple[re.Match[str], ...]:
 
 
 def _source_barred_verbs(prohibitions: Iterable[re.Match[str]]) -> frozenset[str]:
-    """Return the verbs that modal prohibitions bar ("shall not continue")."""
+    """Return the verbs that prohibitions bar ("shall not continue")."""
 
     return frozenset(
         match.group("verb").casefold()
         for match in prohibitions
-        if match.re is _SOURCE_MODAL_EFFECT
+        if match.re in _SOURCE_BARRED_VERB_PATTERNS
     )
 
 
@@ -38801,7 +39518,11 @@ def _source_condition_qualified_span(text: str) -> tuple[int, int]:
     trails them, and they are the clause it qualifies: in "the waiver shall
     be considered approved, unless the approval is specifically prohibited by
     this chapter" (7 U.S.C. 2026(b)(1)(B)(iii)(II)), the clause ends before
-    "unless", and the prohibited approval belongs to the condition.  Any
+    "unless", and the prohibited approval belongs to the condition.  That
+    clause opens after any condition that leads the sentence and any
+    coordinate clause before the paired one (``_source_trailing_clause_start``),
+    so "must not require further verification, and a household is not
+    eligible if its income exceeds the limit" sets no demand.  Any
     other condition that opens with a condition cue, an exception, or a
     "notwithstanding" or "subject to" phrase leads, and it qualifies the main
     clause after its first comma or colon, up to any coordinate clause ("If
@@ -38833,14 +39554,13 @@ def _source_condition_qualified_span(text: str) -> tuple[int, int]:
         start = offset + found
     if start == offset and not _SOURCE_LEADING_CONDITION_CUE.match(clause):
         return whole
-    sentence_start = max(
-        (match.end() for match in _SOURCE_SENTENCE_BOUNDARY.finditer(text, 0, start)),
-        default=0,
-    )
-    following = _SOURCE_SENTENCE_BOUNDARY.search(text, start)
-    sentence_end = following.start() if following is not None else len(text)
-    if _SOURCE_CLAUSE_AUXILIARY.search(text, sentence_start, start):
-        return (sentence_start, start)
+    sentence_start, sentence_end = _source_sentence_bounds(text, start, start)
+    clause_start = _source_trailing_clause_start(text, sentence_start, start)
+    if _SOURCE_CLAUSE_AUXILIARY.search(text, clause_start, start) or any(
+        _source_span_is_within(match.span(), ((clause_start, start),))
+        for match in _source_barring_predicate_matches(text)
+    ):
+        return (clause_start, start)
     if not _SOURCE_LEADING_CONDITION_OPENER.match(text, start):
         return whole
     condition_end = _SOURCE_LEADING_CONDITION_CLOSE.search(text, start, sentence_end)
@@ -38879,7 +39599,7 @@ def _exception_witness_satisfies_requirement(
     ``_rule_output_polarity`` reads the output: switching
     ``communication_prohibited`` on excludes.  When the clause the paired
     condition qualifies states, applies or lifts a prohibition
-    (``prohibition_demand``, from ``_source_clause_states_prohibition``) and
+    (``prohibition_demand``, from ``_source_clause_prohibitions``) and
     the output states no pole, a name that repeats a verb the clause bars
     (``barred_verbs``) states its pole through that verb
     (``_name_barred_verb_polarity``); any other such output can name the
