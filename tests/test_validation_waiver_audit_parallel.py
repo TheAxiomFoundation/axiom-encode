@@ -38,6 +38,7 @@ class _FakePool:
 
     submitted: list[tuple] = []
     chunk_results: dict[str, list] = {}
+    path_of: dict[object, str] = {}
 
     def __init__(self, max_workers):
         type(self).max_workers = max_workers
@@ -53,13 +54,16 @@ class _FakePool:
         value = type(self).chunk_results[chunk[0]]
         if not isinstance(value, (Exception, cli._WaiverAuditTaskResult)):
             value = cli._WaiverAuditTaskResult(value, "")
-        return _FakeFuture(value)
+        future = _FakeFuture(value)
+        type(self).path_of[future] = chunk[0]
+        return future
 
 
 @pytest.fixture(autouse=True)
 def _reset_fake_pool():
     _FakePool.submitted = []
     _FakePool.chunk_results = {}
+    _FakePool.path_of = {}
 
 
 def test_worker_count_defaults_to_cpu_bounded(monkeypatch):
@@ -286,10 +290,17 @@ def _failing_results(paths, failing, raised):
 
 
 def _run_parallel_in_order(paths, workers, completion):
-    _FakePool.submitted = []
+    """Finish in-flight tasks in ``completion``'s priority order.
 
-    def completed(futures):
-        return [futures[index] for index in completion]
+    At most one task per worker is in flight, so each wait returns the
+    in-flight module that comes first in ``completion``: every feasible
+    completion order arises from some permutation.
+    """
+    _FakePool.submitted = []
+    priority = {paths[index]: rank for rank, index in enumerate(completion)}
+
+    def wait(futures, timeout):
+        return {min(futures, key=lambda future: priority[_FakePool.path_of[future]])}
 
     with (
         patch.dict(cli.os.environ, {cli._WAIVER_AUDIT_WORKERS_ENV: str(workers)}),
@@ -297,7 +308,7 @@ def _run_parallel_in_order(paths, workers, completion):
             cli, "load_rulespec_local_corpus_release", return_value=_release_stub()
         ),
         patch.object(cli.concurrent.futures, "ProcessPoolExecutor", _FakePool),
-        patch.object(cli.concurrent.futures, "as_completed", completed),
+        patch.object(cli, "_wait_for_waiver_tasks", wait),
     ):
         return cli._fingerprint_validation_waiver_modules_parallel(
             [Path(p) for p in paths],
