@@ -352,6 +352,46 @@ def test_publication_preserves_verification_fetch_and_branch_order() -> None:
     assert "secrets." not in str(verify["env"])
 
 
+def test_live_authorization_recheck_is_token_free_and_blocks_publication() -> None:
+    steps = _steps()
+    by_id = {step.get("id"): step for step in steps}
+    recheck = by_id["recheck_live_reviewed_pr_authorization"]
+    base = by_id["verify_reviewed_lane_pull_request_base"]
+    publisher = by_id["publish_lane_pull_request"]
+    assert steps.index(recheck) + 1 == steps.index(base)
+    assert steps.index(base) < steps.index(publisher)
+    assert "secrets." not in str(recheck)
+    assert "GH_TOKEN" not in str(recheck)
+    assert "verify-publication" in recheck["run"]
+    assert "/opt/axiom-verification/python/runtime-attestation.json" in recheck["run"]
+    assert "steps.reviewed_pr_admission.outputs.enabled == 'true'" in recheck["if"]
+    assert base["if"][4:-3] in recheck["if"]
+    # Both steps retain GitHub's implicit success() gating: a failed live
+    # authorization check skips the base check; publication refuses that skip.
+    for step in (recheck, base):
+        assert not step.get("continue-on-error", False)
+        assert not any(
+            status in step["if"] for status in ("always(", "failure(", "cancelled(")
+        )
+    assert (
+        "steps.verify_reviewed_lane_pull_request_base.outcome != 'skipped'"
+        in publisher["if"]
+    )
+    assert "python" not in base["run"]
+    # Even if publication is evaluated after any preparation failure, its
+    # existing first guard must fail before reading credentials or using git.
+    failed = subprocess.run(
+        ["bash", "-c", publisher["run"]],
+        env={"PRIOR_STATUS": "failure"},
+        capture_output=True,
+        text=True,
+        timeout=HANG_TIMEOUT_SECONDS,
+        check=False,
+    )
+    assert failed.returncode != 0
+    assert failed.stderr == ""
+
+
 @pytest.mark.parametrize(
     ("publication_id", "preflight_id"),
     [
