@@ -10985,6 +10985,49 @@ rules:
             "definition(s) with that value were found."
         ]
 
+    def test_complete_mode_treats_explicit_us_code_ranges_as_locators(self, tmp_path):
+        citation = "us-ut/statute/59-10-1043"
+        source_text = (
+            "Survivor benefits are described in 10 U.S.C. Secs. 1447 through 1455. "
+            "The claimant must have 10 years of service."
+        )
+        corpus_release = _write_test_corpus_provision(tmp_path, citation, source_text)
+        rulespec_file = _generated_rulespec_file_path(
+            tmp_path, "statutes/59-10-1043.yaml"
+        )
+        rulespec_file.write_text(
+            "format: rulespec/v1\nmodule: {}\nrules: []\n",
+            encoding="utf-8",
+        )
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", True, issues=[]),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                return_value=ValidationResult("ci", True, issues=[]),
+            ),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=_canonical_rulespec_content_root(tmp_path, "us-ut"),
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                source_text=source_text,
+                local_corpus_release=corpus_release,
+                source_citation_path=citation,
+                require_complete_source_unit=True,
+                skip_reviewers=True,
+            )
+
+        assert metrics.source_numeric_occurrence_count == 1
+        assert metrics.numeric_occurrence_issues == [
+            "Source numeric value 10 appears 1 time(s), but only 0 named scalar "
+            "definition(s) with that value were found."
+        ]
+
     def test_complete_mode_numeric_recall_is_summary_invariant(self, tmp_path):
         source_text = "If the 3rd digit is 5 or more, increase the 2nd digit by 1."
         citation_path = "ca/policy/cra/example/rounding"
@@ -14107,6 +14150,44 @@ rules:
 
     def test_normalize_test_case_value_preserves_invalid_numeric_expression(self):
         assert _normalize_test_case_value("30 / 0") == "30 / 0"
+
+    @pytest.mark.parametrize("input_key", ("input", "inputs"))
+    @pytest.mark.parametrize(
+        "normalize",
+        (
+            _normalize_test_periods_to_effective_dates,
+            evals_module._normalize_single_amount_row_test_content,
+        ),
+    )
+    def test_companion_normalization_preserves_single_fact_relation_rows(
+        self, input_key, normalize
+    ):
+        module = "us-ut:statutes/59-10-1043"
+        relation = f"{module}#relation.claimant_of_tax_unit"
+        pay = f"{module}#input.qualifying_military_retirement_pay_in_federal_agi"
+        liability = f"{module}#input.remaining_utah_tax_liability"
+        malformed = f"{module}#relation.malformed"
+        content = yaml.safe_dump(
+            [
+                {
+                    "name": "joint return",
+                    "period": 2026,
+                    input_key: {
+                        relation: [{pay: "30000"}, {pay: {"values": {"2026": 10000}}}],
+                        liability: {"value": "1500"},
+                        malformed: ["900"],
+                    },
+                },
+            ]
+        )
+
+        normalized = yaml.safe_load(normalize(content))
+
+        assert normalized[0][input_key] == {
+            relation: [{pay: 30000}, {pay: 10000}],
+            liability: 1500,
+            malformed: ["900"],
+        }
 
     @pytest.mark.parametrize(
         "literal", ("2024-12-31", "1990-11-30", "2025-01-01", "2024-02-30")
