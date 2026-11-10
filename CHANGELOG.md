@@ -1,3 +1,7 @@
+## 0.2.2352
+
+- Admit reviewed RuleSpec PRs without per-candidate encoder records (#2084)
+
 ## 0.2.2351
 
 - Steer complete-source generation and repairs to encode omitted branches first (#1966)
