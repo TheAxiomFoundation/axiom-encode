@@ -193,6 +193,7 @@ from .same_case_execution import (
 )
 from .source_completeness import (
     _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
+    _LINE_BREAK_CHARS,
     _is_us_manual_citation_path,
     _nested_outline_marker_spans,
     _qualified_parenthesized_legal_outline_markers,
@@ -1767,8 +1768,6 @@ _MONTH_NAME_BODY = (
     r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
     r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?"
 )
-# Every separator `str.splitlines` treats as a line boundary, not only `\n`.
-_LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
 _LINE_BREAK_CLASS = rf"[{_LINE_BREAK_CHARS}]"
 # Indentation the standalone-month guard recognises before a header line.
 _MAX_MONTH_HEADER_INDENT = 16
@@ -14895,6 +14894,128 @@ def _danish_grouped_scalar_has_context(
     )
 
 
+def _inline_pipe_table_rate_cell_spans(
+    line: str,
+    *,
+    profile: str,
+) -> tuple[tuple[tuple[int, int], ...], frozenset[int], int | None] | None:
+    """Read flattened Markdown rows without changing their source offsets.
+
+    A separator row and an immediately preceding, equally wide header are
+    required. Adjacent rows retain their distinct closing/opening pipes.
+    Prose between rows ends the table instead of inheriting its column units.
+    """
+    rate_cells: list[tuple[int, int]] = []
+    recognized = False
+    previous_table_end = 0
+    separator_pattern = re.compile(r"\|(?:[ \t]*:?-{3,}:?[ \t]*\|){2,}")
+    continuation_columns: frozenset[int] = frozenset()
+    continuation_width: int | None = None
+    for separator in separator_pattern.finditer(line):
+        width = separator.group().count("|") - 1
+        header_end = separator.start()
+        while header_end and line[header_end - 1].isspace():
+            header_end -= 1
+        if not header_end or line[header_end - 1] != "|":
+            continue
+        # Only a validated header marks the line as an inline table. A header
+        # that fails validation (for example a blank stub-column cell, which a
+        # flattened row boundary makes ambiguous) keeps the bordered-table path.
+        continuation_columns = frozenset()
+        continuation_width = None
+        header_pipes = [
+            match.start()
+            for match in re.compile(r"\|").finditer(
+                line, previous_table_end, header_end
+            )
+        ]
+        # A flattened row starts after a closing/opening pipe pair. Do not
+        # silently discard an extra header cell to match the separator width.
+        # The previous separator or accepted row also bounds the search:
+        # intervening prose may precede a new header on this same source line.
+        header_start = 0
+        for index in range(len(header_pipes) - 1):
+            if not line[header_pipes[index] + 1 : header_pipes[index + 1]].strip():
+                header_start = index + 1
+        header_pipes = header_pipes[header_start:]
+        # A later header lies after this separator. Bounding the next search
+        # here keeps one long flattened line linear in its table count.
+        previous_table_end = separator.end()
+        if len(header_pipes) != width + 1:
+            continue
+        headers = [
+            line[left + 1 : right]
+            for left, right in zip(header_pipes, header_pipes[1:])
+        ]
+        if any(not cell.strip() for cell in headers):
+            continue
+        recognized = True
+        columns = {
+            index
+            for index, cell in enumerate(headers)
+            if _table_rate_header_matches(cell, profile=profile)
+        }
+        cursor = separator.end()
+        while cursor < len(line):
+            while cursor < len(line) and line[cursor].isspace():
+                cursor += 1
+            if cursor >= len(line) or line[cursor] != "|":
+                break
+            row_cells: list[tuple[int, int]] = []
+            cursor += 1
+            for _ in range(width):
+                end = line.find("|", cursor)
+                if end < 0 or not line[cursor:end].strip():
+                    break
+                row_cells.append((cursor, end))
+                cursor = end + 1
+            if len(row_cells) != width:
+                break
+            if all(
+                re.fullmatch(r"[ \t]*:?-{3,}:?[ \t]*", line[start:end])
+                for start, end in row_cells
+            ):
+                break
+            # A further nonempty cell would make this row wider than its
+            # header. Only a row boundary or the end of the table is valid.
+            tail = cursor
+            while tail < len(line) and line[tail].isspace():
+                tail += 1
+            if separator_pattern.match(line, tail):
+                break
+            if tail < len(line) and line[tail] != "|":
+                next_pipe = line.find("|", tail)
+                # Prose between tables has words and punctuation, and the pipe
+                # after it opens a new header. A decimal or "(iv)" cell, or any
+                # text closed by a row-ending pipe, is an extra cell instead,
+                # which makes the row wider than its header. Trailing text
+                # without a closing pipe must still contain words: a bare
+                # "7.65" or "(a)" there is an unclosed extra cell.
+                if next_pipe < 0:
+                    if not re.search(r"[^\W\d_]{2,}", line[tail:]):
+                        break
+                else:
+                    gap = line[tail:next_pipe]
+                    after = next_pipe + 1
+                    while after < len(line) and line[after].isspace():
+                        after += 1
+                    if (
+                        after >= len(line)
+                        or line[after] == "|"
+                        or not re.search(r"[.!?()]", gap)
+                        or not re.search(r"[^\W\d_]{2,}", gap)
+                    ):
+                        break
+            rate_cells.extend(row_cells[column] for column in sorted(columns))
+            previous_table_end = cursor
+        if cursor >= len(line):
+            continuation_columns = frozenset(columns)
+            continuation_width = width
+    if not recognized:
+        return None
+    return tuple(rate_cells), continuation_columns, continuation_width
+
+
 def _pipe_table_rate_cell_spans(
     text: str,
     *,
@@ -14904,18 +15025,35 @@ def _pipe_table_rate_cell_spans(
     rate_cells: list[tuple[int, int]] = []
     rate_columns: set[int] = set()
     width: int | None = None
+    inline_width: int | None = None
     line_offset = 0
     for line_with_ending in text.splitlines(keepends=True):
         line = line_with_ending.rstrip("\r\n")
         if "|" not in line:
             rate_columns.clear()
             width = None
+            inline_width = None
+            line_offset += len(line_with_ending)
+            continue
+
+        inline_cells = _inline_pipe_table_rate_cell_spans(line, profile=profile)
+        if inline_cells is not None:
+            spans, continuation_columns, inline_width = inline_cells
+            rate_columns = set(continuation_columns)
+            rate_cells.extend(
+                (line_offset + start, line_offset + end) for start, end in spans
+            )
+            # Rows that continue a flattened Markdown table are bordered.
+            width = 0
             line_offset += len(line_with_ending)
             continue
 
         width = _pipe_table_next_width(line, width)
         cells = _pipe_table_line_cells(line, width)
 
+        if inline_width is not None and len(cells) != inline_width:
+            rate_columns.clear()
+            inline_width = None
         for column, (start, end) in enumerate(cells):
             if _table_rate_header_matches(line[start:end], profile=profile):
                 rate_columns.add(column)

@@ -1214,6 +1214,14 @@ rules: []
 
 
 def test_current_encoder_affecting_changes_are_behind_version_bump():
+    # PRs no longer carry a version bump: the encoder-version-bump workflow
+    # assigns it after merge (axiom-encode#2048), so a PR head and main between
+    # a merge and its bump are legitimately unversioned. `--apply`, the
+    # provisioner and the re-encode workflow's early check still refuse such a
+    # head. CI sets this variable on bump pull requests
+    # (`automation/encoder-version-*` heads) to verify the bump.
+    if os.environ.get("AXIOM_ENCODE_REQUIRE_VERSION_BUMP") != "1":
+        pytest.skip("version bump is assigned after merge (axiom-encode#2048)")
     repo = Path(__file__).parents[1]
     try:
         _git(repo, "rev-parse", "--is-inside-work-tree")
@@ -1861,11 +1869,29 @@ def _reviewed_candidate_binding(rule: Path, companion: Path, **overrides) -> dic
     return binding
 
 
-@pytest.mark.parametrize("admission", ["bound", "unbound-legacy"])
-def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admission):
+@pytest.mark.parametrize(
+    "admission",
+    [
+        "bound",
+        "unbound-legacy",
+        "live",
+        "live-revoked",
+        "live-run",
+        "live-country",
+        "live-head",
+        "live-path",
+        "live-encoder",
+        "live-invalid-static",
+    ],
+)
+def test_promote_reviewed_candidate_changes_only_manifest(
+    tmp_path, capsys, admission, monkeypatch
+):
     repo, rule, companion, reviewed_ref = _reviewed_candidate_checkout(tmp_path)
     binding = (
-        _reviewed_candidate_binding(rule, companion) if admission == "bound" else None
+        _reviewed_candidate_binding(rule, companion)
+        if admission != "unbound-legacy"
+        else None
     )
     legacy_refs = frozenset({("us", reviewed_ref)}) if binding is None else frozenset()
     amendment = CorpusAmendmentDocument(
@@ -1896,6 +1922,58 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admi
     record_root = _write_reviewed_rulespec_records(
         tmp_path / "reviewed-rulespec-refs", ("us", reviewed_ref, binding)
     )
+    runtime_attestation = tmp_path / "runtime-attestation.json"
+    if admission.startswith("live"):
+        from axiom_encode.cli import _TRUSTED_RUNTIME_ENV
+
+        args.run_id = "12345"
+        record_file = next(record_root.rglob("*.json"))
+        record = json.loads(record_file.read_text())
+        if admission != "live-invalid-static":
+            record_file.unlink()  # No per-candidate encoder record authorizes this test.
+        runtime_attestation.write_text(
+            json.dumps(
+                {
+                    "reviewed_pr_admission": {
+                        "workflow_commit": "e" * 40,
+                        "selector": {
+                            "country": "us",
+                            "pr": 42,
+                            "head": reviewed_ref,
+                            "citation": args.citation,
+                            "rulespec_path": args.rulespec_path,
+                            "branch": "codex/candidate",
+                            "actor": "PavelMakarchuk",
+                            "run_id": args.run_id,
+                        },
+                        "record": record,
+                    }
+                }
+            )
+        )
+        if admission in {
+            "live-run",
+            "live-country",
+            "live-head",
+            "live-path",
+            "live-encoder",
+        }:
+            payload = json.loads(runtime_attestation.read_text())
+            live = payload["reviewed_pr_admission"]
+            if admission == "live-encoder":
+                live["workflow_commit"] = "f" * 40
+            else:
+                key, value = {
+                    "live-run": ("run_id", "54321"),
+                    "live-country": ("country", "nz"),
+                    "live-head": ("head", "f" * 40),
+                    "live-path": ("rulespec_path", "us/statutes/7/other.yaml"),
+                }[admission]
+                live["selector"][key] = value
+                if admission == "live-country":
+                    live["selector"]["citation"] = "nz/statute/example/1"
+            runtime_attestation.write_text(json.dumps(payload))
+        monkeypatch.setenv(_TRUSTED_RUNTIME_ENV, "1")
     args.axiom_rules_path.mkdir()
     args.corpus_path.mkdir()
     validation_execution = {"schema": "axiom-encode/apply-validation-execution/v2"}
@@ -1924,6 +2002,11 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admi
         "identity_source": "trusted-runtime-attestation",
     }
     with (
+        patch(
+            "axiom_encode.cli._load_trusted_runtime_attestation",
+            return_value={"path": str(runtime_attestation), "commit": "e" * 40},
+        ),
+        patch("axiom_encode.reviewed_pr_admission.revalidate_admission") as live_check,
         patch(
             "axiom_encode.cli._promotion_reviewed_rulespec_record_root",
             return_value=record_root,
@@ -1974,9 +2057,43 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admi
         ),
     ):
         signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
+        if admission in {
+            "live-run",
+            "live-country",
+            "live-head",
+            "live-path",
+            "live-encoder",
+            "live-invalid-static",
+        }:
+            if admission == "live-invalid-static":
+                live_check.side_effect = ValueError("live authority invalid")
+            with pytest.raises(ValueError):
+                cmd_promote_reviewed_candidate(args)
+            if admission != "live-invalid-static":
+                live_check.assert_not_called()
+            signer_context.assert_not_called()
+            overlay_mock.assert_not_called()
+            assert not (
+                repo / _applied_encoding_manifest_path(Path(args.rulespec_path))
+            ).exists()
+            return
+        if admission == "live-revoked":
+            from axiom_encode.reviewed_pr_admission import AdmissionError
+
+            live_check.side_effect = [None, AdmissionError("review dismissed")]
+            with pytest.raises(AdmissionError, match="review dismissed"):
+                cmd_promote_reviewed_candidate(args)
+            assert live_check.call_count == 2
+            assert not (
+                repo / _applied_encoding_manifest_path(Path(args.rulespec_path))
+            ).exists()
+            assert rule.read_bytes() == original_rule
+            assert companion.read_bytes() == original_companion
+            return
         cmd_promote_reviewed_candidate(args)
 
     overlay_mock.assert_called_once()
+    assert live_check.call_count == (2 if admission == "live" else 0)
     assert overlay_mock.call_args.kwargs["amendment_documents"] == (amendment,)
     assert overlay_mock.call_args.kwargs["amendment_source_texts"] == {
         amendment.citation_path: amendment.body,
