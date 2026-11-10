@@ -9465,15 +9465,15 @@ def _companion_file_with_appended_cases(
         appended = (
             original
             + separator
-            + yaml.safe_dump(cases, sort_keys=False, allow_unicode=True)
+            + safe_dump_yaml(cases, sort_keys=False, allow_unicode=True)
         )
         with contextlib.suppress(ValueError, yaml.YAMLError):
             if yaml.safe_load(appended) == [*existing, *cases]:
                 return appended
-        return yaml.safe_dump([*existing, *cases], sort_keys=False, allow_unicode=True)
+        return safe_dump_yaml([*existing, *cases], sort_keys=False, allow_unicode=True)
     updated = dict(existing)
     updated["cases"] = [*existing["cases"], *cases]
-    return yaml.safe_dump(updated, sort_keys=False, allow_unicode=True)
+    return safe_dump_yaml(updated, sort_keys=False, allow_unicode=True)
 
 
 def _rebind_retained_candidate_proof_import_hashes(
