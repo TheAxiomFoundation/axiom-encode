@@ -44857,6 +44857,76 @@ rules: []
     assert find_deferred_output_issues(content) == []
 
 
+@pytest.mark.parametrize(
+    ("blockers", "expected_issue"),
+    [
+        (["us/regulation/7/273/4", "de/statute/estg/26"], None),
+        (None, "nonempty list"),
+        ([], "nonempty list"),
+        ("us/regulation/7/273/4", "nonempty list"),
+        ([42], "provision ID string"),
+        (["us:regulations/7-cfr/273/4#eligible_member"], "canonical"),
+        ([" us/regulation/7/273/4"], "canonical"),
+        (["us/regulation/7/273/4#eligible_member"], "canonical"),
+        (["us/regulation"], "provision path"),
+        (["us/regulation/7/273/11/c"], "other than the module's source"),
+        (["de/statute/estg/26", "de/statute/estg/26"], "repeats corpus provision"),
+    ],
+)
+def test_deferred_output_validates_provision_blocker_ids(blockers, expected_issue):
+    content = yaml.safe_dump(
+        {
+            "format": "rulespec/v1",
+            "module": {
+                "source_verification": {
+                    "corpus_citation_path": "us/regulation/7/273/11/c"
+                },
+                "deferred_outputs": [
+                    {
+                        "output": "us:regulations/7-cfr/273/11/c/3#member_income",
+                        "reason": "The cited member definitions are not yet encoded.",
+                        "blocked_by_provisions": blockers,
+                    }
+                ],
+            },
+            "rules": [],
+        }
+    )
+
+    issues = find_deferred_output_issues(content)
+
+    if expected_issue is None:
+        assert issues == []
+    else:
+        assert len(issues) == 1
+        assert "blocked_by_provisions" in issues[0]
+        assert expected_issue in issues[0]
+
+
+def test_deferred_output_resolves_exact_provision_blockers_in_bound_release(tmp_path):
+    release = _write_local_corpus_provision(
+        tmp_path, "de/statute/estg/26", "(1) Joint assessment conditions."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: de/statute/estg/32a
+  deferred_outputs:
+    - output: de:statutes/estg/32a/6#joint_assessment_amount
+      reason: Cannot be computed until the joint-assessment conditions in EStG § 26 are encoded.
+      blocked_by_provisions: [de/statute/estg/26]
+rules: []
+"""
+
+    assert find_deferred_output_issues(content, local_corpus_release=release) == []
+    child = content.replace("[de/statute/estg/26]", "[de/statute/estg/26/1]")
+    assert find_deferred_output_issues(child, local_corpus_release=release) == []
+    missing = content.replace("[de/statute/estg/26]", "[de/statute/estg/26/2]")
+    issues = find_deferred_output_issues(missing, local_corpus_release=release)
+    assert len(issues) == 1
+    assert "could not resolve provision `de/statute/estg/26/2`" in issues[0]
+
+
 def test_deferred_output_rejects_embedded_jurisdiction_blocker_path():
     content = """format: rulespec/v1
 module:

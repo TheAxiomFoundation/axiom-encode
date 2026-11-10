@@ -745,10 +745,15 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   a `#rule_fragment`. Do not list bare legal provisions, corpus paths, statute
   sections, or guessed pseudo-targets in `blocked_by`; for example,
   `us:statutes/us-ca/17000` is invalid. If the exact upstream RuleSpec output is
-  unknown, omit `blocked_by` and name the legal dependency in `reason`. Do not create
-  tests for deferred outputs. If a source-grounded overriding rule makes the
-  unavailable branch zero or unreachable for the encoded effective period,
-  encode that overriding branch instead of deferring the whole module. If that
+  unknown, omit `blocked_by` and name the legal dependency in `reason`.
+  For each cited provision that blocks the deferred output, record its exact
+  canonical corpus ID in `blocked_by_provisions` when the ID is known in the
+  selected corpus release. Use a nonempty list of distinct IDs. The list tracks
+  follow-up work; the reason still has to justify the deferral from the source
+  branch. Omit the field for runtime-only deferrals and unresolved citation IDs.
+  Do not create tests for deferred outputs. If a source-grounded overriding rule
+  makes the unavailable branch zero or unreachable for the encoded effective
+  period, encode that overriding branch instead of deferring the whole module. If that
   section is present in repo context, import it and use its exported output
   instead.
 - An import only resolves a cross-reference when the imported file exports the
@@ -1659,6 +1664,8 @@ module:
       reason: >-
         Compensation base is defined under section 3231(e), which is not yet
         encoded; the rate cannot be applied to a faithful base.
+      blocked_by_provisions:
+        - us/statute/26/3231/e
       source_values:
         - us:statutes/26/3201/a#tier_1_rate
 rules: []
@@ -1733,7 +1740,9 @@ Complete-source-unit mode is enabled for this request:
   path (for example, `de:statutes/estg/32a/6#surviving_spouse_tariff`). Include
   `blocked_by` only for known exact RuleSpec targets with a `#rule_fragment`;
   otherwise omit `blocked_by` and name the exact missing legal dependency or
-  citation in `reason`. For a runtime-gap deferral of a current-source branch,
+  citation in `reason`. For missing executable dependencies with known canonical
+  corpus IDs, record those IDs in `blocked_by_provisions` for follow-up.
+  For a runtime-gap deferral of a current-source branch,
   the `reason` itself must literally cite the complete legal branch, including
   every subsection marker represented by the output branch, and name a
   concrete source-stated missing input or runtime capability. The output path

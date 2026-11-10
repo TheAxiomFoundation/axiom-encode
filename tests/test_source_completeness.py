@@ -21688,6 +21688,8 @@ module:
       reason: Cannot be computed because section 9999 is missing.
       blocked_by:
         - de:statutes/estg/9999#fictional_amount
+      blocked_by_provisions:
+        - de/statute/estg/9999
 rules: []
 """
     source = "(6) Das Einkommen wird mit 2 multipliziert."
