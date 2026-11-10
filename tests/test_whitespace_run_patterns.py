@@ -801,11 +801,14 @@ def test_rewritten_pattern_stays_linear_in_a_whitespace_run(case: Case, run: str
             check,
         )
 
-    # The first step fails each replaced pattern, quadratic or cubic, in under
-    # a minute, so a regression never reaches the wide pair, which would run a
-    # cubic one for hours. The wide pair holds the patterns to the run widths
-    # the interval parser's own growth test uses. Runs of tabs cover the
-    # classes that tell a tab from a space, such as the definition patterns'
-    # ``[ \t]``: a rewrite can stay linear in one and not the other.
+    # A cubic regression, such as the replaced value-bearing row or definition
+    # header, fails the first step in under a minute, before the wide pair
+    # would run it for hours. A quadratic one can pass the first step narrowly;
+    # the wide pair, at the run widths the interval parser's own growth test
+    # uses, fails it by a wide margin. Runs of tabs cover classes that list a
+    # space and a tab separately, such as the definition patterns' ``[ \t]``,
+    # where a one-character edit can leave a rewrite linear in one kind of run
+    # but not the other. The replaced two-line row key never split a run of
+    # tabs, so on tabs that case passes with either pattern.
     assert_linear_growth(work(64), work(512), input_ratio=8)
     assert_linear_growth(work(1_000), work(16_000), input_ratio=16)
