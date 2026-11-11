@@ -1321,6 +1321,7 @@ _SUBCLASS_REASONS = (
 @pytest.mark.parametrize(
     "make",
     [
+        str,
         _SubclassReason,
         _UnhashableReason,
         _CaseFoldReason,
@@ -1331,7 +1332,8 @@ _SUBCLASS_REASONS = (
 def test_reason_helpers_match_main_on_string_subclasses(make):
     # Recognition's reasons are plain strings. One of a subclass may hash,
     # compare or slice unlike its text, so it is neither indexed nor cached:
-    # each reason, here in one analysis, is scanned as main scanned it.
+    # each reason, here in one analysis, is scanned as main scanned it. Plain
+    # reasons take the index, and each of `_CURRENT_TITLES` meets both routes.
     reasons = [make(reason) for reason in _SUBCLASS_REASONS]
 
     old, cold, warm = _old_and_new(lambda: _reason_outcomes(reasons))
@@ -1346,6 +1348,7 @@ def test_reason_helpers_match_main_on_string_subclasses(make):
         st.tuples(
             st.sampled_from(
                 [
+                    str,
                     _SubclassReason,
                     _UnhashableReason,
                     _CaseFoldReason,
