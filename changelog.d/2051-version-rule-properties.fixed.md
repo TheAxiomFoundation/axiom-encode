@@ -1,0 +1,1 @@
+`version_provenance` no longer raises on a version that contains a digit-like character such as `²`. It reads that version as non-numeric, as the `--apply` guard and the provisioner do. Property tests over generated commit histories now hold the three copies of the encoder version rule to one verdict.

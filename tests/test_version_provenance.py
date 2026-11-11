@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -424,6 +425,20 @@ def test_rewrite_of_an_unversioned_commit_that_edits_a_version_file(
     assert _verdicts(repo, monkeypatch, tmp_path / "home") == {True}
 
 
+def test_a_replace_graft_does_not_make_the_guard_take_a_commit_as_its_bump(
+    repo: Path,
+):
+    # Rule 2 refuses this head in every copy anyway, so read the guard's bump
+    # lookup directly: grafted to a root, the unversioned commit has no parent
+    # and would read as a bump.
+    bump = _git(repo, "rev-parse", "HEAD")
+    unversioned = _encoder_and_dependency_change(repo)
+    _git(repo, "replace", "--graft", unversioned)
+    assert _git(repo, "rev-list", "--parents", "-n", "1", unversioned) == unversioned
+    assert _latest_axiom_encode_version_commit(repo) == bump
+    assert version_provenance.latest_version_commit(repo) == bump
+
+
 def test_ambient_git_dir_does_not_change_the_apply_guard(
     repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
@@ -564,6 +579,35 @@ def test_a_hand_bump_is_refused_once_the_bump_workflow_is_on_main(repo: Path):
     assert _reason(repo, base, head, version_provenance.BUMP_APP_LOGIN) is None
 
 
+@pytest.mark.parametrize(
+    ("path", "old", "new"),
+    [
+        ("src/axiom_encode/__init__.py", '"0.2.10"', '"0.2.11"'),
+        ("uv.lock", 'version = "0.2.10"', 'version = "0.2.11"'),
+        ("pyproject.toml", 'version = "0.2.10"', 'version = "0.2.11"'),
+    ],
+)
+def test_a_hand_bump_of_any_one_version_file_is_refused(
+    repo: Path, path: str, old: str, new: str
+):
+    base = _bump_workflow_on(repo)
+    _git(repo, "checkout", "-qb", "one-file", base)
+    target = repo / path
+    target.write_text(target.read_text().replace(old, new, 1))
+    head = _commit(repo, f"hand bump of {path} alone")
+    assert "assigned after merge" in _reason(repo, base, head, "someone")
+
+
+def test_the_apps_login_as_github_reports_it_is_the_app(repo: Path):
+    # A pull request's user.login for a GitHub App is "<slug>[bot]"; gh prints
+    # "app/<slug>" and GraphQL the bare slug, and neither is the event's login.
+    base = _bump_workflow_on(repo)
+    head = _hand_bump(repo, base, "0.2.11")
+    assert _reason(repo, base, head, "axiom-encoder-version-bump[bot]") is None
+    for other in ("app/axiom-encoder-version-bump", "axiom-encoder-version-bump"):
+        assert _reason(repo, base, head, other)
+
+
 def test_a_pull_request_that_keeps_the_version_passes(repo: Path):
     base = _bump_workflow_on(repo)
     _git(repo, "checkout", "-qb", "feature", base)
@@ -611,6 +655,79 @@ def test_ci_runs_the_pull_request_check_in_a_required_job():
     assert "version_provenance.py pull-request" in step["run"]
     assert "--base HEAD^1" in step["run"]
     assert step["env"]["PR_AUTHOR"] == "${{ github.event.pull_request.user.login }}"
+
+
+def _lint_step_checkout(repo: Path) -> Path:
+    """A pull_request checkout: HEAD merges a hand bump into a base whose main
+    has the bump workflow, with the step's ``.venv/bin/python`` in place."""
+    base = _bump_workflow_on(repo)
+    branch = _hand_bump(repo, base, "0.2.11")
+    _git(repo, "checkout", "-q", "--detach", base)
+    _git(repo, "merge", "-q", "--no-ff", branch, "-m", f"Merge {branch} into {base}")
+    (repo / "src/axiom_encode/version_provenance.py").write_text(SCRIPT.read_text())
+    venv = repo / ".venv/bin"
+    venv.mkdir(parents=True)
+    (venv / "python").symlink_to(sys.executable)
+    return repo
+
+
+def _github_expression(value: str, context: dict) -> str:
+    """The value of an env entry that is one ``${{ a.b.c }}`` property lookup."""
+    match = re.fullmatch(r"\$\{\{\s*([A-Za-z_][\w.]*)\s*\}\}", value)
+    assert match, f"not a plain property lookup: {value}"
+    for part in match.group(1).split("."):
+        context = context[part]
+    return context
+
+
+@pytest.mark.parametrize(
+    ("author", "head_repository", "refused"),
+    [
+        ("someone", "o/r", True),
+        ("axiom-encoder-version-bump[bot]", "o/r", False),
+        # A fork's pull request whose author reads as the App's login.
+        ("axiom-encoder-version-bump[bot]", "mallory/r", True),
+    ],
+)
+def test_the_lint_step_refuses_a_hand_bump_as_github_runs_it(
+    repo: Path, author: str, head_repository: str, refused: bool
+):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    step = next(
+        s
+        for s in workflow["jobs"]["lint"]["steps"]
+        if s.get("name") == "Refuse a hand-picked encoder version"
+    )
+    lint = workflow["jobs"]["lint"]
+    assert "shell" not in step and "defaults" not in lint
+    assert "defaults" not in workflow
+    # A failing step that may fail would let the required job pass.
+    assert "continue-on-error" not in step and "continue-on-error" not in lint
+    checkout = _lint_step_checkout(repo)
+    context = {
+        "github": {
+            "repository": "o/r",
+            "event": {
+                "pull_request": {
+                    "user": {"login": author},
+                    "head": {"repo": {"full_name": head_repository}},
+                    "base": {"repo": {"full_name": "o/r"}},
+                }
+            },
+        }
+    }
+    env = {name: _github_expression(v, context) for name, v in step["env"].items()}
+    # With no `shell`, GitHub runs a step on Linux as `bash -e {0}`.
+    result = subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        cwd=checkout,
+        env={"PATH": os.environ["PATH"], "GITHUB_REPOSITORY": "o/r", **env},
+        capture_output=True,
+        text=True,
+    )
+    assert (result.returncode != 0) is refused, result.stderr
+    if refused:
+        assert "encoder version provenance" in result.stderr
 
 
 def test_history_rewrites_are_off_in_every_copy_of_the_rule():
@@ -699,6 +816,32 @@ def test_cat_file_output_after_a_non_blob_is_still_read(repo: Path):
         "0.2.10",
         None,
     ]
+
+
+def test_a_tree_named_pyproject_toml_declares_no_version_in_either_copy(
+    repo: Path, tmp_path: Path
+):
+    # A tree's raw entries hold its names. One name carries a version line, so
+    # reading the tree as text would find "99.0"; both copies must skip it.
+    (repo / "pyproject.toml").unlink()
+    (repo / "pyproject.toml").mkdir()
+    (repo / "pyproject.toml" / 'x\nversion = "99.0"\n').write_text("x\n")
+    odd = _commit(repo, "pyproject.toml as a directory with a version-line name")
+    shutil.rmtree(repo / "pyproject.toml")
+    _write_version(repo, "0.2.10")
+    head = _commit(repo, "pyproject.toml back as a file")
+    raw = subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "tree", f"{odd}:pyproject.toml"],
+        capture_output=True,
+        check=True,
+    ).stdout.decode("utf-8", "replace")
+    assert version_provenance._first(version_provenance._PYPROJECT_VERSION, raw)
+    expected = [(head, "0.2.10"), (odd, None)]
+    assert version_provenance.first_parent_versions(repo, head)[:2] == expected
+    history = provisioner._first_parent_pyproject_versions(
+        Path(shutil.which("git")), repo / ".git", tmp_path / "home", head
+    )
+    assert history[:2] == expected
 
 
 # --- axiom-encode#2051 approving review: the follow-up findings --------------
@@ -794,6 +937,38 @@ def test_a_base_that_does_not_resolve_is_refused(repo: Path, base: str):
     assert "does not name a commit" in result.stderr
 
 
+@pytest.mark.parametrize("ref", ["HEAD^3", "f" * 40, "--all"])
+def test_a_ref_that_does_not_resolve_is_refused(repo: Path, ref: str):
+    # Before the bump workflow is on the base, and for the App's own pull
+    # request, the check reads no version at all, so only resolving the ref
+    # keeps a head that names no commit from passing.
+    before = _git(repo, "rev-parse", "HEAD")
+    after = _bump_workflow_on(repo)
+    for base, author in (
+        (before, "someone"),
+        (after, version_provenance.BUMP_APP_LOGIN),
+        (after, "someone"),
+    ):
+        with pytest.raises(ValueError, match="does not name a commit"):
+            _reason(repo, base, ref, author)
+    result = _run_script(
+        "pull-request",
+        "--repo",
+        str(repo),
+        "--base",
+        before,
+        f"--ref={ref}",
+        "--author",
+        "someone",
+        "--head-repository",
+        "o/r",
+        "--repository",
+        "o/r",
+    )
+    assert result.returncode == 1
+    assert "does not name a commit" in result.stderr
+
+
 def test_the_apply_guard_reads_main_history_in_its_own_environment(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -810,6 +985,60 @@ def test_the_apply_guard_reads_main_history_in_its_own_environment(
     cli._require_axiom_encode_version_provenance(repo)
     assert seen and seen[0] is not None
     assert seen[0] == cli._read_only_git_environment()
+
+
+def test_every_history_read_runs_under_the_callers_environment(
+    repo: Path, tmp_path: Path
+):
+    # The guard passes its own scrubbed environment. Point that environment's
+    # GIT_DIR at a clone with more history: each read must see the clone, so
+    # every git call took the environment it was given.
+    first = _git(repo, "rev-parse", "HEAD")
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", "-q", str(repo), str(clone))
+    for key, value in (
+        ("user.email", "test@example.com"),
+        ("user.name", "Test"),
+        ("commit.gpgsign", "false"),
+    ):
+        _git(clone, "config", key, value)
+    _write_version(clone, "0.2.11")
+    bump = _commit(clone, "bump to 0.2.11")
+    _change_encoder(clone, 1)
+    environment = {**cli._read_only_git_environment(), "GIT_DIR": str(clone / ".git")}
+
+    assert version_provenance.first_parent_versions(repo, "HEAD", environment) == [
+        (bump, "0.2.11"),
+        (first, "0.2.10"),
+    ]
+    assert set(version_provenance._changed_since(repo, bump, "HEAD", environment)) == {
+        "src/axiom_encode/cli.py"
+    }
+    # Main reached 0.2.11 at `bump`, not at `first`: rule 2 reads the clone.
+    assert version_provenance.main_history_changes(
+        repo, "HEAD", first, "0.2.11", environment=environment
+    ) == {"src/axiom_encode/cli.py"}
+    assert (
+        version_provenance.main_history_changes(repo, "HEAD", first, "0.2.10") == set()
+    )
+
+
+def test_a_first_parent_commit_that_deletes_pyproject_toml_declares_no_version(
+    repo: Path, tmp_path: Path
+):
+    # `git log -- pyproject.toml` lists the deletion, and cat-file reports the
+    # file missing there. Both history readers must read that as no version.
+    first = _git(repo, "rev-parse", "HEAD")
+    (repo / "pyproject.toml").unlink()
+    deleted = _commit(repo, "delete pyproject.toml")
+    _write_version(repo, "0.2.10")
+    restored = _commit(repo, "restore pyproject.toml")
+    expected = [(restored, "0.2.10"), (deleted, None), (first, "0.2.10")]
+    assert version_provenance.first_parent_versions(repo, restored) == expected
+    history = provisioner._first_parent_pyproject_versions(
+        Path(shutil.which("git")), repo / ".git", tmp_path / "home", restored
+    )
+    assert history == expected
 
 
 def test_signatures_stay_off_in_every_copy_of_the_rule():
