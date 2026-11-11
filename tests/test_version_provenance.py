@@ -937,6 +937,38 @@ def test_a_base_that_does_not_resolve_is_refused(repo: Path, base: str):
     assert "does not name a commit" in result.stderr
 
 
+@pytest.mark.parametrize("ref", ["HEAD^3", "f" * 40, "--all"])
+def test_a_ref_that_does_not_resolve_is_refused(repo: Path, ref: str):
+    # Before the bump workflow is on the base, and for the App's own pull
+    # request, the check reads no version at all, so only resolving the ref
+    # keeps a head that names no commit from passing.
+    before = _git(repo, "rev-parse", "HEAD")
+    after = _bump_workflow_on(repo)
+    for base, author in (
+        (before, "someone"),
+        (after, version_provenance.BUMP_APP_LOGIN),
+        (after, "someone"),
+    ):
+        with pytest.raises(ValueError, match="does not name a commit"):
+            _reason(repo, base, ref, author)
+    result = _run_script(
+        "pull-request",
+        "--repo",
+        str(repo),
+        "--base",
+        before,
+        f"--ref={ref}",
+        "--author",
+        "someone",
+        "--head-repository",
+        "o/r",
+        "--repository",
+        "o/r",
+    )
+    assert result.returncode == 1
+    assert "does not name a commit" in result.stderr
+
+
 def test_the_apply_guard_reads_main_history_in_its_own_environment(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ):
