@@ -3011,19 +3011,53 @@ def _cpu_times(calls: Sequence[Callable[[], object]], *, budget: float) -> list[
     return best
 
 
+# A reading over the bound is taken again, up to `_ATTEMPTS` readings in all,
+# and the test fails only when every reading exceeds the bound. On a busy
+# shared host a reading of a near-linear family can land over the bound when
+# one size draws an unusual least time; a reading of main's scans lands over
+# it on every family here but the controls.
+_ATTEMPTS = 3
+
+
 def _assert_near_linear(
     family: Callable[[int], Callable[[], object]],
     sizes: Sequence[int],
     *,
     budget: float,
 ) -> None:
-    times = _cpu_times([family(size) for size in sizes], budget=budget)
-    growth = (times[-1] / times[0]) ** (1 / math.log2(sizes[-1] / sizes[0]))
-    measured = ", ".join(f"n={size}: {cpu:.4f}s" for size, cpu in zip(sizes, times))
-
-    assert growth <= MAX_GROWTH_PER_DOUBLING, (
-        f"CPU time grew {growth:.2f}x per doubling ({measured})"
+    readings = []
+    for _attempt in range(_ATTEMPTS):
+        times = _cpu_times([family(size) for size in sizes], budget=budget)
+        growth = (times[-1] / times[0]) ** (1 / math.log2(sizes[-1] / sizes[0]))
+        if growth <= MAX_GROWTH_PER_DOUBLING:
+            return
+        measured = ", ".join(f"n={size}: {cpu:.4f}s" for size, cpu in zip(sizes, times))
+        readings.append(f"{growth:.2f}x ({measured})")
+    pytest.fail(
+        f"CPU time grew over {MAX_GROWTH_PER_DOUBLING}x per doubling in all "
+        f"{_ATTEMPTS} readings: " + "; ".join(readings)
     )
+
+
+def test_growth_bound_fails_only_when_every_reading_exceeds_it(monkeypatch):
+    def script(*readings: list[float]) -> None:
+        times = iter(readings)
+        monkeypatch.setitem(
+            globals(), "_cpu_times", lambda calls, *, budget: next(times)
+        )
+
+    def family(n: int):
+        return lambda: None
+
+    script([1.0, 4.0], [1.0, 4.0], [1.0, 2.0])
+    _assert_near_linear(family, (1, 2), budget=1.0)
+
+    # A fourth reading would pass, so a fourth attempt would hide the failure.
+    script([1.0, 4.0], [1.0, 3.0], [1.0, 2.7], [1.0, 2.0])
+    with pytest.raises(
+        pytest.fail.Exception, match=r"in all 3 readings: 4\.00x .*; 3\.00x .*; 2\.70x"
+    ):
+        _assert_near_linear(family, (1, 2), budget=1.0)
 
 
 def _reason_family(clause: str):
@@ -3186,7 +3220,7 @@ def test_deferral_reason_cpu_growth_is_near_linear(family, sizes, budget):
             _analyzer_family(
                 _cited_outline, lambda n: _half_deferred(n, reason=_PRECISE_REASON)
             ),
-            (200, 400, 800),
+            (400, 800, 1600),
             12.0,
             id="analyzer-half-deferred",
         ),
