@@ -18,6 +18,7 @@ import dataclasses
 import functools
 import gc
 import inspect
+import itertools
 import json
 import math
 import os
@@ -3017,34 +3018,42 @@ _DUCK_QUERIES = [
 ]
 
 
+_DUCK_POOLS = [
+    pytest.param(
+        (
+            SourceStructureBranch(("b",), "paragraph", "(b)", "T" * 9, 0, 9),
+            SourceStructureBranch(("b", "c"), "letter", "(c)", "T" * 9, 3, 9),
+        ),
+        id="no-descendant",
+    ),
+    pytest.param(
+        (
+            SourceStructureBranch(("a", "b"), "letter", "(b)", "T" * 9, 3, 9),
+            SourceStructureBranch(("a", "c"), "letter", "(c)", "T" * 9, 5, 9),
+        ),
+        id="descendants-only",
+    ),
+    pytest.param(
+        (
+            SourceStructureBranch(("a",), "paragraph", "(a)", "T" * 9, 0, 9),
+            SourceStructureBranch(("a", "b"), "letter", "(b)", "T" * 9, 3, 9),
+        ),
+        id="itself-and-a-descendant",
+    ),
+    pytest.param(
+        (
+            SourceStructureBranch(("a", "satz-1"), "sentence", "", "T" * 9, 0, 9),
+            SourceStructureBranch(("a", "1"), "number", "", "T" * 9, 4, 9),
+            SourceStructureBranch(("z",), "paragraph", "", "T" * 9, 0, 9),
+        ),
+        id="a-sentence-and-its-item",
+    ),
+    pytest.param((), id="empty"),
+]
+
+
 @pytest.mark.parametrize("query", _DUCK_QUERIES)
-@pytest.mark.parametrize(
-    "pool",
-    [
-        pytest.param(
-            (
-                SourceStructureBranch(("b",), "paragraph", "(b)", "T" * 9, 0, 9),
-                SourceStructureBranch(("b", "c"), "letter", "(c)", "T" * 9, 3, 9),
-            ),
-            id="no-descendant",
-        ),
-        pytest.param(
-            (
-                SourceStructureBranch(("a", "b"), "letter", "(b)", "T" * 9, 3, 9),
-                SourceStructureBranch(("a", "c"), "letter", "(c)", "T" * 9, 5, 9),
-            ),
-            id="descendants-only",
-        ),
-        pytest.param(
-            (
-                SourceStructureBranch(("a",), "paragraph", "(a)", "T" * 9, 0, 9),
-                SourceStructureBranch(("a", "b"), "letter", "(b)", "T" * 9, 3, 9),
-            ),
-            id="itself-and-a-descendant",
-        ),
-        pytest.param((), id="empty"),
-    ],
-)
+@pytest.mark.parametrize("pool", _DUCK_POOLS)
 def test_direct_text_reads_a_query_s_fields_only_where_main_did(query, pool):
     # Main reads a query's start and end only for a candidate that passes its
     # path test, and its kind only for one that fails it. A query that is not
@@ -3054,6 +3063,66 @@ def test_direct_text_reads_a_query_s_fields_only_where_main_did(query, pool):
         old, cold, warm = _old_and_new(
             lambda: sc._source_branch_direct_text(query, branches=branches)
         )
+        assert cold == old
+        assert warm == cold
+
+
+class _LoggedQuery:
+    """A query object that records each field it is asked for, by name."""
+
+    def __init__(self, reads: list[str], **fields: object) -> None:
+        object.__setattr__(self, "_reads", reads)
+        object.__setattr__(self, "_fields", fields)
+
+    def __getattr__(self, name: str) -> object:
+        self._reads.append(name)
+        try:
+            return self._fields[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param(
+            {
+                "path": ("a",),
+                "kind": "paragraph",
+                "text": "T" * 9,
+                "start": 0,
+                "end": 9,
+            },
+            id="paragraph",
+        ),
+        pytest.param(
+            {
+                "path": ("a", "satz-1"),
+                "kind": "sentence",
+                "text": "T" * 9,
+                "start": 0,
+                "end": 9,
+            },
+            id="sentence",
+        ),
+    ],
+)
+@pytest.mark.parametrize("pool", _DUCK_POOLS)
+def test_direct_text_asks_another_query_for_fields_in_main_s_order(fields, pool):
+    # The same answer could come from a different order of reads, and a query
+    # object that runs code to read a field can tell them apart. Main's scan
+    # over the whole pool asks for the fields in main's order.
+    for branches in (pool, list(pool)):
+
+        def call(branches=branches):
+            reads: list[str] = []
+            query = _LoggedQuery(reads, **fields)
+            outcome = _outcome(
+                lambda: sc._source_branch_direct_text(query, branches=branches)
+            )
+            return outcome, reads
+
+        old, cold, warm = _old_and_new(call)
         assert cold == old
         assert warm == cold
 
@@ -3527,19 +3596,21 @@ def _deep_direct_text_family(n: int):
     These paths hold n(n+1)/2 components in all, and building the trie reads
     each one, so the family builds the trie once, off the clock;
     ``test_deep_direct_text_costs_a_fraction_of_main`` times that build. Before
-    each call, also off the clock, the family opens a new index over a new
-    copy of the trie (``_index_over_trie_copy``). So each call fills the least
-    starts, maps each path to its node and looks up every path for the first
-    time, all on the clock, and no lookup may read a path's components.
+    each call, also off the clock, the family opens a new index over new
+    branches, paths and starts and a new copy of the trie
+    (``_index_over_trie_copy``). So each call fills the least starts, maps each
+    path to its node and looks up every path for the first time, all on the
+    clock, and no lookup may read a path's components.
     """
 
     branches = _attached_markers(n)
     paths = sc._SourceBranchIndex(branches)._paths
     assert paths is not None
     opened: list[sc._SourceBranchIndex] = []
+    shifts = itertools.count(1)
 
     def prepare():
-        opened.append(_index_over_trie_copy(branches, paths))
+        opened.append(_index_over_trie_copy(branches, paths, next(shifts)))
         fresh = opened[-1].branches
         sc._open_source_indexes().branches[id(fresh)] = (fresh, opened[-1])
 
@@ -3558,21 +3629,24 @@ def _deep_lowest_starts_family(n: int):
     """Filling the least starts of n attached markers' branch index, n deep.
 
     As ``_deep_direct_text_family`` does, the family builds the trie once and
-    before each call opens a new index over a new copy of it, off the clock.
-    Each node's least start comes from its children's; a fill that scanned
-    every node's descendants instead would read about n²/2 starts here.
+    before each call opens a new index over new inputs and a new copy of the
+    trie, off the clock. Each node's least start comes from its children's; a
+    fill that scanned every node's descendants instead would read about n²/2
+    starts here.
     """
 
     branches = _attached_markers(n)
     paths = sc._SourceBranchIndex(branches)._paths
     assert paths is not None
     opened: list[sc._SourceBranchIndex] = []
+    shifts = itertools.count(1)
 
     def fill():
         assert opened.pop()._knows_lowest_starts
 
     return _PreparedCall(
-        lambda: opened.append(_index_over_trie_copy(branches, paths)), fill
+        lambda: opened.append(_index_over_trie_copy(branches, paths, next(shifts))),
+        fill,
     )
 
 
@@ -3580,39 +3654,49 @@ def _deep_own_paths_family(n: int):
     """Each of n attached markers' own paths looked up in a new index, n deep.
 
     As ``_deep_direct_text_family`` does, the family builds the trie once and
-    before each call opens a new index over a new copy of it, off the clock,
-    so each call maps every branch's path to its node and asks for each one.
-    Before CPython 3.14 a tuple recomputes its hash on every lookup, so a map
-    built by hashing these paths would read about n²/2 components. The deep
-    direct-text family, whose calls also fill the least starts, grew only
-    2.52x per doubling with such a map on CPython 3.13.
+    before each call opens a new index over new inputs and a new copy of the
+    trie, off the clock, so each call maps every branch's path to its node and
+    asks for each one. Before CPython 3.14 a tuple recomputes its hash on
+    every lookup, so a map built by hashing these paths would read about
+    n²/2 components. The deep direct-text family, whose calls also fill the
+    least starts, grew only 2.52x per doubling with such a map on CPython 3.13.
     """
 
     branches = _attached_markers(n)
     paths = sc._SourceBranchIndex(branches)._paths
     assert paths is not None
     opened: list[sc._SourceBranchIndex] = []
+    shifts = itertools.count(1)
 
     def lookups():
         index = opened.pop()
         assert all(index.plain(branch.path) for branch in index.branches)
 
     return _PreparedCall(
-        lambda: opened.append(_index_over_trie_copy(branches, paths)), lookups
+        lambda: opened.append(_index_over_trie_copy(branches, paths, next(shifts))),
+        lookups,
     )
 
 
-def _index_over_trie_copy(branches, paths) -> sc._SourceBranchIndex:
-    """A new index over a new tuple of ``branches`` and a copy of ``paths``.
+def _index_over_trie_copy(branches, paths, shift: int = 0) -> sc._SourceBranchIndex:
+    """A new index over new copies of ``branches`` and a copy of ``paths``.
 
-    ``paths`` is a built trie. The copy has new nodes, lists and maps, so
-    nothing a call stores on a node, or in a map keyed by a node or by the
-    tuple, reaches the next call; only the branch objects and their paths carry
-    over. Copying took 0.8 ms at
-    n=1600 on CPython 3.14 and 2.5 ms on 3.13, against 22-24 ms to build the
-    trie again, which reads every component of every path.
+    ``paths`` is the trie built over ``branches``. Each branch becomes a new
+    object whose start and end move by ``shift``, and the trie becomes new
+    nodes, lists and maps, so a memo keyed by the branch objects, by their
+    starts or by the trie's parts finds nothing from the last call. The path
+    tuples carry over, and ``test_branch_index_keeps_no_state_outside_its_scope``
+    checks that the index holds none of them past its scope. Copying every
+    path as well made the own-paths and fill families read up to 3.15x per
+    doubling on CPython 3.14, with or without a young collection after it.
+    Copying took 3 ms at n=1600 on 3.14, against 20 ms to build the trie
+    again, which reads every component of every path.
     """
 
+    branches = tuple(
+        dataclasses.replace(branch, start=branch.start + shift, end=branch.end + shift)
+        for branch in branches
+    )
     root, nodes, preorder = paths
     copies: dict[int, sc._BranchPathNode] = {}
     pending = [root]
@@ -3625,7 +3709,7 @@ def _index_over_trie_copy(branches, paths) -> sc._SourceBranchIndex:
         copies[id(node)].children = {
             component: copies[id(child)] for component, child in node.children.items()
         }
-    index = sc._SourceBranchIndex(tuple(list(branches)))
+    index = sc._SourceBranchIndex(branches)
     index._paths = (
         copies[id(root)],
         {path: copies[id(node)] for path, node in nodes.items()},
@@ -3742,14 +3826,16 @@ def test_filling_least_starts_reads_each_start_and_index_a_few_times():
 
 
 def test_trie_copies_match_the_trie_and_share_no_part_of_it():
-    # The deep families time each call on its own copy of one trie, so a copy
-    # must hold the trie's structure and give its answers, and share no node,
-    # list, map or branch tuple with the trie or with another copy.
+    # The deep families time each call on its own copy of one trie, over new
+    # branches whose starts move by a new shift, so a copy must hold the
+    # trie's structure and give its answers, moved by the shift, and share no
+    # node, list, map or branch with the trie or with another copy.
     branches = _attached_markers(30)
     built = sc._SourceBranchIndex(branches)
     paths = built._paths
     assert paths is not None
-    copies = [_index_over_trie_copy(branches, paths) for _copy in range(2)]
+    shifts = (0, 7)
+    copies = [_index_over_trie_copy(branches, paths, shift) for shift in shifts]
 
     def parts(index: sc._SourceBranchIndex) -> list[object]:
         assert index._paths is not None
@@ -3758,7 +3844,7 @@ def test_trie_copies_match_the_trie_and_share_no_part_of_it():
         for node in trie:
             trie.extend(node.children.values())
         lists = [part for node in trie for part in (node.indexes, node.children)]
-        return [index.branches, nodes, preorder, *trie, *lists]
+        return [index.branches, nodes, preorder, *trie, *lists, *index.branches]
 
     def shape(index: sc._SourceBranchIndex) -> list[object]:
         assert index._paths is not None
@@ -3780,15 +3866,28 @@ def test_trie_copies_match_the_trie_and_share_no_part_of_it():
     assert ids[0].isdisjoint(ids[1]) and ids[0].isdisjoint(ids[2])
     assert ids[1].isdisjoint(ids[2])
     assert built._knows_lowest_starts
-    for index in copies:
-        assert index.branches == branches
+    for shift, index in zip(shifts, copies, strict=True):
+        assert index.branches == tuple(
+            dataclasses.replace(
+                branch, start=branch.start + shift, end=branch.end + shift
+            )
+            for branch in branches
+        )
         assert shape(index) == shape(built)
         assert index._knows_lowest_starts
-        for branch in branches:
-            assert index.first_descendant_start(branch) == (
-                built.first_descendant_start(branch)
+        for copy, branch in zip(index.branches, branches, strict=True):
+            assert index._own_path_node(copy.path) is not None
+            first = built.first_descendant_start(branch)
+            assert index.first_descendant_start(copy) == (
+                None if first is None else first + shift
             )
-            assert index.descendants(branch.path) == built.descendants(branch.path)
+            assert [
+                (descendant.path, descendant.start - shift)
+                for descendant in index.descendants(copy.path)
+            ] == [
+                (descendant.path, descendant.start)
+                for descendant in built.descendants(branch.path)
+            ]
 
 
 _GROWABLE = (
@@ -3892,27 +3991,38 @@ def _ask_everything(pool: tuple[SourceStructureBranch, ...]) -> None:
     ],
 )
 def test_branch_index_keeps_no_state_outside_its_scope(pool):
-    # The deep growth families share branch objects and paths between timed
-    # calls, so a cache keyed by them that outlived its analysis would keep a
-    # costly fill or lookup off the clock. Nothing the index works out may
-    # stay behind: after one sweep, a sweep of new copies in a new scope
-    # leaves every container the module holds, and each branch, as it was.
+    # Production recognizes new branches for every analysis, so whatever the
+    # index kept past its scope could never answer a later analysis. After
+    # one sweep, a sweep of new copies in a new scope must leave the sizes
+    # `_held_sizes` measures and each branch's attributes as they were, add
+    # no reference to any of the copies' paths, and let the copies and the
+    # index die once nothing else holds them. A memo that checks a key's
+    # identity has to hold the key, wherever the memo lives; the deep growth
+    # families give each timed call new inputs for a memo keyed by value.
     _ask_everything(_fresh_copy(pool))
     probe = _fresh_copy(pool)
     fields = [dict(vars(branch)) for branch in probe]
+    paths = [branch.path for branch in probe]
     before = _held_sizes()
+    gc.collect()
+    references = [sys.getrefcount(path) for path in paths]
     _ask_everything(probe)
+    gc.collect()
+    assert [sys.getrefcount(path) for path in paths] == references
     assert _held_sizes() == before
     assert [vars(branch) for branch in probe] == fields
-    # The index itself goes when its scope closes.
+    # The index goes when its scope closes, and the copies when the test
+    # drops them.
     with sc._source_index_scope():
         index = sc._source_branch_index(probe)
         assert index is not None
         assert index._knows_lowest_starts
-        gone = weakref.ref(index)
+        gone = [weakref.ref(index)]
         del index
+    gone.extend(weakref.ref(branch) for branch in probe)
+    del probe
     gc.collect()
-    assert gone() is None
+    assert [ref() for ref in gone] == [None] * len(gone)
 
 
 def test_first_lookups_of_own_paths_read_no_path_components():
