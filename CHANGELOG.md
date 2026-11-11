@@ -1,3 +1,7 @@
+## 0.2.2354
+
+- Stop false complete-source demands from `falls`, reference titles, mixed percentages and whole Money values (#2152)
+
 ## 0.2.2353
 
 - Keep the whitespace patterns on the interval parser's path linear in a space run (#2158)
