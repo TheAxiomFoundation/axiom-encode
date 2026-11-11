@@ -1119,7 +1119,7 @@ def _reason_helpers(reason: str) -> list[object]:
                 sc._reason_dependency_occurrence_is_contextual(
                     reason, match, current_usc_title=title
                 )
-                for title in (None, "7", "42", "47")
+                for title in (None, "7", "42", "47", "47A", "47a")
             ),
         )
         for match in _reason_matches(reason)
@@ -1170,6 +1170,13 @@ _REASON_FRAGMENTS = (
     "42 U.S.C. 1382a(a)(2)",
     "R.S. 47:297",
     "R.S. 47:293(1)",
+    "47 U.S.C. 297",
+    "R.S. 47A:297",
+    "R.S. 47a:297",
+    "section 297 of this title",
+    "7 U.S.C. 2015(e)",
+    "7 U.S.C. 2015–1",
+    "7 U.S.C. 2015-1",
     "subsection (b)",
     "paragraph (2)",
     "is missing",
@@ -1209,6 +1216,55 @@ _THIS_TITLE_REASONS = (
 @example(_THIS_TITLE_REASONS[1])
 @example(_THIS_TITLE_REASONS[2])
 def test_reason_helpers_match_main(reason):
+    old, cold, warm = _old_and_new(lambda: _reason_helpers(reason))
+
+    assert cold == old
+    assert warm == cold
+
+
+# The occurrence index groups citations by family, title (case-folded),
+# normalized section and fragments, and groups "of this title" sections by
+# section and fragments. Each reason pairs a contextual citation with a missing
+# one that differs from it in one part of that key, so a key that dropped or
+# changed the part would put the two in one group where main keeps them apart,
+# or apart where main joins them, and flip a contextual verdict.
+_OCCURRENCE_KEY_REASONS = (
+    pytest.param(
+        "R.S. 47:297 is quoted only for context. 47 U.S.C. 297 is missing.",
+        id="family",
+    ),
+    pytest.param(
+        "R.S. 47A:297 is quoted only for context. R.S. 47a:297 is missing.",
+        id="title-case",
+    ),
+    pytest.param(
+        "7 U.S.C. 2015(d) is quoted only for context. 7 U.S.C. 2015(e) is missing.",
+        id="fragments",
+    ),
+    pytest.param(
+        "7 U.S.C. 2015–1 is quoted only for context. 7 U.S.C. 2015-1 is missing.",
+        id="section-dash",
+    ),
+    # Main compares the titled citation with the current title case-folded on
+    # both sides; `_reason_helpers` asks under "47A" and "47a".
+    pytest.param(
+        "R.S. 47A:297 is missing. section 297 of this title is quoted only for "
+        "context.",
+        id="this-title-case",
+    ),
+    # An untitled section joins the current title only when "of this title"
+    # follows it directly, not when the phrase comes later in the reason.
+    pytest.param(
+        "7 U.S.C. 2015 is missing. section 2015 is quoted only for context; "
+        "section 5 of this title is missing.",
+        id="this-title-anchored",
+    ),
+)
+
+
+@pytest.mark.parametrize("reason", _OCCURRENCE_KEY_REASONS)
+def test_reason_occurrence_key_matches_main(reason):
+    assert len(_reason_matches(reason)) >= 2
     old, cold, warm = _old_and_new(lambda: _reason_helpers(reason))
 
     assert cold == old
