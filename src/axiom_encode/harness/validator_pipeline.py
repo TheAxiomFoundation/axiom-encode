@@ -69,6 +69,10 @@ from axiom_encode.codex_cli import (
     resolve_codex_cli,
     with_codex_model_availability_hint,
 )
+from axiom_encode.companion_edges import (
+    explicit_companion_relations,
+    explicit_relation_root,
+)
 from axiom_encode.companion_entities import (
     assign_generated_fixture_ids,
     cross_entity_input_findings,
@@ -270,6 +274,25 @@ CHECK_RULES_ENGINE_COMPILE_CRASHED = declare_check(
     cause="infra",
     gate="compile",
     site=_SITE_COMPILE,
+)
+CHECK_COMPANION_RELATIONS_DERIVED_QUERY_REQUIRED = declare_check(
+    "tests:companion-relations/derived-query-required",
+    title="Explicit companion relations have no derived query output",
+    requires=(
+        "Each companion case containing `relations`, including an empty list, "
+        "asserts at least one compiled derived query output."
+    ),
+    why=(
+        "Explicit relation edges need a derived query's root entity; a "
+        "parameter-only case cannot execute the supplied graph."
+    ),
+    fix=(
+        "Assert a compiled derived query output in this case, or remove "
+        "`relations` if the case only checks parameters."
+    ),
+    cause="encoder_output",
+    gate="tests",
+    site="axiom_encode/harness/validator_pipeline.py:_run_rulespec_test_cases",
 )
 _ENGINE_LINE_RE = re.compile(r"\bline (\d+)\b")
 
@@ -38143,6 +38166,8 @@ class ValidatorPipeline:
         index: int,
     ) -> str:
         """Pick a stable entity id for a compact RuleSpec test case."""
+        if "relations" in case:
+            return explicit_relation_root(case)
         entity_key = f"{self._snake_case(query_entity)}_id"
         for key in ("entity_id", "id", entity_key):
             if key in case:
@@ -38257,6 +38282,8 @@ class ValidatorPipeline:
         case_input: Any,
         *,
         case_tables: Any = None,
+        explicit_relations_case: dict[str, Any] | None = None,
+        compiled_relations: list[dict] | None = None,
         period: dict[str, Any],
         query_entity: str,
         query_entity_id: str,
@@ -38526,6 +38553,21 @@ class ValidatorPipeline:
                         generated_table_rows.append(
                             (table_entity, row_ids, 0, inputs[input_start:])
                         )
+
+        if explicit_relations_case is not None:
+            root_id = explicit_relation_root(explicit_relations_case)
+            if root_id != query_entity_id:
+                raise ValueError("explicit relation root differs from query identity")
+            relations.extend(
+                explicit_companion_relations(
+                    explicit_relations_case["relations"],
+                    tables=case_tables,
+                    root_id=root_id,
+                    root_entity=query_entity,
+                    compiled_relations=compiled_relations,
+                    interval=interval,
+                )
+            )
 
         require_distinct_entity_ids(occupied_entity_ids)
         assign_generated_fixture_ids(generated_table_rows, occupied_entity_ids)
@@ -38902,11 +38944,11 @@ class ValidatorPipeline:
     ) -> tuple[dict[str, Any] | None, list[str]]:
         """Execute one compact RuleSpec test case through `run-compiled`."""
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
-        query_entity_id = self._rulespec_case_query_entity_id(
-            case, query_entity, case_index
-        )
         table_entity_ids: dict[str, list[str]] = {}
         try:
+            query_entity_id = self._rulespec_case_query_entity_id(
+                case, query_entity, case_index
+            )
             executable_directions = executable_relation_directions(
                 derived_by_key,
                 output_names,
@@ -38918,6 +38960,8 @@ class ValidatorPipeline:
             dataset = self._build_rulespec_dataset(
                 case.get("input", {}),
                 case_tables=case.get("tables"),
+                explicit_relations_case=case if "relations" in case else None,
+                compiled_relations=compiled_relations,
                 period=period,
                 query_entity=query_entity,
                 query_entity_id=query_entity_id,
@@ -39297,6 +39341,20 @@ class ValidatorPipeline:
                         f"Test case `{case_name}` output `{output_key}` is not "
                         f"a compiled derived output or scalar parameter in {rules_file.name}."
                     )
+
+            if "relations" in case and not derived_outputs:
+                issues.append(
+                    ValidationIssue(
+                        f"Test case `{case_name}` relations requires a derived query output",
+                        check=CHECK_COMPANION_RELATIONS_DERIVED_QUERY_REQUIRED,
+                        subject=IssueSubject(
+                            module=str(rules_file), test_case=case_name, field="output"
+                        ),
+                        expected="at least one derived query output",
+                        found="no derived query output",
+                    )
+                )
+                continue
 
             actual_outputs: dict[str, Any] = {}
             if derived_outputs:
