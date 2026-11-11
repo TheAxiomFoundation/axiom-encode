@@ -140,9 +140,7 @@ def _promotion(bundle_text: str) -> tuple[bool | None, bool | None]:
     return live_reviewed_pr, promoted
 
 
-def trigger_kind(
-    *, is_promotion: bool | None, is_repair: bool, is_queue: bool
-) -> str:
+def trigger_kind(*, is_promotion: bool | None, is_repair: bool, is_queue: bool) -> str:
     """One label per run. The three flags stay in the record beside it.
 
     A run can be several things at once (a queue item that replays a repair

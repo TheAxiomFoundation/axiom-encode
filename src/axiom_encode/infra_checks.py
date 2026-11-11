@@ -198,7 +198,9 @@ _PUBLISH_WHY = (
     "The step publishes verified changes. The encode itself finished; a "
     "failure here means no pull request or no signed artifact for this run."
 )
-_READ_LOG_FIX = "Read the step's log for the exact refusal, correct that, and dispatch again."
+_READ_LOG_FIX = (
+    "Read the step's log for the exact refusal, correct that, and dispatch again."
+)
 
 #: ``(step name, title, requires, why, fix)`` for each step of the
 #: ``attempt_budget`` and ``encode`` jobs that records no issue of its own.
@@ -330,8 +332,7 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
     (
         "Bind rules engine to declared revision",
         "The rules engine is not at the declared revision",
-        "The built rules engine checkout is exactly the commit in "
-        "`rules_engine_ref`.",
+        "The built rules engine checkout is exactly the commit in `rules_engine_ref`.",
         _SETUP_WHY,
         "Check the `rules_engine_ref` input and dispatch again.",
     ),
@@ -350,8 +351,7 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
         "`source_bundle_json` has the reviewed shape and fits the other "
         "dispatch inputs.",
         _REQUEST_WHY,
-        "Correct `source_bundle_json` as the step's message says and dispatch "
-        "again.",
+        "Correct `source_bundle_json` as the step's message says and dispatch again.",
     ),
     (
         "Resolve retired source metadata migration request",
@@ -512,14 +512,12 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
         "The run changed exactly the files that the dispatch authorizes, each "
         "canonical, present where required and within its size limit.",
         _GUARD_WHY,
-        "Read the step's message: it names the path and the rule that it "
-        "broke.",
+        "Read the step's message: it names the path and the rule that it broke.",
     ),
     (
         "Commit reviewed lane changes locally",
         "The verified changes cannot be committed to the lane branch",
-        "The packaged change set applies cleanly as one commit on a new lane "
-        "branch.",
+        "The packaged change set applies cleanly as one commit on a new lane branch.",
         _PUBLISH_WHY,
         _READ_LOG_FIX,
     ),
@@ -569,8 +567,7 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
         "The publication token is not available",
         "The run has a token that can publish to the RuleSpec repository.",
         _PUBLISH_WHY,
-        "Give the workflow its RuleSpec publication token, then dispatch "
-        "again.",
+        "Give the workflow its RuleSpec publication token, then dispatch again.",
     ),
     (
         "Verify retired source metadata migration before publication",
@@ -584,8 +581,7 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
         "The migration pull request base moved away from the encoded ref",
         "`pr_base_branch` still points at `rulespec_ref`.",
         _PUBLISH_WHY,
-        "Dispatch again with `rulespec_ref` at the current head of the base "
-        "branch.",
+        "Dispatch again with `rulespec_ref` at the current head of the base branch.",
     ),
     (
         "Prepare retired source metadata pull request branch",
