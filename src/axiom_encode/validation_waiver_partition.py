@@ -80,8 +80,14 @@ _TIMING_LINE = re.compile(
 # The audit prints this once per shard (``_cmd_validation_waivers_audit``), saying
 # how many modules it will execute and so how many timing lines should follow.
 _PLAN_LINE = re.compile(
-    r"(?:^|[\t ])validation-waivers audit plan: .*; [0-9]+ selected, "
+    r"(?:^|[\t ])validation-waivers audit plan: (?P<owner>.*); [0-9]+ selected, "
     r"(?P<execute>[0-9]+) to execute$"
+)
+# A partitioned audit's owner text. A key may hold inner spaces, so the match is
+# anchored on the last "(i of n, assignment) owns" the writer appends.
+_PLAN_PARTITION = re.compile(
+    r"^partition (?P<key>.+) \((?P<index>[0-9]+) of (?P<count>[0-9]+), "
+    r"(?:round-robin|cost-balanced)\) owns [0-9]+ of [0-9]+ waiver path\(s\)$"
 )
 _JOB_KEY = re.compile(r"\((?P<key>[^()]+)\)$")
 DEFAULT_AUDIT_STEP_NAME = "Enforce validation waiver ratchet"
@@ -363,19 +369,82 @@ def timing_observations(lines: Iterable[str]) -> dict[str, list[int]]:
     return observed
 
 
-def planned_executions(lines: Iterable[str]) -> int | None:
-    """How many modules the log's audit plan lines say will execute.
+@dataclass(frozen=True)
+class AuditPlan:
+    """One shard's audit plan line: how many modules it will execute and, for
+    a partitioned audit, which shard of how many it is (1-based)."""
 
-    ``None`` means the log has no plan line: a failed download, or a log from
-    an encoder that predates the plan line. A log of several shards (``gh run
-    view --log`` for a whole run) sums their plans.
+    execute: int
+    key: str | None = None
+    index: int | None = None
+    count: int | None = None
+
+
+def audit_plans(lines: Iterable[str]) -> list[AuditPlan]:
+    """Every audit plan line in a log, in order.
+
+    A log of one shard has one; ``gh run view --log`` for a whole run has one
+    per shard. A failed download, or a log from an encoder that predates the
+    plan line, has none.
     """
-    planned = None
+    plans: list[AuditPlan] = []
     for raw in lines:
         match = _PLAN_LINE.search(raw.rstrip("\r\n"))
-        if match is not None:
-            planned = (planned or 0) + int(match["execute"])
-    return planned
+        if match is None:
+            continue
+        execute = int(match["execute"])
+        owner = _PLAN_PARTITION.match(match["owner"])
+        if owner is None:
+            plans.append(AuditPlan(execute))
+        else:
+            plans.append(
+                AuditPlan(
+                    execute,
+                    key=owner["key"],
+                    index=int(owner["index"]),
+                    count=int(owner["count"]),
+                )
+            )
+    return plans
+
+
+def planned_executions(lines: Iterable[str]) -> int | None:
+    """How many modules the log's audit plan lines say will execute, summed
+    over its shards; ``None`` when the log has no plan line."""
+    plans = audit_plans(lines)
+    return sum(plan.execute for plan in plans) if plans else None
+
+
+def plan_coverage_gaps(
+    plans: Sequence[AuditPlan], expected_keys: Iterable[str] = ()
+) -> list[str]:
+    """Shards that a set of logs should account for but does not.
+
+    Partitioned plan lines say how many shards the run had, so a missing log
+    shows as a missing index. ``expected_keys`` (the jobs listing's shards)
+    names the missing ones. Logs without plan lines can't be checked.
+    """
+    partitioned = [plan for plan in plans if plan.count is not None]
+    if not partitioned:
+        return []
+    gaps: list[str] = []
+    counts = sorted({plan.count for plan in partitioned if plan.count is not None})
+    if len(counts) > 1:
+        gaps.append(
+            "plan lines disagree on the shard count: "
+            + ", ".join(str(count) for count in counts)
+        )
+    seen = {plan.index for plan in partitioned}
+    if len(seen) < counts[-1]:
+        gaps.append(f"plan lines cover {len(seen)} of {counts[-1]} shard(s)")
+    absent = sorted(set(expected_keys) - {plan.key for plan in partitioned})
+    if absent:
+        shown = ", ".join(absent[:10]) + (", ..." if len(absent) > 10 else "")
+        gaps.append(
+            f"the jobs listing names {len(absent)} shard(s) that no plan line "
+            f"names: {shown}"
+        )
+    return gaps
 
 
 def load_jobs_listing(text: str) -> Any:

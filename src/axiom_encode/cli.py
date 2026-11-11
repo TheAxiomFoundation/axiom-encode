@@ -2099,7 +2099,9 @@ def main():
         required=True,
         help=(
             "Log with 'validation-waivers audit: <path> <seconds>s' lines, such as "
-            "`gh run view <run> --log` output; repeatable, '-' reads stdin"
+            "`gh run view <run> --log` output; repeatable, '-' reads stdin. Pass "
+            "every shard's log: a shard left out leaves its modules at the "
+            "table's median cost"
         ),
     )
     validation_waivers_costs_parser.add_argument(
@@ -5300,6 +5302,7 @@ def _cmd_validation_waivers_active_paths(args) -> int:
 def _cmd_validation_waivers_audit_costs(args) -> int:
     """Write the cost table that balances and orders later partitioned audits."""
     observations: dict[str, list[int]] = {}
+    all_plans: list[_waiver_partition.AuditPlan] = []
     for log in args.logs:
         if log == "-":
             lines = sys.stdin.read().splitlines()
@@ -5308,7 +5311,9 @@ def _cmd_validation_waivers_audit_costs(args) -> int:
                 lines = handle.read().splitlines()
         found = _waiver_partition.timing_observations(lines)
         timed = sum(len(values) for values in found.values())
-        planned = _waiver_partition.planned_executions(lines)
+        plans = _waiver_partition.audit_plans(lines)
+        all_plans.extend(plans)
+        planned = sum(plan.execute for plan in plans) if plans else None
         name = "stdin" if log == "-" else log
         # A table that lacks a shard's modules still builds, and those modules
         # take its median cost, so say when a log does not account for its
@@ -5339,6 +5344,14 @@ def _cmd_validation_waivers_audit_costs(args) -> int:
             ),
             workers=args.workers,
             audit_step=args.audit_step,
+        )
+    # A log left out entirely leaves no trace in the others, except that the
+    # run's plan lines say how many shards it had.
+    for gap in _waiver_partition.plan_coverage_gaps(all_plans, baselines or ()):
+        print(
+            f"warning: {gap}; modules of missing shards will take the table's "
+            "median cost",
+            file=sys.stderr,
         )
     rendered = _waiver_partition.render_waiver_audit_costs(
         observations, baselines=baselines, source=args.source

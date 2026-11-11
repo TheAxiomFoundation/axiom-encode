@@ -41,7 +41,7 @@ PYTHONPATH=<checkout>/src <checkout>/.venv/bin/python /tmp/ev/scripts/replay_enc
 
 Both diffs print nothing. The scripts read their inputs from `../data` relative to themselves, so the copies need that layout. `leg_durations.py` calls `gh api` only when its cached jobs file is missing.
 
-The note20 measurements need a local setup: a rulespec-us checkout at `bc0b633cf`, an axiom-corpus checkout at `7822462a` with release `us-rulespec-2026-10-29-ecfr-section-text` in place, an axiom-rules-engine checkout at `89571cc2` with a debug build (the script takes the checkout and finds `target/debug/axiom-rules-engine` in it), and an environment for each encoder commit. With an encoder's environment:
+The note20 measurements need a local setup: a rulespec-us checkout at `bc0b633cf`, an axiom-corpus checkout at `7822462a` with release `us-rulespec-2026-10-29-ecfr-section-text` in place, an axiom-rules-engine checkout at `89571cc2` with a debug build (the script takes the checkout; with no engine pin declared, the encoder runs `target/release/axiom-rules-engine` if it exists and `target/debug/axiom-rules-engine` otherwise, and this checkout had only the debug build), and an environment for each encoder commit. With an encoder's environment:
 
 ```bash
 <encoder>/.venv/bin/python -I /tmp/ev/scripts/time_module.py <rulespec-us checkout> <corpus checkout> <engine checkout> \

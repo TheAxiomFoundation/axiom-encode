@@ -656,6 +656,84 @@ def test_audit_costs_command_writes_a_loadable_table(tmp_path, capsys):
         cli._cmd_validation_waivers_audit_costs(args)
 
 
+def test_audit_costs_warns_when_logs_miss_a_whole_shard(tmp_path, capsys):
+    """A shard whose log was never passed leaves no trace in the other logs,
+    except that their plan lines say how many shards the run had."""
+
+    def shard_log(key, index):
+        path = tmp_path / f"{key}.log"
+        path.write_text(
+            f"validation-waivers audit plan: partition {key} ({index} of 3, "
+            f"round-robin) owns 1 of 3 waiver path(s); 1 selected, 1 to execute\n"
+            f"validation-waivers audit: {key}/a.yaml 1.000s\n"
+        )
+        return str(path)
+
+    jobs = tmp_path / "jobs.json"
+    jobs.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    _job(key, job=(0, 900), step=(300, 600))
+                    for key in ("us-ak", "us-al", "us-az")
+                ]
+            }
+        )
+    )
+    args = SimpleNamespace(
+        logs=[shard_log("us-ak", 1), shard_log("us-al", 2)],
+        jobs_json=jobs,
+        workers=2,
+        audit_step=partition.DEFAULT_AUDIT_STEP_NAME,
+        source=None,
+        output=tmp_path / "costs.json",
+        json=True,
+    )
+    assert cli._cmd_validation_waivers_audit_costs(args) == 0
+    err = capsys.readouterr().err
+    assert "warning: plan lines cover 2 of 3 shard(s)" in err
+    assert "the jobs listing names 1 shard(s) that no plan line names: us-az" in err
+
+    args.logs.append(shard_log("us-az", 3))
+    assert cli._cmd_validation_waivers_audit_costs(args) == 0
+    assert "warning" not in capsys.readouterr().err
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    shards=st.lists(
+        st.tuples(
+            _PLAN_PREFIXES,
+            st.sampled_from(
+                ["us-ak", "shard a", "k (1 of 2, round-robin) x", "a; 5 selected, b"]
+            ),
+            st.integers(min_value=1, max_value=60),
+            st.sampled_from(["round-robin", "cost-balanced"]),
+            st.integers(min_value=0, max_value=50),
+        ),
+        max_size=5,
+    )
+)
+def test_audit_plans_read_back_what_the_writer_prints(shards):
+    """Invariant: for any key the parser recovers the key, the shard's index
+    and count, and the execute count from the line the audit writes."""
+    lines = []
+    expected = []
+    for prefix, key, count, assignment, execute in shards:
+        lines.append(
+            f"{prefix}validation-waivers audit plan: partition {key} (1 of {count}, "
+            f"{assignment}) owns {execute} of 99 waiver path(s); {execute} "
+            f"selected, {execute} to execute"
+        )
+        expected.append(partition.AuditPlan(execute, key=key, index=1, count=count))
+    lines.append(
+        "validation-waivers audit plan: audit owns all 4 waiver path(s); "
+        "4 selected, 3 to execute"
+    )
+    expected.append(partition.AuditPlan(3))
+    assert partition.audit_plans(lines) == expected
+
+
 def test_main_registers_the_audit_costs_subcommand(tmp_path):
     with (
         patch(
