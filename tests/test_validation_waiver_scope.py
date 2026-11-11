@@ -14,6 +14,7 @@ from axiom_encode.validation_waiver_scope import (
     select_validation_waiver_scope,
     validation_waiver_read_set,
 )
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 
 def _module(root: Path, relative: str, *, imports: tuple[str, ...] = ()) -> Path:
@@ -743,7 +744,7 @@ def test_markdown_git_config_include_is_a_shared_validation_input(
         ["git", "init", "--quiet", str(root)],
         check=True,
         capture_output=True,
-        timeout=15,
+        timeout=HANG_TIMEOUT_SECONDS,
     )
     changed = "docs/route.md"
     include_file = root / changed

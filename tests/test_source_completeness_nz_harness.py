@@ -78,7 +78,19 @@ def test_counterfactual_rate_retains_base_gates_pending_positive_evidence():
         "The rate is the rate in clauses 1 to 6AA that would apply to them "
         "if they were single (and their other circumstances were unchanged)."
     )
-    assert len(sc._source_conjunctive_fact_gates(source)) == 2
+    # `that would apply to them` directly governs the subjunctive `if they
+    # were single`, so the terminal parenthesis holds the hypothetical fixed and
+    # states no fact (tests/test_nz_counterfactual_ceteris_paribus.py). Base's
+    # second gate was that clause; the actual two-gate inputs below keep theirs.
+    assert sc._source_conjunctive_fact_gates(source) == ()
+    assert (
+        len(
+            sc._source_conjunctive_fact_gates(
+                source.replace("were single", "are single")
+            )
+        )
+        == 2
+    )
     assert (
         len(
             sc._source_conjunctive_fact_gates(
@@ -151,14 +163,17 @@ def test_unrelated_would_apply_clause_retains_actual_eligibility_gates():
 )
 def test_non_german_clause_reference_retains_base_sentence_fallback(citation: str):
     # No complete outline: exercise the fallback independently of table parsing.
+    # U.S. sources no longer read German glued sentence markers (`6AA`, `6B`),
+    # so only the other jurisdictions keep base's sentence fallback.
     source = "The rate in clauses 1 to 6AA applies. 6B identifies the specified person."
-    assert [
+    sentences = [
         branch
         for branch in sc.recognize_source_structure(
             source, corpus_citation_path=citation
         )
         if branch.kind == "sentence"
     ]
+    assert bool(sentences) is not citation.startswith("us/")
     assert "6AA" not in sc.authoritative_numeric_recall_text(
         "The category 6AA is unchanged.", corpus_citation_path=citation
     )

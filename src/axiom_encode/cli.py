@@ -116,6 +116,16 @@ from axiom_encode.yaml_serialization import (
 )
 
 from . import validation_waivers as _validation_waivers
+from . import version_provenance as _version_provenance
+from .checks import (
+    ISSUE_SCHEMA_VERSION as VALIDATION_ISSUE_SCHEMA_VERSION,
+)
+from .checks import (
+    issues_from_document,
+    registry_document,
+    retype,
+    typed_issue_document,
+)
 from .codex_cli import (
     DEFAULT_CODEX_REASONING_EFFORT,
     codex_auth_error,
@@ -131,6 +141,7 @@ from .concepts import (
 )
 from .concepts.jurisdiction import jurisdiction_prefix as _repo_jurisdiction_prefix
 from .constants import (
+    DEFAULT_MODEL,
     DEFAULT_OPENAI_ESCALATE_AFTER,
     DEFAULT_OPENAI_ESCALATION_MODEL,
     DEFAULT_OPENAI_MODEL,
@@ -245,9 +256,11 @@ from .harness.evals import (
     _validate_eval_suite_run_identity,
     _validate_signed_eval_result_verdict_evidence,
     evaluate_artifact,
+    is_rulemaking_source_identifier,
     load_eval_suite_manifest,
     parse_runner_spec,
     resolve_corpus_source_unit,
+    rulemaking_explicit_output_required_message,
     run_eval_suite,
     run_model_eval,
     run_source_eval,
@@ -278,6 +291,10 @@ from .harness.proof_validator import (
     proof_source_citation_paths,
     validate_rulespec_proofs,
 )
+from .harness.same_case_execution import (
+    bind_execution_overlay_origin,
+    capture_execution_git_origin,
+)
 from .harness.source_completeness import (
     _deferred_coverage,
     _rulespec_target_base,
@@ -298,6 +315,8 @@ from .harness.validator_pipeline import (
     _filing_status_rule_source_context,
     _has_malformed_profiled_numeric_envelope,
     _is_executable_rulespec_rule,
+    _is_structural_selector_result_literal,
+    _is_structural_selector_rule,
     _matching_delegated_setting_rule_names,
     _normalize_rulespec_dependency_roots,
     _normalize_validation_staging_text,
@@ -310,6 +329,8 @@ from .harness.validator_pipeline import (
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
     _rulespec_import_prefix_static,
+    _rulespec_index_selector_keys,
+    _rulespec_index_selectors,
     _rulespec_payload_from_file,
     _rulespec_public_item_keys,
     _rulespec_repo_prefix,
@@ -523,11 +544,14 @@ from .signing_broker import (
     reject_direct_private_signing_environment,
 )
 from .toolchain import (
+    VALIDATION_WAIVER_SET_PATH,
     VALIDATION_WAIVER_SET_SHA256_FIELD,
     load_rulespec_local_corpus_release,
     load_rulespec_toolchain,
+    local_corpus_release_verification,
     local_signing_public_key,
     local_verification_active,
+    protected_process_signal_active,
     verify_rulespec_validation_waiver_set,
 )
 from .validation_waiver_scope import select_validation_waiver_scope
@@ -552,8 +576,18 @@ APPLIED_ENCODING_DELETED_MARKER = "deleted"
 APPLIED_ENCODING_MODEL_TOOL = "axiom-encode encode --apply"
 APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL = "axiom-encode promote-reviewed-candidate"
 APPLIED_ENCODING_RETIRE_TOOL = "axiom-encode retire"
+APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL = "axiom-encode retire-unreceipted"
 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR = Path(
     _LEGACY_REPLACEMENT_RECEIPT_DIR_TEXT
+)
+_GUARD_PROVENANCE_RECEIPT_DIRS = (
+    APPLIED_ENCODING_MANIFEST_DIR,
+    APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
+    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
+)
+_UNRECEIPTED_RETIREMENT_RECEIPT_DIRS = (
+    *_GUARD_PROVENANCE_RECEIPT_DIRS,
+    Path(RETIRED_SOURCE_METADATA_RECEIPT_DIR),
 )
 APPLIED_ENCODING_OFFICIAL_REPOSITORY = "github.com/TheAxiomFoundation/axiom-encode"
 # Trusted-runtime attestation (encode#1147): the git-free, root-provisioned
@@ -621,6 +655,10 @@ _MODEL_APPLY_MANIFEST_FIELDS = frozenset(
         "signature",
     }
 )
+_MODEL_CODEX_APPLY_MANIFEST_FIELDS = _MODEL_APPLY_MANIFEST_FIELDS | {
+    "codex_cli_version",
+    "codex_cli_sha256",
+}
 _REVIEWED_CANDIDATE_MANIFEST_FIELDS = frozenset(
     {
         "schema_version",
@@ -650,6 +688,20 @@ _RETIRE_APPLY_MANIFEST_FIELDS = frozenset(
         "applied_files",
         "retired_manifest",
         "source_attestation",
+        "signature",
+    }
+)
+_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS = frozenset(
+    {
+        "schema_version",
+        "generated_at",
+        "tool",
+        "reason",
+        "base_commit",
+        "axiom_encode_version",
+        "axiom_encode_git",
+        VALIDATION_WAIVER_SET_SHA256_FIELD,
+        "applied_files",
         "signature",
     }
 )
@@ -741,6 +793,146 @@ _LEGACY_REPLACEMENT_RECEIPT_FIELDS = frozenset(
         "signature",
     }
 )
+# Admission and ownership recognition use these exact, named variants. Codex
+# also admits the base model shape for historical receipts without CLI metadata.
+_APPLIED_MANIFEST_SCHEMA_VARIANTS = {
+    "model": (_MODEL_APPLY_MANIFEST_FIELDS,),
+    "codex model": (_MODEL_APPLY_MANIFEST_FIELDS, _MODEL_CODEX_APPLY_MANIFEST_FIELDS),
+    "reviewed candidate promotion": (_REVIEWED_CANDIDATE_MANIFEST_FIELDS,),
+    "retirement": (_RETIRE_APPLY_MANIFEST_FIELDS,),
+    "unreceipted retirement": (_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS,),
+    "path migration": (_PATH_MIGRATION_APPLY_MANIFEST_FIELDS,),
+    "legacy replacement": (_LEGACY_REPLACEMENT_APPLY_MANIFEST_FIELDS,),
+    "legacy exact dependent": (_LEGACY_EXACT_DEPENDENT_APPLY_MANIFEST_FIELDS,),
+    "legacy retained successor": (_LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS,),
+    "retired source metadata migration": (_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS,),
+}
+# Descriptive strings do not establish file coverage; snapshot integrity checks
+# may still read them. Every other value, including descriptive containers, scans.
+_UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS = frozenset(
+    {
+        "schema_version",
+        "generated_at",
+        "tool",
+        "axiom_encode_version",
+        "axiom_encode_git",
+        VALIDATION_WAIVER_SET_SHA256_FIELD,
+        "signature",
+    }
+)
+_UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES = {
+    _MODEL_APPLY_MANIFEST_FIELDS: (
+        frozenset({"run_id", "runner", "model"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "generation_prompt_sha256",
+            "citation",
+            "backend",
+            "generated_output_root",
+            "generated_output_file",
+            "generated_output_sha256",
+            "trace_file",
+            "trace_sha256",
+            "context_manifest_file",
+            "context_manifest_sha256",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+        },
+    ),
+    _MODEL_CODEX_APPLY_MANIFEST_FIELDS: (
+        frozenset({"run_id", "runner", "model"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "generation_prompt_sha256",
+            "citation",
+            "backend",
+            "generated_output_root",
+            "generated_output_file",
+            "generated_output_sha256",
+            "trace_file",
+            "trace_sha256",
+            "context_manifest_file",
+            "context_manifest_sha256",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+            "codex_cli_version",
+            "codex_cli_sha256",
+        },
+    ),
+    _REVIEWED_CANDIDATE_MANIFEST_FIELDS: (
+        frozenset({"run_id"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "citation",
+            "reviewed_rulespec_ref",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+        },
+    ),
+    _RETIRE_APPLY_MANIFEST_FIELDS: (
+        frozenset({"reason"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"applied_files", "retired_manifest", "source_attestation"},
+    ),
+    _UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS: (
+        frozenset({"reason"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"base_commit", "applied_files"},
+    ),
+    _PATH_MIGRATION_APPLY_MANIFEST_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"applied_files", "migrated_manifest", "migration", "source_attestation"},
+    ),
+    _LEGACY_REPLACEMENT_APPLY_MANIFEST_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "applied_files",
+            "replacement_manifest",
+            "replacement",
+            "source_attestation",
+        },
+    ),
+    _LEGACY_EXACT_DEPENDENT_APPLY_MANIFEST_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"applied_files", "legacy_migration"},
+    ),
+    _LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"applied_files", "legacy_migration", "retained_successor_manifest"},
+    ),
+    _RETIRED_SOURCE_METADATA_MANIFEST_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {"applied_files", "retired_source_metadata", "prior_manifest"},
+    ),
+    _LEGACY_REPLACEMENT_RECEIPT_FIELDS: (
+        frozenset(),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "repository",
+            "corpus_release",
+            "validation_execution",
+            "legacy",
+            "replacement",
+            "replacement_manifest",
+        },
+    ),
+}
+_UNRECEIPTED_RETIREMENT_NESTED_RECEIPT_FIELDS = frozenset(
+    {
+        "retired_manifest",
+        "migrated_manifest",
+        "replacement_manifest",
+        "retained_successor_manifest",
+    }
+)
 _RETIRED_SCHEMA_COUNT_TEST_PATH = Path("tests/test_legacy_rulespec_freeze.py")
 _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS = frozenset(
     {
@@ -756,6 +948,7 @@ _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS = frozenset(
 )
 _MODEL_APPLIED_FILE_FIELDS = frozenset({"path", "sha256"})
 _RETIRED_APPLIED_FILE_FIELDS = frozenset({"path", "deleted"})
+_UNRECEIPTED_RETIRED_APPLIED_FILE_FIELDS = frozenset({"path", "deleted", "sha256"})
 _PATH_MIGRATION_LIVE_FILE_FIELDS = frozenset({"path", "sha256"})
 _PATH_MIGRATION_DELETED_FILE_FIELDS = frozenset({"path", "deleted"})
 
@@ -1711,9 +1904,11 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     from .ci_parity import register_ci_parser
+    from .harness.admission_cli import register_admission_score_parser
     from .new_jurisdiction import register_new_jurisdiction_parser
 
     register_ci_parser(subparsers)
+    register_admission_score_parser(subparsers)
     register_new_jurisdiction_parser(subparsers)
 
     # validate command
@@ -2521,6 +2716,15 @@ def main():
     guard_generated_parser.add_argument(
         "--json", action="store_true", help="Output guard result as JSON"
     )
+    guard_generated_parser.add_argument(
+        "--candidate-status",
+        action="store_true",
+        help=(
+            "Also report, from Git metadata only, whether the change set is an "
+            "unadmitted reviewed candidate, admitted, or invalid; the guard's "
+            "checks and exit code do not change"
+        ),
+    )
 
     stage_signed_backfill_parser = subparsers.add_parser(
         "stage-signed-backfill",
@@ -2649,6 +2853,25 @@ def main():
     _add_expected_encoder_checkout_argument(signed_import_parser)
     signed_import_parser.add_argument(
         "--json", action="store_true", help="Output inventory as JSON"
+    )
+
+    checks_parser = subparsers.add_parser(
+        "checks",
+        help=(
+            "List the declared validator checks (id, requirement, why, fix, "
+            "cause, code site) of this encoder version"
+        ),
+    )
+    checks_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the axiom-encode/check-registry/v1 document",
+    )
+    checks_parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Write the JSON document to this path instead of stdout",
     )
 
     manifest_census_parser = subparsers.add_parser(
@@ -2822,6 +3045,14 @@ def main():
         required=True,
         help="Why the files are being retired (recorded in the manifest)",
     )
+    retire_parser.add_argument(
+        "--unreceipted",
+        action="store_true",
+        help=(
+            "Explicitly retire a primary and companion that no manifest or "
+            "receipt covers at HEAD; sign their exact deleted byte hashes"
+        ),
+    )
     _add_required_corpus_path_argument(retire_parser)
 
     path_migration_parser = subparsers.add_parser(
@@ -2994,14 +3225,18 @@ def main():
     encode_parser.add_argument(
         "--model",
         default=None,
-        help=f"Model to use for encoding (default: {DEFAULT_OPENAI_MODEL})",
+        help=(
+            f"Model to use for encoding (default: {DEFAULT_OPENAI_MODEL}; "
+            f"claude-api: {DEFAULT_MODEL})"
+        ),
     )
     encode_parser.add_argument(
         "--escalation-model",
-        default=DEFAULT_OPENAI_ESCALATION_MODEL,
+        default=None,
         help=(
             "Model for the final validator-failure retry "
-            f"(default: {DEFAULT_OPENAI_ESCALATION_MODEL})"
+            f"(default: {DEFAULT_OPENAI_ESCALATION_MODEL}; "
+            f"claude-api: {DEFAULT_MODEL})"
         ),
     )
     encode_parser.add_argument(
@@ -3023,7 +3258,7 @@ def main():
     )
     encode_parser.add_argument(
         "--backend",
-        choices=["codex", "openai", "claude"],
+        choices=["codex", "openai", "claude", "claude-api"],
         default="codex",
         help=(
             "Backend (default: codex): 'codex' uses the Codex CLI with "
@@ -3031,6 +3266,7 @@ def main():
             "OPENAI_API_KEY; use --model/--escalation-model to override, "
             "including gpt-6.1-sol), "
             "'openai' uses OpenAI Responses API, "
+            "'claude-api' uses the Anthropic Messages API, "
             "'claude' uses Claude CLI. Claude tiers are reserved for "
             "orchestration and review; net-new statutory encoding runs "
             "through codex."
@@ -3289,6 +3525,43 @@ def main():
             "replacement-receipt provenance."
         ),
     )
+    encode_parser.add_argument(
+        "--corpus-release-public-key",
+        default=None,
+        help=(
+            "Verification-only local run: verify the pinned corpus release "
+            "with this public root (AXIOM_CORPUS_RELEASE_PUBLIC_KEY) instead of "
+            "an attached signing broker, as axiom-encode ci does. It conveys no "
+            "signing capability, is refused with --apply, and is refused under "
+            "an attached signing broker, the trusted runtime or CI."
+        ),
+    )
+    encode_parser.add_argument(
+        "--corpus-release-retired-public-key",
+        action="append",
+        default=[],
+        help=(
+            "With --corpus-release-public-key, a retired corpus release public "
+            "key to accept beside the current key (repeatable)"
+        ),
+    )
+    encode_parser.add_argument(
+        "--apply-public-key",
+        default=None,
+        help=(
+            "With --corpus-release-public-key, the apply-manifest public root "
+            "(AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY) that verifies existing "
+            "signed apply manifests"
+        ),
+    )
+    encode_parser.add_argument(
+        "--eval-public-key",
+        default=None,
+        help=(
+            "With --corpus-release-public-key, the eval-evidence public root "
+            "(AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY)"
+        ),
+    )
     _add_complete_source_unit_argument(encode_parser)
     _add_rulespec_dependency_root_argument(encode_parser)
 
@@ -3346,6 +3619,11 @@ def main():
         "--json",
         action="store_true",
         help="Emit machine-readable JSON summary",
+    )
+    eval_parser.add_argument(
+        "--skip-reviewers",
+        action="store_true",
+        help="Skip LLM reviewer checks after deterministic validation",
     )
     _add_complete_source_unit_argument(eval_parser)
     _add_rulespec_dependency_root_argument(eval_parser)
@@ -3407,6 +3685,11 @@ def main():
         "--json",
         action="store_true",
         help="Emit machine-readable JSON summary",
+    )
+    eval_source_parser.add_argument(
+        "--skip-reviewers",
+        action="store_true",
+        help="Skip LLM reviewer checks after deterministic validation",
     )
     eval_source_parser.add_argument(
         "--policyengine-rule-hint",
@@ -3473,6 +3756,24 @@ def main():
         "--json",
         action="store_true",
         help="Emit machine-readable JSON summary",
+    )
+    eval_suite_parser.add_argument(
+        "--skip-reviewers",
+        action="store_true",
+        help=(
+            "Skip LLM reviewer checks after deterministic validation; "
+            "repeat this flag when resuming a suite created with it"
+        ),
+    )
+    eval_suite_parser.add_argument(
+        "--admission-score",
+        action="store_true",
+        help="Record production admission beside the four readiness gates",
+    )
+    eval_suite_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for admission of compositions",
     )
     _add_policyengine_runtime_root_argument(eval_suite_parser)
 
@@ -3789,6 +4090,12 @@ def main():
     _judge_cli.register_judge_subparsers(subparsers)
 
     args = parser.parse_args()
+    if args.command == "encode" and args.escalation_model is None:
+        args.escalation_model = (
+            DEFAULT_MODEL
+            if args.backend == "claude-api"
+            else DEFAULT_OPENAI_ESCALATION_MODEL
+        )
 
     if args.command == "ci":
         from .ci_parity import run_ci
@@ -3883,6 +4190,8 @@ def main():
         cmd_promote_reviewed_candidate(args)
     elif args.command == "signed-import-inventory":
         cmd_signed_import_inventory(args)
+    elif args.command == "checks":
+        cmd_checks(args)
     elif args.command == "manifest-census":
         cmd_manifest_census(args)
     elif args.command == "encode":
@@ -3893,6 +4202,10 @@ def main():
         cmd_eval_source(args)
     elif args.command == "eval-suite":
         cmd_eval_suite(args)
+    elif args.command == "admission-score":
+        from .harness.admission_cli import run_admission_score
+
+        sys.exit(run_admission_score(args))
     elif args.command == "eval-suite-revalidate":
         cmd_eval_suite_revalidate(args)
     elif args.command == "eval-suite-report":
@@ -4385,6 +4698,13 @@ def _fingerprint_validation_waiver_modules(
     `ValidatorPipeline.validate` opens its own fresh resolution scope, so
     every fingerprint equals the module's standalone value regardless of
     batch composition or worker fan-out.
+
+    The batch does share one `LocalCorpusRelease`, whose corpus resolution
+    cache persists across modules. Unlike the filesystem admissions above,
+    every value it retains is a pure function of release-verified bytes and
+    its lookup key, and nothing that failed to load is retained, so reuse
+    cannot change a message or a fingerprint
+    (tests/test_validator_corpus_cache.py).
     """
 
     with _rulespec_routing_cache_scope():
@@ -8132,6 +8452,26 @@ def cmd_guard_generated(args):
     )
     roots = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
     all_files = bool(getattr(args, "all", False))
+    candidate_status = None
+    if getattr(args, "candidate_status", False):
+        # Classify before any corpus, broker, or manifest work, and print it
+        # first in text mode so a later guard failure cannot hide it.
+        try:
+            candidate_status = guard_candidate_status_report(
+                repo_path,
+                base_ref=args.base_ref,
+                head_ref=args.head_ref,
+                roots=roots,
+            )
+        except Exception as exc:  # the report must never change the guard
+            candidate_status = _guard_candidate_status_skeleton(repo_path)
+            _guard_candidate_reason(
+                candidate_status["reasons"],
+                "report_failed",
+                f"candidate status failed: {type(exc).__name__}: {exc}",
+            )
+        if not args.json:
+            print(json.dumps(candidate_status, indent=2, sort_keys=True), flush=True)
     issues = guard_generated_change_issues(
         repo_path,
         corpus_path=Path(args.corpus_path),
@@ -8143,6 +8483,8 @@ def cmd_guard_generated(args):
         expected_encoder_checkout=getattr(args, "expected_encoder_checkout", None),
     )
     payload = {"repo": str(repo_path), "passed": not issues, "issues": issues}
+    if candidate_status is not None and args.json:
+        payload["candidate_status"] = candidate_status
     if args.json:
         print(json.dumps(payload, indent=2))
     elif issues:
@@ -8155,6 +8497,622 @@ def cmd_guard_generated(args):
         else:
             print("All changed RuleSpec files have encoder apply manifests.")
     sys.exit(0 if not issues else 1)
+
+
+GUARD_CANDIDATE_STATUS_SCHEMA = "axiom-encode/guard-candidate-status/v1"
+GUARD_CANDIDATE_STATUS_UNADMITTED = "unadmitted_reviewed_candidate"
+GUARD_CANDIDATE_STATUS_ADMITTED = "admitted"
+GUARD_CANDIDATE_STATUS_INVALID = "invalid"
+GUARD_CANDIDATE_STATUS_NO_RULESPEC_CHANGE = "no_rulespec_change"
+_GUARD_CANDIDATE_MAX_BLOB_BYTES = 10 * 1024 * 1024
+# Every reason has a stable ``code`` and one ``category``:
+# - ``rulespec``: the changed modules, companions, or manifests do not form an
+#   unadmitted candidate or an admitted change set;
+# - ``maintenance``: a non-RuleSpec file changed (waiver set, provenance
+#   metadata, any other file);
+# - ``environment``: the report could not trust the checkout or did not run.
+GUARD_CANDIDATE_REASON_CATEGORIES: dict[str, str] = {
+    "module_count": "rulespec",
+    "companion_missing": "rulespec",
+    "companion_of_other_module": "rulespec",
+    "module_not_regular": "rulespec",
+    "citation_missing": "rulespec",
+    "citation_noncanonical": "rulespec",
+    "citation_outside_jurisdiction": "rulespec",
+    "module_path_noncanonical": "rulespec",
+    "manifest_only": "rulespec",
+    "manifest_missing": "rulespec",
+    "manifest_unmatched": "rulespec",
+    "manifest_not_regular": "rulespec",
+    "noncanonical_yml_changed": "rulespec",
+    "waiver_changed": "maintenance",
+    "metadata_changed": "maintenance",
+    "other_file_changed": "maintenance",
+    "base_ref_missing": "environment",
+    "git_inspection_failed": "environment",
+    "checkout_dirty": "environment",
+    "report_failed": "environment",
+}
+# Repository or user Git configuration can make the stat cache vouch for a
+# modified file: fsmonitor answers, ``core.checkStat=minimal`` with
+# ``core.trustctime=false`` (mtime and size only), ``core.ignoreStat``, or a
+# stale untracked cache. Override them so Git compares content whenever the
+# full stat data cannot prove a file unchanged.
+_GUARD_CANDIDATE_WORKTREE_GIT_CONFIG = (
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.checkStat=default",
+    "-c",
+    "core.trustctime=true",
+    "-c",
+    "core.ignoreStat=false",
+    "-c",
+    "core.untrackedCache=false",
+)
+
+
+def _guard_candidate_reason(
+    reasons: list[dict[str, str]], code: str, message: str
+) -> None:
+    reasons.append(
+        {
+            "code": code,
+            "category": GUARD_CANDIDATE_REASON_CATEGORIES[code],
+            "message": message,
+        }
+    )
+
+
+def _guard_candidate_status_skeleton(repo_path: Path) -> dict[str, Any]:
+    """Return an ``invalid`` report that carries every schema key."""
+
+    try:
+        repo_path = Path(repo_path).resolve()
+    except (OSError, RuntimeError, TypeError):
+        repo_path = Path(str(repo_path))
+    country_match = re.fullmatch(r"rulespec-([a-z]{2}(?:-[a-z0-9_]+)*)", repo_path.name)
+    return {
+        "schema": GUARD_CANDIDATE_STATUS_SCHEMA,
+        "status": GUARD_CANDIDATE_STATUS_INVALID,
+        "reasons": [],
+        "repository": repo_path.name,
+        "country": country_match.group(1) if country_match else None,
+        "base_sha": None,
+        "head_sha": None,
+        "changed_files": [],
+        "candidate": None,
+    }
+
+
+def _guard_candidate_committed_changes(
+    repo_path: Path, base_sha: str, head_sha: str
+) -> list[tuple[str, str, str]]:
+    """Return ``(path, head mode, head object id)`` for each committed change.
+
+    One ``git diff --raw`` lists every changed path with its head mode and
+    object id, so the cost does not grow by a Git process per path.
+    """
+
+    listing = _rulespec_migration_git_bytes(
+        repo_path,
+        "diff",
+        "--raw",
+        "-z",
+        "--no-abbrev",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-relative",
+        "--ignore-submodules=none",
+        "--diff-filter=ACDMRT",
+        "--end-of-options",
+        base_sha,
+        head_sha,
+        "--",
+    )
+    fields = listing.split(b"\0")
+    if fields[-1] != b"" or len(fields) % 2 != 1:
+        raise RuntimeError("git diff --raw returned a malformed listing")
+    changes: dict[str, tuple[str, str]] = {}
+    for metadata, encoded_path in zip(fields[0:-1:2], fields[1:-1:2]):
+        parts = metadata.decode("ascii").split(" ")
+        if len(parts) != 5 or not parts[0].startswith(":") or not encoded_path:
+            raise RuntimeError("git diff --raw returned a malformed record")
+        path = os.fsdecode(encoded_path)
+        if path in changes:
+            raise RuntimeError(f"git diff --raw listed {path} twice")
+        changes[path] = (parts[1], parts[3])
+    return [(path, *changes[path]) for path in sorted(changes)]
+
+
+def _guard_candidate_git_input(
+    repo_path: Path, arguments: tuple[str, ...], request: bytes
+) -> bytes:
+    completed = subprocess.run(
+        ["git", "-C", str(repo_path), *arguments],
+        input=request,
+        capture_output=True,
+        env=_rulespec_migration_git_environment(),
+        check=False,
+    )
+    if completed.returncode != 0:
+        stderr = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            f"Cannot inspect RuleSpec Git objects ({' '.join(arguments)}): {stderr}"
+        )
+    return completed.stdout
+
+
+def _guard_candidate_blob_sizes(
+    repo_path: Path, object_ids: list[str]
+) -> dict[str, int]:
+    """Size every requested blob with one ``git cat-file --batch-check``."""
+
+    if not object_ids:
+        return {}
+    listing = _guard_candidate_git_input(
+        repo_path,
+        ("cat-file", "--batch-check"),
+        "".join(f"{object_id}\n" for object_id in object_ids).encode("ascii"),
+    )
+    lines = listing.decode("ascii").splitlines()
+    sizes: dict[str, int] = {}
+    for object_id, line in zip(object_ids, lines, strict=True):
+        fields = line.split(" ")
+        if len(fields) != 3 or fields[0] != object_id or fields[1] != "blob":
+            raise RuntimeError(f"Cannot size RuleSpec Git blob {object_id}: {line}")
+        sizes[object_id] = int(fields[2])
+    return sizes
+
+
+def _guard_candidate_hash_blobs(
+    repo_path: Path, object_ids: list[str], *, keep: set[str]
+) -> tuple[dict[str, str], dict[str, bytes]]:
+    """Stream blobs through one ``git cat-file --batch`` into sha256 digests.
+
+    Only blobs in ``keep`` stay in memory; every other blob is hashed in
+    bounded chunks and dropped.
+    """
+
+    digests: dict[str, str] = {}
+    kept: dict[str, bytes] = {}
+    if not object_ids:
+        return digests, kept
+    with tempfile.TemporaryFile() as request, tempfile.TemporaryFile() as errors:
+        request.write("".join(f"{object_id}\n" for object_id in object_ids).encode())
+        request.seek(0)
+        process = subprocess.Popen(
+            ["git", "-C", str(repo_path), "cat-file", "--batch"],
+            stdin=request,
+            stdout=subprocess.PIPE,
+            stderr=errors,
+            env=_rulespec_migration_git_environment(),
+        )
+        stream = process.stdout
+        assert stream is not None
+        read_all = False
+        try:
+            for object_id in object_ids:
+                header = stream.readline().decode("ascii").rstrip("\n").split(" ")
+                if len(header) != 3 or header[0] != object_id or header[1] != "blob":
+                    raise RuntimeError(f"Cannot read RuleSpec Git blob {object_id}")
+                remaining = int(header[2])
+                digest = hashlib.sha256()
+                chunks: list[bytes] | None = [] if object_id in keep else None
+                while remaining:
+                    chunk = stream.read(min(remaining, 1024 * 1024))
+                    if not chunk:
+                        raise RuntimeError(f"Truncated RuleSpec Git blob {object_id}")
+                    digest.update(chunk)
+                    if chunks is not None:
+                        chunks.append(chunk)
+                    remaining -= len(chunk)
+                if stream.read(1) != b"\n":
+                    raise RuntimeError(f"Malformed RuleSpec Git blob {object_id}")
+                digests[object_id] = digest.hexdigest()
+                if chunks is not None:
+                    kept[object_id] = b"".join(chunks)
+            # Git exits on its own at the end of the request file; wait for
+            # that end of output instead of racing its exit.
+            if stream.read(1):
+                raise RuntimeError("git cat-file --batch wrote unexpected output")
+            read_all = True
+        finally:
+            if not read_all:
+                process.kill()
+            returncode = process.wait()
+            stream.close()
+        if returncode != 0:
+            errors.seek(0)
+            stderr = errors.read().decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"Cannot read RuleSpec Git blobs: {stderr}")
+    return digests, kept
+
+
+def _guard_candidate_uncommitted_paths(repo_path: Path, head_sha: str) -> set[str]:
+    """Name every staged, unstaged, untracked, or flag-hidden checkout change."""
+
+    # Staged, unstaged, and untracked state all bind other bytes than the head
+    # commit, including staged edits undone in the worktree.
+    listing = _rulespec_migration_git_bytes(
+        repo_path,
+        *_GUARD_CANDIDATE_WORKTREE_GIT_CONFIG,
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-relative",
+        "--ignore-submodules=none",
+        "--diff-filter=ACDMRT",
+        "-z",
+        "--end-of-options",
+        head_sha,
+        "--",
+    )
+    uncommitted = {os.fsdecode(path) for path in listing.split(b"\0") if path}
+    status = _rulespec_migration_git_bytes(
+        repo_path,
+        *_GUARD_CANDIDATE_WORKTREE_GIT_CONFIG,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--no-renames",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+    )
+    from_status = {
+        os.fsdecode(record[3:])
+        for record in status.split(b"\0")
+        if len(record) > 3 and record[2:3] == b" "
+    }
+    uncommitted |= from_status
+    if status and not from_status:
+        uncommitted.add("<git status>")
+    # assume-unchanged (lowercase tag) and skip-worktree (S) entries hide
+    # worktree edits from diff and status, so refuse them.
+    flags = _rulespec_migration_git_bytes(repo_path, "ls-files", "-v", "-z")
+    uncommitted.update(
+        os.fsdecode(record[2:]) + " (index flag hides worktree changes)"
+        for record in flags.split(b"\0")
+        if len(record) > 2 and (record[:1].islower() or record[:1] in {b"S", b"s"})
+    )
+    return uncommitted
+
+
+def _guard_candidate_change_kind(path: str, *, roots: tuple[str, ...]) -> str:
+    relative = Path(path)
+    if _guard_provenance_path_case_issue(relative) is not None or any(
+        part.casefold() == ".axiom" and part != ".axiom" for part in relative.parts
+    ):
+        return "metadata"
+    if _is_applied_encoding_manifest_path(relative, roots=roots):
+        return "manifest"
+    if _is_protected_rulespec_yaml_path(relative, roots=roots):
+        return (
+            "companion"
+            if relative.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+            else "module"
+        )
+    if path == VALIDATION_WAIVER_SET_PATH:
+        return "waiver"
+    if ".axiom" in relative.parts:
+        return "metadata"
+    if _is_noncanonical_rulespec_yml_path(relative, roots=roots):
+        return "noncanonical_yml"
+    return "other"
+
+
+def _guard_candidate_module_path(path: str) -> str:
+    """Map a companion test path to its module path."""
+
+    relative = Path(path)
+    if relative.name.endswith(RULESPEC_TEST_FILE_SUFFIX):
+        stem = relative.name[: -len(RULESPEC_TEST_FILE_SUFFIX)]
+        return relative.with_name(f"{stem}{RULESPEC_FILE_SUFFIX}").as_posix()
+    return path
+
+
+def _guard_candidate_citation(blob: bytes, path: str) -> tuple[str | None, str]:
+    """Return the module's corpus citation, or why its YAML was rejected.
+
+    Size, token, depth, alias, and node budgets apply before any value is
+    constructed, and merge keys are refused before PyYAML can expand them
+    (RuleSpec refuses merge keys everywhere), so hostile YAML stays cheap.
+    """
+
+    from .source_hash import (
+        _MAX_RULESPEC_YAML_BYTES,
+        RuleSpecScanError,
+        _validate_yaml_node_graph,
+        _validate_yaml_tokens,
+    )
+
+    if len(blob) > _MAX_RULESPEC_YAML_BYTES:
+        return None, f"larger than the {_MAX_RULESPEC_YAML_BYTES}-byte RuleSpec limit"
+    try:
+        source = blob.decode("utf-8")
+        _validate_yaml_tokens(source, Path(path))
+        root_node = yaml.compose(source, Loader=yaml.SafeLoader)
+        _validate_yaml_node_graph(root_node, Path(path), reject_merges=True)
+        document = yaml.load(  # noqa: S506 - unique-key safe loader
+            source, Loader=_LegacyReplacementYamlLoader
+        )
+    except RuleSpecScanError as exc:
+        return None, exc.reason
+    except (
+        UnicodeDecodeError,
+        ValueError,
+        TypeError,
+        RecursionError,
+        yaml.YAMLError,
+    ) as exc:
+        return None, f"{type(exc).__name__}: {exc}".splitlines()[0]
+    module = document.get("module") if isinstance(document, dict) else None
+    verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    value = (
+        verification.get("corpus_citation_path")
+        if isinstance(verification, dict)
+        else None
+    )
+    if isinstance(value, str) and value.strip() == value and value:
+        return value, ""
+    return None, ""
+
+
+def guard_candidate_status_report(
+    repo_path: Path,
+    *,
+    base_ref: str | None,
+    head_ref: str = "HEAD",
+    roots: tuple[str, ...] = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+) -> dict[str, Any]:
+    """Classify a change set for local-contribution admission (#1628, B3).
+
+    This is a structural report from Git metadata and head blobs only: it
+    loads no corpus, runs no engine, attaches no signing broker, and verifies
+    no manifest. ``admitted`` means every changed module and companion is a
+    regular 0644 file carrying its manifest, and every changed manifest
+    belongs to a changed module or companion; ``guard_generated_change_issues``
+    stays the only authority on whether those manifests verify.
+    """
+
+    from .prepare_signed_backfill import citation_rulespec_path
+
+    report = _guard_candidate_status_skeleton(repo_path)
+    repo_path = Path(repo_path).resolve()
+    reasons: list[dict[str, str]] = report["reasons"]
+
+    def reason(code: str, message: str) -> None:
+        _guard_candidate_reason(reasons, code, message)
+
+    if base_ref is None:
+        reason("base_ref_missing", "candidate status requires --base-ref")
+        return report
+    try:
+        with _rulespec_migration_clean_ambient_git():
+            base_sha, head_sha = _resolve_guard_git_refs(
+                repo_path, base_ref=base_ref, head_ref=head_ref
+            )
+            if base_sha is None:
+                raise ValueError("candidate status requires a Git repository")
+            report["base_sha"], report["head_sha"] = base_sha, head_sha
+            committed = _guard_candidate_committed_changes(
+                repo_path, base_sha, head_sha
+            )
+            uncommitted = _guard_candidate_uncommitted_paths(repo_path, head_sha)
+            changed: list[dict[str, Any]] = [
+                {
+                    "path": path,
+                    "kind": _guard_candidate_change_kind(path, roots=roots),
+                    "sha256": None,
+                    "head_state": (
+                        "deleted"
+                        if set(mode) == {"0"}
+                        else "regular"
+                        if mode == "100644"
+                        else f"not a regular 0644 file (mode {mode})"
+                    ),
+                    "_object_id": object_id,
+                }
+                for path, mode, object_id in committed
+            ]
+            regular = list(
+                dict.fromkeys(
+                    entry["_object_id"]
+                    for entry in changed
+                    if entry["head_state"] == "regular"
+                )
+            )
+            sizes = _guard_candidate_blob_sizes(repo_path, regular)
+            for entry in changed:
+                if sizes.get(entry["_object_id"], 0) > _GUARD_CANDIDATE_MAX_BLOB_BYTES:
+                    entry["head_state"] = "larger than 10 MiB"
+            module_entries = [entry for entry in changed if entry["kind"] == "module"]
+            keep = (
+                {module_entries[0]["_object_id"]}
+                if len(module_entries) == 1
+                and module_entries[0]["head_state"] == "regular"
+                else set()
+            )
+            digests, blobs = _guard_candidate_hash_blobs(
+                repo_path,
+                [
+                    object_id
+                    for object_id in regular
+                    if sizes[object_id] <= _GUARD_CANDIDATE_MAX_BLOB_BYTES
+                ],
+                keep=keep,
+            )
+            for entry in changed:
+                if entry["head_state"] == "regular":
+                    entry["sha256"] = digests[entry["_object_id"]]
+    except (OSError, ValueError, RuntimeError, UnicodeDecodeError) as exc:
+        reason("git_inspection_failed", f"cannot inspect the change set: {exc}")
+        return report
+    report["changed_files"] = [
+        {key: value for key, value in entry.items() if key != "_object_id"}
+        for entry in changed
+    ]
+    if uncommitted:
+        reason(
+            "checkout_dirty",
+            "checkout has uncommitted or untracked changes: "
+            + ", ".join(sorted(uncommitted)),
+        )
+
+    by_kind: dict[str, list[dict[str, Any]]] = {}
+    for entry in changed:
+        by_kind.setdefault(entry["kind"], []).append(entry)
+    modules = by_kind.get("module", [])
+    companions = by_kind.get("companion", [])
+    manifests = by_kind.get("manifest", [])
+    if not modules and not companions and not manifests:
+        for kind, code, label in (
+            ("waiver", "waiver_changed", "validation waiver set changed"),
+            ("metadata", "metadata_changed", "provenance metadata changed"),
+            (
+                "noncanonical_yml",
+                "noncanonical_yml_changed",
+                "noncanonical .yml RuleSpec changed",
+            ),
+        ):
+            for entry in by_kind.get(kind, []):
+                reason(code, f"{label} without a RuleSpec change: {entry['path']}")
+        if not reasons:
+            report["status"] = GUARD_CANDIDATE_STATUS_NO_RULESPEC_CHANGE
+        return report
+
+    if manifests:
+        if not modules and not companions:
+            reason(
+                "manifest_only",
+                "manifest-only change set: manifests changed without any "
+                "RuleSpec change (#1531)",
+            )
+            return report
+        expected_manifests: dict[str, list[str]] = {}
+        for entry in modules + companions:
+            if entry["head_state"] != "regular":
+                reason(
+                    "module_not_regular",
+                    f"{entry['path']} is {entry['head_state']} at head",
+                )
+            module_path = _guard_candidate_module_path(entry["path"])
+            expected = _applied_encoding_manifest_path(Path(module_path)).as_posix()
+            expected_manifests.setdefault(expected, []).append(entry["path"])
+        regular_manifests = set()
+        for entry in manifests:
+            if entry["head_state"] == "regular":
+                regular_manifests.add(entry["path"])
+            else:
+                reason(
+                    "manifest_not_regular",
+                    f"manifest {entry['path']} is {entry['head_state']} at head",
+                )
+            if entry["path"] not in expected_manifests:
+                reason(
+                    "manifest_unmatched",
+                    f"manifest {entry['path']} changed without a change to its "
+                    "RuleSpec module or companion",
+                )
+        for expected, paths in expected_manifests.items():
+            if expected not in regular_manifests:
+                for path in paths:
+                    reason(
+                        "manifest_missing",
+                        f"{path} changed without its matching manifest {expected}",
+                    )
+        if not reasons:
+            report["status"] = GUARD_CANDIDATE_STATUS_ADMITTED
+        return report
+
+    for kind, code, label in (
+        ("waiver", "waiver_changed", "validation waiver set changed"),
+        ("metadata", "metadata_changed", "provenance metadata changed"),
+        (
+            "noncanonical_yml",
+            "noncanonical_yml_changed",
+            "noncanonical .yml RuleSpec changed",
+        ),
+        ("other", "other_file_changed", "non-RuleSpec file changed"),
+    ):
+        for entry in by_kind.get(kind, []):
+            reason(code, f"{label}: {entry['path']}")
+    if len(modules) != 1:
+        reason(
+            "module_count",
+            f"expected exactly one RuleSpec module, found {len(modules)}: "
+            + ", ".join(entry["path"] for entry in modules),
+        )
+        return report
+    module = modules[0]
+    companion_path = _rulespec_test_path(Path(module["path"])).as_posix()
+    companion = next(
+        (entry for entry in companions if entry["path"] == companion_path), None
+    )
+    for entry in companions:
+        if entry["path"] != companion_path:
+            reason(
+                "companion_of_other_module",
+                f"companion test of another module changed: {entry['path']}",
+            )
+    if companion is None:
+        reason("companion_missing", f"companion test {companion_path} did not change")
+    for entry in (module, companion):
+        if entry is not None and entry["head_state"] != "regular":
+            reason(
+                "module_not_regular",
+                f"{entry['path']} is {entry['head_state']} at head",
+            )
+    citation = None
+    module_blob = blobs.get(module["_object_id"])
+    if module_blob is not None:
+        citation, rejected = _guard_candidate_citation(module_blob, module["path"])
+        if citation is None:
+            reason(
+                "citation_missing",
+                f"{module['path']} declares no module.source_verification."
+                "corpus_citation_path"
+                + (f" (YAML rejected: {rejected})" if rejected else ""),
+            )
+    if citation is not None:
+        jurisdiction = citation.split("/", 1)[0]
+        country = report["country"]
+        try:
+            require_canonical_corpus_citation_path(citation)
+            canonical = citation_rulespec_path(citation).as_posix()
+        except (ValueError, CorpusResolutionError) as exc:
+            reason(
+                "citation_noncanonical",
+                f"citation {citation} has no canonical path: {exc}",
+            )
+        else:
+            if country is None or (
+                jurisdiction != country and not jurisdiction.startswith(f"{country}-")
+            ):
+                reason(
+                    "citation_outside_jurisdiction",
+                    f"citation {citation} is outside the {repo_path.name} jurisdiction",
+                )
+            if canonical != module["path"]:
+                reason(
+                    "module_path_noncanonical",
+                    f"{module['path']} is not at the canonical path {canonical} "
+                    f"of citation {citation}",
+                )
+    if reasons:
+        return report
+    report["status"] = GUARD_CANDIDATE_STATUS_UNADMITTED
+    report["candidate"] = {
+        "citation": citation,
+        "rulespec_path": module["path"],
+        "rulespec_sha256": module["sha256"],
+        "companion_path": companion["path"],
+        "companion_sha256": companion["sha256"],
+    }
+    return report
 
 
 def cmd_stage_signed_backfill(args):
@@ -8541,12 +9499,37 @@ def cmd_refresh_applied_manifest(args):
             print(f"refreshed {expected_manifest}")
 
 
+_REVIEWED_RULESPEC_RUNTIME_RECORD_DIR = "reviewed-rulespec-refs"
+
+
+def _promotion_reviewed_rulespec_record_root() -> Path | None:
+    """Locate the admission records this encoder itself was built from.
+
+    Never caller-supplied. Under the signing supervisor's trusted-runtime
+    marker, the records are the ones provisioning exported from the attested
+    encoder commit into the root-owned runtime prefix (next to the validated
+    runtime attestation). Otherwise only a source checkout has records, its own
+    ``data/reviewed-rulespec-refs``; an installed package has none, so
+    promotion refuses.
+    """
+
+    from .prepare_signed_backfill import _checkout_reviewed_rulespec_record_root
+
+    if os.environ.get(_TRUSTED_RUNTIME_ENV) == "1":
+        attestation = _load_trusted_runtime_attestation()
+        return Path(attestation["path"]).parent / _REVIEWED_RULESPEC_RUNTIME_RECORD_DIR
+    return _checkout_reviewed_rulespec_record_root()
+
+
 def cmd_promote_reviewed_candidate(args):
     """Validate and sign one exact allowlisted reviewed RuleSpec commit."""
 
     from .prepare_signed_backfill import (
-        REVIEWED_RULESPEC_REFS,
+        UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS,
+        ReviewedRulespecRecord,
+        _reviewed_rulespec_record_issue,
         citation_rulespec_path,
+        load_reviewed_rulespec_records,
     )
 
     repo_path = _resolve_canonical_rulespec_checkout(
@@ -8578,8 +9561,68 @@ def cmd_promote_reviewed_candidate(args):
     ).strip()
     if actual_ref != reviewed_ref:
         raise ValueError("reviewed candidate checkout does not match its exact ref")
-    if (country, reviewed_ref) not in REVIEWED_RULESPEC_REFS:
+    record_root = _promotion_reviewed_rulespec_record_root()
+    if record_root is None:
+        raise ValueError(
+            "reviewed candidate promotion has no trusted admission record root"
+        )
+    reviewed_records = load_reviewed_rulespec_records(record_root)
+    admission = next(
+        (
+            record
+            for record in reviewed_records
+            if (record.country, record.rulespec_ref) == (country, reviewed_ref)
+        ),
+        None,
+    )
+    live_admission = None
+    if os.environ.get(_TRUSTED_RUNTIME_ENV) == "1":
+        runtime = _load_trusted_runtime_attestation()
+        live_admission = json.loads(Path(runtime["path"]).read_text()).get(
+            "reviewed_pr_admission"
+        )
+    if live_admission is not None:
+        from .reviewed_pr_admission import revalidate_admission, selector_from_payload
+
+        selector = selector_from_payload(live_admission.get("selector"))
+        if (
+            live_admission.get("workflow_commit") != runtime["commit"]
+            or selector.country != country
+            or selector.head != reviewed_ref
+            or selector.citation != str(args.citation)
+            or selector.rulespec_path != str(args.rulespec_path)
+            or selector.run_id != str(args.run_id)
+        ):
+            raise ValueError(
+                "run-scoped reviewed PR admission does not match this operation"
+            )
+        revalidate_admission(live_admission)
+        record = live_admission["record"]
+        issue = _reviewed_rulespec_record_issue(
+            record, country=country, rulespec_ref=reviewed_ref
+        )
+        if issue:
+            raise ValueError(issue)
+        admission = ReviewedRulespecRecord(country, reviewed_ref, record)
+    if admission is None:
         raise ValueError("reviewed candidate ref is not explicitly allowlisted")
+    # A record's binding names the one module, and the exact primary and
+    # companion bytes, that its code-owner review admitted. Only the frozen
+    # pre-record admissions, which never recorded a module, may promote unbound
+    # (their behaviour is unchanged: any eligible module at that commit).
+    binding = admission.payload["binding"]
+    if binding is None:
+        if (country, reviewed_ref) not in UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS:
+            raise ValueError(
+                "reviewed candidate admission record has no promotion binding"
+            )
+    elif not isinstance(binding, dict) or (
+        str(args.citation) != binding["citation"]
+        or str(args.rulespec_path) != binding["rulespec_path"]
+    ):
+        raise ValueError(
+            "reviewed candidate citation or path differs from its admission record"
+        )
 
     rulespec_relative = Path(args.rulespec_path)
     expected_relative = Path(citation_rulespec_path(str(args.citation)))
@@ -8598,6 +9641,11 @@ def cmd_promote_reviewed_candidate(args):
     ):
         raise ValueError("reviewed candidate path is not a protected RuleSpec module")
 
+    # GIT_OPTIONAL_LOCKS=0 keeps this preflight read-only: a plain status may
+    # refresh stat data and rewrite .git/index before a binding refusal. It is
+    # an environment variable, not --no-optional-locks, because the protected
+    # runtime's trusted git wrapper admits only `-C <repo> <command>` (and
+    # itself forces GIT_OPTIONAL_LOCKS=0).
     status = subprocess.check_output(
         [
             "git",
@@ -8608,7 +9656,8 @@ def cmd_promote_reviewed_candidate(args):
             "-z",
             "--untracked-files=all",
             "--ignored=matching",
-        ]
+        ],
+        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
     )
     if status:
         raise ValueError("reviewed candidate promotion requires a clean checkout")
@@ -8646,6 +9695,15 @@ def cmd_promote_reviewed_candidate(args):
             label="reviewed candidate companion",
         ),
     }
+    if binding is not None and (
+        hashlib.sha256(before[rulespec_relative]).hexdigest()
+        != binding["rulespec_sha256"]
+        or hashlib.sha256(before[companion_relative]).hexdigest()
+        != binding["companion_sha256"]
+    ):
+        raise ValueError(
+            "reviewed candidate bytes differ from its admission record binding"
+        )
     _recover_apply_transaction(repo_path)
     with _authoritative_rulespec_dependency_scope(dependency_roots):
         with _isolated_apply_manifest_signer(preflight=True) as signing_broker:
@@ -8800,6 +9858,10 @@ def cmd_promote_reviewed_candidate(args):
                 "source_attestation": source_attestation,
                 "validation_execution": validation_execution,
             }
+            if live_admission is not None:
+                # Validation may take time. A dismissed approval, moved head,
+                # or changed main base must fail before any signature request.
+                revalidate_admission(live_admission)
             _sign_applied_encoding_manifest(payload, signing_broker)
             manifest_bytes = (
                 json.dumps(payload, indent=2, sort_keys=True) + "\n"
@@ -10919,6 +11981,24 @@ def _manifest_census_badge(census: dict[str, object]) -> dict[str, object]:
         "message": f"{pct}% ({census.get('encoder', 0)}/{total})",
         "color": color,
     }
+
+
+def cmd_checks(args):
+    """Print the declared validator checks of this encoder version."""
+    document = registry_document()
+    if args.json or args.out is not None:
+        text = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True)
+        if args.out is not None:
+            args.out.write_text(text + "\n", encoding="utf-8")
+        else:
+            print(text)
+        return
+    print(
+        f"{len(document['checks'])} checks, encoder {document['encoder_version']}, "
+        f"registry {document['registry_sha256'][:12]}"
+    )
+    for check in document["checks"]:
+        print(f"{check['id']}  [{check['cause']}]  {check['title']}")
 
 
 def cmd_manifest_census(args):
@@ -23068,6 +24148,13 @@ def cmd_retire(args):
             seen.add(target.as_posix())
             unique_selected_targets.append(target)
 
+    unreceipted = getattr(args, "unreceipted", False)
+    unreceipted_groups: dict[Path, dict[str, object]] = {}
+    retirement_base = (
+        _rulespec_migration_git(repo_path, "rev-parse", "HEAD").strip()
+        if unreceipted
+        else None
+    )
     all_manifest_paths = _all_applied_encoding_manifest_paths(repo_path, roots=roots)
     planning_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]] = {}
     retirement_groups: dict[
@@ -23085,6 +24172,61 @@ def cmd_retire(args):
                 f"Cannot retire {target.as_posix()}: target is not under one "
                 "canonical RuleSpec jurisdiction root"
             )
+
+        if unreceipted:
+            companion = target.with_name(target.stem + ".test.yaml")
+            covered = [target, companion]
+            manifest_path = repo_path / _applied_encoding_manifest_path(target)
+            deletion_entries = []
+            for entry in covered:
+                _ensure_safe_apply_target(repo_path, repo_path / entry)
+                try:
+                    raw = read_bounded_regular_file(
+                        repo_path,
+                        repo_path / entry,
+                        label="unreceipted retirement target",
+                        max_bytes=4 * 1024 * 1024,
+                        required_mode=0o644,
+                    )
+                except (OSError, UnsafeCorpusPathError) as exc:
+                    raise SystemExit(
+                        f"Cannot retire {entry.as_posix()}: primary and companion "
+                        f"must both be safe regular files: {exc}"
+                    ) from exc
+                deletion_entries.append(
+                    {
+                        "path": entry.as_posix(),
+                        "deleted": True,
+                        "sha256": hashlib.sha256(raw).hexdigest(),
+                    }
+                )
+            planned = {
+                "base_commit": retirement_base,
+                "applied_files": deletion_entries,
+            }
+            label = manifest_path.relative_to(repo_path).as_posix()
+            issues = _unreceipted_retirement_base_issues(
+                planned,
+                repo_path=repo_path,
+                manifest_label=label,
+                base_ref=retirement_base,
+                roots=roots,
+                proof_cache=planning_receipt_proof_cache,
+            )
+            issues.extend(
+                _unreceipted_retirement_current_ownership_issues(
+                    planned,
+                    repo_path=repo_path,
+                    manifest_label=label,
+                    roots=roots,
+                )
+            )
+            if issues:
+                raise SystemExit(
+                    "Cannot retire unreceipted module: " + "; ".join(issues)
+                )
+            unreceipted_groups[manifest_path] = planned
+            continue
 
         direct_manifest = _applied_encoding_manifest_path(target).as_posix()
         candidates = [
@@ -23166,27 +24308,28 @@ def cmd_retire(args):
     # Every member of a generated group must have that manifest as its sole
     # current owner. Otherwise retiring a selected primary could silently leave
     # an overlapping supplemental manifest stale.
-    coverage = _manifest_coverage_by_file(
-        repo_path,
-        all_manifest_paths,
-        roots=roots,
-        local_corpus_release=local_corpus_release,
-        expected_encoder_identity=expected_encoder_identity,
-        path_migration_receipt_proof_cache=planning_receipt_proof_cache,
-    )
-    for manifest_path, (covered, _payload, _digest) in retirement_groups.items():
-        expected_owner = manifest_path.relative_to(repo_path).as_posix()
-        for covered_path in covered:
-            owners = coverage.get(covered_path.as_posix(), [])
-            if len(owners) != 1 or owners[0].get("manifest") != expected_owner:
-                owner_labels = sorted(
-                    str(owner.get("manifest") or "<unknown>") for owner in owners
-                )
-                detail = ", ".join(owner_labels) if owner_labels else "none"
-                raise SystemExit(
-                    f"Cannot retire {covered_path.as_posix()}: expected sole "
-                    f"manifest owner {expected_owner}, found {detail}"
-                )
+    if retirement_groups:
+        coverage = _manifest_coverage_by_file(
+            repo_path,
+            all_manifest_paths,
+            roots=roots,
+            local_corpus_release=local_corpus_release,
+            expected_encoder_identity=expected_encoder_identity,
+            path_migration_receipt_proof_cache=planning_receipt_proof_cache,
+        )
+        for manifest_path, (covered, _payload, _digest) in retirement_groups.items():
+            expected_owner = manifest_path.relative_to(repo_path).as_posix()
+            for covered_path in covered:
+                owners = coverage.get(covered_path.as_posix(), [])
+                if len(owners) != 1 or owners[0].get("manifest") != expected_owner:
+                    owner_labels = sorted(
+                        str(owner.get("manifest") or "<unknown>") for owner in owners
+                    )
+                    detail = ", ".join(owner_labels) if owner_labels else "none"
+                    raise SystemExit(
+                        f"Cannot retire {covered_path.as_posix()}: expected sole "
+                        f"manifest owner {expected_owner}, found {detail}"
+                    )
 
     # Stage every signed deletion manifest before mutating any live path.
     encoder_provenance = _require_clean_axiom_encode_git_provenance()
@@ -23235,6 +24378,30 @@ def cmd_retire(args):
             if entry not in unique_targets:
                 unique_targets.append(entry)
             expected_originals[repo_path / entry] = retired_digests[entry]
+    for manifest_path, planned in unreceipted_groups.items():
+        payload = {
+            "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+            "generated_at": _utc_now_iso(),
+            "tool": APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL,
+            "reason": args.reason,
+            "axiom_encode_version": __version__,
+            "axiom_encode_git": encoder_provenance,
+            VALIDATION_WAIVER_SET_SHA256_FIELD: waiver_sha256,
+            **planned,
+        }
+        _sign_applied_encoding_manifest(payload, signing_broker)
+        transaction_files.append(
+            (
+                manifest_path,
+                (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode(),
+            )
+        )
+        manifest_paths.append(manifest_path)
+        expected_originals[manifest_path] = None
+        for entry in planned["applied_files"]:
+            target = Path(entry["path"])
+            unique_targets.append(target)
+            expected_originals[repo_path / target] = entry["sha256"]
     transaction_files.extend((repo_path / target, None) for target in unique_targets)
 
     for target, _raw in transaction_files:
@@ -23266,6 +24433,31 @@ def cmd_retire(args):
 
     def pre_install_check() -> None:
         locked_waiver, locked_release = locked_retirement_contract()
+        locked_retirement_base = (
+            _rulespec_migration_git(repo_path, "rev-parse", "HEAD").strip()
+            if unreceipted_groups
+            else None
+        )
+        for manifest_path, planned in unreceipted_groups.items():
+            label = manifest_path.relative_to(repo_path).as_posix()
+            issues = _unreceipted_retirement_base_issues(
+                planned,
+                repo_path=repo_path,
+                manifest_label=label,
+                base_ref=locked_retirement_base,
+                roots=roots,
+                proof_cache=planning_receipt_proof_cache,
+            )
+            issues.extend(
+                _unreceipted_retirement_current_ownership_issues(
+                    planned,
+                    repo_path=repo_path,
+                    manifest_label=label,
+                    roots=roots,
+                )
+            )
+            if issues:
+                raise RuntimeError("Retirement ownership changed: " + "; ".join(issues))
         pre_install_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]] = {}
         for manifest_path, (
             _covered,
@@ -23306,7 +24498,9 @@ def cmd_retire(args):
                     local_corpus_release=locked_release,
                     expected_encoder_identity=expected_encoder_identity,
                     path_migration_receipt_proof_cache=(
-                        post_install_receipt_proof_cache
+                        planning_receipt_proof_cache
+                        if unreceipted
+                        else post_install_receipt_proof_cache
                     ),
                 )
             )
@@ -23348,6 +24542,8 @@ def guard_generated_change_issues(
 
     Every changed provenance receipt is verified, independently of module
     changes, and live modules retain verified coverage from the base.
+    An unreceipted retirement whose receipt or deleted paths change must prove
+    exact unowned bytes at this change's base, not just its recorded base.
     """
     repo_path = Path(repo_path).resolve()
     try:
@@ -23485,6 +24681,18 @@ def guard_generated_change_issues(
     )
     if waiver_transition_issues:
         return waiver_transition_issues
+    post_waiver_dependent_manifests = (
+        _in_place_replacement_post_waiver_dependent_manifests(
+            repo_path,
+            changed=set(changed),
+            protected=set(protected),
+            roots=roots,
+            base_waiver_sha256=expected_manifest_waiver_set_sha256,
+            current_waiver_sha256=current_waiver_set_sha256,
+        )
+        if expected_manifest_waiver_set_sha256 != current_waiver_set_sha256
+        else frozenset()
+    )
 
     manifest_paths = (
         sorted(
@@ -23554,6 +24762,14 @@ def guard_generated_change_issues(
     # this guard operation; the cache is discarded before the next operation,
     # and its digest key invalidates a changed receipt within this operation.
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]] = {}
+    retirement_changed_paths = set(changed)
+    if all_files and base_ref is None and (repo_path / ".git").exists():
+        try:
+            retirement_changed_paths.update(
+                _git_guard_changed_files(repo_path, base_ref=None, head_ref=head_ref)
+            )
+        except RuntimeError as exc:
+            return [str(exc)]
     manifest_entries, manifest_issues = _load_applied_encoding_manifest_entries(
         repo_path,
         surviving_manifest_paths,
@@ -23565,7 +24781,11 @@ def guard_generated_change_issues(
         expected_encoder_identity=expected_encoder_identity,
         expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
         expected_legacy_replacement_waiver_set_sha256=(current_waiver_set_sha256),
+        post_waiver_dependent_manifests=post_waiver_dependent_manifests,
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
+        retirement_changed_paths=retirement_changed_paths,
+        retirement_base_ref=base_ref or head_ref,
+        base_tree_cache=base_tree_cache,
     )
     manifest_issues.extend(
         _guard_changed_manifest_coverage_issues(
@@ -23583,6 +24803,7 @@ def guard_generated_change_issues(
             expected_encoder_identity=expected_encoder_identity,
             expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
             expected_legacy_replacement_waiver_set_sha256=current_waiver_set_sha256,
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
     )
@@ -23600,6 +24821,7 @@ def guard_generated_change_issues(
             expected_encoder_identity=expected_encoder_identity,
             expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
             expected_legacy_replacement_waiver_set_sha256=current_waiver_set_sha256,
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
     )
@@ -23649,6 +24871,7 @@ def guard_generated_change_issues(
             expected_encoder_identity=expected_encoder_identity,
             expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
             expected_legacy_replacement_waiver_set_sha256=(current_waiver_set_sha256),
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=(path_migration_receipt_proof_cache),
         )
     )
@@ -23709,6 +24932,7 @@ def _guard_base_receipt_bytes(
     relative: Path,
     *,
     base_tree_cache: dict[str, _GuardBaseReceiptTree] | None = None,
+    max_bytes: int = 4 * 1024 * 1024,
 ) -> tuple[bytes | None, list[str]]:
     """Read a bounded, exact regular Git blob without following base symlinks."""
 
@@ -23741,7 +24965,7 @@ def _guard_base_receipt_bytes(
             or kind != "blob"
             or encoded_path != os.fsencode(label)
             or re.fullmatch(r"[0-9a-f]{40}", object_id) is None
-            or not 0 <= size <= 4 * 1024 * 1024
+            or not 0 <= size <= max_bytes
         ):
             raise ValueError("unsafe base entry")
         completed = subprocess.run(
@@ -23757,6 +24981,505 @@ def _guard_base_receipt_bytes(
     return completed.stdout, []
 
 
+def _unreceipted_retirement_manifest_issues(
+    payload: Mapping[str, object],
+    *,
+    repo_path: Path,
+    manifest_label: str,
+    roots: tuple[str, ...],
+    snapshot_commit: str | None = None,
+) -> list[str]:
+    """Verify one deletion-only pair without inventing source provenance."""
+
+    if payload.get("tool") != APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL:
+        return []
+    reasons: list[str] = []
+    entries = payload.get("applied_files")
+    paths: list[Path] = []
+    if isinstance(entries, list):
+        for index, item in enumerate(entries):
+            if not isinstance(item, dict):
+                continue
+            raw_path = item.get("path")
+            relative = (
+                _canonical_migration_receipt_repo_path(raw_path)
+                if isinstance(raw_path, str) and "\x00" not in raw_path
+                else None
+            )
+            if relative is None:
+                reasons.append(
+                    f"{manifest_label} applied_files[{index}].path is not canonical"
+                )
+                continue
+            paths.append(relative)
+            if item.get("deleted") is not True:
+                reasons.append(
+                    f"{manifest_label} unreceipted retirement may contain only "
+                    "deleted file entries"
+                )
+            digest = item.get("sha256")
+            if (
+                not isinstance(digest, str)
+                or _SHA256_HEX_PATTERN.fullmatch(digest) is None
+            ):
+                reasons.append(
+                    f"{manifest_label} applied_files[{index}].sha256 is invalid"
+                )
+            try:
+                exists = (
+                    _applied_manifest_snapshot_exists(
+                        repo_path,
+                        repo_path / relative,
+                        base_commit=snapshot_commit,
+                    )
+                    if snapshot_commit is not None
+                    else not _is_unambiguously_absent_repo_path(repo_path, relative)
+                )
+            except (OSError, RuntimeError, UnsafeCorpusPathError):
+                exists = True
+            if exists:
+                reasons.append(
+                    f"{manifest_label} lists {relative.as_posix()} as deleted but it exists"
+                )
+    primaries = [
+        path for path in paths if not path.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+    ]
+    if (
+        not isinstance(entries, list)
+        or len(entries) != 2
+        or len(paths) != 2
+        or len(primaries) != 1
+        or len(set(paths)) != 2
+        or any(
+            not _is_protected_rulespec_yaml_path(path, roots=roots)
+            or len(path.parts) < 3
+            or path.parts[1] not in roots
+            or re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", path.parts[0]) is None
+            for path in paths
+        )
+        or set(paths) != {primaries[0], companion_path(primaries[0])}
+    ):
+        reasons.append(
+            f"{manifest_label} unreceipted retirement must contain exactly one "
+            "protected primary and its companion"
+        )
+    elif manifest_label != _applied_encoding_manifest_path(primaries[0]).as_posix():
+        reasons.append(
+            f"{manifest_label} unreceipted retirement is not at its canonical mirrored path"
+        )
+    return reasons
+
+
+def _unreceipted_retirement_inventory_prefix(path: Path) -> tuple[str, ...] | None:
+    """Recognize every current receipt family and the old jurisdiction layout."""
+
+    for offset in (0, 1):
+        if offset and (
+            not path.parts
+            or re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", path.parts[0]) is None
+        ):
+            continue
+        for directory in _UNRECEIPTED_RETIREMENT_RECEIPT_DIRS:
+            prefix = path.parts[:offset] + directory.parts
+            shared = min(len(path.parts), len(prefix))
+            if path.parts[:shared] == prefix[:shared]:
+                return prefix
+    return None
+
+
+def _unreceipted_retirement_manifest_strings(
+    payload: object,
+) -> tuple[set[str], int]:
+    """Collect conservative ownership strings and nonfinite-number occurrences.
+
+    Only exact known receipts at the root or a recognized receipt's prior-receipt
+    field can exclude descriptive strings. All other positions scan every value.
+    """
+
+    pending: list[tuple[object, bool]] = [(payload, True)]
+    strings: set[str] = set()
+    nonfinite_count = 0
+    while pending:
+        item, receipt_position = pending.pop()
+        if isinstance(item, dict):
+            classes = (
+                _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES.get(frozenset(item))
+                if receipt_position
+                else None
+            )
+            for key, value in item.items():
+                if classes is not None and key in classes[0] and isinstance(value, str):
+                    continue
+                if key == "applied_files" and isinstance(value, dict):
+                    # Historical mapping layouts own their keys as well as values.
+                    strings.update(value)
+                if classes is not None and key == "prior_manifest":
+                    # The metadata-retirement writer wraps its prior receipt with
+                    # its path and digest; those wrapper values still count.
+                    if isinstance(value, dict) and set(value) == {
+                        "path",
+                        "sha256",
+                        "manifest",
+                    }:
+                        pending.extend(
+                            (nested, field == "manifest")
+                            for field, nested in value.items()
+                        )
+                        continue
+                pending.append(
+                    (
+                        value,
+                        classes is not None
+                        and key in _UNRECEIPTED_RETIREMENT_NESTED_RECEIPT_FIELDS,
+                    )
+                )
+        elif isinstance(item, list):
+            pending.extend((value, False) for value in item)
+        elif isinstance(item, str):
+            strings.add(item)
+        elif isinstance(item, float) and not math.isfinite(item):
+            nonfinite_count += 1
+    return strings, nonfinite_count
+
+
+def _unreceipted_retirement_ownership_issues(
+    payload: Mapping[str, object],
+    *,
+    manifest_label: str,
+    inventory: Mapping[Path, bytes],
+    location: str,
+) -> list[str]:
+    """Reject ownership even when the old receipt is no longer admissible."""
+
+    entries = payload.get("applied_files")
+    paths = (
+        {
+            item["path"]
+            for item in entries
+            if isinstance(item, dict) and isinstance(item.get("path"), str)
+        }
+        if isinstance(entries, list)
+        else set()
+    )
+    reasons: list[str] = []
+    direct_owners: set[Path] = set()
+    for raw_path in paths:
+        path = Path(raw_path)
+        direct_owners.add(_applied_encoding_manifest_path(path))
+        if len(path.parts) > 1:
+            direct_owners.add(
+                (
+                    Path(path.parts[0])
+                    / APPLIED_ENCODING_MANIFEST_DIR
+                    / Path(*path.parts[1:])
+                ).with_suffix(".json")
+            )
+
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate receipt JSON key")
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ValueError("nonfinite receipt JSON number")
+            result[key] = value
+        return result
+
+    for owner, raw in inventory.items():
+        if owner in direct_owners:
+            reasons.append(
+                f"{manifest_label} is already covered {location} by {owner.as_posix()}"
+            )
+            continue
+        try:
+            prior = json.loads(raw, object_pairs_hook=unique_object)
+        except (ValueError, UnicodeError, RecursionError):
+            reasons.append(
+                f"{manifest_label} cannot establish unreceipted ownership: "
+                f"{owner.as_posix()} {location} is not valid JSON"
+            )
+            continue
+        if not isinstance(prior, dict):
+            reasons.append(
+                f"{manifest_label} cannot establish unreceipted ownership: "
+                f"{owner.as_posix()} {location} is not a JSON object"
+            )
+            continue
+        prefix = owner.parts[0] if owner.parts[0] != ".axiom" else ""
+        strings, nonfinite_count = _unreceipted_retirement_manifest_strings(prior)
+        covered: set[str] = set()
+        for item in strings:
+            normalized = Path(item).as_posix()
+            covered.update(
+                paths.intersection(
+                    (
+                        normalized,
+                        _prefix_applied_manifest_path(normalized, prefix),
+                    )
+                )
+            )
+        reasons.extend(
+            f"{manifest_label} cannot establish unreceipted ownership: "
+            f"{owner.as_posix()} {location} has a nonfinite JSON number"
+            for _ in range(nonfinite_count)
+        )
+        if covered:
+            reasons.append(
+                f"{manifest_label} {', '.join(sorted(covered))} is already covered "
+                f"{location} by {owner.as_posix()}"
+            )
+    return reasons
+
+
+def _unreceipted_retirement_base_issues(
+    payload: Mapping[str, object],
+    *,
+    repo_path: Path,
+    manifest_label: str,
+    base_ref: str,
+    roots: tuple[str, ...],
+    base_tree_cache: dict[str, _GuardBaseReceiptTree] | None = None,
+    proof_cache: dict[tuple[str, str], tuple[str, ...]] | None = None,
+) -> list[str]:
+    """Prove exact bytes and no receipt owners at both independently bound bases."""
+
+    del roots  # Ownership is receipt-family based, including historical layouts.
+    proof_key: tuple[str, str] | None = None
+    if (
+        proof_cache is not None
+        and isinstance(base_ref, str)
+        and re.fullmatch(r"[0-9a-f]{40}", base_ref) is not None
+    ):
+        try:
+            # Only these signed fields affect immutable evidence. Keep live
+            # signatures, producer admission and path absence outside this cache.
+            proof_bytes = json.dumps(
+                {
+                    "base_commit": payload.get("base_commit"),
+                    "applied_files": payload.get("applied_files"),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError, RecursionError):
+            pass
+        else:
+            proof_key = (
+                "\0".join(
+                    (
+                        "unreceipted-retirement-base",
+                        os.path.abspath(repo_path),
+                        base_ref,
+                        manifest_label,
+                    )
+                ),
+                hashlib.sha256(proof_bytes).hexdigest(),
+            )
+            if proof_key in proof_cache:
+                return list(proof_cache[proof_key])
+    recorded_base = payload.get("base_commit")
+    if (
+        not isinstance(recorded_base, str)
+        or re.fullmatch(r"[0-9a-f]{40}", recorded_base) is None
+    ):
+        return [f"{manifest_label} retirement base_commit is invalid"]
+    try:
+        resolved_recorded_base = _rulespec_migration_git(
+            repo_path,
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            f"{recorded_base}^{{commit}}",
+        ).strip()
+    except (OSError, RuntimeError, UnicodeError):
+        return [f"{manifest_label} recorded base_commit is unavailable"]
+    if resolved_recorded_base != recorded_base:
+        return [f"{manifest_label} recorded base_commit is not an exact commit"]
+    try:
+        guard_base = (
+            recorded_base
+            if base_ref == recorded_base
+            else _rulespec_migration_git(
+                repo_path,
+                "rev-parse",
+                "--verify",
+                "--end-of-options",
+                f"{base_ref}^{{commit}}",
+            ).strip()
+        )
+    except (OSError, RuntimeError, UnicodeError):
+        return [f"{manifest_label} cannot inspect its immutable retirement base"]
+    if base_tree_cache is None:
+        base_tree_cache = {}
+
+    def prove_at(base_commit: str, *, location: str) -> list[str]:
+        if base_commit not in base_tree_cache:
+            base_tree_cache[base_commit] = _guard_base_receipt_tree(
+                repo_path, base_commit
+            )
+        tree = base_tree_cache[base_commit]
+        if tree.issue:
+            return [f"{manifest_label} {location} {tree.issue}"]
+        reasons: list[str] = []
+        entries = payload.get("applied_files")
+        for item in entries if isinstance(entries, list) else []:
+            if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+                continue
+            raw, faults = _guard_base_receipt_bytes(
+                repo_path,
+                base_commit,
+                Path(item["path"]),
+                base_tree_cache=base_tree_cache,
+            )
+            reasons.extend(faults)
+            if raw is None:
+                if not faults:
+                    reasons.append(
+                        f"{manifest_label} {item['path']} is absent {location}"
+                    )
+            elif hashlib.sha256(raw).hexdigest() != item.get("sha256"):
+                reasons.append(
+                    f"{manifest_label} {item['path']} base sha256 does not match the exact deleted bytes {location}"
+                )
+        inventory: dict[Path, bytes] = {}
+        for encoded_path in tree.records:
+            path = Path(os.fsdecode(encoded_path))
+            prefix = _unreceipted_retirement_inventory_prefix(path)
+            if prefix is None:
+                continue
+            if len(path.parts) <= len(prefix):
+                records = tree.records[encoded_path]
+                if len(records) != 1 or not records[0].startswith(b"040000 tree "):
+                    reasons.append(
+                        f"{manifest_label} cannot establish unreceipted ownership: "
+                        f"{path.as_posix()} {location} is not a regular receipt directory"
+                    )
+                continue
+            if any(
+                record.startswith(b"120000 ") for record in tree.records[encoded_path]
+            ):
+                reasons.append(
+                    f"{manifest_label} cannot establish unreceipted ownership: "
+                    f"{path.as_posix()} {location} is a receipt inventory symlink"
+                )
+                continue
+            if path.suffix != ".json":
+                continue
+            raw, faults = _guard_base_receipt_bytes(
+                repo_path,
+                base_commit,
+                path,
+                base_tree_cache=base_tree_cache,
+                max_bytes=16 * 1024 * 1024,
+            )
+            reasons.extend(faults)
+            if raw is not None:
+                inventory[path] = raw
+        return reasons + _unreceipted_retirement_ownership_issues(
+            payload,
+            manifest_label=manifest_label,
+            inventory=inventory,
+            location=location,
+        )
+
+    reasons = prove_at(guard_base, location="at the immutable base")
+    if recorded_base != guard_base:
+        reasons.extend(
+            prove_at(recorded_base, location="at the recorded retirement base")
+        )
+    if proof_key is not None and proof_cache is not None:
+        proof_cache[proof_key] = tuple(reasons)
+    return reasons
+
+
+def _unreceipted_retirement_current_ownership_issues(
+    payload: Mapping[str, object],
+    *,
+    repo_path: Path,
+    manifest_label: str,
+    roots: tuple[str, ...],
+) -> list[str]:
+    """Check uncommitted receipt owners without following filesystem links."""
+
+    del roots
+    reasons: list[str] = []
+    inventory: dict[Path, bytes] = {}
+    try:
+        parents = [repo_path] + [
+            child
+            for child in repo_path.iterdir()
+            if re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", child.name)
+        ]
+    except OSError as exc:
+        return [f"{manifest_label} cannot establish unreceipted ownership: {exc}"]
+    for parent in parents:
+        for directory in _UNRECEIPTED_RETIREMENT_RECEIPT_DIRS:
+            cursor = repo_path
+            relative = (parent / directory).relative_to(repo_path)
+            for part in relative.parts:
+                cursor /= part
+                try:
+                    mode = cursor.lstat().st_mode
+                except FileNotFoundError:
+                    break
+                except OSError as exc:
+                    reasons.append(
+                        f"{manifest_label} cannot establish unreceipted ownership: {exc}"
+                    )
+                    break
+                if not stat.S_ISDIR(mode):
+                    reasons.append(
+                        f"{manifest_label} cannot establish unreceipted ownership: {cursor.relative_to(repo_path).as_posix()} is not a regular receipt directory"
+                    )
+                    break
+            else:
+
+                def unreadable(exc: OSError) -> None:
+                    reasons.append(
+                        f"{manifest_label} cannot establish unreceipted ownership: {exc}"
+                    )
+
+                for current, children, names in os.walk(
+                    cursor, followlinks=False, onerror=unreadable
+                ):
+                    for name in list(children):
+                        child = Path(current) / name
+                        try:
+                            regular = stat.S_ISDIR(child.lstat().st_mode)
+                        except OSError:
+                            regular = False
+                        if not regular:
+                            children.remove(name)
+                            reasons.append(
+                                f"{manifest_label} cannot establish unreceipted ownership: {child.relative_to(repo_path).as_posix()} is not a regular receipt directory"
+                            )
+                    for name in names:
+                        if Path(name).suffix != ".json":
+                            continue
+                        path = Path(current) / name
+                        try:
+                            inventory[path.relative_to(repo_path)] = (
+                                read_bounded_regular_file(
+                                    repo_path,
+                                    path,
+                                    label="unreceipted ownership receipt",
+                                    max_bytes=16 * 1024 * 1024,
+                                    required_mode=0o644,
+                                )
+                            )
+                        except (OSError, UnsafeCorpusPathError) as exc:
+                            reasons.append(
+                                f"{manifest_label} cannot establish unreceipted ownership: {exc}"
+                            )
+    return reasons + _unreceipted_retirement_ownership_issues(
+        payload,
+        manifest_label=manifest_label,
+        inventory=inventory,
+        location="in the working tree",
+    )
+
+
 def _guard_base_manifest_claims(
     raw: bytes,
     *,
@@ -23766,6 +25489,8 @@ def _guard_base_manifest_claims(
     retrospective: bool,
     roots: tuple[str, ...],
     signing_broker: SigningBroker | Ed25519PublicKey,
+    snapshot_commit: str | None = None,
+    proof_cache: dict[tuple[str, str], tuple[str, ...]] | None = None,
 ) -> tuple[set[str], list[str]]:
     """Authenticate base claims as obligations, never as head authorization."""
 
@@ -23789,6 +25514,7 @@ def _guard_base_manifest_claims(
         and tool
         in {
             APPLIED_ENCODING_RETIRE_TOOL,
+            APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL,
             APPLIED_ENCODING_PATH_MIGRATION_TOOL,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL,
             APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
@@ -23817,6 +25543,26 @@ def _guard_base_manifest_claims(
     signature_issue = _applied_encoding_manifest_signature_issue(payload, verifier)
     if signature_issue:
         issues.append(f"{label} {signature_issue}")
+    issues.extend(
+        _unreceipted_retirement_manifest_issues(
+            payload,
+            repo_path=repo_path,
+            manifest_label=manifest_path,
+            roots=roots,
+            snapshot_commit=snapshot_commit,
+        )
+    )
+    if payload.get("tool") == APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL:
+        issues.extend(
+            _unreceipted_retirement_base_issues(
+                payload,
+                repo_path=repo_path,
+                manifest_label=manifest_path,
+                base_ref=payload.get("base_commit"),
+                roots=roots,
+                proof_cache=proof_cache,
+            )
+        )
     root_prefix = _applied_encoding_manifest_root_prefix(
         Path(manifest_path), roots=roots
     )
@@ -23964,6 +25710,7 @@ def _guard_changed_manifest_coverage_issues(
     expected_waiver_set_sha256: str,
     expected_legacy_replacement_waiver_set_sha256: str,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]],
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Require verified head ownership for every changed base receipt claim."""
 
@@ -24015,6 +25762,8 @@ def _guard_changed_manifest_coverage_issues(
             retrospective=retrospective,
             roots=roots,
             signing_broker=signing_broker,
+            snapshot_commit=base_ref or head_ref,
+            proof_cache=path_migration_receipt_proof_cache,
         )
         if receipt_issues:
             replacement_bases[manifest_path] = (
@@ -24057,6 +25806,7 @@ def _guard_changed_manifest_coverage_issues(
                     expected_encoder_identity=expected_encoder_identity,
                     expected_waiver_set_sha256=expected_waiver_set_sha256,
                     expected_legacy_replacement_waiver_set_sha256=expected_legacy_replacement_waiver_set_sha256,
+                    post_waiver_dependent_manifests=post_waiver_dependent_manifests,
                     path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
                 )
             )
@@ -24202,6 +25952,7 @@ def _guard_changed_manifest_coverage_issues(
                     expected_legacy_replacement_waiver_set_sha256=(
                         expected_legacy_replacement_waiver_set_sha256
                     ),
+                    post_waiver_dependent_manifests=post_waiver_dependent_manifests,
                     path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
                 )
             )
@@ -24215,6 +25966,12 @@ def _guard_changed_manifest_coverage_issues(
     if issues:
         return issues
     claimants = sorted(set(claimants))
+    try:
+        retirement_changed_paths = set(changed) | set(
+            _git_guard_changed_files(repo_path, base_ref=base_ref, head_ref=head_ref)
+        )
+    except RuntimeError as exc:
+        return [str(exc)]
     head_entries, verification_issues = _load_applied_encoding_manifest_entries(
         repo_path,
         claimants,
@@ -24228,7 +25985,11 @@ def _guard_changed_manifest_coverage_issues(
         expected_legacy_replacement_waiver_set_sha256=(
             expected_legacy_replacement_waiver_set_sha256
         ),
+        post_waiver_dependent_manifests=post_waiver_dependent_manifests,
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
+        retirement_changed_paths=retirement_changed_paths,
+        retirement_base_ref=base_ref or head_ref,
+        base_tree_cache=base_tree_cache,
     )
     issues.extend(verification_issues)
     live_claims: list[str] = []
@@ -24264,6 +26025,7 @@ def _guard_changed_manifest_coverage_issues(
             expected_legacy_replacement_waiver_set_sha256=(
                 expected_legacy_replacement_waiver_set_sha256
             ),
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
     )
@@ -24309,11 +26071,7 @@ def _provenance_inventory_prefix(path: Path) -> tuple[str, ...] | None:
     """Classify inventory ancestors and descendants by folded components."""
 
     folded = tuple(part.casefold() for part in path.parts)
-    for inventory in (
-        APPLIED_ENCODING_MANIFEST_DIR,
-        APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
-        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
-    ):
+    for inventory in _GUARD_PROVENANCE_RECEIPT_DIRS:
         prefix = inventory.parts
         shared = min(len(folded), len(prefix))
         if folded[:shared] == tuple(part.casefold() for part in prefix[:shared]):
@@ -24668,6 +26426,7 @@ def _guard_auxiliary_provenance_issues(
     expected_waiver_set_sha256: str,
     expected_legacy_replacement_waiver_set_sha256: str,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]],
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Verify changed auxiliary evidence and all head manifests using it."""
 
@@ -24805,10 +26564,125 @@ def _guard_auxiliary_provenance_issues(
             expected_legacy_replacement_waiver_set_sha256=(
                 expected_legacy_replacement_waiver_set_sha256
             ),
+            post_waiver_dependent_manifests=post_waiver_dependent_manifests,
             path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
         )
         issues.extend(manifest_issues)
     return issues
+
+
+def _in_place_replacement_post_waiver_dependent_manifests(
+    repo_path: Path,
+    *,
+    changed: set[str],
+    protected: set[str],
+    roots: tuple[str, ...],
+    base_waiver_sha256: str,
+    current_waiver_sha256: str,
+) -> frozenset[str]:
+    """Recognize a sequential, source-bound replacement waiver transition.
+
+    The replacement retires its own waiver before the scheduled dependent is
+    generated. Both the replacement receipt and that later model manifest bind
+    the post-migration waiver set. This shape check only selects the expected
+    identity; the guard still authenticates every signed receipt and manifest.
+    """
+
+    try:
+        toolchain_sha256 = hashlib.sha256(
+            read_bounded_regular_file(
+                repo_path,
+                repo_path / ".axiom/toolchain.toml",
+                label="post-migration RuleSpec toolchain",
+                max_bytes=1024 * 1024,
+                required_mode=0o644,
+            )
+        ).hexdigest()
+    except (OSError, UnsafeCorpusPathError):
+        return frozenset()
+    matches: list[str] = []
+    for label in sorted(changed):
+        path = Path(label)
+        if (
+            path.parent != APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR
+            or path.suffix != ".json"
+        ):
+            continue
+        try:
+            raw = read_bounded_regular_file(
+                repo_path,
+                repo_path / path,
+                label="in-place replacement receipt",
+                max_bytes=1024 * 1024,
+                required_mode=0o644,
+            )
+            payload = json.loads(raw.decode("utf-8"))
+        except (
+            OSError,
+            UnsafeCorpusPathError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RecursionError,
+        ):
+            continue
+        if not isinstance(payload, dict) or payload.get("tool") != (
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
+        ):
+            continue
+        replacement = payload.get("replacement")
+        if not isinstance(replacement, dict):
+            continue
+        source = replacement.get("source")
+        if (
+            not isinstance(source, str)
+            or source != replacement.get("destination")
+            or source not in protected
+            or source not in changed
+            or not _is_protected_rulespec_yaml_path(Path(source), roots=roots)
+            or replacement.get("model_manifest_path")
+            != _applied_encoding_manifest_path(Path(source)).as_posix()
+            or replacement["model_manifest_path"] not in changed
+            or payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != current_waiver_sha256
+        ):
+            continue
+        scheduled = replacement.get("scheduled_dependents")
+        if not isinstance(scheduled, list) or len(scheduled) != 1:
+            continue
+        dependent = scheduled[0]
+        if not isinstance(dependent, dict):
+            continue
+        primary = dependent.get("primary")
+        if (
+            not isinstance(primary, str)
+            or primary not in protected
+            or primary not in changed
+            or _applied_encoding_manifest_path(Path(primary)).as_posix() not in changed
+            or not isinstance(dependent.get("source_citation"), str)
+            or not dependent["source_citation"]
+        ):
+            continue
+        reconciliations = replacement.get("metadata_reconciliations")
+        if not isinstance(reconciliations, list):
+            continue
+        by_path = {
+            item.get("path"): item
+            for item in reconciliations
+            if isinstance(item, dict) and isinstance(item.get("path"), str)
+        }
+        if len(by_path) != len(reconciliations):
+            continue
+        waiver = by_path.get("known-validation-gaps.yaml")
+        toolchain = by_path.get(".axiom/toolchain.toml")
+        if (
+            not isinstance(waiver, dict)
+            or waiver.get("before_sha256") != base_waiver_sha256
+            or waiver.get("after_sha256") != current_waiver_sha256
+            or not isinstance(toolchain, dict)
+            or toolchain.get("after_sha256") != toolchain_sha256
+        ):
+            continue
+        matches.append(_applied_encoding_manifest_path(Path(primary)).as_posix())
+    return frozenset(matches) if len(matches) == 1 else frozenset()
 
 
 def _guard_manifest_waiver_set_identity(
@@ -25001,6 +26875,7 @@ def _generated_provenance_gate_issues(
     expected_waiver_set_sha256: str,
     expected_legacy_replacement_waiver_set_sha256: str,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]],
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Reject protected files authorized only by manual attestations."""
 
@@ -25017,6 +26892,7 @@ def _generated_provenance_gate_issues(
         expected_legacy_replacement_waiver_set_sha256=(
             expected_legacy_replacement_waiver_set_sha256
         ),
+        post_waiver_dependent_manifests=post_waiver_dependent_manifests,
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
     )
     issues: list[str] = []
@@ -25360,6 +27236,7 @@ def _manifest_coverage_by_file(
     expected_legacy_replacement_waiver_set_sha256: str | None = None,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]]
     | None = None,
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> dict[str, list[dict[str, object]]]:
     """Map each non-deleted covered file to a list of covering-manifest records.
 
@@ -25391,6 +27268,7 @@ def _manifest_coverage_by_file(
                 expected_legacy_replacement_waiver_set_sha256=(
                     expected_legacy_replacement_waiver_set_sha256
                 ),
+                post_waiver_dependent_manifests=post_waiver_dependent_manifests,
                 path_migration_receipt_proof_cache=(path_migration_receipt_proof_cache),
             )
         )
@@ -25446,7 +27324,9 @@ def _applied_manifest_source_attestation_issues(
 ) -> list[str]:
     """Validate source provenance claimed by an applied encoding manifest."""
 
-    if payload.get("tool") in {
+    tool = payload.get("tool")
+    if isinstance(tool, str) and tool in {
+        APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL,
         APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
         APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
         RETIRED_SOURCE_METADATA_TOOL,
@@ -25930,7 +27810,7 @@ def _applied_manifest_tool_execution_issues(
         if producer_issue:
             issues.append(f"{manifest_label} {contract} {producer_issue}")
 
-    if backend in APPLIED_ENCODING_ENCODER_BACKENDS:
+    if isinstance(backend, str) and backend in APPLIED_ENCODING_ENCODER_BACKENDS:
         if tool != APPLIED_ENCODING_MODEL_TOOL:
             issues.append(
                 f"{manifest_label} model backend must use tool "
@@ -25957,6 +27837,36 @@ def _applied_manifest_tool_execution_issues(
         return issues
     if backend is None:
         applied_files = payload.get("applied_files")
+        if tool == APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL:
+            reasons: list[str] = []
+            if (
+                not isinstance(applied_files, list)
+                or not applied_files
+                or any(
+                    not isinstance(item, dict)
+                    or item.get("deleted") is not True
+                    or set(item) != _UNRECEIPTED_RETIRED_APPLIED_FILE_FIELDS
+                    for item in applied_files
+                )
+            ):
+                reasons.append(
+                    f"{manifest_label} unreceipted retirement has malformed deleted file entries"
+                )
+            if any(
+                field in payload
+                for field in (
+                    "deterministic_execution",
+                    "validation_execution",
+                    "source_attestation",
+                    "retired_manifest",
+                )
+            ):
+                reasons.append(
+                    f"{manifest_label} unreceipted retirement may claim only exact-byte deletion"
+                )
+            issues.extend(reasons)
+            check_producer("unreceipted retirement")
+            return issues
         if tool == RETIRED_SOURCE_METADATA_TOOL:
             if (
                 not isinstance(applied_files, list)
@@ -26138,7 +28048,7 @@ def _applied_manifest_exact_schema_issues(
 
     backend = payload.get("backend")
     tool = payload.get("tool")
-    if backend in APPLIED_ENCODING_ENCODER_BACKENDS:
+    if isinstance(backend, str) and backend in APPLIED_ENCODING_ENCODER_BACKENDS:
         expected_fields = _MODEL_APPLY_MANIFEST_FIELDS
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
         contract = "model"
@@ -26150,6 +28060,10 @@ def _applied_manifest_exact_schema_issues(
         expected_fields = _RETIRE_APPLY_MANIFEST_FIELDS
         expected_item_fields = _RETIRED_APPLIED_FILE_FIELDS
         contract = "retirement"
+    elif backend is None and tool == APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL:
+        expected_fields = _UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS
+        expected_item_fields = _UNRECEIPTED_RETIRED_APPLIED_FILE_FIELDS
+        contract = "unreceipted retirement"
     elif backend is None and tool == APPLIED_ENCODING_PATH_MIGRATION_TOOL:
         expected_fields = _PATH_MIGRATION_APPLY_MANIFEST_FIELDS
         expected_item_fields = None
@@ -26174,14 +28088,13 @@ def _applied_manifest_exact_schema_issues(
         return []
 
     issues: list[str] = []
-    codex_fields = {"codex_cli_version", "codex_cli_sha256"}
+    codex_fields = _MODEL_CODEX_APPLY_MANIFEST_FIELDS - _MODEL_APPLY_MANIFEST_FIELDS
     present_codex_fields = set(payload) & codex_fields
-    admitted_fields = expected_fields | (codex_fields if backend == "codex" else set())
-    if (
-        set(payload) - codex_fields != expected_fields
-        or (backend == "codex" and present_codex_fields not in (set(), codex_fields))
-        or (backend != "codex" and present_codex_fields)
-    ):
+    variants = _APPLIED_MANIFEST_SCHEMA_VARIANTS[
+        "codex model" if backend == "codex" else contract
+    ]
+    admitted_fields = frozenset().union(*variants)
+    if frozenset(payload) not in variants:
         missing = sorted(expected_fields - set(payload))
         extra = sorted(set(payload) - admitted_fields)
         detail: list[str] = []
@@ -26258,15 +28171,26 @@ def _applied_manifest_exact_schema_issues(
             issues.append(
                 f"{manifest_label} axiom_encode_git.version_commit is invalid"
             )
-        if provenance.get("identity_source") not in _APPLY_IDENTITY_SOURCES:
+        if (
+            not isinstance(provenance.get("identity_source"), str)
+            or provenance["identity_source"] not in _APPLY_IDENTITY_SOURCES
+        ):
             issues.append(
                 f"{manifest_label} axiom_encode_git.identity_source is invalid"
             )
 
-    if contract == "retirement" and (
+    if contract in {"retirement", "unreceipted retirement"} and (
         not isinstance(payload.get("reason"), str) or not payload["reason"].strip()
     ):
         issues.append(f"{manifest_label} retirement reason is invalid")
+    if contract == "unreceipted retirement":
+        reasons: list[str] = []
+        if (
+            not isinstance(payload.get("base_commit"), str)
+            or re.fullmatch(r"[0-9a-f]{40}", payload["base_commit"]) is None
+        ):
+            reasons.append(f"{manifest_label} retirement base_commit is invalid")
+        issues.extend(reasons)
 
     applied_files = payload.get("applied_files")
     if isinstance(applied_files, list):
@@ -29601,6 +31525,7 @@ def _load_verified_applied_encoding_manifest_payload(
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]]
     | None = None,
     base_commit: str | None = None,
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, object] | None, str | None, str | None, list[str]]:
     """Load one canonical v5 apply manifest and verify every binding."""
 
@@ -29637,6 +31562,15 @@ def _load_verified_applied_encoding_manifest_payload(
                 None,
                 [f"RuleSpec waiver-set binding is invalid: {exc}"],
             )
+    if manifest_label in post_waiver_dependent_manifests:
+        if expected_legacy_replacement_waiver_set_sha256 is None:
+            return (
+                None,
+                root_prefix,
+                None,
+                [f"{manifest_label} has no post-migration waiver identity"],
+            )
+        expected_waiver_set_sha256 = expected_legacy_replacement_waiver_set_sha256
 
     relative = Path(manifest_path)
     if relative.is_absolute() or any(
@@ -29724,13 +31658,17 @@ def _load_verified_applied_encoding_manifest_payload(
             [f"{manifest_label} {signature_issue}"],
         )
 
-    if expected_legacy_replacement_waiver_set_sha256 is not None and payload.get(
-        "tool"
-    ) in {
-        APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL,
-        APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
-        APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
-    }:
+    tool = payload.get("tool")
+    if (
+        expected_legacy_replacement_waiver_set_sha256 is not None
+        and isinstance(tool, str)
+        and tool
+        in {
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL,
+            APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
+            APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
+        }
+    ):
         expected_waiver_set_sha256 = expected_legacy_replacement_waiver_set_sha256
 
     issues: list[str] = []
@@ -29785,7 +31723,8 @@ def _load_verified_applied_encoding_manifest_payload(
             )
         )
     if (
-        backend in APPLIED_ENCODING_ENCODER_BACKENDS
+        isinstance(backend, str)
+        and backend in APPLIED_ENCODING_ENCODER_BACKENDS
         or payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
     ) and expected_encoder_identity is not None:
         issues.extend(
@@ -29797,10 +31736,28 @@ def _load_verified_applied_encoding_manifest_payload(
             )
         )
     if payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != expected_waiver_set_sha256:
-        issues.append(
-            f"{manifest_label} {VALIDATION_WAIVER_SET_SHA256_FIELD} does not "
-            "match the RuleSpec toolchain-bound waiver set"
-        )
+        historical_retirement_waiver_matches = False
+        recorded_base = payload.get("base_commit")
+        if (
+            historical_verification
+            and payload.get("tool") == APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL
+            and isinstance(recorded_base, str)
+            and re.fullmatch(r"[0-9a-f]{40}", recorded_base) is not None
+        ):
+            recorded_waivers, faults = _guard_base_receipt_bytes(
+                repo_path, recorded_base, Path(_validation_waivers.DEFAULT_WAIVER_PATH)
+            )
+            historical_retirement_waiver_matches = (
+                not faults
+                and recorded_waivers is not None
+                and hashlib.sha256(recorded_waivers).hexdigest()
+                == payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD)
+            )
+        if not historical_retirement_waiver_matches:
+            issues.append(
+                f"{manifest_label} {VALIDATION_WAIVER_SET_SHA256_FIELD} does not "
+                "match the RuleSpec toolchain-bound waiver set"
+            )
     applied_files = payload.get("applied_files")
     if not isinstance(applied_files, list) or not applied_files:
         issues.append(f"{manifest_label} does not list applied files")
@@ -29887,6 +31844,26 @@ def _load_verified_applied_encoding_manifest_payload(
             applied_file_snapshots[prefixed_path] = current_bytes
             if hashlib.sha256(current_bytes).hexdigest() != file_sha256:
                 issues.append(f"{manifest_label} has stale sha256 for {prefixed_path}")
+    issues.extend(
+        _unreceipted_retirement_manifest_issues(
+            payload,
+            repo_path=repo_path,
+            manifest_label=manifest_label,
+            roots=roots,
+            snapshot_commit=base_commit,
+        )
+    )
+    if not issues and payload.get("tool") == APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL:
+        issues.extend(
+            _unreceipted_retirement_base_issues(
+                payload,
+                repo_path=repo_path,
+                manifest_label=manifest_label,
+                base_ref=payload.get("base_commit"),
+                roots=roots,
+                proof_cache=path_migration_receipt_proof_cache,
+            )
+        )
     issues.extend(
         _retired_model_manifest_issues(
             payload,
@@ -30009,6 +31986,10 @@ def _load_applied_encoding_manifest_entries(
     expected_legacy_replacement_waiver_set_sha256: str | None = None,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]]
     | None = None,
+    post_waiver_dependent_manifests: frozenset[str] = frozenset(),
+    retirement_changed_paths: set[str] | None = None,
+    retirement_base_ref: str | None = None,
+    base_tree_cache: dict[str, _GuardBaseReceiptTree] | None = None,
 ) -> tuple[dict[str, set[str]], list[str]]:
     entries: dict[str, set[str]] = defaultdict(set)
     issues: list[str] = []
@@ -30055,6 +32036,7 @@ def _load_applied_encoding_manifest_entries(
                 expected_legacy_replacement_waiver_set_sha256=(
                     expected_legacy_replacement_waiver_set_sha256
                 ),
+                post_waiver_dependent_manifests=post_waiver_dependent_manifests,
                 local_corpus_release=local_corpus_release,
                 expected_encoder_identity=expected_encoder_identity,
                 path_migration_receipt_proof_cache=(path_migration_receipt_proof_cache),
@@ -30065,6 +32047,46 @@ def _load_applied_encoding_manifest_entries(
             continue
         applied_files = payload["applied_files"]
         assert isinstance(applied_files, list)
+        if (
+            payload.get("tool") == APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL
+            and retirement_changed_paths is not None
+            and (
+                manifest_path in retirement_changed_paths
+                or any(
+                    _prefix_applied_manifest_path(item["path"], root_prefix)
+                    in retirement_changed_paths
+                    for item in applied_files
+                )
+            )
+        ):
+            retirement_reasons = []
+            if (
+                payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD)
+                != expected_waiver_set_sha256
+            ):
+                retirement_reasons.append(
+                    f"{manifest_path} {VALIDATION_WAIVER_SET_SHA256_FIELD} does not "
+                    "match the RuleSpec toolchain-bound waiver set for a changed retirement"
+                )
+            if retirement_base_ref is None:
+                retirement_reasons.append(
+                    f"{manifest_path} unreceipted retirement requires an immutable base ref"
+                )
+            else:
+                retirement_reasons.extend(
+                    _unreceipted_retirement_base_issues(
+                        payload,
+                        repo_path=repo_path,
+                        manifest_label=manifest_path,
+                        base_ref=retirement_base_ref,
+                        roots=roots,
+                        base_tree_cache=base_tree_cache,
+                        proof_cache=path_migration_receipt_proof_cache,
+                    )
+                )
+            if retirement_reasons:
+                issues.extend(retirement_reasons)
+                continue
         for item in applied_files:
             if not isinstance(item, dict):
                 continue
@@ -30434,6 +32456,14 @@ def _require_axiom_encode_version_provenance(
 ) -> dict[str, str]:
     """Require encoder-affecting code changes to be behind a version bump."""
     repo = Path(repo_root)
+    # A shallow clone's boundary commit reads as a bump and hides every older
+    # change, so the rule needs full history, as in version_provenance and the
+    # provisioner (axiom-encode#2048).
+    if _git_name_only(repo, "rev-parse", "--is-shallow-repository") != ["false"]:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: the axiom-encode checkout is "
+            "shallow; the version-bump check needs full history."
+        )
     current_versions = _axiom_encode_versions_at_ref(repo, "HEAD")
     pyproject_version = current_versions.get("pyproject")
     package_version = current_versions.get("package")
@@ -30463,16 +32493,30 @@ def _require_axiom_encode_version_provenance(
             "bump was found; bump the encoder version before using --apply."
         )
 
-    changed_since_version = _git_name_only(
+    # Deletions and both sides of a move count, and -z keeps non-ASCII names
+    # unquoted, so no encoder change escapes the prefix test (axiom-encode#2048).
+    changed_since_version = _git_nul_paths(
         repo,
         "diff",
         "--name-only",
-        "--diff-filter=ACMRT",
-        f"{version_commit}..HEAD",
+        "--no-renames",
+        "--diff-filter=ACDMRT",
+        "-z",
+        version_commit,
+        "HEAD",
     )
-    unversioned_encoder_changes = [
-        path for path in changed_since_version if _is_axiom_encode_versioned_path(path)
-    ]
+    unversioned_encoder_changes = sorted(
+        {
+            path
+            for path in changed_since_version
+            if _is_axiom_encode_versioned_path(path)
+        }
+        # A version below one that main declared, or changes after main first
+        # reached this version at another commit (axiom-encode#2051 review).
+        | _version_provenance.main_history_changes(
+            repo, "HEAD", version_commit, pyproject_version
+        )
+    )
     if unversioned_encoder_changes:
         display = ", ".join(f"`{path}`" for path in unversioned_encoder_changes[:8])
         if len(unversioned_encoder_changes) > 8:
@@ -30549,10 +32593,22 @@ def _parse_numeric_version(version: str) -> tuple[int, ...] | None:
 def _git_first_parent(repo: Path, commit: str) -> str | None:
     try:
         line = subprocess.run(
-            ["git", "-C", str(repo), "rev-list", "--parents", "-n", "1", commit],
+            [
+                shutil.which("git") or "git",
+                "-C",
+                str(repo),
+                "rev-list",
+                "--parents",
+                "-n",
+                "1",
+                commit,
+            ],
             capture_output=True,
             check=True,
             text=True,
+            # Like the guard's other git reads: no replace refs, grafts, commit
+            # graph or ambient GIT_* values decide a commit's parent (#2048).
+            env=_read_only_git_environment(),
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return None
@@ -30608,15 +32664,35 @@ def _git_show_bytes(repo: Path, ref: str, path: str) -> bytes | None:
 def _git_name_only(repo: Path, *args: str) -> list[str]:
     try:
         completed = subprocess.run(
-            ["git", "-C", str(repo), *args],
+            [shutil.which("git") or "git", "-C", str(repo), *args],
             capture_output=True,
             check=True,
             text=True,
+            # No replace refs, grafts or commit-graph: a local history rewrite
+            # must not hide an unversioned encoder change (axiom-encode#2048).
+            env=_read_only_git_environment(),
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         stderr = getattr(exc, "stderr", "") or ""
         raise RuntimeError(stderr.strip() or "git provenance command failed") from exc
     return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+
+def _git_nul_paths(repo: Path, *args: str) -> list[str]:
+    try:
+        completed = subprocess.run(
+            [shutil.which("git") or "git", "-C", str(repo), *args],
+            capture_output=True,
+            check=True,
+            text=True,
+            # No replace refs, grafts or commit-graph: a local history rewrite
+            # must not hide an unversioned encoder change (axiom-encode#2048).
+            env=_read_only_git_environment(),
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        stderr = getattr(exc, "stderr", "") or ""
+        raise RuntimeError(stderr.strip() or "git provenance command failed") from exc
+    return [path for path in completed.stdout.split("\0") if path]
 
 
 def _extract_pyproject_version(content: str) -> str | None:
@@ -31031,7 +33107,76 @@ def _read_only_guard_encoder_execution_identity(
 # =========================================================================
 
 
+class _LocalVerificationRoots(NamedTuple):
+    corpus_release_public_key: str
+    retired_corpus_release_public_keys: tuple[str, ...]
+    apply_public_key: str | None
+    eval_public_key: str | None
+
+
+def _local_verification_encode_roots(args) -> _LocalVerificationRoots | None:
+    """Return the verification-only public roots an encode was given, if any.
+
+    Only explicit string arguments count; the roots are never read from the
+    environment. The run is refused with --apply and under any protected
+    signal (an attached signing broker, the trusted runtime, CI), so a
+    protected run always keeps its own trust roots.
+    """
+
+    def _string_or_none(name: str) -> str | None:
+        value = getattr(args, name, None)
+        return value if isinstance(value, str) else None
+
+    corpus_key = _string_or_none("corpus_release_public_key")
+    raw_retired = getattr(args, "corpus_release_retired_public_key", None)
+    retired = (
+        tuple(value for value in raw_retired if isinstance(value, str))
+        if isinstance(raw_retired, (list, tuple))
+        else ()
+    )
+    apply_key = _string_or_none("apply_public_key")
+    eval_key = _string_or_none("eval_public_key")
+    if corpus_key is None:
+        if retired or apply_key is not None or eval_key is not None:
+            raise ValueError(
+                "--corpus-release-retired-public-key, --apply-public-key and "
+                "--eval-public-key require --corpus-release-public-key"
+            )
+        return None
+    if getattr(args, "apply", False) is not False:
+        raise ValueError(
+            "encode --corpus-release-public-key is a verification-only local "
+            "run and cannot --apply; land changes through the protected workflow"
+        )
+    if protected_process_signal_active():
+        raise ValueError(
+            "encode --corpus-release-public-key is a verification-only local "
+            "run; it cannot run under an attached signing broker, the trusted "
+            "runtime or CI"
+        )
+    return _LocalVerificationRoots(corpus_key, retired, apply_key, eval_key)
+
+
 def cmd_encode(args):
+    """Encode, inside the verification-only local context when one is given."""
+    if getattr(args, "backend", None) == "claude-api" and getattr(args, "apply", False):
+        raise ValueError(
+            "encode --apply --backend claude-api is unavailable for signed "
+            "encoding until the encoding rule changes"
+        )
+    local_roots = _local_verification_encode_roots(args)
+    if local_roots is None:
+        return _cmd_encode_under_current_trust(args)
+    with local_corpus_release_verification(
+        local_roots.corpus_release_public_key,
+        retired_public_keys=local_roots.retired_corpus_release_public_keys,
+        apply_public_key=local_roots.apply_public_key,
+        eval_public_key=local_roots.eval_public_key,
+    ):
+        return _cmd_encode_under_current_trust(args)
+
+
+def _cmd_encode_under_current_trust(args):
     """Encode with the exact caller-authorized RuleSpec dependency roots."""
     engine_ref = getattr(args, "axiom_rules_engine_ref", None)
     if engine_ref is not None:
@@ -31099,6 +33244,9 @@ _FAILED_ENCODE_CANDIDATE_METADATA_FIELDS = {
     "encoder_version",
     "attempt_count",
 }
+#: Optional ``issues.json`` field: the ``validation-issue/v2`` document of the
+#: typed issues (with their checks' definitions). Absent when no issue is typed.
+_FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD = "typed_issues"
 _FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES = FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES
 _FAILED_ENCODE_CANDIDATE_MAX_ISSUES = 4096
 _FAILED_ENCODE_CANDIDATE_EMPTY_TESTS = "[]\n"
@@ -31288,6 +33436,20 @@ def _emit_final_rejected_candidate(
     ).encode("utf-8")
     if len(metadata_raw) > _FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES:
         raise ValueError("Final rejected candidate issues.json exceeds its size limit")
+    typed_issues = _safe_typed_issue_document([(None, issues)])
+    if typed_issues is not None:
+        typed_raw = (
+            json.dumps(
+                {**metadata, _FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD: typed_issues},
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+        # The typed list is diagnostic; it never makes a valid bundle oversize.
+        if len(typed_raw) <= _FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES:
+            metadata_raw = typed_raw
 
     _secure_atomic_eval_write(
         resolved_destination,
@@ -31423,10 +33585,18 @@ def _load_initial_validation_retry_feedback(args: Any) -> tuple[str, ...]:
         ) from exc
     if (
         not isinstance(metadata, dict)
-        or set(metadata) != _FAILED_ENCODE_CANDIDATE_METADATA_FIELDS
+        or set(metadata) - {_FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD}
+        != _FAILED_ENCODE_CANDIDATE_METADATA_FIELDS
         or metadata.get("schema") != _FAILED_ENCODE_CANDIDATE_SCHEMA
     ):
         raise ValueError("preserved repair candidate issues.json has an invalid shape")
+    typed_issues = metadata.get(_FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD)
+    if typed_issues is not None and (
+        not isinstance(typed_issues, dict)
+        or typed_issues.get("schema") != VALIDATION_ISSUE_SCHEMA_VERSION
+        or not isinstance(typed_issues.get("issues"), list)
+    ):
+        raise ValueError("preserved repair candidate typed issues are invalid")
 
     expected_path = Path(getattr(args, "repair_candidate_path")).as_posix()
     expected_rulespec_sha256 = getattr(args, "repair_candidate_rulespec_sha256", None)
@@ -31460,7 +33630,9 @@ def _load_initial_validation_retry_feedback(args: Any) -> tuple[str, ...]:
         or any(not isinstance(issue, str) or not issue for issue in issues)
     ):
         raise ValueError("preserved repair candidate issues are invalid")
-    return _finite_validation_retry_issue_snapshot(issues)
+    return _finite_validation_retry_issue_snapshot(
+        issues_from_document(issues, typed_issues)
+    )
 
 
 def _validate_tests_only_repair_contract(
@@ -34802,11 +36974,14 @@ def _resolve_encode_replacement_target(
 
 def _resolve_encode_escalation_config(args) -> _EncodeEscalationConfig:
     """Resolve and validate the per-section validator retry policy."""
-    initial_model = getattr(args, "model", None) or DEFAULT_OPENAI_MODEL
+    uses_claude_api = getattr(args, "backend", None) == "claude-api"
+    initial_model = getattr(args, "model", None) or (
+        DEFAULT_MODEL if uses_claude_api else DEFAULT_OPENAI_MODEL
+    )
     escalation_model = getattr(
         args,
         "escalation_model",
-        DEFAULT_OPENAI_ESCALATION_MODEL,
+        DEFAULT_MODEL if uses_claude_api else DEFAULT_OPENAI_ESCALATION_MODEL,
     )
     if (
         not isinstance(escalation_model, str)
@@ -34878,9 +37053,9 @@ def _next_encode_attempt_model(
 
 def _require_compatible_encode_retry_model(*, backend: str, model: str) -> None:
     """Reject a known cross-provider retry before invoking the wrong CLI."""
-    if backend == "claude" and model.startswith("gpt-"):
+    if backend in {"claude", "claude-api"} and model.startswith("gpt-"):
         raise ValueError(
-            "encode cannot use a GPT escalation model with --backend claude; "
+            f"encode cannot use a GPT escalation model with --backend {backend}; "
             "pass a Claude-compatible --escalation-model or --no-escalation"
         )
 
@@ -35178,6 +37353,7 @@ def _run_encode_attempts_with_retries(
                 prior_attempts=failed_attempts,
                 final_attempt_success=final_attempt_success,
                 final_attempt_error=final_attempt_error,
+                final_attempt_issues=execution.validation_issues,
             )
             print(f"  run_id={logged_run.id}")
         _stamp_encode_loop_timing(
@@ -35306,6 +37482,21 @@ def _run_encode_attempt(
         source_unit=source_unit,
         corpus_release=corpus_release,
     )
+    if replacement_target is None and is_rulemaking_source_identifier(
+        source_unit.requested
+    ):
+        singular_modules, other_citing_modules = _rulespec_modules_citing_source(
+            policy_repo_path,
+            source_unit.requested,
+            checkout_path=policy_checkout_path,
+        )
+        raise ValueError(
+            rulemaking_explicit_output_required_message(
+                source_unit.requested,
+                singular_modules,
+                other_citing_modules=other_citing_modules,
+            )
+        )
     if (
         replacement_target is not None
         and replacement_target.retired_source_admission is not None
@@ -39330,6 +41521,10 @@ def _relative_output_to_child_corpus_citation_path(
     }.get(source_root)
     if corpus_source_root is None or not tail:
         return None
+    if source_root == "policies" and tail[0] == "rulemaking" and len(tail) >= 2:
+        # policies/rulemaking/ is the reserved output namespace for
+        # <jurisdiction>/rulemaking/... (Federal Register) sources.
+        return f"{jurisdiction}/rulemaking/{Path(*tail[1:]).as_posix()}"
     return f"{jurisdiction}/{corpus_source_root}/{Path(*tail).as_posix()}"
 
 
@@ -39676,6 +41871,43 @@ def _rule_mentions_assistance_group(rule: dict[str, Any]) -> bool:
     return "assistance_group" in haystack or "assistance group" in haystack
 
 
+def _embedded_scalar_record_is_selector_label(
+    rules: list[Any],
+    rule: dict[str, Any],
+    *,
+    literal: str,
+    expression: str,
+) -> bool:
+    """Whether the reported literal is, on that line, a selector's row label.
+
+    A selector's result labels a row of the tables it indexes. Lifted into a
+    named parameter it would claim a value the source never prints, and no
+    proof could ground it. The repair rewrites every occurrence of the literal
+    on the line, so one label occurrence is enough to leave the line alone; a
+    substantive twin of the label then stays reported instead of being lifted
+    together with it.
+    """
+    selector_table_keys = _rulespec_index_selector_keys(rules)
+    if not _is_structural_selector_rule(
+        rule,
+        index_selectors=_rulespec_index_selectors(rules, selector_table_keys),
+    ):
+        return False
+    selector_keys = selector_table_keys.get(str(rule.get("name") or "").strip())
+    return any(
+        _is_structural_selector_result_literal(
+            expression,
+            literal,
+            selector_keys,
+            span=match.span(),
+        )
+        for match in re.finditer(
+            rf"(?<![\w.]){re.escape(literal)}(?![\w.])",
+            expression,
+        )
+    )
+
+
 def _extract_embedded_scalar_literal_record(
     rules: list[Any],
     record: dict[str, str],
@@ -39693,6 +41925,10 @@ def _extract_embedded_scalar_literal_record(
             continue
         if str(rule.get("name") or "").strip() != rule_name:
             continue
+        if _embedded_scalar_record_is_selector_label(
+            rules, rule, literal=literal, expression=expression
+        ):
+            return None
         parameter_name = _embedded_scalar_parameter_name(
             rule_name,
             expression,
@@ -52225,6 +54461,20 @@ def _formula_without_string_literals(formula: str) -> str:
     )
 
 
+def _formula_without_comments(formula: str) -> str:
+    """Drop each ``#`` comment and blank each string literal, in one pass.
+
+    Like the rules engine's tokenizer, the pass reads left to right, so a
+    ``#`` inside a string starts no comment and a quote inside a comment
+    opens no string.
+    """
+    return re.sub(
+        rf"({_RULESPEC_STRING_LITERAL_RE})|#[^\n]*",
+        lambda match: " " * len(match.group(1)) if match.group(1) else "",
+        formula,
+    )
+
+
 def _formula_identifiers(formula: str) -> set[str]:
     return (
         set(
@@ -55864,21 +58114,78 @@ def _parse_test_input_assignment_issue(issue: str) -> tuple[str, set[str]] | Non
     return match["case"].strip(), missing_inputs
 
 
+# Declared input dtypes, grouped by the test value each one takes: tests give
+# Boolean and Judgment inputs true or false, numeric inputs numbers, and text
+# inputs strings. The rules engine reads Money, Rate and float as Decimal and
+# int as Integer, and the encoder's eval dtypes add Count, Float and String.
+# Date, and any dtype outside these groups, leaves the choice to the name and
+# formula heuristics.
+_DECLARED_BOOLEAN_INPUT_DTYPES = frozenset({"bool", "boolean", "judgment"})
+_DECLARED_NUMERIC_INPUT_DTYPES = frozenset(
+    {"count", "decimal", "float", "int", "integer", "money", "rate"}
+)
+_DECLARED_TEXT_INPUT_DTYPES = frozenset({"string", "text"})
+_DECLARED_INPUT_KIND_DEFAULTS: dict[str, bool | int | str] = {
+    "boolean": False,
+    "numeric": 0,
+    "text": "",
+}
+
+
+def _declared_input_dtype_kind(
+    input_name: str, *, rules_payload: dict[str, object]
+) -> str | None:
+    """Return "boolean", "numeric" or "text" from the module's own declaration.
+
+    A module's `inputs` list states each input's dtype, so a generated test
+    value must take that type whatever the input's name suggests. Returns None
+    when the module declares no input of that name, declares it more than once,
+    or gives it a dtype outside the three groups.
+    """
+    inputs = rules_payload.get("inputs")
+    if not isinstance(inputs, list):
+        return None
+    kinds: list[str | None] = []
+    for entry in inputs:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("name") or "").strip() != input_name:
+            continue
+        dtype = str(entry.get("dtype") or "").strip().lower()
+        if dtype in _DECLARED_BOOLEAN_INPUT_DTYPES:
+            kinds.append("boolean")
+        elif dtype in _DECLARED_NUMERIC_INPUT_DTYPES:
+            kinds.append("numeric")
+        elif dtype in _DECLARED_TEXT_INPUT_DTYPES:
+            kinds.append("text")
+        else:
+            kinds.append(None)
+    if len(kinds) != 1:
+        return None
+    return kinds[0]
+
+
 def _default_generated_test_input_value(
     input_name: str,
     *,
     rules_payload: dict[str, object],
     prefer_positive_counts: bool = False,
 ) -> bool | int | str:
-    if _factual_input_appears_string_selector(input_name, rules_payload=rules_payload):
+    declared = _declared_input_dtype_kind(input_name, rules_payload=rules_payload)
+    if declared == "boolean":
+        return False
+    if declared == "text":
         return ""
-    if _factual_input_appears_numeric(input_name, rules_payload=rules_payload):
-        if prefer_positive_counts and _factual_input_name_looks_positive_count(
-            input_name
+    if declared is None:
+        if _factual_input_appears_string_selector(
+            input_name, rules_payload=rules_payload
         ):
-            return 1
-        return 0
-    return False
+            return ""
+        if not _factual_input_appears_numeric(input_name, rules_payload=rules_payload):
+            return False
+    if prefer_positive_counts and _factual_input_name_looks_positive_count(input_name):
+        return 1
+    return 0
 
 
 def _factual_input_appears_string_selector(
@@ -55902,7 +58209,7 @@ def _factual_input_appears_string_selector(
     string_membership = re.compile(
         rf"""
         \b{re.escape(input_name)}\b\s+(?:not\s+)?in\s*
-        [\[\(\{{][^\]\)\}}]*{_RULESPEC_STRING_LITERAL_RE}
+        [\[\(\{{][^\]\)\}}]*{string_literal}
         """,
         re.VERBOSE,
     )
@@ -55940,6 +58247,9 @@ def _factual_input_name_looks_positive_count(input_name: str) -> bool:
 def _factual_input_appears_numeric(
     input_name: str, *, rules_payload: dict[str, object]
 ) -> bool:
+    declared = _declared_input_dtype_kind(input_name, rules_payload=rules_payload)
+    if declared is not None:
+        return declared == "numeric"
     if _factual_input_appears_string_selector(
         input_name,
         rules_payload=rules_payload,
@@ -55958,18 +58268,35 @@ def _factual_input_appears_numeric(
             rf"|(?:[+\-*/]\s*)\b{re.escape(input_name)}\b)"
         )
         boolean_context = re.compile(
-            rf"(\bif\s+{re.escape(input_name)}\s*:"
+            rf"(\b(?:if|elif)\s+{re.escape(input_name)}\s*:"
             rf"|\bnot\s+{re.escape(input_name)}\b"
             rf"|\b{re.escape(input_name)}\b\s+(?:and|or)\b"
             rf"|\b(?:and|or)\s+{re.escape(input_name)}\b)"
         )
+        # A rule with a numeric dtype that returns the input bare, as its whole
+        # formula or as one branch's value, uses it as a number. So does a
+        # numeric function that takes it as an argument. Both checks read the
+        # formula without its comments (see `_formula_without_comments`).
+        bare_numeric_value = re.compile(
+            rf"(?:\A|:)[ \t]*(?:\n[ \t]*)?{re.escape(input_name)}[ \t]*"
+            rf"(?=\Z|\n|else\b|elif\b)"
+        )
+        numeric_call_argument = re.compile(
+            rf"\b(?:min|max|abs|round|floor|ceil)\s*\([^()]*\b{re.escape(input_name)}\b"
+        )
         formula_hits: list[str] = []
+        numeric_rule_formula_hits: list[str] = []
+        formula_code: list[str] = []
         for rule in rules:
             if not isinstance(rule, dict):
                 continue
             versions = rule.get("versions")
             if not isinstance(versions, list):
                 continue
+            rule_is_numeric = (
+                str(rule.get("dtype") or "").strip().lower()
+                in _DECLARED_NUMERIC_INPUT_DTYPES
+            )
             for version in versions:
                 if not isinstance(version, dict):
                     continue
@@ -55977,6 +58304,10 @@ def _factual_input_appears_numeric(
                 if not isinstance(formula, str) or not pattern.search(formula):
                     continue
                 formula_hits.append(formula)
+                code = _formula_without_comments(formula)
+                formula_code.append(code)
+                if rule_is_numeric:
+                    numeric_rule_formula_hits.append(code)
         if any(
             _string_positive_assignment_for_expression(
                 input_name=input_name,
@@ -55990,6 +58321,10 @@ def _factual_input_appears_numeric(
             return True
         if any(boolean_context.search(formula) for formula in formula_hits):
             return False
+        if any(
+            bare_numeric_value.search(code) for code in numeric_rule_formula_hits
+        ) or any(numeric_call_argument.search(code) for code in formula_code):
+            return True
 
     if _factual_input_name_looks_positive_count(input_name):
         return True
@@ -56355,6 +58690,20 @@ def _enforce_no_apply_collision(
 _YAML_NON_ASCII_ESCAPE = re.compile(r"\\u([0-9A-Fa-f]{4})")
 
 
+def _yaml_emitter_writes_literally(character: str) -> bool:
+    """True when PyYAML's emitter, with allow_unicode, writes `character` as itself.
+
+    Inside double quotes the emitter escapes each non-ASCII character outside
+    U+00A0-U+D7FF and U+E000-U+FFFD (C1 controls, surrogates, U+FFFE, U+FFFF
+    and characters past U+FFFF), and U+2028, U+2029 and U+FEFF as well. A
+    scalar holding U+FEFF can only take double quotes, so the emitter writes
+    that character as `\\uFEFF` in every module it dumps.
+    """
+    return (
+        "\xa0" <= character <= "\ud7ff" or "\ue000" <= character <= "\ufffd"
+    ) and character not in "\u2028\u2029\ufeff"
+
+
 def _unescape_non_ascii_yaml_escapes(text: str) -> str | None:
     """Rewrite `\\uXXXX` escapes of non-ASCII characters as the characters themselves.
 
@@ -56368,13 +58717,20 @@ def _unescape_non_ascii_yaml_escapes(text: str) -> str | None:
     equivalent (unparseable YAML on either side, or a different parse), in
     which case the caller must leave the file exactly as the model wrote it.
     Escapes of ASCII characters are left alone; this pass exists for scripts.
+    So are escapes of the characters the emitter itself escapes (see
+    `_yaml_emitter_writes_literally`): apply stamps the module again, and a
+    re-dump would escape such a character again and change the bytes overlay
+    validation recorded. Their escapes also read better than invisible
+    separators and byte order marks.
     """
     if "\\u" not in text:
         return None
 
     def _replace(match: re.Match[str]) -> str:
         character = chr(int(match.group(1), 16))
-        return character if ord(character) > 0x7F else match.group(0)
+        if _yaml_emitter_writes_literally(character):
+            return character
+        return match.group(0)
 
     rewritten = _YAML_NON_ASCII_ESCAPE.sub(_replace, text)
     if rewritten == text:
@@ -56869,6 +59225,74 @@ def _source_attestation_structure_issues(
             seen_components.add(component_identity)
 
     return issues
+
+
+def _rulespec_modules_citing_source(
+    policy_repo_path: Path,
+    citation: str,
+    *,
+    checkout_path: Path,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Checkout-relative primary modules under ``policies/`` that cite ``citation``.
+
+    Returns ``(singular, other)``. ``singular`` modules have this document as
+    their ``source_verification.corpus_citation_path``. ``other`` modules cite
+    the document in ``corpus_citation_paths``, or cite one of its pages (a
+    citation path under ``<document>/``), in either field. The lists make no
+    claim about which modules ``--replace-rulespec-path`` accepts; that flag
+    decides. Read-only and best effort: companions, unreadable and malformed
+    files are skipped, so the lists only help the operator pick the module to
+    re-encode.
+    """
+    try:
+        wanted = normalize_corpus_identifier(citation)
+    except CorpusResolutionError:
+        return (), ()
+    policies_root = policy_repo_path / "policies"
+    if not policies_root.is_dir():
+        return (), ()
+
+    def normalized(value: object) -> str | None:
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            return normalize_corpus_identifier(value)
+        except (CorpusResolutionError, ValueError):
+            return None
+
+    def names_document(cited: str | None) -> bool:
+        return cited is not None and (cited == wanted or cited.startswith(f"{wanted}/"))
+
+    singular_modules: list[str] = []
+    other: list[str] = []
+    for path in sorted(policies_root.rglob("*.yaml")):
+        if path.name.endswith(RULESPEC_TEST_FILE_SUFFIX) or not path.is_file():
+            continue
+        if path.stat().st_size > 10 * 1024 * 1024:
+            continue
+        try:
+            payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, yaml.YAMLError, RecursionError):
+            continue
+        module = payload.get("module") if isinstance(payload, dict) else None
+        verification = (
+            module.get("source_verification") if isinstance(module, dict) else None
+        )
+        if not isinstance(verification, dict):
+            continue
+        singular = normalized(verification.get("corpus_citation_path"))
+        plural_raw = verification.get("corpus_citation_paths")
+        plural = (
+            [normalized(item) for item in plural_raw]
+            if isinstance(plural_raw, list)
+            else []
+        )
+        relative = path.relative_to(checkout_path).as_posix()
+        if singular == wanted:
+            singular_modules.append(relative)
+        elif names_document(singular) or any(names_document(item) for item in plural):
+            other.append(relative)
+    return tuple(singular_modules), tuple(other)
 
 
 def _source_verification_citation_paths(
@@ -58359,7 +60783,73 @@ def _require_unchanged_successful_apply_validation(
         raise RuntimeError(
             "Cannot apply generated RuleSpec: validated artifacts or provenance "
             "changed after overlay validation"
+            + _apply_validation_snapshot_change_summary(
+                _apply_validation_snapshot_changed_paths(expected, actual)
+            )
         )
+
+
+_APPLY_SNAPSHOT_KEY_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_APPLY_SNAPSHOT_CHANGES_NAMED = 8
+
+
+def _apply_validation_snapshot_key_path(prefix: str, key: object) -> str:
+    if isinstance(key, str) and _APPLY_SNAPSHOT_KEY_IDENTIFIER.fullmatch(key):
+        return f"{prefix}.{key}" if prefix else key
+    return f"{prefix}[{json.dumps(str(key))}]"
+
+
+def _apply_validation_snapshot_changed_paths(
+    expected: object,
+    actual: object,
+    prefix: str = "",
+) -> list[str]:
+    """Name every place where two apply validation snapshots disagree.
+
+    Returns key paths such as ``output.sha256`` or
+    ``validation_execution.policy_content_files["statutes/26/2.yaml"]`` and
+    never the values on either side. A field missing on one side, a list whose
+    length changed, or a value of another type names the path that holds it.
+    The comparison uses the same equality as the guard, so unequal snapshots
+    always name at least one path.
+    """
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        changed: list[str] = []
+        for key in sorted(expected.keys() | actual.keys(), key=str):
+            path = _apply_validation_snapshot_key_path(prefix, key)
+            if key in expected and key in actual:
+                changed.extend(
+                    _apply_validation_snapshot_changed_paths(
+                        expected[key], actual[key], path
+                    )
+                )
+            else:
+                changed.append(path)
+        return changed
+    if (
+        isinstance(expected, list)
+        and isinstance(actual, list)
+        and len(expected) == len(actual)
+    ):
+        changed = []
+        for index, (left, right) in enumerate(zip(expected, actual, strict=True)):
+            changed.extend(
+                _apply_validation_snapshot_changed_paths(
+                    left, right, f"{prefix}[{index}]"
+                )
+            )
+        return changed
+    if expected == actual:
+        return []
+    return [prefix or "<snapshot>"]
+
+
+def _apply_validation_snapshot_change_summary(changed: Sequence[str]) -> str:
+    if not changed:
+        return ""
+    named = ", ".join(changed[:_APPLY_SNAPSHOT_CHANGES_NAMED])
+    more = len(changed) - _APPLY_SNAPSHOT_CHANGES_NAMED
+    return f" (changed: {named}{f' and {more} more' if more > 0 else ''})"
 
 
 def _planned_apply_file_bytes(
@@ -61417,8 +63907,100 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     amendment_source_texts: Mapping[str, str] | None = None,
     amendment_documents: Sequence[object] = (),
     retired_source_admission: dict[str, Any] | None = None,
+    validation_observer: Callable[[Sequence[tuple[Path, object]]], None] | None = None,
 ) -> tuple[bool, list[str], dict[Path, str]]:
-    """Validate generated artifacts in a temporary policy-repo overlay."""
+    """Validate and bind the successful overlay for the signed apply transaction.
+
+    The candidate check is shared with the admission scorer; only this entry
+    point records the apply validation snapshot, at the point it always has.
+    """
+
+    return _validate_generated_encoding_candidate_in_policy_overlay_with_release(
+        result,
+        output_root=output_root,
+        policy_repo_path=policy_repo_path,
+        axiom_rules_path=axiom_rules_path,
+        axiom_rules_engine_ref=axiom_rules_engine_ref,
+        axiom_compose_path=axiom_compose_path,
+        local_corpus_release=local_corpus_release,
+        validate_dependents=validate_dependents,
+        scheduled_dependent_rulespec_paths=scheduled_dependent_rulespec_paths,
+        rulespec_dependency_roots=rulespec_dependency_roots,
+        require_complete_source_unit=require_complete_source_unit,
+        deferred_output_review_contract=deferred_output_review_contract,
+        amendment_source_texts=amendment_source_texts,
+        amendment_documents=amendment_documents,
+        retired_source_admission=retired_source_admission,
+        validation_observer=validation_observer,
+        record_apply_snapshot=True,
+    )
+
+
+def _generated_artifact_guard_issue(
+    output_file: Path,
+    output_test: Path,
+    relative_output: Path,
+    generated_root: Path,
+) -> str | None:
+    """Why an artifact this generation wrote cannot be rewritten safely, if so.
+
+    Each artifact that is present must be a regular file with one name, inside
+    the generation output root. The checks stat paths and never open them.
+    """
+
+    for artifact in (output_file, output_test):
+        if not artifact.is_symlink() and not artifact.exists():
+            continue
+        if artifact.is_symlink() or not artifact.is_file():
+            return (
+                f"{relative_output}: generated artifact must be a regular "
+                f"file, not a link: {artifact.name}"
+            )
+        if _generated_artifact_is_multiply_linked(artifact):
+            return (
+                f"{relative_output}: generated artifact shares its bytes "
+                f"with another name (hard link); refusing to rewrite it: "
+                f"{artifact.name}"
+            )
+        if not _generated_artifact_is_contained_in(artifact, generated_root):
+            return (
+                f"{relative_output}: generated artifact resolves outside "
+                f"the generation output root: {artifact.name}"
+            )
+    return None
+
+
+def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    axiom_rules_path: Path,
+    axiom_rules_engine_ref: str | None = None,
+    axiom_compose_path: Path | None = None,
+    local_corpus_release: LocalCorpusRelease,
+    validate_dependents: bool = True,
+    scheduled_dependent_rulespec_paths: Sequence[Path] = (),
+    rulespec_dependency_roots: Sequence[Path] = (),
+    require_complete_source_unit: bool = False,
+    deferred_output_review_contract: _DeferredOutputReviewContract | None = None,
+    amendment_source_texts: Mapping[str, str] | None = None,
+    amendment_documents: Sequence[object] = (),
+    retired_source_admission: dict[str, Any] | None = None,
+    validation_observer: Callable[[Sequence[tuple[Path, object]]], None] | None = None,
+    normalize_staging_paths: bool = False,
+    record_apply_snapshot: bool = False,
+) -> tuple[bool, list[str], dict[Path, str]]:
+    """Validate generated artifacts in a temporary policy-repo overlay.
+
+    ``normalize_staging_paths`` replaces the temporary overlay root in the
+    returned issues with a fixed placeholder. The signed apply path leaves it
+    off, so its diagnostics (which also feed retry feedback) are unchanged;
+    the admission scorer turns it on so that its output is deterministic.
+
+    ``record_apply_snapshot`` records the signed apply transaction's
+    validation snapshot on success. Only the apply entry point sets it.
+    """
     amendment_documents = copy.deepcopy(tuple(amendment_documents))
     setattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
     expected_engine_binding = _pinned_apply_engine_binding(
@@ -61470,37 +64052,17 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     # changed.
     generated_root = Path(output_root) / str(getattr(result, "runner", "") or "")
     output_test = _rulespec_test_path(output_file)
-    for artifact in (output_file, output_test):
-        if not artifact.is_symlink() and not artifact.exists():
-            continue
-        if artifact.is_symlink() or not artifact.is_file():
-            return (
-                False,
-                [
-                    f"{relative_output}: generated artifact must be a regular "
-                    f"file, not a link: {artifact.name}"
-                ],
-                {},
-            )
-        if _generated_artifact_is_multiply_linked(artifact):
-            return (
-                False,
-                [
-                    f"{relative_output}: generated artifact shares its bytes "
-                    f"with another name (hard link); refusing to rewrite it: "
-                    f"{artifact.name}"
-                ],
-                {},
-            )
-        if not _generated_artifact_is_contained_in(artifact, generated_root):
-            return (
-                False,
-                [
-                    f"{relative_output}: generated artifact resolves outside "
-                    f"the generation output root: {artifact.name}"
-                ],
-                {},
-            )
+    artifact_issue = _generated_artifact_guard_issue(
+        output_file, output_test, relative_output, generated_root
+    )
+    if artifact_issue is not None:
+        return False, [artifact_issue], {}
+    # When the stamp above re-dumps the module, it writes non-ASCII as
+    # characters except where PyYAML's emitter escapes them, and the rewrite
+    # keeps those escapes, so the rewrite leaves its output unchanged. It still
+    # changes modules the stamp returns early on (other backends, non-mapping
+    # payloads, reviewed-candidate promotions) and the companion tests, which
+    # the stamp never writes.
     if vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None:
         _rewrite_generated_yaml_without_non_ascii_escapes(
             output_file,
@@ -61514,12 +64076,36 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
 
     generated_content = output_file.read_text()
     if retired_source_admission is not None:
-        from .legacy_external_parameters import external_parameter_preservation_issues
+        from .legacy_external_parameters import (
+            carry_forward_external_proved_rules,
+            external_parameter_preservation_issues,
+        )
 
         try:
             generated_payload = _safe_load_unique_keys(generated_content)
         except (yaml.YAMLError, ValueError) as exc:
             return False, [f"Invalid replacement YAML: {exc}"], {}
+        if vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None:
+            try:
+                carried = carry_forward_external_proved_rules(
+                    generated_payload, retired_source_admission
+                )
+                if carried:
+                    generated_content = safe_dump_yaml(
+                        generated_payload, sort_keys=False, allow_unicode=True
+                    )
+                    output_file.write_text(generated_content)
+            except (yaml.YAMLError, ValueError) as exc:
+                return False, [f"Invalid external-rule carry-forward: {exc}"], {}
+            if carried:
+                artifact_issue = _generated_artifact_guard_issue(
+                    output_file, output_test, relative_output, generated_root
+                )
+                if artifact_issue is not None:
+                    return False, [artifact_issue], {}
+                print(
+                    "apply=carried_forward_external_proved_rules:" + ",".join(carried)
+                )
         preservation_issues = external_parameter_preservation_issues(
             generated_payload, retired_source_admission
         )
@@ -61621,6 +64207,14 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
         policy_checkout_path = _rulespec_apply_checkout_root(
             policy_repo_path,
             relative_output,
+        )
+        execution_git_origin = (
+            capture_execution_git_origin(policy_content_root)
+            if require_complete_source_unit
+            and legacy_replacement is None
+            and not replacement_overlay_scope
+            and not rulespec_dependency_roots
+            else None
         )
         overlay_repo_name = policy_checkout_path.name
         staged_dependency_roots = _stage_apply_overlay_dependency_roots(
@@ -61743,6 +64337,15 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
 
         pipeline = ValidatorPipeline(
             policy_repo_path=overlay_content_root,
+            execution_overlay_origin=(
+                bind_execution_overlay_origin(
+                    execution_git_origin, overlay_content_root
+                )
+                if legacy_replacement is None
+                and not replacement_overlay_scope
+                and not staged_dependency_roots
+                else None
+            ),
             axiom_rules_path=axiom_rules_path,
             axiom_rules_engine_ref=axiom_rules_engine_ref,
             axiom_compose_path=axiom_compose_path,
@@ -61816,6 +64419,8 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             dependents=dependents,
         )
         for _ in range(_APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT):
+            if validation_observer is not None:
+                validation_observer(validations)
             if all(validation.all_passed for _, validation in validations):
                 exact_relative_paths = {
                     Path(*item.path.parts[1:])
@@ -61960,18 +64565,21 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                                 final_timing_issues,
                                 {},
                             )
-                    _record_successful_apply_validation(
-                        result,
-                        output_root=output_root,
-                        policy_repo_path=policy_repo_path,
-                        relative_output=relative_output,
-                        supplemental_files=supplemental_files,
-                        local_corpus_release=local_corpus_release,
-                        axiom_rules_path=axiom_rules_path,
-                        axiom_rules_engine_ref=axiom_rules_engine_ref,
-                        expected_engine_binding=expected_engine_binding,
-                        rulespec_dependency_roots=rulespec_dependency_roots,
-                    )
+                    if validation_observer is not None:
+                        validation_observer(validations)
+                    if record_apply_snapshot:
+                        _record_successful_apply_validation(
+                            result,
+                            output_root=output_root,
+                            policy_repo_path=policy_repo_path,
+                            relative_output=relative_output,
+                            supplemental_files=supplemental_files,
+                            local_corpus_release=local_corpus_release,
+                            axiom_rules_path=axiom_rules_path,
+                            axiom_rules_engine_ref=axiom_rules_engine_ref,
+                            expected_engine_binding=expected_engine_binding,
+                            rulespec_dependency_roots=rulespec_dependency_roots,
+                        )
                     return True, [], supplemental_files
             target_validation = next(
                 (
@@ -62327,6 +64935,8 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 overlay_target=overlay_target,
                 dependents=dependents,
             )
+        if validation_observer is not None:
+            validation_observer(validations)
         issues: list[str] = []
         for validated_file, validation in validations:
             if getattr(validation, "all_passed", False):
@@ -62357,6 +64967,15 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 + relative_output.as_posix(),
             )
         )
+        if normalize_staging_paths:
+            from .harness.validator_pipeline import (
+                _normalize_validation_staging_text,
+            )
+
+            issues = [
+                _normalize_validation_staging_text(issue, overlay_parent)
+                for issue in issues
+            ]
         return False, issues, {}
 
 
@@ -62376,7 +64995,7 @@ def _full_overlay_validator_issues(
         else ()
     )
     issues = tuple(
-        f"{prefix}{raw_issue}"
+        retype(raw_issue, f"{prefix}{raw_issue}")
         for raw_issue in candidates
         if isinstance(raw_issue, str) and raw_issue
     )
@@ -65142,10 +67761,18 @@ def _complete_missing_dependent_test_inputs(
         repo_path=overlay_repo,
     )
     target_input_names: set[str] = set()
+    target_payloads: dict[str, dict[str, object]] = {}
     with contextlib.suppress(OSError, ValueError, yaml.YAMLError):
+        target_content = target_file.read_text()
         target_input_names = _local_factual_input_names_from_rules_content(
-            target_file.read_text()
+            target_content
         )
+        target_payload = yaml.safe_load(target_content)
+        if isinstance(target_payload, dict):
+            target_payloads[target_ref] = target_payload
+    declared_default = _declared_input_default_resolver(
+        repo_path=overlay_repo, known_payloads=target_payloads
+    )
     changed: list[Path] = []
     for validated_file, validation in validations:
         if validated_file == target_file:
@@ -65202,6 +67829,7 @@ def _complete_missing_dependent_test_inputs(
                 baseline_inputs=baseline_inputs,
                 imported_inputs=imported_inputs,
                 target_input_names=target_input_names,
+                declared_default=declared_default,
             ):
                 updated = _insert_input_default_in_test_cases(
                     updated,
@@ -65248,22 +67876,30 @@ def _complete_missing_imported_test_inputs(
         return True
     current_base = _rulespec_base_for_file(rules_file, repo_path=repo_path)
     local_input_refs: dict[str, list[str]] = {}
+    local_payloads: dict[str, dict[str, object]] = {}
     if current_base:
         with contextlib.suppress(OSError, ValueError, yaml.YAMLError):
+            rules_content = rules_file.read_text()
             for input_name in sorted(
-                _local_factual_input_names_from_rules_content(rules_file.read_text())
+                _local_factual_input_names_from_rules_content(rules_content)
             ):
                 _append_unique_input_ref(
                     local_input_refs,
                     input_name,
                     f"{current_base}#input.{input_name}",
                 )
+            rules_payload = yaml.safe_load(rules_content)
+            if isinstance(rules_payload, dict):
+                local_payloads[current_base] = rules_payload
     imported_inputs = _merge_imported_input_refs_by_name(
         local_input_refs,
         _imported_input_refs_by_name(rules_file, repo_path=repo_path),
     )
     if not imported_inputs:
         return False
+    declared_default = _declared_input_default_resolver(
+        repo_path=repo_path, known_payloads=local_payloads
+    )
 
     content = test_file.read_text()
     updated = content
@@ -65273,7 +67909,9 @@ def _complete_missing_imported_test_inputs(
             updated = _insert_input_default_in_test_cases(
                 updated,
                 input_ref,
-                _infer_missing_input_default(input_name),
+                _missing_input_default(
+                    input_name, input_ref, declared_default=declared_default
+                ),
                 relation_row_anchor_bases=relation_row_anchor_bases,
             )
     for assignment in missing_assignments:
@@ -65288,16 +67926,19 @@ def _complete_missing_imported_test_inputs(
             input_names = sorted(imported_inputs)
         for input_name in input_names:
             for input_ref in imported_inputs.get(input_name, []):
+                default = _missing_input_default(
+                    input_name, input_ref, declared_default=declared_default
+                )
                 updated = _insert_input_default_in_relation_rows_for_test_cases(
                     updated,
                     input_ref=input_ref,
-                    value=_infer_missing_input_default(input_name),
+                    value=default,
                     relation_row_anchor_bases=relation_row_anchor_bases,
                 )
                 updated = _insert_input_default_in_table_entity_rows(
                     updated,
                     input_ref=input_ref,
-                    value=_infer_missing_input_default(input_name),
+                    value=default,
                     case_name=assignment["case"],
                     entity_id=entity_id,
                 )
@@ -65685,6 +68326,64 @@ def _load_test_input_baseline(test_path: Path) -> dict[str, object]:
     return {}
 
 
+DeclaredInputDefault = Callable[[str], bool | int | str | None]
+
+
+def _declared_input_default_resolver(
+    *,
+    repo_path: Path,
+    known_payloads: Mapping[str, dict[str, object]] | None = None,
+) -> DeclaredInputDefault:
+    """Return a lookup from an input ref to the default its declared dtype takes.
+
+    The lookup reads each referenced module once, from `known_payloads` when it
+    holds the ref's base and from the repo otherwise. It returns None when no
+    module in the repo answers to the base, the path resolver refuses the ref,
+    the module doesn't parse, or it declares no single dtype group for the
+    input; the caller then falls back to the name guess.
+    """
+    payloads: dict[str, dict[str, object] | None] = dict(known_payloads or {})
+
+    def lookup(input_ref: str) -> bool | int | str | None:
+        base, separator, input_name = input_ref.partition("#input.")
+        input_name = input_name.strip()
+        if not separator or not input_name:
+            return None
+        if base not in payloads:
+            payload: dict[str, object] | None = None
+            # UnsafeRulespecContextPath is a ValueError: a refused ref is never read.
+            with contextlib.suppress(OSError, ValueError, yaml.YAMLError):
+                module_file = _import_base_to_repo_file(base, repo_path=repo_path)
+                if module_file is not None:
+                    loaded = yaml.safe_load(module_file.read_text())
+                    if isinstance(loaded, dict):
+                        payload = loaded
+            payloads[base] = payload
+        payload = payloads[base]
+        if payload is None:
+            return None
+        kind = _declared_input_dtype_kind(input_name, rules_payload=payload)
+        if kind is None:
+            return None
+        return _DECLARED_INPUT_KIND_DEFAULTS[kind]
+
+    return lookup
+
+
+def _missing_input_default(
+    input_name: str,
+    input_ref: str,
+    *,
+    declared_default: DeclaredInputDefault | None = None,
+) -> object:
+    """The value a filled-in test input takes: its declared dtype's, else a guess."""
+    if declared_default is not None:
+        value = declared_default(input_ref)
+        if value is not None:
+            return value
+    return _infer_missing_input_default(input_name)
+
+
 def _default_refs_for_missing_input(
     input_name: str,
     *,
@@ -65692,6 +68391,7 @@ def _default_refs_for_missing_input(
     baseline_inputs: dict[str, object],
     imported_inputs: dict[str, list[str]] | None = None,
     target_input_names: set[str] | None = None,
+    declared_default: DeclaredInputDefault | None = None,
 ) -> list[tuple[str, object]]:
     suffix = f"#input.{input_name}"
     matches = [
@@ -65702,15 +68402,26 @@ def _default_refs_for_missing_input(
     if matches:
         return matches
     imported_matches = [
-        (reference, _infer_missing_input_default(input_name))
+        (
+            reference,
+            _missing_input_default(
+                input_name, reference, declared_default=declared_default
+            ),
+        )
         for reference in (imported_inputs or {}).get(input_name, [])
     ]
     if imported_matches:
         return imported_matches
     if target_input_names is not None and input_name not in target_input_names:
         return []
+    target_input_ref = f"{target_ref}#input.{input_name}"
     return [
-        (f"{target_ref}#input.{input_name}", _infer_missing_input_default(input_name))
+        (
+            target_input_ref,
+            _missing_input_default(
+                input_name, target_input_ref, declared_default=declared_default
+            ),
+        )
     ]
 
 
@@ -66259,8 +68970,15 @@ def _log_eval_result(
     prior_attempts: Sequence[_FailedEncodeAttempt] = (),
     final_attempt_success: bool | None = None,
     final_attempt_error: str | None = None,
+    final_attempt_issues: Sequence[str] = (),
 ) -> EncodingRun:
-    """Persist an eval-backed encode run in the local run history DB."""
+    """Persist an eval-backed encode run in the local run history DB.
+
+    ``final_attempt_issues`` are the final candidate's full validation issues
+    when the caller has them. When they hold issues the eval metrics miss (an
+    overlay rejection), they replace the metrics' issues in the final try, as
+    in the outcome telemetry; otherwise the metrics keep their gate labels.
+    """
     rulespec_content = _read_optional_text(getattr(result, "output_file", ""))
     source_text = _read_eval_source_text(getattr(result, "context_manifest_file", ""))
     iterations: list[Iteration] = []
@@ -66273,6 +68991,9 @@ def _log_eval_result(
                     IterationError(
                         error_type="validation",
                         message=failed_attempt.error,
+                        issue_document=_safe_typed_issue_document(
+                            [(None, failed_attempt.full_validation_issues)]
+                        ),
                     )
                 ],
                 success=False,
@@ -66287,10 +69008,26 @@ def _log_eval_result(
         final_error = final_attempt_error
     final_errors = []
     if isinstance(final_error, str) and final_error:
+        final_metrics = getattr(result, "metrics", None)
+        final_issue_groups: list[tuple[str | None, Sequence[str]]] = []
+        if not resolved_final_success:
+            if final_metrics is not None:
+                final_issue_groups = _eval_metric_issue_groups(final_metrics)
+            metric_messages = {
+                str(issue) for _gate, issues in final_issue_groups for issue in issues
+            }
+            if any(str(issue) not in metric_messages for issue in final_attempt_issues):
+                # An overlay rejection: its issues are the try's verdict.
+                final_issue_groups = [(None, final_attempt_issues)]
         final_errors.append(
             IterationError(
                 error_type="validation",
                 message=final_error,
+                issue_document=(
+                    _safe_typed_issue_document(final_issue_groups)
+                    if final_issue_groups
+                    else None
+                ),
             )
         )
     iterations.append(
@@ -66451,22 +69188,37 @@ def _initial_encode_outcome(result, *, apply_requested: bool) -> dict:
     metrics = getattr(result, "metrics", None)
     if metrics is not None and not standalone_success:
         try:
-            labeled_issues = [
-                (gate, issues)
-                for gate, attribute in (
-                    ("compile", "compile_issues"),
-                    ("ci", "ci_issues"),
-                    ("numeric_occurrence", "numeric_occurrence_issues"),
-                    ("generalist_review", "generalist_review_issues"),
-                    ("policyengine", "policyengine_issues"),
-                    ("taxsim", "taxsim_issues"),
-                )
-                if (issues := getattr(metrics, attribute, None))
-            ]
+            labeled_issues = _eval_metric_issue_groups(metrics)
             outcome.update(summarize_validation_failures(labeled_issues))
         except Exception:
             outcome["validation_failure_counts"] = {"telemetry:error": 1}
     return outcome
+
+
+def _safe_typed_issue_document(
+    labeled_issues: Sequence[tuple[str | None, Sequence[str]]],
+) -> dict[str, Any] | None:
+    """The typed issue document, or ``None``; telemetry never fails a run log."""
+    try:
+        return typed_issue_document(labeled_issues)
+    except Exception:
+        return None
+
+
+def _eval_metric_issue_groups(metrics: Any) -> list[tuple[str, Sequence[str]]]:
+    """The non-empty ``(gate, issues)`` lists of one attempt's metrics."""
+    return [
+        (gate, issues)
+        for gate, attribute in (
+            ("compile", "compile_issues"),
+            ("ci", "ci_issues"),
+            ("numeric_occurrence", "numeric_occurrence_issues"),
+            ("generalist_review", "generalist_review_issues"),
+            ("policyengine", "policyengine_issues"),
+            ("taxsim", "taxsim_issues"),
+        )
+        if (issues := getattr(metrics, attribute, None))
+    ]
 
 
 def _replace_overlay_validation_failures(outcome: dict, issues: Sequence[str]) -> None:
@@ -66479,6 +69231,7 @@ def _replace_overlay_validation_failures(outcome: dict, issues: Sequence[str]) -
         "validation_failures",
         "validation_failures_truncated",
         "validation_failure_counts",
+        "validation_issues",
     ):
         outcome.pop(key, None)
     try:
@@ -66685,6 +69438,19 @@ def _read_eval_source_text(context_manifest_file) -> str | None:
     return source_text or None
 
 
+def _generalist_reviewer_failed_without_score(metrics) -> bool:
+    """Return true when the generalist reviewer ran but produced no score.
+
+    A skipped reviewer records a pass with no score. A reviewer that could not
+    start, exited non-zero, or returned unparseable output records a failure
+    with no score; that must be reported, not dropped.
+    """
+    return (
+        getattr(metrics, "generalist_review_pass", None) is False
+        and getattr(metrics, "generalist_review_score", None) is None
+    )
+
+
 def _review_results_from_eval_metrics(metrics) -> ReviewResults | None:
     if metrics is None:
         return None
@@ -66728,6 +69494,17 @@ def _review_results_from_eval_metrics(metrics) -> ReviewResults | None:
                 important_issues=list(metrics.generalist_review_issues or []),
             )
         )
+    elif _generalist_reviewer_failed_without_score(metrics):
+        reviews.append(
+            ReviewResult(
+                reviewer="integration_reviewer",
+                passed=False,
+                items_checked=10,
+                items_passed=0,
+                critical_issues=list(metrics.generalist_review_issues or [])
+                or ["Reviewer error: generalist reviewer returned no score"],
+            )
+        )
 
     return ReviewResults(
         reviews=reviews,
@@ -66755,6 +69532,15 @@ def _print_eval_metrics(result) -> None:
     if result.metrics.generalist_review_score is not None:
         print(
             f"  generalist_review={'yes' if result.metrics.generalist_review_pass else 'no'} score={result.metrics.generalist_review_score:.1f}/10"
+        )
+    elif _generalist_reviewer_failed_without_score(result.metrics):
+        reviewer_issues = list(result.metrics.generalist_review_issues or [])
+        detail = reviewer_issues[0] if reviewer_issues else "no score returned"
+        print(f"  generalist_review=error {detail[:300]}")
+        print(
+            "WARNING: the generalist reviewer did not produce a review; "
+            "this candidate was not reviewed.",
+            file=sys.stderr,
         )
     if result.metrics.policyengine_score is not None:
         print(
@@ -66828,6 +69614,7 @@ def cmd_eval(args):
         require_complete_source_unit=(
             getattr(args, "require_complete_source_unit", False) is True
         ),
+        skip_reviewers=bool(getattr(args, "skip_reviewers", False)),
     )
 
     if args.json:
@@ -66910,6 +69697,7 @@ def cmd_eval_source(args):
         require_complete_source_unit=(
             getattr(args, "require_complete_source_unit", False) is True
         ),
+        skip_reviewers=bool(getattr(args, "skip_reviewers", False)),
     )
 
     if args.json:
@@ -67121,6 +69909,9 @@ def _load_verified_eval_suite_artifacts(
     policyengine_runtime: PolicyEngineRuntime | None = None,
     revalidate_persisted_results: bool = True,
     suite_retry_attempts: int | None = None,
+    admission_score: bool | None = None,
+    axiom_compose_path: Path | None = None,
+    skip_reviewers: bool | None = None,
 ) -> dict[str, object]:
     """Load one suite output only after the harness validates every identity."""
 
@@ -67145,14 +69936,21 @@ def _load_verified_eval_suite_artifacts(
         max_bytes=256 * 1024 * 1024,
         required=False,
     )
-    if suite_retry_attempts is None:
+    if (
+        suite_retry_attempts is None
+        or admission_score is None
+        or skip_reviewers is None
+    ):
         try:
             persisted_run_state = json.loads((state_raw_before or b"").decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("suite-run.json is malformed") from exc
         if not isinstance(persisted_run_state, dict):
             raise ValueError("suite-run.json must contain a JSON object")
-        if persisted_run_state.get("status") != "completed":
+        if (
+            suite_retry_attempts is None
+            and persisted_run_state.get("status") != "completed"
+        ):
             raise ValueError(
                 "Incomplete eval-suite verification requires the current "
                 "suite_retry_attempts"
@@ -67168,9 +69966,25 @@ def _load_verified_eval_suite_artifacts(
             raise ValueError(
                 "suite-run.json has an inconsistent execution identity digest"
             )
-        suite_retry_attempts = _suite_retry_attempts_from_execution_identity(
-            persisted_identity,
-            artifact_name="suite-run.json execution identity",
+        if suite_retry_attempts is None:
+            suite_retry_attempts = _suite_retry_attempts_from_execution_identity(
+                persisted_identity,
+                artifact_name="suite-run.json execution identity",
+            )
+        if admission_score is None:
+            scoring_options = persisted_identity.get("admission_score")
+            admission_score = isinstance(scoring_options, dict) and (
+                scoring_options.get("enabled") is True
+            )
+            if admission_score and axiom_compose_path is None:
+                compose_identity = scoring_options.get("axiom_compose")
+                if isinstance(compose_identity, dict):
+                    axiom_compose_path = Path(compose_identity["path"])
+        if skip_reviewers is None:
+            skip_reviewers = persisted_identity.get("skip_reviewers", False)
+    if not isinstance(skip_reviewers, bool):
+        raise ValueError(
+            "suite-run.json execution identity skip_reviewers must be boolean"
         )
     manifest_identity = _build_eval_suite_manifest_identity(manifest)
     rulespec_roots = _eval_suite_rulespec_roots(manifest, policy_repo_path)
@@ -67194,6 +70008,15 @@ def _load_verified_eval_suite_artifacts(
         rulespec_roots,
         policyengine_runtime=policyengine_runtime if policyengine_cases else None,
         suite_retry_attempts=suite_retry_attempts,
+        **({"skip_reviewers": True} if skip_reviewers else {}),
+        **(
+            {
+                "admission_score": True,
+                "axiom_compose_path": axiom_compose_path,
+            }
+            if admission_score
+            else {}
+        ),
     )
     _run_id, _started_at, results, completed_case_indexes = (
         _load_eval_suite_resume_state(
@@ -67764,6 +70587,19 @@ def cmd_eval_suite(args):
                 corpus_release=corpus_release,
                 policyengine_runtime=policyengine_runtime,
                 resume_existing=resume_existing,
+                **(
+                    {"skip_reviewers": True}
+                    if getattr(args, "skip_reviewers", False)
+                    else {}
+                ),
+                **(
+                    {
+                        "admission_score": True,
+                        "axiom_compose_path": getattr(args, "axiom_compose_path", None),
+                    }
+                    if getattr(args, "admission_score", False)
+                    else {}
+                ),
             )
         except KeyboardInterrupt:
             raise
@@ -67812,6 +70648,15 @@ def cmd_eval_suite(args):
             policyengine_runtime=policyengine_runtime,
             require_complete=False,
             suite_retry_attempts=_DEFAULT_SUITE_RETRY_ATTEMPTS,
+            admission_score=getattr(args, "admission_score", False),
+            skip_reviewers=bool(getattr(args, "skip_reviewers", False)),
+            **(
+                {
+                    "axiom_compose_path": getattr(args, "axiom_compose_path", None),
+                }
+                if getattr(args, "admission_score", False)
+                else {}
+            ),
         )
     except ValueError as exc:
         print(str(exc))
@@ -67876,6 +70721,12 @@ def cmd_eval_suite(args):
             "generalist_review="
             f"{_format_percent(summary.generalist_review_pass_rate)}"
         )
+        infrastructure_errors = getattr(summary, "infrastructure_error_count", 0)
+        if isinstance(infrastructure_errors, int) and infrastructure_errors > 0:
+            print(
+                f"  infrastructure_errors={infrastructure_errors} "
+                "(context overflow; excluded from model scores)"
+            )
         if summary.mean_generalist_review_score is not None:
             print(
                 f"  mean_generalist_review_score={summary.mean_generalist_review_score:.2f}/10"
@@ -68050,6 +70901,7 @@ def _cmd_eval_suite_revalidate_with_signer(args, evidence_signing_key):
             source_citation_path=source_citation_path,
             rulespec_dependency_roots=manifest.rulespec_dependency_roots,
             require_complete_source_unit=case.require_complete_source_unit,
+            skip_reviewers=run_state["execution_identity"].get("skip_reviewers", False),
             amendment_documents=_amendment_documents_visible_in_context_manifest(
                 source_unit.amendment_documents,
                 Path(result.context_manifest_file),
@@ -69301,7 +72153,7 @@ def _validated_eval_suite_report_payload(
             not isinstance(runner, dict)
             or not isinstance(runner.get("name"), str)
             or not runner.get("name")
-            or runner.get("backend") not in {"claude", "codex", "openai"}
+            or runner.get("backend") not in {"claude", "claude-api", "codex", "openai"}
             or not isinstance(runner.get("model"), str)
             or not runner.get("model")
             or runner["name"] in runners_by_name

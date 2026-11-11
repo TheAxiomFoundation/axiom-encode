@@ -23,8 +23,10 @@ import math
 import re
 import textwrap
 import threading
+import unicodedata
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 from datetime import date
 from decimal import (
     ROUND_CEILING,
@@ -45,6 +47,7 @@ from axiom_encode.bare_structure import (
     bare_outline,
     mask_bare_labels,
 )
+from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check
 from axiom_encode.form_numeric_structure import form_numeric_locator_spans
 from axiom_encode.form_source_structure import mask_form_display
 from axiom_encode.harness.imported_export_evidence import ResolvedImportedExport
@@ -86,7 +89,9 @@ from axiom_encode.statute import (
     parse_usc_citation,
 )
 
+from .physical_allowance_conditions import read_physical_allowance_condition
 from .same_case_execution import SameCaseEvidence, formula_witnesses
+from .signed_condition_paths import signed_granting_paths
 
 if TYPE_CHECKING:
     from axiom_encode.harness.worksheet_composition_evidence import (
@@ -147,6 +152,9 @@ class _NumericOccurrenceView:
     requires_rate_context: bool
     is_word_number: bool
     alternative_values: tuple[float, ...]
+    # Carried through rebasing so a month number read from a month name keeps
+    # grounding only month comparisons (see validator_pipeline).
+    requires_month_context: bool = False
 
 
 NumericOccurrenceExtractor = Callable[[str], Sequence[NumericOccurrenceLike]]
@@ -170,6 +178,12 @@ class SourceStructureBranch:
     structural_numeric_spans: tuple[tuple[int, int], ...] = ()
     computation_chapeaux: tuple[tuple[int, int, str], ...] = ()
     required_principal_output: str | None = None
+    # Printed-case designations for `path` (`("a", "6", "i", "A")` for the
+    # lowercased `("a", "6", "i", "a")`). Display only: excluded from equality
+    # and hashing, and ignored unless it still spells `path`.
+    display_path: tuple[str, ...] | None = dataclass_field(
+        default=None, compare=False, repr=False
+    )
 
     @property
     def computation_chapeau(self) -> tuple[int, int, str] | None:
@@ -297,6 +311,7 @@ class _TerminalGateEvidence:
     polarity_conflict: bool
     explicit_name_polarities: frozenset[tuple[str, bool]] = frozenset()
     numeric_income_amount: bool = False
+    affirmative_reason_evidence: bool = False
 
 
 @dataclass(frozen=True)
@@ -582,7 +597,7 @@ _SYMBOLIC_ARITHMETIC_OPERAND = (
 )
 _WORDED_ARITHMETIC_EXPRESSION = re.compile(
     rf"{_SYMBOLIC_ARITHMETIC_OPERAND}\s+"
-    r"(?:plus|minus|mal|less(?!\s+than\b))\s+(?:the\s+)?"
+    r"(?:plus|minus|mal|less(?!\s+(?:than|often\s+than)\b))\s+(?:the\s+)?"
     r"(?!(?:beträgt|gilt|ist|sind|wird|werden|equals?|applies?)\b)"
     rf"{_SYMBOLIC_ARITHMETIC_OPERAND}",
     flags=re.IGNORECASE,
@@ -2256,6 +2271,76 @@ _ENGLISH_LEGAL_CITATION = re.compile(
     r"\d+(?:\.\d+)*(?:\s*(?:through|to|[-–—]|and|,)\s*\d+(?:\.\d+)*)*",
     flags=re.IGNORECASE,
 )
+# Every separator `str.splitlines` treats as a line boundary, not only `\n`.
+_LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
+# A coordinated list of titled references, as UK instruments print them:
+# "regulation 15 (persons not entitled to council tax reduction: absentees),
+# regulation 16 (...) or 19 (...)". _ENGLISH_LEGAL_CITATION removes each
+# keyword-led item, but its number list stops at the title, so a keyword-less
+# item such as that 19 stayed behind as an amount.
+#
+# A title names a provision. A parenthesis counts as one only when space on the
+# item's own line separates it from the number and it opens with a letter; it
+# may hold parenthesized pairs one level deep ("(... to whom regulation 14(6)
+# does not apply)"). These never count, so their item keeps its number: a bare
+# subdivision marker ("5 (a)"), a parenthesis glued to its number ("5(a)"), one
+# that opens with a number word and restates an amount ("19 (nineteen) weeks"),
+# and one that opens with a word carrying on the amount or limiting the
+# reference ("19 (or more) weeks", "500 (per annum)", "5 (except paragraph 2)").
+# A parenthesis left open reaches to some later close, so one that holds a full
+# stop or semicolon and space before a capital letter or opening parenthesis,
+# or runs past 300 characters, counting a nested pair as one, doesn't count
+# either. A list ends at its first untitled item: in "regulation 15 (absentees)
+# or 19 weeks" the 19 stays.
+_ENGLISH_REFERENCE_KEYWORD = (
+    r"(?:articles?|sections?|secs?\.?|regulations?|paragraphs?|"
+    r"sub-?paragraphs?|subsections?|parts?|chapters?|schedules?)"
+)
+_ENGLISH_NON_TITLE_OPENING = (
+    r"(?:or|and|but|plus|minus|less|per|for|up\s+to|at\s+(?:least|most)|"
+    r"(?:not|no)\s+(?:more|less|fewer|exceeding)|more\s+than|except|excluding|"
+    r"with\s+the\s+exception\s+of|other\s+than|only\s+if|provided\s+that|unless|"
+    r"if|subject\s+to|notwithstanding|save|apart\s+from|read\s+with|"
+    r"as\s+modified\s+by|which\s+does\s+not\s+apply|so\s+far\s+as|"
+    r"in\s+so\s+far\s+as|insofar\s+as|to\s+the\s+extent|where)"
+)
+# The title patterns compile with IGNORECASE, so the capital that starts a
+# sentence needs its own case-sensitive group.
+_ENGLISH_TITLE_CHARACTER = r"(?![.;]\s+(?-i:[(A-Z]))[^()]"
+# Vulgar fractions count as word characters, and one opens an amount.
+_VULGAR_FRACTION_CHARS = f"{chr(0xBC)}-{chr(0xBE)}{chr(0x2150)}-{chr(0x215E)}"
+_ENGLISH_REFERENCE_TITLE = (
+    rf"\((?=[^\W\d_{_VULGAR_FRACTION_CHARS}])"
+    r"(?!(?:[a-z]|[ivxlcdm]+)\))"
+    rf"(?!(?:{_ENGLISH_NUMBER_WORD}|{_ENGLISH_NON_TITLE_OPENING})\b)"
+    rf"(?:{_ENGLISH_TITLE_CHARACTER}|\((?:{_ENGLISH_TITLE_CHARACTER})*\))"
+    r"{1,300}\)"
+)
+_ENGLISH_TITLE_GAP = rf"[^\S{_LINE_BREAK_CHARS}]+"
+_ENGLISH_TITLED_REFERENCE_ITEM = (
+    rf"\d+[A-Za-z]*{_ENGLISH_TITLE_GAP}{_ENGLISH_REFERENCE_TITLE}"
+)
+# A number on the same line or one of these units right after the last title
+# makes that item an amount with an aside ("12 (in the case of a couple, 24)
+# months", "1 (January) 2020"). The possessive repeat stops the pattern from
+# falling back to the items before it.
+_ENGLISH_AMOUNT_AFTER_TITLE = (
+    rf"[^\S{_LINE_BREAK_CHARS}]*+\d|\s*+(?:per\s*cent(?:um)?\b|%|"
+    r"(?:week|month|year|day|hour|pound|dollar|euro|cent)s?\b|"
+    r"penn(?:y|ies)\b|pence\b)"
+)
+_ENGLISH_TITLED_REFERENCE_LIST = re.compile(
+    rf"\b{_ENGLISH_REFERENCE_KEYWORD}\s+{_ENGLISH_TITLED_REFERENCE_ITEM}"
+    r"(?:\s*(?:,\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)"
+    rf"(?:{_ENGLISH_REFERENCE_KEYWORD}\s+)?{_ENGLISH_TITLED_REFERENCE_ITEM})++"
+    rf"(?!{_ENGLISH_AMOUNT_AFTER_TITLE})",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_TITLED_REFERENCE_ITEM_TITLE = re.compile(
+    rf"(?P<keyword>{_ENGLISH_REFERENCE_KEYWORD}\s+)?(?P<number>\d+[A-Za-z]*)"
+    rf"{_ENGLISH_TITLE_GAP}(?P<title>{_ENGLISH_REFERENCE_TITLE})",
+    flags=re.IGNORECASE,
+)
 # A complete parenthesis containing only a Statutes at Large volume/page
 # reference is bibliographic metadata. Do not accept dollar signs, ranges,
 # additional text, or a citation split across lines.
@@ -2263,6 +2348,495 @@ _STATUTES_AT_LARGE_NUMERIC_RECALL_CITATION = re.compile(
     r"\([ \t]*[1-9]\d{0,3}[ \t]+Stat\.[ \t]+[1-9]\d{0,5}[ \t]*\)",
     flags=re.IGNORECASE,
 )
+# US bibliographic locators that numeric recall reads as values. Each grammar
+# matches one complete citation on one line; its `locator_*` groups are the
+# locator numbers. Recall does not rewrite the text: the numeric inventory is
+# tokenized exactly as before, and an occurrence is dropped only when it lies
+# wholly inside a locator group of a citation whose context is bibliographic
+# (`_us_locator_context_is_bibliographic`) and a re-read with the locator
+# numbers blanked agrees on every other occurrence
+# (`numeric_occurrences_without_us_bibliographic_locators`). No other
+# occurrence can change value, sign, text, position or context, and none can
+# be added.
+_US_LOCATOR_DASHES = "\u2010\u2011\u2012\u2013\u2014\u2015\u2212-"
+_US_LOCATOR_INVISIBLES = "\u00ad\u200b\u200c\u200d\u2060\ufeff"
+# Currency, percentage, sign and arithmetic/comparison marks bind a number to
+# its neighbour, as do invisible formatting characters.
+_US_LOCATOR_NUMERIC_MARKS = (
+    "$£€¢%‰+*/×÷·^=<>≤≥" + _US_LOCATOR_DASHES + _US_LOCATOR_INVISIBLES
+)
+# A list connector may join a citation to further prose (`62 FR 61344 and
+# the rule`); an arithmetic word makes a neighbouring number an operand.
+_US_LOCATOR_LIST_CONNECTORS = frozenset({"and", "or", "to", "through", "&"})
+_US_LOCATOR_ARITHMETIC_WORDS = frozenset(
+    {"plus", "minus", "less", "times", "by", "x", "of", "per", "each"}
+)
+_US_LOCATOR_CONNECTORS = _US_LOCATOR_LIST_CONNECTORS | _US_LOCATOR_ARITHMETIC_WORDS
+# A comparator or quantity word before a citation that starts with a number
+# makes that number a threshold or amount (`under 6 FR 1,200`, `less than 2
+# Fed. Reg. 150`, `equal 100 Fed. Reg. 500`), so the citation keeps main's
+# inventory.
+_US_LOCATOR_PRECEDING_QUANTITY_WORDS = frozenset(
+    {
+        "about",
+        "above",
+        "additional",
+        "age",
+        "aged",
+        "approximately",
+        "around",
+        "below",
+        "beyond",
+        "equal",
+        "equaling",
+        "equalling",
+        "equals",
+        "exceed",
+        "exceeded",
+        "exceeding",
+        "exceeds",
+        "first",
+        "last",
+        "least",
+        "max",
+        "maximum",
+        "min",
+        "minimum",
+        "most",
+        "nearly",
+        "next",
+        "over",
+        "than",
+        "total",
+        "totaling",
+        "totalling",
+        "under",
+        "up",
+        "upto",
+        "within",
+    }
+)
+# Words that may follow a citation without turning one of its numbers into a
+# quantity: function words, month names (`62 FR 61344, Nov. 17, 1997`) and
+# the verbs that U.S. Code, CFR and Federal Register prose attaches to a
+# citation. Articles and `for`/`of` are excluded (`61344 a month`, `100 for
+# each member`, `100 of the households`). `applica` and `appli` are the first
+# halves of `applica- ble` and `appli- cable` hyphenated across a line in the
+# scanned 1976 U.S. Code edition.
+_US_LOCATOR_FOLLOWING_WORDS = frozenset(
+    {
+        "are",
+        "as",
+        "at",
+        "be",
+        "been",
+        "from",
+        "had",
+        "has",
+        "have",
+        "in",
+        "is",
+        "on",
+        "shall",
+        "that",
+        "the",
+        "under",
+        "was",
+        "were",
+        "which",
+        "with",
+        "jan",
+        "january",
+        "feb",
+        "february",
+        "mar",
+        "march",
+        "apr",
+        "april",
+        "may",
+        "jun",
+        "june",
+        "jul",
+        "july",
+        "aug",
+        "august",
+        "sep",
+        "sept",
+        "september",
+        "oct",
+        "october",
+        "nov",
+        "november",
+        "dec",
+        "december",
+        "added",
+        "amended",
+        "amending",
+        "appli",
+        "applica",
+        "applicable",
+        "applied",
+        "applies",
+        "apply",
+        "approved",
+        "designated",
+        "div",
+        "effective",
+        "enacted",
+        "inserted",
+        "issued",
+        "means",
+        "provided",
+        "provides",
+        "published",
+        "redesignated",
+        "relating",
+        "repealed",
+        "see",
+        "set",
+        "struck",
+        "subtitle",
+        "substituted",
+        "title",
+    }
+)
+_US_LOCATOR_DASH_CLASS = r"[\u2010-\u2015\u2212\-]"
+# `62 FR 61344` and `90 Fed. Reg. 27074` cite a Federal Register volume and
+# page. The marker is case-sensitive, so `CFR` and lower-case prose never
+# match.
+_FEDERAL_REGISTER_NUMERIC_RECALL_CITATION = re.compile(
+    r"(?P<locator_volume>[1-9][0-9]{0,2})[ \t]+(?:FR|Fed\.[ \t]*Reg\.)[ \t]+"
+    r"(?P<locator_page>[1-9][0-9]{0,2}(?:,[0-9]{3})+|[1-9][0-9]{0,5})",
+    flags=re.ASCII,
+)
+# `Pub. L. 111-226` names the 226th public law of the 111th Congress. Main
+# already removes the `Public Law` and `P.L.` spellings of the same
+# identifier; this is the U.S. Code's own abbreviation.
+_PUB_L_NUMERIC_RECALL_CITATION = re.compile(
+    r"\bPub\.[ \t]*L\.[ \t]*(?:No\.[ \t]*)?"
+    r"(?P<locator_law>[1-9][0-9]{0,2}[ \t]*"
+    + _US_LOCATOR_DASH_CLASS
+    + r"[ \t]*[1-9][0-9]{0,3})",
+    flags=re.ASCII,
+)
+# A U.S. Code editorial note recording that a paragraph was repealed,
+# omitted or transferred: `Repealed. Pub. L. 111-226, title II, § 219(a)(2),
+# Aug. 10, 2010, 124 Stat. 2403`. Every element must belong to the note
+# grammar (division, title, subtitle, section designators, the enactment date
+# and the Statutes at Large volume/pages), and the note must end at a
+# bracket, a sentence end or the end of the line. The recall view has already
+# removed `§ 219`, leaving `(a)(2)`. Only the public-law number and the
+# Statutes at Large volume/pages are locator groups; the section designators
+# and the date keep main's handling. An unparenthesized `124 Stat. 2403`
+# outside such a note keeps its values.
+_US_SESSION_LAW_MONTH_ABBREVIATION = (
+    r"(?:Jan|Feb|Mar|Apr|May|June|July|Aug|Sept|Oct|Nov|Dec)\.?"
+)
+_US_CODE_NOTE_SECTION = r"[0-9]{1,5}[A-Za-z]?(?:\([A-Za-z0-9]{1,5}\)){0,6}"
+_US_CODE_NOTE_ELEMENT = (
+    r"(?:div\.[ \t]+[A-Z]{1,2}|(?:sub)?title[ \t]+[IVXL]{1,6}|"
+    rf"§[ \t]*{_US_CODE_NOTE_SECTION}|"
+    rf"§§[ \t]*{_US_CODE_NOTE_SECTION}"
+    rf"(?:[ \t]*(?:,|and)[ \t]*{_US_CODE_NOTE_SECTION}){{1,8}}|"
+    r"(?:\([A-Za-z0-9]{1,5}\)){1,6})"
+)
+_US_CODE_DISPOSITION_NOTE_NUMERIC_RECALL_CITATION = re.compile(
+    r"(?:(?P<bracket>\[)[ \t]*(?:\([A-Za-z0-9]{1,5}\)[ \t]*)?)?"
+    r"(?<!\w)(?:Repealed|Omitted|Transferred)\.[ \t]+Pub\.[ \t]*L\.[ \t]*"
+    r"(?P<locator_law>[1-9][0-9]{0,2}" + _US_LOCATOR_DASH_CLASS + r"[1-9][0-9]{0,3})"
+    rf"(?:[ \t]*,[ \t]*{_US_CODE_NOTE_ELEMENT}){{0,6}}"
+    rf"[ \t]*,[ \t]*{_US_SESSION_LAW_MONTH_ABBREVIATION}[ \t]+[0-9]{{1,2}},"
+    r"[ \t]+(?:17|18|19|20)[0-9]{2}[ \t]*,[ \t]*"
+    # Inside a bracketed note a page list (`90 Stat. 1764, 1795`) ends at the
+    # closing bracket. An unbracketed note takes exactly one page, so a
+    # following `, 62` is never read as a page.
+    r"(?(bracket)"
+    r"(?P<locator_bracketed_statutes_at_large>[1-9][0-9]{0,2}[ \t]+Stat\.[ \t]+"
+    r"[1-9][0-9]{0,4}(?:[ \t]*,[ \t]*[1-9][0-9]{0,4}){0,4})"
+    r"(?=[ \t]*\.?[ \t]*\])"
+    r"|"
+    r"(?P<locator_statutes_at_large>[1-9][0-9]{0,2}[ \t]+Stat\.[ \t]+[1-9][0-9]{0,4})"
+    r"(?=[ \t]*(?:\.(?=[ \t]*$|[ \t]+[A-Z(\[])|$)))",
+    flags=re.MULTILINE | re.ASCII,
+)
+# A year inside the title of an amending act (`the Social Security
+# Amendments of 1983`) or in the Railroad Retirement Act's two-year citation
+# (`Railroad Retirement Act of 1937 or 1974`) names a law. The tokenizer
+# already reads `<Title> Act of 1937` this way; these are the two title forms
+# it does not cover. Every title word before `Amendments` is capitalized or a
+# short connector.
+_US_LEGAL_TITLE_YEAR_NUMERIC_RECALL_CITATION = re.compile(
+    r"\b[A-Z][A-Za-z'’.]*(?:-[A-Z][A-Za-z'’.]*)*"
+    r"(?:[ \t]+(?:[A-Z][A-Za-z'’.]*(?:-[A-Z][A-Za-z'’.]*)*"
+    r"|and|of|the|for|on|to|in)){0,10}"
+    r"[ \t]+(?:Amendments[ \t]+of[ \t]+"
+    r"(?P<locator_amendments_year>(?:18|19|20)[0-9]{2})"
+    r"|Act[ \t]+of[ \t]+(?P<locator_first_year>(?:18|19|20)[0-9]{2})[ \t]+or[ \t]+"
+    r"(?P<locator_second_year>(?:18|19|20)[0-9]{2}))",
+    flags=re.ASCII,
+)
+_US_BIBLIOGRAPHIC_NUMERIC_RECALL_LOCATORS = (
+    _US_CODE_DISPOSITION_NOTE_NUMERIC_RECALL_CITATION,
+    _PUB_L_NUMERIC_RECALL_CITATION,
+    _FEDERAL_REGISTER_NUMERIC_RECALL_CITATION,
+    _US_LEGAL_TITLE_YEAR_NUMERIC_RECALL_CITATION,
+)
+_US_LOCATOR_HORIZONTAL_SPACE = re.compile(r"[ \t]*")
+_US_LOCATOR_SPACE = re.compile(r"\s*")
+_US_LOCATOR_WORD = re.compile(r"[A-Za-z]+|&")
+_US_LOCATOR_PREVIOUS_WORD = re.compile(r"(?:(?<![A-Za-z])[A-Za-z]{1,15}|&)$")
+_US_LOCATOR_PREVIOUS_CURRENCY_CODE = re.compile(r"(?<![A-Za-z])[A-Z]{3}$")
+_US_LOCATOR_PARAGRAPH_LABEL = re.compile(
+    r"\((?:[0-9]{1,3}[A-Za-z]?|[A-Za-z]{1,4})\)(?=[ \t]+[A-Za-z(\[\"“])",
+    flags=re.ASCII,
+)
+
+
+def _us_locator_character_is_numeric(character: str) -> bool:
+    """A digit, sign, currency/math symbol or invisible formatting character."""
+
+    return (
+        character.isdigit()
+        or character in _US_LOCATOR_NUMERIC_MARKS
+        or unicodedata.category(character) in {"Sc", "Sm", "Cf"}
+    )
+
+
+def _us_locator_number_starts_at(text: str, index: int) -> bool:
+    """A digit, a numeric mark, or `.5`/`,5`/`(5`, starting at `index`."""
+
+    if index >= len(text):
+        return False
+    character = text[index]
+    if _us_locator_character_is_numeric(character):
+        return True
+    return character in ".,(" and text[index + 1 : index + 2].isdigit()
+
+
+def _us_locator_next_token_is_bibliographic(text: str, position: int) -> bool:
+    """Whether the token at `position` (after a citation) leaves it a locator."""
+
+    if position >= len(text):
+        return True
+    if text[position] == "(":
+        # The next paragraph's label (`(18) any payment`), or a parenthetical
+        # such as `(relating to ...)` or `(Nov. 17, 1997)`; never `(1 + rate)`
+        # or `(x 5)`.
+        if _US_LOCATOR_PARAGRAPH_LABEL.match(text, position):
+            return True
+        word = _US_LOCATOR_WORD.match(text, position + 1)
+        return word is not None and word.group(0).lower() not in _US_LOCATOR_CONNECTORS
+    word = _US_LOCATOR_WORD.match(text, position)
+    if word is None:
+        return False
+    lowered = word.group(0).lower()
+    if lowered in _US_LOCATOR_ARITHMETIC_WORDS:
+        return False
+    if lowered in _US_LOCATOR_LIST_CONNECTORS:
+        following_word = _US_LOCATOR_HORIZONTAL_SPACE.match(text, word.end()).end()
+        return following_word < len(text) and (
+            text[following_word].isalpha() or text[following_word] == "§"
+        )
+    return lowered in _US_LOCATOR_FOLLOWING_WORDS
+
+
+def _us_locator_context_is_bibliographic(text: str, start: int, end: int) -> bool:
+    """Whether nothing around `text[start:end]` can make its numbers operative.
+
+    The citation must not touch a word, number, sign, decimal point, currency
+    or math symbol, or invisible formatting character. Before it, the previous
+    non-space token (looking back across line breaks, at most 64 characters)
+    must not be numeric, a currency code or, for a citation that starts with a
+    number, an arithmetic, comparator or quantity word (`x 62`, `of 62`,
+    `under 62`, `than 62`); a longer gap fails. After
+    it, up to three closing parentheses/brackets are skipped; then a sentence
+    end, the end of the text, or a line break followed by a line that does not
+    open with a number ends the check. Otherwise, after one optional
+    `,`/`;`/`:`, the next token must be the next paragraph's label, a
+    parenthetical that opens with a non-arithmetic word, a list connector
+    (`and`, `or`, `to`, `through`, `&`) followed by a word, or a word from
+    `_US_LOCATOR_FOLLOWING_WORDS`. An arithmetic word (`times`, `x`, `per`,
+    `each`, `of`, ...), a unit such as `percent`, `households` or `Percent`, a
+    number, a sign or a quotation fails. Every look-around is bounded, so the
+    check is constant-time per match.
+    """
+
+    if start > 0:
+        previous = text[start - 1]
+        if (
+            previous.isalnum()
+            or previous in "_.,/"
+            or _us_locator_character_is_numeric(previous)
+        ):
+            return False
+        index = start
+        while index > 0 and text[index - 1].isspace():
+            index -= 1
+            if start - index > 64:
+                return False
+        if index < start and index > 0:
+            window = text[max(0, index - 16) : index]
+            if _us_locator_character_is_numeric(window[-1]):
+                return False
+            if _US_LOCATOR_PREVIOUS_CURRENCY_CODE.search(window):
+                return False
+            previous_word = _US_LOCATOR_PREVIOUS_WORD.search(window)
+            if (
+                text[start].isdigit()
+                and previous_word is not None
+                and previous_word.group(0).lower()
+                in _US_LOCATOR_CONNECTORS | _US_LOCATOR_PRECEDING_QUANTITY_WORDS
+            ):
+                return False
+    if end < len(text):
+        following = text[end]
+        if (
+            following.isalnum()
+            or following == "_"
+            or _us_locator_character_is_numeric(following)
+        ):
+            return False
+        if following in ".," and text[end + 1 : end + 2].isdigit():
+            return False
+    position = _US_LOCATOR_HORIZONTAL_SPACE.match(text, end).end()
+    for _ in range(3):
+        if position < len(text) and text[position] in ")]":
+            position = _US_LOCATOR_HORIZONTAL_SPACE.match(text, position + 1).end()
+    if position >= len(text):
+        return True
+    if text[position] in "\r\n":
+        # A paragraph label such as `(4)` or a word may open the next line; a
+        # number, an amount or `.5` may not.
+        continuation = _US_LOCATOR_SPACE.match(text, position).end()
+        return not _us_locator_number_starts_at(text, continuation)
+    if text[position] == "." and not text[position + 1 : position + 2].isdigit():
+        return True
+    if text[position] in ",;:":
+        position = _US_LOCATOR_HORIZONTAL_SPACE.match(text, position + 1).end()
+    return _us_locator_next_token_is_bibliographic(text, position)
+
+
+def us_bibliographic_locator_spans(
+    text: str, *, corpus_citation_path: str
+) -> tuple[tuple[int, int], ...]:
+    """Spans of the locator numbers of bibliographic US citations in `text`."""
+
+    if not _US_CORPUS_CITATION_PATH.match(corpus_citation_path):
+        return ()
+    spans: list[tuple[int, int]] = []
+    for locator in _US_BIBLIOGRAPHIC_NUMERIC_RECALL_LOCATORS:
+        for match in locator.finditer(text):
+            if not _us_locator_context_is_bibliographic(
+                text, match.start(), match.end()
+            ):
+                continue
+            spans.extend(
+                match.span(name)
+                for name, value in match.groupdict().items()
+                if value is not None and name.startswith("locator_")
+            )
+    return tuple(sorted(set(spans)))
+
+
+def _us_locator_occurrence_key(occurrence: NumericOccurrenceLike) -> tuple[Any, ...]:
+    return (
+        occurrence.value,
+        occurrence.start,
+        occurrence.end,
+        getattr(occurrence, "has_rate_context", None),
+        getattr(occurrence, "has_temporal_context", None),
+        getattr(occurrence, "has_structural_context", None),
+        getattr(occurrence, "requires_rate_context", None),
+        tuple(getattr(occurrence, "alternative_values", ()) or ()),
+        getattr(occurrence, "raw", None),
+        getattr(occurrence, "source_value", None),
+        getattr(occurrence, "is_word_number", None),
+        getattr(occurrence, "requires_month_context", None),
+    )
+
+
+@dataclass(frozen=True)
+class _UsLocatorFilteredInventory:
+    """Main's inventory and, when it is safe, the inventory without locators."""
+
+    occurrences: tuple[NumericOccurrenceLike, ...]
+    kept: tuple[NumericOccurrenceLike, ...]
+    consistent: bool
+
+    @property
+    def dropped(self) -> tuple[tuple[Any, ...], ...]:
+        kept = {id(item) for item in self.kept}
+        return tuple(
+            _us_locator_occurrence_key(item)
+            for item in self.occurrences
+            if id(item) not in kept
+        )
+
+
+def _us_locator_filtered_inventory(
+    text: str,
+    *,
+    corpus_citation_path: str,
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> _UsLocatorFilteredInventory:
+    occurrences = tuple(extract_numeric_occurrences(text))
+    spans = us_bibliographic_locator_spans(
+        text, corpus_citation_path=corpus_citation_path
+    )
+    if not spans:
+        return _UsLocatorFilteredInventory(occurrences, occurrences, False)
+    starts = [start for start, _end in spans]
+    reach: list[int] = []
+    for _start, end in spans:
+        reach.append(max(end, reach[-1]) if reach else end)
+
+    def inside_locator(occurrence: NumericOccurrenceLike) -> bool:
+        # Spans are sorted by start; `reach[i]` is the furthest end among the
+        # first i + 1 spans, so one bisection finds any containing span.
+        index = bisect.bisect_right(starts, occurrence.start) - 1
+        return index >= 0 and reach[index] >= occurrence.end
+
+    kept = tuple(item for item in occurrences if not inside_locator(item))
+    if len(kept) == len(occurrences):
+        return _UsLocatorFilteredInventory(occurrences, occurrences, False)
+    characters = list(text)
+    for start, end in spans:
+        for index in range(start, end):
+            if characters[index].isdigit() or characters[index] in _US_LOCATOR_DASHES:
+                characters[index] = " "
+    reread = tuple(extract_numeric_occurrences("".join(characters)))
+    consistent = [_us_locator_occurrence_key(item) for item in reread] == [
+        _us_locator_occurrence_key(item) for item in kept
+    ]
+    return _UsLocatorFilteredInventory(occurrences, kept, consistent)
+
+
+def numeric_occurrences_without_us_bibliographic_locators(
+    text: str,
+    *,
+    corpus_citation_path: str,
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> tuple[NumericOccurrenceLike, ...]:
+    """Extract `text`'s numeric inventory without US locator numbers.
+
+    The inventory is extracted from `text` unchanged. An occurrence is dropped
+    only when it lies wholly inside a locator's numbers, and only when
+    re-reading the text with those numbers blanked yields exactly the kept
+    occurrences, with the same values, positions and context. The extractor
+    reads some tokens in the light of others (a later `124,000` can collapse
+    into an earlier `124`, a capitalized unit can be absorbed into a title),
+    so when any kept occurrence depends on a locator's digits, the whole
+    inventory is returned unchanged, as on main.
+    """
+
+    inventory = _us_locator_filtered_inventory(
+        text,
+        corpus_citation_path=corpus_citation_path,
+        extract_numeric_occurrences=extract_numeric_occurrences,
+    )
+    return inventory.kept if inventory.consistent else inventory.occurrences
+
+
 _US_CORPUS_CITATION_PATH = re.compile(r"us(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
 # Some US statutes abbreviate a list of U.S. Code references after the first
 # title number: `[42 U.S.C. 301 et seq., 401 et seq., ...]`. The continuation
@@ -2721,6 +3295,58 @@ _ALABAMA_TERMINAL_CODE_HISTORY_ENTRY = re.compile(
     r"\s*\.?\s*",
     flags=re.IGNORECASE,
 )
+_ARMENIAN_AMENDMENT_HISTORY_DASH = (
+    r"[-\u058a\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d]"
+)
+# The one dot class, used for the article label's decimal point, the action's
+# optional period and both date separators. The encoder prompt names exactly
+# these characters.
+_ARMENIAN_AMENDMENT_HISTORY_DOT = r"[.\u2024]"
+# ASCII digits only, as the prompt's `DD.MM.YY` spells them. Matched against
+# the stripped body: no lazy quantifier and no trailing
+# whitespace run, so a long whitespace run cannot make the match quadratic.
+_ARMENIAN_AMENDMENT_HISTORY_ARTICLE = re.compile(
+    rf"[0-9]+(?:{_ARMENIAN_AMENDMENT_HISTORY_DOT}[0-9]+)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}"
+    r"(?:ին|րդ)\s+հոդվածը\s+(?P<history>\S.*)",
+    flags=re.DOTALL,
+)
+# Amendment-action abbreviations are matched case-insensitively, but the paired
+# `ՀՕ-N[-N]-Ն` law identifier is not: scope the case folding to the action
+# alternation so recognizing an uppercase action cannot also fold the
+# identifier's casing and admit a citation the prompt contract does not permit.
+_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN = (
+    rf"(?i:փոփ|լրաց|խմբ)(?:{_ARMENIAN_AMENDMENT_HISTORY_DOT})?"
+)
+_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN = (
+    rf"[0-9]{{2}}{_ARMENIAN_AMENDMENT_HISTORY_DOT}[0-9]{{2}}"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DOT}[0-9]{{2}}(?:[0-9]{{2}})?\s+Հ(?:Օ)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}[0-9]+(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}[0-9]+)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}Ն"
+)
+_ARMENIAN_AMENDMENT_HISTORY_ACTION = re.compile(
+    _ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN,
+)
+_ARMENIAN_AMENDMENT_HISTORY_CITATION = re.compile(
+    _ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN,
+)
+# Possessive: no action or citation token can begin with a separator character,
+# so giving separator characters back never enables a match. Committing to the
+# longest run keeps the sequence scan linear on adversarial separator runs.
+_ARMENIAN_AMENDMENT_HISTORY_SEPARATOR = r"[\s,;]++"
+_ARMENIAN_AMENDMENT_HISTORY_SEQUENCE = re.compile(
+    rf"\s*(?:{_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN}|"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN})(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_SEPARATOR}(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN}|"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN}))*\s*",
+)
+# One parenthetical alone on its line. Any parenthesis inside the body fails
+# the candidate, so nested ledgers are never consumed whole.
+_ARMENIAN_AMENDMENT_HISTORY_CANDIDATE = re.compile(
+    r"(?:^|\r?\n)[ \t]*\((?P<body>[^()]*)\)(?=[ \t]*(?:\r?\n|$))"
+)
 _FORMULA_IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 
 
@@ -2818,19 +3444,57 @@ def _irs_revenue_procedure_structure(
     return tuple(sorted(branches, key=lambda branch: (branch.start, len(branch.path))))
 
 
+def _with_display_paths(
+    branches: Iterable[SourceStructureBranch],
+) -> tuple[SourceStructureBranch, ...]:
+    """Attach printed-case designations (`(A)`, `(I)`) to lowercased paths."""
+
+    branches = tuple(branches)
+    printed: dict[tuple[str, ...], str] = {}
+    for branch in branches:
+        if not branch.path:
+            continue
+        label = re.fullmatch(
+            r"\s*\(?(?P<designation>[A-Za-z0-9]+)[.)]?\s*", branch.label
+        )
+        if label is not None and label.group("designation").lower() == branch.path[-1]:
+            printed.setdefault(branch.path, label.group("designation"))
+    return tuple(
+        replace(
+            branch,
+            display_path=tuple(
+                printed.get(branch.path[: index + 1], component)
+                for index, component in enumerate(branch.path)
+            ),
+        )
+        if branch.path
+        else branch
+        for branch in branches
+    )
+
+
 def recognize_source_structure(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> tuple[SourceStructureBranch, ...]:
-    """Recognize paragraph, list, letter, and glued German sentence markers."""
+    """Recognize paragraph, list, letter, and glued German sentence markers.
+
+    German glued (`1Das`) and explicit (`Satz 2`) sentence markers are German
+    drafting conventions; a U.S. source never numbers its sentences that way,
+    so U.S. corpus paths do not recognize them (`K-40ES`, `42CFR`, `22VAC40`
+    and `Form G-2RP` are not "Satz 40", "Satz 42", "Satz 22" or "Satz 2").
+    """
 
     if _IRS_REVENUE_PROCEDURE_CITATION.fullmatch(corpus_citation_path):
-        return _irs_revenue_procedure_structure(source_text)
+        return _with_display_paths(_irs_revenue_procedure_structure(source_text))
 
-    outline = bare_outline(source_text)
+    outline = bare_outline(source_text, corpus_citation_path=corpus_citation_path)
     if outline:
         masked = mask_bare_labels(source_text, outline)
         branches = [
             SourceStructureBranch(
+                # An unproven root (`label.proven` is false) keeps its outline
+                # path, but nothing proves its number names that subsection:
+                # its label stays an obligation and the resolver won't slice it.
                 tuple(part.lower() for part in label.path),
                 "paragraph" if label.token[0].isdigit() else "letter",
                 f"({label.token})",
@@ -2879,10 +3543,21 @@ def recognize_source_structure(
                     prefix_end,
                 )
             )
-        return tuple(
+        return _with_display_paths(
             sorted(branches, key=lambda branch: (branch.start, len(branch.path)))
         )
+    return _with_display_paths(
+        _recognize_source_structure(
+            source_text,
+            sentence_markers=_US_CORPUS_CITATION_PATH.match(corpus_citation_path)
+            is None,
+        )
+    )
 
+
+def _recognize_source_structure(
+    source_text: str, *, sentence_markers: bool
+) -> tuple[SourceStructureBranch, ...]:
     branches: list[SourceStructureBranch] = []
     paragraph_segments: list[tuple[tuple[str, ...], int, int, str]] = []
     dotted_matches = _qualified_dotted_subsection_matches(source_text)
@@ -3017,13 +3692,24 @@ def recognize_source_structure(
     legacy_marker_offsets = {
         *(match.start() for match in _NUMBER_MARKER.finditer(source_text)),
         *(match.start() for match in _LETTER_MARKER.finditer(source_text)),
-        *(match.start() for match in _GLUED_SENTENCE_MARKER.finditer(source_text)),
-        *(
-            match.start()
-            for match in _GLUED_SECTION_SENTENCE_MARKER.finditer(source_text)
-        ),
-        *(match.start() for match in _EXPLICIT_SENTENCE_MARKER.finditer(source_text)),
     }
+    if sentence_markers:
+        legacy_marker_offsets.update(
+            (
+                *(
+                    match.start()
+                    for match in _GLUED_SENTENCE_MARKER.finditer(source_text)
+                ),
+                *(
+                    match.start()
+                    for match in _GLUED_SECTION_SENTENCE_MARKER.finditer(source_text)
+                ),
+                *(
+                    match.start()
+                    for match in _EXPLICIT_SENTENCE_MARKER.finditer(source_text)
+                ),
+            )
+        )
     owner_paths = _most_specific_segment_paths_at_offsets(
         paragraph_segments,
         legacy_marker_offsets,
@@ -3084,18 +3770,22 @@ def recognize_source_structure(
                     )
                 )
 
-        sentence_matches = [
-            match
-            for match in sorted(
-                (
-                    *_GLUED_SENTENCE_MARKER.finditer(paragraph_text),
-                    *_glued_section_sentence_matches(paragraph_text),
-                    *_EXPLICIT_SENTENCE_MARKER.finditer(paragraph_text),
-                ),
-                key=lambda item: item.start(),
-            )
-            if owner_paths.get(paragraph_start + match.start()) == paragraph_path
-        ]
+        sentence_matches = (
+            [
+                match
+                for match in sorted(
+                    (
+                        *_GLUED_SENTENCE_MARKER.finditer(paragraph_text),
+                        *_glued_section_sentence_matches(paragraph_text),
+                        *_EXPLICIT_SENTENCE_MARKER.finditer(paragraph_text),
+                    ),
+                    key=lambda item: item.start(),
+                )
+                if owner_paths.get(paragraph_start + match.start()) == paragraph_path
+            ]
+            if sentence_markers
+            else []
+        )
         for index, match in enumerate(sentence_matches):
             start = paragraph_start + match.start()
             end = (
@@ -5391,6 +6081,113 @@ def _has_substantive_arithmetic_expression(source_text: str) -> bool:
     return False
 
 
+_SITE_ANALYZE = (
+    "axiom_encode/harness/source_completeness.py:analyze_complete_source_unit"
+)
+
+CHECK_STRUCTURE_BRANCH_UNENCODED = declare_check(
+    "complete-source-unit:structure/branch-unencoded",
+    title="Source branch neither encoded nor precisely deferred",
+    requires=(
+        "Every operative branch of the authoritative source unit is cited by a "
+        "rule's `source:` or proof atom, or is listed in "
+        "`module.deferred_outputs` with a reason that names the exact missing "
+        "dependency."
+    ),
+    why=(
+        "A complete-source encoding claims the whole unit. A branch that is "
+        "neither encoded nor deferred is silently dropped law: the module "
+        "computes a result the source does not support."
+    ),
+    fix=(
+        "Encode the branch in a rule that cites it (source path or proof "
+        "excerpt from its own text), or add a precise "
+        "`module.deferred_outputs` entry for that branch. Descendant citations "
+        "do not cover a substantive parent chapeau."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+CHECK_FORMULA_BRANCH_WITHOUT_OUTPUT = declare_check(
+    "complete-source-unit:formula-output/branch-without-output",
+    title="Explicit source computation has no principal output",
+    requires=(
+        "Each source branch that states a computation is implemented by a "
+        "principal `derived` or `derived_relation` rule bound to that branch."
+    ),
+    why=(
+        "A computation stated only as parameters cannot be executed or tested; "
+        "consumers of the module get no computed amount."
+    ),
+    fix=(
+        "Add a principal derived rule whose formula implements the branch and "
+        "whose source or formula proof cites the branch, or precisely defer "
+        "the branch."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+CHECK_FORMULA_UNIT_WITHOUT_OUTPUT = declare_check(
+    "complete-source-unit:formula-output/unit-without-output",
+    title="Source unit states a computation but has no principal output",
+    requires=(
+        "A source unit that states an explicit computation has at least one "
+        "principal `derived` or `derived_relation` output."
+    ),
+    why="A parameter-only module cannot compute what the source states.",
+    fix=(
+        "Add the principal derived output that computes the source-stated "
+        "amount from its inputs and parameters."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+CHECK_FORMULA_CONTROL_WITHOUT_OUTPUT = declare_check(
+    "complete-source-unit:formula-output/control-without-output",
+    title="Source-stated control has no principal output",
+    requires=(
+        "Each source-stated control (a condition, limit or selection) is "
+        "implemented by a principal `derived` or `derived_relation` rule that "
+        "covers the control's branch."
+    ),
+    why=(
+        "A control encoded only as a parameter does not change any computed "
+        "result, so the module ignores a condition the law imposes."
+    ),
+    fix=(
+        "Encode the control inside a principal derived rule that covers its "
+        "branch, or precisely defer the branch."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+CHECK_NUMERIC_RECALL_VALUE_UNNAMED = declare_check(
+    "complete-source-unit:numeric-recall/value-unnamed",
+    title="Source numeric value has no named scalar",
+    requires=(
+        "Every numeric value in the authoritative source text is represented "
+        "by a named scalar (a parameter or a named constant) in the module."
+    ),
+    why=(
+        "A number the source states but the module does not name is either "
+        "dropped law or hidden inside a formula, where it cannot be grounded "
+        "or updated."
+    ),
+    fix=(
+        "Add a parameter (or bind the value in an existing one) for the "
+        "missing value, grounded in the source text. `module.summary` does not "
+        "count."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+
+
 def analyze_complete_source_unit(
     content: str,
     authoritative_source_text: str,
@@ -5729,7 +6526,10 @@ def _analyze_rulespec_payload(
             parse_branch=_parse_first_formula_branch_node,
             parse_expression=_parse_formula_expression,
         )
-        if _unconflicted_printed_rows(source_text, branches) is not None
+        if _unconflicted_printed_rows(
+            source_text, branches, corpus_citation_path=corpus_citation_path
+        )
+        is not None
         else RepaymentAlternativeCoverage()
     )
     source_condition_issues = _opaque_same_source_condition_input_issues(
@@ -5853,11 +6653,22 @@ def _analyze_rulespec_payload(
                     "precisely defer the parent; do not invent a dummy output."
                 )
         issues.append(
-            "[complete-source-unit:structure] "
-            f"Source branch {branch.label} at "
-            f"{_branch_citation(corpus_citation_path, branch)} is neither "
-            "encoded nor precisely deferred."
-            f"{covered_descendant_detail}"
+            ValidationIssue(
+                "[complete-source-unit:structure] "
+                f"Source branch {branch.label} at "
+                f"{_branch_citation(corpus_citation_path, branch)} is neither "
+                "encoded nor precisely deferred."
+                f"{covered_descendant_detail}",
+                check=CHECK_STRUCTURE_BRANCH_UNENCODED,
+                subject=_branch_subject(corpus_citation_path, branch),
+                expected="encoded or precisely deferred",
+                found=(
+                    "only descendants covered"
+                    if covered_descendant_detail
+                    else "neither encoded nor deferred"
+                ),
+                evidence=branch.text,
+            )
         )
 
     active_branches = tuple(
@@ -5900,6 +6711,7 @@ def _analyze_rulespec_payload(
         numeric_exception_controls_only=_is_us_manual_citation_path(
             corpus_citation_path
         ),
+        corpus_citation_path=corpus_citation_path,
     )
     principal_formula_clause_rules = _principal_formula_clause_rules(
         formula_branches,
@@ -5933,45 +6745,65 @@ def _analyze_rulespec_payload(
                 if principal_formula_clause_rules[branch]:
                     continue
                 issues.append(
-                    "[complete-source-unit:formula-output] "
-                    f"Explicit source computation {branch.label} in "
-                    f"{_branch_citation(corpus_citation_path, branch)} has no "
-                    "principal derived/relation output (`derived` or "
-                    "`derived_relation`) and is not "
-                    "precisely deferred; parameter-only representation is invalid."
-                    + _formula_output_binding_feedback(
-                        branch,
-                        corpus_citation_path=corpus_citation_path,
-                        has_path_covering_principal=bool(
-                            _rules_covering_branch(
-                                branch,
-                                principal_rule_paths,
-                            )
+                    ValidationIssue(
+                        "[complete-source-unit:formula-output] "
+                        f"Explicit source computation {branch.label} in "
+                        f"{_branch_citation(corpus_citation_path, branch)} has no "
+                        "principal derived/relation output (`derived` or "
+                        "`derived_relation`) and is not "
+                        "precisely deferred; parameter-only representation is invalid."
+                        + _formula_output_binding_feedback(
+                            branch,
+                            corpus_citation_path=corpus_citation_path,
+                            has_path_covering_principal=bool(
+                                _rules_covering_branch(
+                                    branch,
+                                    principal_rule_paths,
+                                )
+                            ),
+                            same_owner_missing=missing_formula_branches_by_path[
+                                branch.path
+                            ],
                         ),
-                        same_owner_missing=missing_formula_branches_by_path[
-                            branch.path
-                        ],
+                        check=CHECK_FORMULA_BRANCH_WITHOUT_OUTPUT,
+                        subject=_branch_subject(corpus_citation_path, branch),
+                        expected="principal derived/relation output",
+                        found="no principal output bound to the branch",
+                        evidence=branch.text,
                     )
                 )
         elif not all_formula_branches and not _path_covered(
             (), principal_paths, deferred_paths
         ):
             issues.append(
-                "[complete-source-unit:formula-output] Explicit source computation "
-                "has no principal derived/relation output (`derived` or "
-                "`derived_relation`); "
-                "parameter-only representation is invalid."
+                ValidationIssue(
+                    "[complete-source-unit:formula-output] Explicit source computation "
+                    "has no principal derived/relation output (`derived` or "
+                    "`derived_relation`); "
+                    "parameter-only representation is invalid.",
+                    check=CHECK_FORMULA_UNIT_WITHOUT_OUTPUT,
+                    subject=IssueSubject(citation=corpus_citation_path),
+                    expected="principal derived/relation output",
+                    found="parameters only",
+                )
             )
     for branch in control_branches:
         if _rules_covering_branch(branch, principal_rule_paths):
             continue
         issues.append(
-            "[complete-source-unit:formula-output] Source-stated control "
-            f"{branch.label} in "
-            f"{_branch_citation(corpus_citation_path, branch)} has no "
-            "principal derived/relation output (`derived` or "
-            "`derived_relation`) and is not precisely deferred; "
-            "parameter-only representation is invalid."
+            ValidationIssue(
+                "[complete-source-unit:formula-output] Source-stated control "
+                f"{branch.label} in "
+                f"{_branch_citation(corpus_citation_path, branch)} has no "
+                "principal derived/relation output (`derived` or "
+                "`derived_relation`) and is not precisely deferred; "
+                "parameter-only representation is invalid.",
+                check=CHECK_FORMULA_CONTROL_WITHOUT_OUTPUT,
+                subject=_branch_subject(corpus_citation_path, branch),
+                expected="principal derived/relation output covering the control",
+                found="no principal output covers the branch",
+                evidence=branch.text,
+            )
         )
 
     represented_annual_spans: set[tuple[int, int]] = set(
@@ -6068,15 +6900,13 @@ def _analyze_rulespec_payload(
     numeric_recall_text = authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path
     )
-    source_occurrences = tuple(
-        occurrence
-        for occurrence in extract_numeric_occurrences(numeric_recall_text)
-        if not _temporal_occurrence_is_formula_applicability_preface(
-            occurrence,
-            numeric_recall_text,
-        )
+    source_inventory = _us_locator_filtered_inventory(
+        numeric_recall_text,
+        corpus_citation_path=corpus_citation_path,
+        extract_numeric_occurrences=extract_numeric_occurrences,
     )
-    unrepresented_occurrences = source_occurrences
+    unrepresented_recall_text = numeric_recall_text
+    unrepresented_inventory = source_inventory
     if represented_annual_spans or represented_measurement_spans:
         unrepresented_recall_text = authoritative_numeric_recall_text(
             _mask_numeric_spans(
@@ -6084,9 +6914,40 @@ def _analyze_rulespec_payload(
             ),
             corpus_citation_path=corpus_citation_path,
         )
+        unrepresented_inventory = _us_locator_filtered_inventory(
+            unrepresented_recall_text,
+            corpus_citation_path=corpus_citation_path,
+            extract_numeric_occurrences=extract_numeric_occurrences,
+        )
+    # One decision for both counts: locator numbers are dropped only when both
+    # views are consistent and agree on exactly which occurrences they drop.
+    # The two views then lose the same occurrences, so the covered count never
+    # exceeds the source count. It can be lower than main's when main counted
+    # a dropped locator number as grounded by an equal named scalar.
+    drop_us_locators = (
+        source_inventory.consistent
+        and unrepresented_inventory.consistent
+        and source_inventory.dropped == unrepresented_inventory.dropped
+    )
+    source_occurrences = tuple(
+        occurrence
+        for occurrence in (
+            source_inventory.kept if drop_us_locators else source_inventory.occurrences
+        )
+        if not _temporal_occurrence_is_formula_applicability_preface(
+            occurrence,
+            numeric_recall_text,
+        )
+    )
+    unrepresented_occurrences = source_occurrences
+    if represented_annual_spans or represented_measurement_spans:
         unrepresented_occurrences = tuple(
             occurrence
-            for occurrence in extract_numeric_occurrences(unrepresented_recall_text)
+            for occurrence in (
+                unrepresented_inventory.kept
+                if drop_us_locators
+                else unrepresented_inventory.occurrences
+            )
             if not _temporal_occurrence_is_formula_applicability_preface(
                 occurrence,
                 unrepresented_recall_text,
@@ -6113,9 +6974,15 @@ def _analyze_rulespec_payload(
             missing_source_values.append(float(occurrence.value))
     for value in sorted(set(missing_source_values)):
         issues.append(
-            "[complete-source-unit:numeric-recall] Authoritative corpus numeric "
-            f"value {value:g} has no named scalar representation. "
-            "`module.summary` is not consulted."
+            ValidationIssue(
+                "[complete-source-unit:numeric-recall] Authoritative corpus numeric "
+                f"value {value:g} has no named scalar representation. "
+                "`module.summary` is not consulted.",
+                check=CHECK_NUMERIC_RECALL_VALUE_UNNAMED,
+                subject=IssueSubject(citation=corpus_citation_path),
+                expected=f"named scalar for {value:g}",
+                found="no named scalar",
+            )
         )
 
     issues.extend(companion_issues)
@@ -6157,6 +7024,10 @@ def _rule_coverage(
         paths = _paths_from_source_reference(
             str(rule.get("source") or ""),
             corpus_citation_path=corpus_citation_path,
+            # Only a principal output encodes every branch its citation
+            # lists; a parameter citing `(c)(3)(vi)-(vii)` for an age of 18
+            # does not encode those deeming exemptions.
+            list_continuations=kind in {"derived", "derived_relation"},
         )
         for excerpt_citation_path, excerpt in _rule_source_excerpts(rule):
             if (
@@ -6295,7 +7166,9 @@ def _principal_formula_clause_rules(
     clause_rules: dict[SourceStructureBranch, set[str]] = {}
     normalized_citation_path = corpus_citation_path.strip("/").lower()
     chart_heading_starts = frozenset(_work_chart_heading_starts(source_text))
-    bare_labels = bare_outline(source_text) or ()
+    bare_labels = (
+        bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
     display_text = mask_bare_labels(source_text, bare_labels)
     active_display = list(display_text)
     for label in bare_labels:
@@ -6548,6 +7421,7 @@ def _paths_from_source_reference(
     source: str,
     *,
     corpus_citation_path: str,
+    list_continuations: bool = False,
 ) -> set[tuple[str, ...]]:
     value = source.strip()
     if not value or not _source_reference_targets_authoritative_unit(
@@ -6556,7 +7430,26 @@ def _paths_from_source_reference(
     ):
         return set()
     paths: set[tuple[str, ...]] = set()
+    us_source = (
+        list_continuations
+        and _US_CORPUS_CITATION_PATH.match(corpus_citation_path) is not None
+    )
     reference_aliases = _authoritative_source_unit_aliases(corpus_citation_path)
+    current_section = corpus_citation_path.rstrip("/").rsplit("/", 1)[-1]
+    # Another citation of this unit after a designation list (`(a)(1), (2),
+    # and 7 CFR 273.4(b)`) keeps the list on this unit. A bare `§ 4(b)` names
+    # no title or part (`§ 4(b) of the Act`), so it does not count.
+    same_unit_reference = (
+        re.compile(
+            "|".join(
+                rf"{re.escape(reference)}(?![A-Za-z0-9_])(?!\.\d)"
+                for reference in reference_aliases
+            ),
+            flags=re.IGNORECASE,
+        )
+        if us_source
+        else None
+    )
     for reference in reference_aliases:
         escaped_reference = re.escape(reference)
         for match in re.finditer(
@@ -6584,12 +7477,20 @@ def _paths_from_source_reference(
                         *_keyword_path_components(trailing, base_components),
                     )
                 )
+                if not suffix.startswith("/") and us_source:
+                    paths.update(
+                        _us_designation_list_continuations(
+                            value,
+                            match.end(),
+                            components,
+                            same_unit_reference=same_unit_reference,
+                        )
+                    )
 
     keyword_components = _keyword_path_components(value)
     if keyword_components:
         paths.add(tuple(keyword_components))
 
-    current_section = corpus_citation_path.rstrip("/").rsplit("/", 1)[-1]
     for match in re.finditer(
         rf"§\s*{re.escape(current_section)}"
         r"(?P<suffix>(?:\([A-Za-z0-9-]+\))+)",
@@ -6607,8 +7508,259 @@ def _paths_from_source_reference(
             paths.add(
                 (*base_components, *_keyword_path_components(trailing, base_components))
             )
+            if us_source and _section_sign_names_this_unit(
+                value[: match.start()], corpus_citation_path
+            ):
+                paths.update(
+                    _us_designation_list_continuations(
+                        value,
+                        match.end(),
+                        components,
+                        same_unit_reference=same_unit_reference,
+                    )
+                )
     if not paths:
         paths.add(())
+    return paths
+
+
+_US_CODE_TITLE_BEFORE_SECTION_SIGN = re.compile(
+    r"(?<![A-Za-z0-9])(?P<title>\d+)\s*U\.?\s?S\.?\s?C\.?(?:\s*A\.?)?\s*$",
+    flags=re.IGNORECASE,
+)
+
+
+def _section_sign_names_this_unit(prefix: str, corpus_citation_path: str) -> bool:
+    """Tell whether a bare `§ 15` before a designation list cites this unit.
+
+    A bare `§ <section>` names no title, part or code, so its list is read
+    only when nothing precedes it, or when the unit's own U.S. Code title
+    does (`26 U.S.C. § 15` for `us/statute/26/15`). After any other code
+    name or citation (`7 U.S.C. § 15`, `7 CFR § 4`, `N.C. Gen. Stat. § 15`,
+    `Pub. L. 99-514, § 15`, `7 U.S.C. 2014; § 15`) only the first
+    designation counts.
+    """
+
+    if not prefix.strip():
+        return True
+    parts = corpus_citation_path.strip().split("/")
+    if len(parts) < 3 or parts[0].lower() != "us" or parts[1] != "statute":
+        return False
+    match = _US_CODE_TITLE_BEFORE_SECTION_SIGN.search(prefix)
+    return (
+        match is not None
+        and match.group("title").lstrip("0") == parts[2].lstrip("0")
+        and not prefix[: match.start()].strip()
+    )
+
+
+_US_DESIGNATION_LIST_CONTINUATION = re.compile(
+    r"[ \t]*(?P<separator>,[ \t]*(?:(?:and|or)[ \t]+)?|[ \t]+(?:and|or)[ \t]+|"
+    r"[ \t]*(?:-|–|—|through|thru|to)[ \t]*)"
+    r"(?P<chain>(?:\([A-Za-z0-9]{1,6}\))+)",
+    flags=re.IGNORECASE,
+)
+# A list stays on the cited unit only when it ends the citation (end, `;`,
+# `.`, a line break), says `of this section` (or another `this` unit), or is
+# followed by another citation of the same unit. Anything else (`of 7 CFR
+# 273.9`, `in 7 CFR 273.9`, `under ...`, `as defined in ...`, `, 7 CFR
+# 273.9`, `(relating to ...) of ...`, `are not implemented`) may qualify the
+# listed items, so the list is not read. A line break ends the citation only
+# when the rest is blank or the next line starts a new citation: a title
+# and code name (`7 CFR 273.9`, `26 U.S.C. 32`), a U.S. corpus path
+# (`us/...`, `us-co/...`) or `;`.
+# Any other next line (`of 7 CFR 273.9`, `Note: only for aliens`, `Excluding
+# ...`) may qualify the listed items, so the list is not read.
+_US_DESIGNATION_LIST_TERMINAL = re.compile(
+    r"[ \t]*(?:$|[;.]|\r?\n(?=\s*(?:$|;|us(?:-[a-z0-9]+)?/|"
+    r"\d+\s*(?:C\.?\s?F\.?\s?R|U\.?\s?S\.?\s?C)(?![A-Za-z]))))|"
+    r"\s+of\s+this\s+(?:section|subsection|paragraph|subparagraph|clause|"
+    r"subclause|part|subpart|chapter|subchapter|title|rule|regulation)\b",
+    flags=re.IGNORECASE,
+)
+_US_DESIGNATION_LIST_JOINER = re.compile(
+    r"[ \t]*(?:[,;][ \t]*)?(?:(?:and/or|and|or)[ \t]+)?",
+    flags=re.IGNORECASE,
+)
+_US_DESIGNATION_RANGE_SEPARATORS = frozenset({"-", "–", "—", "through", "thru", "to"})
+_US_DESIGNATION_RANGE_LIMIT = 25
+
+
+def _is_outline_roman_designation(label: str) -> bool:
+    """A single letter is roman only as `i`, `v` or `x`."""
+
+    return _is_roman_outline_label(label) and (
+        len(label) > 1 or label.lower() in {"i", "v", "x"}
+    )
+
+
+def _us_designation_classes(label: str) -> frozenset[str]:
+    """Classify a U.S. designation: numeric, letter or roman, by case."""
+
+    if label[0].isdigit():
+        return frozenset({"numeric"})
+    case = "upper" if label.isupper() else "lower"
+    classes = set()
+    if len(label) == 1:
+        classes.add(f"{case}-letter")
+    if _is_outline_roman_designation(label):
+        classes.add(f"{case}-roman")
+    return frozenset(classes)
+
+
+def _us_designation_ordinal(label: str, label_class: str) -> int:
+    """Order designations of one class: 2 < 10, b < c, iv < vi."""
+
+    if label_class == "numeric":
+        return int(re.match(r"\d+", label).group(0))
+    if label_class.endswith("letter"):
+        return ord(label.lower())
+    return _roman_outline_value(label) or 0
+
+
+def _us_designation_range(
+    first: str, last: str, label_class: str
+) -> tuple[str, ...] | None:
+    """Expand `(3)-(5)`, `(A)-(C)`, `(vi)-(vii)` to the listed designations.
+
+    At most 25 siblings are expanded. `(v)-(x)` reads as roman numerals (v
+    to x), so a letter range `(v)-(x)` misses `(w)`: an under-claim that can
+    only leave a branch flagged, never cover one the citation did not name.
+    """
+
+    if label_class == "numeric":
+        if not (first.isdigit() and last.isdigit()):
+            return None
+        low, high = int(first), int(last)
+        if not 0 < high - low < _US_DESIGNATION_RANGE_LIMIT:
+            return None
+        return tuple(str(value) for value in range(low, high + 1))
+    if label_class.endswith("letter"):
+        if not 0 < ord(last.lower()) - ord(first.lower()) < _US_DESIGNATION_RANGE_LIMIT:
+            return None
+        return tuple(chr(code) for code in range(ord(first), ord(last) + 1))
+    first_value = _roman_outline_value(first)
+    last_value = _roman_outline_value(last)
+    if first_value is None or last_value is None:
+        return None
+    if not 0 < last_value - first_value < _US_DESIGNATION_RANGE_LIMIT:
+        return None
+    numerals = ((10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"))
+    labels = []
+    for value in range(first_value, last_value + 1):
+        rendered = ""
+        for size, numeral in numerals:
+            while value >= size:
+                rendered += numeral
+                value -= size
+        labels.append(rendered.upper() if first.isupper() else rendered)
+    return tuple(labels)
+
+
+def _us_designation_depth(previous: Sequence[str], label: str) -> int | None:
+    """Find the level that a continuation designation restates or advances.
+
+    The deepest level of the same class whose designation is not after the
+    label wins: `(c)(3)(v), and (c)(3)(vi)` restarts at (c), not at the
+    letter-shaped `(v)`. A label before a roman level of its class stops the
+    list: `(a)(1)(ii), (i)` does not reach subsection (i).
+    """
+
+    classes = _us_designation_classes(label)
+    for index in range(len(previous) - 1, -1, -1):
+        shared = _us_designation_classes(previous[index]) & classes
+        if not shared:
+            continue
+        if any(
+            _us_designation_ordinal(label, label_class)
+            >= _us_designation_ordinal(previous[index], label_class)
+            for label_class in shared
+        ):
+            return index
+        if any(label_class.endswith("roman") for label_class in shared):
+            return None
+    return None
+
+
+def _us_designation_list_ends_on_unit(
+    source: str,
+    position: int,
+    same_unit_reference: re.Pattern[str] | None,
+) -> bool:
+    """Tell whether a designation list ends without naming another source."""
+
+    if _US_DESIGNATION_LIST_TERMINAL.match(source, position):
+        return True
+    if same_unit_reference is None:
+        return False
+    joiner = _US_DESIGNATION_LIST_JOINER.match(source, position)
+    return bool(
+        joiner.group(0).strip()
+        and same_unit_reference.match(source, joiner.end()) is not None
+    )
+
+
+def _us_designation_list_continuations(
+    source: str,
+    position: int,
+    components: Sequence[str],
+    *,
+    same_unit_reference: re.Pattern[str] | None = None,
+) -> set[tuple[str, ...]]:
+    """Read the rest of `7 CFR 273.4(a)(1)-(2), (c)(3)(vi)-(vii)`.
+
+    U.S. citations list and range sibling designations after the first one.
+    Each continuation replaces the designation of its own class at the
+    deepest matching level of the previous one (`(a)(5)(iii)-(iv)` cites
+    (a)(5)(iii) and (a)(5)(iv); `(a)(4)(iii), (a)(5)(ii)` restarts at the
+    root). A range spans siblings only when it replaces the last designation;
+    `(a)(4)(iii)-(5)` cites (a)(4)(iii) and (a)(5), never all of (a)(4).
+    Reading stops at the first continuation that is not a designation of a
+    level already cited and at a gloss (`(a) (citizenship)`). A range that
+    crosses levels names only its endpoints. The list counts only when it
+    ends the citation, says `of this section`, or is followed by another
+    citation of this unit (`same_unit_reference`). After `of 7 CFR 273.9`,
+    `in ...`, `under ...`, `as defined in ...` or prose, which items the
+    qualifier governs is ambiguous, so only the first designation counts.
+    """
+
+    paths: set[tuple[str, ...]] = set()
+    previous = list(components)
+    read_any = False
+    while True:
+        continuation = _US_DESIGNATION_LIST_CONTINUATION.match(source, position)
+        if continuation is None:
+            break
+        labels = re.findall(r"\(([A-Za-z0-9]+)\)", continuation.group("chain"))
+        if not all(_is_parenthesized_outline_label(label) for label in labels):
+            break
+        classes = _us_designation_classes(labels[0])
+        depth = _us_designation_depth(previous, labels[0])
+        if depth is None:
+            break
+        current = [*previous[:depth], *labels]
+        if (
+            continuation.group("separator").strip().lower()
+            in _US_DESIGNATION_RANGE_SEPARATORS
+            and len(labels) == 1
+            and depth == len(previous) - 1
+        ):
+            shared = sorted(_us_designation_classes(previous[depth]) & classes)
+            expanded = (
+                _us_designation_range(previous[depth], labels[0], shared[-1])
+                if shared
+                else None
+            )
+            for label in expanded or ():
+                paths.add(tuple(part.lower() for part in (*previous[:depth], label)))
+        paths.add(tuple(part.lower() for part in current))
+        previous = current
+        position = continuation.end()
+        read_any = True
+    if read_any and not _us_designation_list_ends_on_unit(
+        source, position, same_unit_reference
+    ):
+        return set()
     return paths
 
 
@@ -6733,6 +7885,80 @@ def _deferral_anchor_bases(corpus_citation_path: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys((base, module_root)))
 
 
+_SITE_DEFERRED_COVERAGE = (
+    "axiom_encode/harness/source_completeness.py:_deferred_coverage"
+)
+_DEFERRAL_REQUIRES = (
+    "Each `module.deferred_outputs` entry names its source branch by the "
+    "canonical source anchor and a reason that names the exact missing "
+    "dependency, input or runtime capability."
+)
+_DEFERRAL_WHY = (
+    "A deferral is a recorded gap in the encoding. A gap that is vague, or "
+    "rooted at the wrong place, cannot be audited or closed later, and it can "
+    "hide law that the module should encode."
+)
+CHECK_DEFERRAL_NON_SOURCE_ROOT = declare_check(
+    "complete-source-unit:deferral/non-source-root",
+    title="Deferral output uses a non-source root",
+    requires=_DEFERRAL_REQUIRES,
+    why=_DEFERRAL_WHY,
+    fix=(
+        "Rewrite `module.deferred_outputs[N].output` to the canonical source "
+        "anchor shown as expected, keeping the `#<output>` fragment."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_DEFERRED_COVERAGE,
+)
+CHECK_DEFERRAL_COMPUTATION_DEFERRED = declare_check(
+    "complete-source-unit:deferral/computation-deferred",
+    title="Deferral cites a branch that states an explicit computation",
+    requires=(
+        "A branch that states an explicit computation is encoded, not deferred "
+        "as a runtime gap."
+    ),
+    why=(
+        "The source gives everything needed to compute the branch, so a "
+        "deferral drops law the encoder can encode."
+    ),
+    fix=(
+        "Remove the deferral. Declare the source-stated operative facts as "
+        "local RuleSpec inputs and encode the principal derived output."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_DEFERRED_COVERAGE,
+)
+CHECK_DEFERRAL_BRANCH_DROPPED_FROM_OUTPUT = declare_check(
+    "complete-source-unit:deferral/branch-dropped-from-output",
+    title="Deferral output is rooted at the source unit, not at its branch",
+    requires=_DEFERRAL_REQUIRES,
+    why=_DEFERRAL_WHY,
+    fix=(
+        "Keep the cited branch in the deferral output path, as in the expected "
+        "value; the reason can stay."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_DEFERRED_COVERAGE,
+)
+CHECK_DEFERRAL_REASON_IMPRECISE = declare_check(
+    "complete-source-unit:deferral/reason-imprecise",
+    title="Deferral reason does not name an exact missing dependency",
+    requires=_DEFERRAL_REQUIRES,
+    why=_DEFERRAL_WHY,
+    fix=(
+        "Name the exact missing dependency (a citation of the provision that "
+        "is not yet encoded), input or runtime capability in the deferral "
+        "`reason`, or encode the branch instead."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_DEFERRED_COVERAGE,
+)
+
+
 def _deferred_coverage(
     payload: dict[str, Any],
     *,
@@ -6806,11 +8032,21 @@ def _deferred_coverage(
                     f"{preferred_anchor}/{'/'.join(display_branch)}#{fragment}"
                 )
                 issues.append(
-                    "[complete-source-unit:deferral] "
-                    f"`module.deferred_outputs[{index}].output` uses non-source "
-                    f"root `{output_path}` for source branch "
-                    f"(`{'/'.join(display_branch)}`). Use the canonical source "
-                    f"anchor, for example `{corrected_output}`."
+                    ValidationIssue(
+                        "[complete-source-unit:deferral] "
+                        f"`module.deferred_outputs[{index}].output` uses non-source "
+                        f"root `{output_path}` for source branch "
+                        f"(`{'/'.join(display_branch)}`). Use the canonical source "
+                        f"anchor, for example `{corrected_output}`.",
+                        check=CHECK_DEFERRAL_NON_SOURCE_ROOT,
+                        subject=IssueSubject(
+                            citation=corpus_citation_path,
+                            branch="/".join(display_branch),
+                            field=f"module.deferred_outputs[{index}].output",
+                        ),
+                        expected=corrected_output,
+                        found=output_path,
+                    )
                 )
             continue
         reason = str(record.get("reason") or "").strip()
@@ -6973,12 +8209,22 @@ def _deferred_coverage(
                     )
                 )
                 issues.append(
-                    "[complete-source-unit:deferral] "
-                    f"`module.deferred_outputs[{index}]` cites exact source branch "
-                    f"(`{rendered_branch}`), but that branch states an explicit "
-                    "computation and cannot be deferred as a runtime gap. Declare "
-                    "the source-stated operative facts as local RuleSpec inputs and "
-                    "encode the principal derived output."
+                    ValidationIssue(
+                        "[complete-source-unit:deferral] "
+                        f"`module.deferred_outputs[{index}]` cites exact source branch "
+                        f"(`{rendered_branch}`), but that branch states an explicit "
+                        "computation and cannot be deferred as a runtime gap. Declare "
+                        "the source-stated operative facts as local RuleSpec inputs and "
+                        "encode the principal derived output.",
+                        check=CHECK_DEFERRAL_COMPUTATION_DEFERRED,
+                        subject=IssueSubject(
+                            citation=corpus_citation_path,
+                            branch=rendered_branch,
+                            field=f"module.deferred_outputs[{index}]",
+                        ),
+                        expected="encoded principal derived output",
+                        found="deferred as a runtime gap",
+                    )
                 )
                 continue
             cited_branch = (
@@ -7007,12 +8253,22 @@ def _deferred_coverage(
                         reason=reason,
                     )
                     issues.append(
-                        "[complete-source-unit:deferral] "
-                        f"`module.deferred_outputs[{index}].output` is rooted at the "
-                        f"source unit (`{output}`), but its otherwise precise reason "
-                        f"cites exact source branch (`{rendered_branch}`). Preserve "
-                        f"that branch in the output path, for example "
-                        f"`{corrected_output}`.\n{retry_shape}"
+                        ValidationIssue(
+                            "[complete-source-unit:deferral] "
+                            f"`module.deferred_outputs[{index}].output` is rooted at the "
+                            f"source unit (`{output}`), but its otherwise precise reason "
+                            f"cites exact source branch (`{rendered_branch}`). Preserve "
+                            f"that branch in the output path, for example "
+                            f"`{corrected_output}`.\n{retry_shape}",
+                            check=CHECK_DEFERRAL_BRANCH_DROPPED_FROM_OUTPUT,
+                            subject=IssueSubject(
+                                citation=corpus_citation_path,
+                                branch=rendered_branch,
+                                field=f"module.deferred_outputs[{index}].output",
+                            ),
+                            expected=corrected_output,
+                            found=output,
+                        )
                     )
                     continue
         precise = reason_is_precise_for(source_scope_text, path)
@@ -7027,11 +8283,21 @@ def _deferred_coverage(
                 reason=reason,
             )
             issues.append(
-                "[complete-source-unit:deferral] "
-                f"`module.deferred_outputs[{index}]` identifies source branch "
-                f"({branch_label}) (`{rendered_path}`) but its deferral does not "
-                "name an exact missing dependency, input, or runtime capability.\n"
-                f"{retry_shape}"
+                ValidationIssue(
+                    "[complete-source-unit:deferral] "
+                    f"`module.deferred_outputs[{index}]` identifies source branch "
+                    f"({branch_label}) (`{rendered_path}`) but its deferral does not "
+                    "name an exact missing dependency, input, or runtime capability.\n"
+                    f"{retry_shape}",
+                    check=CHECK_DEFERRAL_REASON_IMPRECISE,
+                    subject=IssueSubject(
+                        citation=corpus_citation_path,
+                        branch=rendered_path,
+                        field=f"module.deferred_outputs[{index}].reason",
+                    ),
+                    expected="reason naming an exact missing dependency",
+                    found=reason or "<empty reason>",
+                )
             )
     # Frozen, so `_path_is_deferred` can index the set once per analysis.
     return frozenset(covered), issues
@@ -7160,7 +8426,9 @@ def _resolved_definition_deferral_clauses(
         ):
             return ()
     clauses = []
-    for start, end, text in _source_clause_spans(source_text, branches=branches):
+    for start, end, text in _source_clause_spans(
+        source_text, branches=branches, corpus_citation_path=corpus_citation_path
+    ):
         if not (owner.start <= start and end <= owner.end):
             continue
         definition = re.match(
@@ -7208,7 +8476,13 @@ def _resolved_definition_deferral_clauses(
             continue
         clauses.append(
             SourceStructureBranch(
-                owner.path, "deferred-definition", owner.label, text, start, end
+                owner.path,
+                "deferred-definition",
+                owner.label,
+                text,
+                start,
+                end,
+                display_path=owner.display_path,
             )
         )
     return tuple(clauses)
@@ -13901,6 +15175,11 @@ def _rulespec_target_base(corpus_citation_path: str) -> str:
         "policy": "policies",
         "form": "forms",
     }.get(document_class, f"{document_class}s")
+    if document_class == "rulemaking":
+        # Federal Register instruments land in the reserved
+        # policies/rulemaking/ output namespace (evals._RULEMAKING_OUTPUT_ROOT).
+        plural = "policies"
+        tail = ["rulemaking", *tail]
     if jurisdiction == "us-la" and plural == "statutes" and tail:
         title_section = tail[0].split(":")
         if len(title_section) == 2 and all(title_section):
@@ -14111,6 +15390,8 @@ def _branch_citation(
         ]
         path = "".join(f"({component})" for component in branch.path)
         return f"{corpus_citation_path}{path} [{', '.join(components)}]"
+    if _uses_english_branch_labels(corpus_citation_path):
+        return _english_branch_citation(corpus_citation_path, branch)
     citation = corpus_citation_path
     components: list[str] = []
     for index, component in enumerate(branch.path):
@@ -14123,6 +15404,86 @@ def _branch_citation(
         else:
             components.append(f"Nummer {component}")
     return f"{citation}({branch.path[0]}) [{', '.join(components)}]"
+
+
+def _uses_english_branch_labels(corpus_citation_path: str) -> bool:
+    """Only U.S. sources get English labels.
+
+    Every other jurisdiction (German, Austrian and Swiss law included) and
+    unscoped legacy output keep Absatz/Nummer/Buchstabe, so their issue text
+    and fingerprints do not change.
+    """
+
+    return _US_CORPUS_CITATION_PATH.match(corpus_citation_path.strip()) is not None
+
+
+def _english_branch_citation(
+    corpus_citation_path: str,
+    branch: SourceStructureBranch,
+) -> str:
+    """Render `us/regulation/7/273/4(a)(6)(i)(A) [paragraph (a)(6)(i)(A)]`.
+
+    Repair feedback for a U.S. source names the branch with its full
+    parenthesized designation instead of German Absatz/Nummer/Buchstabe
+    labels. Only the wording differs; the branch is the same. This is a
+    locator, not the citation form a deferral `reason` must use (a U.S. Code
+    reason cites `42 U.S.C. 415(i)(5)(B)`, see
+    `_reason_cites_exact_current_statute_branch`). The CFR calls every level
+    a paragraph; elsewhere the level nouns vary, so the label says
+    `provision`.
+    """
+
+    display = branch.display_path
+    if not (
+        display is not None
+        and len(display) == len(branch.path)
+        and all(
+            printed.lower() == component
+            for printed, component in zip(display, branch.path, strict=True)
+        )
+    ):
+        display = branch.path
+    designations = [
+        printed
+        for printed, component in zip(display, branch.path, strict=True)
+        if not component.startswith("satz-")
+    ]
+    sentences = [
+        component.removeprefix("satz-")
+        for component in branch.path
+        if component.startswith("satz-")
+    ]
+    fragment = "".join(f"({designation})" for designation in designations)
+    noun = (
+        "paragraph"
+        if corpus_citation_path.strip().startswith("us/regulation/")
+        else "provision"
+    )
+    components = [
+        *((f"{noun} {fragment}",) if fragment else ()),
+        *(f"sentence {sentence}" for sentence in sentences),
+    ]
+    return f"{corpus_citation_path}{fragment} [{', '.join(components)}]"
+
+
+def _branch_subject(
+    corpus_citation_path: str,
+    branch: SourceStructureBranch,
+) -> IssueSubject:
+    """The typed-issue subject for a source branch.
+
+    Computations, rounding and exception clauses take their structural owner's
+    path, so two of them in one paragraph share ``branch`` and ``clause``. The
+    branch's character span in the authoritative source text keeps their
+    subjects (and fingerprints) distinct; it comes from the source, not the
+    artifact, so repairing one obligation leaves the other's identity as is.
+    """
+    return IssueSubject(
+        citation=corpus_citation_path,
+        branch="/".join(branch.path) or None,
+        clause=_branch_citation(corpus_citation_path, branch),
+        span=f"{branch.start}:{branch.end}",
+    )
 
 
 def _session_law_entry_dates_are_valid(entry: re.Match[str]) -> bool:
@@ -14400,6 +15761,76 @@ def _strip_terminal_session_law_history(source_text: str) -> str:
     return source_text
 
 
+def _armenian_amendment_history_numeric_recall_spans(
+    source_text: str,
+) -> Iterable[tuple[int, int]]:
+    """Yield spans of fully validated standalone ARLIS amendment-history ledgers.
+
+    Each span covers the body (the parentheses stay) of one parenthetical
+    that sits alone on its line at nesting depth zero and whose
+    body is an ordinal article label followed only by amendment actions and
+    paired ``DD.MM.YY[YY] Հ[Օ]-N[-N]-Ն`` citations. Every other parenthetical,
+    including nested, inline, operative or malformed ones, yields nothing and so
+    keeps all of its numbers as recall obligations. The spans are masked, never
+    deleted, so recall-text positions keep their source origins.
+    """
+
+    depth_before: list[int] | None = None
+
+    def parenthesis_depth_before(index: int) -> int:
+        # Built on the first candidate only: sources with no standalone
+        # parenthetical never pay to map the whole text.
+        nonlocal depth_before
+        if depth_before is None:
+            depth_before = []
+            depth = 0
+            for character in source_text:
+                depth_before.append(depth)
+                if character == "(":
+                    depth += 1
+                elif character == ")":
+                    depth = max(0, depth - 1)
+        return depth_before[index]
+
+    for candidate in _ARMENIAN_AMENDMENT_HISTORY_CANDIDATE.finditer(source_text):
+        opening = candidate.start("body") - 1
+        # A candidate whose opening parenthesis sits inside another
+        # parenthetical is nested, and the prompt contract keeps nested
+        # parentheticals as source content.
+        if parenthesis_depth_before(opening) != 0:
+            continue
+        article_history = _ARMENIAN_AMENDMENT_HISTORY_ARTICLE.fullmatch(
+            candidate.group("body").strip()
+        )
+        if article_history is None:
+            continue
+        history = article_history.group("history")
+        if (
+            _ARMENIAN_AMENDMENT_HISTORY_ACTION.search(history) is None
+            or _ARMENIAN_AMENDMENT_HISTORY_CITATION.search(history) is None
+            or _ARMENIAN_AMENDMENT_HISTORY_SEQUENCE.fullmatch(history) is None
+        ):
+            continue
+        # Blank the body only. Keeping both parentheses leaves the depth map
+        # unchanged and keeps a line break plus `(` between the lines around
+        # the ledger, so no later citation pattern that allows whitespace can
+        # join a reference word above to a number below.
+        yield candidate.start("body"), candidate.end("body")
+
+
+def mask_armenian_amendment_history(source_text: str) -> str:
+    """Mask fully validated standalone ARLIS ledgers in place with spaces.
+
+    The eval numeric-coverage metric uses this so it never demands a number
+    the encoder prompt tells the model to leave out. It applies only this
+    recognizer, so every other source number keeps its obligation.
+    """
+
+    return _mask_numeric_spans(
+        source_text, _armenian_amendment_history_numeric_recall_spans(source_text)
+    )
+
+
 def _spaced_german_sentence_label_spans(text: str) -> tuple[tuple[int, int], ...]:
     """Identify a consecutive sentence-label chain, anchored to a paragraph start.
 
@@ -14573,6 +16004,7 @@ def manual_outcome_exception_advice(
             active_branches=branches,
             deferred_paths=set(),
             formula_branches=formula_branches,
+            corpus_citation_path=corpus_citation_path,
         )
     source_sha256 = hashlib.sha256(source_text.encode()).hexdigest()
     advice: list[dict[str, Any]] = []
@@ -15940,6 +17372,28 @@ def _irs_page_locator_numeric_recall_spans(
         yield line.span("page")
 
 
+def _blank_titled_reference_list(match: re.Match[str]) -> str:
+    """Overwrite the keyword-less item numbers of a titled reference list in place.
+
+    Later passes read a keyword-led item as any other reference, and its keyword
+    can make a line a Part, Chapter or Schedule heading, so those items stay. A
+    title can state an amount of its own ("regulation 15 (persons aged 65 or
+    over) or 19 (...)"), so the titles stay too. A placeholder takes each number's
+    place because an earlier reference reads on through spaces: "Under Part 3
+    and regulation 15 (absentees) or 19 (persons), 7 and 8" would lose the 7 and
+    8.
+    """
+    matched = match.group(0)
+    kept = list(matched)
+    # Each item consumes its whole title, so a number inside a title
+    # ("regulation 14(6)") never starts the next item.
+    for item in _ENGLISH_TITLED_REFERENCE_ITEM_TITLE.finditer(matched):
+        if item.group("keyword") is None:
+            start, end = item.span("number")
+            kept[start:end] = "#" * (end - start)
+    return "".join(kept)
+
+
 def authoritative_numeric_recall_text(
     source_text: str,
     *,
@@ -15967,7 +17421,9 @@ def authoritative_numeric_recall_text(
             source_text, corpus_citation_path=corpus_citation_path
         ),
     )
-    source_text = mask_bare_labels(source_text)
+    source_text = mask_bare_labels(
+        source_text, corpus_citation_path=corpus_citation_path
+    )
     source_text = mask(
         source_text, _english_subdivision_numeric_recall_spans(source_text)
     )
@@ -15986,6 +17442,9 @@ def authoritative_numeric_recall_text(
         # The preceding masks preserve positions; history cleanup only drops
         # a terminal suffix. All subsequent deletions go through tracked sub.
         del _source_map.offsets[len(cleaned) :]
+    # After the history cleanup, so a masked ledger (now blank) can never make
+    # an earlier session-law history chain look terminal and drop it.
+    cleaned = mask(cleaned, _armenian_amendment_history_numeric_recall_spans(cleaned))
     if _GLUED_SECTION_SENTENCE_MARKER.search(cleaned):
         # Strip only authenticated sentence labels, before removing the section
         # citation that distinguishes `2§ 64` from a substantive number 2.
@@ -16151,6 +17610,9 @@ def authoritative_numeric_recall_text(
     cleaned = sub(_BFH_DECISION_NUMERIC_RECALL_CITATION, "", cleaned)
     cleaned = sub(_GERMAN_LEGAL_CITATION, "", cleaned)
     cleaned = sub(_TITLE_SUFFIX_LEGAL_CITATION, "", cleaned)
+    # Before _ENGLISH_LEGAL_CITATION removes "regulation 15", the keyword that
+    # anchors the rest of a titled list.
+    cleaned = sub(_ENGLISH_TITLED_REFERENCE_LIST, _blank_titled_reference_list, cleaned)
     cleaned = sub(_ENGLISH_LEGAL_CITATION, "", cleaned)
     cleaned = sub(_STRUCTURAL_REFERENCE, "", cleaned)
     cleaned = sub(
@@ -17842,6 +19304,231 @@ def _without_worksheet_imperative_consequent(body: str) -> str:
     return body
 
 
+_CETERIS_PARIBUS_PRONOUNS = {
+    "them": ("they", "their"),
+    "him": ("he", "his"),
+    "her": ("she", "her"),
+    "it": ("it", "its"),
+}
+_COUNTERFACTUAL_OBJECT = re.compile(
+    r"\bthat\s+would\s+(?:otherwise\s+)?apply\s+to\s+(?P<object>them|him|her|it)\s+$",
+    re.IGNORECASE,
+)
+_CETERIS_PARIBUS_BODY = re.compile(
+    r"\s+(?P<subject>they|he|she|it)\s+were\s+(?P<status>[^\W\d_][^(),;:.!?]*?)"
+    r"\s*\(\s*and\s+(?P<possessive>their|his|her|its)\s+other\s+circumstances"
+    r"\s+were\s+unchanged\s*\)\s*\.?\s*",
+    re.IGNORECASE,
+)
+# A bare status: an optional article and at most two lower-case words, such as
+# `single` or `a sole parent`. Anything longer may carry its own condition.
+_CETERIS_PARIBUS_STATUS = re.compile(r"(?:(?:a|an)\s+)?[a-z]+(?:[ -][a-z]+)?")
+# Words that would let the status state or qualify a condition of its own.
+# Participles (`having`, `excluding`) fall to the `-ing` check instead, and
+# `unless`/`except` to the trailing-exception cut that follows.
+_CETERIS_PARIBUS_STATUS_STOPWORDS = frozenset(
+    "provided if where wherever when whenever while whilst who whom whose which "
+    "that until because since after before with without "
+    "aged and or nor but yet plus as than for "
+    "under in on at by of to from not rather only also".split()
+)
+
+
+def _without_ceteris_paribus_clause(text: str, conditional: re.Match[str]) -> str:
+    """Drop the held-fixed clause of an owned counterfactual, else the body.
+
+    In "the rate that would apply to them if they were single (and their other
+    circumstances were unchanged)" the parenthesis keeps everything but the
+    named status as it is; it states no fact about anyone. Only that exact
+    shape qualifies: `that would apply to X` directly governs a subjunctive
+    `if X were <status>`, the pronouns agree, the status is a bare status of
+    at most an article and two words with no conjunction, subordinator,
+    preposition or participle, and the parenthesis ends the text.
+    """
+    body = conditional.group("body")
+    if conditional.group("cue").casefold() != "if":
+        return body
+    governing = _COUNTERFACTUAL_OBJECT.search(text[: conditional.start()])
+    hypothetical = _CETERIS_PARIBUS_BODY.fullmatch(body)
+    if governing is None or hypothetical is None:
+        return body
+    subject, possessive = _CETERIS_PARIBUS_PRONOUNS[governing["object"].casefold()]
+    if (
+        hypothetical["subject"].casefold() != subject
+        or hypothetical["possessive"].casefold() != possessive
+        or not _CETERIS_PARIBUS_STATUS.fullmatch(hypothetical["status"])
+        or any(
+            word in _CETERIS_PARIBUS_STATUS_STOPWORDS or word.endswith("ing")
+            for word in re.split(r"[ -]", hypothetical["status"])
+        )
+    ):
+        return body
+    return body[: hypothetical.start("status")] + hypothetical["status"]
+
+
+_SHARED_MEMBERSHIP_SUBJECT = (
+    r"(?:the\s+|payment\s+)?(?:"
+    r"(?:paying|receiving)\s+parent|"
+    r"(?:parent|child|spouse|person|participant)"
+    r"(?:\s+(?:paying|receiving)\s+(?:the\s+)?"
+    r"(?:child\s+support|cash\s+medical\s+support|income)"
+    r"|\s+for\s+whom\s+(?:the\s+)?child\s+support\s+is\s+being\s+paid)?)"
+)
+_SHARED_MEMBERSHIP_ASSERTION = (
+    rf"(?P<subject>{_SHARED_MEMBERSHIP_SUBJECT})\s+(?:is|are)\s+in\s+"
+    r"(?:the\s+)?same\s+(?P<unit>budgetary\s+unit|household)\s*\.?"
+)
+
+
+def _shared_membership_list_body(body: str) -> str:
+    """Distribute a closed shared membership predicate over explicit bullets.
+
+    Keep the ordinary parser for modified headers and mixed prose. The shared
+    predicate must survive on every member; merely discarding the header would
+    lose the requirement that the listed people belong to the same unit.
+    """
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if len(lines) < 3:
+        return body
+    header = re.fullmatch(
+        r"all\s+(?:of\s+)?the\s+following\s+are\s+"
+        r"(?P<membership>in\s+the\s+same\s+(?:budgetary\s+unit|household))\s*:",
+        lines[0],
+        re.IGNORECASE,
+    )
+    if header is None:
+        return body
+    subjects = []
+    for line in lines[1:]:
+        bullet = re.fullmatch(
+            rf"[●•]\s+(?P<subject>{_SHARED_MEMBERSHIP_SUBJECT})\.?",
+            line,
+            re.IGNORECASE,
+        )
+        if bullet is None:
+            return body
+        subjects.append(bullet.group("subject"))
+    return "\n".join(
+        f"{subject} is {header.group('membership')}" for subject in subjects
+    )
+
+
+def _is_pure_physical_alternative_condition(body: str) -> bool:
+    """Recognize a closed OR-list, never a conjunctive or qualified list.
+
+    This gate counts simultaneous facts, not alternative triggers. Decline
+    any shared prerequisite, nested condition, or unbulleted continuation;
+    their existing conservative gate analysis must remain in force.
+    """
+
+    header, separator, tail = body.strip().partition(":")
+    if not separator or not re.fullmatch(
+        r"one\s+or\s+more\s+of\s+the\s+following\s+occurs\s+regarding\s+"
+        r"the\s+child\s+support\s+payment",
+        header,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    lines = [line.strip() for line in tail.splitlines() if line.strip()]
+    if len(lines) < 2 or any(not re.match(r"^[●•]\s+\S", line) for line in lines):
+        return False
+    return not any(
+        re.search(
+            r"\b(?:and|nor|but|if|when|unless|provided|except|only)\b|[;:]",
+            line,
+            flags=re.IGNORECASE,
+        )
+        for line in lines
+    )
+
+
+_SOURCE_ANY_REASON_PREFIX = "source_any_reason:"
+
+
+def _closed_nested_reason_list(body: str) -> tuple[str, tuple[str, ...]] | None:
+    """Separate a closed nested reason list, retaining its concrete alternatives.
+
+    This is a physical-list grammar, not a general English parser. Unknown
+    continuations, qualifiers, or navigation prose retain conservative analysis.
+    """
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if not lines or not re.fullmatch(
+        r"all\s+of\s+the\s+following\s+apply:", lines[0], re.IGNORECASE
+    ):
+        return None
+    headers = [
+        i
+        for i, line in enumerate(lines)
+        if re.fullmatch(
+            r"[●•]\s+[^:;!?]+\s+for\s+any\s+of\s+the\s+following\s+reasons:",
+            line,
+            re.IGNORECASE,
+        )
+    ]
+    if len(headers) != 1 or headers[0] < 2:
+        return None
+    index = headers[0]
+    if any(not re.fullmatch(r"[●•]\s+[^:;!?]+\.", line) for line in lines[1:index]):
+        return None
+    reasons = lines[index + 1 :]
+    navigation = [
+        i
+        for i, line in enumerate(reasons)
+        if re.fullmatch(
+            r"Quick access to (?:the )?types of [A-Za-z ]+:", line, re.IGNORECASE
+        )
+    ]
+    if navigation:
+        if len(navigation) != 1:
+            return None
+        boundary = navigation[0]
+        links = reasons[boundary + 1 :]
+        if len(links) < 2 or any(
+            not re.fullmatch(r"[●•]\s+[A-Z][A-Za-z'-]*(?:\s+[A-Z][A-Za-z'-]*)*", line)
+            or re.search(
+                r"\b(?:if|when|unless|must|shall|only|not|is|are|requires?)\b",
+                line,
+                re.IGNORECASE,
+            )
+            for line in links
+        ):
+            return None
+        reasons = reasons[:boundary]
+    if not 2 <= len(reasons) <= _SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT:
+        return None
+    alternatives = []
+    for reason in reasons:
+        # A final glossary marker is metadata, not an operative qualifier.
+        reason = re.sub(r"\([a-z]\)$", "", reason).strip()
+        if not re.fullmatch(r"[A-Za-z][A-Za-z '-]*", reason) or re.search(
+            r"\b(?:and|nor|but|if|when|unless|provided|except|only|not|without|must|shall|is|are|requires?)\b",
+            reason,
+            re.IGNORECASE,
+        ):
+            return None
+        if re.search(r"\bor\b", reason, re.IGNORECASE):
+            away = re.fullmatch(
+                r"([A-Za-z-]+)\s+or\s+([A-Za-z-]+)(\s+away\s+from\s+[A-Za-z '-]+)",
+                reason,
+                re.IGNORECASE,
+            )
+            causal = re.fullmatch(
+                r"(.+\s+caused\s+by\s+)([^:]+?)\s+or\s+([^:]+)", reason, re.IGNORECASE
+            )
+            if away:
+                options = [away[1] + away[3], away[2] + away[3]]
+            elif causal and len(re.findall(r"\bor\b", reason, re.IGNORECASE)) == 1:
+                options = [causal[1] + causal[2], causal[1] + causal[3]]
+            else:
+                return None
+        else:
+            options = [reason]
+        alternatives.extend(options)
+        if len(alternatives) > _SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT:
+            return None
+    return "\n".join(lines[:index]), tuple(alternatives)
+
+
 def _source_conjunctive_fact_gates(
     text: str,
     *,
@@ -17868,7 +19555,22 @@ def _source_conjunctive_fact_gates(
         )
     if conditional is None:
         return ()
-    body = conditional.group("body")
+    body = _without_ceteris_paribus_clause(text, conditional)
+    # Preserve a complete physical nested list before exception preprocessing.
+    # Exact proof-context fragments may end at its heading; those keep their
+    # existing analysis, while the complete source list owns the reason gate.
+    nested_reason_body = (
+        body
+        if re.search(
+            r"[●•]\s+[^\n:]+\s+for\s+any\s+of\s+the\s+following\s+reasons:\s*\S",
+            body,
+            re.IGNORECASE,
+        )
+        and re.match(r"\s*all\s+of\s+the\s+following\s+apply:", body, re.IGNORECASE)
+        else None
+    )
+    if _is_pure_physical_alternative_condition(body):
+        return ()
     if conditional.group("cue").strip().casefold() != "unless":
         trailing_exception = re.search(
             r"\b(?:unless|except(?:\s+(?:if|when))?)\b",
@@ -17903,7 +19605,34 @@ def _source_conjunctive_fact_gates(
     body = _without_flattened_pdf_alternative_list(body)
     body = _without_completed_chart_result_label(body, text)
     body = _without_worksheet_imperative_consequent(body)
-    segments = _source_gate_split_conjunctive_conditions(body)
+    membership_body = _shared_membership_list_body(body)
+    membership_requirement = None
+    if membership_body != body:
+        membership_requirement = (
+            "shared_membership:budgetary_unit"
+            if "budgetary" in body.split(":", 1)[0].lower()
+            else "shared_membership:household"
+        )
+    nested_reasons = _closed_nested_reason_list(nested_reason_body or membership_body)
+    # An identified but unparsed continuation must not silently lose its gate.
+    # The empty marker is deliberately unmatchable (including by empty tokens).
+    reason_gates = (
+        frozenset({_SOURCE_ANY_REASON_PREFIX}) if nested_reason_body else frozenset()
+    )
+    if nested_reasons is not None:
+        outer_body, reasons = nested_reasons
+        signatures = [
+            _source_gate_semantic_tokens(reason, care_source_text=care_source_text)
+            - _SOURCE_GATE_SUBJECT_PRONOUNS
+            for reason in reasons
+        ]
+        if all(signatures):
+            membership_body = outer_body
+            reason_gates = frozenset(
+                _SOURCE_ANY_REASON_PREFIX + " ".join(sorted(tokens))
+                for tokens in signatures
+            )
+    segments = _source_gate_split_conjunctive_conditions(membership_body)
     if len(segments) < 2:
         return ()
     gates: list[tuple[frozenset[str], frozenset[str]]] = []
@@ -17961,7 +19690,11 @@ def _source_conjunctive_fact_gates(
             )
         ):
             continue
+        if membership_requirement is not None:
+            predicates = predicates | {membership_requirement}
         gates.append((entities, predicates))
+    if reason_gates:
+        gates.append((frozenset(), reason_gates))
     return tuple(gates) if len(gates) >= 2 else ()
 
 
@@ -18141,11 +19874,46 @@ def _printed_page_header_boundaries(text: str) -> tuple[int, ...]:
     )
 
 
+def _post_list_verification_heading_starts(text: str) -> tuple[int, ...]:
+    """Locate independent verification lists after physical bullet material.
+
+    A blank line is not a boundary by itself: it can introduce a proviso or
+    continue a bullet. Require the finite, unindented verification-list heading
+    and its following physical bullet. Preserve the entire heading and list;
+    this changes ownership offsets only, never source text or factual gates.
+    """
+
+    first_bullet = re.search(r"(?m)^[●•][ \t]+", text)
+    if first_bullet is None:
+        return ()
+    # Do not infer independent sections under an unresolved conditional
+    # chapeau. In that shape the original enclosing ownership must stand.
+    # This deliberately declines the whole container, including later lists.
+    if re.search(
+        r"(?im)^[ \t]*(?:[●•][ \t]+)?(?:only\s+)?"
+        r"(?:if|when|unless|provided\s+that)\b"
+        r"(?:(?!\r?\n[ \t]*\r?\n)[^:.!?])*:[ \t]*\r?$",
+        text,
+    ):
+        return ()
+    heading = re.compile(
+        r"(?:\r?\n[ \t]*\r?\n)(?P<heading>Verification of )"
+        r"[^\r\n:]+\bincludes\b[^\r\n:]*"
+        r"\bthe following:[ \t]*\r?\n(?:[ \t]*\r?\n)*[●•][ \t]+"
+    )
+    return tuple(
+        match.start("heading")
+        for match in heading.finditer(text)
+        if match.start("heading") > first_bullet.start()
+    )
+
+
 def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     boundaries = [0, len(text)]
     boundaries.extend(_work_chart_heading_starts(text))
     boundaries.extend(_printed_chart_arithmetic_starts(text))
     boundaries.extend(_printed_page_header_boundaries(text))
+    boundaries.extend(_post_list_verification_heading_starts(text))
     # DES manual notes following a physical bullet list are separate
     # propositions, not another conjunctive eligibility condition.
     boundaries.extend(
@@ -18381,6 +20149,11 @@ def _flattened_inline_dotted_list_ownership(
                 source_text[start:end].strip(),
                 start,
                 end,
+                display_path=(
+                    (*parent.display_path, match.group("label"))
+                    if parent.display_path is not None
+                    else None
+                ),
             )
         )
     return tuple(branches), False
@@ -18407,8 +20180,12 @@ def _source_condition_clauses_owned_by_excerpt(
     matches = tuple(pattern.finditer(source_text))
     if not matches:
         return (), False
-    printed_rows = _unconflicted_printed_rows(source_text, branches)
-    bare_labels = bare_outline(source_text) or ()
+    printed_rows = _unconflicted_printed_rows(
+        source_text, branches, corpus_citation_path=corpus_citation_path
+    )
+    bare_labels = (
+        bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
     structural_boundaries = {
         *(point for branch in branches for point in (branch.start, branch.end)),
         *(point for label in bare_labels for point in (label.start, label.marker_end)),
@@ -18849,6 +20626,38 @@ def _terminal_gate_evidence(
         )
         effective_polarities = description_polarities | name_polarities
         tokens = set(name_tokens | description_tokens)
+        # Shared-list membership is a required predicate, not optional lexical
+        # overlap. Inspect raw wording before stopword normalization loses `not`.
+        # Unread/qualified descriptions remain conservative for this new path.
+        membership = re.fullmatch(
+            _SHARED_MEMBERSHIP_ASSERTION,
+            name_text.strip(),
+            re.IGNORECASE,
+        )
+        description_membership = re.fullmatch(
+            _SHARED_MEMBERSHIP_ASSERTION,
+            description.strip(),
+            re.IGNORECASE,
+        )
+        description_matches = not description.strip() or (
+            membership is not None
+            and description_membership is not None
+            and description_membership.group("unit").lower().split()
+            == membership.group("unit").lower().split()
+            and tuple(
+                word
+                for word in description_membership.group("subject").lower().split()
+                if word not in {"the", "payment"}
+            )
+            == tuple(
+                word
+                for word in membership.group("subject").lower().split()
+                if word not in {"the", "payment"}
+            )
+        )
+        if membership and description_matches:
+            unit = "_".join(membership.group("unit").lower().split())
+            tokens.add(f"affirmative_membership:{unit}")
         for base_predicate, negative in effective_polarities.items():
             if negative is None:
                 polarity_predicate = f"unknown_{base_predicate}"
@@ -18878,6 +20687,15 @@ def _terminal_gate_evidence(
             )
             and not _SOURCE_GATE_INCOME_NEGATION_MARKERS.intersection(
                 name_text.casefold().split() + description.casefold().split()
+            ),
+            not polarity_conflict
+            and not any(
+                negative is not False for negative in effective_polarities.values()
+            )
+            and not re.search(
+                r"\b(?:not|no|never|without|neither|nor|unless|except|if|unqualified|ineligible)\b",
+                name_text + " " + description,
+                re.IGNORECASE,
             ),
         )
 
@@ -18959,6 +20777,26 @@ def _terminal_names_corroborate_source_gates(
     ]
     candidates: list[tuple[str, ...]] = []
     for index, (entities, predicates) in enumerate(gates):
+        alternative_reasons = [
+            frozenset(predicate.removeprefix(_SOURCE_ANY_REASON_PREFIX).split())
+            for predicate in predicates
+            if predicate.startswith(_SOURCE_ANY_REASON_PREFIX)
+        ]
+        if alternative_reasons:
+            candidates.append(
+                tuple(
+                    name
+                    for name in sorted(names)
+                    if (evidence := terminal_evidence.get(name)) is not None
+                    and not evidence.polarity_conflict
+                    and evidence.affirmative_reason_evidence
+                    and any(
+                        tokens and tokens <= evidence.entities | evidence.predicates
+                        for tokens in alternative_reasons
+                    )
+                )
+            )
+            continue
         if predicates & _SOURCE_GATE_UNKNOWN_POLARITY_PREDICATES:
             candidates.append(())
             continue
@@ -19028,6 +20866,28 @@ def _terminal_names_corroborate_source_gates(
                 continue
             terminal_entities = evidence.entities
             terminal_predicates = evidence.predicates
+            shared_membership = predicates & {
+                "shared_membership:budgetary_unit",
+                "shared_membership:household",
+            }
+            if shared_membership:
+                required_marker = next(iter(shared_membership)).replace(
+                    "shared_membership:", "affirmative_membership:"
+                )
+                if required_marker not in terminal_predicates:
+                    continue
+                required_membership = (
+                    {"same", "budgetary", "unit"}
+                    if "shared_membership:budgetary_unit" in shared_membership
+                    else {"same", "household"}
+                )
+                terminal_tokens = terminal_entities | terminal_predicates
+                if not required_membership <= terminal_tokens or terminal_tokens & {
+                    "different",
+                    "outside",
+                    "separate",
+                }:
+                    continue
             if numeric_income_comparison:
                 terminal_predicates = (terminal_predicates - {"unknown_income"}) | {
                     "income"
@@ -19183,6 +21043,33 @@ def _terminal_names_corroborate_source_gates(
         return False
 
     return all(augment(gate_index, set()) for gate_index in order)
+
+
+CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED = declare_check(
+    "complete-source-unit:source-explicit-conditions/gates-collapsed",
+    title="Source-stated conjunctive gates collapsed into too few inputs",
+    requires=(
+        "Each factual gate that the formula's own source clause states is a "
+        "distinct local input or canonical import, combined in a "
+        "source-proved derived Judgment."
+    ),
+    why=(
+        "An aggregate input that stands for several source-stated facts hides "
+        "the conditions from tests and from callers, so a wrong answer on one "
+        "gate cannot be seen."
+    ),
+    fix=(
+        "Declare each source-stated fact as its own document-root `inputs` "
+        "entry (a sibling of `module` and `rules`) or canonical import, combine "
+        "them in a derived Judgment with formula proof, and test each gate."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=(
+        "axiom_encode/harness/source_completeness.py:"
+        "_opaque_same_source_condition_input_issues"
+    ),
+)
 
 
 def _opaque_same_source_condition_input_issues(
@@ -19585,6 +21472,40 @@ def _opaque_same_source_condition_input_issues(
         }
 
     condition_row_ends = _corroborated_unless_row_ends(source_text)
+    physical_allowance = read_physical_allowance_condition(
+        source_text, limit=_SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT
+    )
+    physical_inputs = {
+        str(item.get("name")): item for item in inputs or () if isinstance(item, dict)
+    }
+
+    def physical_resolve(name, lo, hi, *, entity, period):
+        if name in physical_inputs:
+            if (
+                name in named_rules
+                or name in imported_names
+                or sum(
+                    isinstance(item, dict) and item.get("name") == name
+                    for item in inputs or ()
+                )
+                != 1
+            ):
+                raise ValueError("ambiguous physical-condition input")
+            return None
+        dependency = named_rules.get(name)
+        if (
+            dependency is None
+            or str(dependency.get("dtype", "")).lower()
+            not in {"boolean", "bool", "judgment"}
+            or dependency.get("entity") != entity
+            or dependency.get("period") != period
+        ):
+            raise ValueError("unresolved physical-condition dependency")
+        return tuple(
+            (_parse_formula_expression(child), child_start, child_end)
+            for _, child, child_start, child_end in interval_cache.get(name, ())
+        )
+
     findings: list[tuple[str, int, int, frozenset[str]]] = []
     for rule_name, rule in sorted(principal_rules.items()):
         if (
@@ -19595,6 +21516,47 @@ def _opaque_same_source_condition_input_issues(
             continue
         for version_index, formula, start, end in interval_cache.get(rule_name, ()):
             excerpts = proof_excerpts.get(rule_name, {}).get(version_index, ())
+            if physical_allowance is not None:
+                paths = signed_granting_paths(
+                    _parse_formula_expression(formula),
+                    start=start,
+                    end=end,
+                    resolve=lambda name, lo, hi: physical_resolve(
+                        name,
+                        lo,
+                        hi,
+                        entity=rule.get("entity"),
+                        period=rule.get("period"),
+                    ),
+                    intersect=_formula_interval_intersection,
+                    limit=_SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT,
+                    depth_limit=_SOURCE_EXPLICIT_CONDITION_DEPENDENCY_DEPTH_LIMIT,
+                    numeric_names=frozenset(
+                        name
+                        for name, item in physical_inputs.items()
+                        if str(item.get("dtype", "")).lower() == "count"
+                    ),
+                )
+                if (
+                    not physical_allowance.owns_excerpts(excerpts)
+                    or str(rule.get("dtype", "")).lower()
+                    not in {"boolean", "bool", "judgment"}
+                    or str(rule.get("period", "")).lower() != physical_allowance.period
+                    or not physical_allowance.corroborates(
+                        paths, physical_inputs, entity=rule.get("entity")
+                    )
+                ):
+                    findings.append(
+                        (
+                            rule_name,
+                            version_index,
+                            physical_allowance.gate_count,
+                            frozenset(
+                                f.name for path in paths or () for f in path.facts
+                            ),
+                        )
+                    )
+                continue
             gate_sets: dict[
                 tuple[tuple[str, ...], int, int],
                 tuple[tuple[frozenset[str], frozenset[str]], ...],
@@ -19863,16 +21825,27 @@ def _opaque_same_source_condition_input_issues(
             f"... ({len(findings) - _SOURCE_EXPLICIT_CONDITION_DIAGNOSTIC_LIMIT} "
             "additional formula versions omitted)"
         )
+    first_rule, first_version, first_gate_count, first_evidence = findings[0]
     return [
-        "[complete-source-unit:source-explicit-conditions] Derived formula "
-        "version(s) delegate multiple conjunctive factual gates stated in their "
-        "exact authoritative source clause to too few terminal local inputs or "
-        f"canonical imports: {'; '.join(rendered)}. Encode the source-stated facts "
-        "as distinct local inputs or canonical imports, declare every local fact "
-        "in the RuleSpec document-root `inputs` list (a sibling of `module` and "
-        "`rules`, never nested under `module`), combine them in a "
-        "source-proved derived Judgment, and test each gate. Reserve aggregate "
-        "boundary statuses for source-atomic or externally determined conditions."
+        ValidationIssue(
+            "[complete-source-unit:source-explicit-conditions] Derived formula "
+            "version(s) delegate multiple conjunctive factual gates stated in their "
+            "exact authoritative source clause to too few terminal local inputs or "
+            f"canonical imports: {'; '.join(rendered)}. Encode the source-stated facts "
+            "as distinct local inputs or canonical imports, declare every local fact "
+            "in the RuleSpec document-root `inputs` list (a sibling of `module` and "
+            "`rules`, never nested under `module`), combine them in a "
+            "source-proved derived Judgment, and test each gate. Reserve aggregate "
+            "boundary statuses for source-atomic or externally determined conditions.",
+            check=CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED,
+            subject=IssueSubject(
+                citation=corpus_citation_path,
+                rule=first_rule,
+                field=f"rules.{first_rule}.versions[{first_version}].formula",
+            ),
+            expected=f"{first_gate_count} distinct gate inputs",
+            found=f"{len(first_evidence)} terminal selectors",
+        )
     ]
 
 
@@ -20011,6 +21984,149 @@ def _selected_formula_structural_source_branches(
             for execution in executions
         )
     )
+
+
+_SITE_COMPANION_TESTS = (
+    "axiom_encode/harness/source_completeness.py:_companion_test_issues"
+)
+_COMPANION_TESTS_WHY = (
+    "Companion tests are the executed evidence that the encoding behaves as "
+    "the source says. A source-stated output, branch, boundary, exception or "
+    "rounding rule without a test can be wrong without any gate noticing."
+)
+
+
+def _declare_companion_test_check(
+    name: str,
+    *,
+    title: str,
+    requires: str,
+    fix: str,
+    site: str = _SITE_COMPANION_TESTS,
+):
+    return declare_check(
+        f"complete-source-unit:tests/{name}",
+        title=title,
+        requires=requires,
+        why=_COMPANION_TESTS_WHY,
+        fix=fix,
+        cause="encoder_output",
+        gate="ci",
+        site=site,
+    )
+
+
+CHECK_TESTS_NO_SUITE = _declare_companion_test_check(
+    "no-suite",
+    title="Complete source unit has no companion test suite",
+    requires=(
+        "A complete source-unit encoding ships a companion test suite covering "
+        "outputs, branches, boundaries, exceptions and rounding rules."
+    ),
+    fix="Write the companion `.test.yaml` cases for the module.",
+)
+CHECK_TESTS_INPUT_SHADOWS_OUTPUT = _declare_companion_test_check(
+    "input-shadows-output",
+    title="Companion case supplies a principal output as an input",
+    requires=(
+        "Companion cases compute and assert local principal outputs; they never "
+        "supply them as inputs."
+    ),
+    fix=(
+        "Remove the principal output from the case's `input` and assert it "
+        "under `output` instead; supply the facts it is computed from."
+    ),
+)
+CHECK_TESTS_OUTPUT_UNASSERTED = _declare_companion_test_check(
+    "output-unasserted",
+    title="Principal output is never asserted",
+    requires="Every principal output is asserted by at least one companion case.",
+    fix="Add a companion case whose `output` asserts the named principal output.",
+)
+CHECK_TESTS_NEGATIVE_CLAMP_UNWITNESSED = _declare_companion_test_check(
+    "negative-clamp-unwitnessed",
+    title="Nonnegative clamp has no below-zero companion case",
+    requires=(
+        "Each direct `max(0, input)` clamp has an executed companion case with "
+        "the input below zero in every distinct temporal owner context."
+    ),
+    fix=(
+        "Add a case with the clamped input below zero that asserts the clamped "
+        "rule (and the downstream principal output when one exists). A zero "
+        "input does not exercise the clamp."
+    ),
+    site="axiom_encode/harness/source_completeness.py:_negative_local_input_clamp_test_issues",
+)
+CHECK_TESTS_FORMULA_BRANCH_UNWITNESSED = _declare_companion_test_check(
+    "formula-branch-unwitnessed",
+    title="Formula branch has no executed companion evidence",
+    requires=(
+        "Each source formula branch has distinct executed test evidence that "
+        "reaches the branch's computation."
+    ),
+    fix=(
+        "Add a companion case whose inputs select the named branch and whose "
+        "asserted output depends on the branch's computation, in a period the "
+        "branch's formula version covers."
+    ),
+)
+CHECK_TESTS_BOUNDARY_UNEXERCISED = _declare_companion_test_check(
+    "boundary-unexercised",
+    title="Source-stated boundary input is not exercised",
+    requires="Every source-stated boundary value is exercised by a companion case.",
+    fix=(
+        "Add cases at each listed boundary value (and just across it) that "
+        "assert the affected principal output."
+    ),
+)
+CHECK_TESTS_EXCEPTION_PAIR_MISSING = _declare_companion_test_check(
+    "exception-pair-missing",
+    title="Source exception or condition has no positive/blocking case pair",
+    requires=(
+        "Each source-stated exception or applicability condition has a "
+        "same-period pair of cases that differ in exactly the controlling input "
+        "and assert the affected principal output."
+    ),
+    fix=(
+        "For each listed condition, add two same-period cases that differ only "
+        "in its controlling input: one where it applies and one where it blocks."
+    ),
+)
+CHECK_TESTS_NONAPPLICABILITY_UNWITNESSED = _declare_companion_test_check(
+    "nonapplicability-unwitnessed",
+    title="Unconditional non-applicability is not witnessed",
+    requires=(
+        "Unconditional source-stated non-applicability is a source-bound "
+        "principal Judgment output that executes to false and is asserted false."
+    ),
+    fix=(
+        "Encode the non-applicability as a principal Judgment output and add a "
+        "case that asserts it is false."
+    ),
+)
+CHECK_TESTS_ROUNDING_FORMULA_ABSENT = _declare_companion_test_check(
+    "rounding-formula-absent",
+    title="Source-stated rounding rule is absent from the principal formula",
+    requires="Every source-stated rounding rule is applied in the principal formula.",
+    fix=(
+        "Apply the stated rounding (direction and unit) in the principal "
+        "formula that computes the rounded amount."
+    ),
+)
+CHECK_TESTS_ROUNDING_UNWITNESSED = _declare_companion_test_check(
+    "rounding-unwitnessed",
+    title="Source-stated rounding rule has no fractional companion evidence",
+    requires=(
+        "Every source-stated rounding rule is demonstrated by companion cases "
+        "with distinct fractional inputs on the affected principal output."
+    ),
+    fix=(
+        "Add same-period paired cases that drive the pre-rounding amount to a "
+        "fraction on each side of the rounding point, asserting the unrounded "
+        "intermediate and the rounded output; or precisely defer the branch "
+        "when its inputs are not available."
+    ),
+)
 
 
 def _negative_local_input_clamp_test_issues(
@@ -20582,16 +22698,23 @@ def _negative_local_input_clamp_test_issues(
     )
     omitted = len(ordered_clamps) - len(shown_clamps)
     omission = f" ({omitted} additional clamps omitted)" if omitted else ""
+    first_owner, first_input = ordered_clamps[0]
     return [
-        "[complete-source-unit:tests] Direct nonnegative clamp companion "
-        f"evidence is missing for {rendered_clamps}{omission}. Each requires "
-        "an executed companion case in every distinct selected temporal "
-        "owner/downstream claimant context, with the input below zero, that "
-        "asserts the clamped rule and, when downstream consumers exist, an "
-        "unambiguous authoritative principal output with selected-version "
-        "formula proof whose matching assertion and selected formula path "
-        "reach it through a resolved dependency chain. A zero-valued case "
-        "does not exercise the negative clamp."
+        ValidationIssue(
+            "[complete-source-unit:tests] Direct nonnegative clamp companion "
+            f"evidence is missing for {rendered_clamps}{omission}. Each requires "
+            "an executed companion case in every distinct selected temporal "
+            "owner/downstream claimant context, with the input below zero, that "
+            "asserts the clamped rule and, when downstream consumers exist, an "
+            "unambiguous authoritative principal output with selected-version "
+            "formula proof whose matching assertion and selected formula path "
+            "reach it through a resolved dependency chain. A zero-valued case "
+            "does not exercise the negative clamp.",
+            check=CHECK_TESTS_NEGATIVE_CLAMP_UNWITNESSED,
+            subject=IssueSubject(citation=corpus_citation_path, rule=first_owner),
+            expected=f"case with {first_input} below zero",
+            found=f"{len(ordered_clamps)} clamp(s) without a below-zero case",
+        )
     ]
 
 
@@ -20655,9 +22778,15 @@ def _companion_test_issues(
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
     if not cases:
         return [
-            "[complete-source-unit:tests] Complete source-unit controls require "
-            "a companion test suite covering outputs, branches, boundaries, "
-            "exceptions, and rounding rules."
+            ValidationIssue(
+                "[complete-source-unit:tests] Complete source-unit controls require "
+                "a companion test suite covering outputs, branches, boundaries, "
+                "exceptions, and rounding rules.",
+                check=CHECK_TESTS_NO_SUITE,
+                subject=IssueSubject(citation=corpus_citation_path),
+                expected="companion test suite",
+                found="no test cases",
+            )
         ]
 
     colliding_cases = [
@@ -20675,10 +22804,19 @@ def _companion_test_issues(
             )
         )
         issues.append(
-            "[complete-source-unit:tests] Companion case "
-            f"`{case.get('name') or '<unnamed>'}` supplies local principal "
-            f"output(s) {collisions} as inputs; derived outputs must be "
-            "computed and asserted, not shadowed."
+            ValidationIssue(
+                "[complete-source-unit:tests] Companion case "
+                f"`{case.get('name') or '<unnamed>'}` supplies local principal "
+                f"output(s) {collisions} as inputs; derived outputs must be "
+                "computed and asserted, not shadowed.",
+                check=CHECK_TESTS_INPUT_SHADOWS_OUTPUT,
+                subject=IssueSubject(
+                    citation=corpus_citation_path,
+                    test_case=str(case.get("name") or "<unnamed>"),
+                ),
+                expected="principal outputs computed and asserted",
+                found=f"supplied as inputs: {collisions}",
+            )
         )
     cases = [case for case in cases if case not in colliding_cases]
 
@@ -20707,8 +22845,14 @@ def _companion_test_issues(
             and certified_transfers.owns_output(name, principal_rules[name])
         ):
             issues.append(
-                "[complete-source-unit:tests] Principal output "
-                f"`{name}` is never asserted by a companion test."
+                ValidationIssue(
+                    "[complete-source-unit:tests] Principal output "
+                    f"`{name}` is never asserted by a companion test.",
+                    check=CHECK_TESTS_OUTPUT_UNASSERTED,
+                    subject=IssueSubject(citation=corpus_citation_path, rule=name),
+                    expected="at least one asserting companion case",
+                    found="no case asserts it",
+                )
             )
 
     formula_dependency_cache: dict[int, dict[str, Any]] = {}
@@ -20867,15 +23011,22 @@ def _companion_test_issues(
             else " No asserted candidate principal-output case has a usable period."
         )
         issues.append(
-            "[complete-source-unit:tests] Companion tests do not demonstrate "
-            f"formula branch {branch.label} at "
-            f"{_branch_citation(corpus_citation_path, branch)}. Exact source "
-            f"computation ({source_location}): `{source_excerpt}`. "
-            f"{witness_requirement}{observed_period_detail}"
-            f"{source_binding_detail}{dependency_detail} Each formula branch "
-            "needs distinct executed "
-            "test evidence; an internal formula-clause ordinal is not a legal "
-            "paragraph number."
+            ValidationIssue(
+                "[complete-source-unit:tests] Companion tests do not demonstrate "
+                f"formula branch {branch.label} at "
+                f"{_branch_citation(corpus_citation_path, branch)}. Exact source "
+                f"computation ({source_location}): `{source_excerpt}`. "
+                f"{witness_requirement}{observed_period_detail}"
+                f"{source_binding_detail}{dependency_detail} Each formula branch "
+                "needs distinct executed "
+                "test evidence; an internal formula-clause ordinal is not a legal "
+                "paragraph number.",
+                check=CHECK_TESTS_FORMULA_BRANCH_UNWITNESSED,
+                subject=_branch_subject(corpus_citation_path, branch),
+                expected="executed case reaching the branch computation",
+                found="no executed case reaches it",
+                evidence=source_excerpt,
+            )
         )
 
     boundary_branches = _active_or_root_source_branches(
@@ -20898,9 +23049,33 @@ def _companion_test_issues(
         narrative_formula_branches=formula_branches,
         extract_numeric_occurrences=extract_numeric_occurrences,
         source_text=source_text,
+        corpus_citation_path=corpus_citation_path,
     )
+    # A fragment that states several thresholds composes them into one
+    # interval, which keeps only the tighter of two same-direction bounds
+    # (`less than $500 and ... less than $300` keeps $300). Each dropped
+    # threshold is still source-stated, so it is demanded too, with its own
+    # comparator's direction and inclusivity.
+    conjoined_thresholds = _source_conjoined_threshold_obligations(
+        boundary_branches,
+        branches=branches,
+        existing=boundary_obligations,
+        extract_numeric_occurrences=extract_numeric_occurrences,
+    )
+    # Keyed by the branch object: a narrative formula clause can share its
+    # paragraph's path while its offsets are in its own first-line frame.
+    conjoined_sources = {
+        (id(branch), boundary.start, boundary.end): (interval, polarity)
+        for branch, boundary, interval, polarity in conjoined_thresholds
+    }
     missing_boundaries: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
-    for branch, boundary in boundary_obligations:
+    for branch, boundary in (
+        *boundary_obligations,
+        *(
+            (branch, boundary)
+            for branch, boundary, _interval, _polarity in conjoined_thresholds
+        ),
+    ):
         if _branch_boundary_test_witnesses(
             branch,
             boundary,
@@ -20911,6 +23086,9 @@ def _companion_test_issues(
             formula_environment=formula_environment,
             source_bound_constant_occurrences=source_bound_constant_occurrences,
             extract_numeric_occurrences=extract_numeric_occurrences,
+            source_interval_and_polarity=conjoined_sources.get(
+                (id(branch), boundary.start, boundary.end)
+            ),
         ):
             continue
         if execution_evidence is not None and partnership_content is not None:
@@ -20941,8 +23119,20 @@ def _companion_test_issues(
             for branch, occurrence in missing_boundaries
         )
         issues.append(
-            "[complete-source-unit:tests] Companion tests do not exercise every "
-            f"source-stated boundary input; missing: {rendered}."
+            ValidationIssue(
+                "[complete-source-unit:tests] Companion tests do not exercise every "
+                f"source-stated boundary input; missing: {rendered}.",
+                check=CHECK_TESTS_BOUNDARY_UNEXERCISED,
+                subject=_branch_subject(corpus_citation_path, missing_boundaries[0][0]),
+                # Name only the subject's own boundary: the fingerprint must not
+                # change when a different boundary is repaired.
+                expected=(
+                    "case at "
+                    f"{missing_boundaries[0][0].label}="
+                    f"{missing_boundaries[0][1].value:g}"
+                ),
+                found=f"no case at {rendered}",
+            )
         )
 
     exception_branches = _source_exception_branches(
@@ -20955,6 +23145,7 @@ def _companion_test_issues(
         deferred_clauses=deferred_clauses,
         # Manual procedure needs no paired witnesses either.
         numeric_limits_only=_is_us_manual_citation_path(corpus_citation_path),
+        corpus_citation_path=corpus_citation_path,
     )
     if exception_branches:
         independently_covered_paths = {
@@ -21223,13 +23414,22 @@ def _companion_test_issues(
                 for branch in missing_exception_branches
             )
             issues.append(
-                "[complete-source-unit:tests] Source-stated exceptions or "
-                "applicability conditions require paired positive/blocking cases "
-                "that assert the affected principal output and toggle its "
-                "controlling formula selector. Each listed condition needs its "
-                "own same-period case pair differing in exactly that one input; "
-                f"missing: {missing_conditions}.{recognized_pair_feedback}"
-                f"{row_output_feedback}"
+                ValidationIssue(
+                    "[complete-source-unit:tests] Source-stated exceptions or "
+                    "applicability conditions require paired positive/blocking cases "
+                    "that assert the affected principal output and toggle its "
+                    "controlling formula selector. Each listed condition needs its "
+                    "own same-period case pair differing in exactly that one input; "
+                    f"missing: {missing_conditions}.{recognized_pair_feedback}"
+                    f"{row_output_feedback}",
+                    check=CHECK_TESTS_EXCEPTION_PAIR_MISSING,
+                    subject=_branch_subject(
+                        corpus_citation_path, missing_exception_branches[0]
+                    ),
+                    expected="same-period positive/blocking case pair",
+                    found=f"{len(missing_exception_branches)} condition(s) unpaired",
+                    evidence=missing_exception_branches[0].text,
+                )
             )
         missing_unconditional_branches = _unmatched_evidence_obligations(
             {
@@ -21251,10 +23451,19 @@ def _companion_test_issues(
                 for branch in missing_unconditional_branches
             )
             issues.append(
-                "[complete-source-unit:tests] Unconditional source-stated "
-                "non-applicability requires a source-bound principal Judgment "
-                "output whose formula executes to false and is asserted false "
-                f"by a companion case; missing: {missing_conditions}."
+                ValidationIssue(
+                    "[complete-source-unit:tests] Unconditional source-stated "
+                    "non-applicability requires a source-bound principal Judgment "
+                    "output whose formula executes to false and is asserted false "
+                    f"by a companion case; missing: {missing_conditions}.",
+                    check=CHECK_TESTS_NONAPPLICABILITY_UNWITNESSED,
+                    subject=_branch_subject(
+                        corpus_citation_path, missing_unconditional_branches[0]
+                    ),
+                    expected="principal Judgment asserted false",
+                    found="no such output or assertion",
+                    evidence=missing_unconditional_branches[0].text,
+                )
             )
 
     rounding_obligations = _source_rounding_obligations(
@@ -21262,6 +23471,7 @@ def _companion_test_issues(
         branches=branches,
         active_branches=active_branches,
         deferred_paths=deferred_paths,
+        corpus_citation_path=corpus_citation_path,
     )
     missing_rounding_formula: list[tuple[SourceStructureBranch, str]] = []
     rounding_witnesses: dict[
@@ -21316,10 +23526,17 @@ def _companion_test_issues(
         )
     for branch, direction in missing_rounding_formula:
         issues.append(
-            "[complete-source-unit:tests] A source-stated "
-            f"{direction} rounding rule at "
-            f"{_branch_citation(corpus_citation_path, branch)} is absent from "
-            "the principal formula."
+            ValidationIssue(
+                "[complete-source-unit:tests] A source-stated "
+                f"{direction} rounding rule at "
+                f"{_branch_citation(corpus_citation_path, branch)} is absent from "
+                "the principal formula.",
+                check=CHECK_TESTS_ROUNDING_FORMULA_ABSENT,
+                subject=_branch_subject(corpus_citation_path, branch),
+                expected=f"{direction} rounding in the principal formula",
+                found="no rounding applied",
+                evidence=branch.text,
+            )
         )
     missing_rounding_tests = _unmatched_evidence_obligations(rounding_witnesses)
     if missing_rounding_tests:
@@ -21339,17 +23556,25 @@ def _companion_test_issues(
             else ""
         )
         issues.append(
-            "[complete-source-unit:tests] Companion tests do not demonstrate "
-            "every source-stated rounding rule with distinct fractional input "
-            f"evidence on its affected principal output; missing at {rendered}."
-            f"{nearest_guidance}"
-            " Alternative: when the rounded computation depends on outputs "
-            "that are not yet available (for example a cross-module base this "
-            "module cannot compute), a PRECISE typed deferral of that branch "
-            "removes this demand — declare `module.deferred_outputs: "
-            "[{output: <namespaced branch output>, reason: <names the exact "
-            "missing dependency citations>}]` instead of encoding a "
-            "speculative mechanism."
+            ValidationIssue(
+                "[complete-source-unit:tests] Companion tests do not demonstrate "
+                "every source-stated rounding rule with distinct fractional input "
+                f"evidence on its affected principal output; missing at {rendered}."
+                f"{nearest_guidance}"
+                " Alternative: when the rounded computation depends on outputs "
+                "that are not yet available (for example a cross-module base this "
+                "module cannot compute), a PRECISE typed deferral of that branch "
+                "removes this demand — declare `module.deferred_outputs: "
+                "[{output: <namespaced branch output>, reason: <names the exact "
+                "missing dependency citations>}]` instead of encoding a "
+                "speculative mechanism.",
+                check=CHECK_TESTS_ROUNDING_UNWITNESSED,
+                subject=_branch_subject(
+                    corpus_citation_path, missing_rounding_tests[0][0]
+                ),
+                expected="paired fractional cases on each side of the rounding point",
+                found=f"missing at {rendered}",
+            )
         )
     return issues
 
@@ -21611,7 +23836,7 @@ class _PrintedOperationContext:
             or clause.computation_text != clause.text
         ):
             return None
-        labels = bare_outline(source_text) or ()
+        labels = bare_outline(source_text, corpus_citation_path=citation_path) or ()
         structural = {
             *(
                 point
@@ -21623,7 +23848,9 @@ class _PrintedOperationContext:
         }
         if any(clause.start < point < clause.end for point in structural):
             return None
-        structure = _unconflicted_printed_rows(source_text, self.source_branches)
+        structure = _unconflicted_printed_rows(
+            source_text, self.source_branches, corpus_citation_path=citation_path
+        )
         if (
             structure is None
             or structure != self.structure
@@ -21672,7 +23899,9 @@ def _printed_operation_context(
     consumer_content: str = "",
     proof_sources: Mapping[str, str | None] | None = None,
 ) -> _PrintedOperationContext | None:
-    structure = _unconflicted_printed_rows(source_text, branches)
+    structure = _unconflicted_printed_rows(
+        source_text, branches, corpus_citation_path=citation_path
+    )
     return (
         _PrintedOperationContext(
             source_text,
@@ -21701,13 +23930,16 @@ def _printed_operation_proof(
 
 
 def _unconflicted_printed_rows(
-    source_text: str, branches: Sequence[SourceStructureBranch]
+    source_text: str,
+    branches: Sequence[SourceStructureBranch],
+    *,
+    corpus_citation_path: str = "",
 ) -> PrintedRowStructure | None:
     """Printed groups never supersede existing source ownership boundaries."""
     evidence = recognize_printed_rows(source_text)
     if evidence is None:
         return None
-    labels = bare_outline(source_text) or ()
+    labels = bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
     structural = {
         *(point for branch in branches for point in (branch.start, branch.end)),
         *(point for label in labels for point in (label.start, label.marker_end)),
@@ -21760,7 +23992,9 @@ def _source_formula_branches(
         mask_form_display(heading_text),
         corpus_citation_path=corpus_citation_path,
     )
-    bare_labels = bare_outline(source_text) or ()
+    bare_labels = (
+        bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
     bare_display_text = mask_bare_labels(source_text, bare_labels)
     bare_deferred_labels = frozenset(
         label
@@ -21796,7 +24030,9 @@ def _source_formula_branches(
     obligations: list[SourceStructureBranch] = []
     inherited_chapeaux: list[tuple[tuple[str, ...], int, tuple[int, int, str]]] = []
     for clause_index, (start, end, clause) in enumerate(
-        _source_clause_spans(source_text, branches=branches),
+        _source_clause_spans(
+            source_text, branches=branches, corpus_citation_path=corpus_citation_path
+        ),
         start=1,
     ):
         if _span_is_deferred(
@@ -21948,6 +24184,7 @@ def _source_formula_branches(
                 for label_start, label_end in worksheet_labels
                 if start <= label_start < label_end <= end
             ),
+            display_path=owner.display_path,
             computation_chapeaux=computation_chapeaux,
         )
         if _rounding_clause_refers_to_previous_result(
@@ -22090,6 +24327,7 @@ def _retain_bare_punctuation_computations(
                     for label_start, label_end in worksheet_labels
                     if piece_start <= label_start < label_end <= piece_end
                 ),
+                display_path=owner.display_path if owner else None,
                 computation_chapeaux=previous.computation_chapeaux if previous else (),
             )
             if _rounding_clause_refers_to_previous_result(
@@ -22259,6 +24497,7 @@ def _source_control_branches(
     deferred_clauses: Sequence[SourceStructureBranch] = (),
     numeric_exception_controls_only: bool = False,
     raw_source_text: str | None = None,
+    corpus_citation_path: str = "",
 ) -> tuple[SourceStructureBranch, ...]:
     """Return active boundary, exception, and applicability control clauses.
 
@@ -22283,6 +24522,7 @@ def _source_control_branches(
             narrative_formula_branches=formula_branches,
             extract_numeric_occurrences=extract_numeric_occurrences,
             source_text=source_text,
+            corpus_citation_path=corpus_citation_path,
         )
         if not _source_boundary_is_temporal(branch, boundary)
     ]
@@ -22296,6 +24536,7 @@ def _source_control_branches(
             formula_branches=formula_branches,
             deferred_clauses=deferred_clauses,
             numeric_limits_only=numeric_exception_controls_only,
+            corpus_citation_path=corpus_citation_path,
         )
     )
     return tuple(
@@ -22392,13 +24633,18 @@ def _source_clause_spans(
     source_text: str,
     *,
     branches: Sequence[SourceStructureBranch],
+    corpus_citation_path: str = "",
 ) -> Iterable[tuple[int, int, str]]:
     """Yield offset-preserving clauses split at punctuation and structure."""
 
     # Mask only authenticated structural labels, preserving offsets. The
     # resulting excerpts retain every operative character of the source.
-    printed_rows = _unconflicted_printed_rows(source_text, branches)
-    bare_labels = bare_outline(source_text) or ()
+    printed_rows = _unconflicted_printed_rows(
+        source_text, branches, corpus_citation_path=corpus_citation_path
+    )
+    bare_labels = (
+        bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
     display_text = mask_bare_labels(source_text, bare_labels)
     boundary_text = _mask_spaced_german_sentence_labels(display_text)
     boundary = re.compile(
@@ -22436,6 +24682,7 @@ def _source_clause_spans(
     split_points = {
         0,
         len(source_text),
+        *_post_list_verification_heading_starts(source_text),
         *_work_chart_heading_starts(source_text),
         *_printed_chart_arithmetic_starts(source_text),
         *_printed_page_header_boundaries(source_text),
@@ -29301,17 +31548,21 @@ def _branch_boundary_test_witnesses(
     source_bound_constant_occurrences: dict[str, tuple[NumericOccurrenceLike, ...]]
     | None = None,
     extract_numeric_occurrences: NumericOccurrenceExtractor | None = None,
+    source_interval_and_polarity: tuple[_NumericInterval, int] | None = None,
 ) -> set[tuple[str, str]]:
     witnesses: set[tuple[str, str]] = set()
-    source_interval, source_boolean_polarity = (
-        _source_interval_and_polarity_for_boundary(
-            branch,
-            boundary,
-            extract_numeric_occurrences=extract_numeric_occurrences,
+    if source_interval_and_polarity is not None:
+        source_interval, source_boolean_polarity = source_interval_and_polarity
+    else:
+        source_interval, source_boolean_polarity = (
+            _source_interval_and_polarity_for_boundary(
+                branch,
+                boundary,
+                extract_numeric_occurrences=extract_numeric_occurrences,
+            )
+            if extract_numeric_occurrences is not None
+            else (None, 0)
         )
-        if extract_numeric_occurrences is not None
-        else (None, 0)
-    )
     for rule_name in _rules_covering_branch(branch, principal_rule_paths):
         rule = principal_rules[rule_name]
         for case in asserted_by_rule.get(rule_name, ()):
@@ -30423,6 +32674,7 @@ def _shift_numeric_occurrence(
         requires_rate_context=occurrence.requires_rate_context,
         is_word_number=occurrence.is_word_number,
         alternative_values=occurrence.alternative_values,
+        requires_month_context=getattr(occurrence, "requires_month_context", False),
     )
 
 
@@ -31776,9 +34028,14 @@ def _source_exception_branches(
     deferred_clauses: Sequence[SourceStructureBranch] = (),
     numeric_limits_only: bool = False,
     raw_source_text: str | None = None,
+    corpus_citation_path: str = "",
 ) -> tuple[SourceStructureBranch, ...]:
     obligations: list[SourceStructureBranch] = []
-    source_clauses = tuple(_source_clause_spans(source_text, branches=branches))
+    source_clauses = tuple(
+        _source_clause_spans(
+            source_text, branches=branches, corpus_citation_path=corpus_citation_path
+        )
+    )
     matches_by_clause: dict[
         tuple[int, int, str],
         list[re.Match[str]],
@@ -31869,6 +34126,7 @@ def _source_exception_branches(
                     branch_text,
                     branch_start,
                     branch_end,
+                    display_path=owner.display_path,
                 )
             )
     return tuple(
@@ -32596,9 +34854,14 @@ def _source_rounding_obligations(
     branches: Sequence[SourceStructureBranch],
     active_branches: Sequence[SourceStructureBranch],
     deferred_paths: set[tuple[str, ...]],
+    corpus_citation_path: str = "",
 ) -> tuple[tuple[SourceStructureBranch, str], ...]:
     obligations: list[tuple[SourceStructureBranch, str]] = []
-    source_clauses = tuple(_source_clause_spans(source_text, branches=branches))
+    source_clauses = tuple(
+        _source_clause_spans(
+            source_text, branches=branches, corpus_citation_path=corpus_citation_path
+        )
+    )
     for match in _ROUNDING_LANGUAGE.finditer(source_text):
         if _span_is_deferred(
             match.start(),
@@ -32643,6 +34906,7 @@ def _source_rounding_obligations(
             clause_text,
             clause_start,
             clause_end,
+            display_path=owner.display_path,
         )
         obligations.append((obligation_branch, direction))
     return tuple(obligations)
@@ -32717,7 +34981,11 @@ def _unwitnessed_exception_branches(
     certified_operations: Any = None,
 ) -> tuple[SourceStructureBranch, ...]:
     bare_branches = (
-        recognize_source_structure(source_text) if bare_outline(source_text) else ()
+        recognize_source_structure(
+            source_text, corpus_citation_path=corpus_citation_path
+        )
+        if bare_outline(source_text, corpus_citation_path=corpus_citation_path)
+        else ()
     )
     candidate_witnesses: dict[SourceStructureBranch, set[_ExceptionWitness]] = {}
     for branch in exception_branches:
@@ -38974,11 +41242,19 @@ def _source_boundary_obligations(
     narrative_formula_branches: Sequence[SourceStructureBranch] = (),
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     source_text: str | None = None,
+    corpus_citation_path: str = "",
 ) -> tuple[tuple[SourceStructureBranch, NumericOccurrenceLike], ...]:
     # Physical deduplication belongs only to positively recognized bare
     # outlines. Ambiguous sources retain the existing fallback obligations.
-    physical_coordinates = bool(source_text and bare_outline(source_text))
-    coordinate_text = mask_bare_labels(source_text) if physical_coordinates else ""
+    physical_coordinates = bool(
+        source_text
+        and bare_outline(source_text, corpus_citation_path=corpus_citation_path)
+    )
+    coordinate_text = (
+        mask_bare_labels(source_text, corpus_citation_path=corpus_citation_path)
+        if physical_coordinates
+        else ""
+    )
     obligations: list[
         tuple[SourceStructureBranch, NumericOccurrenceLike, tuple[int, int] | None]
     ] = []
@@ -39137,6 +41413,283 @@ def _source_boundary_obligations(
             for index, (branch, occurrence, raw_span) in enumerate(obligations)
         }.values()
     )
+
+
+_CONJOINED_THRESHOLD_SEPARATOR = re.compile(
+    r"(?:,\s*)?\s\b(?P<conjunction>and|or|but|und|oder|aber)\b\s"
+    r"|,\s+(?=(?:whose|who|which|deren|dessen)\b)",
+    flags=re.IGNORECASE,
+)
+_PERMISSIVE_THRESHOLD_SCOPE = re.compile(
+    r"\b(?:allowed|anticipated|appears?|apt|authorized|can|capable|could|"
+    r"designed|estimated|expected|forecast|free|liable|likely|may|might|need|"
+    r"occasionally|permitted|possibly|presumed|prone|projected|rarely|seems?|"
+    r"supposed|tends?|typically|unlikely|would)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _source_conjoined_threshold_pieces(
+    fragment: str,
+) -> tuple[tuple[int, str], ...]:
+    """Split one boundary fragment into its conjoined comparison clauses.
+
+    Only a coordinating conjunction separates two clauses. A comparator's own
+    `or` (`less than or equal to`, `at or below`, `$500 or more`) and the
+    `and` of a `between ... and ...` range stay inside one piece.
+    """
+
+    pieces: list[tuple[int, str]] = []
+    cursor = 0
+    for separator in _CONJOINED_THRESHOLD_SEPARATOR.finditer(fragment):
+        conjunction = (separator.group("conjunction") or "").lower()
+        before = fragment[cursor : separator.start()]
+        after = fragment[separator.end() :]
+        if conjunction in {"or", "oder"} and (
+            re.search(
+                r"\b(?:than|at|als|more|less|greater|fewer)\s*$",
+                before,
+                flags=re.IGNORECASE,
+            )
+            or (
+                # `$500 or more` continues one comparator; `or more than
+                # $1,000` starts another.
+                re.match(
+                    r"(?:equal|more|less|greater|fewer|older|younger|over|under|"
+                    r"above|below|higher|lower|mehr|weniger)\b",
+                    after,
+                    flags=re.IGNORECASE,
+                )
+                and not re.match(
+                    r"\w+\s+(?:than\s+|als\s+)?(?:[$€£]\s?)?"
+                    rf"(?:\d|{_ENGLISH_CARDINAL_PHRASE}\b)",
+                    after,
+                    flags=re.IGNORECASE,
+                )
+            )
+        ):
+            continue
+        if conjunction in {"and", "und"} and re.search(
+            r"\b(?:between|zwischen)\b(?!.*\b(?:and|und)\b)",
+            before,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        pieces.append((cursor, before))
+        cursor = separator.end()
+    if not pieces:
+        return ()
+    pieces.append((cursor, fragment[cursor:]))
+    return tuple((start, piece) for start, piece in pieces if piece.strip())
+
+
+def _source_fragment_has_mixed_effect(fragment: str) -> bool:
+    """Whether one fragment states both an eligible and an ineligible effect."""
+
+    lowered = _collapse_text(fragment).lower()
+    negative = re.compile(
+        r"\b(?:keine?\s+berechtigung|keinen?\s+anspruch|"
+        r"nicht\s+berechtigt|ausgeschlossen|gilt\s+nicht|"
+        r"does\s+not\s+apply|not\s+applicable|not\s+eligible|"
+        r"ineligible|excluded)\b"
+    )
+    if not negative.search(lowered):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:gilt(?:\s+für)?|anspruch\s+besteht|berechtigt|"
+            r"appl(?:y|ies)|eligible|qualif(?:y|ies))\b",
+            negative.sub(" ", lowered),
+        )
+    )
+
+
+def _source_conjoined_threshold_obligations(
+    boundary_branches: Sequence[SourceStructureBranch],
+    *,
+    branches: Sequence[SourceStructureBranch],
+    existing: Sequence[tuple[SourceStructureBranch, NumericOccurrenceLike]],
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> tuple[
+    tuple[SourceStructureBranch, NumericOccurrenceLike, _NumericInterval, int], ...
+]:
+    """Return source thresholds that a fragment's composed interval drops.
+
+    `_formula_interval_from_text` reads one fragment as one interval, so
+    `less than $500 and whose net income is less than $300` keeps only the
+    tighter `$300`. Each conjoined clause is read on its own; a threshold that
+    is not already a boundary obligation becomes one, with a one-sided
+    interval carrying its own comparator's direction and inclusivity. Only a
+    fragment that already parses as an operative interval is split, and a
+    clause under a permissive modal (`may`, `could`) is never a threshold. A
+    value the branch already demands, or a span overlapping a demanded
+    threshold, is not demanded again: a boundary witness is keyed by value.
+    Direct text is read against `boundary_branches`, as main's boundary demand
+    reads it; `branches` (all source branches) is not used for it.
+    """
+
+    # Values are claimed per path; spans only per branch object, because a
+    # narrative formula clause shares its paragraph's path while its offsets
+    # are in its own first-line frame.
+    claimed: dict[tuple[str, ...], list[tuple[int, NumericOccurrenceLike]]] = {}
+    for branch, occurrence in existing:
+        claimed.setdefault(branch.path, []).append((id(branch), occurrence))
+    obligations: list[
+        tuple[SourceStructureBranch, NumericOccurrenceLike, _NumericInterval, int]
+    ] = []
+    for branch in boundary_branches:
+        if branch.kind not in {
+            "definition",
+            "paragraph",
+            "number",
+            "letter",
+            "sentence",
+            "source-unit",
+        }:
+            continue
+        if branch.kind == "definition" and any(
+            container.kind != "definition"
+            and container.path == branch.path
+            and container.start
+            <= branch.start
+            < container.start
+            + len(_source_branch_direct_text(container, branches=boundary_branches))
+            for container in boundary_branches
+        ):
+            # As in _source_boundary_obligations: a detached heading inside its
+            # structural owner's text is read once, on that owner.
+            continue
+        # Read the same text _source_boundary_obligations reads: it stops only
+        # at a descendant that is itself a boundary branch, so an inactive
+        # child's thresholds are inventoried on the active parent.
+        direct_text = authoritative_numeric_recall_text(
+            _source_branch_direct_text(branch, branches=boundary_branches)
+        )
+        direct_inventory = tuple(extract_numeric_occurrences(direct_text))
+        for fragment_start, fragment in _source_boundary_fragments(direct_text):
+            range_fragment = fragment.split(":", 1)[0]
+            boundary_context = direct_text[
+                max(0, fragment_start - 160) : fragment_start + len(range_fragment)
+            ]
+            if _source_boundary_is_nonoperative_guidance_definition(
+                range_fragment,
+                context=boundary_context,
+            ) or _formula_has_unequal_english_parenthetical_amount(range_fragment):
+                continue
+            if (
+                _formula_interval_from_text(
+                    range_fragment,
+                    extract_numeric_occurrences=extract_numeric_occurrences,
+                )
+                is None
+            ):
+                continue
+            if _source_fragment_has_mixed_effect(fragment):
+                # `ineligible if income is more than $500, and eligible if
+                # resources are less than $2,000`: one fragment-level effect
+                # cannot give every clause its own polarity.
+                continue
+            polarity = _source_boundary_boolean_polarity(fragment)
+            for piece_start, piece in _source_conjoined_threshold_pieces(
+                range_fragment
+            ):
+                prefix = range_fragment[:piece_start]
+                if _PERMISSIVE_THRESHOLD_SCOPE.search(prefix):
+                    break
+                if re.search(
+                    r"\b(?:more\s+or\s+less|less\s+or\s+more)\b",
+                    piece,
+                    flags=re.IGNORECASE,
+                ):
+                    # `more or less than four weeks` states no direction.
+                    continue
+                if re.search(
+                    r"\b(?:or|nor|oder|noch)\s*$", prefix, flags=re.IGNORECASE
+                ) and re.search(
+                    r"\b(?:not|no|nor|neither|without|never|nicht|kein\w*|weder)\b",
+                    prefix,
+                    flags=re.IGNORECASE,
+                ):
+                    # `shall not exceed $500 or be less than $100`: a clause
+                    # joined by `or` after a negation shares that negation,
+                    # so its direction cannot be read from the clause alone.
+                    continue
+                previous_piece = range_fragment[:piece_start].rstrip()
+                if re.search(
+                    r"\b(?:not|no|nicht)\s+(?:be\s+|been\s+|sein\s+)?"
+                    r"(?:less|more|greater|fewer|mehr|weniger)\b",
+                    previous_piece,
+                    flags=re.IGNORECASE,
+                ) and re.match(
+                    r"\s*(?:less|more|greater|fewer|mehr|weniger)\b",
+                    piece,
+                    flags=re.IGNORECASE,
+                ):
+                    # `not less than 3 percent, and more than 15 percent ...`:
+                    # a bare comparator after a negated one is not read alone.
+                    continue
+                if not re.search(
+                    r"\b(?:zwischen|between|bis|von|ab|unter|über|"
+                    r"mehr\s+als|weniger\s+als|from|to|"
+                    r"through|less\s+than|more\s+than|at\s+least|up\s+to|"
+                    r"at\s+most|above|below|höchstens|mindestens|"
+                    r"nicht\s+mehr\s+als)\b",
+                    piece,
+                    flags=re.IGNORECASE,
+                ):
+                    continue
+                interval = _shift_numeric_interval(
+                    _formula_interval_from_text(
+                        piece,
+                        extract_numeric_occurrences=extract_numeric_occurrences,
+                    ),
+                    fragment_start + piece_start,
+                )
+                if interval is None:
+                    continue
+                for occurrence, inclusive, is_lower in (
+                    (interval.lower, interval.lower_inclusive, True),
+                    (interval.upper, interval.upper_inclusive, False),
+                ):
+                    if occurrence is None:
+                        continue
+                    branch_claims = claimed.setdefault(branch.path, [])
+                    if any(
+                        (
+                            claim_branch == id(branch)
+                            and occurrence.start < claim.end
+                            and claim.start < occurrence.end
+                        )
+                        or math.isclose(
+                            float(occurrence.value),
+                            float(claim.value),
+                            rel_tol=0.0,
+                            abs_tol=1e-9,
+                        )
+                        for claim_branch, claim in branch_claims
+                    ) or not any(
+                        occurrence.start == candidate.start
+                        and occurrence.end == candidate.end
+                        and _numeric_occurrences_are_equivalent(occurrence, candidate)
+                        for candidate in direct_inventory
+                    ):
+                        continue
+                    branch_claims.append((id(branch), occurrence))
+                    obligations.append(
+                        (
+                            branch,
+                            occurrence,
+                            (
+                                _NumericInterval(occurrence, inclusive, None, False)
+                                if is_lower
+                                else _NumericInterval(
+                                    None, False, occurrence, inclusive
+                                )
+                            ),
+                            polarity,
+                        )
+                    )
+    return tuple(obligations)
 
 
 def _source_boundary_is_nonoperative_guidance_definition(

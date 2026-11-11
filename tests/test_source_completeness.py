@@ -3,13 +3,14 @@ from __future__ import annotations
 import dataclasses
 import functools
 import hashlib
-import time
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode.harness import source_completeness as completeness_module
 from axiom_encode.harness import validator_pipeline as validator_pipeline_module
@@ -31,7 +32,8 @@ from axiom_encode.harness.validator_pipeline import (
     find_ungrounded_numeric_issues_scoped,
     numeric_value_is_grounded,
 )
-from tests.scaling import assert_grows_linearly, fastest_cpu_seconds
+from axiom_encode.prompts.encoder import ENCODER_PROMPT
+from tests.scaling import assert_linear_growth, lowest_work
 
 CORPUS_CITATION_PATH = "de/statute/estg/32a"
 DE_NUMERIC_OCCURRENCE_EXTRACTOR = functools.partial(
@@ -8835,30 +8837,81 @@ def test_ordered_dotted_labels_are_structural_without_semantic_guessing():
     ]
 
 
+@given(rows=st.integers(min_value=1, max_value=40))
+@settings(deadline=None)
+def test_structure_growth_fixtures_preserve_rejected_and_nested_outputs(rows):
+    assert recognize_source_structure("A. prose\nQ. prose\n" * rows) == ()
+    source = (
+        "A. Start.\n"
+        + "".join(f"({index}) Row {index}.\n" for index in range(1, rows + 1))
+        + "B. End."
+    )
+    assert [branch.path for branch in recognize_source_structure(source)] == [
+        ("a",),
+        *(("a", str(index)) for index in range(1, rows + 1)),
+        ("b",),
+    ]
+
+
 def test_rejected_dotted_candidates_are_scanned_with_bounded_runtime():
-    source = "A. prose\nQ. prose\n" * 40_000
+    def recognition_work(repeats, *, sample=True):
+        source = "A. prose\nQ. prose\n" * repeats
 
-    started = time.perf_counter()
-    branches = recognize_source_structure(source)
-    elapsed = time.perf_counter() - started
+        def check(branches):
+            assert branches == ()
 
-    assert branches == ()
-    assert elapsed < 1.5
+        if not sample:
+            check(recognize_source_structure(source))
+            return None
+        return lowest_work(
+            lambda: recognize_source_structure(source),
+            check,
+            setup=completeness_module.re.purge,
+        )
+
+    # A native suffix copy at each candidate costs a few percent of the
+    # recognizer's scan at a few thousand repeats, so it needs a 128x pair to
+    # outgrow the linear work, including under coverage. Correct code stays
+    # near a CPU second at the large size. A Python-level quadratic would take
+    # hours at that size, so a short first step fails it first: the scan
+    # without its break took 41-47 CPU seconds plain and 151-163 under
+    # coverage on a 4-vCPU Linux machine.
+    assert_linear_growth(recognition_work(250), recognition_work(2_500), input_ratio=10)
+    assert_linear_growth(
+        recognition_work(1_000), recognition_work(128_000), input_ratio=128
+    )
+    recognition_work(40_000, sample=False)
 
 
 def test_accepted_nested_markers_are_closed_with_bounded_runtime():
-    source = (
-        "A. Start.\n"
-        + "".join(f"({index}) Row {index}.\n" for index in range(1, 20_001))
-        + "B. End."
-    )
+    def recognition_work(rows, *, sample=True):
+        source = (
+            "A. Start.\n"
+            + "".join(f"({index}) Row {index}.\n" for index in range(1, rows + 1))
+            + "B. End."
+        )
 
-    started = time.perf_counter()
-    branches = recognize_source_structure(source)
-    elapsed = time.perf_counter() - started
+        def check(branches):
+            assert len(branches) == rows + 2
+            assert [branch.path for branch in branches] == [
+                ("a",),
+                *(("a", str(index)) for index in range(1, rows + 1)),
+                ("b",),
+            ]
 
-    assert len(branches) == 20_002
-    assert elapsed < 1.5
+        if not sample:
+            check(recognize_source_structure(source))
+            return None
+        return lowest_work(
+            lambda: recognize_source_structure(source),
+            check,
+            setup=completeness_module.re.purge,
+        )
+
+    # The old closer searched all following markers for every row. Check a
+    # finite pair before retaining the original large output fixture.
+    assert_linear_growth(recognition_work(500), recognition_work(8_000), input_ratio=16)
+    recognition_work(20_000, sample=False)
 
 
 @pytest.mark.parametrize(
@@ -9271,13 +9324,18 @@ rules: []
         extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
     )
 
-    assert _has_issue(result, "us/regulation/7/273/4(a)", "Nummer 3")
-    assert _has_issue(result, "us/regulation/7/273/4(c)", "Nummer 3")
-    assert not _has_issue(result, "us/regulation/7/273/4(3) [Absatz 3]")
+    assert _has_issue(result, "us/regulation/7/273/4(a)(3) [paragraph (a)(3)]")
+    assert _has_issue(result, "us/regulation/7/273/4(c)(3) [paragraph (c)(3)]")
+    assert not _has_issue(result, "us/regulation/7/273/4(3) ")
+    assert not any(
+        label in issue
+        for issue in result.issues
+        for label in ("Absatz", "Nummer", "Buchstabe")
+    )
 
 
 def test_parenthesized_cfr_outline_is_recognized_with_bounded_runtime():
-    def outline_seconds(items):
+    def outline_work(items, *, sample=True):
         source = (
             "(a) Start.\n"
             + "".join(f"({index}) Item {index}.\n" for index in range(1, items + 1))
@@ -9289,9 +9347,18 @@ def test_parenthesized_cfr_outline_is_recognized_with_bounded_runtime():
             assert branches[-2].path == ("a", str(items))
             assert branches[-1].path == ("b",)
 
-        return fastest_cpu_seconds(lambda: recognize_source_structure(source), check)
+        if not sample:
+            check(recognize_source_structure(source))
+            return None
+        return lowest_work(lambda: recognize_source_structure(source), check)
 
-    assert_grows_linearly(outline_seconds(5_000), outline_seconds(20_000))
+    # A per-marker scan of the markers found so far costs a small share of
+    # a short outline, so its quadratic term needs a 64x pair to clear the
+    # bound. Check growth before the original outlines, so quadratic failure
+    # cases stay finite.
+    assert_linear_growth(outline_work(250), outline_work(16_000), input_ratio=64)
+    outline_work(5_000, sample=False)
+    outline_work(20_000, sample=False)
 
 
 def test_parenthesized_nonoutline_without_root_sequence_remains_flat():
@@ -11179,20 +11246,76 @@ def test_formula_interval_uses_controlled_comparison_as_stronger_lower_bound(
 
 
 def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtime():
-    source = "income greater than 1" + (" " * 10_000) + "x 2"
+    def interval_for(width):
+        return completeness_module._formula_interval_from_text(
+            "income greater than 1" + " " * width + "x 2",
+            extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        )
 
-    started = time.perf_counter()
-    interval = completeness_module._formula_interval_from_text(
-        source,
-        extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
-    )
-    elapsed = time.perf_counter() - started
+    def check(interval):
+        assert interval is not None
+        assert interval.lower is not None
+        assert interval.lower.value == 1
+        assert interval.upper is None
 
-    assert interval is not None
-    assert interval.lower is not None
-    assert interval.lower.value == 1
-    assert interval.upper is None
-    assert elapsed < 0.5
+    def work(width):
+        def check_batch(intervals):
+            for interval in intervals:
+                check(interval)
+
+        # One batch size for both widths keeps the narrow sample above the
+        # CPU floor without changing the ratio.
+        return lowest_work(lambda: [interval_for(width) for _ in range(8)], check_batch)
+
+    # A regex scanning the raw space run from every position is quadratic in
+    # the gap. Correct code is not linear beyond a few hundred spaces either:
+    # an existing optional-currency pattern backtracks across the run, so the
+    # pairs stay narrow. The first step stops a cubic scan before it reaches
+    # widths where it runs for minutes; the second catches a quadratic one in
+    # plain runs. Under coverage the fixed cost of each call can hide a
+    # quadratic gap scan here, so the next test measures the gap parser alone.
+    assert_linear_growth(work(32), work(256), input_ratio=8)
+    assert_linear_growth(work(64), work(1_024), input_ratio=16)
+    # Keep the original 10,000-space rejection, once and untimed.
+    check(interval_for(10_000))
+
+
+def test_formula_upper_gap_parser_stays_linear_on_wide_space_runs(monkeypatch):
+    original = completeness_module._formula_conjoined_bound
+
+    def arguments(width):
+        seen = []
+
+        def spy(text, occurrences):
+            seen.append((text, occurrences))
+            return original(text, occurrences)
+
+        monkeypatch.setattr(completeness_module, "_formula_conjoined_bound", spy)
+        completeness_module._formula_interval_from_text(
+            "income greater than 1" + " " * width + "x 2",
+            extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        )
+        monkeypatch.undo()
+        (called,) = seen
+        return called
+
+    def work(width):
+        text, occurrences = arguments(width)
+
+        def check(bounds):
+            assert bounds == [None] * 8
+
+        return lowest_work(
+            lambda: [original(text, occurrences) for _ in range(8)], check
+        )
+
+    # The interval parser's own patterns cap the test above at 1,024 spaces.
+    # Called alone with the arguments that parser passes it, the gap parser
+    # stays linear far wider, where a quadratic scan of the gap outgrows the
+    # fixed cost of each call even under coverage. The short first step fails
+    # a cubic scan before the wide pair would run it for minutes.
+    assert_linear_growth(work(125), work(500), input_ratio=4)
+    assert_linear_growth(work(500), work(8_000), input_ratio=16)
 
 
 def test_formula_interval_skips_arithmetic_from_before_real_comparator():
@@ -24533,6 +24656,463 @@ def test_terminal_alabama_act_and_code_history_is_not_numeric_recall():
         (3000.0, "3,000"),
         (3000.0, "3,000"),
     ]
+
+
+ARMENIAN_MINIMUM_WAGE_SOURCE = """\
+Հայաստանի Հանրապետությունում նվազագույն ամսական աշխատավարձը սահմանել 75000 դրամ:
+(1-ին հոդվածը փոփ. 11.11.05 ՀՕ-221-Ն, 28.11.06 ՀՕ-200-Ն,
+05.11.07 ՀՕ-252-Ն, 27.11.08 ՀՕ-200-Ն, 16.11.10 ՀՕ-164-Ն,
+13.11.12 ՀՕ-200-Ն, 20.06.13 ՀՕ-61-Ն, 12.12.13 ՀՕ-187-Ն,
+01.12.14 ՀՕ-205-Ն, 19.11.19 ՀՕ-223-Ն, 07.12.22 ՀՕ-501-Ն)"""
+
+
+ARMENIAN_MINIMUM_WAGE_LEAD = (
+    "Հայաստանի Հանրապետությունում նվազագույն ամսական աշխատավարձը սահմանել 75000 դրամ:"
+)
+
+
+def _mask_ledgers(source: str, *ledgers: str) -> str:
+    """The recall text with each ledger's body masked in place, never deleted.
+
+    Masking keeps every recall-text position on its source character, which
+    the numeric recall source map relies on. The parentheses stay so the
+    lines around the ledger are never joined by whitespace alone.
+    """
+
+    for ledger in ledgers:
+        assert source.count(ledger) == 1
+        source = source.replace(
+            ledger, ledger[0] + " " * (len(ledger) - 2) + ledger[-1]
+        )
+    return source
+
+
+ARMENIAN_MINIMUM_WAGE_LEDGER = ARMENIAN_MINIMUM_WAGE_SOURCE.removeprefix(
+    ARMENIAN_MINIMUM_WAGE_LEAD + "\n"
+)
+
+
+def test_terminal_armenian_amendment_history_is_not_numeric_recall():
+    cleaned = authoritative_numeric_recall_text(ARMENIAN_MINIMUM_WAGE_SOURCE)
+    inventory = extract_typed_numeric_inventory_occurrences_from_text(
+        cleaned,
+        profile="legacy",
+    )
+
+    assert cleaned == _mask_ledgers(
+        ARMENIAN_MINIMUM_WAGE_SOURCE, ARMENIAN_MINIMUM_WAGE_LEDGER
+    )
+    assert cleaned.split("\n", 1)[0] == ARMENIAN_MINIMUM_WAGE_LEAD
+    assert [(item.value, item.raw) for item in inventory] == [(75000.0, "75000")]
+
+
+@pytest.mark.parametrize(
+    ("article_label", "law_identifier"),
+    (
+        ("147-րդ", "ՀՕ-538-Ն"),
+        ("293․1‑ին", "Հ-538-Ն"),
+        ("1֊ին", "ՀՕ֊538֊Ն"),
+    ),
+)
+def test_armenian_history_filter_accepts_arlis_punctuation_variants(
+    article_label,
+    law_identifier,
+):
+    ledger = f"({article_label} հոդվածը լրաց․, փոփ․ 07․12․22 {law_identifier})"
+    source = f"Շահառուին վճարել 500 դրամ:\n{ledger}"
+
+    assert authoritative_numeric_recall_text(source) == _mask_ledgers(source, ledger)
+
+
+def test_armenian_history_filter_accepts_crlf_source_text():
+    source = ARMENIAN_MINIMUM_WAGE_SOURCE.replace("\n", "\r\n")
+    ledger = ARMENIAN_MINIMUM_WAGE_LEDGER.replace("\n", "\r\n")
+
+    assert authoritative_numeric_recall_text(source) == _mask_ledgers(source, ledger)
+
+
+def test_armenian_history_filter_accepts_uppercase_action_abbreviation():
+    ledger = "(1-ին հոդվածը Փոփ. 07.12.22 ՀՕ-538-Ն)"
+    source = f"Շահառուին վճարել 500 դրամ:\n{ledger}"
+
+    assert authoritative_numeric_recall_text(source) == _mask_ledgers(source, ledger)
+
+
+def test_armenian_history_filter_accepts_semicolon_separator():
+    ledger = "(1-ին հոդվածը փոփ; 07.12.22 ՀՕ-538-Ն)"
+    source = f"Շահառուին վճարել 500 դրամ:\n{ledger}"
+
+    cleaned = authoritative_numeric_recall_text(source)
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(500.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert cleaned == _mask_ledgers(source, ledger)
+    assert not _has_issue(result, "numeric-recall")
+
+
+@pytest.mark.parametrize(
+    "parenthetical",
+    (
+        "(1-ին հոդվածը վերանայվել 07.12.22 ՀՕ-538-Ն)",
+        "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն, լրացուցիչ 500 դրամ)",
+    ),
+)
+def test_armenian_history_filter_rejects_unrecognized_ledger_residue(parenthetical):
+    source = f"Շահառուին վճարել 500 դրամ:\n{parenthetical}"
+
+    assert authoritative_numeric_recall_text(source) == source
+
+
+def test_armenian_history_filter_does_not_strip_inline_parenthetical():
+    source = "Շահառուին վճարել 500 դրամ: (1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+
+    assert authoritative_numeric_recall_text(source) == source
+
+
+@pytest.mark.parametrize(
+    "parenthetical",
+    (
+        "(1-ին հոդվածը փոփ. 07.12.22)",
+        "(1-ին և 2-րդ հոդվածները փոփ. 07.12.22 ՀՕ-538-Ն)",
+        "(հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)",
+        "(1-ին հոդվածը ուժը կորցրել 07.12.22 ՀՕ-538-Ն)",
+        "(Օրենքը փոփ. 07.12.22 ՀՕ-538-Ն)",
+        "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ա)",
+        "(1-ին հոդվածը փոփ. 7.12.22 ՀՕ-538-Ն)",
+        "(1-ին հոդվածը փոփ. (տե՛ս) 07.12.22 ՀՕ-538-Ն)",
+    ),
+)
+def test_armenian_history_filter_keeps_shapes_outside_prompt_contract(parenthetical):
+    source = f"Շահառուին վճարել 500 դրամ:\n{parenthetical}"
+
+    assert authoritative_numeric_recall_text(source) == source
+
+
+def test_armenian_history_filter_keeps_ledger_nested_inside_outer_parenthetical():
+    source = (
+        "Շահառուին վճարել 500 դրամ:\n"
+        "(անցումային պայման\n"
+        "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)\n"
+        ")"
+    )
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(500.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert authoritative_numeric_recall_text(source) == source
+    assert _has_issue(result, "numeric-recall", "value 538")
+
+
+@pytest.mark.parametrize(
+    ("parenthetical", "expected_recalled_value"),
+    (
+        ("(1-ին հոդվածը փոփ. 07.12.222 ՀՕ-538-Ն)", "value 538"),
+        (
+            "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն08.12.22 ՀՕ-539-Ն)",
+            "value 539",
+        ),
+        ("(1֊ին հոդվածը 07.12.22 ՀՕ֊538֊ՆԽՄԲ.)", "value 1"),
+    ),
+)
+def test_armenian_history_filter_keeps_malformed_token_sequences(
+    parenthetical,
+    expected_recalled_value,
+):
+    source = f"Շահառուին վճարել 500 դրամ:\n{parenthetical}"
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(500.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert authoritative_numeric_recall_text(source) == source
+    assert _has_issue(result, "numeric-recall", expected_recalled_value)
+
+
+@pytest.mark.parametrize(
+    "law_identifier",
+    ("07.12.22 հօ-538-ն", "07.12.22 ՀՕ-538-ն", "07.12.22 հՕ-538-Ն"),
+)
+def test_armenian_history_filter_keeps_lowercased_law_identifier(law_identifier):
+    """Case folding covers the action abbreviation only, never the citation.
+
+    The prompt contract spells the identifier `Հ-N[-N]-Ն`/`ՀՕ-N[-N]-Ն`, so a
+    lowercased identifier is an unrecognized parenthetical whose numbers must
+    survive into the recall text.
+    """
+
+    source = (
+        "Շահառուին վճարել 500 դրամ:\n"
+        f"(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն, {law_identifier})"
+    )
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(500.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert authoritative_numeric_recall_text(source) == source
+    assert _has_issue(result, "numeric-recall", "value 538")
+
+
+def _armenian_prompt_contract() -> str:
+    """The Armenian ARLIS bullet as the encoder actually emits it."""
+
+    start = ENCODER_PROMPT.index("- In Armenian ARLIS text")
+    return ENCODER_PROMPT[start:][: ENCODER_PROMPT[start:].index("\n- ", 1)]
+
+
+@pytest.mark.parametrize(
+    "separator",
+    (" ", "\t", ", ", " , ", "; ", " ; ", ",", ";"),
+)
+def test_armenian_prompt_permitted_separators_are_stripped_by_validator(separator):
+    """Parity: every separator the prompt permits, the validator must accept.
+
+    A prompt-following encoder that omits a semicolon-separated ledger would
+    otherwise draw a spurious numeric-recall failure.
+    """
+
+    contract = _armenian_prompt_contract()
+    assert "only whitespace, commas, or semicolons may separate these items" in contract
+
+    ledger = f"(1-ին հոդվածը փոփ.{separator}07.12.22 ՀՕ-538-Ն)"
+    source = f"Շահառուին վճարել 500 դրամ:\n{ledger}"
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(500.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert authoritative_numeric_recall_text(source) == _mask_ledgers(source, ledger)
+    assert not _has_issue(result, "numeric-recall")
+
+
+def test_armenian_prompt_permitted_year_widths_match_validator():
+    """Parity: the prompt permits `DD.MM.YY` and `DD.MM.YYYY`, and nothing else."""
+
+    contract = _armenian_prompt_contract()
+    assert "`DD.MM.YY` or\n  `DD.MM.YYYY` date" in contract
+
+    lead = "Շահառուին վճարել 500 դրամ:"
+    for year in ("22", "2022"):
+        ledger = f"(1-ին հոդվածը փոփ. 07.12.{year} ՀՕ-538-Ն)"
+        source = f"{lead}\n{ledger}"
+        assert authoritative_numeric_recall_text(source) == _mask_ledgers(
+            source, ledger
+        )
+    for year in ("2", "222", "20222"):
+        source = f"{lead}\n(1-ին հոդվածը փոփ. 07.12.{year} ՀՕ-538-Ն)"
+        assert authoritative_numeric_recall_text(source) == source
+
+
+def test_armenian_prompt_keeps_nested_parentheticals_per_contract():
+    """Parity: the prompt keeps nested parentheticals, so the validator must too."""
+
+    contract = _armenian_prompt_contract()
+    assert "contains no nested parenthetical" in contract
+    assert "unpaired-date, nested, or otherwise unrecognized parenthetical" in contract
+
+    ledger = "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+    lead = "Շահառուին վճարել 500 դրամ:"
+    nested = f"{lead}\n(անցումային պայման\n{ledger}\n)"
+    standalone = f"{lead}\n{ledger}"
+
+    assert authoritative_numeric_recall_text(nested) == nested
+    assert authoritative_numeric_recall_text(standalone) == _mask_ledgers(
+        standalone, ledger
+    )
+
+
+def test_armenian_history_filter_strips_ledger_after_closed_outer_parenthetical():
+    """Depth, not "is there a preceding `(`", decides nesting.
+
+    Once an outer parenthetical closes, the next standalone ledger is back at
+    depth zero and must still be recognized.
+    """
+
+    lead = "Շահառուին վճարել 500 դրամ:"
+    ledger = "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+    source = f"{lead}\n(արտաքին\nպայման)\n{ledger}"
+
+    assert authoritative_numeric_recall_text(source) == _mask_ledgers(source, ledger)
+
+
+def test_armenian_history_filter_keeps_ledger_nested_two_levels_deep():
+    source = (
+        "Շահառուին վճարել 500 դրամ:\n"
+        "(արտաքին\n(ներքին\n(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)\n)\n)"
+    )
+
+    assert authoritative_numeric_recall_text(source) == source
+
+
+def test_armenian_history_filter_separates_nested_and_standalone_ledgers():
+    """A nested ledger is kept while a standalone one in the same source goes."""
+
+    source = (
+        "Շահառուին վճարել 500 դրամ:\n"
+        "(անցումային պայման\n(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)\n)\n"
+        "(2-րդ հոդվածը խմբ. 08.12.22 ՀՕ-539-Ն)"
+    )
+    cleaned = authoritative_numeric_recall_text(source)
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(500.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert "538" in cleaned
+    assert "539" not in cleaned
+    assert _has_issue(result, "numeric-recall", "value 538")
+
+
+def test_armenian_history_filter_keeps_ledger_under_unbalanced_open_parenthesis():
+    """An unclosed `(` upstream leaves the candidate nested; fail closed."""
+
+    source = "Շահառուին վճարել 500 դրամ: տես (ա\n(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+
+    assert authoritative_numeric_recall_text(source) == source
+
+
+def test_armenian_history_filter_continues_after_rejected_ledger():
+    rejected = "(1-ին հոդվածը փոփ. 07.12.22)"
+    accepted = "(2-րդ հոդվածը խմբ. 08.12.22 ՀՕ-539-Ն)"
+    source = f"Շահառուին վճարել 500 դրամ:\n{rejected}\n{accepted}"
+
+    assert authoritative_numeric_recall_text(source) == _mask_ledgers(source, accepted)
+
+
+def test_armenian_history_filter_strips_adjacent_standalone_ledgers():
+    first = "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+    second = "(2-րդ հոդվածը խմբ. 08.12.22 ՀՕ-539-Ն)"
+    source = f"Շահառուին վճարել 500 դրամ:\n{first}\n{second}"
+
+    assert authoritative_numeric_recall_text(source) == _mask_ledgers(
+        source, first, second
+    )
+
+
+def test_armenian_history_filter_preserves_later_effective_date_note():
+    effective_date_note = (
+        "(հոդվածը 01.03.23 ՀՕ-101-Ն օրենքի փոփոխության մասով ուժի մեջ է "
+        "մտնում 2024 թվականի հուլիսի 1-ից)"
+    )
+    source = ARMENIAN_MINIMUM_WAGE_SOURCE + "\n" + effective_date_note
+
+    cleaned = authoritative_numeric_recall_text(source)
+
+    assert "ՀՕ-221-Ն" not in cleaned
+    assert effective_date_note in cleaned
+    assert "75000 դրամ" in cleaned
+
+
+def test_armenian_history_filter_keeps_minimum_wage_in_strict_recall():
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        ARMENIAN_MINIMUM_WAGE_SOURCE,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert _has_issue(result, "numeric-recall", "value 75000")
+    assert not _has_issue(result, "numeric-recall", "value 221")
+    assert not _has_issue(result, "numeric-recall", "value 501")
+
+
+def test_armenian_history_filter_accepts_grounded_minimum_wage_candidate():
+    result = _analyze(
+        """\
+format: rulespec/v1
+rules:
+  - name: minimum_monthly_wage
+    kind: parameter
+    dtype: Money
+    unit: AMD
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: 75000
+""",
+        ARMENIAN_MINIMUM_WAGE_SOURCE,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert not _has_issue(result, "numeric-recall")
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        ARMENIAN_MINIMUM_WAGE_SOURCE.removesuffix(")") + ", շահառուին վճարել 500 դրամ)",
+        ARMENIAN_MINIMUM_WAGE_SOURCE + "\nՇահառուին վճարել լրացուցիչ 500 դրամ:",
+    ),
+)
+def test_armenian_history_shape_does_not_hide_operative_amount(source):
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(75000.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert _has_issue(result, "numeric-recall", "value 500")
 
 
 @pytest.mark.parametrize(
