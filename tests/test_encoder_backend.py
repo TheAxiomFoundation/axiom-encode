@@ -1321,6 +1321,7 @@ class TestCodexCLIBackend:
             assert all("Test statute" not in arg for arg in cmd)
             assert "Test statute" in mock_run.call_args.kwargs["input"]
             assert mock_run.call_args.kwargs["encoding"] == "utf-8"
+            assert mock_run.call_args.kwargs["errors"] == "surrogateescape"
 
     def test_trusted_subscription_records_pinned_cli_provenance(
         self, tmp_path, monkeypatch

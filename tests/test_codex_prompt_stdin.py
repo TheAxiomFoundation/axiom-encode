@@ -21,11 +21,12 @@ _LARGE_PROMPT = "Encode this source.\n" + ("statute text " * 120_000)
 _FAKE_CODEX = """import hashlib, json, sys
 
 argv = sys.argv[1:]
-prompt = sys.stdin.read()
+# Raw bytes, so the record does not depend on how this child decodes stdin.
+prompt = sys.stdin.buffer.read()
 record = {{
     "argv": argv,
-    "stdin_chars": len(prompt),
-    "stdin_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+    "stdin_bytes": len(prompt),
+    "stdin_sha256": hashlib.sha256(prompt).hexdigest(),
 }}
 with open({record_path!r}, "w") as handle:
     json.dump(record, handle)
@@ -54,14 +55,26 @@ def _install_fake_codex(tmp_path: Path) -> tuple[Path, Path]:
     return fake, record_path
 
 
-def _assert_prompt_arrived_on_stdin(record_path: Path) -> None:
+# Non-ASCII text plus a lone surrogate, which stands for the raw byte 0xFF.
+_NON_ASCII_PROMPT = "26 U.S.C. § 32(b) — crédito, £1,000 \udcff"
+
+
+def _assert_prompt_arrived_on_stdin(record_path: Path, prompt: str) -> None:
+    expected = prompt.encode("utf-8", "surrogateescape")
     record = json.loads(record_path.read_text())
     assert record["argv"][-1] == "-"
     assert max(len(arg) for arg in record["argv"]) < 4096
-    assert record["stdin_chars"] == len(_LARGE_PROMPT)
-    assert (
-        record["stdin_sha256"]
-        == hashlib.sha256(_LARGE_PROMPT.encode("utf-8")).hexdigest()
+    assert record["stdin_bytes"] == len(expected)
+    assert record["stdin_sha256"] == hashlib.sha256(expected).hexdigest()
+
+
+def _eval_workspace(tmp_path: Path) -> evals.EvalWorkspace:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    return evals.EvalWorkspace(
+        root=workspace_root,
+        source_text_file=workspace_root / "source.txt",
+        manifest_file=workspace_root / "manifest.json",
     )
 
 
@@ -81,18 +94,12 @@ def test_backend_codex_exec_sends_large_prompt_on_stdin(tmp_path, monkeypatch):
 
     assert returncode == 0, output[:500]
     assert "generated output" in output
-    _assert_prompt_arrived_on_stdin(record_path)
+    _assert_prompt_arrived_on_stdin(record_path, _LARGE_PROMPT)
 
 
 def test_eval_codex_prompt_sends_large_prompt_on_stdin(tmp_path, monkeypatch):
     fake, record_path = _install_fake_codex(tmp_path)
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    workspace = evals.EvalWorkspace(
-        root=workspace_root,
-        source_text_file=workspace_root / "source.txt",
-        manifest_file=workspace_root / "manifest.json",
-    )
+    workspace = _eval_workspace(tmp_path)
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "isolated-home"))
     monkeypatch.setattr(evals, "resolve_codex_cli", lambda: str(fake))
     monkeypatch.setattr(evals, "_codex_prompt_timeouts", lambda _: (60, 30))
@@ -103,19 +110,31 @@ def test_eval_codex_prompt_sends_large_prompt_on_stdin(tmp_path, monkeypatch):
 
     assert response.error is None
     assert response.text == "generated output"
-    _assert_prompt_arrived_on_stdin(record_path)
+    _assert_prompt_arrived_on_stdin(record_path, _LARGE_PROMPT)
 
 
-def test_backend_codex_exec_sends_non_ascii_prompt_as_utf8(tmp_path, monkeypatch):
+def test_backend_codex_exec_sends_prompt_as_utf8_bytes(tmp_path, monkeypatch):
     fake, record_path = _install_fake_codex(tmp_path)
     monkeypatch.setattr(backends, "resolve_codex_cli", lambda: str(fake))
-    monkeypatch.setenv("PYTHONIOENCODING", "utf-8")
-    prompt = "26 U.S.C. § 32(b) — crédito, £1,000"
 
     output, returncode = backends.CodexCLIBackend()._run_codex_exec(
-        prompt, "gpt-test", 60, tmp_path
+        _NON_ASCII_PROMPT, "gpt-test", 60, tmp_path
     )
 
     assert returncode == 0, output[:500]
-    record = json.loads(record_path.read_text())
-    assert record["stdin_sha256"] == hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    _assert_prompt_arrived_on_stdin(record_path, _NON_ASCII_PROMPT)
+
+
+def test_eval_codex_prompt_sends_prompt_as_utf8_bytes(tmp_path, monkeypatch):
+    fake, record_path = _install_fake_codex(tmp_path)
+    workspace = _eval_workspace(tmp_path)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "isolated-home"))
+    monkeypatch.setattr(evals, "resolve_codex_cli", lambda: str(fake))
+    monkeypatch.setattr(evals, "_codex_prompt_timeouts", lambda _: (60, 30))
+
+    response = evals._run_codex_prompt_eval(
+        evals.parse_runner_spec("codex:test-model"), workspace, _NON_ASCII_PROMPT
+    )
+
+    assert response.error is None
+    _assert_prompt_arrived_on_stdin(record_path, _NON_ASCII_PROMPT)
