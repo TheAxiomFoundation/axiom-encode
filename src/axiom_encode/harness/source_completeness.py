@@ -32672,6 +32672,64 @@ def _formula_bound_from_comparison(
     return None
 
 
+# The interval parser's patterns for the raw text around a bound's amounts: a
+# spelled amount and its parenthetical restatement, "five dollars ($5)", the
+# filler between a range keyword and its first amount, and the open-range word
+# after a German amount. Each optional unit word or currency marker takes the
+# whitespace next to it into its own optional group, so a run of spaces has
+# one way through the pattern. Written as ``\s*(?:usd)?\s*``, two adjacent
+# ``\s*`` runs split a run of n spaces n + 1 ways, and text that fails after
+# the run backtracks through every split: quadratic in the run, and cubic in
+# the restatement gap when spaces sit on both sides of its parenthesis.
+# tests/test_whitespace_run_patterns.py holds each pattern to the matches of
+# the one it replaced.
+_TRAILING_SPELLED_PARENTHETICAL_OPENING = re.compile(
+    rf"\b{_ENGLISH_CARDINAL_PHRASE}\s+"
+    r"(?:dollars?|usd|euros?|eur|pounds?|gbp)\s*"
+    r"\(\s*(?:(?:\$|€|£|usd|eur|gbp)\s*)?$",
+    flags=re.IGNORECASE,
+)
+_SPELLED_PARENTHETICAL_AMOUNT = re.compile(
+    rf"\b(?P<words>{_ENGLISH_CARDINAL_PHRASE})\s+"
+    r"(?P<unit>dollars?|usd|euros?|eur|pounds?|gbp)\s*"
+    r"\(\s*(?:(?P<marker>\$|€|£|usd|eur|gbp)\s*)?"
+    r"(?P<number>\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)"
+    r"\s*\)",
+    flags=re.IGNORECASE,
+)
+# The raw gap between two numeric occurrences when the second restates the
+# first in parentheses: "5 dollars (", "5 (usd ".
+_PARENTHETICAL_RESTATEMENT_GAP = re.compile(
+    r"\s*(?:(?:dollars?|usd|euros?|eur|pounds?|gbp)\s*)?"
+    r"\(\s*(?:(?:\$|€|£|usd|eur|gbp)\s*)?",
+    flags=re.IGNORECASE,
+)
+# The raw gap between a comparison keyword and its first amount.
+_SPELLED_PARENTHETICAL_FIRST_GAP = re.compile(
+    rf"\s*{_ENGLISH_CARDINAL_PHRASE}\s+"
+    r"(?:dollars?|usd|euros?|eur|pounds?|gbp)\s*"
+    r"\(\s*(?:(?:\$|€|£|usd|eur|gbp)\s*)?",
+    flags=re.IGNORECASE,
+)
+_FIRST_GAP_FILLER = re.compile(
+    r"\s*(?:(?:\$|€|£|usd|eur|gbp)\s*)?(?:(?:zu|bis)\s+)?"
+    r"(?:(?:einschließlich|maximal|inklusive|including|maximum)\s+)?"
+    r"(?:(?:a|an|the|einem?|einer|dem|der|das)\s+)?"
+    r"(?:(?:zu\s+versteuernd\w*|maßgeblich\w*)\s+)?"
+    r"(?:(?:einkommen|betrag|wert|income|amount|age)\s+)?"
+    r"(?:(?:von|of)\s+)?"
+    r"(?:(?:einschließlich|maximal|inklusive|including|maximum)\s+)?",
+    flags=re.IGNORECASE,
+)
+# The raw text after the first amount of "von 500 Euro an": an optional unit,
+# then the open-range word.
+_VON_OPEN_RANGE_CONTINUATION = re.compile(
+    r"(?:\s*(?:[^\W\d_]+(?:-[^\W\d_]+)?|[%€$£]|v\.\s*H\.))?\s+"
+    r"(?:an|aufwärts)\b",
+    flags=re.IGNORECASE,
+)
+
+
 def _formula_first_bound(
     text: str,
     occurrence: NumericOccurrenceLike,
@@ -32685,14 +32743,7 @@ def _formula_first_bound(
         text.rfind("\n", 0, occurrence.start),
     )
     prefix = _strip_source_clause_marker(text[clause_start + 1 : occurrence.start])
-    prefix = re.sub(
-        rf"\b{_ENGLISH_CARDINAL_PHRASE}\s+"
-        r"(?:dollars?|usd|euros?|eur|pounds?|gbp)\s*"
-        r"\(\s*(?:\$|€|£|usd|eur|gbp)?\s*$",
-        "",
-        prefix,
-        flags=re.IGNORECASE,
-    )
+    prefix = _TRAILING_SPELLED_PARENTHETICAL_OPENING.sub("", prefix)
     starts = [match.start() for match in re.finditer(r"(?<![\w-])(?=\S)", prefix)]
     for start in starts[-18:]:
         bound = _formula_bound_from_comparison(prefix[start:], occurrence)
@@ -32786,14 +32837,6 @@ def _formula_interval_with_conjoined_bound(
 def _formula_has_unequal_english_parenthetical_amount(text: str) -> bool:
     """Reject contradictory spelled and parenthetical English money amounts."""
 
-    pattern = re.compile(
-        rf"\b(?P<words>{_ENGLISH_CARDINAL_PHRASE})\s+"
-        r"(?P<unit>dollars?|usd|euros?|eur|pounds?|gbp)\s*"
-        r"\(\s*(?P<marker>\$|€|£|usd|eur|gbp)?\s*"
-        r"(?P<number>\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)"
-        r"\s*\)",
-        flags=re.IGNORECASE,
-    )
     currency_family = {
         "$": "usd",
         "dollar": "usd",
@@ -32808,7 +32851,7 @@ def _formula_has_unequal_english_parenthetical_amount(text: str) -> bool:
         "pounds": "gbp",
         "gbp": "gbp",
     }
-    for match in pattern.finditer(text):
+    for match in _SPELLED_PARENTHETICAL_AMOUNT.finditer(text):
         marker = match.group("marker")
         if (
             marker is not None
@@ -32903,12 +32946,7 @@ def _formula_interval_from_text(
             restatement_suffix = text[occurrence.end :]
             restatement_close = re.match(r"\s*\)", restatement_suffix)
             strict_parenthetical_restatement = (
-                re.fullmatch(
-                    r"\s*(?:dollars?|usd|euros?|eur|pounds?|gbp)?\s*"
-                    r"\(\s*(?:\$|€|£|usd|eur|gbp)?\s*",
-                    restatement_gap,
-                    flags=re.IGNORECASE,
-                )
+                _PARENTHETICAL_RESTATEMENT_GAP.fullmatch(restatement_gap)
                 and restatement_close is not None
             )
             if strict_parenthetical_restatement:
@@ -32987,32 +33025,15 @@ def _formula_interval_from_text(
                 text[candidate_occurrences[0].end : candidate_occurrences[1].start],
                 flags=re.IGNORECASE,
             )
-            open_range = re.match(
-                r"\s*(?:[^\W\d_]+(?:-[^\W\d_]+)?|[%€$£]|v\.\s*H\.)?\s+"
-                r"(?:an|aufwärts)\b",
-                after_first,
-                flags=re.IGNORECASE,
-            )
+            open_range = _VON_OPEN_RANGE_CONTINUATION.match(after_first)
             if not (bounded_range or open_range):
                 continue
         first_gap = text[candidate.end() : candidate_occurrences[0].start]
-        spelled_parenthetical_gap = re.fullmatch(
-            rf"\s*{_ENGLISH_CARDINAL_PHRASE}\s+"
-            r"(?:dollars?|usd|euros?|eur|pounds?|gbp)\s*"
-            r"\(\s*(?:\$|€|£|usd|eur|gbp)?\s*",
-            first_gap,
-            flags=re.IGNORECASE,
+        spelled_parenthetical_gap = _SPELLED_PARENTHETICAL_FIRST_GAP.fullmatch(
+            first_gap
         )
-        if spelled_parenthetical_gap is not None or re.fullmatch(
-            r"\s*(?:\$|€|£|usd|eur|gbp)?\s*(?:(?:zu|bis)\s+)?"
-            r"(?:(?:einschließlich|maximal|inklusive|including|maximum)\s+)?"
-            r"(?:(?:a|an|the|einem?|einer|dem|der|das)\s+)?"
-            r"(?:(?:zu\s+versteuernd\w*|maßgeblich\w*)\s+)?"
-            r"(?:(?:einkommen|betrag|wert|income|amount|age)\s+)?"
-            r"(?:(?:von|of)\s+)?"
-            r"(?:(?:einschließlich|maximal|inklusive|including|maximum)\s+)?",
-            first_gap,
-            flags=re.IGNORECASE,
+        if spelled_parenthetical_gap is not None or _FIRST_GAP_FILLER.fullmatch(
+            first_gap
         ):
             keyword = candidate
             occurrences = candidate_occurrences

@@ -11245,11 +11245,29 @@ def test_formula_interval_uses_controlled_comparison_as_stronger_lower_bound(
     assert interval.upper is None
 
 
-def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtime():
+@pytest.mark.parametrize(
+    ("extract_numeric_occurrences", "extractor_cached"),
+    (
+        pytest.param(
+            EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR, True, id="extractor-cached"
+        ),
+        pytest.param(
+            LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+            False,
+            id="legacy-extractor-uncached",
+        ),
+    ),
+)
+def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtime(
+    extract_numeric_occurrences, extractor_cached
+):
     def interval_for(width):
+        if not extractor_cached:
+            validator_pipeline_module._tokenize_numeric_occurrences_from_text.cache_clear()
+            validator_pipeline_module._hebrew_paragraph_and_heading_index.cache_clear()
         return completeness_module._formula_interval_from_text(
             "income greater than 1" + " " * width + "x 2",
-            extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+            extract_numeric_occurrences=extract_numeric_occurrences,
         )
 
     def check(interval):
@@ -11258,24 +11276,34 @@ def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtim
         assert interval.lower.value == 1
         assert interval.upper is None
 
-    def work(width):
+    def work(width, batch):
         def check_batch(intervals):
             for interval in intervals:
                 check(interval)
 
-        # One batch size for both widths keeps the narrow sample above the
-        # CPU floor without changing the ratio.
-        return lowest_work(lambda: [interval_for(width) for _ in range(8)], check_batch)
+        # A batch keeps a narrow sample above the CPU floor; one batch size
+        # for both widths of a pair keeps the ratio.
+        return lowest_work(
+            lambda: [interval_for(width) for _ in range(batch)], check_batch
+        )
 
-    # A regex scanning the raw space run from every position is quadratic in
-    # the gap. Correct code is not linear beyond a few hundred spaces either:
-    # an existing optional-currency pattern backtracks across the run, so the
-    # pairs stay narrow. The first step stops a cubic scan before it reaches
-    # widths where it runs for minutes; the second catches a quadratic one in
-    # plain runs. Under coverage the fixed cost of each call can hide a
-    # quadratic gap scan here, so the next test measures the gap parser alone.
-    assert_linear_growth(work(32), work(256), input_ratio=8)
-    assert_linear_growth(work(64), work(1_024), input_ratio=16)
+    # The parser runs the numeric extractor on its text, and the extractor
+    # caches its tokenization of each text, so a repeated call skips it. With
+    # the cache kept, the lowest sample measures the parser's own work, where a
+    # quadratic scan of the gap outgrows everything else. With both caches
+    # cleared before every call, on the legacy profile production defaults to,
+    # each sample counts the extractor's work on the text too. That work is
+    # linear but large: it can hide a quadratic scan of the parser's own, which
+    # the cached variant catches, and the uncached variant catches a
+    # superlinear scan inside the extractor.
+    # A search that rescans the raw space run from every position is quadratic
+    # in the gap, and one whose pattern also splits the run between two
+    # adjacent ``\s*`` is cubic. The first step stops a cubic scan before it
+    # reaches widths where it runs for minutes, and the wide pair catches a
+    # quadratic one. One call at 1,000 spaces already costs more than the CPU
+    # floor, so that pair samples single calls.
+    assert_linear_growth(work(32, 8), work(256, 8), input_ratio=8)
+    assert_linear_growth(work(1_000, 1), work(16_000, 1), input_ratio=16)
     # Keep the original 10,000-space rejection, once and untimed.
     check(interval_for(10_000))
 
@@ -11309,11 +11337,11 @@ def test_formula_upper_gap_parser_stays_linear_on_wide_space_runs(monkeypatch):
             lambda: [original(text, occurrences) for _ in range(8)], check
         )
 
-    # The interval parser's own patterns cap the test above at 1,024 spaces.
-    # Called alone with the arguments that parser passes it, the gap parser
-    # stays linear far wider, where a quadratic scan of the gap outgrows the
-    # fixed cost of each call even under coverage. The short first step fails
-    # a cubic scan before the wide pair would run it for minutes.
+    # Called alone with the arguments the interval parser passes it, the gap
+    # parser carries none of the rest of that parser's fixed cost, so a
+    # quadratic scan of the gap outgrows each call's own cost at narrower
+    # widths, even under coverage. The short first step fails a cubic scan
+    # before the wide pair would run it for minutes.
     assert_linear_growth(work(125), work(500), input_ratio=4)
     assert_linear_growth(work(500), work(8_000), input_ratio=16)
 
