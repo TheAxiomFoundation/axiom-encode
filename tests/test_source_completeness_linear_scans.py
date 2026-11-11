@@ -3421,10 +3421,10 @@ def _deep_direct_text_family(n: int):
     These paths hold n(n+1)/2 components in all, and building the trie reads
     each one, so the family builds the trie once, off the clock;
     ``test_deep_direct_text_costs_a_fraction_of_main`` times that build. Before
-    each call, also off the clock, the family clears every node's least start
-    and opens a new index over the trie. So each call fills the least starts,
-    maps each path to its node and looks up every path for the first time, all
-    on the clock, and no lookup may read a path's components.
+    each call, also off the clock, the family opens a new index over a new
+    copy of the trie (``_index_over_trie_copy``). So each call fills the least
+    starts, maps each path to its node and looks up every path for the first
+    time, all on the clock, and no lookup may read a path's components.
     """
 
     branches = _attached_markers(n)
@@ -3433,14 +3433,16 @@ def _deep_direct_text_family(n: int):
     opened: list[sc._SourceBranchIndex] = []
 
     def prepare():
-        opened.append(_index_with_cleared_least_starts(branches, paths))
-        sc._open_source_indexes().branches[id(branches)] = (branches, opened[-1])
+        opened.append(_index_over_trie_copy(branches, paths))
+        fresh = opened[-1].branches
+        sc._open_source_indexes().branches[id(fresh)] = (fresh, opened[-1])
 
     def sweep():
-        assert sc._source_branch_index(branches) is opened.pop()
+        index = opened.pop()
+        assert sc._source_branch_index(index.branches) is index
         return [
-            sc._source_branch_direct_text(branch, branches=branches)
-            for branch in branches
+            sc._source_branch_direct_text(branch, branches=index.branches)
+            for branch in index.branches
         ]
 
     return _PreparedCall(prepare, sweep)
@@ -3449,11 +3451,10 @@ def _deep_direct_text_family(n: int):
 def _deep_lowest_starts_family(n: int):
     """Filling the least starts of n attached markers' branch index, n deep.
 
-    As ``_deep_direct_text_family`` does, the family builds the trie once, and
-    before each call clears every node's least start and opens a new index
-    over it, all off the clock. Each node's least start comes from its
-    children's; a fill that scanned every node's descendants instead would read
-    about n²/2 starts here.
+    As ``_deep_direct_text_family`` does, the family builds the trie once and
+    before each call opens a new index over a new copy of it, off the clock.
+    Each node's least start comes from its children's; a fill that scanned
+    every node's descendants instead would read about n²/2 starts here.
     """
 
     branches = _attached_markers(n)
@@ -3465,20 +3466,65 @@ def _deep_lowest_starts_family(n: int):
         assert opened.pop()._knows_lowest_starts
 
     return _PreparedCall(
-        lambda: opened.append(_index_with_cleared_least_starts(branches, paths)),
-        fill,
+        lambda: opened.append(_index_over_trie_copy(branches, paths)), fill
     )
 
 
-def _index_with_cleared_least_starts(branches, paths) -> sc._SourceBranchIndex:
-    """A new index over ``paths``, a built trie, with no node's least start set."""
+def _deep_own_paths_family(n: int):
+    """Each of n attached markers' own paths looked up in a new index, n deep.
 
-    nodes = [paths[0]]
-    for node in nodes:
-        node.lowest = None
-        nodes.extend(node.children.values())
-    index = sc._SourceBranchIndex(branches)
-    index._paths = paths
+    As ``_deep_direct_text_family`` does, the family builds the trie once and
+    before each call opens a new index over a new copy of it, off the clock,
+    so each call maps every branch's path to its node and asks for each one.
+    Before CPython 3.14 a tuple recomputes its hash on every lookup, so a map
+    built by hashing these paths would read about n²/2 components. The deep
+    direct-text family, whose calls also fill the least starts, grew only
+    2.52x per doubling with such a map on CPython 3.13.
+    """
+
+    branches = _attached_markers(n)
+    paths = sc._SourceBranchIndex(branches)._paths
+    assert paths is not None
+    opened: list[sc._SourceBranchIndex] = []
+
+    def lookups():
+        index = opened.pop()
+        assert all(index.plain(branch.path) for branch in index.branches)
+
+    return _PreparedCall(
+        lambda: opened.append(_index_over_trie_copy(branches, paths)), lookups
+    )
+
+
+def _index_over_trie_copy(branches, paths) -> sc._SourceBranchIndex:
+    """A new index over a new tuple of ``branches`` and a copy of ``paths``.
+
+    ``paths`` is a built trie. The copy has new nodes, lists and maps, so
+    nothing a call stores on a node, or in a map keyed by a node or by the
+    tuple, reaches the next call; only the branch objects and their paths carry
+    over. Copying took 0.8 ms at
+    n=1600 on CPython 3.14 and 2.5 ms on 3.13, against 22-24 ms to build the
+    trie again, which reads every component of every path.
+    """
+
+    root, nodes, preorder = paths
+    copies: dict[int, sc._BranchPathNode] = {}
+    pending = [root]
+    for node in pending:
+        clone = copies[id(node)] = sc._BranchPathNode()
+        clone.indexes = list(node.indexes)
+        clone.first, clone.last = node.first, node.last
+        pending.extend(node.children.values())
+    for node in pending:
+        copies[id(node)].children = {
+            component: copies[id(child)] for component, child in node.children.items()
+        }
+    index = sc._SourceBranchIndex(tuple(list(branches)))
+    index._paths = (
+        copies[id(root)],
+        {path: copies[id(node)] for path, node in nodes.items()},
+        list(preorder),
+    )
     return index
 
 
@@ -3587,6 +3633,56 @@ def test_filling_least_starts_reads_each_start_and_index_a_few_times():
         assert index._knows_lowest_starts
         assert reads[0] <= 3 * len(branches), f"n={n}: {reads[0]} start reads"
         assert visits[0] <= 3 * len(branches), f"n={n}: {visits[0]} index reads"
+
+
+def test_trie_copies_match_the_trie_and_share_no_part_of_it():
+    # The deep families time each call on its own copy of one trie, so a copy
+    # must hold the trie's structure and give its answers, and share no node,
+    # list, map or branch tuple with the trie or with another copy.
+    branches = _attached_markers(30)
+    built = sc._SourceBranchIndex(branches)
+    paths = built._paths
+    assert paths is not None
+    copies = [_index_over_trie_copy(branches, paths) for _copy in range(2)]
+
+    def parts(index: sc._SourceBranchIndex) -> list[object]:
+        assert index._paths is not None
+        root, nodes, preorder = index._paths
+        trie = [root]
+        for node in trie:
+            trie.extend(node.children.values())
+        lists = [part for node in trie for part in (node.indexes, node.children)]
+        return [index.branches, nodes, preorder, *trie, *lists]
+
+    def shape(index: sc._SourceBranchIndex) -> list[object]:
+        assert index._paths is not None
+        root, nodes, preorder = index._paths
+        trie = [root]
+        for node in trie:
+            trie.extend(node.children.values())
+        return [
+            preorder,
+            {
+                path: (node.first, node.last, node.indexes)
+                for path, node in nodes.items()
+            },
+            [(node.first, node.last, node.indexes, [*node.children]) for node in trie],
+        ]
+
+    ids = [{id(part) for part in parts(index)} for index in (built, *copies)]
+    assert all(len(found) == len(parts(built)) for found in ids)
+    assert ids[0].isdisjoint(ids[1]) and ids[0].isdisjoint(ids[2])
+    assert ids[1].isdisjoint(ids[2])
+    assert built._knows_lowest_starts
+    for index in copies:
+        assert index.branches == branches
+        assert shape(index) == shape(built)
+        assert index._knows_lowest_starts
+        for branch in branches:
+            assert index.first_descendant_start(branch) == (
+                built.first_descendant_start(branch)
+            )
+            assert index.descendants(branch.path) == built.descendants(branch.path)
 
 
 def test_first_lookups_of_own_paths_read_no_path_components():
@@ -3759,6 +3855,12 @@ def test_deferral_reason_cpu_growth_is_near_linear(family, sizes, budget):
             (400, 800, 1600),
             1.0,
             id="branch-index-lowest-starts-deep",
+        ),
+        pytest.param(
+            _deep_own_paths_family,
+            (400, 800, 1600),
+            1.0,
+            id="branch-index-own-paths-deep",
         ),
         pytest.param(
             _branch_helper_family(
