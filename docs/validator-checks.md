@@ -79,10 +79,39 @@ tries and runs. Two subjects need to differ wherever two problems differ:
 | Per try (`encoding_runs.iterations[].errors[]`, Supabase `iterations`) | `issue_document` | `validation-issue/v2` document of that try |
 | Failure bundle (`issues.json`) | `typed_issues` (optional) | `validation-issue/v2` document |
 | Run log v1 (`gate.compile`, `gate.ci` findings) | `Finding.code` | the check id; `locator` and `evidence` from the issue |
-| Workflow refusals (`scripts/infra_issue.py record infra:<step>`) | `$RUNNER_TEMP/axiom-infra-issues.jsonl`, step summary, error annotation | one `validation-issue/v2` record per refusal, with `fix` |
+| Workflow refusals (`scripts/infra_issue.py record infra:<step>`) | `$RUNNER_TEMP/axiom-infra-issues.jsonl`, step summary, error annotation | one `validation-issue/v2` record per refusal, with `fix`; the annotation text starts with `[infra:<step>]` |
+| Any other failed pre-model or publish step of `targeted-signed-reencode.yml` | the failed step's name (jobs API, or `failed_steps` in the failure bundle) | the registry check whose `site` is `.github/workflows/targeted-signed-reencode.yml:<step name>` |
+| Every dispatch of `targeted-signed-reencode.yml` (`scripts/dispatch_record.py`) | artifact `dispatch-record-<run id>-<attempt>` (`dispatch-record.json`), and the name of the step `Upload dispatch record: ...` in job `Record dispatch` | `axiom-encode/dispatch-record/v1` (below) |
 
 Each field is absent when no issue is typed, so untyped records keep their old
 bytes.
+
+### Step checks and the dispatch record
+
+A step of the targeted re-encode workflow that fails without a typed issue of
+its own still has a check: `infra_checks.STEP_CHECK_DEFINITIONS` declares one
+`infra:<step>` check for each step of the `attempt_budget` and `encode` jobs
+that runs before the model or publishes its result. Those steps do not print
+the id. Map the failed step's name to the check through `site` in
+`check_registry.json`. A typed id in the error message (`[<check id>] ...`) is
+more specific and wins over the step check.
+
+The `dispatch_record` job writes one `axiom-encode/dispatch-record/v1` record
+per dispatch, for every trigger and before the signing approval:
+
+| Field | Meaning |
+| --- | --- |
+| `trigger_kind` | `promotion`, `repair`, `queue` or `adhoc`: the most specific of the three flags below, in that order |
+| `is_queue`, `is_repair`, `is_promotion` | `queue_id` is set; `repair_run_id` is set; the source bundle is a reviewed-PR promotion or carries `reviewed_candidate_promotion: true` (`null` when the bundle is unreadable) |
+| `open_pr`, `pr_base_branch`, `repair_run_id`, `queue_id`, `queue_item_id`, `queue_manifest_sha256`, `queue_item_generation_sha256`, `queue_dispatcher_run_id`, `citation`, `country`, `rulespec_ref`, `corpus_ref`, `rules_engine_ref` | the dispatch input, or `null` when it is empty or does not match its allowlist pattern |
+| `inputs_present` | `true`/`false` for each free-text input; the value is never recorded |
+| `invalid_inputs` | names of inputs that were set but did not match their pattern |
+| `repository`, `run_id`, `run_attempt`, `event_name`, `ref`, `head_sha`, `actor`, `triggering_actor`, `recorded_at` | run identity |
+
+The upload step's name repeats the main fields as
+`kind=<kind> open_pr=<bool> pr_base_branch=<branch> repair_run_id=<id>`, so the
+jobs API returns them without an artifact download. The job has no secret,
+continues on every error, and nothing depends on it.
 
 ### `axiom-encode/validation-issue/v2` document
 
