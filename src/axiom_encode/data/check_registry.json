@@ -603,13 +603,13 @@
     {
       "category": "infra:preflight-live-reviewed-pr-promotion",
       "cause": "infra",
-      "fix": "Check the promotion bundle against the live pull request (head, base, review state) and dispatch again.",
+      "fix": "Read the step's message. Correct `source_bundle_json`, or check the promotion bundle against the live pull request (head, base, review state), and dispatch again.",
       "gate": "workflow",
       "id": "infra:preflight-live-reviewed-pr-promotion",
-      "requires": "A reviewed-PR promotion bundle names an open, reviewed RuleSpec pull request that matches the dispatch, and the dispatch actor may promote it.",
+      "requires": "`source_bundle_json` is valid JSON. A reviewed-PR promotion bundle is dispatched from main with `open_pr` true and no other transaction input, names an open, reviewed RuleSpec pull request that matches the dispatch, and the dispatch actor may promote it.",
       "severity": "important",
       "site": ".github/workflows/targeted-signed-reencode.yml:Preflight live reviewed PR promotion",
-      "title": "The reviewed PR promotion request was refused",
+      "title": "The source bundle or the reviewed PR promotion request was refused",
       "why": "The step reads the dispatch inputs before the model runs and refuses a request that it cannot bind to one exact transaction. Nothing was encoded, so the encoder output is not at fault."
     },
     {
@@ -855,19 +855,19 @@
     {
       "category": "infra:verify-existing-signed-imports",
       "cause": "infra",
-      "fix": "Correct `existing_signed_imports_json` or split the dispatch as the step's message says.",
+      "fix": "Read the step's message. Correct the input that it names, or split the dispatch as it says.",
       "gate": "workflow",
       "id": "infra:verify-existing-signed-imports",
-      "requires": "Every path in `existing_signed_imports_json` is a signed RuleSpec file at `rulespec_ref`, and the inputs do not mix transaction modes.",
+      "requires": "Every path in `existing_signed_imports_json` is a signed RuleSpec file at `rulespec_ref`, `source_bundle_json` splits into one transaction, the repair mode resolves, and the inputs do not mix transaction modes.",
       "severity": "important",
       "site": ".github/workflows/targeted-signed-reencode.yml:Verify existing signed imports",
-      "title": "The existing signed import inputs are invalid",
+      "title": "The existing signed imports, source bundle or repair mode are invalid",
       "why": "The step reads the dispatch inputs before the model runs and refuses a request that it cannot bind to one exact transaction. Nothing was encoded, so the encoder output is not at fault."
     },
     {
       "category": "infra:verify-generated-provenance",
       "cause": "infra",
-      "fix": "Read the guard's JSON diagnostics in the step's log; they name each file and the reason.",
+      "fix": "Read the guard's JSON diagnostics in the step's log; they name each file and the reason. Without guard JSON, the last command (`git diff --check`) found a whitespace error.",
       "gate": "workflow",
       "id": "infra:verify-generated-provenance",
       "requires": "Every changed RuleSpec file carries a valid signed manifest from this encoder commit, bound to the pinned corpus and the base ref.",
@@ -961,6 +961,6 @@
       "why": "A proof atom ties a rule to the exact source words it implements. An excerpt that is not in the cited provision, or not in the rule's own subsection, proves nothing and can hide an invented value or condition."
     }
   ],
-  "registry_sha256": "389d09fea36a6e379793211796b2322e2aebb1e6220cf128f2e78117b59d26e1",
+  "registry_sha256": "aaf84c5f39854f95cbd7017adcf9668fb2a1455df45e170f7a5c248d3b888f11",
   "schema": "axiom-encode/check-registry/v1"
 }

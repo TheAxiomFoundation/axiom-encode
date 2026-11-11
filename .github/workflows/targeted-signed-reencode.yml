@@ -193,8 +193,10 @@ jobs:
   # skipped or the encode job never starts. Unprotected on purpose: no
   # secret, no environment, read-only token, and nothing depends on it.
   # Every step and the job itself continue on error, so it cannot fail or
-  # delay a run. The script copies only allowlisted values; free-text inputs
-  # are recorded as present or absent. The artifact name must not start with
+  # delay a run. The record, the step-name tag, the summary and the artifact
+  # hold only allowlisted values; free-text inputs are recorded as present or
+  # absent. (The runner prints a step's `env:` block, so this job's log shows
+  # the raw inputs, as the budget and preflight steps already do.) The artifact name must not start with
   # `targeted-reencode-`: the queue finalizer selects the signed artifact by
   # that prefix.
   dispatch_record:

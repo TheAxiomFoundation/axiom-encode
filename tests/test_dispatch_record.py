@@ -206,6 +206,39 @@ def test_values_outside_the_allowlist_become_null(name, value):
     assert len(tag.split(" ")) == 4
 
 
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "us/statute/42/1396a/xx",
+        "us/statute/42/1437c\u20131",
+        "us/statute/42/1396r\u20138/c",
+        "us-co/regulation/10 CCR 2506-1/4.207.3",
+        "uk/legislation/uksi/2013/376/regulation/14:1",
+    ],
+)
+def test_canonical_citations_are_recorded(citation):
+    from axiom_encode import corpus_resolver
+
+    jurisdiction, *segments = citation.split("/")
+    assert corpus_resolver._CITATION_JURISDICTION_RE.match(jurisdiction)
+    assert all(
+        corpus_resolver._CITATION_HIERARCHY_SEGMENT_RE.match(s) for s in segments
+    )
+    record = _record(citation=citation)
+    assert record["citation"] == citation
+    assert record["invalid_inputs"] == []
+
+
+@pytest.mark.parametrize(
+    "citation",
+    ["us/statute/7/2014(e)", "us", "US/statute/7", "us/statute//7", "us/" + "7" * 300],
+)
+def test_non_canonical_citations_are_not_recorded(citation):
+    record = _record(citation=citation)
+    assert record["citation"] is None
+    assert record["invalid_inputs"] == ["citation"]
+
+
 def test_malformed_repair_run_id_still_marks_the_repair_path():
     record = _record(repair_run_id="not-a-run")
     assert record["is_repair"] is True

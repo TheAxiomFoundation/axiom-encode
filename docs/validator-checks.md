@@ -103,6 +103,7 @@ per dispatch, for every trigger and before the signing approval:
 | --- | --- |
 | `trigger_kind` | `promotion`, `repair`, `queue` or `adhoc`: the most specific of the three flags below, in that order |
 | `is_queue`, `is_repair`, `is_promotion` | `queue_id` is set; `repair_run_id` is set; the source bundle is a reviewed-PR promotion or carries `reviewed_candidate_promotion: true` (`null` when the bundle is unreadable) |
+| `live_reviewed_pr`, `reviewed_candidate_promotion` | the two promotion forms behind `is_promotion`: a `reviewed-pr-promotion/v1` bundle; a transaction that sets `reviewed_candidate_promotion: true` |
 | `open_pr`, `pr_base_branch`, `repair_run_id`, `queue_id`, `queue_item_id`, `queue_manifest_sha256`, `queue_item_generation_sha256`, `queue_dispatcher_run_id`, `citation`, `country`, `rulespec_ref`, `corpus_ref`, `rules_engine_ref` | the dispatch input, or `null` when it is empty or does not match its allowlist pattern |
 | `inputs_present` | `true`/`false` for each free-text input; the value is never recorded |
 | `invalid_inputs` | names of inputs that were set but did not match their pattern |
@@ -111,7 +112,11 @@ per dispatch, for every trigger and before the signing approval:
 The upload step's name repeats the main fields as
 `kind=<kind> open_pr=<bool> pr_base_branch=<branch> repair_run_id=<id>`, so the
 jobs API returns them without an artifact download. The job has no secret,
-continues on every error, and nothing depends on it.
+continues on every error, and nothing depends on it. The record says what the
+dispatch requested, not what the workflow admitted: a later step can still
+refuse the promotion or the repair. The record, the tag and the artifact never
+hold a free-text value; the job log shows the raw inputs, as the logs of the
+budget and preflight steps already do.
 
 ### `axiom-encode/validation-issue/v2` document
 

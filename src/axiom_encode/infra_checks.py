@@ -258,13 +258,15 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
     ),
     (
         "Preflight live reviewed PR promotion",
-        "The reviewed PR promotion request was refused",
-        "A reviewed-PR promotion bundle names an open, reviewed RuleSpec pull "
-        "request that matches the dispatch, and the dispatch actor may "
-        "promote it.",
+        "The source bundle or the reviewed PR promotion request was refused",
+        "`source_bundle_json` is valid JSON. A reviewed-PR promotion bundle is "
+        "dispatched from main with `open_pr` true and no other transaction "
+        "input, names an open, reviewed RuleSpec pull request that matches "
+        "the dispatch, and the dispatch actor may promote it.",
         _REQUEST_WHY,
-        "Check the promotion bundle against the live pull request (head, base, "
-        "review state) and dispatch again.",
+        "Read the step's message. Correct `source_bundle_json`, or check the "
+        "promotion bundle against the live pull request (head, base, review "
+        "state), and dispatch again.",
     ),
     (
         "Parse RuleSpec-pinned axiom-compose reference",
@@ -463,12 +465,14 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
     ),
     (
         "Verify existing signed imports",
-        "The existing signed import inputs are invalid",
+        "The existing signed imports, source bundle or repair mode are invalid",
         "Every path in `existing_signed_imports_json` is a signed RuleSpec "
-        "file at `rulespec_ref`, and the inputs do not mix transaction modes.",
+        "file at `rulespec_ref`, `source_bundle_json` splits into one "
+        "transaction, the repair mode resolves, and the inputs do not mix "
+        "transaction modes.",
         _REQUEST_WHY,
-        "Correct `existing_signed_imports_json` or split the dispatch as the "
-        "step's message says.",
+        "Read the step's message. Correct the input that it names, or split "
+        "the dispatch as it says.",
     ),
     (
         "Migrate retired source metadata",
@@ -487,7 +491,8 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
         "this encoder commit, bound to the pinned corpus and the base ref.",
         _GUARD_WHY,
         "Read the guard's JSON diagnostics in the step's log; they name each "
-        "file and the reason.",
+        "file and the reason. Without guard JSON, the last command "
+        "(`git diff --check`) found a whitespace error.",
     ),
     (
         "Verify existing signed import integrity",

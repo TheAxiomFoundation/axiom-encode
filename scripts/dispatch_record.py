@@ -41,7 +41,11 @@ _SHA256 = re.compile(r"[0-9a-f]{64}")
 _RUN_ID = re.compile(r"[1-9][0-9]{0,19}")
 _TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
-_CITATION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/()-]{0,299}")
+#: The canonical citation grammar of ``corpus_resolver``: a jurisdiction, then
+#: hierarchy segments that may hold a space, ``.``, ``:``, ``-`` or an en dash.
+_CITATION = re.compile(
+    r"(?=.{1,300}\Z)[a-z]{2,3}(?:-[a-z]{2,32})*(?:/[A-Za-z0-9][A-Za-z0-9 .:\-\u2013]*)+"
+)
 _COUNTRY = re.compile(r"[a-z][a-z0-9-]{0,31}")
 _ACTOR = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,99}(\[bot\])?")
 _REPOSITORY = re.compile(r"[A-Za-z0-9._-]{1,100}/[A-Za-z0-9._-]{1,100}")
