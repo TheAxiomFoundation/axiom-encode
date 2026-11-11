@@ -16764,7 +16764,9 @@ def _run_codex_prompt_eval(
     with (
         # A seekable file, not a pipe: nothing has to feed the child while the
         # wait loop below polls it, so a full pipe cannot block the timeouts.
-        tempfile.TemporaryFile(mode="w+", encoding="utf-8") as prompt_stdin,
+        tempfile.TemporaryFile(
+            mode="w+", encoding="utf-8", errors="surrogateescape"
+        ) as prompt_stdin,
         tempfile.TemporaryDirectory(prefix="axiom-codex-home-") as codex_home_dir,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stdout_file,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,

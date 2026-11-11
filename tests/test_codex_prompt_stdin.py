@@ -8,6 +8,7 @@ a real child process with a prompt larger than both limits.
 
 import hashlib
 import json
+import shlex
 import stat
 import sys
 from pathlib import Path
@@ -17,8 +18,7 @@ from axiom_encode.harness import backends, evals
 # Larger than Linux MAX_ARG_STRLEN (131,072) and macOS ARG_MAX (1,048,576).
 _LARGE_PROMPT = "Encode this source.\n" + ("statute text " * 120_000)
 
-_FAKE_CODEX = """#!{python}
-import hashlib, json, sys
+_FAKE_CODEX = """import hashlib, json, sys
 
 argv = sys.argv[1:]
 prompt = sys.stdin.read()
@@ -41,9 +41,14 @@ print(json.dumps({{
 
 def _install_fake_codex(tmp_path: Path) -> tuple[Path, Path]:
     record_path = tmp_path / "codex-invocation.json"
+    script = tmp_path / "fake_codex.py"
+    script.write_text(_FAKE_CODEX.format(record_path=str(record_path)))
+    # A shell wrapper, not a Python shebang: a shebang line breaks on an
+    # interpreter path that is long or contains a space.
     fake = tmp_path / "fake-codex"
     fake.write_text(
-        _FAKE_CODEX.format(python=sys.executable, record_path=str(record_path))
+        f"#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(script))} "
+        '"$@"\n'
     )
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
     return fake, record_path
@@ -99,3 +104,18 @@ def test_eval_codex_prompt_sends_large_prompt_on_stdin(tmp_path, monkeypatch):
     assert response.error is None
     assert response.text == "generated output"
     _assert_prompt_arrived_on_stdin(record_path)
+
+
+def test_backend_codex_exec_sends_non_ascii_prompt_as_utf8(tmp_path, monkeypatch):
+    fake, record_path = _install_fake_codex(tmp_path)
+    monkeypatch.setattr(backends, "resolve_codex_cli", lambda: str(fake))
+    monkeypatch.setenv("PYTHONIOENCODING", "utf-8")
+    prompt = "26 U.S.C. § 32(b) — crédito, £1,000"
+
+    output, returncode = backends.CodexCLIBackend()._run_codex_exec(
+        prompt, "gpt-test", 60, tmp_path
+    )
+
+    assert returncode == 0, output[:500]
+    record = json.loads(record_path.read_text())
+    assert record["stdin_sha256"] == hashlib.sha256(prompt.encode("utf-8")).hexdigest()

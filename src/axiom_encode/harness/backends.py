@@ -469,6 +469,10 @@ class CodexCLIBackend(EncoderBackend):
                 input=prompt,
                 capture_output=True,
                 text=True,
+                # Explicit, so the prompt bytes do not depend on the locale.
+                # surrogateescape keeps what argv transport accepted on POSIX.
+                encoding="utf-8",
+                errors="surrogateescape",
                 timeout=timeout,
                 cwd=execution_root,
                 env=scrub_attestation_signing_keys(),

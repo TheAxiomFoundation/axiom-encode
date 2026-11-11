@@ -1316,6 +1316,11 @@ class TestCodexCLIBackend:
             assert "--add-dir" not in cmd
             assert cmd[cmd.index("-C") + 1] == str(Path("/tmp/output").resolve())
             assert mock_run.call_args.kwargs["cwd"] == Path("/tmp/output").resolve()
+            # The prompt, with the source text, goes on stdin and not in argv.
+            assert cmd[-1] == "-"
+            assert all("Test statute" not in arg for arg in cmd)
+            assert "Test statute" in mock_run.call_args.kwargs["input"]
+            assert mock_run.call_args.kwargs["encoding"] == "utf-8"
 
     def test_trusted_subscription_records_pinned_cli_provenance(
         self, tmp_path, monkeypatch
