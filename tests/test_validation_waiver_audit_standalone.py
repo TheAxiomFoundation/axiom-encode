@@ -369,8 +369,15 @@ def test_audit_json_bytes_and_one_timing_per_initial_module(
     assert captured.out == json.dumps(report, indent=2) + "\n"
     _assert_timings(captured.err, selected, rechecked=[bad_path] if recheck else [])
     # Writer/parser agreement: the plan line audit-costs reads says how many
-    # timing lines the audit wrote.
+    # timing lines the audit wrote and, for a partitioned audit, which shard of
+    # how many wrote them (1-based over the sorted keys), so audit-costs can
+    # tell when a run's logs miss a shard.
     err_lines = captured.err.splitlines()
+    assert _waiver_partition.audit_plans(err_lines) == [
+        _waiver_partition.AuditPlan(len(selected), key="shard-a", index=1, count=2)
+        if mode == "partition"
+        else _waiver_partition.AuditPlan(len(selected))
+    ]
     assert _waiver_partition.planned_executions(err_lines) == len(selected)
     assert sum(
         map(len, _waiver_partition.timing_observations(err_lines).values())
