@@ -34,13 +34,14 @@ The tests below pin these invariants:
   (_without_digit_mixed_percentage_slashes) and the collapse agree on a numeral
   written with "/": where the mask hides the slash the gate keeps none of the
   numeral's parts, and where it leaves the slash the collapse drops none;
-* on one line and after a space, the mask hides an unspaced slash, as in
-  "2 6/7", if and only if the extractor reads the whole numeral as a rate of its
-  mixed value. The collapse matches a mixed number written with the fraction
-  slash (U+2044), with or without spaces around the slash, if and only if the
-  extractor reads it whole as a mixed number, and one written with a vulgar
-  fraction if and only if the extractor reads it as a rate of its mixed value.
-  Neither touches "26/7", which the extractor reads as twenty-six sevenths;
+* on one line, after a space and with a whole number of digits only, the mask
+  hides an unspaced slash, as in "2 6/7", if and only if the extractor reads the
+  whole numeral as a rate of its mixed value. The collapse matches a mixed number
+  written with the fraction slash (U+2044), with or without spaces around the
+  slash, if and only if the extractor reads it whole as a mixed number. It
+  matches one written with a vulgar fraction if and only if the extractor reads
+  it as a rate of its mixed value. Neither touches "26/7", which the extractor
+  reads as twenty-six sevenths;
 * in a UK corpus the cue reader never returns "falls"; in every other corpus, and
   in text with no citation path, it does;
 * the title filter drops a condition word only inside a UK cross-reference's
