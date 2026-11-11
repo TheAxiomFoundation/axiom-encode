@@ -10,6 +10,7 @@ and a regression to a quadratic one quadruples.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import contextvars
 import dataclasses
@@ -239,13 +240,18 @@ def _old_source_clause_spans(
     source_text: str,
     *,
     branches: Sequence[SourceStructureBranch],
+    corpus_citation_path: str = "",
 ) -> Iterable[tuple[int, int, str]]:
     """Yield offset-preserving clauses split at punctuation and structure."""
 
     # Mask only authenticated structural labels, preserving offsets. The
     # resulting excerpts retain every operative character of the source.
-    printed_rows = sc._unconflicted_printed_rows(source_text, branches)
-    bare_labels = sc.bare_outline(source_text) or ()
+    printed_rows = sc._unconflicted_printed_rows(
+        source_text, branches, corpus_citation_path=corpus_citation_path
+    )
+    bare_labels = (
+        sc.bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
     display_text = sc.mask_bare_labels(source_text, bare_labels)
     boundary_text = sc._mask_spaced_german_sentence_labels(display_text)
     boundary = re.compile(
@@ -282,6 +288,7 @@ def _old_source_clause_spans(
     split_points = {
         0,
         len(source_text),
+        *sc._post_list_verification_heading_starts(source_text),
         *sc._work_chart_heading_starts(source_text),
         *sc._printed_chart_arithmetic_starts(source_text),
         *sc._printed_page_header_boundaries(source_text),
@@ -1248,6 +1255,40 @@ class _BackwardReason(str):
         return str.__str__(self)[::-1][key]
 
 
+class _RaisingLowerTitle(str):
+    """Round 5 of review's current title, whose lowercase form raises."""
+
+    def lower(self):
+        raise ValueError("title.lower called")
+
+
+class _RecordingTitle(str):
+    """A current title that records each length and lowercase read of it."""
+
+    reads: list[str]
+
+    def __len__(self) -> int:
+        self.reads.append("len")
+        return str.__len__(self)
+
+    def lower(self):
+        self.reads.append("lower")
+        return str.lower(self)
+
+
+# Recognition derives plain titles; the rest reach the helper only directly.
+_CURRENT_TITLES = (
+    None,
+    "7",
+    "42",
+    "47",
+    _SubclassReason("7"),
+    _CaseFoldReason("42"),
+    _RaisingLowerTitle("7"),
+    7,
+)
+
+
 def _reason_outcomes(reasons: Sequence[str]) -> list[object]:
     """Each match's clause bounds and contextual verdicts, raised or returned."""
 
@@ -1260,7 +1301,7 @@ def _reason_outcomes(reasons: Sequence[str]) -> list[object]:
                         reason, match, current_usc_title=title
                     )
                 )
-                for title in (None, "7", "42", "47")
+                for title in _CURRENT_TITLES
             ),
         )
         for reason in reasons
@@ -1322,6 +1363,50 @@ def test_reason_helpers_match_main_on_mixed_string_subclasses(cases):
 
     old, cold, warm = _old_and_new(lambda: _reason_outcomes(reasons))
 
+    assert cold == old
+    assert warm == cold
+
+
+@pytest.mark.parametrize(
+    ("reason", "main_reads_title"),
+    [
+        ("7 U.S.C. 2015 is missing.", False),
+        (
+            "7 U.S.C. 2015 is missing. section 2015 of this title is quoted only "
+            "for context.",
+            True,
+        ),
+    ],
+    ids=["no-relative-citation", "of-this-title"],
+)
+def test_contextual_check_reads_a_title_only_where_main_did(reason, main_reads_title):
+    # Main reads the current title only to match an untitled section followed
+    # by "of this title". A title of another type takes main's scan, so it is
+    # read, and raises, exactly where main read it.
+    match = sc._qualified_usc_dependencies(reason)[0]
+    title = _RecordingTitle("7")
+    title.reads = []
+
+    def verdicts():
+        title.reads.clear()
+        return (
+            _outcome(
+                lambda: sc._reason_dependency_occurrence_is_contextual(
+                    reason, match, current_usc_title=_RaisingLowerTitle("7")
+                )
+            ),
+            _outcome(
+                lambda: sc._reason_dependency_occurrence_is_contextual(
+                    reason, match, current_usc_title=title
+                )
+            ),
+            list(title.reads),
+        )
+
+    old, cold, warm = _old_and_new(verdicts)
+
+    assert (old[0] == ("ValueError", "title.lower called")) is main_reads_title
+    assert ("lower" in old[2]) is main_reads_title
     assert cold == old
     assert warm == cold
 
@@ -1684,6 +1769,234 @@ def test_windowed_matches_equal_sliced_matches(text):
         assert bool(sc._OF_THIS_TITLE.match(text, end)) == bool(
             re.match(r"\s+of\s+this\s+title\b", text[end:], flags=re.IGNORECASE)
         )
+
+
+class _KeptSource(str):
+    """A source of a subclass that keeps its type through ``strip``.
+
+    No plain string method returns a subclass, so only such a source reaches
+    the clause-span helpers through an analysis.
+    """
+
+    def strip(self, *args, **kwargs):
+        return self
+
+
+class _RecordingSource(_KeptSource):
+    """A source that records each index and slice read from it, in order."""
+
+    reads: list[object]
+
+    def __getitem__(self, key):
+        self.reads.append(
+            (key.start, key.stop, key.step) if isinstance(key, slice) else key
+        )
+        return str.__getitem__(self, key)
+
+
+class _OpenSliceRaisingSource(_KeptSource):
+    """A source whose slices raise when open at either end."""
+
+    def __getitem__(self, key):
+        if isinstance(key, slice) and (key.start is None or key.stop is None):
+            raise ValueError(f"open slice {key.start}:{key.stop} called")
+        return str.__getitem__(self, key)
+
+
+class _SuffixRaisingSource(_KeptSource):
+    """A source whose slices raise when open at the end."""
+
+    def __getitem__(self, key):
+        if isinstance(key, slice) and key.stop is None:
+            raise ValueError(f"suffix slice {key.start}: called")
+        return str.__getitem__(self, key)
+
+
+class _BackwardSource(_KeptSource):
+    """A source whose items and slices read it backwards."""
+
+    def __getitem__(self, key):
+        return str.__str__(self)[::-1][key]
+
+
+class _ReviewRaisingSource(str):
+    """Round 5 of review's source: it raises on the slice that ends at 10."""
+
+    def strip(self, *args, **kwargs):
+        return self
+
+    def __getitem__(self, key):
+        if isinstance(key, slice) and key.start is None and key.stop == 10:
+            raise ValueError("prefix slice called")
+        return super().__getitem__(key)
+
+
+_SOURCE_SUBCLASSES = (
+    _KeptSource,
+    _RecordingSource,
+    _OpenSliceRaisingSource,
+    _SuffixRaisingSource,
+    _BackwardSource,
+    _UnhashableReason,
+    _LooseReason,
+)
+
+# Each one reaches a check that main reads by slicing the source: a split
+# state-code citation, a number before "Lebensjahr", and formula operands
+# with and without a following proviso.
+_SUBCLASS_SOURCES = (
+    "Under R.S.\n47:297.",
+    "Under R.S. 47:297. The amount applies.",
+    "Wer das 12. Lebensjahr vollendet hat. Der Betrag gilt.",
+    "The amount is the sum of the following amounts: (a) wages; provided that "
+    "(b) tips. The rest applies.",
+    "The amount is the sum of the following amounts: (a) wages; (b) tips. The "
+    "total applies.",
+    "(a) The amount is $5. (b) The rate applies; if eligible. (1) Guidance "
+    "documents lack the force and effect of law.",
+)
+
+
+def _make_source(make: Callable[[str], str], text: str) -> str:
+    source = make(text)
+    if isinstance(source, _RecordingSource):
+        source.reads = []
+    return source
+
+
+def _clause_span_outcomes(
+    source: str, text: str, branches: tuple[SourceStructureBranch, ...]
+) -> tuple[list[object], list[object]]:
+    """Each clause-span and state-code check, raised or returned, and the reads."""
+
+    if isinstance(source, _RecordingSource):
+        source.reads.clear()
+    outcomes = [
+        _outcome(lambda: list(sc._source_clause_spans(source, branches=pool)))
+        for pool in ((), branches, list(branches))
+    ] + [
+        _outcome(
+            lambda: sc._source_clause_boundary_splits_state_code_citation(
+                source, boundary
+            )
+        )
+        for boundary in re.finditer(r"[.;]", text)
+    ]
+    return outcomes, list(getattr(source, "reads", ()))
+
+
+def _assert_clause_spans_match_main(make: Callable[[str], str], text: str) -> None:
+    source = _make_source(make, text)
+    branches = sc.recognize_source_structure(text)
+
+    old, cold, warm = _old_and_new(
+        lambda: _clause_span_outcomes(source, text, branches)
+    )
+
+    # Main's reads, in main's order; a warm run reads less where caches hit.
+    assert cold == old
+    assert warm[0] == cold[0]
+
+
+@pytest.mark.parametrize("make", _SOURCE_SUBCLASSES)
+@pytest.mark.parametrize("text", _SUBCLASS_SOURCES)
+def test_clause_spans_match_main_on_string_subclasses(make, text):
+    # Recognition's sources are plain strings. One of a subclass may slice
+    # unlike its text, so it takes main's scan, which slices before and after
+    # every boundary, in main's order.
+    _assert_clause_spans_match_main(make, text)
+
+
+@settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(
+    st.sampled_from(_SOURCE_SUBCLASSES),
+    st.lists(st.sampled_from(_SOURCE_FRAGMENTS), max_size=20).map("".join),
+)
+def test_clause_spans_match_main_on_random_string_subclasses(make, text):
+    _assert_clause_spans_match_main(make, text)
+
+
+class _MainNames(ast.NodeTransformer):
+    """Read ``sc.name`` and ``_old_name`` as the module's own ``_name``."""
+
+    def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
+        self.generic_visit(node)
+        if isinstance(node.value, ast.Name) and node.value.id == "sc":
+            return ast.Name(id=node.attr, ctx=node.ctx)
+        return node
+
+    def visit_Name(self, node: ast.Name) -> ast.AST:
+        if node.id.startswith("_old_"):
+            node.id = "_" + node.id.removeprefix("_old_")
+        return node
+
+
+def _code_without_docstring(function: Callable[..., object]) -> str:
+    node = ast.parse(textwrap.dedent(inspect.getsource(function))).body[0]
+    assert isinstance(node, ast.FunctionDef)
+    body = node.body
+    if isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        body = body[1:]
+    module = _MainNames().visit(ast.Module(body=body, type_ignores=[]))
+    return ast.dump(module) + ast.dump(node.args)
+
+
+@pytest.mark.parametrize(
+    ("scan", "old"),
+    [
+        (sc._reason_clause_bounds_by_scan, _old_reason_clause_bounds),
+        (
+            sc._reason_dependency_occurrence_is_contextual_by_scan,
+            _old_reason_dependency_occurrence_is_contextual,
+        ),
+        (sc._source_clause_spans_by_scan, _old_source_clause_spans),
+        (
+            sc._source_clause_boundary_splits_state_code_citation_by_scan,
+            _old_source_clause_boundary_splits_state_code_citation,
+        ),
+    ],
+    ids=["clause-bounds", "contextual", "clause-spans", "state-code-citation"],
+)
+def test_scan_routes_run_mains_code(scan, old):
+    # A string of another type takes these routes, so they keep main's code
+    # word for word: the copies here match main's functions.
+    assert _code_without_docstring(scan) == _code_without_docstring(old)
+
+
+def test_analysis_fails_closed_where_main_did_on_a_source_whose_slice_raises():
+    citation = "us-la/statute/47/293"
+    content = _no_rules(citation)
+
+    old, cold, warm = _old_and_new(
+        lambda: _analyze(
+            content, _ReviewRaisingSource("Under R.S.\n47:297."), citation=citation
+        )
+    )
+
+    assert any("prefix slice called" in issue for issue in old.issues)
+    assert cold == old
+    assert warm == cold
+
+
+@pytest.mark.parametrize(
+    ("content", "source", "citation", "test_cases", "profile"), FIXTURE_CASES
+)
+def test_fixture_analysis_reads_a_subclass_source_as_main_did(
+    content, source, citation, test_cases, profile
+):
+    kept = _make_source(_RecordingSource, source)
+
+    def analysis():
+        kept.reads.clear()
+        result = _analyze(
+            content, kept, citation=citation, test_cases=test_cases, profile=profile
+        )
+        return result, list(kept.reads)
+
+    old, cold, warm = _old_and_new(analysis)
+
+    assert cold == old
+    assert warm[0] == cold[0]
 
 
 def test_branch_index_is_kept_per_tuple_for_one_scope():

@@ -13414,7 +13414,9 @@ def _reason_dependency_occurrence_is_contextual(
 ) -> bool:
     """Reject context attached to this citation without crossing into another one."""
 
-    if type(reason) is not str:
+    if type(reason) is not str or (
+        current_usc_title is not None and type(current_usc_title) is not str
+    ):
         return _reason_dependency_occurrence_is_contextual_by_scan(
             reason, match, current_usc_title=current_usc_title
         )
@@ -13600,10 +13602,12 @@ def _reason_dependency_occurrence_is_contextual_by_scan(
     *,
     current_usc_title: str | None,
 ) -> bool:
-    """``_reason_dependency_occurrence_is_contextual`` for a reason of another type.
+    """``_reason_dependency_occurrence_is_contextual`` for other argument types.
 
-    A ``str`` subclass may hash, compare or slice unlike its text, so it is
-    neither indexed nor cached: every citation rescans it, as before.
+    A ``str`` subclass may hash, compare, slice or lowercase unlike its text. A
+    reason of another type is neither indexed nor cached, so every citation
+    rescans it; a current title of another type is read only where this scan
+    reads it, as before.
     """
 
     groups = match.groupdict()
@@ -24637,6 +24641,14 @@ def _source_clause_spans(
 ) -> Iterable[tuple[int, int, str]]:
     """Yield offset-preserving clauses split at punctuation and structure."""
 
+    if type(source_text) is not str:
+        yield from _source_clause_spans_by_scan(
+            source_text,
+            branches=branches,
+            corpus_citation_path=corpus_citation_path,
+        )
+        return
+
     # Mask only authenticated structural labels, preserving offsets. The
     # resulting excerpts retain every operative character of the source.
     printed_rows = _unconflicted_printed_rows(
@@ -24742,6 +24754,119 @@ def _source_clause_spans(
             )
 
 
+def _source_clause_spans_by_scan(
+    source_text: str,
+    *,
+    branches: Sequence[SourceStructureBranch],
+    corpus_citation_path: str = "",
+) -> Iterable[tuple[int, int, str]]:
+    """``_source_clause_spans`` for a source of another type, rescanned.
+
+    A ``str`` subclass may slice unlike its text, so every boundary check
+    slices the source before and after the boundary, as before.
+    """
+
+    # Mask only authenticated structural labels, preserving offsets. The
+    # resulting excerpts retain every operative character of the source.
+    printed_rows = _unconflicted_printed_rows(
+        source_text, branches, corpus_citation_path=corpus_citation_path
+    )
+    bare_labels = (
+        bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
+    display_text = mask_bare_labels(source_text, bare_labels)
+    boundary_text = _mask_spaced_german_sentence_labels(display_text)
+    boundary = re.compile(
+        r";|:(?=\s*(?i:provided)\s*,?\s*(?i:that)\b)|"
+        r"[.!?](?=(?:[ \t]+[A-ZÄÖÜ(]|\s*$))",
+        flags=re.MULTILINE,
+    )
+    inline_operand_list_spans = _formula_inline_operand_list_spans(source_text)
+    boundary_matches = (
+        match
+        for match in boundary.finditer(boundary_text)
+        if not _source_clause_boundary_splits_state_code_citation(source_text, match)
+        and not (
+            match.group() == "."
+            and re.search(r"(?<!\w)\d+\.$", source_text[: match.end()])
+            and re.match(r"\s+Lebensjahr(?:es|e|en)?\b", source_text[match.end() :])
+        )
+        and not any(
+            start < match.end() < end for start, end in inline_operand_list_spans
+        )
+        and not (
+            match.group() == ";"
+            and _FORMULA_DIRECT_FOLLOWING_OPERANDS.search(
+                source_text[max(0, match.start() - 300) : match.start()]
+            )
+            and ":" in source_text[max(0, match.start() - 300) : match.start()]
+            and not _FORMULA_FOLLOWING_OPERAND_PROVISO.match(source_text[match.end() :])
+        )
+    )
+    split_points = {
+        0,
+        len(source_text),
+        *_post_list_verification_heading_starts(source_text),
+        *_work_chart_heading_starts(source_text),
+        *_printed_chart_arithmetic_starts(source_text),
+        *_printed_page_header_boundaries(source_text),
+        *(
+            point
+            for span in _spaced_german_sentence_label_spans(source_text)
+            for point in span
+        ),
+        *(
+            match.end()
+            for match in boundary_matches
+            if printed_rows is None
+            or not any(a < match.end() < b for a, b in printed_rows.atomic_spans)
+        ),
+        *(
+            point
+            for row in _worksheet_arithmetic_rows(source_text)
+            for point in (row.start(), row.end())
+        ),
+        *(
+            match.start()
+            for match in re.finditer(
+                r"\b(?:Guidance\s+documents\s+lack\s+the\s+force\s+and\s+"
+                r"effect\s+of\s+law|USDA\s+may\s+not\s+cite,\s*use,\s*or\s+"
+                r"rely\s+on\s+any\s+guidance)\b",
+                source_text,
+                flags=re.IGNORECASE,
+            )
+        ),
+        *(branch.start for branch in branches),
+        *(branch.end for branch in branches),
+        *(label.start for label in bare_labels),
+        *(label.marker_end for label in bare_labels),
+        *(
+            (
+                start
+                for start, _term in bare_definition_headers(source_text, bare_labels)
+            )
+            if bare_labels
+            else ()
+        ),
+    }
+    if printed_rows is not None:
+        split_points.update(
+            point
+            for point in printed_rows.boundaries
+            if not any(a < point < b for a, b in printed_rows.atomic_spans)
+        )
+    for start, end in zip(sorted(split_points), sorted(split_points)[1:]):
+        raw = boundary_text[start:end]
+        left_trimmed = len(raw) - len(raw.lstrip())
+        right_trimmed = len(raw.rstrip())
+        if right_trimmed > left_trimmed:
+            yield (
+                start + left_trimmed,
+                start + right_trimmed,
+                display_text[start + left_trimmed : start + right_trimmed],
+            )
+
+
 def _formula_inline_operand_list_spans(source_text: str) -> tuple[tuple[int, int], ...]:
     """Keep flattened colon-introduced formula operands in one source clause."""
 
@@ -24783,6 +24908,10 @@ def _source_clause_boundary_splits_state_code_citation(
 ) -> bool:
     """Keep a line-wrapped ``R.S. 47:...`` citation in one legal clause."""
 
+    if type(source_text) is not str:
+        return _source_clause_boundary_splits_state_code_citation_by_scan(
+            source_text, boundary
+        )
     # The citation is four characters, one before a final newline at most, so
     # its prefix check reads six characters (``\b`` reads one more), not the
     # whole source before the boundary.
@@ -24791,6 +24920,22 @@ def _source_clause_boundary_splits_state_code_citation(
         boundary.group(0) == "."
         and _STATE_CODE_CITATION_TITLE.search(source_text, max(0, end - 6), end)
         and _STATE_CODE_CITATION_SECTION.match(source_text, end)
+    )
+
+
+def _source_clause_boundary_splits_state_code_citation_by_scan(
+    source_text: str,
+    boundary: re.Match[str],
+) -> bool:
+    """The state-code citation check for a source of another type, sliced."""
+
+    return bool(
+        boundary.group(0) == "."
+        and re.search(r"\bR\.S\.$", source_text[: boundary.end()], re.IGNORECASE)
+        and re.match(
+            r"\s*\d+[A-Za-z]?:\d+[A-Za-z]?",
+            source_text[boundary.end() :],
+        )
     )
 
 
