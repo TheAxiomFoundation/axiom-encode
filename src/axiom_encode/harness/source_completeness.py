@@ -25897,17 +25897,19 @@ def _formula_branch_computation_occurrences(
     )
     extracted_occurrences = tuple(extract_numeric_occurrences(recall_text))
     # The extractor reads "2 6/7 per cent" as one rate and also yields the 2, 6
-    # and 7 inside it. Those components state no computation of their own. A
-    # rate may start before the numeral, at a hyphen the extractor reads as a
-    # minus sign ("-2 6/7 per cent").
+    # and 7 inside it. Those components state no computation of their own, so
+    # the gate drops every occurrence nested in one that covers the numeral. The
+    # covering occurrence may start before the numeral, at a hyphen the
+    # extractor reads as a minus sign ("-2 6/7 per cent"). With a fraction slash
+    # (U+2044) before some markers, such as a hyphen, the extractor reads the
+    # whole as a plain number rather than a rate; its parts go all the same.
     mixed_percentages = tuple(
         match.span() for match in _MIXED_PERCENTAGE.finditer(recall_text)
     )
     mixed_percentage_spans = tuple(
         (occurrence.start, occurrence.end)
         for occurrence in extracted_occurrences
-        if occurrence.has_rate_context
-        and any(
+        if any(
             occurrence.start <= start and end <= occurrence.end
             for start, end in mixed_percentages
         )

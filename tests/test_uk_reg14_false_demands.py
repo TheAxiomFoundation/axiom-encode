@@ -47,6 +47,10 @@ test_known_gap_limbs_with_no_cue_of_their_own pins a known gap. Regulation
 passes this gate. test_danish_and_german_extractors_keep_a_mixed_percentages_parts
 pins a known limit: in Danish and German corpora the numeric extractor reads
 `2 6/7 %` as separate numbers, so the gate keeps them while it reads no division.
+test_a_numeral_with_a_fraction_slash_has_no_parts pins another: with a fraction
+slash before a hyphen, a line break or "percentage points", the extractor reads
+the numeral as a plain number, so the gate keeps that number, though not its
+parts.
 """
 
 from __future__ import annotations
@@ -252,13 +256,27 @@ def test_a_mixed_percentage_after_a_hyphen_is_one_rate(
     assert math.isclose(abs(inside[0].value), (2 + 6 / 7) / 100)
 
 
-def test_a_numeral_with_a_fraction_slash_has_no_parts() -> None:
+@pytest.mark.parametrize(
+    ("marker", "rate"),
+    [
+        (" per cent", True),
+        (" percent", True),
+        ("%", True),
+        ("-per cent", False),
+        ("-percent", False),
+        (" percentage points", False),
+        ("\nper cent", False),
+    ],
+)
+def test_a_numeral_with_a_fraction_slash_has_no_parts(marker: str, rate: bool) -> None:
+    # The extractor reads a numeral with a fraction slash as a rate before some
+    # markers and as a plain number before others. Either way its parts go.
     numeral = f"2 6{chr(0x2044)}7"
-    text = f"amount B is {numeral} per cent of the excess"
+    text = f"amount B is {numeral}{marker} of the excess"
     start = text.index(numeral)
-    assert {(item.start, item.end) for item in occurrences(text)} == {
-        (start, start + len(numeral))
-    }
+    found = occurrences(text)
+    assert {(item.start, item.end) for item in found} == {(start, start + len(numeral))}
+    assert any(item.has_rate_context for item in found) is rate
 
 
 @pytest.mark.parametrize(
