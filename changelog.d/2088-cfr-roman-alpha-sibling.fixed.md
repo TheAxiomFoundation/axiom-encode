@@ -1,1 +1,1 @@
-Correct US legal slices when the next ancestor paragraph letter also parses as a skipped Roman numeral, while preserving corroborated Roman sequences.
+Correct US legal slices when the next ancestor paragraph letter also parses as a skipped Roman numeral, prefer exact next numeric or Roman siblings, and refuse recovered spans with ambiguous vetoed, skipped or inline markers. Keep numeric conditions joined by semicolons under a CFR subparagraph when a colon introduces `(1)` on that same line.

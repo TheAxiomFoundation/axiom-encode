@@ -3772,6 +3772,903 @@ def test_us_hierarchy_contiguous_roman_lists_stay_nested(
         )
 
 
+def _synthetic_us_parent(document_class: str) -> str:
+    return (
+        "us/regulation/7/999/1"
+        if document_class == "regulation"
+        else "us/statute/7/9999"
+    )
+
+
+def _slice_synthetic(body: str, parent: str, path: str) -> str:
+    return corpus_resolver._slice_parent_body(
+        body, requested_path=f"{parent}/{path}", resolved_path=parent
+    )
+
+
+# The walk reads the "(c)" that follows this prefix as paragraph (c): as a
+# Roman numeral it would be clause 100 right after clause 2.
+_RECOVERED_C_PREFIX = "(b) B.\n\n(1) B one.\n\n(ii) B one ii.\n\n"
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param("(b) B.\n\n", id="plain"),
+        pytest.param(_RECOVERED_C_PREFIX, id="after-recovered-letter"),
+    ],
+)
+def test_us_cfr_hierarchy_prefers_exact_next_paragraph_over_italic_gap(prefix: str):
+    parent = "us/regulation/7/999/1"
+    c3 = "(3) C three.\n\n(i) C three i.\n\n(A) C three i A.\n\n(1) Italic one."
+    body = (
+        f"{prefix}(c) C.\n\n(1) C one.\n\n(2) C two.\n\n{c3}\n\n(4) C four.\n\n(d) D."
+    )
+    # "(4)" is the next paragraph after (c)(3), not italic (4) after a gap
+    # under (c)(3)(i)(A), just as 12 CFR 1005.18(b)(7) follows (b)(6). Main
+    # read it as the italic numeral; after a recovered (c) that made (c)(3)
+    # swallow (c)(4).
+    assert _slice_synthetic(body, parent, "c/3") == c3
+    assert (
+        _slice_synthetic(body, parent, "c/3/i/A")
+        == "(A) C three i A.\n\n(1) Italic one."
+    )
+    assert _slice_synthetic(body, parent, "c/4") == "(4) C four."
+
+
+@pytest.mark.parametrize(
+    "following", ["", "\n\n(iii) C one iii."], ids=["single", "roman-run"]
+)
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param("(b) B.\n\n", id="plain"),
+        pytest.param(_RECOVERED_C_PREFIX, id="after-recovered-letter"),
+    ],
+)
+def test_us_cfr_hierarchy_returns_roman_clause_to_its_list_after_italic_numeral(
+    prefix: str,
+    following: str,
+):
+    parent = "us/regulation/7/999/1"
+    c1i = "(i) C one i.\n\n(A) C one i A.\n\n(1) Italic one."
+    c1 = f"(1) C one.\n\n{c1i}\n\n(ii) C one ii.{following}"
+    body = f"{prefix}(c) C.\n\n{c1}\n\n(2) C two.\n\n(d) D."
+    # "(ii)" follows clause (i) rather than opening an italic level under
+    # (1), as in 7 CFR 273.7(c)(18)(ii), and a following "(iii)" doesn't
+    # change that.
+    assert _slice_synthetic(body, parent, "c/1/i") == c1i
+    assert _slice_synthetic(body, parent, "c/1/ii") == "(ii) C one ii."
+    assert _slice_synthetic(body, parent, "c/1") == c1
+    assert _slice_synthetic(body, parent, "c/2") == "(2) C two."
+
+
+# The walk reads "(C)" after (B)(ii)(II) as subparagraph (C): as a Roman
+# numeral it would be subclause 100 right after subclause 2.
+_RECOVERED_SUBPARAGRAPH_PREFIX = (
+    "(B) Definitions.— (i) First term.— Text. (ii) Second term.— "
+    "(I) In general.— Text. (II) Inclusion.— Text.\n\n"
+    "(C) Middle subparagraph.\n\n"
+)
+
+
+@pytest.mark.parametrize(
+    "subparagraph",
+    [
+        pytest.param(
+            "(D) (i) Each agency may exempt members. (ii) Each agency may exempt more.",
+            id="period",
+        ),
+        pytest.param(
+            "(D) (i) the lease shall run one year; (ii) the owner shall not evict.",
+            id="semicolon",
+        ),
+        pytest.param(
+            "(D) (i) Each agency may exempt members. (iii) Each agency may report.",
+            id="past-repealed-sibling",
+        ),
+    ],
+)
+def test_us_statute_hierarchy_refuses_recovered_clause_with_inline_sibling(
+    subparagraph: str,
+):
+    parent = "us/statute/7/9999/d/4"
+    body = f"{_RECOVERED_SUBPARAGRAPH_PREFIX}{subparagraph}\n\n(E) Last subparagraph."
+    # The recovered (C) lets the walk reach (D)(i), but the walker never ends
+    # a slice at the inline "(ii)", so (D)(i) would run on through it, as
+    # 7 USC 2015(d)(4)(D)(i) did. It refuses; the subparagraphs still slice.
+    with pytest.raises(CorpusSourceSliceError, match="Inline sibling marker"):
+        _slice_synthetic(body, parent, "D/i")
+    assert _slice_synthetic(body, parent, "C") == "(C) Middle subparagraph."
+    assert _slice_synthetic(body, parent, "D") == subparagraph
+    assert _slice_synthetic(body, parent, "E") == "(E) Last subparagraph."
+
+
+def test_us_statute_hierarchy_inline_sibling_rule_skips_roman_readable_letters():
+    parent = "us/statute/7/9999"
+    recovered = "(b) B.\n\n(1) N.\n\n(A) A.\n\n(ii) R.\n\n(c) C.\n\n(d) D.\n\n"
+    roman_target = "(h) Target lists records, notices, etc. (i) In general.— A clause."
+    roman_body = (
+        f"{recovered}(e) E.\n\n(f) F.\n\n(g) G.\n\n{roman_target}\n\n(j) Following."
+    )
+    plain_body = (
+        f"{recovered}(e) Target paragraph. (f) Another paragraph runs inline."
+        "\n\n(g) Following."
+    )
+    # An inline "(i)" after "etc." more likely opens a clause than paragraph
+    # (i), as in 26 USC 42(h), so (h) keeps its slice. A plain inline "(f)"
+    # after a sentence can only be paragraph (f), so (e) refuses.
+    assert _slice_synthetic(roman_body, parent, "h") == roman_target
+    with pytest.raises(CorpusSourceSliceError, match="Inline sibling marker"):
+        _slice_synthetic(plain_body, parent, "e")
+
+
+def test_us_statute_hierarchy_refuses_skipped_roman_readable_boundary_after_recovery():
+    parent = "us/statute/7/9999/d/1"
+    duration = (
+        "(C) Duration.— (i) First .— Ineligible until— (I) one; (II) two; or "
+        "(III) three. (ii) Second .— Ineligible until— (I) one; or (II) two. "
+        "(iii) Third .— Ineligible until— (I) one; (II) two; (III) three; or "
+        "(IV) four."
+    )
+    body = (
+        f"{duration}\n\n"
+        "(D) Administration.— (i) Good cause .— Text. (ii) Voluntary quit .— "
+        "Text. (iii) Determination.— (I) In general .— Subject to subclause "
+        "(II), an agency shall decide. (II) Not less restrictive .— Text. "
+        "(iv) Strike .— Text. (v) Head of household.— (I) In general .— For "
+        "purposes of this paragraph, a household may select its head. "
+        "(II) Time for designation .— Text."
+    )
+    # As in 7 USC 2015(d)(1), the walk recovers (D) and then reads the second
+    # "(I) In general" as subparagraph (I), skipping (E) through (H). It also
+    # reads as subclause (I) of (D)(v), so (D) refuses rather than stop there
+    # and (I) refuses rather than start there.
+    assert _slice_synthetic(body, parent, "C") == duration
+    with pytest.raises(CorpusSourceSliceError, match="skipped ending marker"):
+        _slice_synthetic(body, parent, "D")
+    with pytest.raises(CorpusSourceSliceError, match="skipped target marker"):
+        _slice_synthetic(body, parent, "I")
+
+
+@pytest.mark.parametrize(
+    ("document_class", "target", "tail"),
+    [
+        pytest.param(
+            "regulation",
+            "(c) Target (see paragraph (b)(1))",
+            "\n\n(d) Following.\n\n(e) E.",
+            id="reference-cue",
+        ),
+        pytest.param(
+            "statute",
+            "(c) Target (see paragraph (b)(1))",
+            "\n\n(d) Following.\n\n(e) E.",
+            id="reference-cue-statute",
+        ),
+        pytest.param(
+            "regulation",
+            "(c) Target (see paragraph (b)(1))",
+            "\n\n(d) Following.",
+            id="reference-cue-end-of-source",
+        ),
+        pytest.param(
+            "regulation",
+            "(c) Target (unclosed prose.",
+            "\n\n(d) Following.\n\n(e) Closed here).\n\n(f) After.",
+            id="enclosed-parenthesis",
+        ),
+        pytest.param(
+            "regulation",
+            "(c) Target [unclosed prose.",
+            "\n\n(d) Following.\n\n(e) Closed here].\n\n(f) After.",
+            id="enclosed-bracket",
+        ),
+        pytest.param(
+            "statute",
+            "(c) Target (unclosed prose.",
+            "\n\n(d) Following.\n\n(e) Closed here).\n\n(f) After.",
+            id="enclosed-statute",
+        ),
+    ],
+)
+def test_us_hierarchy_rejects_recovered_slice_with_hidden_ending_marker(
+    document_class: str,
+    target: str,
+    tail: str,
+):
+    parent = _synthetic_us_parent(document_class)
+    statute_subparagraph = "(A) A.\n\n" if document_class == "statute" else ""
+    previous = f"(b) B.\n\n(1) N.\n\n{statute_subparagraph}(ii) R."
+    body = f"{previous}\n\n{target}{tail}"
+    # The structural checks veto line-start "(d)" after the line that ends
+    # in ")", or find it inside a delimiter that closes later. Reference
+    # wording before it and a later closing delimiter are no proof that "(d)"
+    # doesn't end the recovered (c), so (c) refuses rather than swallow it.
+    with pytest.raises(CorpusSourceSliceError, match="Ambiguous ending marker"):
+        _slice_synthetic(body, parent, "c")
+    assert _slice_synthetic(body, parent, "b") == previous
+
+
+def test_us_cfr_hierarchy_refuses_target_after_vetoed_match_of_its_path():
+    parent = "us/regulation/7/999/1"
+    body = (
+        f"{_RECOVERED_C_PREFIX}(c) Paragraph c.\n\n(d) Paragraph d.\n\n"
+        "(1) Paragraph d/1. (closed)\n\n(3) Paragraph d/3. (closed)\n\n"
+        "(e) Paragraph e.\n\n(3) Paragraph e/3."
+    )
+    # The structural checks veto "(3)" under (d) and the "(e)" after it, each
+    # after a line that ends in ")". The stack still ends at (d)(1) when
+    # "(3) Paragraph e/3." comes, so that marker takes the path d/3. The
+    # vetoed marker that matched the path first leaves two readings, so d/3
+    # refuses rather than return paragraph (e)(3).
+    with pytest.raises(CorpusSourceSliceError, match="Ambiguous starting marker"):
+        _slice_synthetic(body, parent, "d/3")
+    assert _slice_synthetic(body, parent, "c") == "(c) Paragraph c."
+
+
+def test_us_cfr_hierarchy_refuses_skipped_roman_readable_marker_after_vetoed_numeral():
+    parent = "us/regulation/7/999/1"
+    body = (
+        f"{_RECOVERED_C_PREFIX}(c) Paragraph c.\n\n(1) Paragraph c/1.\n\n"
+        "(i) Paragraph c/1/i. (closed)\n\n(2) Paragraph c/2.\n\n(i) Paragraph c/2/i."
+    )
+    # The structural checks veto "(2)" after the line that ends in ")", so the
+    # stack still ends at (c)(1)(i) when the second "(i)" comes. That marker
+    # then fits only as paragraph (i), which skips (d) through (h) and also
+    # reads as a Roman item, so (c) refuses to end there and (i) refuses to
+    # start there.
+    with pytest.raises(CorpusSourceSliceError, match="skipped ending marker"):
+        _slice_synthetic(body, parent, "c")
+    with pytest.raises(CorpusSourceSliceError, match="skipped target marker"):
+        _slice_synthetic(body, parent, "i")
+
+
+@pytest.mark.parametrize("document_class", ["regulation", "statute"])
+def test_us_hierarchy_ignores_recovered_reading_of_vetoed_marker(document_class: str):
+    parent = _synthetic_us_parent(document_class)
+    statute_subparagraph = "(A) A.\n\n" if document_class == "statute" else ""
+    first = (
+        f"(1) N.\n\n{statute_subparagraph}"
+        "(ii) R (as amended)\n(c) Applies to this paragraph."
+    )
+    body = f"(b) B.\n\n{first}\n\n(2) Two.\n\n(3) Three."
+    # "(c)" reads as the letter after (b), but the structural checks veto it
+    # after the line that ends in ")". It stays off the stack, so the walk
+    # runs as main's does, and these slices stay as main returns them. Only
+    # an accepted recovered letter puts a walk under the recovered-hierarchy
+    # checks, which would refuse them.
+    assert _slice_synthetic(body, parent, "b/1") == first
+    assert _slice_synthetic(body, parent, "b/2") == "(2) Two."
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        pytest.param("paragraph\n(c) of this section.", id="label-before"),
+        pytest.param("in\n(c)(1) of this section.", id="tail-after"),
+    ],
+)
+def test_us_cfr_hierarchy_keeps_wrapped_citation_out_of_recovered_letters(
+    citation: str,
+):
+    parent = "us/regulation/7/999/1"
+    body = (
+        f"(b) B.\n\n(1) N.\n\n(ii) R, as described in {citation}\n\n(2) Two.\n\n(c) C."
+    )
+    # The source wraps a citation onto a new line, so a line starts with a
+    # "(c)" that names paragraph (c) rather than starting it. Read as a
+    # recovered letter, it would cut (b) short and hand (c) the citation.
+    assert _slice_synthetic(body, parent, "b") == body[: body.index("\n\n(c) C.")]
+    try:
+        paragraph_c = _slice_synthetic(body, parent, "c")
+    except CorpusSourceSliceError:
+        return
+    assert paragraph_c == "(c) C."
+
+
+def test_us_cfr_hierarchy_keeps_recovered_slice_with_vetoed_deeper_marker():
+    parent = "us/regulation/7/999/1"
+    c = "(c) C.\n\n(1) C one (closed)\n\n(2) C two."
+    body = f"{_RECOVERED_C_PREFIX}{c}\n\n(d) D."
+    # The structural checks veto "(2)" after the line that ends in ")". It
+    # sits below (c), so it can't end (c), and its path isn't d, so it can't
+    # start (d) either: both slices stand. It could end (c)(1), which refuses.
+    assert _slice_synthetic(body, parent, "c") == c
+    assert _slice_synthetic(body, parent, "d") == "(d) D."
+    with pytest.raises(CorpusSourceSliceError, match="Ambiguous ending marker"):
+        _slice_synthetic(body, parent, "c/1")
+
+
+def test_us_cfr_hierarchy_keeps_skipped_roman_items_after_recovered_letter():
+    parent = "us/regulation/7/999/1"
+    body = (
+        f"{_RECOVERED_C_PREFIX}(c) C.\n\n(1) C one.\n\n(i) I.\n\n(iii) III.\n\n(d) D."
+    )
+    # Clause (ii) is missing, as when a regulation removes an item. A Roman
+    # item that skips another has no letter reading to doubt, so the
+    # skipped-marker checks leave (i) and (iii) alone after a recovered (c).
+    assert _slice_synthetic(body, parent, "c/1/i") == "(i) I."
+    assert _slice_synthetic(body, parent, "c/1/iii") == "(iii) III."
+
+
+def test_us_cfr_hierarchy_recovers_letter_despite_unrelated_earlier_predecessor():
+    parent = "us/regulation/7/999/1"
+    body = (
+        "(t) T.\n(1) N.\n(i) I.\n(ii) II.\n(iii) III.\n(iv) IV.\n"
+        "(u) U.\n(1) N.\n(i) I.\n(ii) II.\n(v) V.\n(1) V one.\n(w) W."
+    )
+    # "(v)" after (u)(1)(ii) is a plausible gap, but the "(1)" after it opens
+    # a paragraph, not a clause, so "(v)" is paragraph (v). The "(iv)" under
+    # (t) belongs to another list and is no Roman predecessor for it.
+    assert _slice_synthetic(body, parent, "u") == "(u) U.\n(1) N.\n(i) I.\n(ii) II."
+    assert _slice_synthetic(body, parent, "v") == "(v) V.\n(1) V one."
+
+
+def test_us_cfr_hierarchy_recovers_letter_before_next_letter_past_enclosed_marker():
+    parent = "us/regulation/7/999/1"
+    v = "(v) V (see the note\n(vi) Six)."
+    body = f"(u) U.\n(1) N.\n(i) I.\n(ii) II.\n(iii) III.\n{v}\n(w) W."
+    # "(v)" after (u)(1)(iii) is a plausible gap, and the next anchored
+    # marker, "(w)", follows it as a letter. The line-start "(vi)" sits inside
+    # the open parenthesis, so it can't continue the clauses.
+    expected_u = "(u) U.\n(1) N.\n(i) I.\n(ii) II.\n(iii) III."
+    assert _slice_synthetic(body, parent, "u") == expected_u
+    assert _slice_synthetic(body, parent, "v") == v
+
+
+def test_us_cfr_hierarchy_recovers_letter_whose_first_child_runs_inline():
+    parent = "us/regulation/7/999/1"
+    x = "(x) Non-payment. (1) First child runs inline.\n(2) Second child."
+    body = f"(w) W.\n(1) N.\n(i) I.\n(ii) II.\n(iii) III.\n(iv) IV.\n{x}\n(y) Y."
+    # Read as a clause, "(x)" would be item 10 after item 4, so it is
+    # paragraph (x), as "(d) Non-payment. (1) ..." is in 47 CFR 54.1810. Its
+    # first child runs inline, so the next anchored marker, "(2)", is its
+    # second child, not a second item under (w).
+    assert _slice_synthetic(body, parent, "w") == body[: body.index("\n(x)")]
+    assert _slice_synthetic(body, parent, "x") == x
+
+
+def test_us_cfr_hierarchy_recovers_letter_at_end_of_source():
+    parent = "us/regulation/7/999/1"
+    body = "(u) U.\n(1) N.\n(i) I.\n(ii) II.\n(iii) III.\n(v) V."
+    # Nothing anchored follows "(v)", so no later marker can continue the
+    # clauses, and the end of the source counts as evidence for the letter.
+    expected_u = "(u) U.\n(1) N.\n(i) I.\n(ii) II.\n(iii) III."
+    assert _slice_synthetic(body, parent, "u") == expected_u
+    assert _slice_synthetic(body, parent, "v") == "(v) V."
+
+
+def test_us_cfr_hierarchy_refuses_recovered_clause_with_inline_sibling():
+    """Refuse a clause that swallows an inline sibling in flattened CFR definitions."""
+    parent = "us/regulation/7/999/1"
+    c1 = "(1) (i) Term one means one. (ii) Term two means two."
+    body = f"{_RECOVERED_C_PREFIX}(c) C.\n\n{c1}\n\n(2) C two.\n\n(d) D."
+    # The line-leading "(1) (i)" starts clause (i), but its inline sibling
+    # cannot end it. After the recovered (c), the clause must refuse while
+    # the enclosing paragraph still slices.
+    with pytest.raises(CorpusSourceSliceError, match="Inline sibling marker"):
+        _slice_synthetic(body, parent, "c/1/i")
+    assert _slice_synthetic(body, parent, "c/1") == c1
+
+
+def test_us_cfr_hierarchy_keeps_recovered_paragraph_with_line_start_italic_sibling():
+    """Keep CFR paragraph text containing a separate line for each italic item."""
+    parent = "us/regulation/7/999/1"
+    c1 = (
+        "(1) C one.\n\n(i) C one i.\n\n(A) C one i A.\n\n(1) Italic one."
+        "\n\n(2) Italic two."
+    )
+    body = f"{_RECOVERED_C_PREFIX}(c) C.\n\n{c1}\n\n(2) C two.\n\n(d) D."
+    assert _slice_synthetic(body, parent, "c/1") == c1
+    assert _slice_synthetic(body, parent, "c/2") == "(2) C two."
+
+
+def test_us_cfr_hierarchy_keeps_recovered_paragraph_with_inline_italic_sibling():
+    """Keep CFR household conditions numbered inline inside subparagraph (A)."""
+    parent = "us/regulation/7/999/1"
+    c1 = "(1) C one.\n\n(i) C one i.\n\n(A) The household: (1) is X; (2) is Y."
+    body = f"{_RECOVERED_C_PREFIX}(c) C.\n\n{c1}\n\n(2) C two.\n\n(d) D."
+    assert _slice_synthetic(body, parent, "c/1") == c1
+    assert _slice_synthetic(body, parent, "c/2") == "(2) C two."
+
+
+@pytest.mark.parametrize(
+    "last_condition",
+    [
+        "(A) Last condition ends. (2) C two.",
+        "(A) The household: (1) meets the definition. (2) C two.",
+    ],
+)
+def test_us_cfr_hierarchy_refuses_inline_paragraph_after_subparagraph(last_condition):
+    """Refuse a CFR paragraph swallowing the next paragraph after its last child."""
+    parent = "us/regulation/7/999/1"
+    c1 = f"(1) C one.\n\n(i) C one i.\n\n{last_condition}"
+    body = f"{_RECOVERED_C_PREFIX}(c) C.\n\n{c1}\n\n(3) C three.\n\n(d) D."
+    with pytest.raises(CorpusSourceSliceError, match="Inline sibling marker"):
+        _slice_synthetic(body, parent, "c/1")
+
+
+def test_us_cfr_inline_sibling_evidence_keeps_continued_roman_run():
+    """A skipped Roman run cannot hide a later paragraph sibling.
+
+    This models a CFR work requirement whose inline first paragraph contains
+    clauses (iii), (v), and (vi) before the second paragraph.
+    """
+    parent = "us/regulation/7/999/1"
+    first_paragraph = (
+        "(1) First paragraph.\n\n(iii) Third clause.\n\n"
+        "(v) Fifth clause.\n\n(vi) Sixth clause."
+    )
+    body = (
+        f"(u) Work requirement {first_paragraph}\n\n"
+        "(2) Second paragraph.\n\n(w) Next subsection."
+    )
+    assert _slice_synthetic(body, parent, "u/1") == first_paragraph
+
+
+def test_us_cfr_inline_sibling_evidence_recovers_next_letter():
+    """A recovered next letter can prove an inline subsection boundary.
+
+    This models a flattened CFR definition subsection followed by numbered
+    content and a new subsection (c), rather than Roman clause one hundred.
+    """
+    parent = "us/regulation/7/999/1"
+    subsection = (
+        "(b) As used in this subsection, the term means this.\n\n"
+        "(1) First paragraph.\n\n(ii) Second clause."
+    )
+    body = f"(a) Prior. {subsection}\n\n(c) Next subsection."
+    assert _slice_synthetic(body, parent, "b") == subsection
+
+
+def test_us_cfr_hierarchy_recovers_letter_after_label_that_ends_a_paragraph():
+    parent = "us/regulation/7/999/1"
+    previous = "(b) B.\n\n(1) N.\n\n(ii) Duties under this section"
+    body = f"{previous}\n\n(c) C.\n\n(1) C one."
+    # A blank line after "section" ends clause (ii), so "(c)" starts paragraph
+    # (c) rather than finishing a citation.
+    assert _slice_synthetic(body, parent, "b") == previous
+    assert _slice_synthetic(body, parent, "c") == "(c) C.\n\n(1) C one."
+
+
+@pytest.mark.parametrize(
+    "first_clause",
+    [
+        pytest.param(
+            "(i) Except as provided in clause (ii), each agency may act.",
+            id="reference",
+        ),
+        pytest.param(
+            "(i) Section 5 is amended by striking “text; (ii) old text” and "
+            "inserting “new”.",
+            id="quoted",
+        ),
+    ],
+)
+def test_us_statute_hierarchy_keeps_recovered_clause_with_inline_reference(
+    first_clause: str,
+):
+    parent = "us/statute/7/9999/d/4"
+    subparagraph = f"(D) {first_clause}\n\n(ii) Second clause.— Text."
+    body = f"{_RECOVERED_SUBPARAGRAPH_PREFIX}{subparagraph}\n\n(E) Last subparagraph."
+    # An inline "(ii)" that a reference introduces, or that sits inside a
+    # quotation, names clause (ii) rather than starting it, so the inline
+    # sibling check leaves (D)(i) to end at the line-start "(ii)".
+    assert _slice_synthetic(body, parent, "D/i") == first_clause
+    assert _slice_synthetic(body, parent, "D/ii") == "(ii) Second clause.— Text."
+    assert _slice_synthetic(body, parent, "D") == subparagraph
+
+
+@pytest.mark.parametrize(
+    ("document_class", "body", "list_path", "list_end", "clause_path", "letter"),
+    [
+        pytest.param(
+            "regulation",
+            "(u) U.\n(1) N.\n(i) I.\n(ii) II.\n(iii) III (closed)\n(iv) Four.\n"
+            "(v) Five.\n(w) W.",
+            "u",
+            "\n(w)",
+            "u/1/v",
+            "v",
+            id="vetoed-predecessor",
+        ),
+        pytest.param(
+            "regulation",
+            "(u) U.\n(1) N.\n(i) I.\n(ii) II.\n(iii) III. (iv) Four.\n"
+            "(v) Five.\n(w) W.",
+            "u",
+            "\n(w)",
+            "u/1/v",
+            "v",
+            id="inline-predecessor",
+        ),
+        pytest.param(
+            "regulation",
+            "(w) W.\n(1) N.\n(i) I.\n(ii) II.\n(iii) III.\n(iv) IV.\n(v) V.\n"
+            "(vi) VI.\n(vii) VII.\n(viii) VIII (closed)\n(ix) Nine.\n(x) Five.\n"
+            "(y) Y.",
+            "w",
+            "\n(y)",
+            "w/1/x",
+            "x",
+            id="vetoed-ix-before-x",
+        ),
+        pytest.param(
+            "statute",
+            "(u) U.\n(1) N.\n(A) A.\n(i) I.\n(ii) II.\n(iii) III (closed)\n"
+            "(iv) Four.\n(v) Five.\n(w) W.",
+            "u",
+            "\n(w)",
+            "u/1/A/v",
+            "v",
+            id="statute-lower",
+        ),
+        pytest.param(
+            "statute",
+            "(a) A.\n(1) N.\n(U) U.\n(i) I.\n(I) UI.\n(II) UII.\n"
+            "(III) UIII (closed)\n(IV) UIV.\n(V) Five.\n(W) W.",
+            "a/1/U",
+            "\n(W)",
+            "a/1/U/i/V",
+            "a/1/V",
+            id="statute-upper",
+        ),
+    ],
+)
+def test_us_hierarchy_keeps_roman_item_after_raw_predecessor(
+    document_class: str,
+    body: str,
+    list_path: str,
+    list_end: str,
+    clause_path: str,
+    letter: str,
+):
+    parent = _synthetic_us_parent(document_class)
+    list_marker = f"({list_path.split('/')[-1]})"
+    expected_list = body[body.index(list_marker) : body.index(list_end)]
+    clause_marker = clause_path.split("/")[-1]
+    # The walker vetoes the predecessor after the line that ends in ")" or
+    # sees it inline, so its stack skips one Roman item. The predecessor in
+    # the source still makes the next marker a Roman item, not a letter.
+    assert _slice_synthetic(body, parent, list_path) == expected_list
+    assert _slice_synthetic(body, parent, clause_path) == f"({clause_marker}) Five."
+    with pytest.raises(CorpusSourceSliceError):
+        _slice_synthetic(body, parent, letter)
+
+
+@pytest.mark.parametrize(
+    "five",
+    ["(v) Five.", "(v) Five.\n(A) Five A."],
+    ids=["leaf", "with-child"],
+)
+@pytest.mark.parametrize("romans", [("i", "ii", "iii"), ("i", "ii")])
+def test_us_cfr_hierarchy_keeps_skipped_roman_item_when_parent_list_continues(
+    five: str,
+    romans: tuple[str, ...],
+):
+    parent = "us/regulation/7/999/1"
+    first = "\n".join(["(1) N.", *(f"({roman}) R{roman}." for roman in romans), five])
+    body = f"(u) U.\n{first}\n(2) Two.\n(w) W."
+    # "(v)" after (u)(1)(iii) or (u)(1)(ii) drops no more items than the list
+    # keeps, a plausible gap, and the next marker continues (u)(1) rather than
+    # following a letter (v). Nothing supports the letter, so "(v)" stays a
+    # clause. Two items is the last list length where that holds.
+    assert _slice_synthetic(body, parent, "u") == body[: body.index("\n(w)")]
+    assert _slice_synthetic(body, parent, "u/1") == first
+    assert _slice_synthetic(body, parent, "u/1/v") == five
+    assert _slice_synthetic(body, parent, "u/2") == "(2) Two."
+    with pytest.raises(CorpusSourceSliceError):
+        _slice_synthetic(body, parent, "v")
+
+
+def test_us_statute_hierarchy_slices_later_subsection_after_repeated_recovered_letter():
+    parent = "us/statute/19/9999"
+    clauses = "(c) C.\n\n(1) N.\n\n(A) UA.\n\n(i) R one.\n\n(ii) R two."
+    tail = (
+        "\n\n(d) First D.\n\n(d) Second D.\n\n(1) Report.\n\n(2) Omitted.\n\n"
+        "(5) Renumbered.\n\n(f) F.\n\n(1) N.\n\n(2) Two."
+    )
+    body = f"(a) A.\n\n(b) B.\n\n{clauses}{tail}"
+    # 19 USC 1862 designates two subsections (d). Under the Roman reading the
+    # first (d) is clause 500 and the second is the only (d); under the letter
+    # reading the second repeats the first. (f) starts and ends at the same
+    # markers either way, so it slices. The repeated letter and its children,
+    # however they are numbered, differ between the readings, so they refuse.
+    assert _slice_synthetic(body, parent, "f") == "(f) F.\n\n(1) N.\n\n(2) Two."
+    assert _slice_synthetic(body, parent, "f/1") == "(1) N."
+    assert _slice_synthetic(body, parent, "c") == clauses
+    for path in ("d", "d/1", "d/2", "d/5"):
+        with pytest.raises(CorpusSourceSliceError):
+            _slice_synthetic(body, parent, path)
+    # A repeat of a letter that the walk did not recover stays ambiguous for
+    # every later target, as on main.
+    plain = f"(a) A.\n\n(b) B.\n\n(c) C.\n\n(1) N.{tail}"
+    with pytest.raises(CorpusSourceSliceError, match="unassigned legal marker"):
+        _slice_synthetic(plain, parent, "f")
+
+
+def _assert_verbatim_fixture_slices(
+    body: str,
+    parent: str,
+    expected: dict[str, tuple[str, str]],
+) -> None:
+    for path, (start_text, next_text) in expected.items():
+        assert body.count(start_text) == 1, start_text
+        start = body.index(start_text)
+        actual = _slice_synthetic(body, parent, path)
+        assert actual == body[start : start + len(actual)], path
+        assert body[start + len(actual) :].startswith(next_text), path
+
+
+def test_us_cfr_hierarchy_slices_verbatim_prepaid_disclosure_excerpt():
+    # Verbatim 12 CFR 1005.18(b) through the first line of (c), from the
+    # pinned 2026-10-19-title-12-part-1005 section row, without repairs.
+    body = (
+        Path(__file__).parent
+        / "fixtures"
+        / "cfr_1005_18_b_prepaid_disclosures_excerpt.txt"
+    ).read_text(encoding="utf-8")
+    next_c = "\n\n(c) Access to prepaid account information"
+    next_7 = "\n\n(7) Specific formatting requirements"
+    _assert_verbatim_fixture_slices(
+        body,
+        "us/regulation/12/1005/18",
+        {
+            "b": ("(b) Pre-acquisition disclosure requirements", next_c),
+            "b/2/ix": (
+                "(ix) Disclosure of additional fee types",
+                "\n\n(x) Statement regarding overdraft credit features",
+            ),
+            "b/2/x": (
+                "(x) Statement regarding overdraft credit features",
+                "\n\n(xi) Statement regarding registration",
+            ),
+            "b/2/xiv": (
+                "(xiv) Additional content for payroll card accounts",
+                "\n\n(3) Short form disclosure of variable fees",
+            ),
+            "b/6": ("(6) Form of pre-acquisition disclosures", next_7),
+            "b/6/iii": ("(iii) Tabular format", next_7),
+            "b/6/iii/B": ("(B) Multiple service plans—(1) Short form", next_7),
+            "b/7": (
+                "(7) Specific formatting requirements",
+                "\n\n(8) Terminology of pre-acquisition disclosures",
+            ),
+            "b/8": (
+                "(8) Terminology of pre-acquisition disclosures",
+                "\n\n(9) Prepaid accounts acquired in foreign languages",
+            ),
+            "b/9": ("(9) Prepaid accounts acquired in foreign languages", next_c),
+        },
+    )
+
+
+def test_us_cfr_hierarchy_slices_verbatim_snap_employment_training_excerpt():
+    # Verbatim 7 CFR 273.7(c) through the first line of (d), from the pinned
+    # 2026-05-10-snap-7-cfr-273-r2026-07-15-self-contained section row,
+    # without repairs.
+    body = (
+        Path(__file__).parent
+        / "fixtures"
+        / "cfr_273_7_c_state_agency_responsibilities_excerpt.txt"
+    ).read_text(encoding="utf-8")
+    next_d = "\n\n(d) Federal financial participation"
+    next_ii = "\n\n(ii) From the time an E&T provider determines"
+    _assert_verbatim_fixture_slices(
+        body,
+        "us/regulation/7/273/7",
+        {
+            "c": ("(c) State agency responsibilities.", next_d),
+            "c/18": ("(18)(i) The State agency must ensure E&T providers", next_d),
+            "c/18/i": ("(i) The State agency must ensure E&T providers", next_ii),
+            "c/18/i/B": ("(B) Take the most suitable action", next_ii),
+            "c/18/i/B/4": (
+                "(4) Coordinate, to the maximum extent practicable,",
+                next_ii,
+            ),
+            "c/18/ii": ("(ii) From the time an E&T provider determines", next_d),
+        },
+    )
+
+
+def test_us_statute_hierarchy_slices_verbatim_snap_work_requirement_excerpt():
+    # Verbatim 7 USC 2015(d)(4)(B) through the first line of (F), from the
+    # pinned 2026-07-22-rulespec-title-7-consolidated paragraph row, without
+    # repairs.
+    body = (
+        Path(__file__).parent / "fixtures" / "usc_7_2015_d_4_b_through_f_excerpt.txt"
+    ).read_text(encoding="utf-8")
+    parent = "us/statute/7/2015/d/4"
+    _assert_verbatim_fixture_slices(
+        body,
+        parent,
+        {
+            "C": (
+                "(C) The State agency may provide",
+                "\n\n(D) (i) Each State agency may exempt",
+            ),
+            "D": (
+                "(D) (i) Each State agency may exempt",
+                "\n\n(E) Requirements for participation",
+            ),
+            "E": (
+                "(E) Requirements for participation",
+                "\n\n(F) (i) The total hours of work",
+            ),
+        },
+    )
+    # Each first clause runs on through the inline "(ii)" that follows a
+    # sentence, so it refuses rather than return its sibling with it.
+    for path in ("D/i", "E/i"):
+        with pytest.raises(CorpusSourceSliceError, match="Inline sibling marker"):
+            _slice_synthetic(body, parent, path)
+
+
+_LEGAL_KINDS = ("lower_alpha", "numeric", "lower_roman", "upper_alpha", "upper_roman")
+
+
+@settings(max_examples=200, deadline=None, database=None)
+@given(
+    document_class=st.sampled_from(("regulation", "statute")),
+    ordinals=st.lists(st.integers(min_value=1, max_value=30), max_size=9),
+    kind=st.sampled_from(_LEGAL_KINDS),
+    ordinal=st.integers(min_value=1, max_value=31),
+)
+def test_new_level_or_exact_sibling_takes_deepest_exact_predecessor(
+    document_class: str,
+    ordinals: list[int],
+    kind: str,
+    ordinal: int,
+):
+    """A later item never opens a level while its predecessor waits above.
+
+    Invariant, for every stack and marker reading: the level is the deepest
+    one whose item is the marker's exact predecessor of the same kind, and a
+    new level only when the marker is a first item or no such level exists.
+    """
+    stack = [
+        (
+            corpus_resolver._legal_marker_kind_for_level(
+                level, document_class=document_class
+            ),
+            "x",
+            value,
+            level,
+        )
+        for level, value in enumerate(ordinals)
+    ]
+    exact = [
+        level
+        for level, item in enumerate(stack)
+        if item[0] == kind and item[2] + 1 == ordinal
+    ]
+    level = corpus_resolver._new_level_or_exact_sibling(stack, kind, ordinal)
+    if ordinal == 1 or not exact:
+        assert level == len(stack)
+    else:
+        assert level == max(exact)
+
+
+# Line endings that make the walker's structural checks veto the next
+# line-start marker, with and without the reference wording that the old
+# guard exempted, and an opener that never closes.
+_OUTLINE_NOISE = ("", "", "", " (closed)", " (see paragraph (b)(1))", " (open")
+
+
+@st.composite
+def _generated_recovered_outlines(draw):
+    """Outlines whose every walk crosses a recovered paragraph (c), with noise.
+
+    Each outline starts with (b)(1)(ii), so the walk reads the next "(c)" as
+    paragraph (c), not clause 100. It then draws numbering gaps in numeric
+    lists, top-level gaps to letters that read only as letters, vetoed
+    line-start markers, reference wording before a veto, an opener that
+    never closes, clauses flattened onto one line after "." or ";",
+    and a (u)(1) Roman list that runs through (iv) to (v) before (w).
+    """
+    document_class = draw(st.sampled_from(("regulation", "statute")))
+    letters = draw(
+        st.sampled_from(
+            (("c", "d", "e", "f"), ("c", "d", "f", "g"), ("c", "e", "g"))
+            + (("c", "d", "u", "w"), ("c", "u", "w"))
+        )
+    )
+    letters = letters[: draw(st.integers(min_value=1, max_value=len(letters)))]
+    marker_levels = (
+        ("numeric", "lower_roman", "upper_alpha")
+        if document_class == "regulation"
+        else ("numeric", "upper_alpha", "lower_roman", "upper_roman")
+    )
+    tokens = {
+        "numeric": tuple(str(number) for number in range(1, 6)),
+        "lower_roman": _OUTLINE_ROMANS[:5],
+        "upper_alpha": tuple("ABC"),
+        "upper_roman": ("I", "II"),
+    }
+    expected: dict[tuple[str, ...], str] = {}
+
+    def children_of(path: tuple[str, ...]) -> list[str]:
+        if len(path) > len(marker_levels):
+            return []
+        kind = marker_levels[len(path) - 1]
+        available = tokens[kind]
+        if kind == "lower_roman":
+            # Only (u)(1) may reach (v), and only with (w) as the next
+            # paragraph: there "(v)" continues the clauses (iv) began.
+            reaches_v = path[:2] == ("u", "1") and "v" not in letters
+            available = available[: 5 if reaches_v else 4]
+        count = draw(st.integers(min_value=0, max_value=min(3, len(available))))
+        if kind == "numeric" and count:
+            # Numeric lists may skip numbers; no other list here repeats the
+            # numeric kind, so a gap can't read as a deeper item.
+            picks = draw(
+                st.lists(
+                    st.sampled_from(available),
+                    min_size=count,
+                    max_size=count,
+                    unique=True,
+                )
+            )
+            return sorted(picks, key=int)
+        if kind == "lower_roman" and path[:2] == ("u", "1") and len(available) == 5:
+            return list(available[: draw(st.sampled_from((0, 4, 5)))])
+        return list(available[:count])
+
+    def render(path: tuple[str, ...], *, flattened: str | None = None) -> str:
+        child_tokens = children_of(path)
+        if flattened is not None:
+            # A flattened clause ends with the separator its sibling follows.
+            parts = [f"({path[-1]}) Clause {'/'.join(path)}{flattened}"]
+            parts.extend(
+                render((*path, token), flattened=flattened) for token in child_tokens
+            )
+            text = " ".join(parts)
+            expected[path] = text
+            return text
+        flatten = len(path) >= 2 and child_tokens and draw(st.booleans())
+        if flatten:
+            separator = draw(st.sampled_from((".", ";")))
+            # The first clause follows its parent's marker directly, as in
+            # 7 USC 2015(d)(4)(D): "(D) (i) Each State agency ... (ii) ...".
+            text = f"({path[-1]}) " + " ".join(
+                render((*path, token), flattened=separator) for token in child_tokens
+            )
+            expected[path] = text
+            return text
+        noise = draw(st.sampled_from(_OUTLINE_NOISE))
+        parts = [f"({path[-1]}) Paragraph {'/'.join(path)}.{noise}"]
+        parts.extend(render((*path, token)) for token in child_tokens)
+        text = "\n\n".join(parts)
+        expected[path] = text
+        return text
+
+    statute_subparagraph = "(A) A.\n\n" if document_class == "statute" else ""
+    prefix = f"(b) B.\n\n(1) N.\n\n{statute_subparagraph}(ii) R."
+    expected[("b",)] = prefix
+    body = "\n\n".join([prefix, *(render((letter,)) for letter in letters)])
+    return document_class, body, expected
+
+
+@settings(max_examples=150, deadline=None, database=None)
+@given(_generated_recovered_outlines())
+def test_us_hierarchy_recovered_outline_soundness_under_noise(outline):
+    """A walk through a recovered letter returns the intended span or refuses.
+
+    Invariant, for every generated outline: each requested path either
+    refuses or returns exactly its independently rendered span, whatever the
+    gaps, vetoes, reference wording, unclosed openers or flattened clauses.
+    """
+    document_class, body, expected = outline
+    parent = _synthetic_us_parent(document_class)
+    for path, span in expected.items():
+        try:
+            actual = _slice_synthetic(body, parent, "/".join(path))
+        except CorpusSourceSliceError:
+            continue
+        assert actual == span, path
+
+
 def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
     version = "2026-01-01-children"
     _write_selector(tmp_path, [_scope(version)])

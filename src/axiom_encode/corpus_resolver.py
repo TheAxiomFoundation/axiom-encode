@@ -2710,6 +2710,11 @@ def _body_starts_with_legal_marker_after_preamble(text: str, token: str) -> bool
     return False
 
 
+# (kind, token, ordinal, index of the accepting marker); citation ancestors
+# that the source never states carry index -1.
+_LegalStackItem = tuple[str, str, int, int]
+
+
 def _slice_us_legal_hierarchy(
     text: str,
     fragments: tuple[str, ...],
@@ -2723,20 +2728,24 @@ def _slice_us_legal_hierarchy(
         return None
     first_scope = text
 
-    stack: list[tuple[str, str, int]] = []
+    stack: list[_LegalStackItem] = []
     for level, token in enumerate(ancestor_fragments):
         kind = _legal_marker_kind_for_level(level, document_class=document_class)
         ordinal = dict(_legal_marker_kind_ordinals(token)).get(kind)
         if ordinal is None:
             return None
-        stack.append((kind, token, ordinal))
+        stack.append((kind, token, ordinal, -1))
     last_strong_top_level_ordinal = stack[0][2] if stack else None
     target_start: int | None = None
     target_level: int | None = None
     target_kind: str | None = None
     target_ordinal: int | None = None
+    ambiguous_target_marker = False
     recovered_alpha_seen = False
+    recovered_marker_indexes: set[int] = set()
+    recovered_duplicate_ordinal: int | None = None
     rejected_ending_marker = False
+    rejected_starting_marker = False
     rejected_target_seen = False
     ambiguous_unassigned_before_target = False
     provisional_levels: set[int] = set()
@@ -2762,10 +2771,25 @@ def _slice_us_legal_hierarchy(
         (match.start("marker") for match in marker_matches),
     )
     evidence_budget = _HierarchyEvidenceBudget()
+    letter_context = _RecoveredLetterContext(
+        text=first_scope,
+        marker_matches=marker_matches,
+        document_class=document_class,
+        evidence_budget=evidence_budget,
+        delimiter_enclosed_starts=delimiter_enclosed_starts,
+    )
 
-    def finish_slice(end: int) -> str:
+    def finish_slice(end: int, *, ambiguous_terminator: bool = False) -> str:
+        # A slice depends on a recovered letter when the walk accepted one
+        # anywhere from the start of the source through the slice's end
+        # marker: the recovery rebuilds the stack that later targets use.
         assert target_start is not None
+        assert target_kind is not None and target_ordinal is not None
         if recovered_alpha_seen:
+            if rejected_starting_marker:
+                raise CorpusSourceSliceError(
+                    "Ambiguous starting marker after recovered legal hierarchy"
+                )
             if rejected_ending_marker:
                 raise CorpusSourceSliceError(
                     "Ambiguous ending marker after recovered legal hierarchy"
@@ -2776,6 +2800,37 @@ def _slice_us_legal_hierarchy(
                 raise CorpusSourceSliceError(
                     "Could not verify delimiters for recovered legal hierarchy "
                     "at end of source"
+                )
+            # Without the recovery these slices refused, so they must not now
+            # start or stop at a misread marker. A marker the walker vetoed or
+            # saw inline leaves the stack behind, and the next marker takes
+            # whatever reading still fits. One that skips ordinals at its
+            # level and also reads as a Roman item is such a reading: in
+            # 7 USC 2015(d)(1), "(I) In general" opens a subclause of (D)(v),
+            # but as a letter it would be subparagraph (I) after (D).
+            if ambiguous_target_marker:
+                raise CorpusSourceSliceError(
+                    "Ambiguous skipped target marker after recovered legal hierarchy"
+                )
+            if ambiguous_terminator:
+                raise CorpusSourceSliceError(
+                    "Ambiguous skipped ending marker after recovered legal hierarchy"
+                )
+            # Flattened text, statute text above all, runs clauses together on
+            # one line, and the walker never ends a slice at an inline marker,
+            # so a clause would run on through the siblings that follow it.
+            if _span_has_inline_sentence_sibling(
+                first_scope,
+                marker_matches,
+                start=target_start,
+                end=end,
+                kind=target_kind,
+                ordinal=target_ordinal,
+                document_class=document_class,
+                delimiter_enclosed_starts=delimiter_enclosed_starts,
+            ):
+                raise CorpusSourceSliceError(
+                    "Inline sibling marker inside recovered legal hierarchy"
                 )
         return first_scope[target_start:end]
 
@@ -2797,13 +2852,6 @@ def _slice_us_legal_hierarchy(
             document_class=document_class,
             delimiter_enclosed_starts=delimiter_enclosed_starts,
         )
-        continues_roman_sequence = _marker_continues_roman_sequence(
-            first_scope,
-            marker_matches,
-            marker_index,
-            evidence_budget=evidence_budget,
-            delimiter_enclosed_starts=delimiter_enclosed_starts,
-        )
         assigned = _assign_legal_marker_level(
             stack,
             token,
@@ -2811,7 +2859,8 @@ def _slice_us_legal_hierarchy(
             target_fragments=fragments,
             prefer_target_child=not directly_structural,
             prefer_roman_child=begins_roman_sequence,
-            continues_roman_sequence=continues_roman_sequence,
+            marker_index=marker_index,
+            letter_context=letter_context,
         )
         marker_kind_ordinals = _legal_marker_kind_ordinals(token)
         top_level_kind = _legal_marker_kind_for_level(0, document_class=document_class)
@@ -2845,7 +2894,21 @@ def _slice_us_legal_hierarchy(
                     document_class=document_class,
                 )
             ):
-                ambiguous_unassigned_before_target = True
+                if (
+                    top_level_ordinal is not None
+                    and top_level_ordinal == stack[0][2]
+                    and stack[0][3] in recovered_marker_indexes
+                ):
+                    # A repeat of a letter the walk recovered would be that
+                    # letter under the Roman reading: 19 USC 1862 has two
+                    # subsections designated (d). A later top-level target
+                    # starts and ends at the same markers under either
+                    # reading; the repeated letter's descendants don't.
+                    recovered_duplicate_ordinal = max(
+                        top_level_ordinal, recovered_duplicate_ordinal or 0
+                    )
+                else:
+                    ambiguous_unassigned_before_target = True
             if (
                 directly_structural
                 and target_start is not None
@@ -2861,7 +2924,15 @@ def _slice_us_legal_hierarchy(
                             first_scope,
                             match.start("marker"),
                         )
-                        return finish_slice(sibling_start)
+                        return finish_slice(
+                            sibling_start,
+                            ambiguous_terminator=(
+                                same_level_ordinal != target_ordinal + 1
+                                and _marker_has_alternative_roman_reading(
+                                    marker_kind_ordinals, target_kind
+                                )
+                            ),
+                        )
                     raise CorpusSourceSliceError(
                         "Malformed duplicate or backward legal marker sequence"
                     )
@@ -2911,20 +2982,18 @@ def _slice_us_legal_hierarchy(
             delimiter_enclosed_starts=delimiter_enclosed_starts,
         )
         if not marker_is_structural:
-            if (
-                target_level is not None
-                and level <= target_level
-                and has_strong_boundary
-                and match.start("marker") not in delimiter_enclosed_starts
-                and not _marker_follows_explicit_reference_cue(
-                    first_scope,
-                    match.start("marker"),
-                    context_start=last_structural_end,
-                )
-            ):
-                # A new interpretation must not silently swallow a plausible
-                # ending that the existing structural/reference veto rejects.
-                rejected_ending_marker = True
+            # A recovered reading must not silently swallow a line-start
+            # marker that could end the slice, nor pass over one that could
+            # start it and leave a later marker to take its path. Reference
+            # wording and an open delimiter before it are no proof that it
+            # can't: the cue pattern matches deadline prose such as "not later
+            # than the date under paragraph (6)", and an unclosed parenthesis
+            # can enclose every later sibling.
+            if has_strong_boundary:
+                if target_level is not None and level <= target_level:
+                    rejected_ending_marker = True
+                elif target_start is None and candidate_path == fragments:
+                    rejected_starting_marker = True
             if candidate_path == fragments and (
                 (directly_structural and has_strong_boundary) or has_preceding_heading
             ):
@@ -2940,17 +3009,20 @@ def _slice_us_legal_hierarchy(
                         "US legal hierarchy exceeds the bounded depth limit of "
                         f"{_MAX_US_LEGAL_HIERARCHY_DEPTH}"
                     )
-                stack.append((kind, token, ordinal))
+                stack.append((kind, token, ordinal, marker_index))
                 provisional_levels.add(level)
             continue
         recovered_alpha_seen |= recovered_alpha
+        if recovered_alpha:
+            recovered_marker_indexes.add(marker_index)
+        skips_ordinal = level < len(stack) and ordinal != stack[level][2] + 1
         stack = stack[:level]
         provisional_levels = {
             provisional_level
             for provisional_level in provisional_levels
             if provisional_level < level
         }
-        stack.append((kind, token, ordinal))
+        stack.append((kind, token, ordinal, marker_index))
         last_structural_end = match.end("marker")
         path = tuple(item[1] for item in stack)
         proves_top_level_boundary = (
@@ -2976,7 +3048,13 @@ def _slice_us_legal_hierarchy(
 
         if target_start is None:
             if path == fragments:
-                if ambiguous_unassigned_before_target:
+                if ambiguous_unassigned_before_target or (
+                    recovered_duplicate_ordinal is not None
+                    and not (
+                        proves_top_level_boundary
+                        and ordinal > recovered_duplicate_ordinal
+                    )
+                ):
                     raise CorpusSourceSliceError(
                         "Ambiguous structural target follows an unassigned legal marker"
                     )
@@ -2994,8 +3072,15 @@ def _slice_us_legal_hierarchy(
                 target_level = level
                 target_kind = kind
                 target_ordinal = ordinal
+                ambiguous_target_marker = (
+                    skips_ordinal
+                    and _marker_has_alternative_roman_reading(
+                        marker_kind_ordinals, kind
+                    )
+                )
             elif proves_top_level_boundary:
                 ambiguous_unassigned_before_target = False
+                recovered_duplicate_ordinal = None
             continue
         if target_level is not None and level <= target_level:
             if ambiguous_deep_advancing_level is not None:
@@ -3005,7 +3090,15 @@ def _slice_us_legal_hierarchy(
             sibling_start = _bracket_aware_marker_start(
                 first_scope, match.start("marker")
             )
-            return finish_slice(sibling_start)
+            return finish_slice(
+                sibling_start,
+                ambiguous_terminator=(
+                    skips_ordinal
+                    and _marker_has_alternative_roman_reading(
+                        marker_kind_ordinals, kind
+                    )
+                ),
+            )
 
     if target_start is not None:
         if ambiguous_deep_advancing_level is not None:
@@ -3029,7 +3122,7 @@ def _marker_begins_roman_sequence(
     matches: tuple[re.Match[str], ...],
     index: int,
     *,
-    stack: list[tuple[str, str, int]],
+    stack: list[_LegalStackItem],
     document_class: str,
     delimiter_enclosed_starts: AbstractSet[int],
 ) -> bool:
@@ -3076,23 +3169,16 @@ def _legal_source_has_complete_delimiter_replay(text: str) -> bool:
         return False
 
 
-def _marker_continues_roman_sequence(
+def _next_anchored_marker_token(
     text: str,
     matches: tuple[re.Match[str], ...],
     index: int,
     *,
     evidence_budget: _HierarchyEvidenceBudget,
     delimiter_enclosed_starts: AbstractSet[int],
-) -> bool:
-    """Check the next anchored marker, skipping inline numeric references."""
+) -> str | None:
+    """Return the next line-anchored marker's token, skipping inline references."""
 
-    current_ordinals = dict(_legal_marker_kind_ordinals(matches[index].group("token")))
-    roman_kind = next(
-        (kind for kind in ("lower_roman", "upper_roman") if kind in current_ordinals),
-        None,
-    )
-    if roman_kind is None:
-        return False
     # Cache the next anchored token for every traversed index, so a tail of
     # inline references is scanned once across the walk and its evidence scans.
     next_token: str | None = None
@@ -3103,35 +3189,294 @@ def _marker_continues_roman_sequence(
             break
         visited.append(next_index)
         next_match = matches[next_index]
-        next_ordinals = dict(_legal_marker_kind_ordinals(next_match.group("token")))
         marker_start = next_match.start("marker")
         if (
-            next_ordinals
+            _legal_marker_kind_ordinals(next_match.group("token"))
             and _parenthetical_marker_has_strong_boundary(text, marker_start)
             and marker_start not in delimiter_enclosed_starts
         ):
             # A closing prose delimiter can veto a genuine line-start marker
-            # in the existing lexer. Its Roman continuation still makes the
-            # new ancestor-alpha interpretation unsafe.
+            # in the existing lexer. It still shows which sequence continues.
             next_token = next_match.group("token")
             break
     for visited_index in visited:
         evidence_budget.next_anchored_tokens[visited_index] = next_token
-    next_ordinals = dict(_legal_marker_kind_ordinals(next_token or ""))
-    return next_ordinals.get(roman_kind) == current_ordinals[roman_kind] + 1
+    return next_token
+
+
+# A legal label right before a marker, or "of this section" right after it,
+# means the marker names a provision inside a citation that the source wrapped
+# onto a new line: "as described in paragraph\n(c) of this section". A blank
+# line after the label ends a paragraph instead.
+_CITATION_LABEL_BEFORE_MARKER = re.compile(
+    r"(?:\b(?:paragraph|subparagraph|section|subsection|clause|subclause|item)s?"
+    r"|§)[ \t]*\n?[ \t]*\Z",
+    re.IGNORECASE,
+)
+_CITATION_TAIL_AFTER_MARKER = re.compile(
+    r"(?:\([A-Za-z0-9]+\))*\s+of\s+(?:this\s+(?:paragraph|subparagraph|section|"
+    r"subsection|subpart|part|subchapter|chapter|title|act)\b|section\s)",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _RecoveredLetterContext:
+    """Source evidence for reading a skipped Roman numeral as a letter.
+
+    The stack alone can't separate a skipped Roman item from an ancestor's
+    next letter: in 7 CFR 273.18, "(d)" after (c)(2)(iii) reads as clause
+    500 or as paragraph (d). The markers around it in the source decide.
+    """
+
+    text: str
+    marker_matches: tuple[re.Match[str], ...]
+    document_class: str
+    evidence_budget: _HierarchyEvidenceBudget
+    delimiter_enclosed_starts: AbstractSet[int]
+
+    def supports_letter(
+        self,
+        stack: list[_LegalStackItem],
+        marker_index: int,
+        *,
+        roman_level: int,
+        roman_kind: str,
+        roman_ordinal: int,
+        letter_level: int,
+        letter_kind: str,
+        letter_ordinal: int,
+    ) -> bool:
+        # A wrapped citation names a letter without starting it.
+        marker = self.marker_matches[marker_index]
+        if _CITATION_LABEL_BEFORE_MARKER.search(
+            self.text, max(0, marker.start("marker") - 40), marker.start("marker")
+        ) or _CITATION_TAIL_AFTER_MARKER.match(self.text, marker.end("marker")):
+            return False
+        # A raw predecessor between the stack's Roman item and this marker
+        # makes the Roman reading contiguous even when the walker vetoed it
+        # or saw it inline: "(iv)" after "(iii) III (closed)" keeps the
+        # following "(v)" Roman.
+        predecessor = _int_to_roman_marker(
+            roman_ordinal - 1, uppercase=roman_kind == "upper_roman"
+        )
+        if any(
+            match.group("token") == predecessor
+            for match in self.marker_matches[stack[roman_level][3] + 1 : marker_index]
+        ):
+            return False
+        next_token = _next_anchored_marker_token(
+            self.text,
+            self.marker_matches,
+            marker_index,
+            evidence_budget=self.evidence_budget,
+            delimiter_enclosed_starts=self.delimiter_enclosed_starts,
+        )
+        next_ordinals = dict(_legal_marker_kind_ordinals(next_token or ""))
+        if next_ordinals.get(roman_kind) == roman_ordinal + 1:
+            # The next anchored marker continues the Roman sequence.
+            return False
+        if roman_ordinal > 2 * stack[roman_level][2] + 1:
+            # A list rarely drops more items than it keeps, so such a reading
+            # is no numbering gap: "(d)" after "(iii)" would be item 500
+            # after item 3. Only a plausible gap needs evidence for the letter.
+            # That holds even when the next anchored marker seems to continue
+            # the parent list: in 47 CFR 54.1810, "(d) Non-payment. (1) ..."
+            # runs its first child inline, so "(2)" comes next.
+            return True
+        if next_token is None:
+            # Nothing anchored follows, so no later sequence can continue.
+            return True
+        # A next anchored marker that continues the Roman item's parent, or
+        # any level between the letter and the Roman item, keeps the walk
+        # inside the letter's previous sibling: "(2)" after (u)(1)(iii) and
+        # "(v)".
+        if any(
+            next_ordinals.get(kind) == ordinal + 1
+            for kind, _token, ordinal, _index in stack[letter_level + 1 :]
+        ):
+            return False
+        # Otherwise promote only on positive evidence for the letter: the next
+        # anchored marker is its next sibling or its first child.
+        child_kind = _legal_marker_kind_for_level(
+            letter_level + 1, document_class=self.document_class
+        )
+        return (
+            next_ordinals.get(letter_kind) == letter_ordinal + 1
+            or next_ordinals.get(child_kind) == 1
+        )
+
+
+_ROMAN_NUMERAL_PARTS = (
+    (1000, "m"),
+    (900, "cm"),
+    (500, "d"),
+    (400, "cd"),
+    (100, "c"),
+    (90, "xc"),
+    (50, "l"),
+    (40, "xl"),
+    (10, "x"),
+    (9, "ix"),
+    (5, "v"),
+    (4, "iv"),
+    (1, "i"),
+)
+
+
+def _int_to_roman_marker(value: int, *, uppercase: bool) -> str:
+    """Render a positive ordinal as its canonical Roman marker token."""
+
+    parts: list[str] = []
+    for amount, numeral in _ROMAN_NUMERAL_PARTS:
+        count, value = divmod(value, amount)
+        parts.append(numeral * count)
+    token = "".join(parts)
+    return token.upper() if uppercase else token
+
+
+_INLINE_SENTENCE_SIBLING_PREFIX = re.compile(r"[.;]\s+$")
+
+
+def _span_has_inline_sentence_sibling(
+    text: str,
+    marker_matches: tuple[re.Match[str], ...],
+    *,
+    start: int,
+    end: int,
+    kind: str,
+    ordinal: int,
+    document_class: str,
+    delimiter_enclosed_starts: AbstractSet[int],
+) -> bool:
+    """Find a later sibling inline after sentence punctuation in a span.
+
+    Flattened statute text runs clauses together ("... household members.
+    (ii) Each State agency may exempt ..."), and the walker accepts no such
+    inline marker as structural, so a clause's slice would run on through
+    its later siblings, the next one or, past a repealed item, a later one.
+    A letter that also reads as a Roman numeral is more likely a clause
+    there: "etc. (i) In general" inside subsection (h).
+
+    CFR numeric kinds repeat below upper-case subparagraphs. Semicolon
+    continuations of a colon-led inline list starting at (1) under such a
+    subparagraph belong inside the target paragraph.
+    """
+
+    numeric_parent_end: int | None = None
+    numeric_parent_line_end = -1
+    nested_numeric_line_end = -1
+    for match in marker_matches:
+        marker_start = match.start("marker")
+        if marker_start <= start:
+            continue
+        if marker_start >= end:
+            break
+        kind_ordinals = _legal_marker_kind_ordinals(match.group("token"))
+        if document_class == "regulation" and kind == "numeric":
+            if (
+                "upper_alpha" in dict(kind_ordinals)
+                and _parenthetical_marker_has_strong_boundary(text, marker_start)
+                and _parenthetical_marker_is_structural(
+                    text,
+                    marker_start,
+                    delimiter_enclosed_starts=delimiter_enclosed_starts,
+                )
+            ):
+                numeric_parent_end = match.end("marker")
+                if marker_start >= numeric_parent_line_end:
+                    newline = text.find("\n", numeric_parent_end, end)
+                    numeric_parent_line_end = end if newline == -1 else newline
+            elif (
+                numeric_parent_end is not None
+                and marker_start < numeric_parent_line_end
+                and dict(kind_ordinals).get("numeric") == 1
+                and marker_start not in delimiter_enclosed_starts
+            ):
+                prefix_end = marker_start
+                while (
+                    prefix_end > numeric_parent_end and text[prefix_end - 1].isspace()
+                ):
+                    prefix_end -= 1
+                if prefix_end > numeric_parent_end and text[prefix_end - 1] == ":":
+                    nested_numeric_line_end = numeric_parent_line_end
+        if (
+            dict(kind_ordinals).get(kind, 0) > ordinal
+            and not _marker_has_alternative_roman_reading(kind_ordinals, kind)
+            and marker_start not in delimiter_enclosed_starts
+            and not _parenthetical_marker_has_strong_boundary(text, marker_start)
+            and _INLINE_SENTENCE_SIBLING_PREFIX.search(
+                text, max(start, marker_start - 8), marker_start
+            )
+        ):
+            if marker_start < nested_numeric_line_end and text[
+                max(start, marker_start - 8) : marker_start
+            ].rstrip().endswith(";"):
+                continue
+            return True
+    return False
+
+
+def _marker_has_alternative_roman_reading(
+    kind_ordinals: list[tuple[str, int]],
+    assigned_kind: str,
+) -> bool:
+    """Return whether a marker read as a letter also reads as a Roman item."""
+
+    roman_kinds = {"lower_roman", "upper_roman"}
+    return assigned_kind not in roman_kinds and any(
+        kind in roman_kinds for kind, _ordinal in kind_ordinals
+    )
+
+
+def _exact_next_sibling_level(
+    stack: list[_LegalStackItem],
+    kind: str,
+    ordinal: int,
+    *,
+    below: int,
+) -> int | None:
+    """Return the deepest level under ``below`` whose item ``ordinal`` follows."""
+
+    for level in range(min(below, len(stack)) - 1, -1, -1):
+        if stack[level][0] == kind and stack[level][2] + 1 == ordinal:
+            return level
+    return None
+
+
+def _new_level_or_exact_sibling(
+    stack: list[_LegalStackItem],
+    kind: str,
+    ordinal: int,
+) -> int:
+    """Return the level for a marker that reads as the stack's next child kind.
+
+    A new level starts at its first item. A later item is the next sibling at
+    a shallower level of its kind when one is waiting for it: "(ii)" after
+    (c)(18)(i)(B)(4) follows clause (i) rather than opening a level under (4),
+    and "(x)" after (b)(2)(ix)(E)(4) follows clause (ix) even when "(xi)"
+    comes next.
+    """
+
+    child_level = len(stack)
+    sibling_level = _exact_next_sibling_level(stack, kind, ordinal, below=child_level)
+    if ordinal != 1 and sibling_level is not None:
+        return sibling_level
+    return child_level
 
 
 def _assign_legal_marker_level(
-    stack: list[tuple[str, str, int]],
+    stack: list[_LegalStackItem],
     token: str,
     *,
     document_class: str,
     target_fragments: tuple[str, ...],
     prefer_target_child: bool,
     prefer_roman_child: bool,
-    continues_roman_sequence: bool,
+    marker_index: int,
+    letter_context: _RecoveredLetterContext,
 ) -> tuple[int, str, int, bool] | None:
-    """Assign depth and report whether the new Roman/alpha preference was used."""
+    """Assign depth and report whether the reading recovered an ancestor letter."""
 
     possible = _legal_marker_kind_ordinals(token)
     if not possible:
@@ -3145,7 +3490,12 @@ def _assign_legal_marker_level(
     if prefer_roman_child:
         for kind, ordinal in possible:
             if kind == expected_child_kind:
-                return (child_level, kind, ordinal, False)
+                return (
+                    _new_level_or_exact_sibling(stack, kind, ordinal),
+                    kind,
+                    ordinal,
+                    False,
+                )
     stack_path = tuple(item[1] for item in stack)
     if (
         prefer_target_child
@@ -3174,7 +3524,12 @@ def _assign_legal_marker_level(
                     return (level, kind, ordinal, False)
         for kind, ordinal in possible:
             if kind == expected_child_kind:
-                return (child_level, kind, ordinal, False)
+                return (
+                    _new_level_or_exact_sibling(stack, kind, ordinal),
+                    kind,
+                    ordinal,
+                    False,
+                )
 
     for level in range(len(stack) - 1, -1, -1):
         expected_kind = _legal_marker_kind_for_level(
@@ -3183,25 +3538,41 @@ def _assign_legal_marker_level(
         )
         for kind, ordinal in possible:
             if kind == expected_kind and ordinal > stack[level][2]:
+                if ordinal == stack[level][2] + 1:
+                    return (level, kind, ordinal, False)
                 alpha_kind = {
                     "lower_roman": "lower_alpha",
                     "upper_roman": "upper_alpha",
                 }.get(kind)
-                if (
-                    alpha_kind is not None
-                    and ordinal != stack[level][2] + 1
-                    and not continues_roman_sequence
-                ):
+                alpha_ordinal = dict(possible).get(alpha_kind or "")
+                if alpha_kind is not None and alpha_ordinal is not None:
                     # A skipped Roman sibling can instead be the next letter
-                    # at an ancestor level. Neither side of a contiguous Roman
-                    # sequence may be promoted to that ancestor.
-                    alpha_ordinal = dict(possible).get(alpha_kind)
+                    # at an ancestor level, when the source supports it.
                     for ancestor_level in range(level - 1, -1, -1):
                         if (
                             stack[ancestor_level][0] == alpha_kind
                             and alpha_ordinal == stack[ancestor_level][2] + 1
                         ):
-                            return (ancestor_level, alpha_kind, alpha_ordinal, True)
+                            if letter_context.supports_letter(
+                                stack,
+                                marker_index,
+                                roman_level=level,
+                                roman_kind=kind,
+                                roman_ordinal=ordinal,
+                                letter_level=ancestor_level,
+                                letter_kind=alpha_kind,
+                                letter_ordinal=alpha_ordinal,
+                            ):
+                                return (ancestor_level, alpha_kind, alpha_ordinal, True)
+                            break
+                # A gap at the deepest level of this kind is the next item at
+                # a shallower level when one is waiting for it: "(7)" after
+                # (b)(6)(iii)(B)(3) is (b)(7), not (B)(7).
+                sibling_level = _exact_next_sibling_level(
+                    stack, kind, ordinal, below=level
+                )
+                if sibling_level is not None:
+                    return (sibling_level, kind, ordinal, False)
                 return (level, kind, ordinal, False)
 
     for kind, ordinal in possible:
@@ -3403,7 +3774,7 @@ def _legal_marker_is_structural(
     marker_matches: tuple[re.Match[str], ...],
     marker_index: int,
     document_class: str,
-    stack: list[tuple[str, str, int]],
+    stack: list[_LegalStackItem],
     assigned_level: int,
     assigned_kind: str,
     assigned_ordinal: int,
@@ -3708,7 +4079,7 @@ def _has_following_structural_sibling(
     marker_index: int,
     *,
     document_class: str,
-    stack: list[tuple[str, str, int]],
+    stack: list[_LegalStackItem],
     assigned_level: int,
     assigned_kind: str,
     assigned_ordinal: int,
@@ -3720,7 +4091,16 @@ def _has_following_structural_sibling(
 
     current_match = marker_matches[marker_index]
     scan_stack = stack[:assigned_level]
-    scan_stack.append((assigned_kind, current_match.group("token"), assigned_ordinal))
+    scan_stack.append(
+        (assigned_kind, current_match.group("token"), assigned_ordinal, marker_index)
+    )
+    letter_context = _RecoveredLetterContext(
+        text=text,
+        marker_matches=marker_matches,
+        document_class=document_class,
+        evidence_budget=evidence_budget,
+        delimiter_enclosed_starts=delimiter_enclosed_starts,
+    )
     last_structural_end = current_match.end("marker")
     for later_index, later_match in enumerate(
         marker_matches[marker_index + 1 :],
@@ -3786,7 +4166,7 @@ def _has_following_structural_sibling(
             and later_marker_kinds.isdisjoint(competing_hierarchy_kinds)
             and not any(
                 item_kind == assigned_kind
-                for item_kind, _item_token, _item_ordinal in scan_stack[
+                for item_kind, _item_token, _item_ordinal, _item_index in scan_stack[
                     assigned_level + 1 :
                 ]
             )
@@ -3800,13 +4180,6 @@ def _has_following_structural_sibling(
             document_class=document_class,
             delimiter_enclosed_starts=delimiter_enclosed_starts,
         )
-        continues_roman_sequence = _marker_continues_roman_sequence(
-            text,
-            marker_matches,
-            later_index,
-            evidence_budget=evidence_budget,
-            delimiter_enclosed_starts=delimiter_enclosed_starts,
-        )
         later_assigned = _assign_legal_marker_level(
             scan_stack,
             later_match.group("token"),
@@ -3814,7 +4187,8 @@ def _has_following_structural_sibling(
             target_fragments=(),
             prefer_target_child=False,
             prefer_roman_child=begins_roman_sequence,
-            continues_roman_sequence=continues_roman_sequence,
+            marker_index=later_index,
+            letter_context=letter_context,
         )
         if later_assigned is None:
             if directly_structural and _unassigned_marker_blocks_hierarchy(
@@ -3830,7 +4204,7 @@ def _has_following_structural_sibling(
             if has_provisional_evidence:
                 scan_stack = scan_stack[:later_level]
                 scan_stack.append(
-                    (later_kind, later_match.group("token"), later_ordinal)
+                    (later_kind, later_match.group("token"), later_ordinal, later_index)
                 )
                 last_structural_end = later_match.end("marker")
             continue
@@ -3873,7 +4247,9 @@ def _has_following_structural_sibling(
                 and later_ordinal > assigned_ordinal
             )
         scan_stack = scan_stack[:later_level]
-        scan_stack.append((later_kind, later_match.group("token"), later_ordinal))
+        scan_stack.append(
+            (later_kind, later_match.group("token"), later_ordinal, later_index)
+        )
         last_structural_end = later_match.end("marker")
     return False
 
@@ -3881,7 +4257,7 @@ def _has_following_structural_sibling(
 def _unassigned_marker_blocks_hierarchy(
     match: re.Match[str],
     *,
-    scan_stack: list[tuple[str, str, int]],
+    scan_stack: list[_LegalStackItem],
     highest_relevant_level: int,
     document_class: str,
 ) -> bool:
