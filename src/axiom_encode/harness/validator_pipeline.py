@@ -42520,9 +42520,9 @@ Output ONLY valid JSON:
         year: int = 2024,
         sample_size: int | None = None,
     ) -> ValidationResult:
-        """Benchmark RuleSpec encoding against PolicyEngine using Populace.
+        """Benchmark RuleSpec encoding against PolicyEngine using Microcosm.
 
-        Runs PE Microsimulation on Populace, extracts the target
+        Runs PE Microsimulation on Microcosm, extracts the target
         variable for all tax units, and reports the benchmark. This establishes
         the PE baseline that RuleSpec must match as inputs get wired up.
 

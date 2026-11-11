@@ -4044,7 +4044,7 @@ class TestMain:
         assert "--log-dir" in error
         assert "--repos" in error
 
-    def test_uk_populace_coverage_command_dispatches(self):
+    def test_uk_microcosm_coverage_command_dispatches(self):
         with patch("sys.argv", ["axiom_encode", "uk-populace-coverage"]):
             with patch(
                 "axiom_encode.cli.run_uk_populace_coverage", return_value=0
@@ -7467,7 +7467,7 @@ class TestCmdValidate:
         assert "PolicyEngine program surfaces: 1" in output
         assert "wic: pending_rulespec_encoding" in output
 
-    def test_oracle_coverage_fail_on_unvalidated_populace_surfaces_exits_nonzero(
+    def test_oracle_coverage_fail_on_unvalidated_microcosm_surfaces_exits_nonzero(
         self, capsys, tmp_path
     ):
         checkout = tmp_path / "rulespec-us"
@@ -7522,8 +7522,8 @@ class TestCmdValidate:
 
         assert exc_info.value.code == 1
         output = capsys.readouterr().out
-        assert "unvalidated_populace=1" in output
-        assert "Populace validation: not_configured=1" in output
+        assert "unvalidated_microcosm=1" in output
+        assert "Microcosm validation: not_configured=1" in output
         assert "29.86% is_medicaid_eligible: not_configured" in output
 
     def test_oracle_coverage_fail_on_incomplete_comparable_exits_nonzero(

@@ -829,10 +829,10 @@ record to `artifacts/eval-suites/index.jsonl`.
 ## PolicyEngine population oracles
 
 Use `snap-populace-compare` to compare a SNAP composition module against
-PolicyEngine over Populace records:
+PolicyEngine over Microcosm records:
 
 ```bash
-uv run --with "$HOME/PolicyEngine/populace/packages/populace-data[us]" \
+uv run --with "$HOME/PolicyEngine/microcosm/packages/microcosm-data[us]" \
   --with numpy \
   axiom-encode snap-populace-compare \
   --jurisdiction us-ny \
@@ -840,15 +840,15 @@ uv run --with "$HOME/PolicyEngine/populace/packages/populace-data[us]" \
   --positive-snap-only
 ```
 
-The command runs `axiom-rules-engine` once over projected Populace records and
+The command runs `axiom-rules-engine` once over projected Microcosm records and
 compares `us:statutes/7/2017/a#snap_regular_month_allotment` to PolicyEngine
 `snap_normal_allotment`. Use `--jurisdiction us-co` or `--jurisdiction us-ny`;
 add `--fail-on-mismatch` in CI when exact parity is expected, or
 `--min-match-rate` when a documented upstream oracle gap makes a population
 threshold more appropriate.
 
-Populace oracle commands prefer a local engine-native H5 artifact before using
-the `populace-data` package loader. To force a local dataset, set the most
+Microcosm oracle commands prefer a local engine-native H5 artifact before using
+the `microcosm-data` package loader. To force a local dataset, set the most
 specific available environment variable, for example
 `AXIOM_POPULACE_US_2024_H5=/path/to/populace_us_2024.h5`. The loader also
 checks `AXIOM_POPULACE_US_H5`, `AXIOM_POPULACE_H5`,

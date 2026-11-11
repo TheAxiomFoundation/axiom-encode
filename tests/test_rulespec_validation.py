@@ -6797,7 +6797,7 @@ def _kansas_2026_shared_mapping_material(text):
         "  # The official Kansas K-40ES",
         "    rationale: Both outputs select the joint or all-other Kansas "
         "schedule and apply it to completed Kansas taxable income before "
-        "credits. The Populace runner fails closed if PolicyEngine's separate "
+        "credits. The Microcosm runner fails closed if PolicyEngine's separate "
         "adjusted-gross-income gate would suppress an otherwise positive "
         "K-40ES schedule domain.",
     )
