@@ -27991,7 +27991,7 @@ mappings:
     period: year
     unit: USD
     comparison: money
-    rationale: Both outputs select the joint or all-other Kansas schedule and apply it to completed Kansas taxable income before credits. The Microcosm runner fails closed if PolicyEngine's separate adjusted-gross-income gate would suppress an otherwise positive K-40ES schedule domain.
+    rationale: Both outputs select the joint or all-other Kansas schedule and apply it to completed Kansas taxable income before credits. The Populace runner fails closed if PolicyEngine's separate adjusted-gross-income gate would suppress an otherwise positive K-40ES schedule domain.
 
   # Mississippi's canonical TY2026 section 27-7-5 surface applies the enacted
   # Person-grain schedule to one caller-completed Mississippi taxable-income
