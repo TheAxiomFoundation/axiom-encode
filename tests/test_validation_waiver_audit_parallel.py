@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -11,6 +12,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import cli
+from axiom_encode import validation_waiver_partition as _waiver_partition
 
 _RELEASE_IDENTITY = ("/corpus", "test-release", "0" * 64, "cHVibGljLWtleQ==")
 
@@ -289,12 +291,13 @@ def _failing_results(paths, failing, raised):
             _FakePool.chunk_results[path] = cli._WaiverAuditTaskResult([], "", error)
 
 
-def _run_parallel_in_order(paths, workers, completion):
+def _run_parallel_in_order(paths, workers, completion, costs=None):
     """Finish in-flight tasks in ``completion``'s priority order.
 
     At most one task per worker is in flight, so each wait returns the
     in-flight module that comes first in ``completion``: every feasible
-    completion order arises from some permutation.
+    completion order arises from some permutation. ``costs`` changes the
+    start order, never which error is raised.
     """
     _FakePool.submitted = []
     priority = {paths[index]: rank for rank, index in enumerate(completion)}
@@ -315,6 +318,7 @@ def _run_parallel_in_order(paths, workers, completion):
             root=Path("/repo"),
             corpus_path=Path("/corpus"),
             axiom_rules_path=Path("/engine"),
+            costs=costs,
         )
 
 
@@ -337,8 +341,9 @@ def test_parallel_reports_the_interleaved_splits_error_in_any_completion_order(
 @settings(max_examples=200, deadline=None)
 @given(data=st.data())
 def test_parallel_failure_is_completion_order_independent(data):
-    """Invariant: for any failing set, worker count and completion order, the
-    raised error is the one the interleaved split raised."""
+    """Invariant: for any failing set, worker count, completion order and cost
+    table, the raised error is the one the interleaved split raised. A table
+    reorders starts, so ranking failures by start position would break this."""
     count = data.draw(st.integers(min_value=2, max_value=12), label="modules")
     workers = data.draw(st.integers(min_value=2, max_value=count), label="workers")
     paths = [f"us/{index:03d}.yaml" for index in range(count)]
@@ -347,12 +352,29 @@ def test_parallel_failure_is_completion_order_independent(data):
     )
     raised = data.draw(st.sets(st.sampled_from(sorted(failing))), label="raised")
     completion = data.draw(st.permutations(range(count)), label="completion order")
+    table = data.draw(
+        st.none()
+        | st.dictionaries(
+            st.sampled_from(paths), st.integers(min_value=0, max_value=10**6)
+        ),
+        label="cost table",
+    )
+    costs = None
+    if table is not None:
+        costs = _waiver_partition.parse_waiver_audit_costs(
+            json.dumps(
+                {
+                    "schema": _waiver_partition.COST_TABLE_SCHEMA,
+                    "module_milliseconds": table,
+                }
+            ).encode()
+        )
     _FakePool.chunk_results = {}
     _failing_results(paths, failing, raised)
 
     expected = _interleaved_split_error(paths, workers, failing)
     with pytest.raises(ValueError) as caught:
-        _run_parallel_in_order(paths, workers, completion)
+        _run_parallel_in_order(paths, workers, completion, costs)
     assert str(caught.value) == f"{expected} invalid"
 
 

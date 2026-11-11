@@ -217,12 +217,20 @@ def test_all_schedules_equal_standalone_fingerprints(
     assert "<tmp>" in serialized
 
 
-def _assert_timings(stderr, paths):
-    """One timing line and one start line per initially audited module.
+def _assert_timings(stderr, paths, rechecked=()):
+    """One timing line and one start line per initially audited module, and
+    one recheck start line per rechecked module.
 
-    Besides those, stderr may hold only plan lines and recheck start lines.
+    Besides those, stderr may hold only plan and heartbeat lines; a heartbeat
+    appears only if a module runs past a minute, as on a starved host.
     """
     all_lines = stderr.splitlines()
+    recheck_starts = [
+        line.removeprefix("validation-waivers audit recheck start: ")
+        for line in all_lines
+        if line.startswith("validation-waivers audit recheck start: ")
+    ]
+    assert sorted(recheck_starts) == sorted(rechecked)
     lines = [
         line for line in all_lines if line.startswith("validation-waivers audit: ")
     ]
@@ -239,7 +247,9 @@ def _assert_timings(stderr, paths):
                 "validation-waivers audit: ",
                 "validation-waivers audit start: ",
                 "validation-waivers audit plan: ",
+                "validation-waivers audit heartbeat: ",
                 "validation-waivers audit recheck start: ",
+                "validation-waivers audit recheck heartbeat: ",
             )
         )
     ]
@@ -356,7 +366,7 @@ def test_audit_json_bytes_and_one_timing_per_initial_module(
         }
     assert code == int(recheck)
     assert captured.out == json.dumps(report, indent=2) + "\n"
-    _assert_timings(captured.err, selected)
+    _assert_timings(captured.err, selected, rechecked=[bad_path] if recheck else [])
 
 
 def test_public_fingerprint_json_bytes_stay_unchanged(standalone_repo, capsys):

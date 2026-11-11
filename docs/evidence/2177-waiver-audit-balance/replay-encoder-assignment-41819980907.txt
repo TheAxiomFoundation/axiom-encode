@@ -1,4 +1,5 @@
 table sha256 58e6c34ba2004802ce466ec54f5ae39682f4ba8efd99aa8a1497162eee8f6456; 1930 module costs; overhead 0.6 min
+no-table ownership vs the run's: 1930 paths on 52 legs, 0 mismatches
 round-robin over the table's paths, path order       ratchet max  58.4 (us-vt) median  33.6 | job max 111.9 (us)
 encoder assign_waiver_owners + audit_order (table)   ratchet max  49.5 (us-ks) median  28.5 | job max  77.6 (us)
 modules per leg: min 0 max 42

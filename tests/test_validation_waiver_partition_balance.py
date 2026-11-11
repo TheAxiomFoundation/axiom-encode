@@ -329,6 +329,14 @@ def _table(**fields):
         (_table(source=""), "source must be"),
         (_table(source="a\nb"), "source must be"),
         (b'{"schema": 1, "schema": 2}', "duplicate JSON key"),
+        # Python refuses integers past its digit limit with a plain ValueError.
+        (
+            b'{"schema": "' + partition.COST_TABLE_SCHEMA.encode() + b'", '
+            b'"module_milliseconds": {"us/a.yaml": ' + b"9" * 5000 + b"}}",
+            "not valid JSON",
+        ),
+        # Nesting past the recursion limit raises RecursionError.
+        (b"[" * 100_000 + b"]" * 100_000, "not valid JSON"),
         (
             b'{"schema": "' + partition.COST_TABLE_SCHEMA.encode() + b'", '
             b'"module_milliseconds": {"us/a.yaml": NaN}}',

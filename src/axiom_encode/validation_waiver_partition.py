@@ -24,8 +24,9 @@ Invariants (``tests/test_validation_waiver_partition_balance.py``):
   the table; the order of either input does not change it;
 * legacy equivalence: without a table, or with equal costs and no baselines,
   ownership equals the legacy round-robin;
-* bounded imbalance: no key's final load exceeds
-  ``max(largest baseline, (total cost + total baseline) / n + largest cost)``;
+* bounded imbalance: with ``n`` keys, ``n`` times the largest final load is at
+  most ``max(n * largest baseline, total cost + total baseline + (n - 1) *
+  largest cost)``;
 * with no baselines, the largest load is at most ``4/3 - 1/(3n)`` times the
   smallest achievable largest load (Graham 1969).
 """
@@ -190,7 +191,11 @@ def parse_waiver_audit_costs(raw: bytes) -> WaiverAuditCosts:
             parse_float=_reject_float,
             parse_constant=_reject_constant,
         )
-    except json.JSONDecodeError as error:
+    except WaiverAuditCostTableError:
+        raise
+    except (ValueError, RecursionError) as error:
+        # JSONDecodeError, an integer past Python's digit limit, and nesting
+        # past the recursion limit all mean the same thing here.
         raise WaiverAuditCostTableError(
             f"cost table is not valid JSON: {error}"
         ) from error

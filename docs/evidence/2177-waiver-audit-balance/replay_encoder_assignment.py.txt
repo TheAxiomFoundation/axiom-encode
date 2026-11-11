@@ -87,7 +87,18 @@ def evaluate(owners, order, label):
 
 
 print(f"table sha256 {costs.sha256}; {len(paths)} module costs; overhead {overhead:.1f} min")
-evaluate(P.assign_waiver_owners(paths, keys), sorted, "round-robin over the table's paths, path order")
+# Differential check against production: without a table, the encoder's
+# assignment must give every path the leg that audited it in this run.
+legacy = P.assign_waiver_owners(paths, keys)
+as_run = {path: key for key in keys for path in round_robin_as_run[key]}
+mismatches = sorted(set(legacy) ^ set(as_run)) + sorted(
+    path for path in set(legacy) & set(as_run) if legacy[path] != as_run[path]
+)
+print(
+    f"no-table ownership vs the run's: {len(as_run)} paths on {len(keys)} legs, "
+    f"{len(mismatches)} mismatches"
+)
+evaluate(legacy, sorted, "round-robin over the table's paths, path order")
 by_key = evaluate(
     P.assign_waiver_owners(paths, keys, costs),
     lambda mods: P.audit_order(mods, costs),
