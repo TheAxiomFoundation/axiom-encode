@@ -31,6 +31,9 @@ from typing import Any
 SCHEMA = "axiom-encode/dispatch-record/v1"
 RECORD_NAME = "dispatch-record.json"
 REVIEWED_PR_PROMOTION_SCHEMA = "axiom-encode/reviewed-pr-promotion/v1"
+#: The only transaction schema whose ``reviewed_candidate_promotion`` the
+#: workflow honours.
+PROMOTION_TRANSACTION_SCHEMA = "axiom-encode/atomic-source-transaction/v5"
 #: A larger bundle is not parsed; the promotion fields are then unknown.
 MAX_BUNDLE_BYTES = 1_000_000
 #: The compact tag is published as a step name, so it stays short.
@@ -139,6 +142,7 @@ def _promotion(bundle_text: str) -> tuple[bool | None, bool | None]:
     transaction = payload.get("transaction") if live_reviewed_pr else payload
     promoted = (
         isinstance(transaction, dict)
+        and transaction.get("schema") == PROMOTION_TRANSACTION_SCHEMA
         and transaction.get("reviewed_candidate_promotion") is True
     )
     return live_reviewed_pr, promoted
@@ -203,9 +207,10 @@ def build_record(
         is_promotion = bool(live_reviewed_pr or promoted)
 
     # Presence, not validity: a malformed repair_run_id still makes the
-    # workflow take its repair path (and refuse there).
-    is_repair = _present("repair_run_id", inputs.get("repair_run_id"))
-    is_queue = _present("queue_id", inputs.get("queue_id"))
+    # workflow take its repair path (and refuse there). The workflow compares
+    # the raw input with '', so a whitespace-only value counts as present.
+    is_repair = _text(inputs.get("repair_run_id")) != ""
+    is_queue = _text(inputs.get("queue_id")) != ""
 
     record.update(
         {

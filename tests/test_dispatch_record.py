@@ -128,12 +128,23 @@ def test_repair_outranks_queue_and_keeps_both_flags():
         (
             {
                 "schema": "axiom-encode/reviewed-pr-promotion/v1",
-                "transaction": {"reviewed_candidate_promotion": True},
+                "transaction": {
+                    "schema": "axiom-encode/atomic-source-transaction/v5",
+                    "reviewed_candidate_promotion": True,
+                },
             },
             True,
             True,
         ),
-        ({"reviewed_candidate_promotion": True, "sources": []}, False, True),
+        (
+            {
+                "schema": "axiom-encode/atomic-source-transaction/v5",
+                "reviewed_candidate_promotion": True,
+                "sources": [],
+            },
+            False,
+            True,
+        ),
     ],
 )
 def test_promotion_dispatch_record(bundle, live_reviewed_pr, promoted):
@@ -153,6 +164,12 @@ def test_promotion_dispatch_record(bundle, live_reviewed_pr, promoted):
         {"reviewed_candidate_promotion": False},
         {"reviewed_candidate_promotion": "true"},
         {"schema": "axiom-encode/other/v1", "transaction": {}},
+        # The workflow honours the flag only on a v5 transaction.
+        {"reviewed_candidate_promotion": True, "sources": []},
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v4",
+            "reviewed_candidate_promotion": True,
+        },
     ],
 )
 def test_other_source_bundles_are_not_promotions(bundle):
@@ -245,6 +262,15 @@ def test_malformed_repair_run_id_still_marks_the_repair_path():
     assert record["trigger_kind"] == "repair"
     assert record["repair_run_id"] is None
     assert "repair_run_id=none" in dispatch_record.record_tag(record)
+
+
+def test_whitespace_repair_and_queue_inputs_count_as_present():
+    # The workflow tests `inputs.repair_run_id != ''` and `inputs.queue_id == ''`
+    # on the raw value, so a whitespace-only input still takes those paths.
+    record = _record(repair_run_id=" ", queue_id=" ")
+    assert record["is_repair"] is True
+    assert record["is_queue"] is True
+    assert record["trigger_kind"] == "repair"
 
 
 def test_every_dispatch_input_is_recorded_by_value_or_by_presence():
