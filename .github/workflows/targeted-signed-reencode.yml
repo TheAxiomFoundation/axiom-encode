@@ -187,6 +187,51 @@ jobs:
         run: |
           python3 "$GITHUB_WORKSPACE/axiom-encode/scripts/enforce_attempt_budget.py"
 
+  # Telemetry only: one record per dispatch that says how the run was
+  # triggered (queue, repair, promotion or ad hoc) and which publication it
+  # asked for. It runs for every trigger, also when the budget guard is
+  # skipped or the encode job never starts. Unprotected on purpose: no
+  # secret, no environment, read-only token, and nothing depends on it.
+  # Every step and the job itself continue on error, so it cannot fail or
+  # delay a run. The script copies only allowlisted values; free-text inputs
+  # are recorded as present or absent. The artifact name must not start with
+  # `targeted-reencode-`: the queue finalizer selects the signed artifact by
+  # that prefix.
+  dispatch_record:
+    name: Record dispatch
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout axiom-encode for the dispatch record
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: axiom-encode
+          persist-credentials: false
+
+      - name: Write dispatch record
+        id: dispatch_record
+        continue-on-error: true
+        env:
+          DISPATCH_JSON: ${{ toJSON(inputs) }}
+        run: |
+          python3 -I "$GITHUB_WORKSPACE/axiom-encode/scripts/dispatch_record.py" "$RUNNER_TEMP/dispatch-record" || true
+
+      # The step name carries the validated tag, so the jobs API returns the
+      # main fields for every run without an artifact download.
+      - name: "Upload dispatch record: ${{ steps.dispatch_record.outputs.tag }}"
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dispatch-record-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dispatch-record/dispatch-record.json
+          if-no-files-found: warn
+          retention-days: 90
+
   encode:
     name: Queue protected signed RuleSpec re-encode
     needs: attempt_budget
