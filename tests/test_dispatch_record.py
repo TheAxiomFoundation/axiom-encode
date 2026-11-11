@@ -271,6 +271,7 @@ def test_whitespace_repair_and_queue_inputs_count_as_present():
     assert record["is_repair"] is True
     assert record["is_queue"] is True
     assert record["trigger_kind"] == "repair"
+    assert {"repair_run_id", "queue_id"} <= set(record["invalid_inputs"])
 
 
 def test_every_dispatch_input_is_recorded_by_value_or_by_presence():

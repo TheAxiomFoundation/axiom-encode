@@ -194,12 +194,12 @@ jobs:
   # secret, no environment, read-only token, and nothing depends on it.
   # Every step and the job itself continue on error, so it cannot fail a
   # run; the run stays in progress until this job finishes (5 minutes at
-  # most once it has a runner). The record, the step-name tag, the summary and the artifact
-  # hold only allowlisted values; free-text inputs are recorded as present or
-  # absent. (The runner prints a step's `env:` block, so this job's log shows
-  # the raw inputs, as the budget and preflight steps already do.) The artifact name must not start with
-  # `targeted-reencode-`: the queue finalizer selects the signed artifact by
-  # that prefix.
+  # most once it has a runner). The record, the step-name tag, the summary
+  # and the artifact hold only allowlisted values; free-text inputs are
+  # recorded as present or absent. (The runner prints a step's `env:` block,
+  # so this job's log shows the raw inputs, as the budget and preflight steps
+  # already do.) The artifact name must not start with `targeted-reencode-`:
+  # the queue finalizer selects the signed artifact by that prefix.
   dispatch_record:
     name: Record dispatch
     if: ${{ github.event_name == 'workflow_dispatch' }}

@@ -211,6 +211,10 @@ def build_record(
     # the raw input with '', so a whitespace-only value counts as present.
     is_repair = _text(inputs.get("repair_run_id")) != ""
     is_queue = _text(inputs.get("queue_id")) != ""
+    # A whitespace-only value takes the path but records no value: flag it.
+    for name, taken in (("repair_run_id", is_repair), ("queue_id", is_queue)):
+        if taken and values[name] is None and name not in invalid:
+            invalid.append(name)
 
     record.update(
         {
