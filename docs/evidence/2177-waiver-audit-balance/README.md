@@ -18,7 +18,7 @@ These files back the diagnosis and the scheduling numbers in PR #2177. They come
 
 ## What they establish
 
-- **The silent phase is corpus re-reading.** At the pin and at #1679's parent, the module had not finished after about 1,760 s. By then it had made about 59,500 `_read_corpus_artifact` calls and read about 102 GB, and had launched the engine twice. At the pin, 3,363 of 3,378 stack samples caught Python work and 15 caught a wait on a child process; `_read_corpus_artifact` was the innermost encoder frame in 2,252. At #1679 it finished in 783 s with 23 reads. The two unfinished runs died when the parent CLI restarted, so 1,760 s is a lower bound on their time. All three ran at once on a host at load 45 to 65 against debug engine `89571cc2` and corpus release `us-rulespec-2026-10-29-ecfr-section-text`, so the absolute times run long; CI took 606 s for the same module at `5af06cddf`.
+- **The silent phase is corpus re-reading.** At the pin and at #1679's parent, the module had not finished after about 1,760 s. By then it had made about 59,500 `_read_corpus_artifact` calls and read about 102 GB, and had launched the engine twice. At the pin, 3,363 of 3,378 stack samples caught Python work and 15 caught a wait on a child process; `_read_corpus_artifact` was the innermost encoder frame in 2,252. At #1679 it finished in 783 s with 23 reads. The two unfinished runs died when the parent CLI restarted, so 1,760 s is a lower bound on their time. All three ran at once on a host at load 45 to 65 against debug engine `89571cc2` and corpus release `us-rulespec-2026-10-29-ecfr-section-text`, so the absolute times run long; CI took 604 s for the same module at `5af06cddf`.
 - **The cache changes no outcome.** The #1679 run's failure fingerprint, `sha256:2c983175...d4de`, equals the active fingerprint that rulespec-us's `known-validation-gaps.yaml` records for this module. `passed: false` is expected: the module carries a validation waiver because it fails validation, and the audit checks that the failure still matches.
 - **The simulator reproduces the observed legs.** Under policy A (today's round-robin), its per-leg ratchet times match all 52 observed ratchet steps within 0.2 min (median 0.1 min). It gives a maximum of 58.4 min against the observed 58.3.
 - **Policy E reaches the lower bound.** E gives a ratchet maximum of 49.5 min, the largest module (`7-cfr/273/4`, 48.9 min) plus 0.6 min of setup, and a job maximum of 77.6 min, against A's 58.4 and 111.9.
@@ -41,10 +41,10 @@ PYTHONPATH=<checkout>/src <checkout>/.venv/bin/python /tmp/ev/scripts/replay_enc
 
 Both diffs print nothing. The scripts read their inputs from `../data` relative to themselves, so the copies need that layout. `leg_durations.py` calls `gh api` only when its cached jobs file is missing.
 
-The note20 measurements need a local setup: a rulespec-us checkout at `bc0b633cf`, an axiom-corpus checkout at `7822462a` with release `us-rulespec-2026-10-29-ecfr-section-text` in place, a debug build of axiom-rules-engine `89571cc2`, and an environment for each encoder commit. With an encoder's environment:
+The note20 measurements need a local setup: a rulespec-us checkout at `bc0b633cf`, an axiom-corpus checkout at `7822462a` with release `us-rulespec-2026-10-29-ecfr-section-text` in place, an axiom-rules-engine checkout at `89571cc2` with a debug build (the script takes the checkout and finds `target/debug/axiom-rules-engine` in it), and an environment for each encoder commit. With an encoder's environment:
 
 ```bash
-<encoder>/.venv/bin/python -I /tmp/ev/scripts/time_module.py <rulespec-us checkout> <corpus checkout> <engine binary> \
+<encoder>/.venv/bin/python -I /tmp/ev/scripts/time_module.py <rulespec-us checkout> <corpus checkout> <engine checkout> \
   us/policies/usitc/us-tariff-incidence/generated/note20-china-301.yaml out.json 9000
 ```
 

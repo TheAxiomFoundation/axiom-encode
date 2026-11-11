@@ -349,6 +349,64 @@ def test_cost_table_parser_rejects_ambiguous_tables(raw, message):
         partition.parse_waiver_audit_costs(raw)
 
 
+@pytest.mark.parametrize(
+    ("raw", "message"),
+    [
+        (b'{"schema": 1, "schema": 2}', "duplicate JSON key"),
+        (
+            _table(module_milliseconds={"us/a.yaml": 1.5}),
+            "cost table numbers must be integer milliseconds",
+        ),
+    ],
+)
+def test_parser_hook_errors_keep_their_own_message(raw, message):
+    """The JSON hooks raise typed errors; wrapping them again as "not valid
+    JSON" would bury the reason."""
+    with pytest.raises(partition.WaiverAuditCostTableError) as caught:
+        partition.parse_waiver_audit_costs(raw)
+    assert str(caught.value).startswith(message)
+
+
+_PLAN_PREFIXES = st.sampled_from(
+    ["", "2026-11-04T10:00:00.0000000Z ", "validate / validate (us-ak)\tStep\t"]
+)
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    plans=st.lists(
+        st.tuples(
+            _PLAN_PREFIXES,
+            st.integers(min_value=0, max_value=5000),
+            st.integers(min_value=0, max_value=5000),
+        ),
+        max_size=6,
+    ),
+    noise=st.lists(
+        st.sampled_from(
+            [
+                "validation-waivers audit plan: 3 module(s) on 4 worker(s), in path order",
+                "validation-waivers audit: us/a.yaml 1.000s",
+                "validation-waivers audit recheck start: us/a.yaml",
+                "unrelated line",
+            ]
+        ),
+        max_size=6,
+    ),
+)
+def test_planned_executions_sums_the_audit_plan_lines(plans, noise):
+    """Invariant: the parser reads exactly the shard-level plan lines the
+    audit writes, summing them for a log of several shards."""
+    lines = [
+        f"{prefix}validation-waivers audit plan: partition k (1 of 2, round-robin) "
+        f"owns {selected} of 9 waiver path(s); {selected} selected, "
+        f"{execute} to execute\r"
+        for prefix, selected, execute in plans
+    ] + noise
+    expected = sum(execute for _prefix, _selected, execute in plans) if plans else None
+    assert partition.planned_executions(lines) == expected
+
+
 def test_defaults_and_digest():
     raw = _table(
         module_milliseconds={"us/a.yaml": 0, "us/b.yaml": 30, "us/c.yaml": 40},
@@ -568,6 +626,30 @@ def test_audit_costs_command_writes_a_loadable_table(tmp_path, capsys):
     err = capsys.readouterr().err
     assert f"warning: {empty} has no 'validation-waivers audit" in err
     assert str(log) not in err
+
+    # Once a table exists a shard may own no modules. Its plan line says so,
+    # and that is no reason to warn. A shard whose timing lines fall short of
+    # its plan is.
+    plan = "2026-11-12T00:00:00.0000000Z validation-waivers audit plan: "
+    idle = tmp_path / "us-ak.log"
+    idle.write_text(
+        plan + "partition us-ak (1 of 52, cost-balanced) owns 0 of 1930 waiver "
+        "path(s); 0 selected, 0 to execute\n"
+    )
+    short = tmp_path / "us-al.log"
+    short.write_text(
+        plan + "partition us-al (2 of 52, cost-balanced) owns 2 of 1930 waiver "
+        "path(s); 2 selected, 2 to execute\n"
+        "validation-waivers audit: us-al/a.yaml 1.000s\n"
+    )
+    args.logs = [str(log), str(idle), str(short)]
+    assert cli._cmd_validation_waivers_audit_costs(args) == 0
+    err = capsys.readouterr().err
+    assert str(idle) not in err
+    assert (
+        f"warning: {short} has 1 timing line(s), but its audit plan says 2 "
+        "module(s) execute" in err
+    )
 
     args.logs, args.jobs_json = [str(empty)], None
     with pytest.raises(ValueError, match="no 'validation-waivers audit"):

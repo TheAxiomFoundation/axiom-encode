@@ -77,6 +77,12 @@ _TIMING_LINE = re.compile(
     r"(?:^|[\t ])validation-waivers audit: (?P<path>\S(?:.*\S)?) "
     r"(?P<seconds>[0-9]+)\.(?P<millis>[0-9]{3})s$"
 )
+# The audit prints this once per shard (``_cmd_validation_waivers_audit``), saying
+# how many modules it will execute and so how many timing lines should follow.
+_PLAN_LINE = re.compile(
+    r"(?:^|[\t ])validation-waivers audit plan: .*; [0-9]+ selected, "
+    r"(?P<execute>[0-9]+) to execute$"
+)
 _JOB_KEY = re.compile(r"\((?P<key>[^()]+)\)$")
 DEFAULT_AUDIT_STEP_NAME = "Enforce validation waiver ratchet"
 
@@ -355,6 +361,21 @@ def timing_observations(lines: Iterable[str]) -> dict[str, list[int]]:
             _milliseconds(milliseconds, label=f"time of {path}")
         )
     return observed
+
+
+def planned_executions(lines: Iterable[str]) -> int | None:
+    """How many modules the log's audit plan lines say will execute.
+
+    ``None`` means the log has no plan line: a failed download, or a log from
+    an encoder that predates the plan line. A log of several shards (``gh run
+    view --log`` for a whole run) sums their plans.
+    """
+    planned = None
+    for raw in lines:
+        match = _PLAN_LINE.search(raw.rstrip("\r\n"))
+        if match is not None:
+            planned = (planned or 0) + int(match["execute"])
+    return planned
 
 
 def load_jobs_listing(text: str) -> Any:

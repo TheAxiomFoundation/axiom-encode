@@ -5302,19 +5302,31 @@ def _cmd_validation_waivers_audit_costs(args) -> int:
     observations: dict[str, list[int]] = {}
     for log in args.logs:
         if log == "-":
-            found = _waiver_partition.timing_observations(sys.stdin)
+            lines = sys.stdin.read().splitlines()
         else:
             with open(log, encoding="utf-8", errors="replace") as handle:
-                found = _waiver_partition.timing_observations(handle)
-        if not found:
-            # A shard can own no modules, so this is not an error. But a failed
-            # log download looks the same, and the table would then lack that
-            # shard's modules without saying so.
+                lines = handle.read().splitlines()
+        found = _waiver_partition.timing_observations(lines)
+        timed = sum(len(values) for values in found.values())
+        planned = _waiver_partition.planned_executions(lines)
+        name = "stdin" if log == "-" else log
+        # A table that lacks a shard's modules still builds, and those modules
+        # take its median cost, so say when a log does not account for its
+        # shard. The plan line tells a shard that owns no modules apart from a
+        # failed download, which has neither plan nor timing lines.
+        if planned is None and not timed:
             print(
-                f"warning: {'stdin' if log == '-' else log} has no "
-                "'validation-waivers audit: <path> <seconds>s' lines; if its "
-                "shard audited modules, they are missing from the table and "
-                "will take its median cost",
+                f"warning: {name} has no 'validation-waivers audit: <path> "
+                "<seconds>s' lines and no audit plan line; if its shard audited "
+                "modules, they are missing from the table and will take its "
+                "median cost",
+                file=sys.stderr,
+            )
+        elif planned is not None and timed != planned:
+            print(
+                f"warning: {name} has {timed} timing line(s), but its audit plan "
+                f"says {planned} module(s) execute; modules missing from the "
+                "table will take its median cost",
                 file=sys.stderr,
             )
         for path, values in found.items():
