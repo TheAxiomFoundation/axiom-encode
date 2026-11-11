@@ -5040,7 +5040,8 @@ def _fingerprint_validation_waiver_modules_parallel(
     worker, a single serial call shares that setup across the batch, as
     before. Either way validate opens a fresh resolution scope per module.
 
-    The parent prints a start line per module and, every
+    The parent prints a start line for each module it hands to a worker (a
+    not-started line for one a broken pool refuses) and, every
     ``_waiver_partition.HEARTBEAT_SECONDS``, a heartbeat naming each running
     module and its elapsed time, so a long module never leaves the log silent.
 
@@ -5118,7 +5119,6 @@ def _fingerprint_validation_waiver_modules_parallel(
             path = next(unstarted, None)
             if path is None:
                 return False
-            progress.start(path)
             try:
                 future = pool.submit(
                     _fingerprint_waiver_task,
@@ -5133,10 +5133,17 @@ def _fingerprint_validation_waiver_modules_parallel(
             except Exception as error:
                 # A broken pool refuses new work. Record the refusal for this
                 # module, as a failed future would, and keep going so every
-                # remaining module is accounted for.
-                progress.finish(path)
+                # remaining module is accounted for. The module never ran, so
+                # it gets a refusal line instead of a start line.
+                _waiver_partition.write_audit_line(
+                    f"{_waiver_partition.AUDIT_LINE_PREFIX} not started: {path}: "
+                    f"{type(error).__name__}: {error}"
+                )
                 failures.append((failure_rank(path), error))
                 return True
+            # The parent collects results only in this loop, after this
+            # returns, so the start line always precedes the module's finish.
+            progress.start(path)
             in_flight[future] = path
             return True
 
@@ -5299,6 +5306,17 @@ def _cmd_validation_waivers_audit_costs(args) -> int:
         else:
             with open(log, encoding="utf-8", errors="replace") as handle:
                 found = _waiver_partition.timing_observations(handle)
+        if not found:
+            # A shard can own no modules, so this is not an error. But a failed
+            # log download looks the same, and the table would then lack that
+            # shard's modules without saying so.
+            print(
+                f"warning: {'stdin' if log == '-' else log} has no "
+                "'validation-waivers audit: <path> <seconds>s' lines; if its "
+                "shard audited modules, they are missing from the table and "
+                "will take its median cost",
+                file=sys.stderr,
+            )
         for path, values in found.items():
             observations.setdefault(path, []).extend(values)
     baselines = None

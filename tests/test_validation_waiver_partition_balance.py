@@ -537,8 +537,10 @@ def test_audit_costs_command_writes_a_loadable_table(tmp_path, capsys):
         json=True,
     )
     assert cli._cmd_validation_waivers_audit_costs(args) == 0
-    summary = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    summary = json.loads(captured.out)
     assert summary["modules"] == 2 and summary["partition_baselines"] == 1
+    assert "warning" not in captured.err
     costs = partition.load_waiver_audit_costs(root)
     assert costs is not None and costs.sha256 == summary["sha256"]
     assert dict(costs.module_milliseconds) == {"us-ak/b.yaml": 250, "us/a.yaml": 9000}
@@ -546,8 +548,19 @@ def test_audit_costs_command_writes_a_loadable_table(tmp_path, capsys):
     assert costs.source == "rulespec-us run 1"
     assert not list(output.parent.glob(".*.tmp"))
 
-    empty = tmp_path / "empty.log"
-    empty.write_text("nothing here\n")
+    # A failed `gh run view --log` download leaves its error where the log
+    # should be: the table still builds from the other logs, with a warning
+    # that names the file.
+    empty = tmp_path / "us-ma.log"
+    empty.write_text(
+        "failed to get run log: opening cache entry: zip: not a valid zip file\n"
+    )
+    args.logs = [str(log), str(empty)]
+    assert cli._cmd_validation_waivers_audit_costs(args) == 0
+    err = capsys.readouterr().err
+    assert f"warning: {empty} has no 'validation-waivers audit" in err
+    assert str(log) not in err
+
     args.logs, args.jobs_json = [str(empty)], None
     with pytest.raises(ValueError, match="no 'validation-waivers audit"):
         cli._cmd_validation_waivers_audit_costs(args)
@@ -719,9 +732,10 @@ def test_parallel_audit_beats_while_a_module_runs():
 
 
 def test_a_refused_submit_fails_only_after_every_module_is_accounted_for():
-    """A broken pool refuses new work. Every module still gets a start line,
-    completed modules' diagnostics still reach stderr, nothing hangs, and the
-    error raised is the one the interleaved split would have raised."""
+    """A broken pool refuses new work. Each module gets a start line or, if the
+    pool refused it, a not-started line; completed modules' diagnostics still
+    reach stderr, nothing hangs, and the error raised is the one the
+    interleaved split would have raised."""
     paths = [f"us/{name}.yaml" for name in "abcd"]
     refused = {"us/b.yaml", "us/d.yaml"}
 
@@ -759,7 +773,14 @@ def test_a_refused_submit_fails_only_after_every_module_is_accounted_for():
     lines = stderr.getvalue().splitlines()
     assert [chunk[0] for _fn, chunk, _args in _FakePool.submitted] == paths
     assert [line for line in lines if " start: " in line] == [
-        f"validation-waivers audit start: {path}" for path in paths
+        "validation-waivers audit start: us/a.yaml",
+        "validation-waivers audit start: us/c.yaml",
+    ]
+    assert [line for line in lines if " not started: " in line] == [
+        "validation-waivers audit not started: us/b.yaml: "
+        "BrokenProcessPool: refused us/b.yaml",
+        "validation-waivers audit not started: us/d.yaml: "
+        "BrokenProcessPool: refused us/d.yaml",
     ]
     assert [line for line in lines if line.startswith("diagnostic for ")] == [
         "diagnostic for us/a.yaml",
