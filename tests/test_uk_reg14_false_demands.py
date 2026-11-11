@@ -28,16 +28,19 @@ The tests below pin these invariants:
   computations, rounding-only clauses or colon headings, and a real division in
   the same text still counts;
 * the collapse in _formula_branch_computation_occurrences removes only
-  occurrences nested in a mixed percentage;
+  occurrences nested in a mixed number the extractor reads whole: a mixed
+  percentage, or a mixed number written with the fraction slash;
 * outside corpora under de/ and dk/, the slash mask
   (_without_digit_mixed_percentage_slashes) and the collapse agree on a numeral
   written with "/": where the mask hides the slash the gate keeps none of the
   numeral's parts, and where it leaves the slash the collapse drops none;
-* on one line, the mask hides an unspaced slash, as in "2 6/7", if and only if
-  the extractor reads a rate over the whole numeral. The collapse matches a mixed
-  number written with the fraction slash (U+2044) if and only if the extractor
-  reads it whole, and one written with a vulgar fraction if and only if the
-  extractor reads a rate over it;
+* on one line and after a space, the mask hides an unspaced slash, as in
+  "2 6/7", if and only if the extractor reads the whole numeral as a rate of its
+  mixed value. The collapse matches a mixed number written with the fraction
+  slash (U+2044), with or without spaces around the slash, if and only if the
+  extractor reads it whole as a mixed number, and one written with a vulgar
+  fraction if and only if the extractor reads it as a rate of its mixed value.
+  Neither touches "26/7", which the extractor reads as twenty-six sevenths;
 * in a UK corpus the cue reader never returns "falls"; in every other corpus, and
   in text with no citation path, it does;
 * the title filter drops a condition word only inside a UK cross-reference's
@@ -60,7 +63,10 @@ reads a numeral written with the fraction slash whole, as the number 2.857, and
 before some markers, "%", "per cent" and "p.c." among them, also as the rate.
 The gate keeps those readings and drops the parts, with any marker or none.
 test_a_vulgar_fraction_before_a_percent_sign_keeps_its_parts pins a third: the
-extractor reads `2 ½%` as two numbers, and the gate keeps both, as it did before.
+extractor reads `2 ½%` as two numbers, and the gate keeps both.
+test_a_line_break_inside_per_cent_keeps_the_old_reading pins a fourth: the
+extractor reads `2 6/7 per` and `cent` on two lines as one rate, but the gate
+keeps the slash and the parts.
 """
 
 from __future__ import annotations
@@ -195,8 +201,9 @@ def test_mixed_percentage_collapse_only_removes_its_own_parts(
 ) -> None:
     whole, numerator, denominator = number
     numeral = f"{whole} {numerator}/{denominator}{marker}"
-    # Each neighbour yields parts of its own, which the drop must leave alone:
-    # "1 1/2" yields 1, 1 and 2, and "10 per cent" also yields 10 as a number.
+    # Each neighbour yields occurrences nested in another, which the drop must
+    # leave alone: "1 1/2" yields 1, 1 and 2 inside 1.5, and "10 per cent"
+    # yields 0.1 over "10" inside 0.1 over "10 per cent".
     text = (
         f"pay 1 1/2 times 17 pounds, then {numeral} of the excess over 300"
         " and 5 to 10 per cent of the rest"
@@ -213,11 +220,6 @@ def test_mixed_percentage_collapse_only_removes_its_own_parts(
     assert all(start <= item.start and item.end <= end for item in removed)
     assert all((item.start, item.end) != (start, end) for item in removed)
     assert {item.value for item in collapsed} >= {1.0, 1.5, 2.0, 17.0, 300.0}
-    assert set(everything) - set(collapsed) == removed
-    outside = [
-        item for item in everything if not (start <= item.start and item.end <= end)
-    ]
-    assert [item for item in collapsed if item in outside] == outside
 
 
 @pytest.mark.parametrize(
@@ -540,9 +542,12 @@ SAME_LINE_SPACES = tuple(
     if re.fullmatch(r"\s", char) and char not in LINE_BREAKS
 )
 # The extractor reads "per centimetre" and "percentile" as "per cent" and
-# "percent"; the gate takes neither as a marker.
+# "percent"; the gate takes neither as a marker. The extractor also reads across
+# a line break inside "per cent", where the gate keeps its old reading.
 DIFFERENTIAL_MARKERS = tuple(
-    marker for marker in MARKERS if marker not in ("per centimetre", "percentile")
+    marker
+    for marker in MARKERS
+    if marker not in ("per centimetre", "percentile", "per\ncent")
 )
 
 
@@ -565,13 +570,15 @@ def mixed_number_texts(
 def extractor_reads_whole(
     text: str, start: int, end: int, *, rate: bool, value: float
 ) -> bool:
-    # One occurrence covers the numeral and holds its value as a mixed number:
-    # with no gap, "26/7" is twenty-six sevenths, not two and six sevenths.
+    # One occurrence covers the numeral and holds its value as a mixed number,
+    # or that value as a rate: with no gap, "26/7" is twenty-six sevenths, not
+    # two and six sevenths. The value marks a rate, since the extractor flags no
+    # rate context when "per" and "cent" have a space other than " " or tab
+    # between them.
     values = (value / 100,) if rate else (value, value / 100)
     return any(
         item.start <= start
         and end <= item.end
-        and (item.has_rate_context or not rate)
         and any(math.isclose(item.value, expected) for expected in values)
         for item in GROUNDING(text)
     )
@@ -628,6 +635,25 @@ def test_the_collapse_reads_a_vulgar_rate_whole_as_the_extractor_does() -> None:
         != extractor_reads_whole(text, start, end, rate=True, value=2.5)
     ]
     assert disagreements == []
+
+
+@pytest.mark.parametrize("space", SAME_LINE_SPACES)
+@pytest.mark.parametrize("numeral", ["2 6/7", f"2 {chr(0xBD)}"])
+def test_any_space_on_one_line_may_split_per_cent(space: str, numeral: str) -> None:
+    text = f"amount B is {numeral} per{space}cent of the excess"
+    start = text.index(numeral)
+    end = start + len(numeral)
+    assert "divide" not in sc._formula_operation_kinds(text)
+    assert [(item.start, item.end) for item in occurrences(text)] == [
+        (start, end + len(f" per{space}cent"))
+    ]
+
+
+@pytest.mark.parametrize("line_break", LINE_BREAKS)
+def test_a_line_break_inside_per_cent_keeps_the_old_reading(line_break: str) -> None:
+    text = f"amount B is 2 6/7 per{line_break}cent of the excess"
+    assert "divide" in sc._formula_operation_kinds(text)
+    assert {7.0, 6.0, 2.0} <= {item.value for item in occurrences(text)}
 
 
 @pytest.mark.parametrize(

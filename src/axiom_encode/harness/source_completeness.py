@@ -562,7 +562,7 @@ _INLINE_SPACE = r"[ \t\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]"
 #   an _INLINE_SPACE gap;
 # - a fraction written with "/" before "percent", "percentage", "per cent" or
 #   "per centum" after a hyphen or any whitespace, blank lines included, after a
-#   _SAME_LINE_SPACE gap;
+#   _SAME_LINE_SPACE gap, with any _SAME_LINE_SPACE between "per" and "cent";
 # - a fraction written with the fraction slash (U+2044) after an _INLINE_SPACE
 #   gap, before any marker or none, since that slash only typesets fractions;
 # - a vulgar fraction before a word marker, after any _SAME_LINE_SPACE or none.
@@ -576,7 +576,9 @@ _INLINE_SPACE = r"[ \t\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]"
 # and "cent" on two lines. Corpora under de/ and dk/ keep the parts, because the
 # extractor reads "2 6/7 %" there as separate numbers.
 _PERCENT_SIGN_MARKER = rf"(?=(?:{WRAP_SPACE_FRAGMENT})*%)"
-_PERCENT_WORD_MARKER = r"(?=(?:\s+|-)(?:percent(?:age)?|per[ \t]+cent(?:um)?)\b)"
+_PERCENT_WORD_MARKER = (
+    rf"(?=(?:\s+|-)(?:percent(?:age)?|per{_SAME_LINE_SPACE}+cent(?:um)?)\b)"
+)
 _DIGIT_MIXED_PERCENTAGE_NUMERAL = (
     rf"\d+(?:{_INLINE_SPACE}+\d+/\d+{_PERCENT_SIGN_MARKER}|"
     rf"{_SAME_LINE_SPACE}+\d+/\d+{_PERCENT_WORD_MARKER})"
