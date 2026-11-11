@@ -33,8 +33,8 @@ The tests below pin these invariants:
   (_without_digit_mixed_percentage_slashes) and the collapse agree on a numeral
   written with "/": where the mask hides the slash the gate keeps none of the
   numeral's parts, and where it leaves the slash the collapse drops none;
-* on one line, the mask hides the slash of a mixed number if and only if the
-  extractor reads a rate over the whole numeral. The collapse matches a mixed
+* on one line, the mask hides an unspaced slash, as in "2 6/7", if and only if
+  the extractor reads a rate over the whole numeral. The collapse matches a mixed
   number written with the fraction slash (U+2044) if and only if the extractor
   reads it whole, and one written with a vulgar fraction if and only if the
   extractor reads a rate over it;
