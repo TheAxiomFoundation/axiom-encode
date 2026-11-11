@@ -1,3 +1,7 @@
+## 0.2.2353
+
+- Keep the whitespace patterns on the interval parser's path linear in a space run (#2158)
+
 ## 0.2.2352
 
 - Admit reviewed RuleSpec PRs without per-candidate encoder records (#2084)
