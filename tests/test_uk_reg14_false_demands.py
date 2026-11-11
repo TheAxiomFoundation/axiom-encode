@@ -33,10 +33,10 @@ The tests below pin these invariants:
   (_without_digit_mixed_percentage_slashes) and the collapse agree on a numeral
   written with "/": where the mask hides the slash the gate keeps none of the
   numeral's parts, and where it leaves the slash the collapse drops none;
-* on one line, the mask hides the slash of a mixed number exactly where the
+* on one line, the mask hides the slash of a mixed number if and only if the
   extractor reads a rate over the whole numeral. The collapse matches a mixed
-  number written with the fraction slash (U+2044) exactly where the extractor
-  reads it whole, and one written with a vulgar fraction exactly where the
+  number written with the fraction slash (U+2044) if and only if the extractor
+  reads it whole, and one written with a vulgar fraction if and only if the
   extractor reads a rate over it;
 * in a UK corpus the cue reader never returns "falls"; in every other corpus, and
   in text with no citation path, it does;
@@ -56,8 +56,8 @@ passes this gate. test_danish_and_german_extractors_keep_a_mixed_percentages_par
 pins a known limit: in corpora under de/ and dk/ the numeric extractor reads
 `2 6/7 %` as separate numbers, so the gate keeps them while it reads no division.
 test_a_numeral_with_a_fraction_slash_has_no_parts pins another: the extractor
-reads a numeral written with the fraction slash whole, as the plain number 2.857,
-and also as a rate before some markers, "%", "per cent" and "p.c." among them.
+reads a numeral written with the fraction slash whole, as the number 2.857, and
+before some markers, "%", "per cent" and "p.c." among them, also as the rate.
 The gate keeps those readings and drops the parts, with any marker or none.
 test_a_vulgar_fraction_before_a_percent_sign_keeps_its_parts pins a third: the
 extractor reads `2 ½%` as two numbers, and the gate keeps both, as it did before.
