@@ -199,7 +199,7 @@ func TestCleanChildEnvironmentForwardsGitHubRunIdentity(t *testing.T) {
 	for name, value := range values {
 		t.Setenv(name, value)
 	}
-	environment := cleanChildEnvironment(10, 11, "/trusted/bin", "/trusted")
+	environment := cleanChildEnvironment(10, 11, "/trusted/bin", "/trusted", "")
 	joined := "\n" + strings.Join(environment, "\n") + "\n"
 	for name, value := range values {
 		if !strings.Contains(joined, "\n"+name+"="+value+"\n") {
