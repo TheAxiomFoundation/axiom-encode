@@ -4,7 +4,7 @@
 Motivation (axiom-encode#1495): individual citations burned 20-31 targeted
 re-encode runs in a single week at API prices, all of them ad hoc
 dispatches retrying a persistently failing gate. This guard runs as a
-cheap unprotected job before the production-signing environment gate and
+cheap unprotected job before the generation-approval environment gate and
 before any model call. When the same citation has already failed
 ``attempt_budget`` consecutive times (no intervening success) inside the
 lookback window, an ad hoc dispatch is blocked with triage instructions.
