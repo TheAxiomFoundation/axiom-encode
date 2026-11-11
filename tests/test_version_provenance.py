@@ -955,6 +955,60 @@ def test_the_apply_guard_reads_main_history_in_its_own_environment(
     assert seen[0] == cli._read_only_git_environment()
 
 
+def test_every_history_read_runs_under_the_callers_environment(
+    repo: Path, tmp_path: Path
+):
+    # The guard passes its own scrubbed environment. Point that environment's
+    # GIT_DIR at a clone with more history: each read must see the clone, so
+    # every git call took the environment it was given.
+    first = _git(repo, "rev-parse", "HEAD")
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", "-q", str(repo), str(clone))
+    for key, value in (
+        ("user.email", "test@example.com"),
+        ("user.name", "Test"),
+        ("commit.gpgsign", "false"),
+    ):
+        _git(clone, "config", key, value)
+    _write_version(clone, "0.2.11")
+    bump = _commit(clone, "bump to 0.2.11")
+    _change_encoder(clone, 1)
+    environment = {**cli._read_only_git_environment(), "GIT_DIR": str(clone / ".git")}
+
+    assert version_provenance.first_parent_versions(repo, "HEAD", environment) == [
+        (bump, "0.2.11"),
+        (first, "0.2.10"),
+    ]
+    assert set(version_provenance._changed_since(repo, bump, "HEAD", environment)) == {
+        "src/axiom_encode/cli.py"
+    }
+    # Main reached 0.2.11 at `bump`, not at `first`: rule 2 reads the clone.
+    assert version_provenance.main_history_changes(
+        repo, "HEAD", first, "0.2.11", environment=environment
+    ) == {"src/axiom_encode/cli.py"}
+    assert (
+        version_provenance.main_history_changes(repo, "HEAD", first, "0.2.10") == set()
+    )
+
+
+def test_a_first_parent_commit_that_deletes_pyproject_toml_declares_no_version(
+    repo: Path, tmp_path: Path
+):
+    # `git log -- pyproject.toml` lists the deletion, and cat-file reports the
+    # file missing there. Both history readers must read that as no version.
+    first = _git(repo, "rev-parse", "HEAD")
+    (repo / "pyproject.toml").unlink()
+    deleted = _commit(repo, "delete pyproject.toml")
+    _write_version(repo, "0.2.10")
+    restored = _commit(repo, "restore pyproject.toml")
+    expected = [(restored, "0.2.10"), (deleted, None), (first, "0.2.10")]
+    assert version_provenance.first_parent_versions(repo, restored) == expected
+    history = provisioner._first_parent_pyproject_versions(
+        Path(shutil.which("git")), repo / ".git", tmp_path / "home", restored
+    )
+    assert history == expected
+
+
 def test_signatures_stay_off_in_every_copy_of_the_rule():
     for environment in (
         version_provenance._git_environment(),
