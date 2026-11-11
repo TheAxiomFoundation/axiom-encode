@@ -41998,8 +41998,15 @@ def _source_branch_direct_text(
 
     index = _source_branch_index(branches)
     # The pool is chosen by testing the branch's kind and path up front, which
-    # the filter below does only per candidate; other field types keep it.
-    if index is None or not index.plain(branch.path) or type(branch.kind) is not str:
+    # the filter below does only per candidate; other field types keep it. So
+    # does any other query object, whose fields may be missing or run code
+    # when read, where a SourceStructureBranch's never do.
+    if (
+        index is None
+        or type(branch) is not SourceStructureBranch
+        or not index.plain(branch.path)
+        or type(branch.kind) is not str
+    ):
         pool: Sequence[SourceStructureBranch] = branches
     elif (
         branch.kind == "sentence"

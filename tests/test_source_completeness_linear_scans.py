@@ -11,6 +11,7 @@ and a regression to a quadratic one quadruples.
 from __future__ import annotations
 
 import ast
+import collections
 import contextlib
 import contextvars
 import dataclasses
@@ -1763,6 +1764,12 @@ _TWO_CHILDREN = (
 )
 
 
+def _spelled_plain(path: object) -> bool:
+    """Whether ``path`` is exactly a tuple of exactly ``str`` parts."""
+
+    return type(path) is tuple and all(type(part) is str for part in path)
+
+
 @st.composite
 def _odd_branch_pools(draw):
     """Pools the index must refuse or answer exactly as main's scan does."""
@@ -1772,7 +1779,10 @@ def _odd_branch_pools(draw):
         parts = draw(st.lists(st.sampled_from(_PATH_PARTS[:3]), max_size=5))
         shape = draw(
             st.sampled_from(
-                ("tuple",) * 6 + ("string", "list-part", "nested", "int-part")
+                ("tuple",) * 9
+                + ("string", "list-part", "nested", "int-part")
+                + ("tuple-subclass", "loose-tuple", "text-part", "loose-part")
+                + ("disguised-part",)
             )
         )
         path = {
@@ -1782,6 +1792,13 @@ def _odd_branch_pools(draw):
             "list-part": (*parts, ["x"]),
             "nested": (*parts, ("a",)),
             "int-part": (1, *parts),
+            # Subclasses recognition never builds, which may hash, compare or
+            # slice unlike the tuple and str they extend.
+            "tuple-subclass": _Reversed(parts),
+            "loose-tuple": _LooseTuple(parts),
+            "text-part": (*parts, _Text("a")),
+            "loose-part": (*parts, _Loose("z")),
+            "disguised-part": (*parts, _DISGUISED),
         }[shape]
         integral = draw(st.booleans()) or draw(st.booleans())
         start = draw(st.integers(0, 40)) if integral else draw(_ODD_STARTS)
@@ -1854,7 +1871,20 @@ def _odd_branch_pools(draw):
         )
         for path in draw(
             st.lists(
-                st.sampled_from([("a", ("a",)), ("a", ["x"]), ("a", 1), "ab", ""]),
+                st.sampled_from(
+                    [
+                        ("a", ("a",)),
+                        ("a", ["x"]),
+                        ("a", 1),
+                        "ab",
+                        "",
+                        _Reversed(("b", "a")),
+                        _LooseTuple(("a",)),
+                        ("a", _Text("b")),
+                        ("a", _Loose("z")),
+                        (_DISGUISED,),
+                    ]
+                ),
                 max_size=2,
             )
         )
@@ -1977,13 +2007,14 @@ def test_direct_text_matches_main_on_odd_pools(case):
     if not branches:
         return
     # The index may answer only over plain paths and starts of exactly int,
-    # whatever it claims about itself.
-    plain = all(sc._plain_path(branch.path) for branch in branches)
+    # whatever it claims about itself. Plainness is spelled out here, not
+    # asked of the module, so a looser module test cannot move both sides.
+    plain = all(_spelled_plain(branch.path) for branch in branches)
     trusted = plain and all(type(branch.start) is int for branch in branches)
     with sc._source_index_scope():
         index = sc._source_branch_index(branches)
         for branch in (*branches, *strangers):
-            assert index.plain(branch.path) == sc._plain_path(branch.path)
+            assert index.plain(branch.path) == _spelled_plain(branch.path)
         assert (index._paths is not None) == plain
         assert index._knows_lowest_starts == trusted
         for branch in (*branches, *strangers):
@@ -1991,7 +2022,7 @@ def test_direct_text_matches_main_on_odd_pools(case):
                 trusted
                 and type(branch.start) is int
                 and type(branch.end) is int
-                and sc._plain_path(branch.path)
+                and _spelled_plain(branch.path)
             ):
                 assert index.first_descendant_start(branch) == _first_start(
                     branches, branch
@@ -2952,6 +2983,81 @@ def test_direct_text_tests_kind_and_path_only_where_main_did(change):
     assert warm == cold
 
 
+class _EndRaises(SourceStructureBranch):
+    """A branch whose ``end`` raises when read; recognition never builds one."""
+
+    def __getattribute__(self, name: str) -> object:
+        if name == "end":
+            raise AttributeError("end")
+        return super().__getattribute__(name)
+
+
+_DUCK_QUERIES = [
+    pytest.param(
+        types.SimpleNamespace(path=("a",), kind="paragraph", text="T" * 9, start=0),
+        id="no-end",
+    ),
+    pytest.param(
+        types.SimpleNamespace(path=("a",), kind="paragraph", text="T" * 9, end=9),
+        id="no-start",
+    ),
+    pytest.param(
+        types.SimpleNamespace(path=("a",), text="T" * 9, start=0, end=9),
+        id="no-kind",
+    ),
+    pytest.param(
+        types.SimpleNamespace(
+            path=("a",), kind="paragraph", text="T" * 9, start=0, end=9
+        ),
+        id="every-field",
+    ),
+    pytest.param(
+        _EndRaises(("a",), "paragraph", "(a)", "T" * 9, 0, 9), id="end-raises"
+    ),
+]
+
+
+@pytest.mark.parametrize("query", _DUCK_QUERIES)
+@pytest.mark.parametrize(
+    "pool",
+    [
+        pytest.param(
+            (
+                SourceStructureBranch(("b",), "paragraph", "(b)", "T" * 9, 0, 9),
+                SourceStructureBranch(("b", "c"), "letter", "(c)", "T" * 9, 3, 9),
+            ),
+            id="no-descendant",
+        ),
+        pytest.param(
+            (
+                SourceStructureBranch(("a", "b"), "letter", "(b)", "T" * 9, 3, 9),
+                SourceStructureBranch(("a", "c"), "letter", "(c)", "T" * 9, 5, 9),
+            ),
+            id="descendants-only",
+        ),
+        pytest.param(
+            (
+                SourceStructureBranch(("a",), "paragraph", "(a)", "T" * 9, 0, 9),
+                SourceStructureBranch(("a", "b"), "letter", "(b)", "T" * 9, 3, 9),
+            ),
+            id="itself-and-a-descendant",
+        ),
+        pytest.param((), id="empty"),
+    ],
+)
+def test_direct_text_reads_a_query_s_fields_only_where_main_did(query, pool):
+    # Main reads a query's start and end only for a candidate that passes its
+    # path test, and its kind only for one that fails it. A query that is not
+    # exactly a SourceStructureBranch may lack a field or run code to read
+    # one, so it gets main's scan over the whole pool.
+    for branches in (pool, list(pool)):
+        old, cold, warm = _old_and_new(
+            lambda: sc._source_branch_direct_text(query, branches=branches)
+        )
+        assert cold == old
+        assert warm == cold
+
+
 _SENTENCE = SourceStructureBranch(
     ("a", "satz-1"), "sentence", "", "Some sentence.", 0, 14
 )
@@ -3683,6 +3789,130 @@ def test_trie_copies_match_the_trie_and_share_no_part_of_it():
                 built.first_descendant_start(branch)
             )
             assert index.descendants(branch.path) == built.descendants(branch.path)
+
+
+_GROWABLE = (
+    dict,
+    list,
+    set,
+    bytearray,
+    collections.deque,
+    weakref.WeakKeyDictionary,
+    weakref.WeakValueDictionary,
+    weakref.WeakSet,
+)
+
+
+def _held_sizes() -> dict[str, int]:
+    """The size of every container ``sc`` holds between analyses, by place.
+
+    That covers the module's globals, its classes' attributes, the defaults
+    and closure cells of its functions and methods, its lru caches, and the
+    containers inside any of those, three levels down.
+    """
+
+    sizes: dict[str, int] = {"module": len(vars(sc))}
+    seen: set[int] = set()
+    # Holding each visited object keeps its id from passing to another.
+    held: list[object] = []
+
+    def own(value: object) -> bool:
+        return getattr(value, "__module__", None) == sc.__name__
+
+    def visit(place: str, value: object, depth: int) -> None:
+        if id(value) in seen or depth > 3:
+            return
+        seen.add(id(value))
+        held.append(value)
+        if own(value) and callable(getattr(value, "cache_info", None)):
+            sizes[f"{place}.cache"] = value.cache_info().currsize
+        function = getattr(value, "__wrapped__", value) if own(value) else None
+        if isinstance(function, types.FunctionType):
+            for position, default in enumerate(function.__defaults__ or ()):
+                visit(f"{place}.default{position}", default, depth + 1)
+            for name, default in (function.__kwdefaults__ or {}).items():
+                visit(f"{place}.{name}", default, depth + 1)
+            for position, cell in enumerate(function.__closure__ or ()):
+                with contextlib.suppress(ValueError):
+                    visit(f"{place}.cell{position}", cell.cell_contents, depth + 1)
+        if isinstance(value, type) and own(value):
+            sizes[f"{place}.__dict__"] = len(vars(value))
+            for name, attribute in vars(value).items():
+                for inner in ("func", "fget", "__func__"):
+                    attribute = getattr(attribute, inner, attribute)
+                visit(f"{place}.{name}", attribute, depth + 1)
+        if isinstance(value, _GROWABLE):
+            sizes[place] = len(value)
+            items = value.values() if hasattr(value, "values") else value
+            for position, item in enumerate(list(items)):
+                visit(f"{place}[{position}]", item, depth + 1)
+
+    for name, value in list(vars(sc).items()):
+        visit(name, value, 0)
+    return sizes
+
+
+def _fresh_copy(
+    pool: Sequence[SourceStructureBranch],
+) -> tuple[SourceStructureBranch, ...]:
+    """New branch objects, with new path tuples, holding ``pool``'s fields."""
+
+    return tuple(
+        dataclasses.replace(branch, path=tuple(list(branch.path))) for branch in pool
+    )
+
+
+def _ask_everything(pool: tuple[SourceStructureBranch, ...]) -> None:
+    """Every question the index answers, inside an analysis scope and out."""
+
+    with sc._source_index_scope():
+        index = sc._source_branch_index(pool)
+        assert index is not None
+        assert index._knows_lowest_starts
+        for branch in pool:
+            assert index.plain(branch.path)
+            index.first_descendant_start(branch)
+            sc._source_branch_direct_text(branch, branches=pool)
+    for branch in pool:
+        sc._source_branch_direct_text(branch, branches=pool)
+
+
+@pytest.mark.parametrize(
+    "pool",
+    [
+        pytest.param(_attached_markers(40), id="attached-markers"),
+        pytest.param(
+            (
+                SourceStructureBranch(("a",), "paragraph", "(a)", "x" * 41, 10, 30),
+                SourceStructureBranch(("a", "b"), "letter", "(b)", "x" * 41, 2, 5),
+                SourceStructureBranch(("a", "1"), "letter", "(1)", "x" * 41, 20, 25),
+            ),
+            id="child-before-parent",
+        ),
+    ],
+)
+def test_branch_index_keeps_no_state_outside_its_scope(pool):
+    # The deep growth families share branch objects and paths between timed
+    # calls, so a cache keyed by them that outlived its analysis would keep a
+    # costly fill or lookup off the clock. Nothing the index works out may
+    # stay behind: after one sweep, a sweep of new copies in a new scope
+    # leaves every container the module holds, and each branch, as it was.
+    _ask_everything(_fresh_copy(pool))
+    probe = _fresh_copy(pool)
+    fields = [dict(vars(branch)) for branch in probe]
+    before = _held_sizes()
+    _ask_everything(probe)
+    assert _held_sizes() == before
+    assert [vars(branch) for branch in probe] == fields
+    # The index itself goes when its scope closes.
+    with sc._source_index_scope():
+        index = sc._source_branch_index(probe)
+        assert index is not None
+        assert index._knows_lowest_starts
+        gone = weakref.ref(index)
+        del index
+    gc.collect()
+    assert gone() is None
 
 
 def test_first_lookups_of_own_paths_read_no_path_components():
