@@ -72,6 +72,10 @@ def as_json(pr, graphql=False):
         query = next(arg for arg in args if arg.startswith("query="))
         document["author"] = {k: v for k, v in author.items() if k in query}
         document = {k: v for k, v in document.items() if k in query}
+    elif "--json" in args:
+        # Like gh: --json returns only the fields it names.
+        fields = value("--json").split(",")
+        document = {k: v for k, v in document.items() if k in fields}
     return document
 
 def emit(document):

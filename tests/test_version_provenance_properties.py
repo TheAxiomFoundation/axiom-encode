@@ -6,7 +6,8 @@ give one verdict on every history, and the rule must keep its promise that one
 version names one encoder state on ``main``.
 
 Invariants, for every history whose head declares one version in all three
-version files:
+version files, and whose version files decode as UTF-8 wherever the copies read
+them:
 
 1. The three copies give one verdict, and when they accept they name one bump.
 2. Accepted commits on ``main``'s first-parent line that declare one version
@@ -22,6 +23,10 @@ version files:
 
 Histories are written with one ``git fast-import`` run per example, so commit
 dates, merge parents and merge trees can be set freely.
+
+Known split outside that precondition: the guard reads a version file that does
+not decode as UTF-8 as declaring no version, while ``version_provenance`` and the
+provisioner raise ``UnicodeDecodeError``, which stops their run.
 """
 
 from __future__ import annotations

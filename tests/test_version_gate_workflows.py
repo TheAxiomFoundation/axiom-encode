@@ -123,10 +123,18 @@ def _versioned_checkout(workspace: Path) -> Path:
     "workflow", ["targeted-signed-reencode.yml", "dispatch-signed-snap-queue.yml"]
 )
 def test_the_refusal_step_stops_an_unversioned_head(workflow: str, tmp_path: Path):
-    jobs = yaml.safe_load((WORKFLOWS / workflow).read_text())["jobs"].values()
-    step = next(
-        step for job in jobs for step in job["steps"] if step.get("name") == REFUSE
+    document = yaml.safe_load((WORKFLOWS / workflow).read_text())
+    job, step = next(
+        (job, step)
+        for job in document["jobs"].values()
+        for step in job["steps"]
+        if step.get("name") == REFUSE
     )
+    # With no `shell` or `defaults`, GitHub runs the step as `bash -e {0}`;
+    # with `continue-on-error`, a refusal would not stop the job.
+    assert "shell" not in step and "defaults" not in job
+    assert "defaults" not in document
+    assert "continue-on-error" not in step and "continue-on-error" not in job
     repo = _versioned_checkout(tmp_path)
 
     def run_step() -> subprocess.CompletedProcess[str]:
