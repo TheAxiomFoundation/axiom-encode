@@ -1939,6 +1939,20 @@ def _odd_branch_pools(draw):
         ],
     )
 )
+@example(
+    # A pool start that min() keeps over 1, since ``1 < start`` asks the start,
+    # which answers only for 2. Main drops it as outside the span before it
+    # takes the least start, so the index must not trust the pool.
+    (
+        (
+            SourceStructureBranch(
+                ("a", "b"), "paragraph", "(a)", "x" * 41, _SeesOnlyTwo(10), 41
+            ),
+            SourceStructureBranch(("a", "c"), "paragraph", "(a)", "x" * 41, 1, 41),
+        ),
+        [SourceStructureBranch(("a",), "paragraph", "(a)", "x" * 41, 0, 5)],
+    )
+)
 def test_direct_text_matches_main_on_odd_pools(case):
     branches, strangers = case
     text = "x" * 41
@@ -1962,15 +1976,20 @@ def test_direct_text_matches_main_on_odd_pools(case):
         assert warm == cold
     if not branches:
         return
+    # The index may answer only over plain paths and starts of exactly int,
+    # whatever it claims about itself.
+    plain = all(sc._plain_path(branch.path) for branch in branches)
+    trusted = plain and all(type(branch.start) is int for branch in branches)
     with sc._source_index_scope():
         index = sc._source_branch_index(branches)
         for branch in (*branches, *strangers):
             assert index.plain(branch.path) == sc._plain_path(branch.path)
-        if not index._knows_lowest_starts:
-            return
+        assert (index._paths is not None) == plain
+        assert index._knows_lowest_starts == trusted
         for branch in (*branches, *strangers):
             if (
-                type(branch.start) is int
+                trusted
+                and type(branch.start) is int
                 and type(branch.end) is int
                 and sc._plain_path(branch.path)
             ):
@@ -3097,13 +3116,29 @@ _ROUNDS = 5
 _MIN_ROUND_CPU = 0.05
 
 
+@dataclasses.dataclass(frozen=True)
+class _PreparedCall:
+    """A timed call, and setup to run before every time it runs, off the clock."""
+
+    prepare: Callable[[], object]
+    call: Callable[[], object]
+
+    def __call__(self) -> object:
+        return self.call()
+
+
 def _cold_cpu_seconds(call: Callable[[], object], *, budget: float) -> float:
-    """The CPU time of one ``call`` with every cache cold, in a fresh scope."""
+    """The CPU time of one ``call`` with every cache cold, in a fresh scope.
+
+    A ``_PreparedCall`` runs its setup in that scope first, off the clock.
+    """
 
     # Patterns built per reason are purged too: `re` keeps 512, which holds a
     # small size's patterns between calls but not a large one's.
     _clear_caches()
     with sc._source_index_scope():
+        if isinstance(call, _PreparedCall):
+            call.prepare()
         start = time.process_time()
         call()
         elapsed = time.process_time() - start
@@ -3384,43 +3419,67 @@ def _deep_direct_text_family(n: int):
     """``_source_branch_direct_text`` over n attached markers, n deep.
 
     These paths hold n(n+1)/2 components in all, and building the trie reads
-    each one, so the family builds it and its least starts once, off the clock.
-    ``test_deep_direct_text_costs_a_fraction_of_main`` times that build, and
-    ``_deep_lowest_starts_family`` the least starts. Each call starts a new
-    index over them, so every path's first lookup stays on the clock, and no
-    lookup may read a path's components.
+    each one, so the family builds the trie once, off the clock;
+    ``test_deep_direct_text_costs_a_fraction_of_main`` times that build. Before
+    each call, also off the clock, the family clears every node's least start
+    and opens a new index over the trie. So each call fills the least starts,
+    maps each path to its node and looks up every path for the first time, all
+    on the clock, and no lookup may read a path's components.
     """
 
     branches = _attached_markers(n)
-    built = sc._SourceBranchIndex(branches)
-    assert built._knows_lowest_starts
+    paths = sc._SourceBranchIndex(branches)._paths
+    assert paths is not None
+    opened: list[sc._SourceBranchIndex] = []
+
+    def prepare():
+        opened.append(_index_with_cleared_least_starts(branches, paths))
+        sc._open_source_indexes().branches[id(branches)] = (branches, opened[-1])
 
     def sweep():
-        index = sc._SourceBranchIndex(branches)
-        index._paths, index._knows_lowest_starts = built._paths, True
-        sc._open_source_indexes().branches[id(branches)] = (branches, index)
+        assert sc._source_branch_index(branches) is opened.pop()
         return [
             sc._source_branch_direct_text(branch, branches=branches)
             for branch in branches
         ]
 
-    return sweep
+    return _PreparedCall(prepare, sweep)
 
 
 def _deep_lowest_starts_family(n: int):
     """Filling the least starts of n attached markers' branch index, n deep.
 
-    The family builds the trie once, off the clock, as
-    ``_deep_direct_text_family`` does. Each node's least start comes from its
+    As ``_deep_direct_text_family`` does, the family builds the trie once, and
+    before each call clears every node's least start and opens a new index
+    over it, all off the clock. Each node's least start comes from its
     children's; a fill that scanned every node's descendants instead would read
     about n²/2 starts here.
     """
 
-    index = sc._SourceBranchIndex(_attached_markers(n))
-    assert index._paths is not None
-    fill = sc._SourceBranchIndex._knows_lowest_starts.func
-    # The fill sets every node's least start afresh, so it can run again.
-    return lambda: fill(index)
+    branches = _attached_markers(n)
+    paths = sc._SourceBranchIndex(branches)._paths
+    assert paths is not None
+    opened: list[sc._SourceBranchIndex] = []
+
+    def fill():
+        assert opened.pop()._knows_lowest_starts
+
+    return _PreparedCall(
+        lambda: opened.append(_index_with_cleared_least_starts(branches, paths)),
+        fill,
+    )
+
+
+def _index_with_cleared_least_starts(branches, paths) -> sc._SourceBranchIndex:
+    """A new index over ``paths``, a built trie, with no node's least start set."""
+
+    nodes = [paths[0]]
+    for node in nodes:
+        node.lowest = None
+        nodes.extend(node.children.values())
+    index = sc._SourceBranchIndex(branches)
+    index._paths = paths
+    return index
 
 
 def _attached_markers(n: int) -> tuple[SourceStructureBranch, ...]:
@@ -3477,11 +3536,32 @@ def test_deep_direct_text_costs_a_fraction_of_main():
     assert new * 4 <= main, f"new {new:.4f}s, main {main:.4f}s of CPU"
 
 
-def test_filling_least_starts_reads_each_start_a_few_times():
+class _CountedEntries(list):
+    """A list that counts the entries read from it, by index, slice or loop."""
+
+    def __init__(self, entries: Iterable[int], visits: list[int]) -> None:
+        super().__init__(entries)
+        self.visits = visits
+
+    def __iter__(self):
+        for entry in super().__iter__():
+            self.visits[0] += 1
+            yield entry
+
+    def __getitem__(self, key):
+        found = super().__getitem__(key)
+        self.visits[0] += len(found) if isinstance(key, slice) else 1
+        return found
+
+
+def test_filling_least_starts_reads_each_start_and_index_a_few_times():
     # A count to go with the growth family's timing: each node's least start
-    # comes from its children's, so the fill reads a few starts per branch,
-    # where one that scanned every node's descendants would read about n²/2.
+    # comes from its children's, so the fill reads a few starts, and a few of
+    # the trie's branch indexes, per branch. A fill that scanned every node's
+    # descendants would read about n²/2 of either, even one that read each
+    # start once and scanned the preorder for the rest.
     reads = [0]
+    visits = [0]
 
     class Counted(SourceStructureBranch):
         def __getattribute__(self, name: str) -> object:
@@ -3497,9 +3577,16 @@ def test_filling_least_starts_reads_each_start_a_few_times():
         )
         index = sc._SourceBranchIndex(branches)
         assert index._paths is not None
-        reads[0] = 0
+        root, nodes, preorder = index._paths
+        trie = [root]
+        for node in trie:
+            node.indexes = _CountedEntries(node.indexes, visits)
+            trie.extend(node.children.values())
+        index._paths = (root, nodes, _CountedEntries(preorder, visits))
+        reads[0] = visits[0] = 0
         assert index._knows_lowest_starts
         assert reads[0] <= 3 * len(branches), f"n={n}: {reads[0]} start reads"
+        assert visits[0] <= 3 * len(branches), f"n={n}: {visits[0]} index reads"
 
 
 def test_first_lookups_of_own_paths_read_no_path_components():
