@@ -195,7 +195,12 @@ def test_mixed_percentage_collapse_only_removes_its_own_parts(
 ) -> None:
     whole, numerator, denominator = number
     numeral = f"{whole} {numerator}/{denominator}{marker}"
-    text = f"pay 17 pounds, then {numeral} of the excess over 300"
+    # Each neighbour yields parts of its own, which the drop must leave alone:
+    # "1 1/2" yields 1, 1 and 2, and "10 per cent" also yields 10 as a number.
+    text = (
+        f"pay 1 1/2 times 17 pounds, then {numeral} of the excess over 300"
+        " and 5 to 10 per cent of the rest"
+    )
     start = text.index(numeral)
     end = start + len(numeral)
     collapsed = occurrences(text)
@@ -207,7 +212,12 @@ def test_mixed_percentage_collapse_only_removes_its_own_parts(
     assert removed or marker == "%"
     assert all(start <= item.start and item.end <= end for item in removed)
     assert all((item.start, item.end) != (start, end) for item in removed)
-    assert {item.value for item in collapsed} >= {17.0, 300.0}
+    assert {item.value for item in collapsed} >= {1.0, 1.5, 2.0, 17.0, 300.0}
+    assert set(everything) - set(collapsed) == removed
+    outside = [
+        item for item in everything if not (start <= item.start and item.end <= end)
+    ]
+    assert [item for item in collapsed if item in outside] == outside
 
 
 @pytest.mark.parametrize(
@@ -552,9 +562,17 @@ def mixed_number_texts(
         yield text, len(lead), len(lead) + len(numeral)
 
 
-def extractor_reads_whole(text: str, start: int, end: int, *, rate: bool) -> bool:
+def extractor_reads_whole(
+    text: str, start: int, end: int, *, rate: bool, value: float
+) -> bool:
+    # One occurrence covers the numeral and holds its value as a mixed number:
+    # with no gap, "26/7" is twenty-six sevenths, not two and six sevenths.
+    values = (value / 100,) if rate else (value, value / 100)
     return any(
-        item.start <= start and end <= item.end and (item.has_rate_context or not rate)
+        item.start <= start
+        and end <= item.end
+        and (item.has_rate_context or not rate)
+        and any(math.isclose(item.value, expected) for expected in values)
         for item in GROUNDING(text)
     )
 
@@ -566,25 +584,37 @@ def collapse_matches(text: str, start: int, end: int) -> bool:
 
 
 def test_on_one_line_the_mask_hides_a_slash_where_the_extractor_reads_a_rate() -> None:
-    gaps = (*SAME_LINE_SPACES, "  ", " \t", chr(0x200B), "_")
+    gaps = (*SAME_LINE_SPACES, "", "  ", " \t", chr(0x200B), "_")
     disagreements = [
         text
         for text, start, end in mixed_number_texts("6/7", gaps)
         if (sc._without_digit_mixed_percentage_slashes(text) != text)
-        != extractor_reads_whole(text, start, end, rate=True)
+        != extractor_reads_whole(text, start, end, rate=True, value=2 + 6 / 7)
     ]
     assert disagreements == []
 
 
-def test_the_collapse_reads_a_fraction_slash_numeral_whole() -> None:
-    # The extractor reads every mixed number with the fraction slash whole, so
-    # the collapse matches one before any marker.
-    gaps = (*SAME_LINE_SPACES, "  ", chr(0x200B), "_")
+@pytest.mark.parametrize(
+    "fraction",
+    [
+        f"6{chr(0x2044)}7",
+        f"6 {chr(0x2044)} 7",
+        f"6\t{chr(0x2044)}\t7",
+        f"6{chr(0x2044)} 7",
+        f"6 {chr(0x2044)}7",
+        f"6\n{chr(0x2044)}\n7",
+    ],
+)
+def test_the_collapse_reads_a_fraction_slash_numeral_whole(fraction: str) -> None:
+    # The extractor reads every mixed number with the fraction slash whole,
+    # with any whitespace around the slash, so the collapse matches one before
+    # any marker.
+    gaps = (*SAME_LINE_SPACES, "", "  ", chr(0x200B), "_")
     disagreements = [
         text
-        for text, start, end in mixed_number_texts(f"6{chr(0x2044)}7", gaps)
+        for text, start, end in mixed_number_texts(fraction, gaps)
         if collapse_matches(text, start, end)
-        != extractor_reads_whole(text, start, end, rate=False)
+        != extractor_reads_whole(text, start, end, rate=False, value=2 + 6 / 7)
     ]
     assert disagreements == []
 
@@ -595,9 +625,27 @@ def test_the_collapse_reads_a_vulgar_rate_whole_as_the_extractor_does() -> None:
         text
         for text, start, end in mixed_number_texts(chr(0xBD), gaps)
         if collapse_matches(text, start, end)
-        != extractor_reads_whole(text, start, end, rate=True)
+        != extractor_reads_whole(text, start, end, rate=True, value=2.5)
     ]
     assert disagreements == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "under regulation 14, amount B is 2 6/7 per cent of the excess",
+        "amount B (see regulation 14) is 2 6/7 per cent of the excess",
+    ],
+)
+def test_the_drop_finds_the_numeral_in_the_text_the_extractor_reads(
+    text: str,
+) -> None:
+    # The recall text drops the citation, so its offsets differ from the
+    # branch's. The drop must find the numeral where the extractor read it.
+    assert len(sc.authoritative_numeric_recall_text(text)) < len(text)
+    found = occurrences(text)
+    assert len(found) == 1
+    assert math.isclose(found[0].value, (2 + 6 / 7) / 100)
 
 
 @pytest.mark.parametrize("profile", ["de-DE", "da-DK"])
