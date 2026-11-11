@@ -68,6 +68,7 @@ from axiom_encode.harness.partnership_reporting_evidence import (
     certify_partnership_reporting,
 )
 from axiom_encode.harness.proof_validator import (
+    WRAP_SPACE_FRAGMENT,
     _normalize_atom_path,
     _source_proof_evidence_spans,
 )
@@ -543,6 +544,55 @@ _GERMAN_CARDINAL_VALUES = {
     "zehn": 10.0,
 }
 _SLASH_CONJUNCTION = re.compile(r"\b(?:and\s*/\s*or|und\s*/\s*oder)\b", re.IGNORECASE)
+_VULGAR_FRACTION_CHARS = f"{chr(0xBC)}-{chr(0xBE)}{chr(0x2150)}-{chr(0x215E)}"
+# Every separator `str.splitlines` treats as a line boundary, not only `\n`.
+_LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
+# Any whitespace on one line: spaces of any width, tabs and U+001F.
+_SAME_LINE_SPACE = rf"[^\S{_LINE_BREAK_CHARS}]"
+# Spaces of any width and tabs, without U+001F. The numeric extractor's
+# mixed-number patterns for "%" and for the fraction slash (U+2044) spell out the
+# same class; its pattern for a mixed number before "per cent" takes any
+# whitespace.
+_INLINE_SPACE = r"[ \t\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]"
+# A mixed percentage is one numeral. The slash of "2 6/7 per cent" divides
+# nothing, and its whole number, numerator and denominator state no amounts of
+# their own. Each alternative below matches a mixed number where the numeric
+# extractor, on one line, reads it whole:
+# - a fraction written with "/" before "%" across spaces or one line wrap, after
+#   an _INLINE_SPACE gap;
+# - a fraction written with "/" before "percent", "percentage", "per cent" or
+#   "per centum" after a hyphen or any whitespace, blank lines included, after a
+#   _SAME_LINE_SPACE gap, with any _SAME_LINE_SPACE between "per" and "cent";
+# - a fraction written with the fraction slash (U+2044) after an _INLINE_SPACE
+#   gap, before any marker or none, since that slash only typesets fractions;
+# - a vulgar fraction before a word marker, after any _SAME_LINE_SPACE or none.
+# The slash mask (_without_digit_mixed_percentage_slashes) and the collapse in
+# _formula_branch_computation_occurrences share the "/" alternatives, so on a
+# numeral written with "/" they agree: where the mask hides the slash, the gate
+# keeps none of the numeral's parts, and where it leaves the slash, the collapse
+# drops none of them. Across a line break the extractor reads a mixed number
+# before a word marker whole, but the gate keeps its slash and its parts, since
+# the number before the break may stand alone; so does a numeral before "per"
+# and "cent" on two lines. Corpora under de/ and dk/ keep the parts, because the
+# extractor reads "2 6/7 %" there as separate numbers.
+_PERCENT_SIGN_MARKER = rf"(?=(?:{WRAP_SPACE_FRAGMENT})*%)"
+_PERCENT_WORD_MARKER = (
+    rf"(?=(?:\s+|-)(?:percent(?:age)?|per{_SAME_LINE_SPACE}+cent(?:um)?)\b)"
+)
+_DIGIT_MIXED_PERCENTAGE_NUMERAL = (
+    rf"\d+(?:{_INLINE_SPACE}+\d+/\d+{_PERCENT_SIGN_MARKER}|"
+    rf"{_SAME_LINE_SPACE}+\d+/\d+{_PERCENT_WORD_MARKER})"
+)
+_DIGIT_MIXED_PERCENTAGE = re.compile(
+    rf"(?<![\d/.,]){_DIGIT_MIXED_PERCENTAGE_NUMERAL}",
+    flags=re.IGNORECASE,
+)
+_WHOLE_MIXED_NUMERAL = re.compile(
+    rf"(?<![\d/.,])(?:{_DIGIT_MIXED_PERCENTAGE_NUMERAL}|"
+    rf"\d+{_INLINE_SPACE}+\d+\s*{chr(0x2044)}\s*\d+|"
+    rf"\d+{_SAME_LINE_SPACE}*[{_VULGAR_FRACTION_CHARS}]{_PERCENT_WORD_MARKER})",
+    flags=re.IGNORECASE,
+)
 # Agency-manual typography that the arithmetic recognizer would otherwise read
 # as operators: a month/year date (every page header of the Oregon eligibility
 # notebook reads "93 (07/2026)"; `1/2000 of income` stays a fraction), web
@@ -574,6 +624,12 @@ _TYPOGRAPHY_MASK = "\x00"
 # prompt coverage index of a US manual citation path.
 _US_MANUAL_PROSE_SCOPE: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "_US_MANUAL_PROSE_SCOPE", default=False
+)
+# Whether a word states a condition can depend on the corpus: "falls" means "if"
+# in German and is a verb in English. `_condition_cue_scope` names the citation
+# path of the text the condition-cue reader sees. An empty path names no corpus.
+_CONDITION_CUE_CITATION_PATH: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "_CONDITION_CUE_CITATION_PATH", default=""
 )
 _MANUAL_WORD_SLASH = re.compile(r"(?<=[A-Za-z])[ \t]*/[ \t]*(?=[A-Za-z])")
 # A text that states an equation or a division keeps its slashes and dashes,
@@ -2263,8 +2319,6 @@ _ENGLISH_LEGAL_CITATION = re.compile(
     r"\d+(?:\.\d+)*(?:\s*(?:through|to|[-–—]|and|,)\s*\d+(?:\.\d+)*)*",
     flags=re.IGNORECASE,
 )
-# Every separator `str.splitlines` treats as a line boundary, not only `\n`.
-_LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
 # A coordinated list of titled references, as UK instruments print them:
 # "regulation 15 (persons not entitled to council tax reduction: absentees),
 # regulation 16 (...) or 19 (...)". _ENGLISH_LEGAL_CITATION removes each
@@ -2300,7 +2354,6 @@ _ENGLISH_NON_TITLE_OPENING = (
 # sentence needs its own case-sensitive group.
 _ENGLISH_TITLE_CHARACTER = r"(?![.;]\s+(?-i:[(A-Z]))[^()]"
 # Vulgar fractions count as word characters, and one opens an amount.
-_VULGAR_FRACTION_CHARS = f"{chr(0xBC)}-{chr(0xBE)}{chr(0x2150)}-{chr(0x215E)}"
 _ENGLISH_REFERENCE_TITLE = (
     rf"\((?=[^\W\d_{_VULGAR_FRACTION_CHARS}])"
     r"(?!(?:[a-z]|[ivxlcdm]+)\))"
@@ -2331,6 +2384,13 @@ _ENGLISH_TITLED_REFERENCE_LIST = re.compile(
 _ENGLISH_TITLED_REFERENCE_ITEM_TITLE = re.compile(
     rf"(?P<keyword>{_ENGLISH_REFERENCE_KEYWORD}\s+)?(?P<number>\d+[A-Za-z]*)"
     rf"{_ENGLISH_TITLE_GAP}(?P<title>{_ENGLISH_REFERENCE_TITLE})",
+    flags=re.IGNORECASE,
+)
+# One titled reference, which may name a subdivision first: "regulation 14(6)
+# (title)".
+_ENGLISH_TITLED_REFERENCE = re.compile(
+    rf"\b{_ENGLISH_REFERENCE_KEYWORD}\s+\d+[A-Za-z]*(?:\([^()\s]{{1,8}}\))*"
+    rf"[^\S{_LINE_BREAK_CHARS}]*(?P<title>{_ENGLISH_REFERENCE_TITLE})",
     flags=re.IGNORECASE,
 )
 # A complete parenthesis containing only a Statutes at Large volume/page
@@ -5908,6 +5968,14 @@ def _without_slash_conjunction_operators(source_text: str) -> str:
     )
 
 
+def _without_digit_mixed_percentage_slashes(source_text: str) -> str:
+    """Keep offsets while masking the slash inside ``2 6/7 per cent``."""
+
+    return _DIGIT_MIXED_PERCENTAGE.sub(
+        lambda match: match.group().replace("/", " "), source_text
+    )
+
+
 def _is_list_bullet(source_text: str, start: int, end: int) -> bool:
     """Return whether a ``•`` marks a list item rather than multiplication.
 
@@ -6006,6 +6074,7 @@ def _without_manual_typography_operators(source_text: str) -> str:
 def _has_substantive_arithmetic_expression(source_text: str) -> bool:
     """Ignore prose conjunctions and year spans, retaining actual arithmetic."""
 
+    source_text = _without_digit_mixed_percentage_slashes(source_text)
     arithmetic_text = list(
         _without_slash_conjunction_operators(
             _without_manual_typography_operators(source_text)
@@ -6203,7 +6272,10 @@ def analyze_complete_source_unit(
 ) -> CompleteSourceUnitAnalysis:
     """Analyze one artifact against its authoritative, resolver-owned body."""
 
-    with _us_manual_prose_scope(corpus_citation_path):
+    with (
+        _us_manual_prose_scope(corpus_citation_path),
+        _condition_cue_scope(corpus_citation_path),
+    ):
         source_text = authoritative_source_text.strip()
         if not source_text:
             issue = (
@@ -15664,6 +15736,19 @@ def _us_manual_prose_scope(corpus_citation_path: str) -> Iterator[None]:
         yield
     finally:
         _US_MANUAL_PROSE_SCOPE.reset(scope)
+
+
+@contextlib.contextmanager
+def _condition_cue_scope(corpus_citation_path: str) -> Iterator[None]:
+    """Name the corpus of the text the condition-cue reader sees."""
+
+    scope = _CONDITION_CUE_CITATION_PATH.set(
+        corpus_citation_path or _CONDITION_CUE_CITATION_PATH.get()
+    )
+    try:
+        yield
+    finally:
+        _CONDITION_CUE_CITATION_PATH.reset(scope)
 
 
 def _is_manual_amount_row(label: re.Match[str]) -> bool:
@@ -25831,13 +25916,38 @@ def _formula_branch_computation_occurrences(
     fractional_spans = tuple(
         (occurrence.start, occurrence.end) for occurrence in fractional_percentages
     )
+    extracted_occurrences = tuple(extract_numeric_occurrences(recall_text))
+    # The extractor reads "2 6/7 per cent" as one rate and also yields the 2, 6
+    # and 7 inside it. Those components state no computation of their own, so
+    # the gate drops every occurrence nested in one that covers the numeral. The
+    # covering occurrence may start before the numeral, at a hyphen the
+    # extractor reads as a minus sign ("-2 6/7 per cent"). The extractor reads a
+    # mixed number with the fraction slash (U+2044) whole, as a plain number and
+    # before a percent marker also as a rate; its parts go either way.
+    whole_mixed_numerals = tuple(
+        match.span() for match in _WHOLE_MIXED_NUMERAL.finditer(recall_text)
+    )
+    mixed_percentage_spans = tuple(
+        (occurrence.start, occurrence.end)
+        for occurrence in extracted_occurrences
+        if any(
+            occurrence.start <= start and end <= occurrence.end
+            for start, end in whole_mixed_numerals
+        )
+    )
     source_occurrences = (
         tuple(
             occurrence
-            for occurrence in extract_numeric_occurrences(recall_text)
+            for occurrence in extracted_occurrences
             if not any(
                 start <= occurrence.start and occurrence.end <= end
                 for start, end in fractional_spans
+            )
+            and not any(
+                start <= occurrence.start
+                and occurrence.end <= end
+                and (occurrence.start, occurrence.end) != (start, end)
+                for start, end in mixed_percentage_spans
             )
         )
         + fractional_percentages
@@ -27653,7 +27763,9 @@ def _temporal_occurrence_is_formula_applicability_preface(
 def _formula_operation_kinds(text: str) -> set[str]:
     """Recognize operations in source prose or an explicit expression."""
 
-    text = _without_slash_conjunction_operators(text)
+    text = _without_digit_mixed_percentage_slashes(
+        _without_slash_conjunction_operators(text)
+    )
     parsed_operations = _formula_ast_operation_kinds(text)
     if parsed_operations:
         return parsed_operations
@@ -28736,7 +28848,7 @@ def _asserted_formula_runtime_values_equal(
 
     if _formula_runtime_values_equal(runtime, asserted):
         return True
-    if rule.get("dtype") != "Money" or type(asserted) is not float:
+    if rule.get("dtype") != "Money" or type(asserted) not in (float, int):
         return False
     runtime_number = _rulespec_runtime_decimal(runtime)
     asserted_number = _rulespec_runtime_decimal(asserted)
@@ -28748,7 +28860,7 @@ def _asserted_formula_runtime_values_equal(
         runtime_number,
         asserted_number,
         actual_kind="integer" if type(runtime) is int else "decimal",
-        expected_kind="decimal",
+        expected_kind="integer" if type(asserted) is int else "decimal",
     )
 
 
@@ -33322,9 +33434,11 @@ def _source_exception_branches(
         tuple[int, int, str],
         list[re.Match[str]],
     ] = {}
-    for match in _source_exception_or_applicability_matches(
-        source_text, raw_source_text=raw_source_text
-    ):
+    with _condition_cue_scope(corpus_citation_path):
+        condition_cues = _source_exception_or_applicability_matches(
+            source_text, raw_source_text=raw_source_text
+        )
+    for match in condition_cues:
         if any(
             clause.start <= match.start() and match.end() <= clause.end
             for clause in deferred_clauses
@@ -33455,6 +33569,8 @@ def _source_exception_or_applicability_matches(
             *_APPLICABILITY_LANGUAGE.finditer(source_text),
         )
         if not _is_concessive_condition_cue(source_text, match)
+        and not _is_english_verb_falls(match)
+        and not _is_uk_reference_title_cue(source_text, match)
         and not _is_coordinated_parenthetical_if_any_cue(
             source_text, match, raw_source_text=raw_source_text
         )
@@ -33464,6 +33580,56 @@ def _source_exception_or_applicability_matches(
             (match.start(), match.end()): match
             for match in sorted(matches, key=lambda item: (item.start(), item.end()))
         }.values()
+    )
+
+
+def _condition_cues_read_uk_text() -> bool:
+    """Whether the condition-cue reader sees text from a UK corpus."""
+
+    namespace = _CONDITION_CUE_CITATION_PATH.get().split("/", 1)[0]
+    return namespace == "uk" or namespace.startswith("uk-")
+
+
+def _is_english_verb_falls(match: re.Match[str]) -> bool:
+    """Exclude the verb in ``the day falls within a week`` from a UK corpus.
+
+    "falls" joins a condition to a rule only in German. Other corpora keep the
+    cue, and so does text with no citation path, since nothing says its language.
+    """
+
+    return match.group(0).lower() == "falls" and _condition_cues_read_uk_text()
+
+
+@functools.lru_cache(maxsize=4096)
+def _uk_reference_title_spans(source_text: str) -> tuple[tuple[int, int], ...]:
+    """Locate the title of each cross-reference, keyword-less list items included."""
+
+    titles = {
+        match.span("title") for match in _ENGLISH_TITLED_REFERENCE.finditer(source_text)
+    }
+    for reference_list in _ENGLISH_TITLED_REFERENCE_LIST.finditer(source_text):
+        titles.update(
+            item.span("title")
+            for item in _ENGLISH_TITLED_REFERENCE_ITEM_TITLE.finditer(
+                source_text, reference_list.start(), reference_list.end()
+            )
+        )
+    return tuple(sorted(titles))
+
+
+def _is_uk_reference_title_cue(source_text: str, match: re.Match[str]) -> bool:
+    """Exclude a condition word that only describes another UK provision.
+
+    In ``regulation 57 (residents of a dwelling to whom regulation 14(6) does not
+    apply)`` the title names regulation 57. It states no condition of the
+    provision that cites it.
+    """
+
+    if not _condition_cues_read_uk_text():
+        return False
+    return any(
+        start < match.start() and match.end() < end
+        for start, end in _uk_reference_title_spans(source_text)
     )
 
 

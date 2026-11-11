@@ -28390,11 +28390,14 @@ def test_formula_runtime_numeric_equality_is_exact():
         (Decimal("100.48999999999999"), 100.49),
         (Decimal("197.50000000000002"), 197.5),
         (Decimal("100.49999999999998"), 100.5),
+        (Decimal("0.99999999999999995"), 1),
+        (Decimal("99.00000000000001"), 99),
+        (2**52 + 1, float(2**52 + 2)),
     ],
 )
 def test_asserted_money_runtime_equality_tolerates_one_binary64_step(
-    runtime: Decimal,
-    asserted: float,
+    runtime: Decimal | int,
+    asserted: float | int,
 ):
     assert completeness_module._asserted_formula_runtime_values_equal(
         {"dtype": "Money"}, runtime, asserted
@@ -28412,6 +28415,12 @@ def test_asserted_money_runtime_equality_tolerates_one_binary64_step(
         ),
         ({"dtype": "Money"}, Decimal(2**53 + 1), float(2**53 + 1)),
         ({"dtype": "Money"}, Decimal("0.9999999999999998"), 1.0),
+        ({"dtype": "Decimal"}, Decimal("0.99999999999999995"), 1),
+        ({"dtype": "Money"}, Decimal("0.9999999999999998"), 1),
+        ({"dtype": "Money"}, Decimal("0.99999999999999995"), True),
+        ({"dtype": "Money"}, Decimal("0.99999999999999995"), Decimal(1)),
+        ({"dtype": "Money"}, Decimal(2**53 + 1), 2**53),
+        ({"dtype": "Money"}, 2**52 + 1, 2**52 + 2),
     ],
 )
 def test_asserted_money_runtime_equality_rejects_non_cent_or_unsafe_collapses(
