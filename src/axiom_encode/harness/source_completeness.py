@@ -547,29 +547,48 @@ _SLASH_CONJUNCTION = re.compile(r"\b(?:and\s*/\s*or|und\s*/\s*oder)\b", re.IGNOR
 _VULGAR_FRACTION_CHARS = f"{chr(0xBC)}-{chr(0xBE)}{chr(0x2150)}-{chr(0x215E)}"
 # Every separator `str.splitlines` treats as a line boundary, not only `\n`.
 _LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
+# Any whitespace on one line: spaces of any width, tabs and U+001F.
 _SAME_LINE_SPACE = rf"[^\S{_LINE_BREAK_CHARS}]"
-# A digit mixed percentage is one numeral. The slash of "2 6/7 per cent" divides
+# Spaces of any width and tabs, without U+001F. The numeric extractor's
+# mixed-number patterns for "%" and for the fraction slash (U+2044) spell out the
+# same class; its pattern for a mixed number before "per cent" takes any
+# whitespace.
+_INLINE_SPACE = r"[ \t\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]"
+# A mixed percentage is one numeral. The slash of "2 6/7 per cent" divides
 # nothing, and its whole number, numerator and denominator state no amounts of
-# their own. The marker must be one after which the numeric extractor reads a
-# mixed number as a rate: "%" across spaces or one line wrap, or "percent",
-# "percentage", "per cent" or "per centum" after a space or a hyphen. The slash
-# mask and the collapse share it, so on a numeral written with "/" they agree:
-# where the mask hides the slash, the gate keeps none of the numeral's parts, and
-# where it leaves the slash, the collapse drops none of them. A numeral broken
-# across lines keeps its slash and its parts, and so does one before "per" and
-# "cent" on two lines. Danish and German corpora keep the parts, because the
+# their own. Each alternative below matches a mixed number where the numeric
+# extractor, on one line, reads it whole:
+# - a fraction written with "/" before "%" across spaces or one line wrap, after
+#   an _INLINE_SPACE gap;
+# - a fraction written with "/" before "percent", "percentage", "per cent" or
+#   "per centum" after a hyphen or any whitespace, blank lines included, after a
+#   _SAME_LINE_SPACE gap;
+# - a fraction written with the fraction slash (U+2044) after an _INLINE_SPACE
+#   gap, before any marker or none, since that slash only typesets fractions;
+# - a vulgar fraction before a word marker, after any _SAME_LINE_SPACE or none.
+# The slash mask (_without_digit_mixed_percentage_slashes) and the collapse in
+# _formula_branch_computation_occurrences share the "/" alternatives, so on a
+# numeral written with "/" they agree: where the mask hides the slash, the gate
+# keeps none of the numeral's parts, and where it leaves the slash, the collapse
+# drops none of them. Across a line break the extractor reads a mixed number
+# before a word marker whole, but the gate keeps its slash and its parts, since
+# the number before the break may stand alone; so does a numeral before "per"
+# and "cent" on two lines. Corpora under de/ and dk/ keep the parts, because the
 # extractor reads "2 6/7 %" there as separate numbers.
-_MIXED_PERCENTAGE_MARKER = (
-    rf"(?=(?:{WRAP_SPACE_FRAGMENT})*%|"
-    r"(?:\s+|-)(?:percent(?:age)?|per[ \t]+cent(?:um)?)\b)"
+_PERCENT_SIGN_MARKER = rf"(?=(?:{WRAP_SPACE_FRAGMENT})*%)"
+_PERCENT_WORD_MARKER = r"(?=(?:\s+|-)(?:percent(?:age)?|per[ \t]+cent(?:um)?)\b)"
+_DIGIT_MIXED_PERCENTAGE_NUMERAL = (
+    rf"\d+(?:{_INLINE_SPACE}+\d+/\d+{_PERCENT_SIGN_MARKER}|"
+    rf"{_SAME_LINE_SPACE}+\d+/\d+{_PERCENT_WORD_MARKER})"
 )
 _DIGIT_MIXED_PERCENTAGE = re.compile(
-    rf"(?<![\d/.,])\d+{_SAME_LINE_SPACE}+\d+/\d+{_MIXED_PERCENTAGE_MARKER}",
+    rf"(?<![\d/.,]){_DIGIT_MIXED_PERCENTAGE_NUMERAL}",
     flags=re.IGNORECASE,
 )
-_MIXED_PERCENTAGE = re.compile(
-    rf"(?<![\d/.,])\d+(?:{_SAME_LINE_SPACE}+\d+[/{chr(0x2044)}]\d+|"
-    rf"{_SAME_LINE_SPACE}*[{_VULGAR_FRACTION_CHARS}]){_MIXED_PERCENTAGE_MARKER}",
+_WHOLE_MIXED_NUMERAL = re.compile(
+    rf"(?<![\d/.,])(?:{_DIGIT_MIXED_PERCENTAGE_NUMERAL}|"
+    rf"\d+{_INLINE_SPACE}+\d+\s*{chr(0x2044)}\s*\d+|"
+    rf"\d+{_SAME_LINE_SPACE}*[{_VULGAR_FRACTION_CHARS}]{_PERCENT_WORD_MARKER})",
     flags=re.IGNORECASE,
 )
 # Agency-manual typography that the arithmetic recognizer would otherwise read
@@ -25900,18 +25919,18 @@ def _formula_branch_computation_occurrences(
     # and 7 inside it. Those components state no computation of their own, so
     # the gate drops every occurrence nested in one that covers the numeral. The
     # covering occurrence may start before the numeral, at a hyphen the
-    # extractor reads as a minus sign ("-2 6/7 per cent"). With a fraction slash
-    # (U+2044) before some markers, such as a hyphen, the extractor reads the
-    # whole as a plain number rather than a rate; its parts go all the same.
-    mixed_percentages = tuple(
-        match.span() for match in _MIXED_PERCENTAGE.finditer(recall_text)
+    # extractor reads as a minus sign ("-2 6/7 per cent"). The extractor reads a
+    # mixed number with the fraction slash (U+2044) whole, as a plain number and
+    # before a percent marker also as a rate; its parts go either way.
+    whole_mixed_numerals = tuple(
+        match.span() for match in _WHOLE_MIXED_NUMERAL.finditer(recall_text)
     )
     mixed_percentage_spans = tuple(
         (occurrence.start, occurrence.end)
         for occurrence in extracted_occurrences
         if any(
             occurrence.start <= start and end <= occurrence.end
-            for start, end in mixed_percentages
+            for start, end in whole_mixed_numerals
         )
     )
     source_occurrences = (

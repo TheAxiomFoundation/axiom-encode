@@ -21,15 +21,23 @@ case pair.
 
 The tests below pin these invariants:
 
-* outside Danish and German corpora, a digit mixed percentage yields one rate,
-  (whole + numerator / denominator) / 100, and its parts yield nothing;
+* outside corpora under de/ and dk/, a digit mixed percentage written with "/"
+  yields one rate, (whole + numerator / denominator) / 100, and its parts yield
+  nothing;
 * its slash adds no division and no computation to operation kinds, stated
   computations, rounding-only clauses or colon headings, and a real division in
   the same text still counts;
-* the collapse removes only occurrences nested in a mixed percentage;
-* outside Danish and German corpora, the slash mask and the collapse agree on a
-  numeral written with "/": where the mask hides the slash the gate keeps none of
-  the numeral's parts, and where it leaves the slash the collapse drops none;
+* the collapse in _formula_branch_computation_occurrences removes only
+  occurrences nested in a mixed percentage;
+* outside corpora under de/ and dk/, the slash mask
+  (_without_digit_mixed_percentage_slashes) and the collapse agree on a numeral
+  written with "/": where the mask hides the slash the gate keeps none of the
+  numeral's parts, and where it leaves the slash the collapse drops none;
+* on one line, the mask hides the slash of a mixed number exactly where the
+  extractor reads a rate over the whole numeral. The collapse matches a mixed
+  number written with the fraction slash (U+2044) exactly where the extractor
+  reads it whole, and one written with a vulgar fraction exactly where the
+  extractor reads a rate over it;
 * in a UK corpus the cue reader never returns "falls"; in every other corpus, and
   in text with no citation path, it does;
 * the title filter drops a condition word only inside a UK cross-reference's
@@ -45,18 +53,21 @@ The tests below pin these invariants:
 test_known_gap_limbs_with_no_cue_of_their_own pins a known gap. Regulation
 14(3)(b) states a condition in wording no cue reads, so a model that drops it
 passes this gate. test_danish_and_german_extractors_keep_a_mixed_percentages_parts
-pins a known limit: in Danish and German corpora the numeric extractor reads
+pins a known limit: in corpora under de/ and dk/ the numeric extractor reads
 `2 6/7 %` as separate numbers, so the gate keeps them while it reads no division.
-test_a_numeral_with_a_fraction_slash_has_no_parts pins another: with a fraction
-slash before a hyphen, a line break or "percentage points", the extractor reads
-the numeral as a plain number, so the gate keeps that number, though not its
-parts.
+test_a_numeral_with_a_fraction_slash_has_no_parts pins another: the extractor
+reads a numeral written with the fraction slash whole, as the plain number 2.857,
+and also as a rate before some markers, "%", "per cent" and "p.c." among them.
+The gate keeps those readings and drops the parts, with any marker or none.
+test_a_vulgar_fraction_before_a_percent_sign_keeps_its_parts pins a third: the
+extractor reads `2 ½%` as two numbers, and the gate keeps both, as it did before.
 """
 
 from __future__ import annotations
 
 import contextlib
 import functools
+import itertools
 import math
 import re
 from collections.abc import Iterator
@@ -131,12 +142,12 @@ def occurrences(
 
 @contextlib.contextmanager
 def mixed_percentage_collapse_disabled() -> Iterator[None]:
-    saved = sc._MIXED_PERCENTAGE
-    sc._MIXED_PERCENTAGE = _NEVER
+    saved = sc._WHOLE_MIXED_NUMERAL
+    sc._WHOLE_MIXED_NUMERAL = _NEVER
     try:
         yield
     finally:
-        sc._MIXED_PERCENTAGE = saved
+        sc._WHOLE_MIXED_NUMERAL = saved
 
 
 def cues(text: str, citation: str = "") -> list[tuple[int, int, str]]:
@@ -264,13 +275,17 @@ def test_a_mixed_percentage_after_a_hyphen_is_one_rate(
         ("%", True),
         ("-per cent", False),
         ("-percent", False),
+        (" p.c.", True),
+        (" per-cent", True),
         (" percentage points", False),
         ("\nper cent", False),
+        (" pct", False),
+        ("", False),
     ],
 )
 def test_a_numeral_with_a_fraction_slash_has_no_parts(marker: str, rate: bool) -> None:
-    # The extractor reads a numeral with a fraction slash as a rate before some
-    # markers and as a plain number before others. Either way its parts go.
+    # The extractor reads a numeral with a fraction slash whole: as a plain
+    # number, and before some markers also as a rate. Either way its parts go.
     numeral = f"2 6{chr(0x2044)}7"
     text = f"amount B is {numeral}{marker} of the excess"
     start = text.index(numeral)
@@ -281,9 +296,9 @@ def test_a_numeral_with_a_fraction_slash_has_no_parts(marker: str, rate: bool) -
 
 @pytest.mark.parametrize(
     "numeral",
-    ["2 ½ per cent", "12 ¼ percent", "2½ per cent"],
+    ["2 ½ per cent", "12 ¼ percent", "2½ per cent", "2  ½ per cent"],
 )
-def test_vulgar_fraction_percentage_is_one_rate(numeral: str) -> None:
+def test_a_vulgar_fraction_before_a_word_marker_is_one_rate(numeral: str) -> None:
     text = f"amount B is {numeral} of the excess"
     start = text.index(numeral)
     end = start + len(numeral)
@@ -292,6 +307,15 @@ def test_vulgar_fraction_percentage_is_one_rate(numeral: str) -> None:
         for item in occurrences(text)
         if item.start < end and start < item.end
     } == {(start, end)}
+
+
+def test_a_vulgar_fraction_before_a_percent_sign_keeps_its_parts() -> None:
+    # The extractor reads "2 ½%" as two numbers, so the gate keeps both.
+    text = "amount B is 2 ½% of the excess"
+    collapsed = occurrences(text)
+    with mixed_percentage_collapse_disabled():
+        assert collapsed == occurrences(text)
+    assert [(item.start, item.end) for item in collapsed] == [(12, 13), (14, 15)]
 
 
 @PROPERTY_SETTINGS
@@ -311,9 +335,13 @@ def test_mixed_percentage_slash_is_no_division(
     "numeral",
     [
         "2 6/7 %",
+        "2 6/7  %",
         "2 6/7 per  cent",
+        "2 6/7 per\tcent",
+        "2 6/7  per cent",
         "2  6/7 per cent",
         "2\t6/7%",
+        "2\x1f6/7 per cent",
         "2 6/7 PER CENT",
         "2 6/7 per centum",
         "2 6/7 Per Centum",
@@ -404,6 +432,7 @@ def test_mixed_percentage_masking_keeps_offsets() -> None:
         "2 6/7 per\ncent",
         "2 6/7percent",
         "2 6/7\x0c%",
+        "2\x1f6/7%",
         *(f"2{line}6/7 per cent" for line in LINE_BREAKS),
     ],
 )
@@ -411,7 +440,21 @@ def test_the_mask_leaves_every_other_numeral_alone(text: str) -> None:
     assert sc._without_digit_mixed_percentage_slashes(text) == text
 
 
-WHOLE_FRACTION_GAPS = (" ", "  ", "\t", "\xa0", *LINE_BREAKS)
+WHOLE_FRACTION_GAPS = (
+    " ",
+    "  ",
+    "\t",
+    "\xa0",
+    "\x1f",
+    chr(0x1680),
+    chr(0x2000),
+    chr(0x2003),
+    chr(0x200A),
+    chr(0x202F),
+    chr(0x205F),
+    chr(0x3000),
+    *LINE_BREAKS,
+)
 MARKER_GAPS = ("", " ", "  ", "\t", "\xa0", "\r\n", "\n\n", "-", *LINE_BREAKS)
 MARKERS = (
     "%",
@@ -480,6 +523,83 @@ def test_the_mask_and_the_collapse_agree(
         assert collapsed == everything
 
 
+# Every character Python's \s matches that str.splitlines does not break on.
+SAME_LINE_SPACES = tuple(
+    char
+    for char in map(chr, range(0x110000))
+    if re.fullmatch(r"\s", char) and char not in LINE_BREAKS
+)
+# The extractor reads "per centimetre" and "percentile" as "per cent" and
+# "percent"; the gate takes neither as a marker.
+DIFFERENTIAL_MARKERS = tuple(
+    marker for marker in MARKERS if marker not in ("per centimetre", "percentile")
+)
+
+
+def mixed_number_texts(
+    fraction: str, gaps: tuple[str, ...]
+) -> Iterator[tuple[str, int, int]]:
+    # Each whole-fraction gap before each marker, then each gap before the
+    # marker after a plain space between whole number and fraction.
+    lead = "amount B is "
+    marker_gaps = ("", "  ", "-", "\r\n", "\n\n", *SAME_LINE_SPACES, *LINE_BREAKS)
+    for gap, marker_gap, marker in itertools.chain(
+        itertools.product(gaps, [" "], DIFFERENTIAL_MARKERS),
+        itertools.product([" "], marker_gaps, DIFFERENTIAL_MARKERS),
+    ):
+        numeral = f"2{gap}{fraction}"
+        text = f"{lead}{numeral}{marker_gap}{marker} of the difference"
+        yield text, len(lead), len(lead) + len(numeral)
+
+
+def extractor_reads_whole(text: str, start: int, end: int, *, rate: bool) -> bool:
+    return any(
+        item.start <= start and end <= item.end and (item.has_rate_context or not rate)
+        for item in GROUNDING(text)
+    )
+
+
+def collapse_matches(text: str, start: int, end: int) -> bool:
+    return any(
+        match.span() == (start, end) for match in sc._WHOLE_MIXED_NUMERAL.finditer(text)
+    )
+
+
+def test_on_one_line_the_mask_hides_a_slash_where_the_extractor_reads_a_rate() -> None:
+    gaps = (*SAME_LINE_SPACES, "  ", " \t", chr(0x200B), "_")
+    disagreements = [
+        text
+        for text, start, end in mixed_number_texts("6/7", gaps)
+        if (sc._without_digit_mixed_percentage_slashes(text) != text)
+        != extractor_reads_whole(text, start, end, rate=True)
+    ]
+    assert disagreements == []
+
+
+def test_the_collapse_reads_a_fraction_slash_numeral_whole() -> None:
+    # The extractor reads every mixed number with the fraction slash whole, so
+    # the collapse matches one before any marker.
+    gaps = (*SAME_LINE_SPACES, "  ", chr(0x200B), "_")
+    disagreements = [
+        text
+        for text, start, end in mixed_number_texts(f"6{chr(0x2044)}7", gaps)
+        if collapse_matches(text, start, end)
+        != extractor_reads_whole(text, start, end, rate=False)
+    ]
+    assert disagreements == []
+
+
+def test_the_collapse_reads_a_vulgar_rate_whole_as_the_extractor_does() -> None:
+    gaps = (*SAME_LINE_SPACES, "", "  ", chr(0x200B), "_")
+    disagreements = [
+        text
+        for text, start, end in mixed_number_texts(chr(0xBD), gaps)
+        if collapse_matches(text, start, end)
+        != extractor_reads_whole(text, start, end, rate=True)
+    ]
+    assert disagreements == []
+
+
 @pytest.mark.parametrize("profile", ["de-DE", "da-DK"])
 def test_danish_and_german_extractors_keep_a_mixed_percentages_parts(
     profile: str,
@@ -490,6 +610,23 @@ def test_danish_and_german_extractors_keep_a_mixed_percentages_parts(
     )
     assert "divide" not in sc._formula_operation_kinds(text)
     assert 7.0 in {item.value for item in occurrences(text, extractor)}
+
+
+@pytest.mark.parametrize(
+    ("citation", "profile"),
+    [
+        ("de/statute/estg/32a", "de-DE"),
+        ("dk/statute/x/1", "da-DK"),
+        ("de-by/statute/x/1", "legacy"),
+        ("at/gesetz/estg/33", "legacy"),
+        ("ch/sr/642.11/36", "legacy"),
+        (CITATION, "legacy"),
+    ],
+)
+def test_only_corpora_under_de_and_dk_read_numbers_in_their_own_locale(
+    citation: str, profile: str
+) -> None:
+    assert vp._numeric_profile_for_citation_path(citation) == profile
 
 
 @PROPERTY_SETTINGS
@@ -777,6 +914,12 @@ def test_a_reference_with_its_number_in_parentheses_opens_no_title(
     text: str,
 ) -> None:
     assert "if" in [item[2] for item in cues(text, CITATION)]
+
+
+def test_a_reference_number_may_carry_several_letters() -> None:
+    text = "under section 13ZA (persons if absent) the amount applies"
+    assert "if" not in [item[2] for item in cues(text, CITATION)]
+    assert "if" in [item[2] for item in cues(text)]
 
 
 def test_the_title_filter_stops_at_the_end_of_a_reference_list() -> None:
