@@ -187,3 +187,9 @@ def test_conjoined_capital_letter_keeps_its_proven_predecessor(joiner):
         (("g", "i", "a"), source.index("(A)")),
         (("g", "i", "b"), source.index("(B)")),
     ]
+
+
+@pytest.mark.parametrize("joiner", JOINERS)
+def test_conjoined_capital_letter_requires_an_operative_predecessor(joiner):
+    source = outline("(i) Qualifying categories" + joiner + "(B) Isolated category.")
+    assert not any(branch.start == source.index("(B)") for branch in structural(source))
