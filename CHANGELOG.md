@@ -1,3 +1,7 @@
+## 0.2.2356
+
+- Fix locked runtime setup for reviewed promotion preflight (#2185)
+
 ## 0.2.2355
 
 - Record a dispatch record and typed step checks for signed re-encode runs (#2181)
