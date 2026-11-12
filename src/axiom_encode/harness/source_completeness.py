@@ -5781,10 +5781,44 @@ def _source_imperative_arithmetic_operations(
     return tuple(operations)
 
 
+def _is_informational_url_referral(source_text: str) -> bool:
+    """Recognize a complete information-only sentence, never mask a URL fragment.
+
+    The closed prose grammar cannot own an arithmetic or conditional suffix.
+    URL punctuation is inert only within this whole referral; numeric recall
+    and the raw source text/offsets remain unchanged.
+    """
+
+    if len(source_text) > 1024:
+        return False
+    domain_label = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+    url = (
+        r"(?:https?://)?"
+        + domain_label
+        + r"(?:\."
+        + domain_label
+        + r")*\.[a-z]{2,63}"
+        + r"(?:/[a-z0-9_~](?:[a-z0-9_~-]*[a-z0-9_~])?)*"
+    )
+    return (
+        re.fullmatch(
+            r"\s*For more information"
+            r"(?: about these credits(?:, including credit eligibility requirements)?)?"
+            r", go to " + url + r"\.\s*",
+            re.sub(r"[ \t\r\n]+", " ", source_text),
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
+
+
 def source_states_explicit_computation(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> bool:
     """Return whether text states a computation rather than only a scalar."""
+
+    if _is_informational_url_referral(source_text):
+        return False
 
     # A parenthesized cross-reference can contain title punctuation that looks
     # arithmetic to the generic expression recognizer (for example
