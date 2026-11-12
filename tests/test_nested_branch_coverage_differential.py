@@ -1022,10 +1022,44 @@ def _complete_source_obligations(module, complete_source_module, outline):
     )
     # Compare every completeness finding, branch, and numeric occurrence count,
     # including numeric recall, without sharing either implementation's results.
-    serialized = dataclasses.asdict(result)
+    # Branch wording is not an obligation: U.S. findings now label a branch
+    # `us/x(a)(1) [paragraph (a)(1)]` where the baseline said `us/x(a)
+    # [Absatz a, Nummer 1]`, and branches carry a display-only printed-case
+    # path. Both sides reduce a rendered branch citation to its path.
+    import re as _re
+
+    def _branch_path(match):
+        if match.group("german"):
+            parts = [
+                (
+                    "satz-" + component.split()[-1]
+                    if component.strip().startswith("Satz")
+                    else component.split()[-1].lower()
+                )
+                for component in match.group("german").split(",")
+            ]
+        else:
+            parts = [
+                part.lower()
+                for part in _re.findall(r"\(([^()\s]+)\)", match.group("fragment"))
+            ] + [
+                "satz-" + component.split()[-1]
+                for component in match.group("english").split(",")
+                if component.strip().startswith("sentence ")
+            ]
+        return f"{match.group('citation')}<{'/'.join(parts)}>"
+
+    rendered_branch = _re.compile(
+        r"(?P<citation>[^\s()\[\]]+?)(?:\([^()\s]+\) "
+        r"\[(?P<german>(?:Absatz|Nummer|Buchstabe|Satz) [^\]]*)\]|"
+        r"(?P<fragment>(?:\([^()\s]+\))+) \[(?P<english>(?:paragraph|"
+        r"provision|sentence) [^\]]*)\])"
+    )
+    payload = dataclasses.asdict(result)
     # The pinned baseline predates this optional branch metadata. Fill only
     # absent defaults so actual metadata values remain part of the comparison.
-    for branch in serialized["branches"]:
+    for branch in payload["branches"]:
+        branch.pop("display_path", None)
         branch.setdefault("computation_chapeaux", ())
         branch.setdefault("required_principal_output", None)
     # The first numeric-recall issue carries a repair-context suffix (source
@@ -1034,18 +1068,19 @@ def _complete_source_obligations(module, complete_source_module, outline):
     # removed: the demanded value, every other finding and all counts are
     # still compared exactly.
     # Self-contained: the baseline worker runs this function's source alone.
-    import re as recall_re
-
-    recall_head = recall_re.compile(
+    recall_head = _re.compile(
         r"^\[complete-source-unit:numeric-recall\] Authoritative corpus numeric "
         r"value \S+ has no named scalar representation\. `module\.summary` is not "
         r"consulted\."
     )
-    serialized["issues"] = [
-        head.group(0) if (head := recall_head.match(issue)) is not None else issue
-        for issue in serialized["issues"]
-    ]
-    return serialized
+    payload["issues"] = tuple(
+        rendered_branch.sub(
+            _branch_path,
+            head.group(0) if (head := recall_head.match(issue)) is not None else issue,
+        )
+        for issue in payload["issues"]
+    )
+    return payload
 
 
 @given(outline=constructed_outlines())
