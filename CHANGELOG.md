@@ -1,3 +1,9 @@
+## 0.2.2357
+
+- Implement enrolled Codex and deterministic producers with notary admission (#1662)
+- Make the offline replay benchmark a required CI gate over 45 public fixtures (#1891)
+- Propose approving promoted RuleSpec PRs after validation and signing (#2172, docs only) (#2173)
+
 ## 0.2.2356
 
 - Fix locked runtime setup for reviewed promotion preflight (#2185)
