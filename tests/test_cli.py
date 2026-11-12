@@ -15641,6 +15641,54 @@ class TestCmdEncode:
         assert run.outcome["status"] == "apply_blocked_generation"
         mock_report_phase.assert_not_called()
 
+    def test_encode_finish_reports_outcome_status_to_live_run(self, tmp_path):
+        from axiom_encode.live_run_telemetry import LiveRunTelemetry
+
+        args = self._make_args(tmp_path, apply=True, sync=False)
+        result = self._make_eval_result(False)
+
+        with (
+            patch.object(LiveRunTelemetry, "finish") as mock_finish,
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        # The explicit finish is first, so it wins over the exit-derived one.
+        explicit = mock_finish.call_args_list[0]
+        assert explicit.args == ("failed",)
+        assert explicit.kwargs["run_id"] == run.id
+        assert explicit.kwargs["outcome_status"] == "apply_blocked_generation"
+        # No typed validation issue on a blocked generation: no rule is sent.
+        assert explicit.kwargs["error_rule"] is None
+
+    def test_encode_finish_reports_success_without_error_rule(self, tmp_path):
+        from axiom_encode.live_run_telemetry import LiveRunTelemetry
+
+        args = self._make_args(tmp_path, sync=False)
+        result = self._make_eval_result(True)
+
+        with (
+            patch.object(LiveRunTelemetry, "finish") as mock_finish,
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli.first_typed_check_id", return_value="some:check"
+            ) as mock_rule,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        explicit = mock_finish.call_args_list[0]
+        assert explicit.args == ("completed",)
+        assert explicit.kwargs["outcome_status"] == run.outcome["status"]
+        assert explicit.kwargs["error_rule"] is None
+        mock_rule.assert_not_called()
+
     @pytest.mark.parametrize("reasoning_effort", ["low", "high"])
     def test_encode_escalates_after_n_validator_failures(
         self, tmp_path, reasoning_effort
