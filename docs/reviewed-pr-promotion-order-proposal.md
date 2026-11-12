@@ -1,8 +1,9 @@
 # Proposal: approve a promoted RuleSpec PR after validation, not before
 
-Status: **proposal, not decided.** Tracking issue: #2172. This document changes
-no behavior. `docs/reviewed-pr-promotion.md` remains the description of the
-live lane.
+Status: **direction decided, not implemented.** A maintainer chose Option A
+with conditions on 2026-11-12 (see "Maintainer decisions"). Tracking issue:
+#2172. This document changes no behavior, and the new order is not active.
+`docs/reviewed-pr-promotion.md` remains the description of the live lane.
 
 ## The problem in one paragraph
 
@@ -50,15 +51,15 @@ Facts about this order:
   that one enrolled owner authored, the other enrolled owner is the only
   possible approver.
 
-## Option A (recommended): sign first, approve the green candidate PR
+## Option A (chosen): sign first, approve the green candidate PR
 
 | # | Step | Who | What a reviewer can see |
 |---|------|-----|-------------------------|
 | 1 | Local encode; open candidate PR | contributor | — |
-| 2 | Dispatch promotion | permitted actor (question 3) | — |
+| 2 | Dispatch promotion | enrolled identity at first; may be the candidate author (decision 3) | — |
 | 3 | Scope preflight, `production-signing` gate, validate, sign | workflow | — |
 | 4 | Signed commit reaches the candidate branch; full CI on the candidate PR | workflow, CI | — |
-| 5 | Approve the candidate PR; merge | enrolled signing owner, not the author | green required check, validation and CI results, the manifest |
+| 5 | Approve the candidate PR; merge | enrolled signing owner, neither the author nor the dispatcher | green required check, validation and CI results, the manifest |
 
 What changes:
 
@@ -79,28 +80,35 @@ What changes:
    on encoder main. Scope is judged against the base tree, so the base must
    stay current. The cost of a moved main falls from "a new owner review" to
    "update the branch and dispatch again".
-3. **Manifest**: a new field records what the signature attests, for example
-   `review: none`, `origin: local-candidate`. The signature means "encoder
-   main validated these exact bytes", not "an owner reviewed them".
+3. **Manifest**: a new field in a versioned signed manifest records what the
+   signature attests, for example `review: none`, `origin: local-candidate`.
+   The signature means "encoder main validated these exact bytes", not "an
+   owner reviewed them". Verifiers must distinguish the two (decision 1).
 4. **A new merge gate** in the RuleSpec repository: a manifest with
    `review: none` lands only with an approval from an enrolled signing owner
-   who is not the candidate author. This gate does not exist today; see
-   question 2. It should bind to the reviewed content (primary, companion and
-   manifest digests), not to the head SHA, because "update branch" under
-   strict protection creates a new head with the same content.
+   who is neither the candidate author nor the authenticated dispatcher. This
+   gate does not exist today. Decision 2 sets its form: a trusted
+   content-bound guard that branch protection requires. It binds to the
+   approved content hashes over the complete final PR delta (primary,
+   companion, manifest and any permitted reverse index), not to the head
+   SHA, because "update branch" under strict protection creates a new
+   head with the same content. An approval survives a base-only update only
+   when the approved content and the permitted scope are unchanged.
 5. **Preflight before the gate**: the scope preflight moves to a job that
    runs before the `production-signing` environment, so a refused dispatch
    consumes no gate approval.
 
 What does not change: key custody, the `production-signing` gate, the
-complete-source validation in the promotion run, attempt accounting, no
-automatic merge.
+complete-source validation in the promotion run, attempt accounting, final
+CI on the candidate PR, no automatic merge.
 
 Risk that this option accepts: the signing key signs bytes that no owner
 reviewed, and the single enforced human control moves from before signing to
-the merge gate of change 4. Option A must not ship without that gate. In
+the merge gate of change 4. Option A must not ship without that gate: the
+gate is deployed and enforced before the pre-sign approval is removed. In
 return, the one enforced review is made with validation and CI results
-visible, and it is not voided by unrelated merges.
+visible, and a base-only update does not void it while the approved content
+and the permitted scope are unchanged.
 
 ## Option B (fallback): keep the order, make validation visible
 
@@ -124,6 +132,9 @@ goes no further.
 
 ## Questions for a maintainer decision
 
+All three are answered; see "Maintainer decisions" below. The questions stay
+here as the record of what was asked.
+
 1. Is a signature over validated but unreviewed bytes acceptable when the
    manifest says so and the merge needs an owner approval? If no, Option B.
 2. Where does the merge gate live: branch protection on RuleSpec main
@@ -134,8 +145,39 @@ goes no further.
    enrolled identities? This sets the load on signing compute and on the
    `production-signing` gate.
 
+## Maintainer decisions (2026-11-12)
+
+Recorded from the review by @MaxGhenis on #2173
+(`pullrequestreview-5877972088`): Option A for promotions after the current
+canary.
+
+1. **Signature scope (question 1): yes.** The signing service may sign
+   validated, unreviewed candidate bytes when a versioned signed manifest
+   explicitly records that scope. Verifiers must distinguish validation from
+   owner approval. Protected signing, authoritative-source validation, attempt
+   accounting and final CI stay.
+2. **Merge gate (question 2): a trusted content-bound guard, required through
+   branch protection.**
+   - Its code and the enrolled identities load from protected policy.
+   - The required check is bound to its trusted publisher.
+   - It checks the complete final PR delta, canonical paths, approved content
+     hashes, live effective reviews and current-head CI.
+   - It is deployed and enforced before the pre-sign approval is removed.
+   - An approval is retained across base-only updates only when the approved
+     content and the permitted scope stay unchanged.
+   - The final approver is independent of both the candidate author and the
+     authenticated dispatcher.
+3. **Dispatch (question 3): enrolled identities at first.** An author may
+   dispatch their own candidate. A different enrolled owner gives the final
+   approval. Broader dispatch is revisited after the pilot, with explicit
+   limits on compute and on approval load.
+
+These decisions guide the implementation. They do not activate the new order.
+
 ## Sequence
 
-The first production canary (rulespec-us#2045) runs on the current order, so
-that the live lane is proven end to end before it changes. This proposal
-applies from the second promotion.
+1. The first production canary (rulespec-us#2045) runs on the current order,
+   so that the live lane is proven end to end before it changes.
+2. The merge gate of decision 2 is built and passes adversarial tests.
+3. The new order is activated only after that gate is enforced and holds the
+   conditions above. Until then every promotion uses the current order.
