@@ -67,8 +67,13 @@ def test_qualified_negated_or_different_instruction_is_not_masked(text):
     assert v._mask_family_expense_table_instruction(text) == text
 
 
-def test_original_source_remains_immutable():
-    text = CLAUSE
-    assert v._classify_source_scope(text) is None
-    assert v._classify_source_unit_entity(text) is None
-    assert text == CLAUSE
+def test_mask_blanks_only_the_family_modifier_and_keeps_other_evidence():
+    person = "The individual is eligible for a credit."
+    text = CLAUSE + "\n\n" + person
+    masked = v._mask_family_expense_table_instruction(text)
+    start = text.index("family")
+    assert masked == text[:start] + " " * 6 + text[start + 6 :]
+    assert "eligible physical activity expenses." in masked
+    assert masked.endswith(person)
+    # The retained sentence, not the masked modifier, decides the scope.
+    assert v._classify_source_scope(text) == "person"
