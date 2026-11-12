@@ -115,7 +115,7 @@ def test_first_issue_locates_every_missing_value_by_branch():
     # Values on one table row share one excerpt.
     assert "6330, 11610 at " in first
     assert "`| 1 qualifying child | $6,330 | $11,610 |`" in first
-    assert "In us/statute/26/32(c) [Absatz c]:" in first
+    assert "In us/statute/26/32(c) [provision (c)]:" in first
     assert "10000 at " in first
     assert "disqualified income exceeds $10,000.`" in first
     # A rate is named by the value the gate demands (34 percent -> 0.34).
@@ -252,3 +252,15 @@ def test_excerpt_word_widening_is_bounded():
         )
         + 40
     )
+
+
+def test_context_omits_numbers_the_us_locator_filter_drops():
+    # Main's U.S. bibliographic locator filter drops `111-226`; the repair
+    # context must neither demand nor list it.
+    source = "(a) Pub. L. 111-226 applies.\n(b) The cap is $500 for 3 households."
+    issues = _recall_issues(_analysis(source, citation="us/statute/42/1"))
+    assert [HEAD.match(issue).group(1) for issue in issues] == ["3", "500"]
+    assert "All 2 values of this source without a named scalar" in issues[0]
+    assert "500, 3 at " in issues[0]
+    assert "111" not in issues[0]
+    assert "226" not in issues[0]
