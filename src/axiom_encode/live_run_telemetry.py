@@ -69,6 +69,11 @@ so a run that ends before any encoding_runs row exists still says why:
   check id of the final attempt's first typed validation issue, when there
   is one. Successful runs send none.
 
+An exit that reaches the end of the live-run context without an explicit
+finish always closes the row as ``failed``, also for ``sys.exit(0)`` or a
+bare ``SystemExit()`` (``exited`` / ``exit:0``); the encode loop has no such
+path today, because it finishes explicitly before it exits.
+
 Both are bounded before sending: ``outcome_status`` to 64 characters,
 ``error_rule`` to 160, both to ``[A-Za-z0-9_.:/-]``. A value that does not
 fit is dropped, not truncated. The columns come from

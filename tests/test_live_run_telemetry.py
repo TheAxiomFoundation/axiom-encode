@@ -1,6 +1,7 @@
 """Tests for live encode-run presence telemetry."""
 
 import json
+import sys
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -872,6 +873,21 @@ class TestTerminalOutcome:
         finished = _finish_via(monkeypatch, transport, _raise(SystemExit()))
         assert finished["outcome_status"] == "exited"
         assert finished["error_rule"] == "exit:0"
+
+    def test_exit_zero_without_explicit_finish_still_closes_failed(
+        self, monkeypatch, transport
+    ):
+        # Known limit, kept on purpose: leaving the context through any
+        # SystemExit without an explicit finish is 'failed', as before these
+        # fields existed. The encode loop always finishes before it exits.
+        def body(_live):
+            sys.exit(0)
+
+        finished = _finish_via(monkeypatch, transport, body)
+        assert finished["status"] == "failed"
+        assert finished["outcome_status"] == "exited"
+        assert finished["error_rule"] == "exit:0"
+        assert "run_id" not in finished
 
     def test_system_exit_message_is_never_sent(self, monkeypatch, transport):
         message = "Policy checkout /private/repo is dirty"
