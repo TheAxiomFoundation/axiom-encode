@@ -450,6 +450,24 @@ _INLINE_PARENTHESIZED_OUTLINE_MARKER = re.compile(
     r"(?=\s|bis\b)",
     flags=re.IGNORECASE,
 )
+_CONJOINED_PARENTHESIZED_OUTLINE_MARKER = re.compile(
+    r"(?<=[;,])[ \t]+(?:or|and)[ \t]+"
+    r"(?P<marker>\((?:\d+[a-z]?|[a-z]|[ivxlcdm]{2,15})\)"
+    r"(?:[ \t]*\((?:\d+[a-z]?|[a-z]|[ivxlcdm]{2,15})\))*)"
+    r"(?=\s|bis\b)",
+    flags=re.IGNORECASE,
+)
+_CONJOINED_OUTLINE_REFERENCE_CHAIN = re.compile(
+    r"\b(?:sections?|subsections?|paragraphs?|subparagraphs?|clauses?|"
+    r"subclauses?|items?|subitems?|divisions?|subdivisions?|parts?|subparts?|"
+    r"under|pursuant\s+to|according\s+to)\s*[:;]?\s*"
+    r"\([A-Za-z0-9]+\)(?:[ \t]*\([A-Za-z0-9]+\))*"
+    r"(?:[ \t]*[,;]?[ \t]+(?:and|or)[ \t]+"
+    r"\([A-Za-z0-9]+\)(?:[ \t]*\([A-Za-z0-9]+\))*)+"
+    r"(?=[ \t]*(?:[.;,!?)]|$|\b(?:of|in|under|for|to|with|that|which|"
+    r"must|shall|may|is|are|was|were|has|have|does|do|can)\b))",
+    flags=re.IGNORECASE,
+)
 _INLINE_OUTLINE_REFERENCE_CONTEXT = re.compile(
     r"\b(?:section|subsection|paragraph|subparagraph|clause|subclause|item|"
     r"subitem|division|subdivision|part|subpart|chapter|subchapter|title|article|"
@@ -4075,9 +4093,7 @@ def _qualified_parenthesized_legal_outline_markers(
     """
 
     line_matches = tuple(_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text))
-    all_inline_matches = tuple(
-        _INLINE_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text)
-    )
+    all_inline_matches = _inline_parenthesized_legal_outline_matches(source_text)
     flattened_root_starts = _flattened_inline_numeric_root_starts(
         source_text,
         line_matches,
@@ -4167,6 +4183,37 @@ def _qualified_parenthesized_legal_outline_markers(
         for first, second in itertools.pairwise(root_labels)
     )
     return tuple(markers) if has_sequential_roots else ()
+
+
+def _inline_parenthesized_legal_outline_matches(
+    source_text: str,
+) -> tuple[re.Match[str], ...]:
+    """Admit conjoined items without splitting a named reference chain.
+
+    Reference recognition needs the text after a label too: ``clause (i); or
+    (ii) of this section`` is a reference, whereas ``clause (i); or (ii) a
+    second condition`` can end one item and begin another. Keep the existing
+    punctuation scan unchanged, including its flattened-root context rules.
+    Scan named chains once and walk their disjoint spans alongside the new
+    candidates, rather than rescanning the source for each marker.
+    """
+
+    chains = iter(_CONJOINED_OUTLINE_REFERENCE_CHAIN.finditer(source_text))
+    chain = next(chains, None)
+    conjoined = []
+    for match in _CONJOINED_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text):
+        start = match.start("marker")
+        while chain is not None and chain.end() <= start:
+            chain = next(chains, None)
+        if chain is None or not chain.start() <= start < chain.end():
+            conjoined.append(match)
+    return tuple(
+        heapq.merge(
+            _INLINE_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text),
+            conjoined,
+            key=lambda match: match.start("marker"),
+        )
+    )
 
 
 def _flattened_inline_numeric_root_starts(
