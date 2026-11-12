@@ -612,6 +612,28 @@ def test_fused_paragraph_i_whose_child_opens_a_list_stays_a_paragraph():
     ]
 
 
+def test_fused_paragraph_i_whose_first_item_holds_a_list_stays_a_paragraph():
+    """Keep the fused child when pairing a list in its own running text.
+
+    This models an Oregon paragraph whose first (A)(i) item lists prohibited
+    collection methods. Invariant: the fused child (i) and the list's (i)
+    each pair with an (ii), leaving (j) next at paragraph (i)'s level. The
+    inline (ii) also gets a duplicate branch, so check the paragraph's path.
+    """
+
+    text = (
+        "(1) Duty one:\n\n"
+        + _lettered(*"abcdefgh")
+        + "\n\n(i)(A)(i) A collector may not (i) call; (ii) write.\n\n"
+        "(ii) Duty A ii.\n\n(j) Duty j.\n\n(2) Duty two."
+    )
+
+    paths = _paths(text, _OREGON_CITATION)
+
+    assert ("1", "i") in paths
+    assert [path for path in paths if path[:2] == ("1", "h")] == [("1", "h")]
+
+
 @pytest.mark.parametrize(
     "item_i",
     (
