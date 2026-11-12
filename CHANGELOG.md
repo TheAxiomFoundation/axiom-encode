@@ -1,3 +1,7 @@
+## 0.2.2358
+
+- Bind validation waivers per covered file in signed manifests (#2092) (#2097)
+
 ## 0.2.2357
 
 - Show every missing numeric-recall value, located and grouped, in retry feedback (#1934)
