@@ -19301,8 +19301,37 @@ def _worksheet_monetary_operation_antecedent(body: str) -> str | None:
     return None
 
 
+def _nonfiler_return_instruction_antecedent(body: str) -> str | None:
+    """Separate a closed same-person hypothetical-return instruction.
+
+    The counterfactual ``as if`` belongs to the calculation command, not to
+    another factual condition. Keep every byte of the actual antecedent.
+    """
+
+    actor = r"your\s+(?:spouse(?:\s+or\s+common-law\s+partner)?|common-law\s+partner)"
+    # Additional same-actor predicates stay in the antecedent. A second actor,
+    # punctuation, quotes, or a new sentence makes ownership uncertain.
+    antecedent = (
+        rf"(?P<antecedent>\s*(?:if\s+)?(?P<actor>{actor})\s+is\s+not\s+filing\s+a\s+return"
+        r"(?:\s+and\s+(?:(?:(?P=actor)\s+is|they\s+are)\s+)?"
+        r"(?:not\s+)?(?:disabled|dependent|resident))*)"
+    )
+    consequent = (
+        r",\s*use\s+the\s+amounts\s+they\s+would\s+have\s+entered"
+        r"\s+on\s+their\s+return,\s*schedules,\s*and\s+worksheets"
+        r"\s+as\s+if\s+they\s+were\s+filing\s+a\s+return,"
+        r"\s*and\s+attach\s+their\s+information\s+slips\.?(?:\s*)"
+    )
+    match = re.fullmatch(antecedent + consequent, body, re.IGNORECASE)
+    return match.group("antecedent") if match is not None else None
+
+
 def _without_worksheet_imperative_consequent(body: str) -> str:
     """Separate a bounded worksheet command from its factual antecedent."""
+
+    nonfiler_antecedent = _nonfiler_return_instruction_antecedent(body)
+    if nonfiler_antecedent is not None:
+        return nonfiler_antecedent
 
     monetary_antecedent = _worksheet_monetary_operation_antecedent(body)
     if monetary_antecedent is not None:
