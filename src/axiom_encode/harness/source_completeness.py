@@ -489,6 +489,20 @@ _ROOT_CHAPEAU_REFERENCE_COMMAND = re.compile(
     r"as\s+(?:provided|specified|described|stated)\s+in)\b",
     flags=re.IGNORECASE,
 )
+_ROOT_CHAPEAU_TAIL_LABEL = re.compile(r"\([A-Za-z0-9]+\)")
+_ROOT_CHAPEAU_TAIL_JOINER = re.compile(
+    r"\s*(?:(?:[,;]\s*)?(?:and(?:\s*/\s*or)?|or)\s*|[,;]\s*)?",
+    flags=re.IGNORECASE,
+)
+_ROOT_CHAPEAU_TAIL_QUALIFIER = re.compile(
+    r"\s*(?:of|in|under)\s+"
+    r"(?:(?:this|that|the|these|those|such|any|each|every|a|an|said|other|"
+    r"either|both|all|another|some|same|preceding|following)\s+)*"
+    r"(?:section|subsection|paragraph|subparagraph|clause|subclause|item|"
+    r"subitem|division|subdivision|part|subpart|chapter|subchapter|title|"
+    r"article|subarticle|act|code|sentence|schedule)s?\b",
+    flags=re.IGNORECASE,
+)
 _INLINE_OUTLINE_REFERENCE_CONTEXT = re.compile(
     r"\b(?:section|subsection|paragraph|subparagraph|clause|subclause|item|"
     r"subitem|division|subdivision|part|subpart|chapter|subchapter|title|article|"
@@ -4293,6 +4307,9 @@ def _root_chapeau_first_numeric_matches(
         match.end(): match.start()
         for match in _FIRST_NUMERIC_ROOT_CHAPEAU.finditer(source_text)
     }
+    reference_tail_starts = (
+        _root_chapeau_reference_tail_starts(source_text) if chapeaux else frozenset()
+    )
     command_starts = tuple(
         match.start() for match in _ROOT_CHAPEAU_REFERENCE_COMMAND.finditer(source_text)
     )
@@ -4301,7 +4318,7 @@ def _root_chapeau_first_numeric_matches(
     for match in candidates:
         start = match.start("marker")
         chapeau_start = chapeaux.get(start)
-        if chapeau_start is None:
+        if chapeau_start is None or start in reference_tail_starts:
             continue
         root_index = bisect.bisect_right(root_starts, start) - 1
         line_index = bisect.bisect_right(line_starts, start) - 1
@@ -4326,6 +4343,37 @@ def _root_chapeau_first_numeric_matches(
         restored.append(match)
         restored_roots.add(root.start)
     return tuple(restored)
+
+
+def _root_chapeau_reference_tail_starts(source_text: str) -> frozenset[int]:
+    """Index first labels whose immediate tail qualifies a legal reference.
+
+    A chapeau alone cannot distinguish ``(1) eligible people`` from ``(1) and
+    (2) of this section``. Walk label tokens once, keeping only chains joined
+    by whitespace, punctuation or conjunctions. Each qualifier check stops at
+    the next label; each disjoint gap is inspected at most twice. This avoids
+    rescanning a long failing suffix for every possible first label.
+    """
+
+    labels = tuple(_ROOT_CHAPEAU_TAIL_LABEL.finditer(source_text))
+    blocked: set[int] = set()
+    pending: list[int] = []
+    previous_end: int | None = None
+    for index, label in enumerate(labels):
+        if previous_end is None or not _ROOT_CHAPEAU_TAIL_JOINER.fullmatch(
+            source_text, previous_end, label.start()
+        ):
+            pending = []
+        if label.group() == "(1)":
+            pending.append(label.start())
+        tail_end = (
+            labels[index + 1].start() if index + 1 < len(labels) else len(source_text)
+        )
+        if _ROOT_CHAPEAU_TAIL_QUALIFIER.match(source_text, label.end(), tail_end):
+            blocked.update(pending)
+            pending.clear()
+        previous_end = label.end()
+    return frozenset(blocked)
 
 
 def _inline_parenthesized_legal_outline_matches(

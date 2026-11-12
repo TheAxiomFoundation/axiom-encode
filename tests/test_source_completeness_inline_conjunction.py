@@ -464,3 +464,179 @@ def test_root_chapeau_uses_bounded_resolution_without_recursive_recognition(
         source_completeness.recognize_source_structure(outline(body))
     assert recognize.call_count == 1
     assert resolve.call_count == resolutions
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        " of this section must apply.",
+        " in this section must apply.",
+        " under this section must apply.",
+        " and (2) of this section must apply.",
+        " or (2) of this section must apply.",
+        " and/or (2) of this section must apply.",
+        " and/\n or (2) of this section must apply.",
+        " or(2) of this section must apply.",
+        ", and (2)(a) of this subsection must apply.",
+        "\n and\n (2)\n of\n this\n section must apply.",
+        "\u00a0or\u00a0(2)\u00a0under\u00a0this\u00a0section must apply.",
+        " of subsection(a) must apply.",
+        " of such subsection(a) must apply.",
+        " in any section must apply.",
+        " under those sections must apply.",
+        " of these subsections must apply.",
+        " of each section must apply.",
+        " in every section must apply.",
+        " of a section must apply.",
+        " under an article must apply.",
+        " of said section must apply.",
+        " of any such subsection(a) must apply.",
+        " of each such section must apply.",
+        " under any other section must apply.",
+        " of such a section must apply.",
+        " of either paragraph must apply.",
+        " under both subsections must apply.",
+        " of another section must apply.",
+        " of all sections must apply.",
+        " of some section must apply.",
+        " of the same paragraph must apply.",
+        " under the preceding subsection must apply.",
+        " in the following section must apply.",
+        " of this Act must apply.",
+        " under this Code must apply.",
+        " of the same sentence must apply.",
+        " in this Schedule must apply.",
+    ],
+)
+def test_reference_tail_cannot_become_a_new_first_numeric_child(tail):
+    source = outline("For purposes of this chapter— (1)" + tail)
+    assert not any(branch.start == source.index("(1)") for branch in structural(source))
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "eligible persons",
+        "eligible persons.",
+        "must meet a condition.",
+        "is eligible.",
+        "has a separate permission.",
+        "under an agreement is eligible.",
+        "under any such agreement is eligible.",
+        "in a qualifying role is eligible.",
+        "in such a qualifying role is eligible.",
+        "of a specified type is eligible.",
+        "under both agreements remains eligible.",
+        "of another specified type is eligible.",
+        "in some time period is eligible.",
+    ],
+)
+def test_operative_first_child_keeps_its_eof_or_predicate_body(body):
+    source = outline("For purposes of this chapter— (1) " + body)
+    assert [
+        (branch.path, branch.start)
+        for branch in structural(source)
+        if len(branch.path) > 1
+    ] == [(("g", "1"), source.index("(1)"))]
+
+
+@settings(max_examples=80, deadline=None)
+@given(
+    count=st.integers(min_value=1, max_value=8),
+    conjunction=st.sampled_from(("and", "or", "and/or")),
+    space=st.sampled_from((" ", "\t", "\n", "\u00a0")),
+    qualifier=st.sampled_from(("of", "in", "under")),
+    determiners=st.lists(
+        st.sampled_from(
+            (
+                "this",
+                "that",
+                "the",
+                "these",
+                "those",
+                "such",
+                "any",
+                "each",
+                "every",
+                "a",
+                "an",
+                "said",
+                "other",
+                "either",
+                "both",
+                "all",
+                "another",
+                "some",
+                "same",
+                "preceding",
+                "following",
+            )
+        ),
+        min_size=0,
+        max_size=4,
+    ),
+    unit=st.sampled_from(
+        (
+            "section",
+            "subsection",
+            "paragraph",
+            "article",
+            "Act",
+            "Code",
+            "sentence",
+            "Schedule",
+        )
+    ),
+)
+def test_generated_reference_tails_never_restore_an_outline_item(
+    count, conjunction, space, qualifier, determiners, unit
+):
+    chain = (space + conjunction + space).join(
+        f"({number})" for number in range(1, count + 1)
+    )
+    source = outline(
+        "For purposes of this chapter— "
+        + chain
+        + space
+        + qualifier
+        + space
+        + space.join(determiners)
+        + space
+        + unit
+        + " must apply."
+    )
+    assert not any(branch.start == source.index("(1)") for branch in structural(source))
+
+
+@pytest.mark.parametrize("count", [4, 32, 256])
+@pytest.mark.parametrize("qualifies", [False, True])
+def test_reference_tail_index_inspects_disjoint_windows(count, qualifies):
+    source = "(1)" + " and (1)" * (count - 1)
+    source += (
+        " of " + "any such " * count + "section" if qualifies else " ordinary body"
+    )
+    with (
+        patch.object(
+            source_completeness,
+            "_ROOT_CHAPEAU_TAIL_LABEL",
+            wraps=source_completeness._ROOT_CHAPEAU_TAIL_LABEL,
+        ) as labels,
+        patch.object(
+            source_completeness,
+            "_ROOT_CHAPEAU_TAIL_JOINER",
+            wraps=source_completeness._ROOT_CHAPEAU_TAIL_JOINER,
+        ) as joiner,
+        patch.object(
+            source_completeness,
+            "_ROOT_CHAPEAU_TAIL_QUALIFIER",
+            wraps=source_completeness._ROOT_CHAPEAU_TAIL_QUALIFIER,
+        ) as qualifier,
+    ):
+        blocked = source_completeness._root_chapeau_reference_tail_starts(source)
+    expected = {index * 8 for index in range(count)} if qualifies else set()
+    assert blocked == expected
+    assert labels.finditer.call_count == 1
+    assert joiner.fullmatch.call_count == count - 1
+    assert qualifier.match.call_count == count
+    for calls in (joiner.fullmatch.call_args_list, qualifier.match.call_args_list):
+        assert sum(call.args[2] - call.args[1] for call in calls) <= len(source)
