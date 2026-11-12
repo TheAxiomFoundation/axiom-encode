@@ -17,6 +17,11 @@
 /.github/workflows/encoder-version-bump.yml @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/version_provenance.py @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/prepare_signed_backfill.py @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/reviewed_pr_admission.py @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/cli.py @PavelMakarchuk @MaxGhenis
+/scripts/prepare_reviewed_pr_promotion.py @PavelMakarchuk @MaxGhenis
+/tests/test_reviewed_pr_admission.py @PavelMakarchuk @MaxGhenis
+/tests/test_prepare_reviewed_pr_promotion.py @PavelMakarchuk @MaxGhenis
 /data/reviewed-rulespec-refs/ @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/corpus_artifact_transport.py @PavelMakarchuk @MaxGhenis
 

@@ -34,6 +34,50 @@ sys.modules[_SPEC.name] = provisioner
 _SPEC.loader.exec_module(provisioner)
 
 
+def test_reviewed_pr_selector_requires_attested_encoder(tmp_path, monkeypatch):
+    monkeypatch.setattr(provisioner, "_signing_trust_roots_payload", lambda *args: {})
+    with pytest.raises(SystemExit, match="requires an attested encoder snapshot"):
+        provisioner.provision(
+            tmp_path / "destination",
+            tmp_path / "supervisor",
+            tmp_path / "site",
+            "apply",
+            "eval",
+            "corpus",
+            Path("/usr/bin/git"),
+            reviewed_pr_selector=tmp_path / "selector",
+        )
+
+
+@pytest.mark.parametrize("mismatch", [False, True])
+def test_reviewed_pr_uses_exported_verifier_and_binds_workflow_commit(
+    tmp_path, mismatch
+):
+    package = tmp_path / "exported"
+    package.mkdir()
+    # Only this exported module can interpret the selector. No caller receipt
+    # is used as admission; the stub stands in for its trusted GitHub reader.
+    (package / "reviewed_pr_admission.py").write_text(
+        "def selector_from_payload(value):\n"
+        "    assert value == {'pr': 42}\n"
+        "    return value\n"
+        "def verify_reviewed_pr(selector):\n"
+        "    return {'workflow_commit': '" + "e" * 40 + "', 'checked_live': True}\n"
+    )
+    selector = tmp_path / "selector.json"
+    selector.write_text('{"pr":42}')
+    if mismatch:
+        with pytest.raises(SystemExit, match="attested encoder commit"):
+            provisioner._verify_reviewed_pr_selector(package, selector, "f" * 40)
+    else:
+        assert (
+            provisioner._verify_reviewed_pr_selector(package, selector, "e" * 40)[
+                "checked_live"
+            ]
+            is True
+        )
+
+
 class TestPathInside:
     def test_absolute_outside(self, tmp_path):
         runtime = (tmp_path / "runtime").resolve()
@@ -2412,6 +2456,19 @@ class TestEncoderSnapshotProvisioning:
             provisioner._publish_runtime_attestation(
                 runtime, self.OFFICIAL, "a" * 40, "9.9.9", "b" * 64, self.CODEX
             )
+
+    def test_publishes_run_scoped_admission_in_readonly_attestation(self, tmp_path):
+        runtime = tmp_path / "python"
+        runtime.mkdir()
+        admission = {
+            "schema": "axiom-encode/live-reviewed-pr-admission/v1",
+            "selector": {"run_id": "123"},
+        }
+        out = provisioner._publish_runtime_attestation(
+            runtime, self.OFFICIAL, "a" * 40, "9.9.9", "b" * 64, self.CODEX, admission
+        )
+        assert json.loads(out.read_text())["reviewed_pr_admission"] == admission
+        assert stat.S_IMODE(out.stat().st_mode) == 0o444
 
     def test_publish_refuses_preplaced_symlink(self, tmp_path):
         runtime = tmp_path / "python"
