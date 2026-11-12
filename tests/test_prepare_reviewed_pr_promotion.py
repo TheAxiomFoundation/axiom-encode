@@ -2,13 +2,67 @@
 
 import importlib.util
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from axiom_encode import prepare_signed_backfill as helper
 from axiom_encode import reviewed_pr_admission as admission
+
+
+def test_workflow_preflight_uses_locked_runtime_before_identity_checks():
+    root = Path(__file__).resolve().parents[1]
+    workflow = yaml.safe_load(
+        (root / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = workflow["jobs"]["encode"]["steps"]
+    names = [step.get("name") for step in steps]
+    setup = names.index("Install locked preflight runtime")
+    preflight = names.index("Preflight live reviewed PR promotion")
+    identities = names.index("Verify immutable checkout identities")
+    assert names.index("Install uv") < names.index("Set up Python") < setup
+    assert setup < preflight < identities < names.index("Build Axiom rules engine")
+    assert steps[setup]["working-directory"] == "axiom-encode"
+    assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in steps[setup]["run"]
+    assert "uv sync --locked --python 3.13 --extra api --no-dev" in steps[setup]["run"]
+    assert (
+        "axiom-encode/.venv/bin/python "
+        "axiom-encode/scripts/prepare_reviewed_pr_promotion.py prepare"
+    ) in steps[preflight]["run"]
+    assert steps[preflight]["id"] == "reviewed_pr_admission"
+
+
+def test_preflight_helper_resolves_canonical_path_in_installed_runtime(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    script_path = root / "scripts/prepare_reviewed_pr_promotion.py"
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            "import runpy, sys; "
+            "script = runpy.run_path(sys.argv[1]); "
+            "helper = script['load']('prepare_signed_backfill'); "
+            "print(helper.citation_rulespec_path("
+            "'us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-13'))",
+            str(script_path),
+        ],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert result.stdout.strip() == (
+        "us-az/policies/des/faa5/na-utility-expenses-and-allowances/block-13.yaml"
+    )
 
 
 @pytest.fixture
