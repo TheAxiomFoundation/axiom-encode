@@ -19233,12 +19233,52 @@ def _closed_nested_reason_list(body: str) -> tuple[str, tuple[str, ...]] | None:
     return "\n".join(lines[:index]), tuple(alternatives)
 
 
+def _closed_complementary_return_amount_row(text: str) -> bool:
+    """Two exhaustive amount arms are not two simultaneous factual gates.
+
+    This recognizes only a complete worksheet instruction with the same
+    measure, owner and literal threshold. Both arms remain formula obligations.
+    """
+    normalized = " ".join(text.split())
+    return (
+        re.fullmatch(
+            r"(?:Spouse's or common-law partner's taxable income: )?"
+            r"Enter the amount from line [1-9][0-9]{0,4} of (?P<owner>your|their) "
+            r"return on line [1-9][0-9]{0,2} if it is "
+            r"(?P<threshold>\$[1-9][0-9]*(?:,[0-9]{3})*) or less\. "
+            r"If it is more than (?P=threshold), enter the result of the following "
+            r"calculation: amount from line [1-9][0-9]{0,4} of (?P=owner) return "
+            r"÷ [1-9][0-9]*(?:\.[0-9]+)?% =",
+            normalized,
+        )
+        is not None
+    )
+
+
+def _closed_filing_return_alternatives(text: str) -> bool:
+    """Recognize a complete same-actor filing/nonfiling instruction pair."""
+    actor = r"your (?:spouse(?: or common-law partner)?|common-law partner)"
+    pattern = (
+        rf"If (?P<actor>{actor}) is filing a return, use the amounts entered on their return\. "
+        r"If (?P=actor) is not filing a return, use the amounts they would have entered "
+        r"on their return, schedules, and worksheets as if they were filing a return, "
+        r"and attach their information slips\."
+    )
+    return re.fullmatch(pattern, " ".join(text.split()), re.IGNORECASE) is not None
+
+
 def _source_conjunctive_fact_gates(
     text: str,
     *,
     care_source_text: str | None = None,
 ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
     """Return distinct entity/predicate signatures from one condition."""
+
+    if _closed_filing_return_alternatives(text):
+        return ()
+
+    if _closed_complementary_return_amount_row(text):
+        return ()
 
     if _direct_exception_reverses_negative_proposition(text):
         reversal = _negative_proposition_reversal_match(text)
@@ -19871,6 +19911,7 @@ def _source_condition_clauses_owned_by_excerpt(
     branches: Sequence[SourceStructureBranch],
     corpus_citation_path: str,
     narrow_conjunctive_excerpt: bool = True,
+    allow_detached_rows: bool = False,
 ) -> tuple[tuple[_SourceConditionClause, ...], bool]:
     """Resolve exact proof text to rule-cited propositions, reporting ambiguity."""
 
@@ -19885,7 +19926,10 @@ def _source_condition_clauses_owned_by_excerpt(
     if not matches:
         return (), False
     printed_rows = _unconflicted_printed_rows(
-        source_text, branches, corpus_citation_path=corpus_citation_path
+        source_text,
+        branches,
+        corpus_citation_path=corpus_citation_path,
+        allow_detached=allow_detached_rows,
     )
     bare_labels = (
         bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
@@ -21275,6 +21319,7 @@ def _opaque_same_source_condition_input_issues(
                     branches=branches,
                     corpus_citation_path=corpus_citation_path,
                     narrow_conjunctive_excerpt=len(excerpts) == 1,
+                    allow_detached_rows=True,
                 )
                 factual_parent = _source_owned_residence_parent_clause(
                     excerpt,
@@ -23604,7 +23649,7 @@ def _printed_operation_context(
     proof_sources: Mapping[str, str | None] | None = None,
 ) -> _PrintedOperationContext | None:
     structure = _unconflicted_printed_rows(
-        source_text, branches, corpus_citation_path=citation_path
+        source_text, branches, corpus_citation_path=citation_path, allow_detached=True
     )
     return (
         _PrintedOperationContext(
@@ -23638,9 +23683,10 @@ def _unconflicted_printed_rows(
     branches: Sequence[SourceStructureBranch],
     *,
     corpus_citation_path: str = "",
+    allow_detached: bool = False,
 ) -> PrintedRowStructure | None:
     """Printed groups never supersede existing source ownership boundaries."""
-    evidence = recognize_printed_rows(source_text)
+    evidence = recognize_printed_rows(source_text, allow_detached=allow_detached)
     if evidence is None:
         return None
     labels = bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
@@ -23686,8 +23732,9 @@ def _source_formula_branches(
     )
     heading_text = source_text
     if printed_rows is not None:
-        a, b = printed_rows.heading_dash
-        heading_text = source_text[:a] + " " * (b - a) + source_text[b:]
+        if printed_rows.heading_dash is not None:
+            a, b = printed_rows.heading_dash
+            heading_text = source_text[:a] + " " * (b - a) + source_text[b:]
         glyphs = list(heading_text)
         for a, b in printed_rows.typography_spans:
             glyphs[a:b] = _TYPOGRAPHY_MASK * (b - a)
@@ -24344,7 +24391,10 @@ def _source_clause_spans(
     # Mask only authenticated structural labels, preserving offsets. The
     # resulting excerpts retain every operative character of the source.
     printed_rows = _unconflicted_printed_rows(
-        source_text, branches, corpus_citation_path=corpus_citation_path
+        source_text,
+        branches,
+        corpus_citation_path=corpus_citation_path,
+        allow_detached=True,
     )
     bare_labels = (
         bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
@@ -33430,6 +33480,24 @@ def _source_exception_branches(
             source_text, branches=branches, corpus_citation_path=corpus_citation_path
         )
     )
+    printed_rows = _unconflicted_printed_rows(
+        source_text,
+        branches,
+        corpus_citation_path=corpus_citation_path,
+        allow_detached=True,
+    )
+    header_spans = (
+        ()
+        if printed_rows is None
+        else tuple(
+            (start, end)
+            for start, end in printed_rows.nonoperative_header_spans
+            if not any(
+                branch.path and branch.start < end and start < branch.end
+                for branch in branches
+            )
+        )
+    )
     matches_by_clause: dict[
         tuple[int, int, str],
         list[re.Match[str]],
@@ -33439,6 +33507,10 @@ def _source_exception_branches(
             source_text, raw_source_text=raw_source_text
         )
     for match in condition_cues:
+        if any(
+            start <= match.start() and match.end() <= end for start, end in header_spans
+        ):
+            continue
         if any(
             clause.start <= match.start() and match.end() <= clause.end
             for clause in deferred_clauses
