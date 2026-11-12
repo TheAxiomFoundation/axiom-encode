@@ -233,6 +233,7 @@ class LiveRunTelemetry:
         self.citation = citation
         self.backend = backend
         self.model = model
+        self.attempt = 1
         self.encoder_version = encoder_version
         self.phase = phase
         self._mode = telemetry_mode() if enabled else "off"
@@ -286,6 +287,7 @@ class LiveRunTelemetry:
         call rather than two.
         """
         with self._state_lock:
+            self.attempt = attempt
             self.model = model
             self._unsent.update(attempt=attempt, model=model)
             if phase is not None:
@@ -320,8 +322,9 @@ class LiveRunTelemetry:
         self._wake.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
-        # Changes the heartbeat thread never took ride on the finish.
-        fields = self._take_update()
+        # Repeat current state: a heartbeat may have taken an update but still
+        # be in flight after the bounded join. It must not erase terminal state.
+        fields = self._take_update(final=True)
         fields["status"] = status
         if run_id:
             fields["run_id"] = run_id
@@ -329,11 +332,13 @@ class LiveRunTelemetry:
 
     # -- internals -----------------------------------------------------------
 
-    def _take_update(self) -> dict:
-        """Unsent changes plus the current phase; clears the unsent set."""
+    def _take_update(self, *, final: bool = False) -> dict:
+        """Unsent changes and phase, or full final state; clears the unsent set."""
         with self._state_lock:
             fields = self._unsent
             self._unsent = {}
+            if final:
+                fields.update(attempt=self.attempt, model=self.model)
             if self.phase:
                 fields["phase"] = self.phase
         return fields
@@ -347,7 +352,8 @@ class LiveRunTelemetry:
             if self._stop.is_set():
                 return
             # Forced: changes taken here must go out even if finish() starts
-            # meanwhile; it waits for this send before closing the row.
+            # meanwhile. The join is bounded; the transport rejects a delayed
+            # heartbeat once the row is terminal.
             self._send("heartbeat", self._take_update(), force=True)
 
     def _send(self, kind: str, fields: dict, *, force: bool = False) -> None:
@@ -399,9 +405,15 @@ class LiveRunTelemetry:
         data["last_heartbeat_at"] = _utcnow()
         if kind == "finish":
             data["finished_at"] = _utcnow()
-        self._client.schema(ENCODINGS_SCHEMA).table("live_encoding_runs").update(
-            data
-        ).eq("id", self.id).execute()
+        query = (
+            self._client.schema(ENCODINGS_SCHEMA)
+            .table("live_encoding_runs")
+            .update(data)
+            .eq("id", self.id)
+        )
+        if kind == "heartbeat":
+            query = query.eq("status", "running")
+        query.execute()
 
     # -- ingest transport (credential-free default) --------------------------
 

@@ -57,7 +57,9 @@ def _mock_client():
     client = MagicMock()
     table = client.schema.return_value.table.return_value
     table.insert.return_value.execute.return_value = MagicMock()
-    table.update.return_value.eq.return_value.execute.return_value = MagicMock()
+    query = table.update.return_value
+    query.eq.return_value = query
+    query.execute.return_value = MagicMock()
     return client, table
 
 
@@ -247,12 +249,12 @@ class TestLiveRunTelemetry:
         assert payloads[0]["op"] == "start"
         assert payloads[0]["citation"] == "us/statute/26/32"
         assert payloads[0]["runner"]["hostname"] == runner_identity()["hostname"]
-        # The heartbeat thread publishes the attempt; if finish() wins that
-        # race the change rides on the finish instead. Either way it lands once.
+        # Finish repeats current state even if the heartbeat took the change
+        # but has not delivered it yet.
         carriers = [payload for payload in payloads[1:] if "attempt" in payload]
-        assert len(carriers) == 1
-        assert carriers[0]["attempt"] == 2
-        assert carriers[0]["model"] == "gpt-5.5-max"
+        assert carriers
+        assert all(payload["attempt"] == 2 for payload in carriers)
+        assert all(payload["model"] == "gpt-5.5-max" for payload in carriers)
         assert payloads[-1]["op"] == "finish"
         assert payloads[-1]["status"] == "completed"
         assert payloads[-1]["run_id"] == "abc12345"
@@ -628,6 +630,78 @@ class TestLiveRunPhases:
                 # The stalled transitions coalesce into one update, in order.
                 _wait_for_calls(table.update, 2)
         assert _phase_updates(table)[:2] == ["generate", "review"]
+
+    def test_delayed_heartbeat_cannot_overwrite_finished_row(self, monkeypatch):
+        _configured_env(monkeypatch)
+        client, table = _mock_client()
+        row = {}
+        row_lock = threading.Lock()
+        in_flight = threading.Event()
+        release = threading.Event()
+
+        class Query:
+            def __init__(self, data, *, insert=False):
+                self.data = dict(data)
+                self.insert = insert
+                self.filters = []
+
+            def eq(self, key, value):
+                self.filters.append((key, value))
+                return self
+
+            def execute(self):
+                if not self.insert and "status" not in self.data:
+                    in_flight.set()
+                    if not release.wait(10):
+                        raise TimeoutError("test heartbeat was not released")
+                # PostgREST evaluates predicates when the write executes, not
+                # when the client constructs a request before the network wait.
+                with row_lock:
+                    if self.insert or all(
+                        row.get(key) == value for key, value in self.filters
+                    ):
+                        row.update(self.data)
+                return MagicMock()
+
+        table.insert.side_effect = lambda data: Query(data, insert=True)
+        table.update.side_effect = Query
+        live = LiveRunTelemetry(
+            citation="us/statute/26/32",
+            backend="codex",
+            model="initial-model",
+            encoder_version="0.1.0",
+            phase=PHASE_RESOLVE,
+        )
+        try:
+            with patch(
+                "axiom_encode.supabase_sync.get_supabase_client", return_value=client
+            ):
+                live.__enter__()
+                live.set_attempt(2, "escalated-model", phase=PHASE_GENERATE)
+                assert in_flight.wait(5)
+                live.set_phase(PHASE_APPLY)
+                started = time.monotonic()
+                live.finish("completed", run_id="final-run")
+                assert time.monotonic() - started < 4
+                assert live._thread.is_alive()
+                terminal = dict(row)
+                assert terminal["status"] == "completed"
+                assert terminal["phase"] == PHASE_APPLY
+                assert terminal["attempt"] == 2
+                assert terminal["model"] == "escalated-model"
+                assert terminal["run_id"] == "final-run"
+                assert terminal["started_at"]
+                assert terminal["finished_at"]
+                assert terminal["last_heartbeat_at"]
+                release.set()
+                live._thread.join(timeout=5)
+                assert not live._thread.is_alive()
+                assert row == terminal
+        finally:
+            release.set()
+            live.finish("failed")
+            if live._thread is not None:
+                live._thread.join(timeout=5)
 
     def test_report_phase_is_a_noop_without_an_active_run(self, monkeypatch):
         _configured_env(monkeypatch)
