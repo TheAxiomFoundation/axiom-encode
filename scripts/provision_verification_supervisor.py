@@ -28,9 +28,25 @@ The static passes below make that outcome reachable and durable:
   the toolchain's absolute build-prefix RUNPATH so ``libpython`` loads from the
   runtime, and is the pass the maps check then verifies for the launcher.
 
-Trust boundary and residual: the inputs are the GitHub-provided toolcache stdlib
-and pinned pip dependencies, and the finished tree is chowned root and stripped
-of group/other write by the caller (the supervisor re-verifies that ownership).
+Trust boundary and residual: the inputs are the invoking interpreter's CPython
+prefix (the setup-python toolcache when ``--require-prefix-under`` is set) and
+the caller-staged ``--site-packages`` tree, and the finished tree is chowned
+root and stripped of group/other write by the caller (the supervisor re-verifies
+that ownership). This script does not inspect how ``--site-packages`` was
+installed. The repository workflows stage it from ``uv.lock``: ``uv export
+--locked`` hash-pinned registry distributions installed with ``--require-hashes
+--no-deps``, then the commit-pinned ``axiom-oracles`` git dependency and the
+project itself with ``--no-deps``, then a diff against the ``uv sync --locked``
+environment. The issue233 Canada diagnostic passes instead the purelib of a
+``uv sync --frozen`` environment; that sync is its job's only uv call, the job
+installs nothing with pip, and only this script's call names the purelib.
+``tests/test_verification_site_packages_lock.py`` enforces both forms, reads
+``--site-packages`` with this script's own argument parser, and fails a
+workflow whose text names the staged tree outside staging and this script's call.
+``uv.lock`` does not pin build backends, so the sdists it pins, the git
+dependency and the project are built with whatever backend versions the index
+serves at run time; when the ``--encoder-*`` attestation arguments are given,
+the staged ``axiom_encode`` package is replaced by the attested commit's bytes.
 A pinned dependency carrying hostile ELF metadata (an absolute ``DT_NEEDED``, a
 ``DT_AUDIT`` hook, a decoy section) is NOT statically audited here — such a
 dependency already executes its own code inside the signer, so metadata-level
@@ -303,9 +319,9 @@ def _relocate_elf_rpaths(runtime: Path, patchelf: str) -> int:
     which LD_LIBRARY_PATH cannot outrank; patchelf --print-rpath then re-reads
     the object to confirm nothing still escapes.
 
-    This is a best-effort hardening pass over trusted, pinned inputs (the
-    toolcache stdlib and pinned pip deps). The load-bearing guarantee for the
-    launcher interpreter is the empirical /proc/self/maps check in
+    This is a best-effort hardening pass over trusted inputs (the interpreter
+    prefix and the uv.lock-staged site-packages). The load-bearing guarantee for
+    the launcher interpreter is the empirical /proc/self/maps check in
     _assert_self_contained, not this static rewrite.
     """
     runtime_resolved = runtime.resolve(strict=True)
@@ -1845,6 +1861,7 @@ def _publish_runtime_attestation(
     declared_version: str,
     package_tree_sha256: str,
     codex_cli: dict[str, str] | None = None,
+    reviewed_pr_admission: dict | None = None,
 ) -> Path:
     """Atomically publish the attestation into a root-owned prefix, fail-closed.
 
@@ -1880,6 +1897,8 @@ def _publish_runtime_attestation(
             "version": codex_cli["version"],
             "sha256": codex_cli["sha256"],
         }
+    if reviewed_pr_admission is not None:
+        attestation["reviewed_pr_admission"] = reviewed_pr_admission
     payload = json.dumps(attestation, indent=2, sort_keys=True) + "\n"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
@@ -2057,6 +2076,32 @@ def _load_retired_apply_inventory(path: Path) -> dict[str, object]:
         raise SystemExit(f"invalid retired apply frozen inventory: {exc}") from exc
 
 
+def _verify_reviewed_pr_selector(
+    encoder_package: Path, selector_path: Path, encoder_commit: str
+) -> dict:
+    """Use only the exported encoder's verifier, never caller approval JSON."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_provisioned_reviewed_pr_admission",
+        encoder_package / "reviewed_pr_admission.py",
+    )
+    if spec is None or spec.loader is None:
+        raise SystemExit("reviewed PR verifier is absent from attested encoder")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    with selector_path.open("rb") as selector_stream:
+        raw_selector = selector_stream.read(4097)
+    if len(raw_selector) > 4096:
+        raise SystemExit("reviewed PR selector is oversized")
+    selector = module.selector_from_payload(json.loads(raw_selector))
+    admission = module.verify_reviewed_pr(selector)
+    if admission["workflow_commit"] != encoder_commit:
+        raise SystemExit("reviewed PR run does not use the attested encoder commit")
+    return admission
+
+
 def provision(
     destination: Path,
     supervisor: Path,
@@ -2076,6 +2121,7 @@ def provision(
     retired_corpus_release_roots: tuple[str, ...] = (),
     retired_apply_roots: tuple[str, ...] = (),
     retired_apply_inventory_path: Path | None = None,
+    reviewed_pr_selector: Path | None = None,
 ) -> None:
     if any(not root.strip() for root in retired_corpus_release_roots):
         raise SystemExit(
@@ -2100,6 +2146,8 @@ def provision(
         encoder_git_root,
     )
     provision_encoder = all(arg is not None for arg in encoder_attestation_args)
+    if reviewed_pr_selector is not None and not provision_encoder:
+        raise SystemExit("reviewed PR admission requires an attested encoder snapshot")
     if (
         any(arg is not None for arg in encoder_attestation_args)
         and not provision_encoder
@@ -2133,6 +2181,14 @@ def provision(
             encoder_staging,
         )
     try:
+        reviewed_pr_admission = None
+        if reviewed_pr_selector is not None:
+            # Only selectors cross from the caller; authority is freshly read by
+            # code exported from the verified encoder commit, under root custody.
+            assert encoder_package is not None
+            reviewed_pr_admission = _verify_reviewed_pr_selector(
+                encoder_package, reviewed_pr_selector, encoder_commit
+            )
         runtime = destination / "python"
         _stage_runtime_tree(source_runtime, runtime, site_packages)
         package_tree_sha256: str | None = None
@@ -2189,6 +2245,7 @@ def provision(
                 declared_version,
                 package_tree_sha256,
                 codex_cli,
+                reviewed_pr_admission,
             )
         shutil.copy2(supervisor, destination / "axiom-encode-signing-supervisor")
         (destination / "axiom-encode-signing-supervisor").chmod(0o755)
@@ -2197,7 +2254,9 @@ def provision(
             shutil.rmtree(encoder_staging, ignore_errors=True)
 
 
-if __name__ == "__main__":
+def _argument_parser() -> argparse.ArgumentParser:
+    """What ``__main__`` parses. tests/test_verification_site_packages_lock.py
+    reads workflow calls with it, so it checks the values this script acts on."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--destination", type=Path, required=True)
     parser.add_argument("--supervisor", type=Path, required=True)
@@ -2282,7 +2341,16 @@ if __name__ == "__main__":
         "invariant) before its src/axiom_encode is archived into the runtime. Must "
         "have full history (fetch-depth: 0) for the version-bump check.",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--reviewed-pr-selector",
+        type=Path,
+        help="Run-scoped selector only; attested verifier must fetch live GitHub approval before admission.",
+    )
+    return parser
+
+
+if __name__ == "__main__":
+    args = _argument_parser().parse_args()
     provision(
         args.destination.resolve(),
         args.supervisor.resolve(),
@@ -2304,4 +2372,5 @@ if __name__ == "__main__":
         tuple(args.retired_corpus_release_root),
         tuple(args.retired_apply_root),
         args.retired_apply_inventory,
+        args.reviewed_pr_selector,
     )

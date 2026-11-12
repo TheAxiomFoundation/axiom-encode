@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ast
 import contextlib
+import errno
 import hashlib
 import io
 import json
@@ -190,6 +191,20 @@ STALE_PUBLICATION_BASE_ERROR = (
 _REVIEWED_RULESPEC_BRANCH_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
 _REVIEWED_RULESPEC_RECORD_NAME_PATTERN = re.compile(r"([0-9a-f]{40})\.json")
 _REVIEWED_RULESPEC_TEXT_LIMITS = {"purpose": 400, "declared": 200, "binding": 512}
+
+_DESCRIPTOR_OPEN = os.open
+_DESCRIPTOR_STAT = os.stat
+_DESCRIPTOR_OS_IS_POSIX = os.name == "posix"
+_DESCRIPTOR_O_DIRECTORY = getattr(os, "O_DIRECTORY", None)
+_DESCRIPTOR_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", None)
+_DESCRIPTOR_O_CLOEXEC = getattr(os, "O_CLOEXEC", None)
+_DESCRIPTOR_OPEN_SUPPORTS_DIR_FD = os.open in getattr(os, "supports_dir_fd", ())
+_DESCRIPTOR_STAT_SUPPORTS_DIR_FD = os.stat in getattr(os, "supports_dir_fd", ())
+_DESCRIPTOR_STAT_SUPPORTS_NOFOLLOW = os.stat in getattr(
+    os,
+    "supports_follow_symlinks",
+    (),
+)
 
 
 def _load_unambiguous_json(raw: str, *, label: str) -> object:
@@ -1255,6 +1270,26 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         raise ValueError("atomic source JSON exceeds the maximum input size")
     payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
     if isinstance(payload, dict) and payload.get("schema") == (
+        "axiom-encode/reviewed-pr-promotion/v1"
+    ):
+        if set(payload) != {"schema", "transaction", "rulespec_pr"}:
+            raise ValueError(
+                "reviewed PR promotion requires exactly transaction and rulespec_pr"
+            )
+        number = payload["rulespec_pr"]
+        inner = payload["transaction"]
+        if type(number) is not int or number <= 0:
+            raise ValueError("reviewed PR promotion requires a positive PR number")
+        if (
+            not isinstance(inner, dict)
+            or inner.get("schema") != "axiom-encode/atomic-source-transaction/v5"
+        ):
+            raise ValueError("reviewed PR promotion requires an exact v5 transaction")
+        normalized = split_atomic_source_input(json.dumps(inner, allow_nan=False))
+        if normalized.get("reviewed_candidate_promotion") is not True:
+            raise ValueError("reviewed PR promotion requires promotion mode")
+        return {**normalized, "rulespec_pr": number}
+    if isinstance(payload, dict) and payload.get("schema") == (
         "axiom-encode/corpus-artifact-transport/v1"
     ):
         required_keys = {"schema", "transaction", "corpus_artifact_run_id"}
@@ -1492,6 +1527,7 @@ def immutable_atomic_source_contract(atomic_source_json: str) -> dict[str, objec
         "repair_mode",
         "corpus_artifact_run_id",
         "provision_export_run_ids",
+        "rulespec_pr",
     }.intersection(normalized):
         return normalized
     payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
@@ -1764,24 +1800,103 @@ def _checkout_path_exists_without_indirection(
     *,
     label: str,
 ) -> bool:
-    """Return whether a checkout path exists, rejecting parent indirection."""
+    """Probe one checkout path through pinned, no-follow directory handles.
 
-    cursor = repo
-    for index, component in enumerate(relative.parts):
-        cursor /= component
+    The repository root and every ancestor are opened with ``O_NOFOLLOW`` and
+    traversal continues relative to those descriptors, so a component swapped
+    for a symlink between check and use cannot redirect the probe. Only a
+    proven ``ENOENT`` counts as absence; every other failure is refused.
+    """
+
+    if (
+        relative.is_absolute()
+        or not relative.parts
+        or any(component in {"", ".", ".."} for component in relative.parts)
+    ):
+        raise ValueError(f"cannot inspect {label}: noncanonical path {relative}")
+    required_flags = (
+        _DESCRIPTOR_O_DIRECTORY,
+        _DESCRIPTOR_O_NOFOLLOW,
+        _DESCRIPTOR_O_CLOEXEC,
+    )
+    if (
+        not _DESCRIPTOR_OS_IS_POSIX
+        or not all(isinstance(flag, int) and flag for flag in required_flags)
+        or not _DESCRIPTOR_OPEN_SUPPORTS_DIR_FD
+        or not _DESCRIPTOR_STAT_SUPPORTS_DIR_FD
+        or not _DESCRIPTOR_STAT_SUPPORTS_NOFOLLOW
+    ):
+        raise ValueError(
+            f"cannot inspect {label} safely: descriptor traversal is unsupported"
+        )
+    directory_flags = (
+        os.O_RDONLY
+        | _DESCRIPTOR_O_DIRECTORY
+        | _DESCRIPTOR_O_NOFOLLOW
+        | _DESCRIPTOR_O_CLOEXEC
+    )
+    # A ".." component would either be collapsed lexically (probing a
+    # different root than the kernel resolves) or, as the final component,
+    # slip past O_NOFOLLOW; callers pass canonical roots, so refuse it.
+    raw_repo = Path(repo).absolute()
+    if not raw_repo.name or ".." in raw_repo.parts:
+        raise ValueError(f"cannot inspect {label}: repository root is invalid")
+
+    descriptors: list[int] = []
+    try:
         try:
-            metadata = cursor.lstat()
-        except FileNotFoundError:
-            return False
+            repo_fd = _DESCRIPTOR_OPEN(raw_repo, directory_flags)
+            descriptors.append(repo_fd)
+            opened_repo = os.fstat(repo_fd)
+            if not stat.S_ISDIR(opened_repo.st_mode):
+                raise ValueError(
+                    f"cannot inspect {label}: repository is not a directory"
+                )
+        except (TypeError, NotImplementedError) as exc:
+            raise ValueError(
+                f"cannot inspect {label} safely: descriptor traversal is unsupported"
+            ) from exc
         except OSError as exc:
             raise ValueError(f"cannot inspect {label}: {relative}") from exc
+
+        current_fd = repo_fd
+        for component in relative.parts[:-1]:
+            try:
+                current_fd = _DESCRIPTOR_OPEN(
+                    component,
+                    directory_flags,
+                    dir_fd=current_fd,
+                )
+            except OSError as exc:
+                if exc.errno == errno.ENOENT:
+                    return False
+                raise ValueError(f"cannot inspect {label}: {relative}") from exc
+            except (TypeError, NotImplementedError) as exc:
+                raise ValueError(
+                    f"cannot inspect {label} safely: descriptor traversal is unsupported"
+                ) from exc
+            descriptors.append(current_fd)
+
+        try:
+            metadata = _DESCRIPTOR_STAT(
+                relative.name,
+                dir_fd=current_fd,
+                follow_symlinks=False,
+            )
+        except OSError as exc:
+            if exc.errno == errno.ENOENT:
+                return False
+            raise ValueError(f"cannot inspect {label}: {relative}") from exc
+        except (TypeError, NotImplementedError) as exc:
+            raise ValueError(
+                f"cannot inspect {label} safely: descriptor traversal is unsupported"
+            ) from exc
         if stat.S_ISLNK(metadata.st_mode):
             raise ValueError(f"{label} contains a symlink: {relative}")
-        if index < len(relative.parts) - 1 and not stat.S_ISDIR(metadata.st_mode):
-            raise ValueError(f"{label} parent is not a directory: {relative}")
-        if index == len(relative.parts) - 1:
-            return True
-    return False
+        return True
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
 
 
 def validate_source_add_targets(
