@@ -1,3 +1,11 @@
+## 0.2.2360
+
+- Keep nonfiler return instructions out of factual gate counts (#2122)
+- Allow complete GPT-6 authoring output and reject incomplete responses (#2117)
+- Send the Codex prompt on stdin instead of argv (#1205) (#2184)
+- Record the terminal outcome of a live encode run (#2189)
+- Rewrite the US replay snapshot for the located numeric-recall message (main is red) (#2195)
+
 ## 0.2.2359
 
 - fix: retain strict proof requirements in partial repairs (#2089)
