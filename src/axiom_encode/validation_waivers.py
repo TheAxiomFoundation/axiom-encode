@@ -30,6 +30,7 @@ from yaml.events import (
     ScalarEvent,
 )
 
+from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check
 from axiom_encode.constants import RULESPEC_ATOMIC_MODULE_ROOTS, RULESPEC_FILE_SUFFIX
 
 MAX_WAIVER_DAYS = 90
@@ -52,6 +53,66 @@ METADATA_KEYS = frozenset({"fingerprint", "owner", "issue", "expires"})
 WAIVER_SECTION = "validate_failures"
 DEFAULT_WAIVER_PATH = "known-validation-gaps.yaml"
 OUTCOME_SCHEMA = "rulespec-validation-failure/v1"
+
+_VERIFIER_RESTATE_WHY = (
+    "A verifier switch may restate observed failures, but it cannot grant new "
+    "waiver authority or change the policy bytes covered by that authority."
+)
+_VERIFIER_RESTATE_FIX = (
+    "Restore the protected-base entries, owner, issue, expiry and pending "
+    "records. Change only active fingerprints or remove active-only entries; "
+    "submit other waiver or policy changes in a separate reviewed transaction."
+)
+_VERIFIER_RESTATE_SITE = (
+    "axiom_encode/validation_waivers.py:verifier_restate_transition_issues"
+)
+VERIFIER_RESTATE_NEW_ENTRY = declare_check(
+    "validation-waivers:verifier-restate/new-entry",
+    title="A verifier restate adds a waiver entry",
+    requires="Every head waiver entry already exists on the protected base.",
+    why=_VERIFIER_RESTATE_WHY,
+    fix=_VERIFIER_RESTATE_FIX,
+    cause="encoder_output",
+    gate="ci",
+    site=_VERIFIER_RESTATE_SITE,
+)
+VERIFIER_RESTATE_INVALID_REMOVAL = declare_check(
+    "validation-waivers:verifier-restate/invalid-removal",
+    title="A verifier restate removes an entry with pending or inactive state",
+    requires="A removed entry has an active record and no pending record.",
+    why=_VERIFIER_RESTATE_WHY,
+    fix=_VERIFIER_RESTATE_FIX,
+    cause="encoder_output",
+    gate="ci",
+    site=_VERIFIER_RESTATE_SITE,
+)
+VERIFIER_RESTATE_METADATA_CHANGED = declare_check(
+    "validation-waivers:verifier-restate/metadata-changed",
+    title="A verifier restate changes protected waiver metadata",
+    requires=(
+        "Only the active fingerprint may change; active state, owner, issue, "
+        "expiry and pending records stay as on the protected base."
+    ),
+    why=_VERIFIER_RESTATE_WHY,
+    fix=_VERIFIER_RESTATE_FIX,
+    cause="encoder_output",
+    gate="ci",
+    site=_VERIFIER_RESTATE_SITE,
+)
+VERIFIER_RESTATE_PROTECTED_FILES_CHANGED = declare_check(
+    "validation-waivers:verifier-restate/protected-files-changed",
+    title="A verifier restate includes policy or provenance changes",
+    requires="A verifier restate changes no RuleSpec files, apply manifests or receipts.",
+    why=_VERIFIER_RESTATE_WHY,
+    fix=(
+        "Remove the RuleSpec, apply-manifest and receipt changes from the "
+        "verifier restate. Submit those bytes through their separate reviewed "
+        "encoding or promotion transaction."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site="axiom_encode/cli.py:_guard_manifest_waiver_set_identity",
+)
 
 
 class ValidationWaiverError(ValueError):
@@ -480,13 +541,23 @@ def verifier_restate_transition_issues(
         if base_entry == head_entry:
             continue
         if base_entry is None:
-            issues.append(f"{path}: a verifier restate cannot add a waiver entry")
+            issues.append(
+                ValidationIssue(
+                    f"{path}: a verifier restate cannot add a waiver entry",
+                    check=VERIFIER_RESTATE_NEW_ENTRY,
+                    subject=IssueSubject(module=path),
+                )
+            )
             continue
         if head_entry is None:
             if base_entry.active is None or base_entry.pending is not None:
                 issues.append(
-                    f"{path}: a verifier restate can remove only an entry that "
-                    "has an active record and no pending record"
+                    ValidationIssue(
+                        f"{path}: a verifier restate can remove only an entry that "
+                        "has an active record and no pending record",
+                        check=VERIFIER_RESTATE_INVALID_REMOVAL,
+                        subject=IssueSubject(module=path),
+                    )
                 )
             continue
         if (
@@ -497,9 +568,13 @@ def verifier_restate_transition_issues(
             != base_entry.active
         ):
             issues.append(
-                f"{path}: a verifier restate may change only the fingerprint of "
-                "an active record; owner, issue, expiry and pending records must "
-                "stay exactly as on the protected base"
+                ValidationIssue(
+                    f"{path}: a verifier restate may change only the fingerprint of "
+                    "an active record; owner, issue, expiry and pending records must "
+                    "stay exactly as on the protected base",
+                    check=VERIFIER_RESTATE_METADATA_CHANGED,
+                    subject=IssueSubject(module=path),
+                )
             )
     return tuple(issues)
 

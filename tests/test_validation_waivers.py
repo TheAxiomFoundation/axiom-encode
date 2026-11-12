@@ -9,6 +9,7 @@ from types import MappingProxyType
 
 import pytest
 
+from axiom_encode.checks import ValidationIssue
 from axiom_encode.validation_waivers import (
     MAX_WAIVER_DAYS,
     ValidationWaiverSet,
@@ -574,6 +575,15 @@ def test_verifier_restate_refuses_every_other_change(head_entries, expected):
     issues = verifier_restate_transition_issues(base, _set(*head_entries()))
     assert len(issues) >= 1
     assert any(expected in issue for issue in issues), issues
+    expected_check = {
+        "cannot add a waiver entry": "new-entry",
+        "may change only the fingerprint": "metadata-changed",
+    }[expected]
+    assert all(isinstance(issue, ValidationIssue) for issue in issues)
+    assert {issue.check for issue in issues} == {
+        f"validation-waivers:verifier-restate/{expected_check}"
+    }
+    assert all(issue.subject.module for issue in issues)
 
 
 def test_verifier_restate_refuses_consumption_and_pending_changes():
@@ -590,12 +600,12 @@ def test_verifier_restate_refuses_consumption_and_pending_changes():
         issues = verifier_restate_transition_issues(staged, head)
         assert any("may change only the fingerprint" in issue for issue in issues)
     # An entry with a pending record cannot be removed.
-    assert any(
-        "can remove only an entry" in issue
-        for issue in verifier_restate_transition_issues(staged, _set())
-    )
     pending_only = _set(_entry(PATH, pending=_metadata("b")))
-    assert any(
-        "can remove only an entry" in issue
-        for issue in verifier_restate_transition_issues(pending_only, _set())
-    )
+    for base in (staged, pending_only):
+        issues = verifier_restate_transition_issues(base, _set())
+        assert any("can remove only an entry" in issue for issue in issues)
+        assert all(isinstance(issue, ValidationIssue) for issue in issues)
+        assert {issue.check for issue in issues} == {
+            "validation-waivers:verifier-restate/invalid-removal"
+        }
+        assert all(issue.subject.module == PATH for issue in issues)

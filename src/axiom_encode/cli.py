@@ -122,6 +122,8 @@ from .checks import (
     ISSUE_SCHEMA_VERSION as VALIDATION_ISSUE_SCHEMA_VERSION,
 )
 from .checks import (
+    IssueSubject,
+    ValidationIssue,
     issues_from_document,
     registry_document,
     retype,
@@ -26954,12 +26956,17 @@ def _guard_manifest_waiver_set_identity(
         )
         if riders:
             restate_issues.append(
-                "a verifier restate cannot change RuleSpec files, apply "
-                "manifests or receipts: " + ", ".join(riders)
+                ValidationIssue(
+                    "a verifier restate cannot change RuleSpec files, apply "
+                    "manifests or receipts: " + ", ".join(riders),
+                    check=_validation_waivers.VERIFIER_RESTATE_PROTECTED_FILES_CHANGED,
+                    subject=IssueSubject(field="changed_paths"),
+                    found=", ".join(riders),
+                )
             )
         if restate_issues:
             return current_waiver_set_sha256, [
-                "RuleSpec verifier restate is invalid: " + issue
+                retype(issue, "RuleSpec verifier restate is invalid: " + issue)
                 for issue in restate_issues
             ]
         _remember_validation_waiver_ledger(base_bytes)

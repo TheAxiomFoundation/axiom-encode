@@ -44788,6 +44788,8 @@ class TestGuardGenerated:
     def test_guard_refuses_a_verifier_restate_that_loosens_the_ledger(
         self, tmp_path, mutation, expected_issue
     ):
+        from axiom_encode.checks import ValidationIssue
+
         example = self._waiver_entry_text(
             "us/regulations/example.yaml", fingerprint="2" * 64
         )
@@ -44834,6 +44836,26 @@ class TestGuardGenerated:
             for issue in issues
         )
         assert any(expected_issue in issue for issue in issues), issues
+        # Prefixing the refusal must retain its declared identity for consumers.
+        assert all(isinstance(issue, ValidationIssue) for issue in issues)
+        expected_check = {
+            "added_entry": "new-entry",
+            "later_expiry": "metadata-changed",
+            "to_pending": "metadata-changed",
+            "rider": "protected-files-changed",
+        }[mutation]
+        assert any(
+            issue.check == f"validation-waivers:verifier-restate/{expected_check}"
+            for issue in issues
+        )
+        if mutation == "rider":
+            rider_issue = next(
+                issue
+                for issue in issues
+                if issue.check.endswith("protected-files-changed")
+            )
+            assert rider_issue.subject.field == "changed_paths"
+            assert rider_issue.found == "us/regulations/example.yaml"
 
     def _retirement_manifest(
         self,
