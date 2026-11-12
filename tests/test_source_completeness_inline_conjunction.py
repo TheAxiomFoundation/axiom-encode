@@ -140,3 +140,50 @@ def test_conjoined_operative_predicate_after_reference_stays_an_item(body):
         branch.path == ("g", "ii") and branch.start == source.index("(ii)")
         for branch in structural(source)
     )
+
+
+@pytest.mark.parametrize("joiner", JOINERS)
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "described in clause (i){joiner}(ii) must comply.",
+        "identified in paragraph (b)(2)(i){joiner}(ii) of this section.",
+        "eligible under (A){joiner}(B).",
+    ],
+)
+def test_terminal_reference_without_a_later_duplicate_stays_prose(joiner, phrase):
+    reference = phrase.format(joiner=joiner)
+    source = outline("(i) A person " + reference)
+    start = source.index(reference)
+    assert not any(start <= branch.start for branch in structural(source))
+
+
+@settings(max_examples=80, deadline=None)
+@given(
+    count=st.integers(min_value=2, max_value=5),
+    joiner=st.sampled_from(JOINERS),
+    head=st.sampled_from(("paragraph (b)(2)", "clause ", "under ")),
+)
+def test_generated_long_reference_chains_never_add_items(count, joiner, head):
+    reference = head + joiner.join(f"({label})" for label in ROMANS[:count])
+    source = outline(
+        "(i) A person described in " + reference + " of this section must comply."
+    )
+    start = source.index(reference)
+    assert not any(start <= branch.start for branch in structural(source))
+
+
+@pytest.mark.parametrize("joiner", JOINERS)
+def test_conjoined_capital_letter_keeps_its_proven_predecessor(joiner):
+    source = outline(
+        "(i) Qualifying categories: (A) First category"
+        + joiner
+        + "(B) Second category."
+    )
+    branches = structural(source)
+    assert [
+        (branch.path, branch.start) for branch in branches if len(branch.path) > 2
+    ] == [
+        (("g", "i", "a"), source.index("(A)")),
+        (("g", "i", "b"), source.index("(B)")),
+    ]

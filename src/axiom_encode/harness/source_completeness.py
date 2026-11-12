@@ -468,6 +468,10 @@ _CONJOINED_OUTLINE_REFERENCE_CHAIN = re.compile(
     r"must|shall|may|is|are|was|were|has|have|does|do|can)\b))",
     flags=re.IGNORECASE,
 )
+_CONJOINED_OUTLINE_REFERENCE_END = re.compile(
+    r"[ \t]*(?:[.;,!?)]|$|\b(?:of|in|under|for|to|with|that|which)\b)",
+    flags=re.IGNORECASE,
+)
 _INLINE_OUTLINE_REFERENCE_CONTEXT = re.compile(
     r"\b(?:section|subsection|paragraph|subparagraph|clause|subclause|item|"
     r"subitem|division|subdivision|part|subpart|chapter|subchapter|title|article|"
@@ -4093,7 +4097,9 @@ def _qualified_parenthesized_legal_outline_markers(
     """
 
     line_matches = tuple(_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text))
-    all_inline_matches = _inline_parenthesized_legal_outline_matches(source_text)
+    all_inline_matches = _inline_parenthesized_legal_outline_matches(
+        source_text, line_matches
+    )
     flattened_root_starts = _flattened_inline_numeric_root_starts(
         source_text,
         line_matches,
@@ -4108,6 +4114,11 @@ def _qualified_parenthesized_legal_outline_markers(
         )
     )
     inline_marker_starts = {match.start("marker") for match in inline_matches}
+    conjoined_marker_starts = {
+        match.start("marker")
+        for match in inline_matches
+        if _CONJOINED_PARENTHESIZED_OUTLINE_MARKER.match(source_text, match.start())
+    }
     matches = tuple(
         heapq.merge(
             line_matches,
@@ -4143,6 +4154,19 @@ def _qualified_parenthesized_legal_outline_markers(
                 attached_parent_level=attached_parent_level,
                 outline_levels=outline_levels,
             )
+            if (
+                marker_start in conjoined_marker_starts
+                and label_index == 0
+                and not any(
+                    active_level == level
+                    and active_category == category
+                    and _parenthesized_outline_label_follows(
+                        previous, raw_label, category
+                    )
+                    for active_level, previous, _normalized, active_category in active
+                )
+            ):
+                break
             if (
                 marker_start in inline_marker_starts
                 and marker_start not in flattened_root_starts
@@ -4187,6 +4211,7 @@ def _qualified_parenthesized_legal_outline_markers(
 
 def _inline_parenthesized_legal_outline_matches(
     source_text: str,
+    line_matches: Sequence[re.Match[str]],
 ) -> tuple[re.Match[str], ...]:
     """Admit conjoined items without splitting a named reference chain.
 
@@ -4195,21 +4220,47 @@ def _inline_parenthesized_legal_outline_matches(
     second condition`` can end one item and begin another. Keep the existing
     punctuation scan unchanged, including its flattened-root context rules.
     Scan named chains once and walk their disjoint spans alongside the new
-    candidates, rather than rescanning the source for each marker.
+    candidates, rather than rescanning the source for each marker. A bare
+    predicate after a named reference remains ambiguous; only an independently
+    lexed next sibling before the next line marker proves that new item.
     """
 
     chains = iter(_CONJOINED_OUTLINE_REFERENCE_CHAIN.finditer(source_text))
     chain = next(chains, None)
+    legacy = tuple(_INLINE_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text))
+    legacy_starts = tuple(match.start("marker") for match in legacy)
+    line_starts = tuple(match.start("marker") for match in line_matches)
     conjoined = []
     for match in _CONJOINED_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text):
         start = match.start("marker")
         while chain is not None and chain.end() <= start:
             chain = next(chains, None)
-        if chain is None or not chain.start() <= start < chain.end():
+        in_reference = chain is not None and chain.start() <= start < chain.end()
+        if in_reference and not _CONJOINED_OUTLINE_REFERENCE_END.match(
+            source_text, chain.end()
+        ):
+            following = bisect.bisect_right(legacy_starts, start)
+            next_line = bisect.bisect_right(line_starts, start)
+            if following < len(legacy) and (
+                next_line == len(line_starts)
+                or legacy_starts[following] < line_starts[next_line]
+            ):
+                labels = re.findall(r"\(([A-Za-z0-9]+)\)", match.group("marker"))
+                next_labels = re.findall(
+                    r"\(([A-Za-z0-9]+)\)", legacy[following].group("marker")
+                )
+                if len(labels) == len(next_labels) == 1 and any(
+                    _parenthesized_outline_label_follows(
+                        labels[0], next_labels[0], category
+                    )
+                    for category in _parenthesized_legal_outline_categories(labels[0])
+                ):
+                    in_reference = False
+        if not in_reference:
             conjoined.append(match)
     return tuple(
         heapq.merge(
-            _INLINE_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text),
+            legacy,
             conjoined,
             key=lambda match: match.start("marker"),
         )
