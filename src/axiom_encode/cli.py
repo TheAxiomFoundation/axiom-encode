@@ -459,7 +459,14 @@ from .legacy_replacement_overlay import (
 from .legacy_replacement_overlay import (
     stage_legacy_replacement_overlay as _stage_legacy_replacement_overlay,
 )
-from .live_run_telemetry import LiveRunTelemetry, telemetry_blocked_for_tests
+from .live_run_telemetry import (
+    PHASE_APPLY,
+    PHASE_RESOLVE,
+    LiveRunTelemetry,
+    github_run_identity,
+    report_phase,
+    telemetry_blocked_for_tests,
+)
 from .numeric_equality import rulespec_numeric_values_equal
 from .oracles.policyengine.pending import (
     PendingDeclarationError,
@@ -37250,6 +37257,7 @@ def _cmd_encode_with_authoritative_rulespec_roots(
             model=str(config.initial_model or ""),
             encoder_version=__version__,
             enabled=getattr(args, "sync", True) is True,
+            phase=PHASE_RESOLVE,
         ) as live_run,
     ):
         return _run_encode_attempts_with_retries(
@@ -37402,7 +37410,12 @@ def _run_encode_attempts_with_retries(
                     f"from_model={current_model} to_model={next_model}"
                 )
                 current_model = next_model
-                live_run.set_attempt(len(failed_attempts) + 1, str(current_model))
+                # The next attempt re-resolves its inputs before generating.
+                live_run.set_attempt(
+                    len(failed_attempts) + 1,
+                    str(current_model),
+                    phase=PHASE_RESOLVE,
+                )
                 continue
 
         # The last candidate is judged; what follows is the loop's finalization.
@@ -37935,6 +37948,7 @@ def _run_encode_attempt(
             outcome["final_success"] = False
             print(f"  apply=blocked_generation:{detail}")
         else:
+            report_phase(PHASE_APPLY)
             yaml_preflight_issue = _generated_rulespec_yaml_nonparser_issue(
                 result,
                 Path(str(getattr(result, "output_file", "") or "")),
@@ -69517,7 +69531,11 @@ def _sync_run_to_supabase_if_configured(
         return {"configured": False, "run": False, "session": False}
     from .supabase_sync import sync_agent_sessions_to_supabase, sync_run_to_supabase
 
-    run_synced = sync_run_to_supabase(run, "reviewer_agent")
+    # This helper only runs for the encode invocation that just produced
+    # ``run``, so the current GitHub Actions run (if any) is the one to record.
+    run_synced = sync_run_to_supabase(
+        run, "reviewer_agent", github_run=github_run_identity()
+    )
     session_synced = False
     if run_synced and run.session_id:
         session_stats = sync_agent_sessions_to_supabase(

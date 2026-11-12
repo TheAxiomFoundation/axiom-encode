@@ -79,6 +79,12 @@ from axiom_encode.legacy_replacement_overlay import (
     scope_canonical_replacement_overlay,
     stage_legacy_replacement_overlay,
 )
+from axiom_encode.live_run_telemetry import (
+    PHASE_GENERATE,
+    PHASE_REVIEW,
+    PHASE_VALIDATE,
+    report_phase,
+)
 from axiom_encode.prompts.encoder import (
     INTERPRETATIONS_PROTOCOL,
     SOURCE_SCOPE_PROTOCOL,
@@ -8799,6 +8805,7 @@ def _evaluate_artifact_in_scope(
             },
             existing_target_oracle_contract=existing_target_oracle_contract,
         )
+        report_phase(PHASE_VALIDATE)
         compile_result = pipeline._run_compile_check(validation_file)
         timing_issues = amendment_timing_issues(
             validation_file.read_text(), amendment_documents
@@ -8868,6 +8875,7 @@ def _evaluate_artifact_in_scope(
                 issues=[],
             )
         else:
+            report_phase(PHASE_REVIEW)
             try:
                 generalist_review_result = pipeline._run_reviewer(
                     "generalist-reviewer",
@@ -10481,6 +10489,7 @@ def _run_single_eval(
             _clear_eval_target_artifacts(output_file, artifact_root)
 
     if not retained_candidate_accepted:
+        report_phase(PHASE_GENERATE)
         mark_encode_phase(PHASE_MODEL_CALL)
         response, wrote_artifact, retry_count, materialized_paths = (
             _run_prompt_eval_with_empty_artifact_retry(
@@ -16828,6 +16837,7 @@ def _run_codex_prompt_eval(
     usage_payload: dict | None = None
     unexpected_accesses: list[str] = []
     error = None
+    runtime_initialization_error = None
 
     for line in (stdout_text + stderr_text).splitlines():
         stripped = line.strip()
@@ -16841,6 +16851,15 @@ def _run_codex_prompt_eval(
         events.append(payload)
         if payload.get("type") == "item.completed":
             item = payload.get("item", {}) or {}
+            # Codex can exit zero and emit a final answer after its tool runtime
+            # failed to start. This is not an ordinary recoverable tool error:
+            # workspace evidence was unavailable, so do not accept that answer.
+            if item.get("type") == "error":
+                message = item.get("message")
+                if isinstance(message, str) and message.startswith(
+                    "Code Mode is unavailable because "
+                ):
+                    runtime_initialization_error = message
             if item.get("type") == "agent_message" and item.get("text"):
                 assistant_messages.append(item["text"])
             if item.get("type") == "command_execution":
@@ -16878,6 +16897,10 @@ def _run_codex_prompt_eval(
         file_text = last_message_file.read_text().strip()
         if file_text:
             final_text = file_text
+
+    if runtime_initialization_error:
+        final_text = ""
+        error = "Codex runtime initialization failed: " + runtime_initialization_error
 
     if timeout_stage == "case_budget":
         final_text = ""
