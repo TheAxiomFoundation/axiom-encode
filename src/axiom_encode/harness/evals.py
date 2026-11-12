@@ -16828,6 +16828,7 @@ def _run_codex_prompt_eval(
     usage_payload: dict | None = None
     unexpected_accesses: list[str] = []
     error = None
+    runtime_initialization_error = None
 
     for line in (stdout_text + stderr_text).splitlines():
         stripped = line.strip()
@@ -16841,6 +16842,15 @@ def _run_codex_prompt_eval(
         events.append(payload)
         if payload.get("type") == "item.completed":
             item = payload.get("item", {}) or {}
+            # Codex can exit zero and emit a final answer after its tool runtime
+            # failed to start. This is not an ordinary recoverable tool error:
+            # workspace evidence was unavailable, so do not accept that answer.
+            if item.get("type") == "error":
+                message = item.get("message")
+                if isinstance(message, str) and message.startswith(
+                    "Code Mode is unavailable because "
+                ):
+                    runtime_initialization_error = message
             if item.get("type") == "agent_message" and item.get("text"):
                 assistant_messages.append(item["text"])
             if item.get("type") == "command_execution":
@@ -16878,6 +16888,10 @@ def _run_codex_prompt_eval(
         file_text = last_message_file.read_text().strip()
         if file_text:
             final_text = file_text
+
+    if runtime_initialization_error:
+        final_text = ""
+        error = "Codex runtime initialization failed: " + runtime_initialization_error
 
     if timeout_stage == "case_budget":
         final_text = ""
