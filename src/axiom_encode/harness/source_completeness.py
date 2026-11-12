@@ -475,6 +475,20 @@ _CONJOINED_OUTLINE_REFERENCE_END = re.compile(
     r"subclauses?|items?|subitems?|parts?|subparts?|titles?|chapters?)\b)",
     flags=re.IGNORECASE,
 )
+_FIRST_NUMERIC_ROOT_CHAPEAU = re.compile(
+    r"\b(?:for[ \t]+purposes[ \t]+(?:of|in)|as[ \t]+used[ \t]+in)"
+    r"[ \t]+this[ \t]+(?:chapter|section|subsection|paragraph|subparagraph|"
+    r"clause|subclause|part|subpart|title|article|division)"
+    r"(?:[ \t]*\([A-Za-z0-9]+\))*[ \t]*[:—][ \t]*(?=\(1\))",
+    flags=re.IGNORECASE,
+)
+_ROOT_CHAPEAU_REFERENCE_COMMAND = re.compile(
+    r"\b(?:see|compare|refer(?:\s+back)?(?:\s+to)?|"
+    r"subject\s+to|under|pursuant\s+to|according\s+to|"
+    r"in\s+accordance\s+with|"
+    r"as\s+(?:provided|specified|described|stated)\s+in)\b",
+    flags=re.IGNORECASE,
+)
 _INLINE_OUTLINE_REFERENCE_CONTEXT = re.compile(
     r"\b(?:section|subsection|paragraph|subparagraph|clause|subclause|item|"
     r"subitem|division|subdivision|part|subpart|chapter|subchapter|title|article|"
@@ -4116,6 +4130,42 @@ def _qualified_parenthesized_legal_outline_markers(
             or not _inline_outline_marker_has_reference_context(source_text, match)
         )
     )
+    baseline = _resolve_parenthesized_legal_outline_markers(
+        source_text, line_matches, inline_matches, flattened_root_starts
+    )
+    accepted_starts = {match.start("marker") for match in inline_matches}
+    candidates = tuple(
+        match
+        for match in all_inline_matches
+        if match.re is _INLINE_PARENTHESIZED_OUTLINE_MARKER
+        and match.group("marker") == "(1)"
+        and match.start("marker") not in accepted_starts
+    )
+    restored = _root_chapeau_first_numeric_matches(
+        source_text, line_matches, candidates, baseline
+    )
+    if not restored:
+        return baseline
+    return _resolve_parenthesized_legal_outline_markers(
+        source_text,
+        line_matches,
+        tuple(
+            heapq.merge(
+                inline_matches, restored, key=lambda match: match.start("marker")
+            )
+        ),
+        flattened_root_starts,
+    )
+
+
+def _resolve_parenthesized_legal_outline_markers(
+    source_text: str,
+    line_matches: Sequence[re.Match[str]],
+    inline_matches: Sequence[re.Match[str]],
+    flattened_root_starts: frozenset[int],
+) -> tuple[_OutlineMarker, ...]:
+    """Resolve one candidate set without recognizing the source recursively."""
+
     inline_marker_starts = {match.start("marker") for match in inline_matches}
     conjoined_marker_starts = {
         match.start("marker")
@@ -4210,6 +4260,72 @@ def _qualified_parenthesized_legal_outline_markers(
         for first, second in itertools.pairwise(root_labels)
     )
     return tuple(markers) if has_sequential_roots else ()
+
+
+def _root_chapeau_first_numeric_matches(
+    source_text: str,
+    line_matches: Sequence[re.Match[str]],
+    candidates: Sequence[re.Match[str]],
+    baseline: Sequence[_OutlineMarker],
+) -> tuple[re.Match[str], ...]:
+    """Recover a first numeric child only below an already proven root.
+
+    A direct ``For purposes of this chapter—`` chapeau can introduce a list
+    despite looking like reference prose to the default guard. Keep that guard
+    unchanged. Use the original resolution's roots, not roots produced by this
+    repair, and require the nearest raw line marker to be that same root.
+    An existing descendant, including one fused to the root marker, prevents
+    borrowing that proof. Restore at most one first child per baseline root.
+    Heading-adjacent labels and ambiguous alphabetic/Roman roots remain outside
+    this proof. Scan chapeaux and commands once; never rescan a root prefix for
+    every candidate or invoke the public recognizer to establish ancestry.
+    """
+
+    if not candidates or not baseline:
+        return ()
+    roots = tuple(marker for marker in baseline if len(marker.path) == 1)
+    root_starts = tuple(marker.start for marker in roots)
+    descendant_starts = tuple(
+        marker.start for marker in baseline if len(marker.path) > 1
+    )
+    line_starts = tuple(match.start("marker") for match in line_matches)
+    chapeaux = {
+        match.end(): match.start()
+        for match in _FIRST_NUMERIC_ROOT_CHAPEAU.finditer(source_text)
+    }
+    command_starts = tuple(
+        match.start() for match in _ROOT_CHAPEAU_REFERENCE_COMMAND.finditer(source_text)
+    )
+    restored = []
+    restored_roots: set[int] = set()
+    for match in candidates:
+        start = match.start("marker")
+        chapeau_start = chapeaux.get(start)
+        if chapeau_start is None:
+            continue
+        root_index = bisect.bisect_right(root_starts, start) - 1
+        line_index = bisect.bisect_right(line_starts, start) - 1
+        if root_index < 0 or line_index < 0:
+            continue
+        root = roots[root_index]
+        root_end = root.start + len(root.label)
+        if (
+            line_starts[line_index] != root.start
+            or root.start >= start
+            or root.start in restored_roots
+            or not source_text.startswith(root.label, root.start)
+            or chapeau_start < root_end
+        ):
+            continue
+        descendant_index = bisect.bisect_left(descendant_starts, start) - 1
+        if descendant_index >= 0 and descendant_starts[descendant_index] >= root.start:
+            continue
+        command_index = bisect.bisect_right(command_starts, start) - 1
+        if command_index >= 0 and command_starts[command_index] >= root_end:
+            continue
+        restored.append(match)
+        restored_roots.add(root.start)
+    return tuple(restored)
 
 
 def _inline_parenthesized_legal_outline_matches(

@@ -1,9 +1,13 @@
 """Conjunctions separate operative items but also occur in legal references."""
 
+from pathlib import Path
+from unittest.mock import patch
+
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from axiom_encode.harness import source_completeness
 from axiom_encode.harness.source_completeness import recognize_source_structure
 
 JOINERS = ("; or ", "; and ", ", or ", ", and ")
@@ -239,3 +243,224 @@ def test_conjoined_fused_children_keep_their_source_boundaries(joiner):
         (("g", "ii"), source.index("(ii)(A)")),
         (("g", "ii", "a"), source.index("(ii)(A)")),
     ]
+
+
+@pytest.mark.parametrize(
+    "fixture,path,offset",
+    [
+        ("a-9", ("e", "1"), 38129),
+        ("a-9", ("j", "1"), 46071),
+        ("a-9", ("m", "1"), 56647),
+        ("a-9", ("m", "1", "a"), 56776),
+        ("a-9", ("m", "1", "b"), 56966),
+        ("a-9", ("m", "2"), 57067),
+        ("b-12", ("a", "1"), 43),
+        ("b-12", ("a", "1", "a"), 136),
+        ("b-12", ("a", "1", "b"), 253),
+        ("b-12", ("a", "2"), 644),
+        ("b-12", ("a", "2", "a"), 780),
+        ("b-12", ("a", "2", "b"), 921),
+        ("b-12", ("a", "3"), 1156),
+        ("b-12", ("a", "4"), 1514),
+        ("b-12", ("j", "1"), 25614),
+    ],
+)
+def test_direct_root_chapeau_preserves_printed_fixture_ancestry(fixture, path, offset):
+    source = (
+        Path(__file__).parent
+        / "fixtures"
+        / "editorial_source_ancestry"
+        / f"{fixture}-source.txt"
+    ).read_text()
+    branches = structural(source)
+    matching = [
+        branch for branch in branches if branch.path == path and branch.start == offset
+    ]
+    assert len(matching) == 1
+    assert matching[0].text.startswith(source[offset : offset + 30])
+
+
+ROOT_CHAPEAUX = (
+    "For purposes of this chapter— ",
+    "As used in this section— ",
+    "For purposes of this subsection(a)(2): ",
+)
+REFERENCE_COMMANDS = (
+    "See",
+    "Compare",
+    "Refer to",
+    "Subject to",
+    "Under",
+    "Pursuant to",
+    "According to",
+    "In accordance with",
+)
+
+
+@pytest.mark.parametrize("chapeau", ROOT_CHAPEAUX)
+def test_direct_root_chapeau_admits_first_numeric_child(chapeau):
+    source = outline(chapeau + "(1) eligible persons; or (2) eligible entities.")
+    assert [
+        (branch.path, branch.start)
+        for branch in structural(source)
+        if len(branch.path) > 1
+    ] == [
+        (("g", "1"), source.index("(1) eligible")),
+        (("g", "2"), source.index("(2) eligible")),
+    ]
+
+
+@pytest.mark.parametrize("command", REFERENCE_COMMANDS)
+def test_explicit_reference_command_prevents_root_chapeau_override(command):
+    source = outline(
+        command + " the rule for purposes of this chapter— (1) of this section."
+    )
+    assert not any(branch.start == source.index("(1)") for branch in structural(source))
+
+
+@pytest.mark.parametrize(
+    "command", [command for command in REFERENCE_COMMANDS if " " in command]
+)
+def test_wrapped_reference_command_prevents_root_chapeau_override(command):
+    source = outline(
+        command.replace(" ", "\n")
+        + " the rule for purposes of this chapter— (1) of this section."
+    )
+    assert not any(branch.start == source.index("(1)") for branch in structural(source))
+
+
+@settings(max_examples=60, deadline=None)
+@given(
+    chapeau=st.sampled_from(ROOT_CHAPEAUX),
+    command=st.sampled_from(REFERENCE_COMMANDS),
+    space=st.sampled_from((" ", "\t", "  ", "\n", "\u00a0")),
+)
+def test_root_chapeau_never_overrides_an_explicit_reference(chapeau, command, space):
+    source = outline(
+        space.join(command.split())
+        + space
+        + "the rule "
+        + chapeau
+        + "(1) of this section for scope."
+    )
+    assert not any(branch.start == source.index("(1)") for branch in structural(source))
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "See paragraph: (1) of this section for scope.",
+        "The person described in paragraph: (1) must comply.",
+    ],
+)
+def test_same_root_numeric_references_keep_default_guard(body):
+    source = outline(body)
+    assert not any(branch.start == source.index("(1)") for branch in structural(source))
+
+
+def test_numeric_line_cannot_borrow_earlier_root_chapeau_proof():
+    source = outline("") + (
+        "\n(1) Operative item. For purposes of this section— (1) of this section."
+    )
+    assert not any(
+        branch.start == source.rindex("(1)") for branch in structural(source)
+    )
+
+
+@pytest.mark.parametrize(
+    "body,first_path",
+    [
+        (
+            "(g)(1) Operative item. For purposes of this section— (1) of this section.",
+            ("g", "1"),
+        ),
+        (
+            "(g)(i) Operative item. For purposes of this section— (1) of this section.",
+            ("g", "i"),
+        ),
+        (
+            "(g) First: (1) Operative item. For purposes of this section— "
+            "(1) of this section.",
+            ("g", "1"),
+        ),
+        (
+            "(g) For purposes of this chapter— (1) employees qualify. "
+            "For purposes of this section— (1) of this section.",
+            ("g", "1"),
+        ),
+    ],
+)
+def test_existing_or_restored_child_prevents_later_chapeau_reference(body, first_path):
+    prefix = "\n\n".join(
+        f"({chr(index)}) Duty {chr(index)}." for index in range(ord("a"), ord("g"))
+    )
+    source = prefix + "\n\n" + body
+    branches = structural(source)
+    first_start = (
+        source.index("(g)(") if body.startswith("(g)(") else source.index("(1)")
+    )
+    assert any(
+        branch.path == first_path and branch.start == first_start for branch in branches
+    )
+    assert not any(branch.start == source.rindex("(1)") for branch in branches)
+
+
+@settings(max_examples=30, deadline=None)
+@given(count=st.integers(min_value=2, max_value=5))
+def test_one_root_can_restore_only_one_first_numeric_child(count):
+    source = outline(
+        "For purposes of this chapter— (1) employees qualify."
+        + " For purposes of this section— (1) of this section." * (count - 1)
+    )
+    assert [
+        (branch.path, branch.start)
+        for branch in structural(source)
+        if len(branch.path) > 1
+    ] == [(("g", "1"), source.index("(1)"))]
+
+
+def test_misclassified_roman_root_cannot_borrow_an_earlier_root():
+    # Root-level l versus Roman l remains the separate hierarchy problem.
+    source = (
+        Path(__file__).parent
+        / "fixtures"
+        / "editorial_source_ancestry"
+        / "a-9-source.txt"
+    ).read_text()
+    first = source.index("(1) Agreement with respect to certain employees")
+    source = (
+        source[:first]
+        + "For purposes of this section— "
+        + source[first : source.index("\n(m)")]
+    )
+    target = source.index("(1) Agreement with respect to certain employees")
+    assert not any(branch.start == target for branch in structural(source))
+
+
+@pytest.mark.parametrize(
+    "body,resolutions",
+    [
+        ("For purposes of this section— (1) eligible persons.", 2),
+        ("See the rule for purposes of this section— (1) of this section.", 1),
+        ("(i) first; or (ii) second.", 1),
+    ],
+)
+def test_root_chapeau_uses_bounded_resolution_without_recursive_recognition(
+    body, resolutions
+):
+    # Spies wrap the actual Axiom functions; no alternate evaluator is used.
+    with (
+        patch.object(
+            source_completeness,
+            "_resolve_parenthesized_legal_outline_markers",
+            wraps=source_completeness._resolve_parenthesized_legal_outline_markers,
+        ) as resolve,
+        patch.object(
+            source_completeness,
+            "recognize_source_structure",
+            wraps=source_completeness.recognize_source_structure,
+        ) as recognize,
+    ):
+        source_completeness.recognize_source_structure(outline(body))
+    assert recognize.call_count == 1
+    assert resolve.call_count == resolutions
