@@ -1,3 +1,10 @@
+## 0.2.2355
+
+- Record a dispatch record and typed step checks for signed re-encode runs (#2181)
+- Record the GitHub Actions run and live encode phase in encoder telemetry (#1750)
+- fix: provision and verify the required Codex tool host (#2104)
+- Treat a missing workflow toolchain as no axiom-compose pin in targeted re-encodes (0.2.2336) (#2099)
+
 ## 0.2.2354
 
 - Stop false complete-source demands from `falls`, reference titles, mixed percentages and whole Money values (#2152)

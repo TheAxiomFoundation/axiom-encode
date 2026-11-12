@@ -1069,12 +1069,16 @@ _CODEX_CLI_PINS = {
         "member": "package/vendor/aarch64-apple-darwin/bin/codex",
         "archive_sha256": "36034ef21c4fd7992e3ca4d041dff869dbf8c5d742b68e5c9fad0c3636cf61ce",
         "sha256": "e89718aa1969bfc4a471277bdc4679a3a3529293de0a309909822dfd67ddb77a",
+        "host_member": "package/vendor/aarch64-apple-darwin/bin/codex-code-mode-host",
+        "host_sha256": "c83b50d881ea5153fa9855cad6763fd7f847b24e60931b26513311fed3f71fbd",
     },
     ("linux", "x64"): {
         "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.0-linux-x64.tgz",
         "member": "package/vendor/x86_64-unknown-linux-musl/bin/codex",
         "archive_sha256": "27a80e1904c7337fe65d94f881779ba7700f42a8a87f3d06352b543b0115df98",
         "sha256": "d2752c52353401f7f6efbfcea68796f4f7a3d3e4769f5d1da53fa49d4856b72f",
+        "host_member": "package/vendor/x86_64-unknown-linux-musl/bin/codex-code-mode-host",
+        "host_sha256": "160c7ea08738447582821fbb2611ee016d6dd628853401bbc441767cb4e95ef8",
     },
 }
 
@@ -1090,7 +1094,7 @@ def _sha256_file(path: Path) -> str:
 def _install_pinned_codex_cli(
     destination: Path, archive: Path | None = None
 ) -> dict[str, str]:
-    """Install only the reviewed Codex binary, failing closed on its digest."""
+    """Install the reviewed CLI and required tool host from one pinned archive."""
 
     machine = platform.machine().lower()
     if machine in {"aarch64", "arm64"}:
@@ -1128,40 +1132,52 @@ def _install_pinned_codex_cli(
             )
         try:
             with tarfile.open(archive, "r:gz") as bundle:
-                member = bundle.getmember(pin["member"])
-                if not member.isfile() or member.issym() or member.islnk():
-                    raise SystemExit(
-                        "refusing pinned Codex archive member that is not a file"
-                    )
-                source = bundle.extractfile(member)
-                if source is None:
-                    raise SystemExit("pinned Codex archive does not contain its binary")
                 bin_dir = destination / "bin"
                 bin_dir.mkdir(mode=0o755, exist_ok=True)
-                target = bin_dir / "codex"
-                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-                if hasattr(os, "O_NOFOLLOW"):
-                    flags |= os.O_NOFOLLOW
-                descriptor = os.open(target, flags, 0o755)
-                with os.fdopen(descriptor, "wb") as output:
-                    shutil.copyfileobj(source, output)
-                    output.flush()
-                    os.fsync(output.fileno())
+                for name, member_key, digest_key in (
+                    ("codex", "member", "sha256"),
+                    ("codex-code-mode-host", "host_member", "host_sha256"),
+                ):
+                    if sum(m.name == pin[member_key] for m in bundle.getmembers()) != 1:
+                        raise SystemExit(
+                            "pinned Codex archive must contain each executable exactly once"
+                        )
+                    member = bundle.getmember(pin[member_key])
+                    if not member.isfile() or member.issym() or member.islnk():
+                        raise SystemExit(
+                            "refusing pinned Codex archive member that is not a file"
+                        )
+                    source = bundle.extractfile(member)
+                    if source is None:
+                        raise SystemExit(
+                            "pinned Codex archive lacks required executable"
+                        )
+                    target = bin_dir / name
+                    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                    if hasattr(os, "O_NOFOLLOW"):
+                        flags |= os.O_NOFOLLOW
+                    descriptor = os.open(target, flags, 0o755)
+                    with os.fdopen(descriptor, "wb") as output:
+                        shutil.copyfileobj(source, output)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    actual = _sha256_file(target)
+                    if actual != pin[digest_key]:
+                        target.unlink(missing_ok=True)
+                        raise SystemExit(
+                            f"refusing to provision: pinned Codex {name} sha256 mismatch "
+                            f"(expected {pin[digest_key]}, got {actual})"
+                        )
+                    target.chmod(0o755)
         except (KeyError, tarfile.TarError) as exc:
             raise SystemExit(f"invalid pinned Codex CLI archive: {exc}") from exc
-        actual = _sha256_file(target)
-        if actual != pin["sha256"]:
-            target.unlink(missing_ok=True)
-            raise SystemExit(
-                "refusing to provision: pinned Codex CLI sha256 mismatch "
-                f"(expected {pin['sha256']}, got {actual})"
-            )
-        target.chmod(0o755)
         config = {
-            "schema": "axiom-encode/trusted-codex-cli/v1",
+            "schema": "axiom-encode/trusted-codex-cli/v2",
             "version": _CODEX_CLI_VERSION,
-            "sha256": actual,
-            "path": str(target),
+            "sha256": pin["sha256"],
+            "path": str(bin_dir / "codex"),
+            "code_mode_host_sha256": pin["host_sha256"],
+            "code_mode_host_path": str(bin_dir / "codex-code-mode-host"),
         }
         config_path = destination / "codex-cli.json"
         config_path.write_text(json.dumps(config, sort_keys=True) + "\n")
@@ -1896,6 +1912,7 @@ def _publish_runtime_attestation(
         attestation["codex_cli"] = {
             "version": codex_cli["version"],
             "sha256": codex_cli["sha256"],
+            "code_mode_host_sha256": codex_cli["code_mode_host_sha256"],
         }
     if reviewed_pr_admission is not None:
         attestation["reviewed_pr_admission"] = reviewed_pr_admission
