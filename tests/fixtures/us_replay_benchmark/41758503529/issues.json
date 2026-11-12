@@ -1,0 +1,13 @@
+{
+  "attempt_count": 4,
+  "citation": "us/regulation/7/273/7",
+  "encoder_version": "0.2.2301",
+  "issues": [
+    "External source replacement must preserve the entire legacy scalar rule snap_member_statutory_work_registration_exemption_scalar_limit unchanged, including its source proof, effective period, unit and formula",
+    "External source replacement must preserve the entire legacy source-proved rule snap_member_statutory_work_registration_exemption_applies unchanged, including its source proof, effective period, unit and formula"
+  ],
+  "path": "regulations/7-cfr/273/7.yaml",
+  "rulespec_sha256": "76f3cc0c9124d6847d43a2f766bdb68629dd8ae6a2e3e7471045e07495d98bce",
+  "schema": "axiom-encode/failed-encode-candidate/v1",
+  "tests_sha256": "cb5b5e505a0537e2eecc1658b4522e30d977847fc04c75250a06fbf9aeaea751"
+}
