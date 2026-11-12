@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
 from importlib.resources import files
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 
 REASONS = frozenset(
@@ -136,7 +136,7 @@ class CoverageExemption:
 
 
 @lru_cache(maxsize=1)
-def load_coverage_exemptions() -> tuple[CoverageExemption, ...]:
+def _load_packaged_coverage_exemptions() -> tuple[CoverageExemption, ...]:
     raw = (
         files("axiom_encode.harness")
         .joinpath("data/coverage_exemptions.jsonl")
@@ -150,6 +150,45 @@ def load_coverage_exemptions() -> tuple[CoverageExemption, ...]:
     if len({entry.key for entry in entries}) != len(entries):
         raise ValueError("duplicate coverage exemption key")
     return entries
+
+
+@lru_cache(maxsize=4)
+def _load_coverage_exemptions_with_registry(
+    registry_root: str | None,
+) -> tuple[CoverageExemption, ...]:
+    packaged = _load_packaged_coverage_exemptions()
+    if registry_root is None:
+        return packaged
+    from axiom_encode.rulespec_admission_registry import (
+        AdmissionRegistryError,
+        load_registry,
+    )
+
+    registry = load_registry(Path(registry_root))
+    by_key = {entry.key: entry for entry in packaged}
+    merged = list(packaged)
+    for entry in registry.coverage_exemptions:
+        existing = by_key.get(entry.key)
+        if existing is None:
+            by_key[entry.key] = entry
+            merged.append(entry)
+        elif existing != entry:
+            raise AdmissionRegistryError(
+                "a RuleSpec registry coverage exemption conflicts with an "
+                f"encoder record: {entry.citation_path} {entry.label}"
+            )
+    return tuple(merged)
+
+
+def load_coverage_exemptions() -> tuple[CoverageExemption, ...]:
+    """Return encoder exemptions plus the active RuleSpec registry's (#2095)."""
+
+    from axiom_encode.rulespec_admission_registry import active_registry_root
+
+    root = active_registry_root()
+    return _load_coverage_exemptions_with_registry(
+        str(root.resolve()) if root is not None else None
+    )
 
 
 def _matching_entries(

@@ -46,3 +46,7 @@
 
 # This file.
 /.github/CODEOWNERS @PavelMakarchuk @MaxGhenis
+# RuleSpec-repo admissions registry and the validation-effect gate (#2095, #2094).
+/src/axiom_encode/rulespec_admission_registry.py @PavelMakarchuk @MaxGhenis
+/.github/workflows/validation-effect.yml @PavelMakarchuk @MaxGhenis
+/scripts/check_validation_effect.py @PavelMakarchuk @MaxGhenis
