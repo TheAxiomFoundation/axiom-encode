@@ -1869,11 +1869,29 @@ def _reviewed_candidate_binding(rule: Path, companion: Path, **overrides) -> dic
     return binding
 
 
-@pytest.mark.parametrize("admission", ["bound", "unbound-legacy"])
-def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admission):
+@pytest.mark.parametrize(
+    "admission",
+    [
+        "bound",
+        "unbound-legacy",
+        "live",
+        "live-revoked",
+        "live-run",
+        "live-country",
+        "live-head",
+        "live-path",
+        "live-encoder",
+        "live-invalid-static",
+    ],
+)
+def test_promote_reviewed_candidate_changes_only_manifest(
+    tmp_path, capsys, admission, monkeypatch
+):
     repo, rule, companion, reviewed_ref = _reviewed_candidate_checkout(tmp_path)
     binding = (
-        _reviewed_candidate_binding(rule, companion) if admission == "bound" else None
+        _reviewed_candidate_binding(rule, companion)
+        if admission != "unbound-legacy"
+        else None
     )
     legacy_refs = frozenset({("us", reviewed_ref)}) if binding is None else frozenset()
     amendment = CorpusAmendmentDocument(
@@ -1904,6 +1922,58 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admi
     record_root = _write_reviewed_rulespec_records(
         tmp_path / "reviewed-rulespec-refs", ("us", reviewed_ref, binding)
     )
+    runtime_attestation = tmp_path / "runtime-attestation.json"
+    if admission.startswith("live"):
+        from axiom_encode.cli import _TRUSTED_RUNTIME_ENV
+
+        args.run_id = "12345"
+        record_file = next(record_root.rglob("*.json"))
+        record = json.loads(record_file.read_text())
+        if admission != "live-invalid-static":
+            record_file.unlink()  # No per-candidate encoder record authorizes this test.
+        runtime_attestation.write_text(
+            json.dumps(
+                {
+                    "reviewed_pr_admission": {
+                        "workflow_commit": "e" * 40,
+                        "selector": {
+                            "country": "us",
+                            "pr": 42,
+                            "head": reviewed_ref,
+                            "citation": args.citation,
+                            "rulespec_path": args.rulespec_path,
+                            "branch": "codex/candidate",
+                            "actor": "PavelMakarchuk",
+                            "run_id": args.run_id,
+                        },
+                        "record": record,
+                    }
+                }
+            )
+        )
+        if admission in {
+            "live-run",
+            "live-country",
+            "live-head",
+            "live-path",
+            "live-encoder",
+        }:
+            payload = json.loads(runtime_attestation.read_text())
+            live = payload["reviewed_pr_admission"]
+            if admission == "live-encoder":
+                live["workflow_commit"] = "f" * 40
+            else:
+                key, value = {
+                    "live-run": ("run_id", "54321"),
+                    "live-country": ("country", "nz"),
+                    "live-head": ("head", "f" * 40),
+                    "live-path": ("rulespec_path", "us/statutes/7/other.yaml"),
+                }[admission]
+                live["selector"][key] = value
+                if admission == "live-country":
+                    live["selector"]["citation"] = "nz/statute/example/1"
+            runtime_attestation.write_text(json.dumps(payload))
+        monkeypatch.setenv(_TRUSTED_RUNTIME_ENV, "1")
     args.axiom_rules_path.mkdir()
     args.corpus_path.mkdir()
     validation_execution = {"schema": "axiom-encode/apply-validation-execution/v2"}
@@ -1932,6 +2002,11 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admi
         "identity_source": "trusted-runtime-attestation",
     }
     with (
+        patch(
+            "axiom_encode.cli._load_trusted_runtime_attestation",
+            return_value={"path": str(runtime_attestation), "commit": "e" * 40},
+        ),
+        patch("axiom_encode.reviewed_pr_admission.revalidate_admission") as live_check,
         patch(
             "axiom_encode.cli._promotion_reviewed_rulespec_record_root",
             return_value=record_root,
@@ -1982,9 +2057,43 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admi
         ),
     ):
         signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
+        if admission in {
+            "live-run",
+            "live-country",
+            "live-head",
+            "live-path",
+            "live-encoder",
+            "live-invalid-static",
+        }:
+            if admission == "live-invalid-static":
+                live_check.side_effect = ValueError("live authority invalid")
+            with pytest.raises(ValueError):
+                cmd_promote_reviewed_candidate(args)
+            if admission != "live-invalid-static":
+                live_check.assert_not_called()
+            signer_context.assert_not_called()
+            overlay_mock.assert_not_called()
+            assert not (
+                repo / _applied_encoding_manifest_path(Path(args.rulespec_path))
+            ).exists()
+            return
+        if admission == "live-revoked":
+            from axiom_encode.reviewed_pr_admission import AdmissionError
+
+            live_check.side_effect = [None, AdmissionError("review dismissed")]
+            with pytest.raises(AdmissionError, match="review dismissed"):
+                cmd_promote_reviewed_candidate(args)
+            assert live_check.call_count == 2
+            assert not (
+                repo / _applied_encoding_manifest_path(Path(args.rulespec_path))
+            ).exists()
+            assert rule.read_bytes() == original_rule
+            assert companion.read_bytes() == original_companion
+            return
         cmd_promote_reviewed_candidate(args)
 
     overlay_mock.assert_called_once()
+    assert live_check.call_count == (2 if admission == "live" else 0)
     assert overlay_mock.call_args.kwargs["amendment_documents"] == (amendment,)
     assert overlay_mock.call_args.kwargs["amendment_source_texts"] == {
         amendment.citation_path: amendment.body,
@@ -15481,6 +15590,57 @@ class TestCmdEncode:
             == expected
         )
 
+    def test_encode_reports_apply_phase_and_retries_restart_from_resolve(
+        self, tmp_path
+    ):
+        from axiom_encode.live_run_telemetry import LiveRunTelemetry
+
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=True,
+        )
+
+        with (
+            patch("axiom_encode.cli.report_phase") as mock_report_phase,
+            patch.object(LiveRunTelemetry, "set_attempt") as mock_set_attempt,
+        ):
+            exit_code, generated, *_ = self._run_validator_escalation_case(
+                args,
+                [(False, ["terra-1"]), (True, [])],
+            )
+
+        assert exit_code == 0
+        assert len(generated) == 2
+        # Each attempt that reaches the apply gate reports it once; the
+        # generate/validate/review boundaries live in the (mocked) harness.
+        assert [call.args for call in mock_report_phase.call_args_list] == [
+            ("apply",),
+            ("apply",),
+        ]
+        mock_set_attempt.assert_called_once()
+        assert mock_set_attempt.call_args.args[0] == 2
+        assert mock_set_attempt.call_args.kwargs["phase"] == "resolve"
+
+    def test_encode_blocked_generation_never_enters_apply_phase(self, tmp_path):
+        args = self._make_args(tmp_path, apply=True, sync=False)
+        result = self._make_eval_result(False)
+
+        with (
+            patch("axiom_encode.cli.report_phase") as mock_report_phase,
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "apply_blocked_generation"
+        mock_report_phase.assert_not_called()
+
     @pytest.mark.parametrize("reasoning_effort", ["low", "high"])
     def test_encode_escalates_after_n_validator_failures(
         self, tmp_path, reasoning_effort
@@ -17935,6 +18095,81 @@ rules:
             session_id=synced_run.session_id,
             db_path=args.db,
         )
+
+    def test_encode_sync_records_the_github_actions_run(self, tmp_path):
+        args = self._make_args(tmp_path, backend="codex")
+        result = self._make_eval_result(True)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {
+                    "AXIOM_ENCODE_SUPABASE_URL": "https://example.supabase.co",
+                    "AXIOM_ENCODE_SUPABASE_SECRET_KEY": "secret",
+                    # Deliberate opt-in past in-test suppression: the sync
+                    # transports and the live-run client below are mocked.
+                    "AXIOM_ENCODE_TELEMETRY": "on",
+                    "GITHUB_ACTIONS": "true",
+                    "GITHUB_RUN_ID": "12345678901",
+                    "GITHUB_RUN_ATTEMPT": "3",
+                    "GITHUB_SERVER_URL": "https://github.com",
+                    "GITHUB_REPOSITORY": "TheAxiomFoundation/axiom-encode",
+                    "GITHUB_WORKFLOW": "Targeted signed re-encode",
+                },
+                clear=True,
+            ),
+            patch("axiom_encode.supabase_sync.get_supabase_client"),
+            patch(
+                "axiom_encode.supabase_sync.sync_run_to_supabase",
+                return_value=True,
+            ) as mock_sync,
+            patch(
+                "axiom_encode.supabase_sync.sync_agent_sessions_to_supabase",
+                return_value={"total": 1, "synced": 1, "failed": 0},
+            ),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        github_run = mock_sync.call_args.kwargs["github_run"]
+        assert github_run["github_run_id"] == "12345678901"
+        assert github_run["github_run_attempt"] == 3
+        assert github_run["github_run_url"] == (
+            "https://github.com/TheAxiomFoundation/axiom-encode"
+            "/actions/runs/12345678901"
+        )
+
+    def test_encode_sync_outside_actions_records_no_github_run(self, tmp_path):
+        args = self._make_args(tmp_path, backend="codex")
+        result = self._make_eval_result(True)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {
+                    "AXIOM_ENCODE_SUPABASE_URL": "https://example.supabase.co",
+                    "AXIOM_ENCODE_SUPABASE_SECRET_KEY": "secret",
+                    "AXIOM_ENCODE_TELEMETRY": "on",
+                },
+                clear=True,
+            ),
+            patch("axiom_encode.supabase_sync.get_supabase_client"),
+            patch(
+                "axiom_encode.supabase_sync.sync_run_to_supabase",
+                return_value=True,
+            ) as mock_sync,
+            patch(
+                "axiom_encode.supabase_sync.sync_agent_sessions_to_supabase",
+                return_value={"total": 1, "synced": 1, "failed": 0},
+            ),
+        ):
+            with pytest.raises(SystemExit):
+                cmd_encode(args)
+
+        assert mock_sync.call_args.kwargs["github_run"] == {}
 
     def test_apply_generated_encoding_writes_manifest(self, tmp_path):
         output_root = tmp_path / "out"

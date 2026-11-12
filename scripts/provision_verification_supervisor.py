@@ -28,9 +28,25 @@ The static passes below make that outcome reachable and durable:
   the toolchain's absolute build-prefix RUNPATH so ``libpython`` loads from the
   runtime, and is the pass the maps check then verifies for the launcher.
 
-Trust boundary and residual: the inputs are the GitHub-provided toolcache stdlib
-and pinned pip dependencies, and the finished tree is chowned root and stripped
-of group/other write by the caller (the supervisor re-verifies that ownership).
+Trust boundary and residual: the inputs are the invoking interpreter's CPython
+prefix (the setup-python toolcache when ``--require-prefix-under`` is set) and
+the caller-staged ``--site-packages`` tree, and the finished tree is chowned
+root and stripped of group/other write by the caller (the supervisor re-verifies
+that ownership). This script does not inspect how ``--site-packages`` was
+installed. The repository workflows stage it from ``uv.lock``: ``uv export
+--locked`` hash-pinned registry distributions installed with ``--require-hashes
+--no-deps``, then the commit-pinned ``axiom-oracles`` git dependency and the
+project itself with ``--no-deps``, then a diff against the ``uv sync --locked``
+environment. The issue233 Canada diagnostic passes instead the purelib of a
+``uv sync --frozen`` environment; that sync is its job's only uv call, the job
+installs nothing with pip, and only this script's call names the purelib.
+``tests/test_verification_site_packages_lock.py`` enforces both forms, reads
+``--site-packages`` with this script's own argument parser, and fails a
+workflow whose text names the staged tree outside staging and this script's call.
+``uv.lock`` does not pin build backends, so the sdists it pins, the git
+dependency and the project are built with whatever backend versions the index
+serves at run time; when the ``--encoder-*`` attestation arguments are given,
+the staged ``axiom_encode`` package is replaced by the attested commit's bytes.
 A pinned dependency carrying hostile ELF metadata (an absolute ``DT_NEEDED``, a
 ``DT_AUDIT`` hook, a decoy section) is NOT statically audited here — such a
 dependency already executes its own code inside the signer, so metadata-level
@@ -303,9 +319,9 @@ def _relocate_elf_rpaths(runtime: Path, patchelf: str) -> int:
     which LD_LIBRARY_PATH cannot outrank; patchelf --print-rpath then re-reads
     the object to confirm nothing still escapes.
 
-    This is a best-effort hardening pass over trusted, pinned inputs (the
-    toolcache stdlib and pinned pip deps). The load-bearing guarantee for the
-    launcher interpreter is the empirical /proc/self/maps check in
+    This is a best-effort hardening pass over trusted inputs (the interpreter
+    prefix and the uv.lock-staged site-packages). The load-bearing guarantee for
+    the launcher interpreter is the empirical /proc/self/maps check in
     _assert_self_contained, not this static rewrite.
     """
     runtime_resolved = runtime.resolve(strict=True)
@@ -1053,12 +1069,16 @@ _CODEX_CLI_PINS = {
         "member": "package/vendor/aarch64-apple-darwin/bin/codex",
         "archive_sha256": "36034ef21c4fd7992e3ca4d041dff869dbf8c5d742b68e5c9fad0c3636cf61ce",
         "sha256": "e89718aa1969bfc4a471277bdc4679a3a3529293de0a309909822dfd67ddb77a",
+        "host_member": "package/vendor/aarch64-apple-darwin/bin/codex-code-mode-host",
+        "host_sha256": "c83b50d881ea5153fa9855cad6763fd7f847b24e60931b26513311fed3f71fbd",
     },
     ("linux", "x64"): {
         "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.0-linux-x64.tgz",
         "member": "package/vendor/x86_64-unknown-linux-musl/bin/codex",
         "archive_sha256": "27a80e1904c7337fe65d94f881779ba7700f42a8a87f3d06352b543b0115df98",
         "sha256": "d2752c52353401f7f6efbfcea68796f4f7a3d3e4769f5d1da53fa49d4856b72f",
+        "host_member": "package/vendor/x86_64-unknown-linux-musl/bin/codex-code-mode-host",
+        "host_sha256": "160c7ea08738447582821fbb2611ee016d6dd628853401bbc441767cb4e95ef8",
     },
 }
 
@@ -1074,7 +1094,7 @@ def _sha256_file(path: Path) -> str:
 def _install_pinned_codex_cli(
     destination: Path, archive: Path | None = None
 ) -> dict[str, str]:
-    """Install only the reviewed Codex binary, failing closed on its digest."""
+    """Install the reviewed CLI and required tool host from one pinned archive."""
 
     machine = platform.machine().lower()
     if machine in {"aarch64", "arm64"}:
@@ -1112,40 +1132,52 @@ def _install_pinned_codex_cli(
             )
         try:
             with tarfile.open(archive, "r:gz") as bundle:
-                member = bundle.getmember(pin["member"])
-                if not member.isfile() or member.issym() or member.islnk():
-                    raise SystemExit(
-                        "refusing pinned Codex archive member that is not a file"
-                    )
-                source = bundle.extractfile(member)
-                if source is None:
-                    raise SystemExit("pinned Codex archive does not contain its binary")
                 bin_dir = destination / "bin"
                 bin_dir.mkdir(mode=0o755, exist_ok=True)
-                target = bin_dir / "codex"
-                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-                if hasattr(os, "O_NOFOLLOW"):
-                    flags |= os.O_NOFOLLOW
-                descriptor = os.open(target, flags, 0o755)
-                with os.fdopen(descriptor, "wb") as output:
-                    shutil.copyfileobj(source, output)
-                    output.flush()
-                    os.fsync(output.fileno())
+                for name, member_key, digest_key in (
+                    ("codex", "member", "sha256"),
+                    ("codex-code-mode-host", "host_member", "host_sha256"),
+                ):
+                    if sum(m.name == pin[member_key] for m in bundle.getmembers()) != 1:
+                        raise SystemExit(
+                            "pinned Codex archive must contain each executable exactly once"
+                        )
+                    member = bundle.getmember(pin[member_key])
+                    if not member.isfile() or member.issym() or member.islnk():
+                        raise SystemExit(
+                            "refusing pinned Codex archive member that is not a file"
+                        )
+                    source = bundle.extractfile(member)
+                    if source is None:
+                        raise SystemExit(
+                            "pinned Codex archive lacks required executable"
+                        )
+                    target = bin_dir / name
+                    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                    if hasattr(os, "O_NOFOLLOW"):
+                        flags |= os.O_NOFOLLOW
+                    descriptor = os.open(target, flags, 0o755)
+                    with os.fdopen(descriptor, "wb") as output:
+                        shutil.copyfileobj(source, output)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    actual = _sha256_file(target)
+                    if actual != pin[digest_key]:
+                        target.unlink(missing_ok=True)
+                        raise SystemExit(
+                            f"refusing to provision: pinned Codex {name} sha256 mismatch "
+                            f"(expected {pin[digest_key]}, got {actual})"
+                        )
+                    target.chmod(0o755)
         except (KeyError, tarfile.TarError) as exc:
             raise SystemExit(f"invalid pinned Codex CLI archive: {exc}") from exc
-        actual = _sha256_file(target)
-        if actual != pin["sha256"]:
-            target.unlink(missing_ok=True)
-            raise SystemExit(
-                "refusing to provision: pinned Codex CLI sha256 mismatch "
-                f"(expected {pin['sha256']}, got {actual})"
-            )
-        target.chmod(0o755)
         config = {
-            "schema": "axiom-encode/trusted-codex-cli/v1",
+            "schema": "axiom-encode/trusted-codex-cli/v2",
             "version": _CODEX_CLI_VERSION,
-            "sha256": actual,
-            "path": str(target),
+            "sha256": pin["sha256"],
+            "path": str(bin_dir / "codex"),
+            "code_mode_host_sha256": pin["host_sha256"],
+            "code_mode_host_path": str(bin_dir / "codex-code-mode-host"),
         }
         config_path = destination / "codex-cli.json"
         config_path.write_text(json.dumps(config, sort_keys=True) + "\n")
@@ -1845,6 +1877,7 @@ def _publish_runtime_attestation(
     declared_version: str,
     package_tree_sha256: str,
     codex_cli: dict[str, str] | None = None,
+    reviewed_pr_admission: dict | None = None,
 ) -> Path:
     """Atomically publish the attestation into a root-owned prefix, fail-closed.
 
@@ -1879,7 +1912,10 @@ def _publish_runtime_attestation(
         attestation["codex_cli"] = {
             "version": codex_cli["version"],
             "sha256": codex_cli["sha256"],
+            "code_mode_host_sha256": codex_cli["code_mode_host_sha256"],
         }
+    if reviewed_pr_admission is not None:
+        attestation["reviewed_pr_admission"] = reviewed_pr_admission
     payload = json.dumps(attestation, indent=2, sort_keys=True) + "\n"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
@@ -2057,6 +2093,32 @@ def _load_retired_apply_inventory(path: Path) -> dict[str, object]:
         raise SystemExit(f"invalid retired apply frozen inventory: {exc}") from exc
 
 
+def _verify_reviewed_pr_selector(
+    encoder_package: Path, selector_path: Path, encoder_commit: str
+) -> dict:
+    """Use only the exported encoder's verifier, never caller approval JSON."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_provisioned_reviewed_pr_admission",
+        encoder_package / "reviewed_pr_admission.py",
+    )
+    if spec is None or spec.loader is None:
+        raise SystemExit("reviewed PR verifier is absent from attested encoder")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    with selector_path.open("rb") as selector_stream:
+        raw_selector = selector_stream.read(4097)
+    if len(raw_selector) > 4096:
+        raise SystemExit("reviewed PR selector is oversized")
+    selector = module.selector_from_payload(json.loads(raw_selector))
+    admission = module.verify_reviewed_pr(selector)
+    if admission["workflow_commit"] != encoder_commit:
+        raise SystemExit("reviewed PR run does not use the attested encoder commit")
+    return admission
+
+
 def provision(
     destination: Path,
     supervisor: Path,
@@ -2076,6 +2138,7 @@ def provision(
     retired_corpus_release_roots: tuple[str, ...] = (),
     retired_apply_roots: tuple[str, ...] = (),
     retired_apply_inventory_path: Path | None = None,
+    reviewed_pr_selector: Path | None = None,
 ) -> None:
     if any(not root.strip() for root in retired_corpus_release_roots):
         raise SystemExit(
@@ -2100,6 +2163,8 @@ def provision(
         encoder_git_root,
     )
     provision_encoder = all(arg is not None for arg in encoder_attestation_args)
+    if reviewed_pr_selector is not None and not provision_encoder:
+        raise SystemExit("reviewed PR admission requires an attested encoder snapshot")
     if (
         any(arg is not None for arg in encoder_attestation_args)
         and not provision_encoder
@@ -2133,6 +2198,14 @@ def provision(
             encoder_staging,
         )
     try:
+        reviewed_pr_admission = None
+        if reviewed_pr_selector is not None:
+            # Only selectors cross from the caller; authority is freshly read by
+            # code exported from the verified encoder commit, under root custody.
+            assert encoder_package is not None
+            reviewed_pr_admission = _verify_reviewed_pr_selector(
+                encoder_package, reviewed_pr_selector, encoder_commit
+            )
         runtime = destination / "python"
         _stage_runtime_tree(source_runtime, runtime, site_packages)
         package_tree_sha256: str | None = None
@@ -2189,6 +2262,7 @@ def provision(
                 declared_version,
                 package_tree_sha256,
                 codex_cli,
+                reviewed_pr_admission,
             )
         shutil.copy2(supervisor, destination / "axiom-encode-signing-supervisor")
         (destination / "axiom-encode-signing-supervisor").chmod(0o755)
@@ -2197,7 +2271,9 @@ def provision(
             shutil.rmtree(encoder_staging, ignore_errors=True)
 
 
-if __name__ == "__main__":
+def _argument_parser() -> argparse.ArgumentParser:
+    """What ``__main__`` parses. tests/test_verification_site_packages_lock.py
+    reads workflow calls with it, so it checks the values this script acts on."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--destination", type=Path, required=True)
     parser.add_argument("--supervisor", type=Path, required=True)
@@ -2282,7 +2358,16 @@ if __name__ == "__main__":
         "invariant) before its src/axiom_encode is archived into the runtime. Must "
         "have full history (fetch-depth: 0) for the version-bump check.",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--reviewed-pr-selector",
+        type=Path,
+        help="Run-scoped selector only; attested verifier must fetch live GitHub approval before admission.",
+    )
+    return parser
+
+
+if __name__ == "__main__":
+    args = _argument_parser().parse_args()
     provision(
         args.destination.resolve(),
         args.supervisor.resolve(),
@@ -2304,4 +2389,5 @@ if __name__ == "__main__":
         tuple(args.retired_corpus_release_root),
         tuple(args.retired_apply_root),
         args.retired_apply_inventory,
+        args.reviewed_pr_selector,
     )
