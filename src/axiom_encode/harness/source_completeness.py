@@ -503,6 +503,10 @@ _ROOT_CHAPEAU_TAIL_QUALIFIER = re.compile(
     r"article|subarticle|act|code|sentence|schedule)s?\b",
     flags=re.IGNORECASE,
 )
+_HEADED_FIRST_ALPHA_OUTLINE_MARKER = re.compile(
+    r"[ \t]+(?i:(?:general|special)[ \t]+rules?|definitions?|in[ \t]+general)"
+    r"[ \t]+(?P<marker>\(A\))(?=\s)"
+)
 _INLINE_OUTLINE_REFERENCE_CONTEXT = re.compile(
     r"\b(?:section|subsection|paragraph|subparagraph|clause|subclause|item|"
     r"subitem|division|subdivision|part|subpart|chapter|subchapter|title|article|"
@@ -4158,14 +4162,18 @@ def _qualified_parenthesized_legal_outline_markers(
     restored = _root_chapeau_first_numeric_matches(
         source_text, line_matches, candidates, baseline
     )
-    if not restored:
+    headed = _headed_first_alpha_outline_matches(source_text, baseline)
+    if not restored and not headed:
         return baseline
     return _resolve_parenthesized_legal_outline_markers(
         source_text,
         line_matches,
         tuple(
             heapq.merge(
-                inline_matches, restored, key=lambda match: match.start("marker")
+                inline_matches,
+                restored,
+                headed,
+                key=lambda match: match.start("marker"),
             )
         ),
         flattened_root_starts,
@@ -4274,6 +4282,91 @@ def _resolve_parenthesized_legal_outline_markers(
         for first, second in itertools.pairwise(root_labels)
     )
     return tuple(markers) if has_sequential_roots else ()
+
+
+def _headed_first_alpha_outline_matches(
+    source_text: str, baseline: Sequence[_OutlineMarker]
+) -> tuple[re.Match[str], ...]:
+    """Recover a heading-adjacent first A using independent parent/B evidence.
+
+    A short legislative heading is stronger evidence than arbitrary prose
+    such as ``Applicability of (A)``. Require an already resolved numeric
+    parent and later B within its original interval. Neither a newly added A
+    nor a separately restored numeric child can supply that proof. Keep all
+    existing admission and reference filters unchanged.
+    """
+
+    if not baseline:
+        return ()
+    closes = [len(source_text)] * len(baseline)
+    active: list[int] = []
+    for index, marker in enumerate(baseline):
+        while active:
+            previous = baseline[active[-1]]
+            if (
+                len(marker.path) > len(previous.path)
+                and marker.path[: len(previous.path)] == previous.path
+            ):
+                break
+            closes[active.pop()] = marker.start
+        active.append(index)
+    siblings = tuple(marker for marker in baseline if marker.label == "(B)")
+    sibling_starts = tuple(marker.start for marker in siblings)
+    if not siblings:
+        return ()
+
+    candidates = []
+    known_starts = {marker.start for marker in baseline}
+    for index, parent in enumerate(baseline):
+        if not parent.label[1:-1][0].isdigit():
+            continue
+        parent_end = parent.start + len(parent.label)
+        match = _HEADED_FIRST_ALPHA_OUTLINE_MARKER.match(source_text, parent_end)
+        if match is None or match.start("marker") in known_starts:
+            continue
+        start = match.start("marker")
+        following = bisect.bisect_right(sibling_starts, start)
+        if following == len(siblings):
+            continue
+        sibling = siblings[following]
+        if (
+            sibling.start >= closes[index]
+            or sibling.path[: len(parent.path)] != parent.path
+            or _inline_outline_marker_has_reference_context(source_text, match)
+            or _ROOT_CHAPEAU_REFERENCE_COMMAND.search(source_text, parent_end, start)
+        ):
+            continue
+        candidates.append(match)
+    if not candidates:
+        return ()
+    reference_starts = _headed_first_alpha_reference_tail_starts(source_text)
+    return tuple(
+        match for match in candidates if match.start("marker") not in reference_starts
+    )
+
+
+def _headed_first_alpha_reference_tail_starts(source_text: str) -> frozenset[int]:
+    """Apply the existing bounded legal-reference vocabulary to first A tails."""
+
+    labels = tuple(_ROOT_CHAPEAU_TAIL_LABEL.finditer(source_text))
+    blocked: set[int] = set()
+    pending: list[int] = []
+    previous_end: int | None = None
+    for index, label in enumerate(labels):
+        if previous_end is None or not _ROOT_CHAPEAU_TAIL_JOINER.fullmatch(
+            source_text, previous_end, label.start()
+        ):
+            pending = []
+        if label.group() == "(A)":
+            pending.append(label.start())
+        tail_end = (
+            labels[index + 1].start() if index + 1 < len(labels) else len(source_text)
+        )
+        if _ROOT_CHAPEAU_TAIL_QUALIFIER.match(source_text, label.end(), tail_end):
+            blocked.update(pending)
+            pending.clear()
+        previous_end = label.end()
+    return frozenset(blocked)
 
 
 def _root_chapeau_first_numeric_matches(

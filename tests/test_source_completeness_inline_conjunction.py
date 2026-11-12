@@ -640,3 +640,327 @@ def test_reference_tail_index_inspects_disjoint_windows(count, qualifies):
     assert qualifier.match.call_count == count
     for calls in (joiner.fullmatch.call_args_list, qualifier.match.call_args_list):
         assert sum(call.args[2] - call.args[1] for call in calls) <= len(source)
+
+
+# Verbatim paragraph (2) from replay fixture37154591758, 26 USC911(f).
+# Only the preceding root is a synthetic scaffold; the missing C stays a hold.
+# Paragraph SHA256: 6f0c6b7e98ccc15bd8d01ce47d3a86ebcfee8e3b53290151631d513c73542242
+TAX_SPECIAL_RULES_SOURCE = (
+    "(1) Preceding root.\n\n"
+    "(2) Special rules (A) Regular tax In applying section 1(h) for purposes of "
+    "determining the tax under paragraph (1)(A)(i) for any taxable year in which, "
+    "without regard to this subsection, the taxpayer’s net capital gain exceeds "
+    "taxable income (hereafter in this subparagraph referred to as the capital gain "
+    "excess)— (i) the taxpayer’s net capital gain (determined without regard to "
+    "section 1(h)(11)) shall be reduced (but not below zero) by such capital gain "
+    "excess, (ii) the taxpayer’s qualified dividend income shall be reduced by so much "
+    "of such capital gain excess as exceeds the taxpayer’s net capital gain "
+    "(determined without regard to section 1(h)(11) and the reduction under clause "
+    "(i)), and (iii) adjusted net capital gain, unrecaptured section 1250 gain, and "
+    "28-percent rate gain shall each be determined after increasing the amount "
+    "described in section 1(h)(4)(B) by such capital gain excess. (B) Alternative "
+    "minimum tax In applying section 55(b)(3) for purposes of determining the tax "
+    "under paragraph (1)(B)(i) for any taxable year in which, without regard to this "
+    "subsection, the taxpayer’s net capital gain exceeds the taxable excess (as "
+    "defined in section 55(b)(1)(B))— (i) the rules of subparagraph (A) shall apply, "
+    "except that such subparagraph shall be applied by substituting “the taxable "
+    "excess (as defined in section 55(b)(1)(B))” for “taxable income”, and (ii) the "
+    "reference in section 55(b)(3)(B) to the excess described in section 1(h)(1)(B), "
+    "and the reference in section 55(b)(3)(C)(ii) to the excess described in section "
+    "1(h)(1)(C)(ii), shall each be treated as a reference to each such excess as "
+    "determined under the rules of subparagraph (A) for purposes of determining the "
+    "tax under paragraph (1)(A)(i). (C) Definitions Terms used in this paragraph which "
+    "are also used in section 1(h) shall have the respective meanings given such terms "
+    "by section 1(h), except that in applying subparagraph (B) the adjustments under "
+    "part VI of subchapter A shall be taken into account."
+)
+
+
+HEADING_TITLES = (
+    "General rule",
+    "GENERAL RULES",
+    "Special rules",
+    "Definition",
+    "Definitions",
+    "In general",
+)
+
+
+def headed_source(
+    title="Special rules", body="The first rule applies.", *, sibling=True
+):
+    return (
+        "(1) Preceding root.\n\n(2) "
+        + title
+        + " (A) "
+        + body
+        + ("\n(B) The second rule applies." if sibling else "")
+    )
+
+
+@pytest.mark.parametrize("title", HEADING_TITLES)
+def test_strong_heading_recovers_first_A_and_its_exact_boundary(title):
+    source = headed_source(title)
+    branches = structural(source)
+    first = next(branch for branch in branches if branch.path == ("2", "a"))
+    assert first.start == source.index("(A)")
+    assert first.end == source.index("(B)")
+    assert first.text == source[first.start : first.end].strip()
+    assert any(branch.path == ("2", "b") for branch in branches)
+
+
+def test_heading_recovers_printed_A9_church_definition():
+    source = (
+        Path(__file__).parent
+        / "fixtures"
+        / "editorial_source_ancestry"
+        / "a-9-source.txt"
+    ).read_text()
+    first = next(
+        branch for branch in structural(source) if branch.path == ("w", "3", "a")
+    )
+    assert first.start == 73568
+    assert first.end == 73832
+    assert first.text == source[73568:73832].strip()
+
+
+def test_tax_heading_recovers_A_and_printed_B_ancestry_but_keeps_C_hold():
+    source = TAX_SPECIAL_RULES_SOURCE
+    branches = structural(source)
+    for path, text in [
+        (("2", "a"), "(A) Regular tax"),
+        (("2", "a", "i"), "(i) the taxpayer’s net capital gain"),
+        (("2", "b"), "(B) Alternative minimum tax"),
+        (("2", "b", "i"), "(i) the rules of subparagraph"),
+        (("2", "b", "ii"), "(ii) the reference"),
+    ]:
+        assert any(
+            branch.path == path and branch.start == source.index(text)
+            for branch in branches
+        )
+    a = next(branch for branch in branches if branch.path == ("2", "a"))
+    first = next(branch for branch in branches if branch.path == ("2", "a", "i"))
+    assert a.end == first.end == source.index("(B) Alternative minimum tax")
+    c_start = source.index("(C) Definitions")
+    c_match = next(
+        match
+        for match in source_completeness._INLINE_PARENTHESIZED_OUTLINE_MARKER.finditer(
+            source
+        )
+        if match.start("marker") == c_start
+    )
+    assert source_completeness._inline_outline_marker_has_reference_context(
+        source, c_match
+    )
+    assert not any(branch.start == c_start for branch in branches)
+    second = next(branch for branch in branches if branch.path == ("2", "b", "ii"))
+    assert second.end == len(source)
+    assert "(C) Definitions" in second.text
+
+
+@pytest.mark.parametrize("title", ["Applicability of", "Meaning of"])
+def test_arbitrary_word_heading_cannot_turn_a_reference_into_first_A(title):
+    # These are red controls against the rejected arbitrary-word heading rule.
+    source = headed_source(title, "is the subject of this cross-reference.")
+    assert not any(branch.start == source.index("(A)") for branch in structural(source))
+
+
+@pytest.mark.parametrize("command", REFERENCE_COMMANDS)
+def test_reference_command_heading_never_restores_first_A(command):
+    source = headed_source(command + " statute")
+    assert not any(branch.start == source.index("(A)") for branch in structural(source))
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        "of this section.",
+        "in any such subsection.",
+        "under the same Act.",
+        "and\n(B) of this section.",
+        "; or\n(B) under both subsections.",
+    ],
+)
+def test_heading_does_not_restore_a_reference_tail(tail):
+    source = headed_source(body=tail)
+    assert not any(branch.start == source.index("(A)") for branch in structural(source))
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "under an agreement the claimant receives payment.",
+        "in a supervisory role the claimant signs the form.",
+        "in the following year the claimant receives payment.",
+    ],
+)
+def test_heading_reference_veto_preserves_operative_bodies(body):
+    source = headed_source(body=body)
+    assert any(
+        branch.path == ("2", "a") and branch.start == source.index("(A)")
+        for branch in structural(source)
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        headed_source(sibling=False),
+        headed_source(sibling=False) + "\n(3) Different parent.\n(B) Other rule.",
+        "(1) Special rules (A) First rule.\n(B) Second rule.",
+        headed_source().replace("(A)", "(a)"),
+        headed_source().replace("(A)", "(A)(i)"),
+        "(1) Preceding root.\n\n(2)(i) Special rules (A) Reference.\n(B) Other rule.",
+    ],
+)
+def test_heading_cannot_borrow_a_parent_or_sibling(source):
+    start = source.index("(A)") if "(A)" in source else source.index("(a)")
+    assert not any(branch.start == start for branch in structural(source))
+
+
+@pytest.mark.parametrize("offset", [54463, 63044, 70110, 78469])
+def test_other_unproven_A9_heading_parents_remain_held(offset):
+    source = (
+        Path(__file__).parent
+        / "fixtures"
+        / "editorial_source_ancestry"
+        / "a-9-source.txt"
+    ).read_text()
+    assert source[offset:].startswith("(A)")
+    assert not any(branch.start == offset for branch in structural(source))
+
+
+@settings(max_examples=60, deadline=None)
+@given(title=st.sampled_from(HEADING_TITLES), space=st.sampled_from((" ", "  ", "\t")))
+def test_generated_strong_headings_keep_parent_and_sibling_boundaries(title, space):
+    source = (
+        headed_source(title.replace(" ", space))
+        .replace("(2) ", "(2)" + space)
+        .replace(" (A)", space + "(A)")
+    )
+    branches = structural(source)
+    first = next(branch for branch in branches if branch.path == ("2", "a"))
+    assert (first.start, first.end) == (source.index("(A)"), source.index("(B)"))
+    assert any(
+        branch.path == ("2", "b") and branch.start == source.index("(B)")
+        for branch in branches
+    )
+
+
+@settings(max_examples=60, deadline=None)
+@given(
+    count=st.integers(min_value=1, max_value=6),
+    conjunction=st.sampled_from(("and", "or", "; or", ", and")),
+    space=st.sampled_from((" ", "\t", "\n", "\u00a0")),
+    qualifier=st.sampled_from(("of", "in", "under")),
+    determiner=st.sampled_from(
+        ("this", "any such", "the same", "either", "both", "all")
+    ),
+    unit=st.sampled_from(
+        ("section", "subsection", "paragraph", "Act", "Code", "sentence", "Schedule")
+    ),
+)
+def test_generated_first_A_reference_chains_stay_references(
+    count, conjunction, space, qualifier, determiner, unit
+):
+    chain = (space + conjunction + space).join(
+        "(" + chr(ord("A") + i) + ")" for i in range(count)
+    )
+    source = (
+        "(1) Preceding root.\n\n(2) Definitions "
+        + chain
+        + space
+        + qualifier
+        + space
+        + determiner
+        + space
+        + unit
+        + ".\n(B) Independent rule."
+    )
+    assert not any(branch.start == source.index("(A)") for branch in structural(source))
+
+
+def test_mixed_independent_numeric_and_heading_restorations_share_one_final_pass():
+    source = outline("For purposes of this chapter— (1) eligible persons.")
+    source += (
+        "\n\n(h) Another root.\n(1) Special rules (A) First rule.\n(B) Second rule."
+    )
+    with (
+        patch.object(
+            source_completeness,
+            "_resolve_parenthesized_legal_outline_markers",
+            wraps=source_completeness._resolve_parenthesized_legal_outline_markers,
+        ) as resolve,
+        patch.object(
+            source_completeness,
+            "recognize_source_structure",
+            wraps=source_completeness.recognize_source_structure,
+        ) as recognize,
+    ):
+        branches = source_completeness.recognize_source_structure(
+            source, corpus_citation_path=CITATION
+        )
+    assert recognize.call_count == 1
+    assert resolve.call_count == 2
+    assert any(branch.path == ("g", "1") for branch in branches)
+    assert any(branch.path == ("h", "1", "a") for branch in branches)
+
+
+def test_new_numeric_restoration_cannot_supply_heading_parent_proof():
+    source = outline(
+        "For purposes of this chapter— (1) Special rules (A) First rule.\n(B) Second rule."
+    )
+    assert any(branch.path == ("g", "1") for branch in structural(source))
+    assert not any(branch.start == source.index("(A)") for branch in structural(source))
+
+
+@pytest.mark.parametrize("count", [4, 32, 256])
+@pytest.mark.parametrize("qualifies", [False, True])
+def test_first_A_reference_tail_index_uses_disjoint_windows(count, qualifies):
+    source = "(A)" + " and (A)" * (count - 1)
+    source += (
+        " of " + "any such " * count + "section" if qualifies else " ordinary body"
+    )
+    with (
+        patch.object(
+            source_completeness,
+            "_ROOT_CHAPEAU_TAIL_LABEL",
+            wraps=source_completeness._ROOT_CHAPEAU_TAIL_LABEL,
+        ) as labels,
+        patch.object(
+            source_completeness,
+            "_ROOT_CHAPEAU_TAIL_JOINER",
+            wraps=source_completeness._ROOT_CHAPEAU_TAIL_JOINER,
+        ) as joiner,
+        patch.object(
+            source_completeness,
+            "_ROOT_CHAPEAU_TAIL_QUALIFIER",
+            wraps=source_completeness._ROOT_CHAPEAU_TAIL_QUALIFIER,
+        ) as qualifier,
+    ):
+        blocked = source_completeness._headed_first_alpha_reference_tail_starts(source)
+    assert blocked == ({index * 8 for index in range(count)} if qualifies else set())
+    assert labels.finditer.call_count == 1
+    assert joiner.fullmatch.call_count == count - 1
+    assert qualifier.match.call_count == count
+    for calls in (joiner.fullmatch.call_args_list, qualifier.match.call_args_list):
+        assert sum(call.args[2] - call.args[1] for call in calls) <= len(source)
+
+
+def test_heading_match_is_anchored_once_per_existing_numeric_parent():
+    source = "\n\n".join(
+        f"({number}) Special rules "
+        + " " * 256
+        + "(A) of this section. "
+        + " and (A)" * 32
+        + "\n(B) Independent rule."
+        for number in range(1, 17)
+    )
+    with patch.object(
+        source_completeness,
+        "_HEADED_FIRST_ALPHA_OUTLINE_MARKER",
+        wraps=source_completeness._HEADED_FIRST_ALPHA_OUTLINE_MARKER,
+    ) as heading:
+        structural(source)
+    starts = [call.args[1] for call in heading.match.call_args_list]
+    assert len(starts) == len(set(starts)) == 16
