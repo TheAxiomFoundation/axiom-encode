@@ -1,0 +1,1 @@
+Propose nullable generation temperature metadata for runtimes that do not expose it. The supervised Codex host records temperature/seed as null and refuses invented sampling defaults before accepting work. Requires explicit approval of the v33 schema amendment.

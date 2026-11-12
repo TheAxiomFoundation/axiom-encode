@@ -8,6 +8,7 @@ import pytest
 
 from axiom_encode.notary.canonical import sha256_hex, strict_parse
 from axiom_encode.notary.identity import IdentityRefusal, authenticate_job
+from axiom_encode.notary.lineage import STORE_PREFIX
 from axiom_encode.notary.provenance import REPORT_ARTIFACT
 from axiom_encode.notary.signatures import verify_detached
 from axiom_encode.notary.signer import NotarySigner, ReceiptInputs, make_candidate
@@ -136,7 +137,10 @@ def test_personal_codex_emission_reaches_receipt_without_regeneration(
     # enrollment and signature boundary after it uses the real implementation.
     signer, oidc, _, _, reader, api, epoch = service
     result = host.perform(1234, request())
-    _, files = decode(base64.b64decode(result["export_base64"]))
+    packet, files = decode(base64.b64decode(result["export_base64"]))
+    generation = strict_parse(files[STORE_PREFIX + packet["record_sha256"] + ".json"])
+    # Codex exposes neither value, so the signed record must carry null, not a guess.
+    assert generation["sampling"] == {"temperature": None, "seed": None}
     subject = snapshot(reader.packet.subject.commit, reader.packet.base.blobs | files)
     report = verify_snapshots(
         reader.packet.base,
