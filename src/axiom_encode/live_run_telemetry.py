@@ -50,6 +50,31 @@ GitHub Actions
 Inside GitHub Actions the runner identity also carries ``github_run_id``,
 ``github_run_attempt``, ``github_run_url``, and ``github_workflow`` (see
 `github_run_identity`), so a live run joins to its workflow run exactly.
+
+Terminal outcome
+----------------
+The ``finish`` update, and only it, may carry two more nullable text fields,
+so a run that ends before any encoding_runs row exists still says why:
+
+- ``outcome_status``: a short machine token. On the normal path it is the
+  encode outcome's ``status`` (``standalone_validated``, ``apply_applied``,
+  ``apply_blocked_validation``, ...). When the encode leaves the live-run
+  context without an explicit finish it is ``aborted`` (an exception
+  escaped), ``exited`` (``SystemExit``), or ``interrupted``
+  (``KeyboardInterrupt``).
+- ``error_rule``: a typed, bounded identifier of the cause, never a message
+  or a path. Abnormal exits send ``exception:<ExceptionClassName>`` or
+  ``exit:<int code>`` (``exit:message`` for a non-integer ``SystemExit``
+  code; the message itself is never sent). A failed normal finish sends the
+  check id of the final attempt's first typed validation issue, when there
+  is one. Successful runs send none.
+
+Both are bounded before sending: ``outcome_status`` to 64 characters,
+``error_rule`` to 160, both to ``[A-Za-z0-9_.:/-]``. A value that does not
+fit is dropped, not truncated. The columns come from
+``migrations/009_live_encoding_run_outcome.sql``; until it is applied, the
+direct transport retries a rejected finish once without the two fields, and
+the ingest endpoint ignores fields it does not know.
 """
 
 import getpass
@@ -93,6 +118,15 @@ _GITHUB_RUN_ATTEMPT_RE = re.compile(r"[1-9][0-9]{0,8}")
 _GITHUB_SERVER_URL_RE = re.compile(r"https?://[A-Za-z0-9.-]+(?::[0-9]{1,5})?")
 _GITHUB_REPOSITORY_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 _GITHUB_WORKFLOW_MAX_LENGTH = 120
+
+# Terminal outcome fields; the module docstring documents the contract.
+OUTCOME_STATUS_MAX_LENGTH = 64
+ERROR_RULE_MAX_LENGTH = 160
+OUTCOME_ABORTED = "aborted"
+OUTCOME_EXITED = "exited"
+OUTCOME_INTERRUPTED = "interrupted"
+TERMINAL_OUTCOME_COLUMNS = ("outcome_status", "error_rule")
+_OUTCOME_TOKEN_RE = re.compile(r"[A-Za-z0-9_.:/-]+")
 
 
 def _utcnow() -> str:
@@ -153,6 +187,64 @@ def github_run_identity() -> dict:
     if workflow:
         identity["github_workflow"] = workflow[:_GITHUB_WORKFLOW_MAX_LENGTH]
     return identity
+
+
+def _bounded_token(value: object, max_length: int) -> Optional[str]:
+    """``value`` when it is a safe token within ``max_length``, else ``None``.
+
+    A value that does not fit is dropped whole: a truncated identifier would
+    name a different, wrong cause.
+    """
+    if not isinstance(value, str) or len(value) > max_length:
+        return None
+    if not _OUTCOME_TOKEN_RE.fullmatch(value):
+        return None
+    return value
+
+
+def abnormal_exit_outcome(
+    exc_type: Optional[type], exc: Optional[BaseException]
+) -> tuple[str, str]:
+    """``(outcome_status, error_rule)`` for an exit that skipped `finish`.
+
+    Carries the exception class or the integer exit code only; never the
+    exception message or a non-integer ``SystemExit`` code.
+    """
+    if exc_type is not None and issubclass(exc_type, SystemExit):
+        code = getattr(exc, "code", None)
+        if code is None:
+            return OUTCOME_EXITED, "exit:0"
+        if isinstance(code, int):
+            return OUTCOME_EXITED, f"exit:{int(code)}"
+        return OUTCOME_EXITED, "exit:message"
+    name = getattr(exc_type, "__name__", "") or "BaseException"
+    if exc_type is not None and issubclass(exc_type, KeyboardInterrupt):
+        return OUTCOME_INTERRUPTED, f"exception:{name}"
+    return OUTCOME_ABORTED, f"exception:{name}"
+
+
+def first_typed_check_id(run: object) -> Optional[str]:
+    """Check id of the first typed issue of a logged run's final attempt.
+
+    Reads the ``issue_document`` the run log already stored for that attempt
+    (see `axiom_encode.checks.typed_issue_document`); ``None`` when the final
+    attempt recorded no typed issue. Never raises.
+    """
+    try:
+        iterations = getattr(run, "iterations", None) or ()
+        if not iterations:
+            return None
+        for error in getattr(iterations[-1], "errors", None) or ():
+            document = getattr(error, "issue_document", None)
+            if not isinstance(document, dict):
+                continue
+            for record in document.get("issues") or ():
+                check = record.get("check") if isinstance(record, dict) else None
+                if isinstance(check, str) and check:
+                    return check
+    except Exception:
+        return None
+    return None
 
 
 def running_under_tests() -> bool:
@@ -272,8 +364,15 @@ class LiveRunTelemetry:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         # Interrupted or crashed runs finish as 'failed'; normal completion
-        # already called finish() with the real outcome.
-        self.finish("failed" if exc_type is not None else "completed")
+        # already called finish() with the real outcome, and that call wins.
+        if exc_type is None:
+            self.finish("completed")
+            return
+        try:
+            outcome_status, error_rule = abnormal_exit_outcome(exc_type, exc)
+        except Exception:
+            outcome_status, error_rule = None, None
+        self.finish("failed", outcome_status=outcome_status, error_rule=error_rule)
 
     # -- updates -------------------------------------------------------------
 
@@ -309,8 +408,20 @@ class LiveRunTelemetry:
             self._unsent["phase"] = phase
         self._wake.set()
 
-    def finish(self, status: str, run_id: Optional[str] = None) -> None:
-        """Close the live row; idempotent, first call wins."""
+    def finish(
+        self,
+        status: str,
+        run_id: Optional[str] = None,
+        *,
+        outcome_status: Optional[str] = None,
+        error_rule: Optional[str] = None,
+    ) -> None:
+        """Close the live row; idempotent, first call wins.
+
+        ``outcome_status`` and ``error_rule`` are the terminal outcome fields
+        the module docstring describes; a value outside their bounds is
+        dropped.
+        """
         if self._finished:
             return
         self._finished = True
@@ -328,6 +439,12 @@ class LiveRunTelemetry:
         fields["status"] = status
         if run_id:
             fields["run_id"] = run_id
+        outcome_status = _bounded_token(outcome_status, OUTCOME_STATUS_MAX_LENGTH)
+        if outcome_status:
+            fields["outcome_status"] = outcome_status
+        error_rule = _bounded_token(error_rule, ERROR_RULE_MAX_LENGTH)
+        if error_rule:
+            fields["error_rule"] = error_rule
         self._send("finish", fields, force=True)
 
     # -- internals -----------------------------------------------------------
@@ -399,21 +516,40 @@ class LiveRunTelemetry:
     def _send_direct(self, kind: str, fields: dict) -> None:
         if self._client is None:
             return
-        from .supabase_sync import ENCODINGS_SCHEMA
+        from .supabase_sync import ENCODINGS_SCHEMA, _is_missing_column_error
 
         data = dict(fields)
         data["last_heartbeat_at"] = _utcnow()
         if kind == "finish":
             data["finished_at"] = _utcnow()
-        query = (
-            self._client.schema(ENCODINGS_SCHEMA)
-            .table("live_encoding_runs")
-            .update(data)
-            .eq("id", self.id)
-        )
-        if kind == "heartbeat":
-            query = query.eq("status", "running")
-        query.execute()
+
+        def update(payload: dict) -> None:
+            query = (
+                self._client.schema(ENCODINGS_SCHEMA)
+                .table("live_encoding_runs")
+                .update(payload)
+                .eq("id", self.id)
+            )
+            if kind == "heartbeat":
+                query = query.eq("status", "running")
+            query.execute()
+
+        try:
+            update(data)
+        except Exception as error:
+            # Before migration 009 the table lacks the terminal outcome
+            # columns: close the row without them rather than leave it open.
+            if not _is_missing_column_error(error) or not any(
+                column in data for column in TERMINAL_OUTCOME_COLUMNS
+            ):
+                raise
+            update(
+                {
+                    key: value
+                    for key, value in data.items()
+                    if key not in TERMINAL_OUTCOME_COLUMNS
+                }
+            )
 
     # -- ingest transport (credential-free default) --------------------------
 

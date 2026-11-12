@@ -463,6 +463,7 @@ from .live_run_telemetry import (
     PHASE_APPLY,
     PHASE_RESOLVE,
     LiveRunTelemetry,
+    first_typed_check_id,
     github_run_identity,
     report_phase,
     telemetry_blocked_for_tests,
@@ -37416,6 +37417,8 @@ def _run_encode_attempts_with_retries(
         live_run.finish(
             "completed" if encode_succeeded else "failed",
             run_id=logged_run.id,
+            outcome_status=outcome.get("status"),
+            error_rule=None if encode_succeeded else first_typed_check_id(logged_run),
         )
         if apply_requested:
             sys.exit(0 if execution.apply_passed else 1)
