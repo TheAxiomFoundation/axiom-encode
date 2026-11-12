@@ -14658,6 +14658,30 @@ class TestCmdEncode:
         model_call.assert_not_called()
         assert EncodingDB(args.db).get_recent_runs(limit=1) == []
 
+    @pytest.mark.parametrize(
+        "overrides",
+        [{"corpus_body": "."}, {"corpus_metadata": {"status": "repealed"}}],
+        ids=["empty", "repealed"],
+    )
+    def test_encode_pre_encode_gate_block_keeps_the_engine_binding_failure(
+        self, tmp_path, overrides
+    ):
+        # A valid SHA whose checkout does not bind: the block must not hide the
+        # engine binding failure behind a corpus or selection failure class.
+        from axiom_encode.engine_binding import EngineBindingError
+
+        args = self._make_args(tmp_path, axiom_rules_engine_ref="a" * 40, **overrides)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as model_call,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises(EngineBindingError, match="engine checkout HEAD"):
+                cmd_encode(args)
+
+        model_call.assert_not_called()
+        assert EncodingDB(args.db).get_recent_runs(limit=1) == []
+
     def test_encode_pre_encode_gate_defers_to_the_part_heading_refusal(self, tmp_path):
         """The resolver's #1825 refusal (#2035) fires first; the gate defers.
 

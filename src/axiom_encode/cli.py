@@ -37244,6 +37244,17 @@ def _run_encode_attempts_with_retries(
                 f"check={finding.check} reason={finding.reason}"
             )
         if pre_encode_gate.blocked:
+            engine_ref = getattr(args, "axiom_rules_engine_ref", None)
+            if engine_ref is not None:
+                # A blocked run never reaches the try, so its single engine
+                # binding runs here: a bad binary fails as it would in the try.
+                _pinned_apply_engine_binding(
+                    _resolve_explicit_existing_directory(
+                        args.axiom_rules_path,
+                        label="Axiom rules engine",
+                    ),
+                    engine_ref,
+                )
             _record_pre_encode_gate_block(
                 args,
                 pre_encode_gate,
@@ -37499,8 +37510,9 @@ def _evaluate_encode_pre_encode_gate(
             args.corpus_path,
             label="Axiom Corpus",
         )
-        # The try binds the engine's bytes (_pinned_apply_engine_binding) once,
-        # after the gate; hashing the binary here too would double that cost.
+        # The engine's bytes are bound (_pinned_apply_engine_binding) once,
+        # after the gate: in the try, or before a block is recorded. Hashing
+        # the binary here too would double that cost.
         _resolve_explicit_existing_directory(
             args.axiom_rules_path,
             label="Axiom rules engine",
