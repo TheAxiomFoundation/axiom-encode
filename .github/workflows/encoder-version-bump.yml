@@ -161,9 +161,14 @@ jobs:
           url="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --head "$BRANCH" \
             --json url,isCrossRepository,author --jq "[.[] | select(${own})][0].url // empty")"
           if [ -z "$url" ]; then
+            # The validation-effect check (#2094) reads this declaration from
+            # the body. A bump changes only version files and CHANGELOG.md.
+            body="$(printf '%s\n\n%s\n' \
+              "Automated encoder version bump for main at ${BASE_SHA} (axiom-encode#2048). It changes only the version files and CHANGELOG.md. Re-encodes refuse main until this merges." \
+              "Validation effect: none")"
             url="$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
               --title "Bump encoder version to ${VERSION}" \
-              --body "Automated encoder version bump for main at ${BASE_SHA} (axiom-encode#2048). It changes only the version files and CHANGELOG.md. Re-encodes refuse main until this merges.")"
+              --body "$body")"
           fi
           # Auto-merge only the commit this run built or verified: the queue can
           # then merge nothing else under this pull request.
