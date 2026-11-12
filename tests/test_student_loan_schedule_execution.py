@@ -1,14 +1,19 @@
 """Historical actual captures; synthetic closure IDs are not authentication."""
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
+import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode.harness.same_case_execution import (
     CaseExecution,
     ClosureFile,
     SameCaseEvidence,
+    case_key,
 )
 from axiom_encode.harness.student_loan_schedule_binding import (
     bind_student_loan_schedule,
@@ -27,7 +32,7 @@ def data():
     return json.loads(FIXTURE.read_text())
 
 
-def evidence(tmp_path, d, *, stale=False):
+def evidence(tmp_path, d, *, stale=False, companion_bytes=None):
     original = tmp_path / "original" / ROOT
     original.parent.mkdir(parents=True)
     original.write_text(d["content"] + ("\n" if stale else ""))
@@ -35,8 +40,20 @@ def evidence(tmp_path, d, *, stale=False):
     target = snapshot / ROOT
     target.parent.mkdir(parents=True)
     target.write_text(d["content"])
+    if companion_bytes is None:
+        companion_bytes = yaml.safe_dump(d["cases"], sort_keys=False).encode()
+    original_companion = original.with_suffix(".test.yaml")
+    original_companion.write_bytes(companion_bytes)
+    target.with_suffix(".test.yaml").write_bytes(companion_bytes)
     return SameCaseEvidence(
-        (ClosureFile(ROOT, original, d["content"].encode()),),
+        (
+            ClosureFile(ROOT, original, d["content"].encode()),
+            ClosureFile(
+                ROOT.removesuffix(".yaml") + ".test.yaml",
+                original_companion,
+                companion_bytes,
+            ),
+        ),
         ROOT,
         snapshot,
         "a" * 40,
@@ -71,6 +88,124 @@ def test_actual18_cases48_outputs_and_distinct_owner_pairs(tmp_path):
     assert result is not None
     assert len(result.duty_pairs) == 5
     assert result.equal_provider_pair and len(set(result.exclusive_provider_cases)) == 2
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+@pytest.mark.parametrize("aliases", [False, True])
+def test_captured_companion_accepts_ordinary_yaml_forms(tmp_path, wrapped, aliases):
+    d = data()
+    if aliases:
+        d["cases"][1]["period"] = d["cases"][0]["period"]
+    raw = yaml.safe_dump({"cases": d["cases"]} if wrapped else d["cases"]).encode()
+    if aliases:
+        assert b"&id" in raw and b"*id" in raw
+    captured = evidence(tmp_path, d, companion_bytes=raw)
+    binding = bind_student_loan_schedule(
+        recognize_student_loan_schedule(d["source"], CITATION), d["content"]
+    )
+    assert observe_student_loan_schedule(binding, captured, d["content"], d["cases"])
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["missing", "duplicate", "extra", "duplicate_key", "yaml", "utf8", "cycle"],
+)
+def test_observer_requires_exact_unique_companion_closure(tmp_path, change):
+    d = data()
+    raw = yaml.safe_dump(d["cases"]).encode()
+    if change == "duplicate_key":
+        raw = b"cases: []\ncases:\n" + raw
+    elif change == "yaml":
+        raw = b"["
+    elif change == "utf8":
+        raw = b"\xff"
+    elif change == "cycle":
+        raw = b"&cases [*cases]"
+    captured = evidence(tmp_path, d, companion_bytes=raw)
+    if change == "missing":
+        captured = replace(captured, files=captured.files[:1])
+    elif change == "duplicate":
+        captured = replace(captured, files=captured.files + captured.files[1:])
+    elif change == "extra":
+        relative = "ca/policies/unrelated.test.yaml"
+        original = tmp_path / "original" / relative
+        original.write_bytes(b"[]")
+        (captured.snapshot_root / relative).write_bytes(b"[]")
+        captured = replace(
+            captured,
+            files=captured.files + (ClosureFile(relative, original, b"[]"),),
+        )
+    binding = bind_student_loan_schedule(
+        recognize_student_loan_schedule(d["source"], CITATION), d["content"]
+    )
+    assert (
+        observe_student_loan_schedule(binding, captured, d["content"], d["cases"])
+        is None
+    )
+
+
+@given(
+    st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size=30)
+)
+@settings(max_examples=30)
+def test_case_identity_cannot_be_rebound_away_from_captured_companion(suffix):
+    # Synthetic record IDs isolate the observer's raw-companion invariant;
+    # these edited historical records are not newly authenticated execution.
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        d = data()
+        raw = yaml.safe_dump(d["cases"], sort_keys=False).encode()
+        d["cases"][0]["name"] = "transient-case-" + suffix
+        d["records"][0]["case_sha256"] = case_key(d["cases"][0])
+        captured = evidence(root, d, companion_bytes=raw)
+        assert captured.bound(d["content"], ())
+        binding = bind_student_loan_schedule(
+            recognize_student_loan_schedule(d["source"], CITATION), d["content"]
+        )
+        assert (
+            observe_student_loan_schedule(binding, captured, d["content"], d["cases"])
+            is None
+        )
+        matching = evidence(root / "matching", d)
+        assert matching.bound(d["content"], ())
+        assert observe_student_loan_schedule(
+            binding, matching, d["content"], d["cases"]
+        )
+
+
+@pytest.mark.parametrize("before,after", [(True, 1), (1, 1.0), (False, 0)])
+def test_raw_case_binding_preserves_scalar_types(tmp_path, before, after):
+    # This unused metadata field leaves the actual queries unchanged. Rehash
+    # the synthetic record so only raw companion identity can reject it.
+    d = data()
+    d["cases"][0]["review_metadata"] = before
+    raw = yaml.safe_dump(d["cases"], sort_keys=False).encode()
+    d["cases"][0]["review_metadata"] = after
+    d["records"][0]["case_sha256"] = case_key(d["cases"][0])
+    binding = bind_student_loan_schedule(
+        recognize_student_loan_schedule(d["source"], CITATION), d["content"]
+    )
+    captured = evidence(tmp_path, d, companion_bytes=raw)
+    assert (
+        observe_student_loan_schedule(binding, captured, d["content"], d["cases"])
+        is None
+    )
+
+
+@pytest.mark.parametrize("value", [True, 2.0, "2", None, 1, 3])
+def test_artifact_version_requires_exact_supported_integer(tmp_path, value):
+    d = data()
+    d["artifact"]["artifact_format_version"] = value
+    assert observe(tmp_path, d) is None
+
+
+@pytest.mark.parametrize("value", [True, 1.0, "1", None, 0, -1])
+def test_case_index_requires_exact_positive_integer(tmp_path, value):
+    d = data()
+    d["records"][0]["case_index"] = value
+    assert observe(tmp_path, d) is None
 
 
 @pytest.mark.parametrize(

@@ -39797,7 +39797,10 @@ class ValidatorPipeline:
         if strict_layout_checks:
             issues.extend(find_rule_source_metadata_issues(content))
 
-        test_path = self._rulespec_test_path(rules_file)
+        # Compile and execute one captured closure. Reading the original
+        # companion here could execute a transient edit that is reverted
+        # before the capture's freshness check.
+        test_path = execution_pipeline._rulespec_test_path(execution_file)
         if test_path.exists():
             try:
                 payload = _safe_load_unique_keys(test_path.read_text())
