@@ -14682,6 +14682,26 @@ class TestCmdEncode:
         model_call.assert_not_called()
         assert EncodingDB(args.db).get_recent_runs(limit=1) == []
 
+    def test_encode_pre_encode_gate_block_binds_a_good_engine_once(self, tmp_path):
+        pin = "a" * 40
+        args = self._make_args(tmp_path, corpus_body=".", axiom_rules_engine_ref=pin)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as model_call,
+            patch("axiom_encode.cli._pinned_apply_engine_binding") as bind,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        model_call.assert_not_called()
+        bind.assert_called_once()
+        assert bind.call_args.args[1] == pin
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "pre_encode_blocked"
+        assert run.outcome["failure_class"]["class"] == "corpus"
+
     def test_encode_pre_encode_gate_defers_to_the_part_heading_refusal(self, tmp_path):
         """The resolver's #1825 refusal (#2035) fires first; the gate defers.
 
