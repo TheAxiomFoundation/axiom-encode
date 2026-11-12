@@ -232,12 +232,34 @@ def is_complete_section_path(corpus_citation_path: str) -> bool:
     return bool(_COMPLETE_SECTION_PATH.fullmatch(corpus_citation_path or ""))
 
 
+# Neither a definition's term nor the text after its comma ends in a space
+# or tab. Wherever ``[ \t]*,`` or ``[ \t]+means`` can start inside a run of
+# spaces and tabs, it can also start at the run's first character, right
+# after the character before the run, and the lazy repeat reaches that end
+# first. So each lazy repeat ends only at another character, and the run
+# after it has one way through the pattern. When a lazy repeat could end
+# anywhere inside a run, the run split n + 1 ways between the repeat and the
+# whitespace after it, so a line that failed after the run backtracked
+# quadratically in the run.
+# tests/test_whitespace_run_patterns.py holds both patterns to the matches of
+# the ones they replaced.
 _DEFINITION = re.compile(
-    r"^[ \t]*(?P<term>[^\W\d_](?:[^\W_]|[ \t'’()/-])*?)"
-    r"(?:[ \t]*,[^\n|]*?)?[ \t]+means\b",
+    r"^[ \t]*(?P<term>[^\W\d_]"
+    r"(?:(?:[^\W_]|[ \t'’()/-])*?(?:[^\W_]|['’()/-]))??)"
+    r"(?:[ \t]*,(?:[^\n|]*?[^ \t\n|])??)?[ \t]+means\b",
     re.MULTILINE,
 )
-_DEFINITION_HEADER = re.compile(r"^[ \t]*(?P<term>[^|\r\n]+?)[ \t]+means\b")
+# The header's term can also start inside the line's indent. The one match
+# whose term ends in a space is the second alternative's: when two or more
+# spaces or tabs open the line before "means" and the first alternative
+# finds no match, the term is the next-to-last of them. Spelled as
+# ``^[ \t]*(?P<term>[^|\r\n]+?)[ \t]+means``, the indent, the term and the
+# whitespace before "means" could each take part of one run, which made a
+# line that failed after its indent cubic in the indent.
+_DEFINITION_HEADER = re.compile(
+    r"^[ \t]*(?P<term>[^ \t|\r\n](?:[^|\r\n]*?[^ \t|\r\n])??"
+    r"|[ \t](?=[ \t]means\b))[ \t]+means\b"
+)
 _ROW_CAPTION = re.compile(
     r"^(?:number|count|amount|rate|percentage|year|annual|weekly|monthly|"
     r"first|second|third|fourth|fifth|total|subtotal)\b",
