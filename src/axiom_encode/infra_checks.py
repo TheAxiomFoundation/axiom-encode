@@ -309,6 +309,16 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
         "Retry the run; if it fails again, check the Python download source.",
     ),
     (
+        "Install locked preflight runtime",
+        "The locked preflight runtime installation failed",
+        "The encoder checkout matches `GITHUB_SHA`, and its Python 3.13 "
+        "preflight environment installs from `uv.lock` with the API extra.",
+        _SETUP_WHY,
+        "Read the step's log. Correct a checkout or lock mismatch in "
+        "axiom-encode; retry a package-index or Python download outage. "
+        "Keep the explicit locked virtualenv interpreter for preflight.",
+    ),
+    (
         "Install Rust toolchain",
         "The Rust toolchain installation failed",
         "The runner can install the pinned Rust toolchain.",

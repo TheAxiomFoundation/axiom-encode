@@ -1,3 +1,23 @@
+## 0.2.2359
+
+- fix: retain strict proof requirements in partial repairs (#2089)
+
+## 0.2.2358
+
+- Bind validation waivers per covered file in signed manifests (#2092) (#2097)
+
+## 0.2.2357
+
+- Show every missing numeric-recall value, located and grouped, in retry feedback (#1934)
+- Recognize detached Schedule 2 source rows without changing private consumers (#2125)
+- Implement enrolled Codex and deterministic producers with notary admission (#1662)
+- Make the offline replay benchmark a required CI gate over 45 public fixtures (#1891)
+- Propose approving promoted RuleSpec PRs after validation and signing (#2172, docs only) (#2173)
+
+## 0.2.2356
+
+- Fix locked runtime setup for reviewed promotion preflight (#2185)
+
 ## 0.2.2355
 
 - Record a dispatch record and typed step checks for signed re-encode runs (#2181)

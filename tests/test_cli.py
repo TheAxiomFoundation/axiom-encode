@@ -1869,6 +1869,7 @@ def _reviewed_candidate_binding(rule: Path, companion: Path, **overrides) -> dic
     return binding
 
 
+@pytest.mark.parametrize("per_file", [True, False])
 @pytest.mark.parametrize(
     "admission",
     [
@@ -1885,7 +1886,7 @@ def _reviewed_candidate_binding(rule: Path, companion: Path, **overrides) -> dic
     ],
 )
 def test_promote_reviewed_candidate_changes_only_manifest(
-    tmp_path, capsys, admission, monkeypatch
+    tmp_path, capsys, admission, per_file, monkeypatch
 ):
     repo, rule, companion, reviewed_ref = _reviewed_candidate_checkout(tmp_path)
     binding = (
@@ -1977,6 +1978,13 @@ def test_promote_reviewed_candidate_changes_only_manifest(
     args.axiom_rules_path.mkdir()
     args.corpus_path.mkdir()
     validation_execution = {"schema": "axiom-encode/apply-validation-execution/v2"}
+    waiver_bindings = {
+        "schema": "axiom-encode/validation-waiver-bindings/v1",
+        "files": [
+            {"path": path, "fingerprint": None, "record_sha256": None}
+            for path in ("us/statutes/7/2015/f.test.yaml", "us/statutes/7/2015/f.yaml")
+        ],
+    }
 
     def validate(result, **_kwargs):
         setattr(
@@ -2043,6 +2051,14 @@ def test_promote_reviewed_candidate_changes_only_manifest(
             return_value="c" * 64,
         ),
         patch(
+            "axiom_encode.cli._target_uses_per_file_waiver_bindings",
+            return_value=per_file,
+        ),
+        patch(
+            "axiom_encode.cli._build_applied_manifest_file_waiver_bindings",
+            return_value=waiver_bindings,
+        ) as bindings_mock,
+        patch(
             "axiom_encode.cli._current_guard_encoder_execution_identity",
             return_value={
                 "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
@@ -2092,6 +2108,15 @@ def test_promote_reviewed_candidate_changes_only_manifest(
             return
         cmd_promote_reviewed_candidate(args)
 
+    if per_file:
+        bindings_mock.assert_called_once()
+        assert bindings_mock.call_args.kwargs["covered_paths"] == {
+            "us/statutes/7/2015/f.yaml",
+            "us/statutes/7/2015/f.test.yaml",
+        }
+    else:
+        bindings_mock.assert_not_called()
+
     overlay_mock.assert_called_once()
     assert live_check.call_count == (2 if admission == "live" else 0)
     assert overlay_mock.call_args.kwargs["amendment_documents"] == (amendment,)
@@ -2104,6 +2129,13 @@ def test_promote_reviewed_candidate_changes_only_manifest(
     assert payload["tool"] == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
     assert payload["reviewed_rulespec_ref"] == reviewed_ref
     assert payload["validation_execution"] == validation_execution
+    if per_file:
+        assert payload["validation_waiver_bindings"] == waiver_bindings
+        assert "validation_waiver_set_sha256" not in payload
+    else:
+        # A pinned target keeps the repository waiver-set digest (#2092).
+        assert payload["validation_waiver_set_sha256"] == "c" * 64
+        assert "validation_waiver_bindings" not in payload
     assert rule.read_bytes() == original_rule
     assert companion.read_bytes() == original_companion
     assert _git(
@@ -15641,6 +15673,54 @@ class TestCmdEncode:
         assert run.outcome["status"] == "apply_blocked_generation"
         mock_report_phase.assert_not_called()
 
+    def test_encode_finish_reports_outcome_status_to_live_run(self, tmp_path):
+        from axiom_encode.live_run_telemetry import LiveRunTelemetry
+
+        args = self._make_args(tmp_path, apply=True, sync=False)
+        result = self._make_eval_result(False)
+
+        with (
+            patch.object(LiveRunTelemetry, "finish") as mock_finish,
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        # The explicit finish is first, so it wins over the exit-derived one.
+        explicit = mock_finish.call_args_list[0]
+        assert explicit.args == ("failed",)
+        assert explicit.kwargs["run_id"] == run.id
+        assert explicit.kwargs["outcome_status"] == "apply_blocked_generation"
+        # No typed validation issue on a blocked generation: no rule is sent.
+        assert explicit.kwargs["error_rule"] is None
+
+    def test_encode_finish_reports_success_without_error_rule(self, tmp_path):
+        from axiom_encode.live_run_telemetry import LiveRunTelemetry
+
+        args = self._make_args(tmp_path, sync=False)
+        result = self._make_eval_result(True)
+
+        with (
+            patch.object(LiveRunTelemetry, "finish") as mock_finish,
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli.first_typed_check_id", return_value="some:check"
+            ) as mock_rule,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        explicit = mock_finish.call_args_list[0]
+        assert explicit.args == ("completed",)
+        assert explicit.kwargs["outcome_status"] == run.outcome["status"]
+        assert explicit.kwargs["error_rule"] is None
+        mock_rule.assert_not_called()
+
     @pytest.mark.parametrize("reasoning_effort", ["low", "high"])
     def test_encode_escalates_after_n_validator_failures(
         self, tmp_path, reasoning_effort
@@ -22404,7 +22484,10 @@ rules: []
                 Path("programs/us-sc/snap/fy-2026.yaml"),
             )
 
-    def test_write_applied_manifest_places_checkout_root_program_spec(self, tmp_path):
+    @pytest.mark.parametrize("per_file", [False, True])
+    def test_write_applied_manifest_places_checkout_root_program_spec(
+        self, tmp_path, per_file
+    ):
         checkout = tmp_path / "rulespec-us"
         (checkout / "us").mkdir(parents=True)
         relative_output = Path("programs/us-sc/snap/fy-2026.yaml")
@@ -22453,6 +22536,14 @@ rules: []
                 "axiom_encode.cli.verify_rulespec_validation_waiver_set",
                 return_value="b" * 64,
             ),
+            patch(
+                "axiom_encode.cli._target_uses_per_file_waiver_bindings",
+                return_value=per_file,
+            ),
+            patch(
+                "axiom_encode.cli._build_applied_manifest_file_waiver_bindings",
+                return_value={"schema": "test", "files": []},
+            ),
         ):
             manifest = _write_applied_encoding_manifest(
                 result,
@@ -22479,6 +22570,16 @@ rules: []
         assert payload["signature"]["value"]
         assert payload["context_manifest_file"] is None
         assert payload["context_manifest_sha256"] is None
+        # The target's protected verifier mode chooses the waiver shape (#2092).
+        if per_file:
+            assert payload["validation_waiver_bindings"] == {
+                "schema": "test",
+                "files": [],
+            }
+            assert "validation_waiver_set_sha256" not in payload
+        else:
+            assert payload["validation_waiver_set_sha256"] == "b" * 64
+            assert "validation_waiver_bindings" not in payload
 
     def test_resolve_applied_manifest_placement_always_uses_checkout_root(
         self, tmp_path
@@ -55422,9 +55523,11 @@ class TestManifestCurrentState:
             },
             "validation_execution": {
                 "policy_root_identity": {
-                    "validation_waiver_set_sha256": payload[
-                        "validation_waiver_set_sha256"
-                    ]
+                    # Per-file manifests keep the validated ledger digest
+                    # as signed provenance in policy_pre_apply (#2092).
+                    "validation_waiver_set_sha256": payload["validation_execution"][
+                        "policy_pre_apply"
+                    ]["validation_waiver_set_sha256"]
                 },
                 "axiom_encode_identity": {
                     "kind": "git",

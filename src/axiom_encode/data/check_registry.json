@@ -517,6 +517,18 @@
       "why": "The run builds its tools and checkouts from pinned revisions before the model runs. Nothing was encoded, so the encoder output is not at fault."
     },
     {
+      "category": "infra:install-locked-preflight-runtime",
+      "cause": "infra",
+      "fix": "Read the step's log. Correct a checkout or lock mismatch in axiom-encode; retry a package-index or Python download outage. Keep the explicit locked virtualenv interpreter for preflight.",
+      "gate": "workflow",
+      "id": "infra:install-locked-preflight-runtime",
+      "requires": "The encoder checkout matches `GITHUB_SHA`, and its Python 3.13 preflight environment installs from `uv.lock` with the API extra.",
+      "severity": "important",
+      "site": ".github/workflows/targeted-signed-reencode.yml:Install locked preflight runtime",
+      "title": "The locked preflight runtime installation failed",
+      "why": "The run builds its tools and checkouts from pinned revisions before the model runs. Nothing was encoded, so the encoder output is not at fault."
+    },
+    {
       "category": "infra:install-rust-toolchain",
       "cause": "infra",
       "fix": "Retry the run; if it fails again, check the pinned setup action.",
@@ -961,6 +973,6 @@
       "why": "A proof atom ties a rule to the exact source words it implements. An excerpt that is not in the cited provision, or not in the rule's own subsection, proves nothing and can hide an invented value or condition."
     }
   ],
-  "registry_sha256": "aaf84c5f39854f95cbd7017adcf9668fb2a1455df45e170f7a5c248d3b888f11",
+  "registry_sha256": "716132e942d166dddaaf0bda24effda9977888684e9be4a5432ff0ec6fd8ebb7",
   "schema": "axiom-encode/check-registry/v1"
 }
