@@ -469,7 +469,10 @@ _CONJOINED_OUTLINE_REFERENCE_CHAIN = re.compile(
     flags=re.IGNORECASE,
 )
 _CONJOINED_OUTLINE_REFERENCE_END = re.compile(
-    r"[ \t]*(?:[.;,!?)]|$|\b(?:of|in|under|for|to|with|that|which)\b)",
+    r"[ \t]*(?:[.;,!?)]|$|\b(?:of|in|under)[ \t]+"
+    r"(?:(?:this|that|the)[ \t]+)?"
+    r"(?:sections?|subsections?|paragraphs?|subparagraphs?|clauses?|"
+    r"subclauses?|items?|subitems?|parts?|subparts?|titles?|chapters?)\b)",
     flags=re.IGNORECASE,
 )
 _INLINE_OUTLINE_REFERENCE_CONTEXT = re.compile(
@@ -4241,9 +4244,18 @@ def _inline_parenthesized_legal_outline_matches(
         ):
             following = bisect.bisect_right(legacy_starts, start)
             next_line = bisect.bisect_right(line_starts, start)
-            if following < len(legacy) and (
-                next_line == len(line_starts)
-                or legacy_starts[following] < line_starts[next_line]
+            if (
+                following < len(legacy)
+                and match.end("marker") <= legacy[following].start("marker")
+                and (
+                    next_line == len(line_starts)
+                    or legacy_starts[following] < line_starts[next_line]
+                )
+                and not _inline_outline_marker_has_reference_context(
+                    source_text,
+                    legacy[following],
+                    context_start=match.end("marker"),
+                )
             ):
                 labels = re.findall(r"\(([A-Za-z0-9]+)\)", match.group("marker"))
                 next_labels = re.findall(
@@ -4445,8 +4457,12 @@ def _flattened_inline_numeric_root_is_proven(
 def _inline_outline_marker_has_reference_context(
     source_text: str,
     match: re.Match[str],
+    *,
+    context_start: int = 0,
 ) -> bool:
-    prefix = source_text[max(0, match.start("marker") - 128) : match.start("marker")]
+    prefix = source_text[
+        max(context_start, match.start("marker") - 128) : match.start("marker")
+    ]
     if _INLINE_OUTLINE_STRUCTURAL_CHAPEAU_CONTEXT.search(prefix) and not (
         _INLINE_OUTLINE_CHAPEAU_REFERENCE_LEAD.search(prefix)
     ):

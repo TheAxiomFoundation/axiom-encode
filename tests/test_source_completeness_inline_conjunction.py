@@ -128,6 +128,11 @@ def test_reference_at_end_of_item_does_not_hide_next_operative_item(
         "must satisfy a separate condition",
         "is exempt from that requirement",
         "has a separate permission",
+        "for necessary medical care",
+        "to pay necessary expenses",
+        "with a separate permission",
+        "that meets a separate condition",
+        "which meets a separate condition",
     ],
 )
 def test_conjoined_operative_predicate_after_reference_stays_an_item(body):
@@ -193,3 +198,44 @@ def test_conjoined_capital_letter_keeps_its_proven_predecessor(joiner):
 def test_conjoined_capital_letter_requires_an_operative_predecessor(joiner):
     source = outline("(i) Qualifying categories" + joiner + "(B) Isolated category.")
     assert not any(branch.start == source.index("(B)") for branch in structural(source))
+
+
+@pytest.mark.parametrize("joiner", JOINERS)
+def test_later_reference_cannot_prove_an_operative_sibling(joiner):
+    source = outline(
+        "(i) A person described in clause (i)"
+        + joiner
+        + "(ii) must comply. See clause: (iii) for scope."
+    )
+    assert not any(
+        branch.start in (source.index("(ii)"), source.index("(iii)"))
+        for branch in structural(source)
+    )
+
+
+@pytest.mark.parametrize("joiner", JOINERS)
+def test_previous_under_reference_does_not_own_next_condition(joiner):
+    source = outline(
+        "(i) made under clause (i)"
+        + joiner
+        + "(ii) for necessary medical care; (iii) for emergency travel."
+    )
+    assert any(
+        branch.path == ("g", "ii") and branch.start == source.index("(ii)")
+        for branch in structural(source)
+    )
+
+
+@pytest.mark.parametrize("joiner", JOINERS)
+def test_conjoined_fused_children_keep_their_source_boundaries(joiner):
+    source = outline("(i)(A) First condition" + joiner + "(ii)(A) Second condition.")
+    assert [
+        (branch.path, branch.start)
+        for branch in structural(source)
+        if len(branch.path) > 1
+    ] == [
+        (("g", "i"), source.index("(i)(A)")),
+        (("g", "i", "a"), source.index("(i)(A)")),
+        (("g", "ii"), source.index("(ii)(A)")),
+        (("g", "ii", "a"), source.index("(ii)(A)")),
+    ]
