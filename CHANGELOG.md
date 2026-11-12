@@ -1,3 +1,7 @@
+## 0.2.2359
+
+- fix: retain strict proof requirements in partial repairs (#2089)
+
 ## 0.2.2358
 
 - Bind validation waivers per covered file in signed manifests (#2092) (#2097)
