@@ -643,7 +643,7 @@ def test_reference_tail_index_inspects_disjoint_windows(count, qualifies):
 
 
 # Verbatim paragraph (2) from replay fixture37154591758, 26 USC911(f).
-# Only the preceding root is a synthetic scaffold; the missing C stays a hold.
+# Only the preceding root is a synthetic scaffold; C has a printed heading.
 # Paragraph SHA256: 6f0c6b7e98ccc15bd8d01ce47d3a86ebcfee8e3b53290151631d513c73542242
 TAX_SPECIAL_RULES_SOURCE = (
     "(1) Preceding root.\n\n"
@@ -724,7 +724,7 @@ def test_heading_recovers_printed_A9_church_definition():
     assert first.text == source[73568:73832].strip()
 
 
-def test_tax_heading_recovers_A_and_printed_B_ancestry_but_keeps_C_hold():
+def test_tax_heading_recovers_A_B_C_and_their_printed_boundaries():
     source = TAX_SPECIAL_RULES_SOURCE
     branches = structural(source)
     for path, text in [
@@ -752,10 +752,17 @@ def test_tax_heading_recovers_A_and_printed_B_ancestry_but_keeps_C_hold():
     assert source_completeness._inline_outline_marker_has_reference_context(
         source, c_match
     )
-    assert not any(branch.start == c_start for branch in branches)
+    matches = [branch for branch in branches if branch.start == c_start]
+    assert len(matches) == 1
+    c = matches[0]
+    assert c.path == ("2", "c") and c.end == len(source)
+    assert c.text == source[c_start:].strip()
     second = next(branch for branch in branches if branch.path == ("2", "b", "ii"))
-    assert second.end == len(source)
-    assert "(C) Definitions" in second.text
+    b = next(branch for branch in branches if branch.path == ("2", "b"))
+    assert b.end == second.end == c_start
+    assert b.text == source[b.start : c_start].strip()
+    assert second.text == source[second.start : c_start].strip()
+    assert "(C) Definitions" not in second.text
 
 
 @pytest.mark.parametrize("title", ["Applicability of", "Meaning of"])
@@ -964,3 +971,391 @@ def test_heading_match_is_anchored_once_per_existing_numeric_parent():
         structural(source)
     starts = [call.args[1] for call in heading.match.call_args_list]
     assert len(starts) == len(set(starts)) == 16
+
+
+def completed_heading_source(
+    body="The second rule operates under paragraph (1).",
+    tail="Definitions Terms used retain their meanings.",
+):
+    return (
+        "(1) First root.\n\n(2) General rules (A) First rule applies. (B) "
+        + body
+        + " (C) "
+        + tail
+        + "\n\n(3) Final root."
+    )
+
+
+@pytest.mark.parametrize(
+    "title",
+    (
+        "General rule",
+        "General rules",
+        "Special rules",
+        "Definition",
+        "Definitions",
+        "In general",
+    ),
+)
+def test_completed_sentence_recovers_C_and_only_its_printed_span(title):
+    source = completed_heading_source(tail=title + " Terms retain meanings.")
+    branches = structural(source)
+    start = source.index("(C)")
+    matches = [b for b in branches if b.start == start]
+    assert len(matches) == 1
+    c = matches[0]
+    assert c.path == ("2", "c") and c.end == source.index("(3)")
+    assert c.text == source[c.start : c.end].strip()
+    b = next(b for b in branches if b.path == ("2", "b"))
+    assert b.end == start and "(C)" not in b.text
+
+
+@pytest.mark.parametrize(
+    ("name", "source"),
+    [
+        (
+            "supported-curly",
+            "(1) First root.\n\n(2) General rules (A) First rule applies. (B) The rule quotes “Text under paragraph (1). (C) Definitions Terms retain meanings.” End.\n\n(3) Final root.",
+        ),
+        (
+            "escaped-ascii-quotes",
+            '(1) First root.\n\n(2) General rules (A) First rule applies. (B) The rule quotes "Text \\"under paragraph (1). (C) Definitions Terms retain meanings. \\"more" End.\n\n(3) Final root.',
+        ),
+        (
+            "backtick-inline",
+            "(1) First root.\n\n(2) General rules (A) First rule applies. (B) The rule quotes `Text under paragraph (1). (C) Definitions Terms retain meanings.` End.\n\n(3) Final root.",
+        ),
+        (
+            "backtick-fence",
+            "(1) First root.\n\n(2) General rules (A) First rule applies. (B) The rule quotes ```Text under paragraph (1). (C) Definitions Terms retain meanings.``` End.\n\n(3) Final root.",
+        ),
+        (
+            "unsupported-single-guillemets",
+            "(1) First root.\n\n(2) General rules (A) First rule applies. (B) The rule quotes ‹Text under paragraph (1). (C) Definitions Terms retain meanings.› End.\n\n(3) Final root.",
+        ),
+        (
+            "balanced-editorial-brackets",
+            "(1) First root.\n\n(2) General rules (A) First rule applies. (B) The rule includes [Text under paragraph (1). (C) Definitions Terms retain meanings.] End.\n\n(3) Final root.",
+        ),
+        (
+            "lowercase-see-last-sentence",
+            "(1) First root.\n\n(2) General rules (A) First rule applies. (B) The second rule applies. see paragraph (1). (C) Definitions Terms used in this paragraph retain their meanings.\n\n(3) Final root.",
+        ),
+        (
+            "upper-see-last-sentence",
+            "(1) First root.\n\n(2) General rules (A) First rule applies. (B) The second rule applies. See paragraph (1). (C) Definitions Terms used in this paragraph retain their meanings.\n\n(3) Final root.",
+        ),
+        (
+            "right-three-reference-chain",
+            "(1) First root.\n\n(2) General rules (A) First rule applies. (B) The rule operates under paragraph (1). (C) Definitions and (D) or (E) of this section remain controlling.\n\n(3) Final root.",
+        ),
+        (
+            "right-four-reference-chain",
+            "(1) First root.\n\n(2) General rules (A) First rule applies. (B) The rule operates under paragraph (1). (C) Definitions and (D), (E), and (F) under this section remain controlling.\n\n(3) Final root.",
+        ),
+        (
+            "repeated-B-identity",
+            "(1) First root.\n\n(2) General rules (A) First rule applies. (B) First B. (B) The rule operates under paragraph (1). (C) Definitions Terms used in this paragraph retain their meanings.\n\n(3) Final root.",
+        ),
+        (
+            "repeated-numeric-parent-identity",
+            "(1) First root.\n\n(2) Earlier duplicate.\n\n(2) General rules (A) First rule applies. (B) The rule operates under paragraph (1). (C) Definitions Terms used in this paragraph retain their meanings.\n\n(3) Final root.",
+        ),
+        (
+            "closed-parent-next-root",
+            "(1) First root.\n\n(2) General rules (A) Rule A. (B) Rule B.\n\n(3) Text operates under paragraph (1). (C) Definitions Terms retain meanings.\n\n(4) Last root.",
+        ),
+        (
+            "new-C-cannot-prove-D",
+            "(1) First root.\n\n(2) General rules (A) First rule applies. (B) The rule operates under paragraph (1). (C) Definitions First new rule operates under paragraph (1). (D) Definitions Terms retain meanings.\n\n(3) Final root.",
+        ),
+    ],
+)
+def test_later_heading_red_reference_contexts_and_ambiguous_proof_stay_held(
+    name, source
+):
+    # These include the ten false admissions of the rejected V3 diagnostic.
+    label = "(D)" if name == "new-C-cannot-prove-D" else "(C)"
+    assert not any(b.start == source.index(label) for b in structural(source))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "see",
+        "compare",
+        "refer to",
+        "under",
+        "subject to",
+        "pursuant to",
+        "according to",
+        "in accordance with",
+        "as provided in",
+    ],
+)
+def test_later_heading_final_sentence_commands_are_case_insensitive(command):
+    source = completed_heading_source(
+        "The second rule applies. " + command + " paragraph (1)."
+    )
+    assert not any(b.start == source.index("(C)") for b in structural(source))
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "The taxpayer’s rule operates under paragraph (1).",
+        "The U.S. rule operates under paragraph (1).",
+        "The rule, e.g. this rule, operates under paragraph (1).",
+    ],
+)
+def test_later_heading_preserves_possessives_and_nonboundary_abbreviations(body):
+    source = completed_heading_source(body)
+    assert any(
+        b.path == ("2", "c") and b.start == source.index("(C)")
+        for b in structural(source)
+    )
+
+
+@pytest.mark.parametrize(
+    ("raw_length", "admitted"), [(511, True), (512, True), (513, False)]
+)
+def test_later_heading_previous_leaf_window_is_bounded(raw_length, admitted):
+    prefix, suffix = "The rule ", " operates under paragraph (1)."
+    body = prefix + "x" * (raw_length - 2 - len(prefix) - len(suffix)) + suffix
+    source = completed_heading_source(body)
+    assert source.index("(C)") - (source.index("(B)") + 3) == raw_length
+    assert any(b.start == source.index("(C)") for b in structural(source)) == admitted
+
+
+@settings(max_examples=25, deadline=None)
+@given(
+    count=st.integers(2, 20),
+    joiner=st.sampled_from((" and ", " or ", ", ", "; ", " and/or ")),
+    qualifier=st.sampled_from(
+        ("of this section", "under that paragraph", "in the same Act")
+    ),
+)
+def test_later_heading_complete_coordinate_reference_chains_are_never_proof(
+    count, joiner, qualifier
+):
+    chain = joiner.join("(" + chr(ord("D") + i) + ")" for i in range(count))
+    source = completed_heading_source(
+        tail="Definitions" + joiner + chain + " " + qualifier + " remain controlling."
+    )
+    assert not any(b.start == source.index("(C)") for b in structural(source))
+
+
+def test_new_C_does_not_supply_the_baseline_sibling_for_D():
+    source = completed_heading_source(
+        tail="Definitions The rule operates under paragraph (1). (D) Definitions Terms retain meanings."
+    )
+    branches = structural(source)
+    assert any(b.path == ("2", "c") for b in branches)
+    assert not any(b.start == source.index("(D)") for b in branches)
+
+
+def test_an_existing_baseline_C_can_independently_prove_D():
+    source = (
+        completed_heading_source()
+        .replace(
+            "(B) The second rule operates",
+            "(B) Second rule. (C) The third rule operates",
+        )
+        .replace(" (C) Definitions", " (D) Definitions")
+    )
+    branches = structural(source)
+    assert any(
+        b.path == ("2", "d") and b.start == source.index("(D)") for b in branches
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        completed_heading_source().replace("(2) General rules (A)", "(2)(A)", 1),
+        completed_heading_source().replace(
+            "(2) General rules (A) First rule applies. (B)",
+            "(2) General rules (A) First rule applies.\n\n(3) (B)",
+            1,
+        ),
+    ],
+)
+def test_later_heading_cannot_borrow_shared_or_different_parent_coordinates(source):
+    assert not any(b.start == source.index("(C)") for b in structural(source))
+
+
+@pytest.mark.parametrize(
+    ("source", "passes"),
+    [
+        ("(1) First root.\n\n(2) Second root.", 1),
+        (headed_source(), 2),
+        (completed_heading_source(), 3),
+        (
+            completed_heading_source().replace(
+                "General rules (A)", "Existing list\n(A)"
+            ),
+            2,
+        ),
+    ],
+)
+def test_later_heading_keeps_the_bounded_internal_resolution_count(source, passes):
+    with patch.object(
+        source_completeness,
+        "_resolve_parenthesized_legal_outline_markers",
+        wraps=source_completeness._resolve_parenthesized_legal_outline_markers,
+    ) as resolver:
+        structural(source)
+    assert resolver.call_count == passes
+
+
+@pytest.mark.parametrize("count", [1, 64, 256])
+def test_later_heading_chain_index_has_disjoint_bounded_windows(count):
+    source = "(C) Definitions and (D) " * count + "of this section"
+    with (
+        patch.object(
+            source_completeness,
+            "_ROOT_CHAPEAU_TAIL_LABEL",
+            wraps=source_completeness._ROOT_CHAPEAU_TAIL_LABEL,
+        ) as labels,
+        patch.object(
+            source_completeness,
+            "_ROOT_CHAPEAU_TAIL_JOINER",
+            wraps=source_completeness._ROOT_CHAPEAU_TAIL_JOINER,
+        ) as joiner,
+        patch.object(
+            source_completeness,
+            "_ROOT_CHAPEAU_TAIL_QUALIFIER",
+            wraps=source_completeness._ROOT_CHAPEAU_TAIL_QUALIFIER,
+        ) as qualifier,
+    ):
+        blocked = source_completeness._later_heading_reference_tail_starts(source)
+    assert len(blocked) == count
+    assert labels.finditer.call_count == 1
+    assert joiner.fullmatch.call_count == 2 * count - 1
+    assert qualifier.match.call_count == 2 * count
+    for calls in (joiner.fullmatch.call_args_list, qualifier.match.call_args_list):
+        assert all(len(call.args) == 3 for call in calls)
+        assert sum(call.args[2] - call.args[1] for call in calls) <= len(source)
+
+
+def test_later_heading_never_recurses_to_the_public_recognizer():
+    with patch.object(
+        source_completeness,
+        "recognize_source_structure",
+        side_effect=AssertionError("recursive recognition"),
+    ) as public:
+        markers = source_completeness._qualified_parenthesized_legal_outline_markers(
+            completed_heading_source()
+        )
+    assert any(m.path == ("2", "c") for m in markers)
+    public.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("body", "tail"),
+    [
+        (
+            'The rule quotes "Text under paragraph (1).',
+            'Definitions Terms retain meanings." End.',
+        ),
+        (
+            "The rule quotes “Text under paragraph (1).",
+            "Definitions Terms retain meanings.",
+        ),
+        (
+            'The rule quotes "Text under paragraph (1).',
+            "Definitions Terms retain meanings.",
+        ),
+        (
+            "The rule includes [Text under paragraph (1).",
+            "Definitions Terms retain meanings.",
+        ),
+        (
+            "The rule includes (Text under paragraph (1).",
+            "Definitions Terms retain meanings.) End.",
+        ),
+        (
+            "The rule includes {Text under paragraph (1).",
+            "Definitions Terms retain meanings.} End.",
+        ),
+        (
+            "The rule quotes 〝Text under paragraph (1).",
+            "Definitions Terms retain meanings.〞 End.",
+        ),
+        ('"Text under paragraph (1).".', "Definitions Terms retain meanings."),
+    ],
+)
+def test_later_heading_uncertain_or_editorial_context_never_supplies_proof(body, tail):
+    source = completed_heading_source(body, tail)
+    assert not any(b.start == source.index("(C)") for b in structural(source))
+
+
+@pytest.mark.parametrize(("opening", "closing"), [('"', '"'), ("[", "]")])
+def test_later_heading_cannot_borrow_baseline_labels_inside_a_quote_or_group(
+    opening, closing
+):
+    source = (
+        "(1) First root.\n\n(2) General rules "
+        + opening
+        + "\n(A) Quoted first rule.\n(B) Quoted second rule."
+        + closing
+        + " The actual tail operates under paragraph (1). (C) Definitions Terms retain meanings."
+        + "\n\n(3) Final root."
+    )
+    assert not any(b.start == source.index("(C)") for b in structural(source))
+
+
+def completed_heading_with_uncertain_proof(role, opening, closing):
+    tail = " The actual tail operates under paragraph (1). (C) Definitions Terms retain meanings.\n\n(3) Final root."
+    if role == "parent":
+        return (
+            "(1) First root. "
+            + opening
+            + "\n\n(2) Quoted heading."
+            + closing
+            + "\n(A) First rule.\n(B) Second rule."
+            + tail
+        )
+    if role == "first":
+        return (
+            "(1) First root.\n\n(2) General rules "
+            + opening
+            + "\n(A) Quoted first rule."
+            + closing
+            + "\n(B) Second rule."
+            + tail
+        )
+    if role == "predecessor":
+        return (
+            "(1) First root.\n\n(2) General rules (A) First rule. "
+            + opening
+            + "\n(B) Quoted second rule."
+            + closing
+            + "\n(i) Intro rule.\n(ii) Last leaf."
+            + tail
+        )
+    assert role == "leaf"
+    return (
+        "(1) First root.\n\n(2) General rules (A) First rule. (B) Second rule.\n(i) Intro rule. "
+        + opening
+        + "\n(ii) Quoted leaf."
+        + closing
+        + tail
+    )
+
+
+@pytest.mark.parametrize(
+    "role,marker",
+    [("parent", "(2)"), ("first", "(A)"), ("predecessor", "(B)"), ("leaf", "(ii)")],
+)
+@pytest.mark.parametrize("opening,closing", [('"', '"'), ("[", "]")])
+def test_every_recovery_evidence_identity_must_be_outside_uncertain_context(
+    role, marker, opening, closing
+):
+    operative = completed_heading_with_uncertain_proof(role, "", "")
+    assert any(b.start == operative.index("(C)") for b in structural(operative))
+    source = completed_heading_with_uncertain_proof(role, opening, closing)
+    branches = structural(source)
+    # Legacy baseline labels are preserved; only their use as NEW proof is refused.
+    assert any(b.start == source.index(marker) for b in branches)
+    assert not any(b.start == source.index("(C)") for b in branches)
