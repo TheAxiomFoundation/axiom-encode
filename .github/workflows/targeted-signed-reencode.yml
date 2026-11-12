@@ -456,12 +456,25 @@ jobs:
         run: |
           set -euo pipefail
           compose_ref="$(python - "$RULESPEC_CHECKOUT/.axiom/workflow-toolchain.toml" <<'PY'
+          import os
           import pathlib
           import re
           import sys
           import tomllib
 
           path = pathlib.Path(sys.argv[1])
+          # A repository without a workflow toolchain table pins no composer,
+          # the same as a table without axiom_compose_ref. The file counts as
+          # absent only when .axiom is absent or a real directory. A dangling
+          # link, a directory, bad TOML, a non-directory .axiom, or a linked
+          # .axiom without the file still fails.
+          axiom_dir = path.parent
+          axiom_dir_is_plain = not os.path.lexists(axiom_dir) or (
+              axiom_dir.is_dir() and not axiom_dir.is_symlink()
+          )
+          if axiom_dir_is_plain and not os.path.lexists(path):
+              print("")
+              raise SystemExit(0)
           payload = tomllib.loads(path.read_text())
           workflow_toolchain = payload.get("workflow_toolchain")
           value = (
