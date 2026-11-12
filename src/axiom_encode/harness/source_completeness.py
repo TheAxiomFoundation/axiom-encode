@@ -340,6 +340,71 @@ class _TemporalFormulaValue:
 
 
 @dataclass(frozen=True)
+class _IndexedDateCells:
+    """Typed literal cells; Python Boolean/Decimal key aliases are not indices."""
+
+    cells: tuple[tuple[int, date], ...]
+
+    def __getitem__(self, key: Any) -> date:
+        if type(key) is not int or not -(2**63) <= key < 2**63:
+            raise KeyError(key)
+        for index, value in self.cells:
+            if index == key:
+                return value
+        raise KeyError(key)
+
+
+def _indexed_date_parameter_value(rule: dict[str, Any]) -> _TemporalFormulaValue | None:
+    """Admit bounded local Date tables without defaults or formula ambiguity."""
+    if (
+        rule.get("kind") != "parameter"
+        or rule.get("dtype") != "Date"
+        or not isinstance(rule.get("indexed_by"), str)
+        or not rule["indexed_by"].strip()
+        or any(key in rule for key in ("rounding", "default"))
+    ):
+        return None
+    versions = rule.get("versions")
+    if (
+        not isinstance(versions, list)
+        or not 0 < len(versions) <= _TEMPORAL_WITNESS_VERSION_LIMIT
+    ):
+        return None
+    entries = []
+    for version in versions:
+        if not isinstance(version, dict) or set(version) != {
+            "values",
+            "effective_from",
+            "effective_to",
+        }:
+            return None
+        start, end = version["effective_from"], version["effective_to"]
+        if not (
+            isinstance(start, str)
+            and isinstance(end, str)
+            and _is_iso_calendar_date(start)
+            and _is_iso_calendar_date(end)
+            and start <= end
+        ):
+            return None
+        values = version["values"]
+        if (
+            not isinstance(values, dict)
+            or not 0 < len(values) <= _TEMPORAL_WITNESS_NAME_LIMIT
+        ):
+            return None
+        cells = []
+        for key, value in values.items():
+            if type(key) is not int or not -(2**63) <= key < 2**63:
+                return None
+            if not isinstance(value, str) or not _is_iso_calendar_date(value):
+                return None
+            cells.append((key, date.fromisoformat(value)))
+        entries.append((start, end, _IndexedDateCells(tuple(sorted(cells)))))
+    return _TemporalFormulaValue(tuple(entries))
+
+
+@dataclass(frozen=True)
 class _FormulaBranchNode:
     """One parsed RuleSpec conditional or match expression."""
 
@@ -41805,6 +41870,26 @@ def _constant_rule_environment(payload: dict[str, Any]) -> dict[str, Any]:
             del pending_aliases[name]
         if not changed:
             break
+    # Indexed Date cells are local facts, not provider-local aliases or case values.
+    if not isinstance(payload.get("inputs", []), list):
+        return environment
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = rule.get("name")
+        if not isinstance(name, str) or not name or name in environment:
+            continue
+        indexed = _indexed_date_parameter_value(rule)
+        if indexed is None:
+            continue
+        declarations = [
+            item
+            for item in [*rules, *payload.get("inputs", [])]
+            if isinstance(item, dict) and item.get("name") == name
+        ]
+        if len(declarations) != 1:
+            continue
+        environment[name] = indexed
     return environment
 
 
@@ -42013,6 +42098,10 @@ def _formula_environment_for_case(
             resolved[name] = value
             continue
         if not _is_iso_calendar_date(period):
+            if any(
+                isinstance(cell, _IndexedDateCells) for _, _, cell in value.versions
+            ):
+                continue
             if "period" not in case:
                 candidates = [candidate for _start, _end, candidate in value.versions]
                 if candidates and all(
