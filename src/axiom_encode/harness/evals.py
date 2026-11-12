@@ -51,6 +51,7 @@ from axiom_encode.concepts.registry import (
     load_concept_registry,
 )
 from axiom_encode.constants import (
+    OPENAI_AUTHORING_OUTPUT_LIMITS,
     RULESPEC_ATOMIC_MODULE_ROOTS,
     RULESPEC_COMPOSITION_SPEC_ROOT,
     RULESPEC_FILE_SUFFIX,
@@ -17253,6 +17254,8 @@ def _extract_openai_response_text(payload: dict) -> str:
 
 
 def _openai_prompt_max_output_tokens(model: str) -> int:
+    if model in OPENAI_AUTHORING_OUTPUT_LIMITS:
+        return OPENAI_AUTHORING_OUTPUT_LIMITS[model]
     if any(
         model == prefix or model.startswith(f"{prefix}-")
         for prefix in _OPENAI_EXTENDED_OUTPUT_MODEL_PREFIXES
@@ -17742,8 +17745,18 @@ def _run_openai_prompt_eval(
         ((usage.get("output_tokens_details") or {}).get("reasoning_tokens", 0) or 0)
     )
 
+    incomplete = payload.get("status") == "incomplete"
+    incomplete_details = payload.get("incomplete_details") or {}
+    incomplete_reason = (
+        incomplete_details.get("reason", "unspecified")
+        if isinstance(incomplete_details, dict)
+        else "unspecified"
+    )
     return EvalPromptResponse(
-        text=_extract_openai_response_text(payload),
+        text="" if incomplete else _extract_openai_response_text(payload),
+        error=(
+            f"OpenAI response incomplete: {incomplete_reason}" if incomplete else None
+        ),
         duration_ms=duration_ms,
         tokens=tokens,
         estimated_cost_usd=estimate_usage_cost_usd(runner.model, tokens),
