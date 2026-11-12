@@ -24263,7 +24263,8 @@ def _mask_family_expense_table_instruction(text: str) -> str:
     for match in _FAMILY_EXPENSE_TABLE_INSTRUCTION.finditer(text):
         # Blank lines do not sever a colon-led instruction or its qualification.
         if text[: match.start()].rstrip().endswith(":") or re.match(
-            r"(?:unless|except|provided|subject\s+to|but|however|only|if|when"
+            r"(?:unless|except|provided|providing|subject\s+to|but|however|only|if|when"
+            r"|once|until|assuming"
             r"|where|on\s+condition|conditional|as\s+long\s+as|so\s+long\s+as"
             r"|in\s+the\s+event|to\s+the\s+extent)\b",
             text[match.end() :].lstrip(),
