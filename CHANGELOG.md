@@ -1,3 +1,24 @@
+## 0.2.2354
+
+- Stop false complete-source demands from `falls`, reference titles, mixed percentages and whole Money values (#2152)
+
+## 0.2.2353
+
+- Keep the whitespace patterns on the interval parser's path linear in a space run (#2158)
+
+## 0.2.2352
+
+- Admit reviewed RuleSpec PRs without per-candidate encoder records (#2084)
+
+## 0.2.2351
+
+- Steer complete-source generation and repairs to encode omitted branches first (#1966)
+- Keep US bibliographic locators out of complete-source numeric recall (#1898)
+- Demand every source-stated threshold of a conjoined condition as a companion-test boundary (#1937)
+- Ground decimal rates from flattened percentage tables (#1648)
+- Label U.S. branches in English, drop German sentence markers in U.S. text, and read U.S. citation ranges (#1896)
+- Keep titled reference lists out of complete-source numeric recall (#2149)
+
 ## 0.2.2350
 
 - Harden optional retired-manifest inventory reconciliation (#1566)
