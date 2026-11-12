@@ -401,3 +401,61 @@ def test_extra_malformed_atom_is_not_ignored(atom):
     p = copy.deepcopy(PAYLOAD)
     rule(p, 5)["metadata"]["proof"]["atoms"].append(atom)
     assert binding(p) is None
+
+
+def _recaptioned(old, new):
+    p = copy.deepcopy(PAYLOAD)
+    source = SOURCE.replace(old, new)
+    assert source != SOURCE
+    for r in p["rules"]:
+        for atom in r["metadata"]["proof"]["atoms"]:
+            atom["source"]["excerpt"] = atom["source"]["excerpt"].replace(old, new)
+    p["module"]["source_verification"]["source_sha256"] = hashlib.sha256(
+        source.encode()
+    ).hexdigest()
+    return p, source
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        (
+            "Physical activity expenses = ^",
+            "Physical activity expenses then halved = ^",
+        ),
+        (
+            "Line 3 minus line 4 Physical activity expenses = ^",
+            "Line 3 minus line 4 then halve this amount Physical activity expenses = ^",
+        ),
+        (
+            "Enter the tax credit amount from line 6",
+            "Enter the halved tax credit amount from line 6",
+        ),
+    ],
+    ids=["then-halved", "then-halve-this-amount", "entered-halved"],
+)
+def test_unparsed_operative_caption_prose_gets_no_row_certificate(old, new):
+    p, source = _recaptioned(old, new)
+    assert binding(p, source) is None
+    baseline = issues()
+    result = issues(p, source=source)
+    assert not any("formula branch" in item for item in baseline)
+    assert any("formula branch" in item for item in result)
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Physical activity expenses",
+        "Home renovation expenses",
+        "Physical activity tax credit",
+        "Children's sports and arts tax credit",
+        "New Brunswick seniors' home renovation tax credit",
+        "Newfoundland and Labrador credits",
+        "Nova Scotia Credits",
+    ],
+)
+def test_closed_label_grammar_keeps_display_labels(label):
+    from axiom_encode.harness.bound_form_operands import _SUB
+
+    assert _SUB.fullmatch(f"Line 3 minus line 4 {label} = ^")
