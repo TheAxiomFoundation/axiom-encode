@@ -1,3 +1,8 @@
+## 0.2.2360
+
+- Record the terminal outcome of a live encode run (#2189)
+- Rewrite the US replay snapshot for the located numeric-recall message (main is red) (#2195)
+
 ## 0.2.2359
 
 - fix: retain strict proof requirements in partial repairs (#2089)
