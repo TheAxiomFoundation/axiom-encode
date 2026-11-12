@@ -14,6 +14,7 @@ Self-contained -- no external plugin dependencies.
 import argparse
 import concurrent.futures
 import contextlib
+import contextvars
 import copy
 import csv
 import difflib
@@ -121,6 +122,8 @@ from .checks import (
     ISSUE_SCHEMA_VERSION as VALIDATION_ISSUE_SCHEMA_VERSION,
 )
 from .checks import (
+    IssueSubject,
+    ValidationIssue,
     issues_from_document,
     registry_document,
     retype,
@@ -1237,6 +1240,24 @@ def _add_expected_encoder_checkout_argument(
             "its complete main history proves admission of newer signed producers"
         ),
     )
+    _add_encoder_producer_floor_argument(parser)
+
+
+def _add_encoder_producer_floor_argument(
+    parser: argparse.ArgumentParser, *, required: bool = False
+) -> None:
+    parser.add_argument(
+        "--encoder-producer-floor",
+        type=_encoder_producer_floor_argument_type,
+        default=None,
+        required=required,
+        help=(
+            "Full axiom-encode commit that is the oldest trusted producer (#2095). "
+            "With it, a signed producer is admitted when it is this commit or a "
+            "first-parent main descendant of it, also when it is older than the "
+            "running verifier. Without it, the running encoder is the floor."
+        ),
+    )
 
 
 def _require_existing_parser_option(
@@ -2105,6 +2126,15 @@ def main():
         help="Audit all waivers (default) or conservatively select changed read sets",
     )
     validation_waivers_audit_parser.add_argument(
+        "--verifier-restate",
+        action="store_true",
+        help=(
+            "The change switches the verifier mode: allow only a mechanical "
+            "restate of the ledger (active fingerprints restated, active-only "
+            "entries removed), and audit every waiver"
+        ),
+    )
+    validation_waivers_audit_parser.add_argument(
         "--partition-key",
         help="This audit job's key in --partition-keys-json",
     )
@@ -2729,6 +2759,50 @@ def main():
         "--json",
         action="store_true",
         help="Emit findings as JSON instead of human-readable text",
+    )
+
+    admission_registry_parser = subparsers.add_parser(
+        "admission-registry",
+        help=(
+            "Export or check the reviewed admissions registry of a RuleSpec "
+            "repository (.axiom/admissions)"
+        ),
+    )
+    admission_registry_sub = admission_registry_parser.add_subparsers(
+        dest="admission_registry_command", required=True
+    )
+    registry_export_parser = admission_registry_sub.add_parser(
+        "export",
+        help="Export the registry of one exact protected commit from Git objects",
+    )
+    registry_export_parser.add_argument("--repo", type=Path, required=True)
+    registry_export_parser.add_argument("--commit", required=True)
+    registry_export_parser.add_argument("--output", type=Path, required=True)
+    registry_check_parser = admission_registry_sub.add_parser(
+        "check",
+        help="Check a RuleSpec checkout's working-tree registry (for its own PR CI)",
+    )
+    registry_check_parser.add_argument("--repo", type=Path, required=True)
+
+    verifier_identity_parser = subparsers.add_parser(
+        "verifier-identity",
+        help=(
+            "Prove that the running encoder is a changed-file verifier on official "
+            "first-parent main at or after the producer floor, and print its record"
+        ),
+    )
+    verifier_identity_parser.add_argument(
+        "--expected-encoder-checkout",
+        type=Path,
+        default=None,
+        help="Clean axiom-encode checkout with complete main history",
+    )
+    _add_encoder_producer_floor_argument(verifier_identity_parser, required=True)
+    verifier_identity_parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Also write the JSON record to this file",
     )
 
     guard_generated_parser = subparsers.add_parser(
@@ -4140,6 +4214,7 @@ def main():
     _judge_cli.register_judge_subparsers(subparsers)
 
     args = parser.parse_args()
+    _apply_encoder_producer_floor_argument(args)
     if args.command == "encode" and args.escalation_model is None:
         args.escalation_model = (
             DEFAULT_MODEL
@@ -4232,6 +4307,10 @@ def main():
         cmd_migrate_retired_source_metadata(args)
     elif args.command == "guard-generated":
         cmd_guard_generated(args)
+    elif args.command == "verifier-identity":
+        sys.exit(cmd_verifier_identity(args))
+    elif args.command == "admission-registry":
+        sys.exit(cmd_admission_registry(args))
     elif args.command == "stage-signed-backfill":
         cmd_stage_signed_backfill(args)
     elif args.command == "refresh-applied-manifest":
@@ -5251,11 +5330,23 @@ def _cmd_validation_waivers_audit(args) -> int:
         require_paths=False,
     )
     changed_paths = _validation_waiver_changed_paths(Path(changed_paths_file))
+    verifier_restate = bool(getattr(args, "verifier_restate", False))
+    if verifier_restate:
+        # A restate is sound only because this run then compares every head
+        # record with what the running verifier observes.
+        if requested_scope != "full":
+            raise ValueError("--verifier-restate requires --scope full")
+        if RULESPEC_WORKFLOW_TOOLCHAIN_RELATIVE.as_posix() not in changed_paths:
+            raise ValueError(
+                "--verifier-restate requires a change of "
+                f"{RULESPEC_WORKFLOW_TOOLCHAIN_RELATIVE.as_posix()}"
+            )
     transition_issues = _validation_waivers.protected_base_transition_issues(
         base,
         head,
         changed_paths=changed_paths,
         waiver_path=waiver_path,
+        **({"verifier_restate": True} if verifier_restate else {}),
     )
 
     if transition_issues:
@@ -10280,6 +10371,12 @@ def signed_import_inventory(
         "schema": "axiom-encode/signed-import-inventory/v1",
         "rulespec_base": base_ref,
         "verifier_encoder_identity": verifier_encoder_identity,
+        # Present only when a floor loosened producer admission (#2095).
+        **(
+            {"producer_floor": verifier_encoder_identity.producer_floor}
+            if getattr(verifier_encoder_identity, "producer_floor", None)
+            else {}
+        ),
         "items": items,
     }
 
@@ -26753,6 +26850,62 @@ def _in_place_replacement_post_waiver_dependent_manifests(
     return frozenset(matches) if len(matches) == 1 else frozenset()
 
 
+def _workflow_toolchain_encoder_verifier(raw: bytes | None) -> str | None:
+    """Return the verifier mode of workflow-toolchain bytes, or None if invalid.
+
+    An absent file, table or key means the pinned verifier.
+    """
+
+    import tomllib
+
+    if raw is None:
+        return "pinned"
+    try:
+        table = tomllib.loads(raw.decode("utf-8")).get("workflow_toolchain", {})
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return None
+    if not isinstance(table, dict):
+        return None
+    mode = table.get("encoder_verifier", "pinned")
+    return mode if mode in ("pinned", "main") else None
+
+
+def _guard_change_switches_encoder_verifier(
+    repo_path: Path, *, base_ref: str | None, head_ref: str | None
+) -> bool:
+    """Return whether the guarded change switches the verifier mode.
+
+    Both modes are read from Git objects (the working file when no head ref is
+    given). An unreadable or malformed value is never a switch, so the strict
+    waiver rules apply.
+    """
+
+    if base_ref is None:
+        return False
+    relative = RULESPEC_WORKFLOW_TOOLCHAIN_RELATIVE.as_posix()
+
+    def at(ref: str) -> str | None:
+        if _git_show_bytes(repo_path, ref, "") is None:
+            return None  # the ref itself does not resolve
+        return _workflow_toolchain_encoder_verifier(
+            _git_show_bytes(repo_path, ref, relative)
+        )
+
+    base_mode = at(base_ref)
+    if head_ref is not None:
+        head_mode = at(head_ref)
+    else:
+        working = repo_path / relative
+        try:
+            raw = working.read_bytes() if working.is_file() else None
+        except OSError:
+            return False
+        if working.is_symlink():
+            return False
+        head_mode = _workflow_toolchain_encoder_verifier(raw)
+    return base_mode is not None and head_mode is not None and base_mode != head_mode
+
+
 def _guard_manifest_waiver_set_identity(
     repo_path: Path,
     *,
@@ -26815,6 +26968,44 @@ def _guard_manifest_waiver_set_identity(
         )
     except _validation_waivers.ValidationWaiverError as exc:
         return current_waiver_set_sha256, [prefix + str(exc)]
+
+    if _guard_change_switches_encoder_verifier(
+        repo_path, base_ref=base_ref, head_ref=head_ref
+    ):
+        # A verifier-mode switch may restate the ledger for the new verifier
+        # (active fingerprints, removal of active-only entries) and nothing
+        # else. The supervised waiver audit proves each restated fingerprint
+        # and each removal against the running verifier; manifests keep the
+        # protected-base ledger identity, as for a retirement.
+        restate_issues = list(
+            _validation_waivers.verifier_restate_transition_issues(
+                base_waivers, head_waivers
+            )
+        )
+        riders = sorted(
+            path
+            for path in changed_set
+            if _is_protected_rulespec_yaml_path(Path(path), roots=roots)
+            or _is_applied_encoding_manifest_path(Path(path), roots=roots)
+            or _is_auxiliary_provenance_receipt_path(Path(path))
+        )
+        if riders:
+            restate_issues.append(
+                ValidationIssue(
+                    "a verifier restate cannot change RuleSpec files, apply "
+                    "manifests or receipts: " + ", ".join(riders),
+                    check=_validation_waivers.VERIFIER_RESTATE_PROTECTED_FILES_CHANGED,
+                    subject=IssueSubject(field="changed_paths"),
+                    found=", ".join(riders),
+                )
+            )
+        if restate_issues:
+            return current_waiver_set_sha256, [
+                retype(issue, "RuleSpec verifier restate is invalid: " + issue)
+                for issue in restate_issues
+            ]
+        _remember_validation_waiver_ledger(base_bytes)
+        return base_sha256, []
 
     transition_issues = _validation_waivers.protected_base_transition_issues(
         base_waivers,
@@ -28254,10 +28445,31 @@ def _applied_manifest_tool_execution_issues(
                     f"{manifest_label} retired source metadata migration has malformed file entries"
                 )
             provenance = payload.get("axiom_encode_git")
-            if not isinstance(provenance, dict) or (
-                provenance.get("commit") != expected_encoder_identity.get("commit")
-                or provenance.get("version") != expected_encoder_identity.get("version")
+            if (
+                not isinstance(provenance, dict)
                 or provenance.get("dirty_tracked") is not False
+                or (
+                    getattr(expected_encoder_identity, "producer_floor", None) is None
+                    and (
+                        provenance.get("commit")
+                        != expected_encoder_identity.get("commit")
+                        or provenance.get("version")
+                        != expected_encoder_identity.get("version")
+                    )
+                )
+                or (
+                    getattr(expected_encoder_identity, "producer_floor", None)
+                    is not None
+                    and _encoder_producer_admission_issue(
+                        {
+                            "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+                            "commit": provenance.get("commit"),
+                            "version": provenance.get("version"),
+                        },
+                        expected_encoder_identity,
+                    )
+                    is not None
+                )
             ):
                 issues.append(
                     f"{manifest_label} retired source metadata migration does not match the running pinned encoder"
@@ -33231,10 +33443,90 @@ class _GuardEncoderIdentity(dict[str, str]):
         identity: Mapping[str, str],
         *,
         history_checkout: Path | None,
+        producer_floor: str | None = None,
     ) -> None:
         super().__init__(identity)
         self.history_checkout = history_checkout
+        # The oldest trusted producer commit (#2095). None keeps the running
+        # encoder as the floor, which is the pinned-verifier behavior.
+        self.producer_floor = (
+            producer_floor
+            if producer_floor is not None
+            else _ENCODER_PRODUCER_FLOOR.get()
+        )
         self.producer_admission_cache: dict[tuple[str, str], str | None] = {}
+
+
+_ENCODER_PRODUCER_FLOOR: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "axiom_encode_producer_floor", default=None
+)
+
+
+def _validated_encoder_producer_floor(value: object) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40}", value) is None:
+        raise ValueError("--encoder-producer-floor must be a full lowercase commit")
+    return value
+
+
+def _encoder_producer_floor_argument_type(value: str) -> str:
+    try:
+        return _validated_encoder_producer_floor(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def _apply_encoder_producer_floor_argument(args: argparse.Namespace) -> None:
+    """Install this command's producer floor, or clear an inherited one."""
+
+    floor = getattr(args, "encoder_producer_floor", None)
+    _ENCODER_PRODUCER_FLOOR.set(
+        _validated_encoder_producer_floor(floor) if floor is not None else None
+    )
+
+
+def _encoder_floor_verifier_issue(identity: Mapping[str, str]) -> str | None:
+    """Prove once that a floored verifier is on main at or after its floor."""
+
+    try:
+        floor = _validated_encoder_producer_floor(
+            getattr(identity, "producer_floor", None)
+        )
+    except ValueError as exc:
+        return str(exc)
+    checkout = getattr(identity, "history_checkout", None)
+    commit = identity.get("commit")
+    if checkout is None or not isinstance(commit, str):
+        return (
+            "encoder history is unavailable to prove the verifier "
+            "(a producer floor needs --expected-encoder-checkout)"
+        )
+    cache = getattr(identity, "producer_admission_cache", {})
+    key = ("verifier", floor, commit)
+    if key not in cache:
+        issue = _encoder_floor_running_issue(commit) or (
+            _encoder_git_history_admission_issue(
+                checkout, pin=floor, producer=commit, allow_equal=True
+            )
+        )
+        cache[key] = f"the running verifier: {issue}" if issue else None
+    return cache[key]
+
+
+def _encoder_floor_running_issue(commit: str) -> str | None:
+    """Require that the running code is the verifier commit it reports.
+
+    A floor loosens admission below the pin, so the checkout's commit must
+    be the running package's commit (or its runtime attestation's), not
+    only a checkout with the same version string.
+    """
+
+    try:
+        running = _current_guard_encoder_execution_identity().get("commit")
+    except RuntimeError as exc:
+        return f"the running encoder identity is unavailable: {exc}"
+    if running != commit:
+        return "the running encoder commit does not match the verifier checkout"
+    return None
 
 
 def _encoder_producer_admission_issue(
@@ -33249,6 +33541,14 @@ def _encoder_producer_admission_issue(
     """
 
     mismatch = "does not match the running pinned encoder"
+    floor = getattr(expected_encoder_identity, "producer_floor", None)
+    if floor is not None:
+        # With a floor, the running verifier itself must be on official
+        # first-parent main at or after the floor; otherwise even an exact
+        # match could admit a producer below the floor.
+        verifier_issue = _encoder_floor_verifier_issue(expected_encoder_identity)
+        if verifier_issue:
+            return f"is not admitted by the encoder producer floor: {verifier_issue}"
     core = _encoder_identity_binding_core(producer)
     expected = _encoder_identity_binding_core(dict(expected_encoder_identity))
     if core == expected:
@@ -33274,13 +33574,23 @@ def _encoder_producer_admission_issue(
     ):
         return f"{mismatch}: encoder history is unavailable to prove producer ancestry"
 
-    cache_key = (expected["commit"], core["commit"])
+    # Floor-only admission (#2095): with an explicit floor, the running
+    # verifier may be newer than the producer (encoder-main verifier mode).
+    # The producer must still be on official first-parent main, at or after
+    # the floor. Signature, digests and manifest format are checked by the
+    # running verifier as before.
+    # The mismatch text stays the pinned wording: the base/head guard ratchet
+    # of a switch to the encoder-main verifier compares exact issue strings,
+    # so a producer below the floor must read as an inherited issue.
+    pin = floor if floor is not None else expected["commit"]
+    cache_key = (pin, core["commit"])
     cache = expected_encoder_identity.producer_admission_cache
     if cache_key not in cache:
         cache[cache_key] = _encoder_git_history_admission_issue(
             expected_encoder_identity.history_checkout,
-            pin=expected["commit"],
+            pin=pin,
             producer=core["commit"],
+            allow_equal=floor is not None,
         )
     history_issue = cache[cache_key]
     return f"{mismatch}: {history_issue}" if history_issue else None
@@ -33333,8 +33643,13 @@ def _encoder_git_history_admission_issue(
     *,
     pin: str,
     producer: str,
+    allow_equal: bool = False,
 ) -> str | None:
-    """Prove ancestry using complete, already fetched canonical main history."""
+    """Prove ancestry using complete, already fetched canonical main history.
+
+    ``allow_equal`` admits a producer that is the pin itself; it is used for
+    a floor, whose own commit is a trusted producer.
+    """
 
     def run(*args: str) -> subprocess.CompletedProcess[str]:
         return _guard_encoder_git_run(checkout, *args)
@@ -33415,6 +33730,8 @@ def _encoder_git_history_admission_issue(
         first_parent_main = require_success("rev-list", "--first-parent", main_commit)
         if producer not in first_parent_main.splitlines():
             return f"producer is not on the first-parent history of {main_ref}"
+        if allow_equal and producer == pin:
+            return None
         ancestry = run("merge-base", "--is-ancestor", pin, producer)
         if ancestry.returncode == 1:
             return "the pinned encoder commit is not an ancestor of the producer"
@@ -33426,6 +33743,93 @@ def _encoder_git_history_admission_issue(
     except (OSError, subprocess.SubprocessError, RuntimeError, UnicodeError) as exc:
         return f"cannot prove encoder producer ancestry: {exc}"
     return None
+
+
+def cmd_admission_registry(args) -> int:
+    """Export a protected registry, or check a checkout's registry files."""
+
+    from . import rulespec_admission_registry as registry_module
+
+    try:
+        if args.admission_registry_command == "export":
+            registry = registry_module.export_registry(
+                args.repo, args.commit, args.output
+            )
+        else:
+            registry = registry_module.check_working_tree_registry(args.repo)
+    except (OSError, ValueError) as exc:
+        print(f"admission-registry: {exc}", file=sys.stderr)
+        return 1
+    print(
+        f"admission registry {registry.country} at {registry.commit}: "
+        f"{len(registry.coverage_exemptions)} coverage exemptions"
+    )
+    # Recorded in check output so a result names the registry it used.
+    print(f"admission registry digest: {registry.digest}")
+    return 0
+
+
+VERIFIER_IDENTITY_SCHEMA = "axiom-encode/verifier-identity/v1"
+VERIFIER_MODE_ENCODER_MAIN = "encoder-main-changed-files"
+
+
+def verifier_identity_record(
+    expected_encoder_checkout: Path | None,
+    *,
+    producer_floor: str,
+) -> dict[str, object]:
+    """Return the record of an encoder-main changed-file verifier (#2093).
+
+    The running encoder must be a clean checkout on official first-parent
+    main, and the producer floor must be that commit or an ancestor of it.
+    Raise when either is not proven.
+    """
+
+    floor = _validated_encoder_producer_floor(producer_floor)
+    identity = _read_only_guard_encoder_execution_identity(expected_encoder_checkout)
+    checkout = getattr(identity, "history_checkout", None)
+    if checkout is None:
+        raise RuntimeError("the verifier needs a Git checkout with main history")
+    commit = identity["commit"]
+    # The record names the running code, not only a checkout with the same
+    # version string: the running package or its runtime attestation must
+    # be this exact commit.
+    running = _current_guard_encoder_execution_identity()
+    if running.get("commit") != commit:
+        raise RuntimeError(
+            "the running encoder commit does not match the verifier checkout"
+        )
+    issue = _encoder_git_history_admission_issue(
+        checkout, pin=floor, producer=commit, allow_equal=True
+    )
+    if issue:
+        raise RuntimeError(f"the running encoder is not an admitted verifier: {issue}")
+    return {
+        "schema": VERIFIER_IDENTITY_SCHEMA,
+        "mode": VERIFIER_MODE_ENCODER_MAIN,
+        "verifier": {
+            "repository": identity["repository"],
+            "commit": commit,
+            "version": identity["version"],
+        },
+        "producer_floor": floor,
+    }
+
+
+def cmd_verifier_identity(args) -> int:
+    try:
+        record = verifier_identity_record(
+            getattr(args, "expected_encoder_checkout", None),
+            producer_floor=args.encoder_producer_floor,
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"verifier-identity: {exc}", file=sys.stderr)
+        return 1
+    text = json.dumps(record, indent=2, sort_keys=True) + "\n"
+    if args.output is not None:
+        Path(args.output).write_text(text, encoding="utf-8")
+    sys.stdout.write(text)
+    return 0
 
 
 def _current_guard_encoder_execution_identity() -> dict[str, str]:
@@ -33453,11 +33857,16 @@ def _current_guard_encoder_execution_identity() -> dict[str, str]:
             or re.fullmatch(r"[0-9a-f]{40}", commit) is None
         ):
             raise RuntimeError("running axiom-encode attestation identity is malformed")
-        return {
-            "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
-            "commit": commit,
-            "version": __version__,
-        }
+        # No Git history here; the identity still carries a producer floor so
+        # that a floored admission fails closed with a clear message.
+        return _GuardEncoderIdentity(
+            {
+                "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+                "commit": commit,
+                "version": __version__,
+            },
+            history_checkout=None,
+        )
     if (
         checkout_identity.get("kind") != "git"
         or checkout_identity.get("dirty") is not False
