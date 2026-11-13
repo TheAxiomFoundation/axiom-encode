@@ -4,14 +4,14 @@
  "totals": {
   "cases": 46,
   "clean": 12,
-  "issues": 3274,
+  "issues": 3284,
   "rules": {
    "complete-source-unit:declaration-collision": 2,
    "complete-source-unit:deferral": 172,
    "complete-source-unit:formula-output": 763,
    "complete-source-unit:numeric-recall": 316,
    "complete-source-unit:source-explicit-conditions": 6,
-   "complete-source-unit:structure": 1847,
+   "complete-source-unit:structure": 1857,
    "complete-source-unit:tests": 168
   }
  },
@@ -182,16 +182,17 @@
   "35789753522": {
    "citation": "us/statute/42/402/a",
    "control": false,
-   "issues": 3,
+   "issues": 4,
    "rules": {
     "complete-source-unit:deferral": 1,
-    "complete-source-unit:structure": 1,
+    "complete-source-unit:structure": 2,
     "complete-source-unit:tests": 1
    },
    "error": null,
    "findings": [
     "[complete-source-unit:deferral] `module.deferred_outputs[0]` identifies source branch (source unit) (`<source-unit>`) but its deferral does not name an exact missing dependency, input, or runtime capability.\nRequired shape (adapt the output and cited dependency to the omitted branch):\nmodule:\n  deferred_outputs:\n    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax\n      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.\n`output` and `reason` are required; `blocked_by` is optional and, when present, must list exact absolute upstream RuleSpec outputs. When no external legal dependency exists, cite the exact current source branch and name its concrete source-stated missing input or runtime capability in the `reason` itself; the output path is not a source citation, and a generic claim that the branch is unavailable is invalid. When the authoritative branch is a bare `Repealed.` tombstone or a finite Louisiana `Repealed by Acts ...` session-law tombstone, cite that exact current source branch and affirmatively state the repeal in `reason`; do not invent a missing dependency or executable rule. Use the bounded form `<exact branch citation> is repealed.`, optionally adding the exact authenticated history either as `is repealed by <Acts citation>.` or as `is repealed. <Acts citation>.`, and/or adding `and supplies no operative rule`. For Louisiana delegated rates, use `no executable RuleSpec output for those <source-stated modifiers> rates is supplied in the available context`; do not repeat the dependency in that missing object or append a relative clause.",
     "[complete-source-unit:structure] Source branch (1) at us/statute/42/402/a(1) [provision (1)] is neither encoded nor precisely deferred.",
+    "[complete-source-unit:structure] Source branch (2) at us/statute/42/402/a(2) [provision (2)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: us/statute/42/402/a(3)(B) [provision (3)(B)] [exclude]: `Except as provided in subsection (q) and subsection (w), such individual’s old-age insurance benefit for any month shall be equal to his primar ... nce amount (as defined in section 415(a) of this title ) for such month.`. The evaluator recognized 14 directional formula-toggle witnesses from 5 distinct case pairs, but these do not cover every listed source condition. Check affected rule/path, source-selector relevance, active orientation, required effect, and distinct-condition witness allocation before adding cases. Recognized test pairs alone do not establish source coverage."
    ]
   },
@@ -246,12 +247,12 @@
   "35952553153": {
    "citation": "us/regulation/7/273/4",
    "control": false,
-   "issues": 110,
+   "issues": 112,
    "rules": {
     "complete-source-unit:deferral": 16,
     "complete-source-unit:formula-output": 18,
     "complete-source-unit:numeric-recall": 10,
-    "complete-source-unit:structure": 63,
+    "complete-source-unit:structure": 65,
     "complete-source-unit:tests": 3
    },
    "error": null,
@@ -329,6 +330,7 @@
     "[complete-source-unit:structure] Source branch (C) at us/regulation/7/273/4(a)(6)(i)(C) [paragraph (a)(6)(i)(C)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (C) at us/regulation/7/273/4(a)(6)(ii)(C) [paragraph (a)(6)(ii)(C)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (C) at us/regulation/7/273/4(a)(6)(iii)(C) [paragraph (a)(6)(iii)(C)] is neither encoded nor precisely deferred.",
+    "[complete-source-unit:structure] Source branch (D) at us/regulation/7/273/4(a)(6)(i)(D) [paragraph (a)(6)(i)(D)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (D) at us/regulation/7/273/4(a)(6)(ii)(D) [paragraph (a)(6)(ii)(D)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (D) at us/regulation/7/273/4(a)(6)(iii)(D) [paragraph (a)(6)(iii)(D)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (E) at us/regulation/7/273/4(a)(6)(i)(E) [paragraph (a)(6)(i)(E)] is neither encoded nor precisely deferred.",
@@ -343,6 +345,7 @@
     "[complete-source-unit:structure] Source branch (J) at us/regulation/7/273/4(a)(6)(ii)(J) [paragraph (a)(6)(ii)(J)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (b) at us/regulation/7/273/4(b) [paragraph (b)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (c) at us/regulation/7/273/4(c) [paragraph (c)] is neither encoded nor precisely deferred.",
+    "[complete-source-unit:structure] Source branch (i) at us/regulation/7/273/4(a)(3)(i) [paragraph (a)(3)(i)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (i) at us/regulation/7/273/4(a)(4)(i) [paragraph (a)(4)(i)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (i) at us/regulation/7/273/4(a)(5)(i) [paragraph (a)(5)(i)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (i) at us/regulation/7/273/4(a)(6)(i) [paragraph (a)(6)(i)] is neither encoded nor precisely deferred.",
@@ -371,11 +374,11 @@
   "36072201077": {
    "citation": "us/guidance/irs/rev-proc-2025-32/page-18",
    "control": false,
-   "issues": 5,
+   "issues": 6,
    "rules": {
     "complete-source-unit:deferral": 2,
     "complete-source-unit:formula-output": 2,
-    "complete-source-unit:structure": 1
+    "complete-source-unit:structure": 2
    },
    "error": null,
    "findings": [
@@ -383,6 +386,7 @@
     "[complete-source-unit:deferral] `module.deferred_outputs[1]` identifies source branch (source unit) (`<source-unit>`) but its deferral does not name an exact missing dependency, input, or runtime capability.\nRequired shape (adapt the output and cited dependency to the omitted branch):\nmodule:\n  deferred_outputs:\n    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax\n      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.\n`output` and `reason` are required; `blocked_by` is optional and, when present, must list exact absolute upstream RuleSpec outputs. When no external legal dependency exists, cite the exact current source branch and name its concrete source-stated missing input or runtime capability in the `reason` itself; the output path is not a source citation, and a generic claim that the branch is unavailable is invalid. When the authoritative branch is a bare `Repealed.` tombstone or a finite Louisiana `Repealed by Acts ...` session-law tombstone, cite that exact current source branch and affirmatively state the repeal in `reason`; do not invent a missing dependency or executable rule. Use the bounded form `<exact branch citation> is repealed.`, optionally adding the exact authenticated history either as `is repealed by <Acts citation>.` or as `is repealed. <Acts citation>.`, and/or adding `and supplies no operative rule`. For Louisiana delegated rates, use `no executable RuleSpec output for those <source-stated modifiers> rates is supplied in the available context`; do not repeat the dependency in that missing object or append a relative clause.",
     "[complete-source-unit:formula-output] Source-stated control (3) in us/guidance/irs/rev-proc-2025-32/page-18(14)(3) [subsection 14, paragraph 3] has no principal derived/relation output (`derived` or `derived_relation`) and is not precisely deferred; parameter-only representation is invalid.",
     "[complete-source-unit:formula-output] Source-stated control source unit in us/guidance/irs/rev-proc-2025-32/page-18 [source unit] has no principal derived/relation output (`derived` or `derived_relation`) and is not precisely deferred; parameter-only representation is invalid.",
+    "[complete-source-unit:structure] Source branch (2) at us/guidance/irs/rev-proc-2025-32/page-18(14)(2) [subsection 14, paragraph 2] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch .15 Cafeteria Plans. at us/guidance/irs/rev-proc-2025-32/page-18(15) [paragraph 15] is neither encoded nor precisely deferred."
    ]
   },
@@ -597,10 +601,11 @@
   "36610757133": {
    "citation": "us-dc/statute/47/47-1807.02",
    "control": false,
-   "issues": 5,
+   "issues": 6,
    "rules": {
     "complete-source-unit:deferral": 3,
     "complete-source-unit:formula-output": 1,
+    "complete-source-unit:structure": 1,
     "complete-source-unit:tests": 1
    },
    "error": null,
@@ -609,6 +614,7 @@
     "[complete-source-unit:deferral] `module.deferred_outputs[1]` identifies source branch (c) (`c`) but its deferral does not name an exact missing dependency, input, or runtime capability.\nRequired shape (adapt the output and cited dependency to the omitted branch):\nmodule:\n  deferred_outputs:\n    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax\n      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.\n`output` and `reason` are required; `blocked_by` is optional and, when present, must list exact absolute upstream RuleSpec outputs. When no external legal dependency exists, cite the exact current source branch and name its concrete source-stated missing input or runtime capability in the `reason` itself; the output path is not a source citation, and a generic claim that the branch is unavailable is invalid. When the authoritative branch is a bare `Repealed.` tombstone or a finite Louisiana `Repealed by Acts ...` session-law tombstone, cite that exact current source branch and affirmatively state the repeal in `reason`; do not invent a missing dependency or executable rule. Use the bounded form `<exact branch citation> is repealed.`, optionally adding the exact authenticated history either as `is repealed by <Acts citation>.` or as `is repealed. <Acts citation>.`, and/or adding `and supplies no operative rule`. For Louisiana delegated rates, use `no executable RuleSpec output for those <source-stated modifiers> rates is supplied in the available context`; do not repeat the dependency in that missing object or append a relative clause.\nThe current-source branch citation in `reason` is already recognized; correct the bounded dependency, runtime-gap, or repeal tail without replacing that authenticated citation.",
     "[complete-source-unit:deferral] `module.deferred_outputs[2]` identifies source branch (source unit) (`<source-unit>`) but its deferral does not name an exact missing dependency, input, or runtime capability.\nRequired shape (adapt the output and cited dependency to the omitted branch):\nmodule:\n  deferred_outputs:\n    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax\n      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.\n`output` and `reason` are required; `blocked_by` is optional and, when present, must list exact absolute upstream RuleSpec outputs. When no external legal dependency exists, cite the exact current source branch and name its concrete source-stated missing input or runtime capability in the `reason` itself; the output path is not a source citation, and a generic claim that the branch is unavailable is invalid. When the authoritative branch is a bare `Repealed.` tombstone or a finite Louisiana `Repealed by Acts ...` session-law tombstone, cite that exact current source branch and affirmatively state the repeal in `reason`; do not invent a missing dependency or executable rule. Use the bounded form `<exact branch citation> is repealed.`, optionally adding the exact authenticated history either as `is repealed by <Acts citation>.` or as `is repealed. <Acts citation>.`, and/or adding `and supplies no operative rule`. For Louisiana delegated rates, use `no executable RuleSpec output for those <source-stated modifiers> rates is supplied in the available context`; do not repeat the dependency in that missing object or append a relative clause.",
     "[complete-source-unit:formula-output] Source-stated control (6) in us-dc/statute/47/47-1807.02(a)(6) [provision (a)(6)] has no principal derived/relation output (`derived` or `derived_relation`) and is not precisely deferred; parameter-only representation is invalid.",
+    "[complete-source-unit:structure] Source branch (6) at us-dc/statute/47/47-1807.02(a)(6) [provision (a)(6)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: us-dc/statute/47/47-1807.02(a)(2) [provision (a)(2)] [exclude]: `(2) For the taxable years beginning after December 31, 1975, a tax at the rate of 9% upon the taxable income of every corporation, whether dome ... years beginning after December 31, 1994, the rate of tax shall be 9.5%;`; us-dc/statute/47/47-1807.02(a)(6) [provision (a)(6)] [change]: `(6) Subject to availability of funding and in accordance with § 47-181 , upon the taxable income of every corporation, whether domestic or foreign, a tax at the rate of 9%, 8.75%, 8.5%, or 8.25%.`; us-dc/statute/47/47-1807.02(c) [provision (c)] [change]: `(c) The taxes imposed by this section shall, during the 3 tax years beginning after June 30, 1981, be subject to the transition rules provided in § 47-2507 .`. The evaluator recognized 24 directional formula-toggle witnesses from 12 distinct case pairs, but these do not cover every listed source condition. Check affected rule/path, source-selector relevance, active orientation, required effect, and distinct-condition witness allocation before adding cases. Recognized test pairs alone do not establish source coverage."
    ]
   },
@@ -679,12 +685,12 @@
   "37047738781": {
    "citation": "us-mo/statute/143.011",
    "control": false,
-   "issues": 34,
+   "issues": 35,
    "rules": {
     "complete-source-unit:deferral": 9,
     "complete-source-unit:formula-output": 5,
     "complete-source-unit:numeric-recall": 11,
-    "complete-source-unit:structure": 4,
+    "complete-source-unit:structure": 5,
     "complete-source-unit:tests": 5
    },
    "error": null,
@@ -714,6 +720,7 @@
     "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 4 has no named scalar representation. `module.summary` is not consulted.",
     "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 5 has no named scalar representation. `module.summary` is not consulted.",
     "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 6 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:structure] Source branch (1) at us-mo/statute/143.011(1) [provision (1)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (1) at us-mo/statute/143.011(3)(b)(1) [provision (3)(b)(1)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (2) at us-mo/statute/143.011(3)(b)(2) [provision (3)(b)(2)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (3) at us-mo/statute/143.011(3)(b)(3) [provision (3)(b)(3)] is neither encoded nor precisely deferred.",
@@ -882,12 +889,12 @@
   "39255585595": {
    "citation": "us/regulation/7/273/4",
    "control": false,
-   "issues": 115,
+   "issues": 116,
    "rules": {
     "complete-source-unit:deferral": 8,
     "complete-source-unit:formula-output": 23,
     "complete-source-unit:numeric-recall": 12,
-    "complete-source-unit:structure": 67,
+    "complete-source-unit:structure": 68,
     "complete-source-unit:tests": 5
    },
    "error": null,
@@ -980,6 +987,7 @@
     "[complete-source-unit:structure] Source branch (J) at us/regulation/7/273/4(a)(6)(ii)(J) [paragraph (a)(6)(ii)(J)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (b) at us/regulation/7/273/4(b) [paragraph (b)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (c) at us/regulation/7/273/4(c) [paragraph (c)] is neither encoded nor precisely deferred.",
+    "[complete-source-unit:structure] Source branch (i) at us/regulation/7/273/4(a)(3)(i) [paragraph (a)(3)(i)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (i) at us/regulation/7/273/4(a)(4)(i) [paragraph (a)(4)(i)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (i) at us/regulation/7/273/4(a)(5)(i) [paragraph (a)(5)(i)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (i) at us/regulation/7/273/4(a)(6)(i) [paragraph (a)(6)(i)] is neither encoded nor precisely deferred.",
@@ -1810,12 +1818,12 @@
   "41758503529": {
    "citation": "us/regulation/7/273/7",
    "control": false,
-   "issues": 644,
+   "issues": 645,
    "rules": {
     "complete-source-unit:deferral": 10,
     "complete-source-unit:formula-output": 167,
     "complete-source-unit:numeric-recall": 43,
-    "complete-source-unit:structure": 382,
+    "complete-source-unit:structure": 383,
     "complete-source-unit:tests": 42
    },
    "error": null,
@@ -2397,6 +2405,7 @@
     "[complete-source-unit:structure] Source branch (vi) at us/regulation/7/273/7(m)(4)(vi) [paragraph (m)(4)(vi)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (vi) at us/regulation/7/273/7(v)(2)(v)(i)(3)(vi) [paragraph (v)(2)(v)(i)(3)(vi)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (vii) at us/regulation/7/273/7(a)(1)(vii) [paragraph (a)(1)(vii)] is neither encoded nor precisely deferred.",
+    "[complete-source-unit:structure] Source branch (vii) at us/regulation/7/273/7(b)(1)(vii) [paragraph (b)(1)(vii)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (vii) at us/regulation/7/273/7(c)(17)(vii) [paragraph (c)(17)(vii)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (vii) at us/regulation/7/273/7(c)(6)(vii) [paragraph (c)(6)(vii)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (vii) at us/regulation/7/273/7(e)(2)(vii) [paragraph (e)(2)(vii)] is neither encoded nor precisely deferred.",
@@ -3169,12 +3178,12 @@
   "41769286824": {
    "citation": "us/regulation/7/273/7",
    "control": false,
-   "issues": 620,
+   "issues": 622,
    "rules": {
     "complete-source-unit:deferral": 7,
     "complete-source-unit:formula-output": 161,
     "complete-source-unit:numeric-recall": 40,
-    "complete-source-unit:structure": 373,
+    "complete-source-unit:structure": 375,
     "complete-source-unit:tests": 39
    },
    "error": null,
@@ -3597,6 +3606,7 @@
     "[complete-source-unit:structure] Source branch (e) at us/regulation/7/273/7(e) [paragraph (e)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (g) at us/regulation/7/273/7(g) [paragraph (g)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (h) at us/regulation/7/273/7(h) [paragraph (h)] is neither encoded nor precisely deferred.",
+    "[complete-source-unit:structure] Source branch (i) at us/regulation/7/273/7(b)(1)(i) [paragraph (b)(1)(i)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (i) at us/regulation/7/273/7(b)(2)(i) [paragraph (b)(2)(i)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (i) at us/regulation/7/273/7(c)(1)(i) [paragraph (c)(1)(i)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (i) at us/regulation/7/273/7(c)(11)(i) [paragraph (c)(11)(i)] is neither encoded nor precisely deferred.",
@@ -3735,6 +3745,7 @@
     "[complete-source-unit:structure] Source branch (vi) at us/regulation/7/273/7(m)(3)(vi) [paragraph (m)(3)(vi)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (vi) at us/regulation/7/273/7(m)(4)(vi) [paragraph (m)(4)(vi)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (vi) at us/regulation/7/273/7(v)(2)(v)(i)(3)(vi) [paragraph (v)(2)(v)(i)(3)(vi)] is neither encoded nor precisely deferred.",
+    "[complete-source-unit:structure] Source branch (vii) at us/regulation/7/273/7(b)(1)(vii) [paragraph (b)(1)(vii)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (vii) at us/regulation/7/273/7(c)(17)(vii) [paragraph (c)(17)(vii)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (vii) at us/regulation/7/273/7(c)(6)(vii) [paragraph (c)(6)(vii)] is neither encoded nor precisely deferred.",
     "[complete-source-unit:structure] Source branch (vii) at us/regulation/7/273/7(e)(2)(vii) [paragraph (e)(2)(vii)] is neither encoded nor precisely deferred.",
