@@ -168,8 +168,9 @@ jobs:
           HAS_CORPUS_READ: ${{ secrets.R2_CORPUS_READ_ACCESS_KEY_ID != '' && secrets.R2_CORPUS_READ_SECRET_ACCESS_KEY != '' }}
         run: |
           if [ "$HAS_CORPUS_READ" != true ]; then
-            echo "R2 corpus read credentials are not available to axiom-encode, so the signed re-encode could not fetch R2-stored corpus scopes after approval. Grant this repository access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials, then re-dispatch." >&2
-            python axiom-encode/scripts/infra_issue.py record infra:require-corpus-read-credentials "R2 corpus read credentials are not available to axiom-encode, so the signed re-encode could not fetch R2-stored corpus scopes after approval. Grant this repository access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials, then re-dispatch." || true
+            message="R2 corpus read credentials are not available to axiom-encode, so the signed re-encode could not fetch R2-stored corpus scopes after approval. Grant this repository access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials, then re-dispatch."
+            echo "$message" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:require-corpus-read-credentials "$message" || true
             exit 1
           fi
 
@@ -185,6 +186,54 @@ jobs:
           ATTEMPT_BUDGET_BY_CITATION_JSON: ${{ vars.ATTEMPT_BUDGET_BY_CITATION_JSON }}
         run: |
           python3 "$GITHUB_WORKSPACE/axiom-encode/scripts/enforce_attempt_budget.py"
+
+  # Telemetry only: one record per dispatch that says how the run was
+  # triggered (queue, repair, promotion or ad hoc) and which publication it
+  # asked for. It runs for every trigger, also when the budget guard is
+  # skipped or the encode job never starts. Unprotected on purpose: no
+  # secret, no environment, read-only token, and nothing depends on it.
+  # Every step and the job itself continue on error, so it cannot fail a
+  # run; the run stays in progress until this job finishes (5 minutes at
+  # most once it has a runner). The record, the step-name tag, the summary
+  # and the artifact hold only allowlisted values; free-text inputs are
+  # recorded as present or absent. (The runner prints a step's `env:` block,
+  # so this job's log shows the raw inputs, as the budget and preflight steps
+  # already do.) The artifact name must not start with `targeted-reencode-`:
+  # the queue finalizer selects the signed artifact by that prefix.
+  dispatch_record:
+    name: Record dispatch
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout axiom-encode for the dispatch record
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: axiom-encode
+          persist-credentials: false
+
+      - name: Write dispatch record
+        id: dispatch_record
+        continue-on-error: true
+        env:
+          DISPATCH_JSON: ${{ toJSON(inputs) }}
+        run: |
+          python3 -I "$GITHUB_WORKSPACE/axiom-encode/scripts/dispatch_record.py" "$RUNNER_TEMP/dispatch-record" || true
+
+      # The step name carries the validated tag, so the jobs API returns the
+      # main fields for every run without an artifact download.
+      - name: "Upload dispatch record: ${{ steps.dispatch_record.outputs.tag }}"
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dispatch-record-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dispatch-record/dispatch-record.json
+          if-no-files-found: warn
+          retention-days: 90
 
   encode:
     name: Queue protected signed RuleSpec re-encode
@@ -388,6 +437,35 @@ jobs:
           token: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           persist-credentials: false
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+          # A key-bearing job never restores or saves the uv cache.
+          enable-cache: "false"
+
+      - name: Set up Python
+        run: uv python install 3.13 3.14
+
+      - name: Install locked preflight runtime
+        working-directory: axiom-encode
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          uv sync --locked --python 3.13 --extra api --no-dev
+
+      - name: Preflight live reviewed PR promotion
+        id: reviewed_pr_admission
+        env:
+          DISPATCH_JSON: ${{ toJSON(inputs) }}
+          DISPATCH_ACTOR: ${{ github.triggering_actor }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          axiom-encode/.venv/bin/python axiom-encode/scripts/prepare_reviewed_pr_promotion.py prepare \
+            --repo "$RULESPEC_CHECKOUT" \
+            --selector "$RUNNER_TEMP/reviewed-pr-selector.json"
+
       - name: Verify immutable checkout identities
         env:
           COUNTRY: ${{ inputs.country }}
@@ -397,6 +475,7 @@ jobs:
           PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
           CORPUS_REF: ${{ inputs.corpus_ref }}
           RULES_ENGINE_REF: ${{ inputs.rules_engine_ref }}
+          LIVE_PR_ADMISSION: ${{ steps.reviewed_pr_admission.outputs.enabled }}
         run: |
           set -euo pipefail
           sha_pattern='^[0-9a-f]{40}$'
@@ -427,9 +506,11 @@ jobs:
           verify_checkout axiom-rules-engine "$RULES_ENGINE_REF" axiom-rules-engine
           test "$(git -C "$RULESPEC_CHECKOUT" remote get-url origin)" = \
             "https://github.com/TheAxiomFoundation/rulespec-$COUNTRY"
-          python axiom-encode/scripts/prepare_signed_backfill.py \
-            validate-rulespec-base "$RULESPEC_CHECKOUT" "$COUNTRY" \
-            "$RULESPEC_REF" "$OPEN_PR" "$PR_BASE_BRANCH"
+          if [ "$LIVE_PR_ADMISSION" != "true" ]; then
+            python axiom-encode/scripts/prepare_signed_backfill.py \
+              validate-rulespec-base "$RULESPEC_CHECKOUT" "$COUNTRY" \
+              "$RULESPEC_REF" "$OPEN_PR" "$PR_BASE_BRANCH"
+          fi
           git -C axiom-corpus merge-base --is-ancestor HEAD refs/remotes/origin/main
           git -C axiom-rules-engine merge-base --is-ancestor HEAD refs/remotes/origin/main
 
@@ -440,12 +521,25 @@ jobs:
         run: |
           set -euo pipefail
           compose_ref="$(python - "$RULESPEC_CHECKOUT/.axiom/workflow-toolchain.toml" <<'PY'
+          import os
           import pathlib
           import re
           import sys
           import tomllib
 
           path = pathlib.Path(sys.argv[1])
+          # A repository without a workflow toolchain table pins no composer,
+          # the same as a table without axiom_compose_ref. The file counts as
+          # absent only when .axiom is absent or a real directory. A dangling
+          # link, a directory, bad TOML, a non-directory .axiom, or a linked
+          # .axiom without the file still fails.
+          axiom_dir = path.parent
+          axiom_dir_is_plain = not os.path.lexists(axiom_dir) or (
+              axiom_dir.is_dir() and not axiom_dir.is_symlink()
+          )
+          if axiom_dir_is_plain and not os.path.lexists(path):
+              print("")
+              raise SystemExit(0)
           payload = tomllib.loads(path.read_text())
           workflow_toolchain = payload.get("workflow_toolchain")
           value = (
@@ -489,19 +583,11 @@ jobs:
           echo "enabled=true" >> "$GITHUB_OUTPUT"
           echo "ref=$compose_ref" >> "$GITHUB_OUTPUT"
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          version: "0.11.7"
-
       - name: Set up Go 1.26.1
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: 1.26.1
           cache: false
-
-      - name: Set up Python
-        run: uv python install 3.13 3.14
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
@@ -515,10 +601,38 @@ jobs:
       - name: Install encoder
         working-directory: axiom-encode
         run: |
-          uv sync --locked --python 3.13 --extra api
-          rm -rf "$RUNNER_TEMP/axiom-verification-site-packages"
-          uv pip install --python .venv/bin/python \
-            --target "$RUNNER_TEMP/axiom-verification-site-packages" ".[api]"
+          set -euo pipefail
+          uv sync --locked --python 3.13 --extra api --no-dev
+          # The protected verification tree is exactly the uv.lock set. A resolving
+          # `uv pip install --target ... ".[api]"` re-resolves every `>=`
+          # dependency against the index at run time (targeted run 36174590343
+          # staged claude-agent-sdk 0.2.159 beside the locked 0.1.47). Export the
+          # lock and install its hash-pinned registry set with --require-hashes,
+          # then the one commit-pinned git dependency (a VCS checkout has no hash)
+          # and the project itself, all --no-deps so nothing is resolved here.
+          site_packages="$RUNNER_TEMP/axiom-verification-site-packages"
+          locked="$RUNNER_TEMP/axiom-verification-locked-requirements.txt"
+          rm -rf "$site_packages"
+          uv export --locked --no-dev --extra api --no-emit-project \
+            --no-emit-package axiom-oracles --format requirements-txt \
+            --output-file "$locked"
+          oracles="$(uv export --locked --no-dev --extra api --no-emit-project \
+            --no-hashes --no-annotate --no-header --format requirements-txt \
+            | grep -xE 'axiom-oracles @ git\+https://github\.com/TheAxiomFoundation/axiom-oracles@[0-9a-f]{40}')"
+          uv pip install --python .venv/bin/python --target "$site_packages" \
+            --require-hashes --no-deps -r "$locked"
+          uv pip install --python .venv/bin/python --target "$site_packages" \
+            --no-deps "$oracles"
+          uv pip install --python .venv/bin/python --target "$site_packages" \
+            --no-deps .
+          # Differential check: the staged tree must equal the locked .venv.
+          uv pip freeze --python .venv/bin/python --exclude-editable \
+            > "$RUNNER_TEMP/axiom-verification-locked.freeze"
+          uv pip freeze --python .venv/bin/python --target "$site_packages" \
+            --exclude axiom-encode > "$RUNNER_TEMP/axiom-verification-staged.freeze"
+          test -s "$RUNNER_TEMP/axiom-verification-locked.freeze"
+          diff -u "$RUNNER_TEMP/axiom-verification-locked.freeze" \
+            "$RUNNER_TEMP/axiom-verification-staged.freeze"
 
       - name: Bind rules engine to declared revision
         env:
@@ -543,9 +657,12 @@ jobs:
             --no-emit-project \
             --format requirements.txt \
             --output-file "$RUNNER_TEMP/axiom-compose-requirements.txt"
+          # Exactly the locked set: every exported requirement is hash-pinned,
+          # and --no-deps keeps uv from resolving anything beyond it.
           uv pip install \
             --python "$RUNNER_TEMP/axiom-compose-build/bin/python" \
             --target "$RUNNER_TEMP/axiom-compose-site-packages" \
+            --require-hashes --no-deps \
             --requirement "$RUNNER_TEMP/axiom-compose-requirements.txt"
           sudo rm -rf /opt/axiom-compose-verification
           sudo "$RUNNER_TEMP/axiom-compose-build/bin/python" \
@@ -1467,8 +1584,9 @@ jobs:
             # Only a lock-pinned corpus fetches from R2; a lockless (git-history)
             # pin reads its provisions from the checkout and needs no credential.
             if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
-              echo "R2 corpus read credentials are not available to this workflow; locked corpus scopes stored only in R2 cannot be fetched. Grant axiom-encode access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials." >&2
-              python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-corpus-provision-objects "R2 corpus read credentials are not available to this workflow; locked corpus scopes stored only in R2 cannot be fetched. Grant axiom-encode access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials." || true
+              message="R2 corpus read credentials are not available to this workflow; locked corpus scopes stored only in R2 cannot be fetched. Grant axiom-encode access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials."
+              echo "$message" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-corpus-provision-objects "$message" || true
               exit 1
             fi
             provision_paths_json="$(jq -e \
@@ -1502,6 +1620,7 @@ jobs:
           TRUST_EVAL_ROOT: ${{ vars.AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY }}
           TRUST_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
           TRUST_RETIRED_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_RETIRED_PUBLIC_KEY }}
+          LIVE_PR_ADMISSION: ${{ steps.reviewed_pr_admission.outputs.enabled }}
         run: |
           CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
             -o "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
@@ -1514,6 +1633,10 @@ jobs:
           test "$(stat -c '%u' /opt)" = "0"
           test -z "$(find /opt -maxdepth 0 -perm /022)"
           sudo rm -rf /opt/axiom-verification
+          reviewed_pr_args=()
+          if [ "$LIVE_PR_ADMISSION" = "true" ]; then
+            reviewed_pr_args+=(--reviewed-pr-selector "$RUNNER_TEMP/reviewed-pr-selector.json")
+          fi
           sudo .venv/bin/python scripts/provision_verification_supervisor.py \
             --destination /opt/axiom-verification \
             --supervisor "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
@@ -1525,7 +1648,8 @@ jobs:
             --git /usr/bin/git \
             --encoder-git-root "$GITHUB_WORKSPACE/axiom-encode" \
             --encoder-commit "$GITHUB_SHA" \
-            --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode
+            --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode \
+            "${reviewed_pr_args[@]}"
           sudo install -o root -g root -m 0755 \
             "$RUNNER_TEMP/axiom-encode-apply-signer" \
             /opt/axiom-verification/axiom-encode-apply-signer
@@ -3574,6 +3698,8 @@ jobs:
           )
           replacement_path = os.environ.get("REPLACE_RULESPEC_PATH") or ""
           atomic_source_raw = json.loads(os.environ.get("ATOMIC_SOURCE_JSON") or "[]")
+          if isinstance(atomic_source_raw, dict) and atomic_source_raw.get("schema") == "axiom-encode/reviewed-pr-promotion/v1":
+              atomic_source_raw = atomic_source_raw["transaction"]
           atomic_source = immutable_atomic_source_contract(
               os.environ.get("ATOMIC_SOURCE_JSON") or "[]"
           )
@@ -4971,7 +5097,7 @@ jobs:
             'if type == "object" then .manifest_only_refresh // false else false end' \
             <<<"$ATOMIC_SOURCE_JSON")"
           reviewed_candidate_promotion="$(jq -r \
-            'if type == "object" then .reviewed_candidate_promotion // false else false end' \
+            'if type == "object" then (if .schema == "axiom-encode/reviewed-pr-promotion/v1" then .transaction else . end) | .reviewed_candidate_promotion // false else false end' \
             <<<"$ATOMIC_SOURCE_JSON")"
           if [ "$manifest_only_refresh" = "true" ] || \
              [ "$reviewed_candidate_promotion" = "true" ] || \
@@ -4995,6 +5121,14 @@ jobs:
               -c user.email=axiom-encode-bot@users.noreply.github.com \
               commit -m "Add signed encoding manifest for ${CITATION}"
           fi
+
+      - name: Recheck live reviewed PR authorization before publication
+        id: recheck_live_reviewed_pr_authorization
+        if: ${{ inputs.open_pr && steps.retired_source_metadata_request.outputs.enabled != 'true' && steps.reviewed_pr_admission.outputs.enabled == 'true' }}
+        run: |
+          set -euo pipefail
+          python axiom-encode/scripts/prepare_reviewed_pr_promotion.py verify-publication \
+            --attestation /opt/axiom-verification/python/runtime-attestation.json
 
       - name: Verify reviewed lane pull request base
         id: verify_reviewed_lane_pull_request_base
@@ -5259,9 +5393,17 @@ jobs:
 
       - name: Finalize signed re-encode artifact checksums
         id: finalize_signed_reencode_artifact
+        env:
+          LIVE_REVIEWED_PR: ${{ steps.reviewed_pr_admission.outputs.enabled }}
         run: |
           set -euo pipefail
           artifact="$RUNNER_TEMP/targeted-reencode"
+          if test "${LIVE_REVIEWED_PR:-false}" = true; then
+            # Public review/run identities only; preserve the root-provisioned
+            # evidence in the checksummed run artifact for later audit.
+            cp /opt/axiom-verification/python/runtime-attestation.json \
+              "$artifact/reviewed-pr-runtime-attestation.json"
+          fi
           (
             cd "$artifact"
             if [ -n "$(find . -type l -print -quit)" ]; then

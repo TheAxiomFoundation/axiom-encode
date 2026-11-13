@@ -890,6 +890,16 @@ def _invoke(
     )
 
 
+def _codex_host_config(codex: Path) -> dict[str, str]:
+    host = codex.parent / "codex-code-mode-host"
+    host.write_text("#!/bin/sh\nexit 0\n")
+    host.chmod(0o755)
+    return {
+        "code_mode_host_path": str(host),
+        "code_mode_host_sha256": hashlib.sha256(host.read_bytes()).hexdigest(),
+    }
+
+
 def test_subscription_auth_is_isolated_refreshed_and_wiped(
     signing_supervisor: Path,
     trusted_python_runtime: tuple[Path, Path, Path],
@@ -911,7 +921,8 @@ def test_subscription_auth_is_isolated_refreshed_and_wiped(
     config.write_text(
         json.dumps(
             {
-                "schema": "axiom-encode/trusted-codex-cli/v1",
+                "schema": "axiom-encode/trusted-codex-cli/v2",
+                **_codex_host_config(codex),
                 "version": "test",
                 "sha256": digest,
                 "path": str(codex),
@@ -980,7 +991,8 @@ def test_subscription_tampered_binary_hard_fails_before_child(
     config.write_text(
         json.dumps(
             {
-                "schema": "axiom-encode/trusted-codex-cli/v1",
+                "schema": "axiom-encode/trusted-codex-cli/v2",
+                **_codex_host_config(codex),
                 "version": "test",
                 "sha256": "0" * 64,
                 "path": str(codex),
@@ -1013,6 +1025,86 @@ def test_subscription_tampered_binary_hard_fails_before_child(
 
 
 @pytest.mark.parametrize(
+    "fault",
+    [
+        "missing",
+        "digest",
+        "symlink",
+        "not-executable",
+        "writable",
+        "wrong-sibling",
+        "legacy",
+    ],
+)
+def test_subscription_host_fault_fails_before_auth_or_child(
+    signing_supervisor, trusted_python_runtime, tmp_path, fault
+):
+    apply_public, _ = _keypair(b"\xab" * 32)
+    eval_public, _ = _keypair(b"\xcd" * 32)
+    trust_config = _trust_config(tmp_path, apply_public, eval_public)
+    codex = tmp_path / "codex"
+    codex.write_text("#!/bin/sh\nexit 0\n")
+    codex.chmod(0o755)
+    payload = {
+        "schema": "axiom-encode/trusted-codex-cli/v2",
+        "version": "test",
+        "path": str(codex),
+        "sha256": hashlib.sha256(codex.read_bytes()).hexdigest(),
+        **_codex_host_config(codex),
+    }
+    host = Path(payload["code_mode_host_path"])
+    if fault == "missing":
+        host.unlink()
+    elif fault == "digest":
+        payload["code_mode_host_sha256"] = "0" * 64
+    elif fault == "symlink":
+        host.unlink()
+        host.symlink_to(codex)
+    elif fault == "not-executable":
+        host.chmod(0o644)
+    elif fault == "writable":
+        host.chmod(0o777)
+    elif fault == "wrong-sibling":
+        payload["code_mode_host_path"] = str(codex)
+    else:
+        payload["schema"] = "axiom-encode/trusted-codex-cli/v1"
+        del payload["code_mode_host_path"]
+        del payload["code_mode_host_sha256"]
+    config = tmp_path / "codex-cli.json"
+    config.write_text(json.dumps(payload))
+    config.chmod(0o444)
+    launcher = _launcher(
+        tmp_path, trusted_python_runtime, body="raise RuntimeError('must not execute')"
+    )
+    completed = _invoke(
+        signing_supervisor,
+        trusted_python_runtime,
+        launcher,
+        trust_config,
+        [],
+        supervisor_args=(
+            "--codex-subscription-auth",
+            str(tmp_path / "auth-does-not-exist.json"),
+            "--codex-auth-outbox",
+            str(tmp_path / "out.json"),
+            "--trusted-codex-cli-config",
+            str(config),
+        ),
+    )
+    assert completed.returncode == 2
+    expected = (
+        "config has invalid fields"
+        if fault in {"wrong-sibling", "legacy"}
+        else "Code Mode host"
+    )
+    assert expected in completed.stderr
+    assert "could not materialize Codex auth" not in completed.stderr
+    assert "auth-does-not-exist" not in completed.stderr
+    assert not (tmp_path / "out.json").exists()
+    assert "must not execute" not in completed.stderr
+
+
+@pytest.mark.parametrize(
     "outbox_kind",
     ["symlink", "fifo", "socket", "device", "writable-directory"],
 )
@@ -1032,7 +1124,8 @@ def test_subscription_refuses_unsafe_auth_outbox(
     config.write_text(
         json.dumps(
             {
-                "schema": "axiom-encode/trusted-codex-cli/v1",
+                "schema": "axiom-encode/trusted-codex-cli/v2",
+                **_codex_host_config(codex),
                 "version": "test",
                 "sha256": hashlib.sha256(codex.read_bytes()).hexdigest(),
                 "path": str(codex),
@@ -1196,6 +1289,7 @@ def test_compiled_supervisor_uses_isolated_direct_runtime_and_domain_signatures(
     launcher = _launcher(tmp_path, trusted_python_runtime)
     trust_config = _trust_config(tmp_path, apply_public, eval_public)
     sentinels = {
+        "AXIOM_ENCODE_WAIVER_AUDIT_WORKERS": "4",
         "OPENAI_API_KEY": "openai-sentinel",
         "ANTHROPIC_API_KEY": "anthropic-sentinel",
         "PATH": "/hostile/bin",
@@ -1235,6 +1329,7 @@ def test_compiled_supervisor_uses_isolated_direct_runtime_and_domain_signatures(
         for path in result["sys_path"]
     )
     parent_only = {
+        "AXIOM_ENCODE_WAIVER_AUDIT_WORKERS",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
         "AXIOM_ENCODE_SUPABASE_SECRET_KEY",
