@@ -411,6 +411,8 @@ EXECUTABLE = {"type": "blob", "mode": "100755", "sha": "d" * 40}
     [
         ".axiom/encoding-manifests",
         ".axiom",
+        "us-az/.axiom/encoding-manifests",
+        "us-az/.axiom",
         "us-az",  # a top-level leaf can alias a jurisdiction directory
         "us-az/policies",
         "policies",
@@ -424,7 +426,15 @@ def test_f1c_non_regular_leaf_at_or_above_guarded_paths_fails(path, entry):
     fails(world, guard.R_GUARDED_LEAF)
 
 
-@pytest.mark.parametrize("path", [".axiom", ".axiom/encoding-manifests"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".axiom",
+        ".axiom/encoding-manifests",
+        "us-az/.axiom",
+        "us-az/.axiom/encoding-manifests",
+    ],
+)
 def test_f1c_regular_file_where_the_manifest_directory_must_be_fails(path):
     fails(plain({path: b"not a directory\n"}), guard.R_GUARDED_LEAF)
 
@@ -468,6 +478,43 @@ def test_f1_mixed_v5_and_v6_manifests_fail():
 def test_f1_v5_lane_with_covered_content_is_not_applicable():
     world = plain({P: PRIMARY, T: COMPANION, M: v5_manifest(P, T)})
     expect(world, guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
+
+
+LOCAL_P = "us-ca/regulations/mpp/63-503/433.yaml"
+LOCAL_T = "us-ca/regulations/mpp/63-503/433.test.yaml"
+LOCAL_M = "us-ca/.axiom/encoding-manifests/regulations/mpp/63-503/433.json"
+
+
+def test_f1_v5_lane_with_a_jurisdiction_local_manifest_is_not_applicable():
+    # The layout of most manifests on rulespec-us main: the manifest lives
+    # under the jurisdiction and lists paths relative to it.
+    manifest = v5_manifest(
+        "regulations/mpp/63-503/433.yaml", "regulations/mpp/63-503/433.test.yaml"
+    )
+    world = plain({LOCAL_P: PRIMARY, LOCAL_T: COMPANION, LOCAL_M: manifest})
+    expect(world, guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
+
+
+def test_f1_jurisdiction_local_manifest_does_not_cover_another_jurisdiction():
+    manifest = v5_manifest(LOCAL_P, LOCAL_T)  # read as us-ca/us-ca/...
+    world = plain({LOCAL_P: PRIMARY, LOCAL_T: COMPANION, LOCAL_M: manifest})
+    fails(world, guard.R_CONTENT_NOT_COVERED)
+
+
+def test_f1_jurisdiction_local_manifest_alone_is_guarded():
+    relabelled = json.dumps({"schema_version": "x"}).encode()
+    fails(plain({LOCAL_M: relabelled}), guard.R_UNKNOWN_SCHEMA)
+
+
+def test_f1_v6_manifest_at_a_jurisdiction_local_path_fails():
+    world = plain({P: PRIMARY, T: COMPANION, LOCAL_M: manifest_bytes()})
+    world.api[PR]["draft"] = False
+    fails(world, guard.R_MANIFEST_PATH)
+
+
+def test_f1_other_axiom_files_are_not_guarded():
+    world = plain({".axiom/toolchain.toml": b"x\n", "us-co/.axiom/notes.md": b"x\n"})
+    expect(world, guard.NOT_APPLICABLE, guard.R_NO_GUARDED_CONTENT)
 
 
 def test_f1_v5_lane_modifying_a_module_is_not_applicable():

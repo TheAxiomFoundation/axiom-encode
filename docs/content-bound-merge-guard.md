@@ -91,7 +91,10 @@ reason code and evidence.
      `RULESPEC_ATOMIC_ROOTS` (`legislation`, `policies`, `regulations`,
      `statutes`), at the repository root or one level below a jurisdiction
      directory;
-   - at or under `.axiom/encoding-manifests`, or at `.axiom`;
+   - at or under an apply-manifest directory, or at its `.axiom` parent. The
+     directories are `.axiom/encoding-manifests` at the repository root and at
+     each jurisdiction directory (`us-co/.axiom/encoding-manifests`); both
+     layouts exist on `rulespec-us` main;
    - a top-level leaf that is not a regular `100644` blob (a symlink or a
      submodule there can alias a jurisdiction directory).
 
@@ -99,7 +102,7 @@ reason code and evidence.
    - No guarded path: `not_applicable` (`no_guarded_content`). A PR that edits
      only `.github/**` is in this class; see §9.
    - A guarded head leaf that is not a regular blob, or any leaf at `.axiom` or
-     at `.axiom/encoding-manifests` itself: `fail`.
+     at a manifest directory itself: `fail`.
    - Guarded content with no changed manifest: `fail`.
    - A removed manifest: `fail`.
    - More than `MAX_MANIFEST_BLOBS` (256) changed manifests: `fail`.
@@ -107,7 +110,8 @@ reason code and evidence.
      non-finite number, or whose `schema_version` is neither v6 nor a known
      earlier schema (v5 today): `fail`.
    - **Every changed manifest is v5** and every changed content path is listed
-     in `applied_files` of one of them: `not_applicable` (`earlier_lane_v5`).
+     in `applied_files` of one of them (paths are relative to the manifest
+     directory's parent): `not_applicable` (`earlier_lane_v5`).
      Those lanes keep their own controls: the approval is checked before
      signing. The guard does not check their scope (open question 12). Content
      outside the manifests' `applied_files`: `fail`.
@@ -195,6 +199,9 @@ attempt of the run signed it.
 ### Known limits
 
 - A PR with no guarded content is never judged, also when it edits workflows.
+- The content roots are exactly the encoder's atomic roots. `programs/`,
+  `tests/`, `tools/` and the other `.axiom` files (toolchain pin, waivers,
+  admissions) are not guarded.
 - A v5-lane PR is `not_applicable`; its extra files are not judged.
 - A fork PR and a stale PR get `fail`, not `not_applicable`.
 - 1000 reviews on one PR, also comment-only reviews from outside accounts,
@@ -481,12 +488,16 @@ signed approval (option c in §3) or a separate approver account.
 
 ## 11. What was not verified
 
+A read-only live run, `merge-guard --repository rulespec-us --pr 2045`, returned
+`not_applicable` / `earlier_lane_v5` on 2026-11-12 (a v5 promotion PR).
+
 Verified against live data on 2026-11-12 (rulespec-us#2045 and its signing run):
 the fields of an Actions run (`event`, `path`, `head_sha`, `head_branch`,
 `repository`, `head_repository`, `pull_requests`, `actor`,
 `triggering_actor`), the `details_url` form of a check run, the v5 promotion
-manifest's `applied_files` paths (repository-relative), and the attribution of
-the signing workflow's manifest commit.
+manifest's `applied_files` paths, the two manifest directory layouts on
+`rulespec-us` main, and the attribution of the signing workflow's manifest
+commit.
 
 Not verified:
 

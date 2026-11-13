@@ -566,28 +566,48 @@ def _require_green_ci(
             )
 
 
-def _is_guarded(path: str) -> bool:
-    """RuleSpec content or apply-manifest territory, by path alone.
+def _manifest_area(path: str) -> str | None:
+    """Classify a path against the apply-manifest directories.
 
-    The content roots are the encoder's ``RULESPEC_ATOMIC_ROOTS``, at the
-    repository root or one level below a jurisdiction directory. A leaf at
-    ``.axiom`` or at the manifest directory itself replaces a directory.
+    Manifests live at ``.axiom/encoding-manifests/`` of the repository root
+    and of each jurisdiction directory (``us-co/.axiom/encoding-manifests/``).
+    Returns the directory prefix (``""`` or ``"us-co/"``) for a file under a
+    manifest directory, ``"leaf"`` for a leaf at ``.axiom`` or at the manifest
+    directory itself (it replaces a directory), and ``None`` otherwise.
     """
     parts = path.split("/")
-    return (
-        path in {".axiom", MANIFEST_DIR}
-        or path.startswith(MANIFEST_PREFIX)
-        or parts[0] in RULESPEC_ATOMIC_ROOTS
-        or (len(parts) >= 2 and parts[1] in RULESPEC_ATOMIC_ROOTS)
+    for depth in (0, 1):
+        if parts[depth : depth + 1] != [".axiom"]:
+            continue
+        if len(parts) == depth + 1:
+            return "leaf"
+        if parts[depth + 1] == "encoding-manifests":
+            if len(parts) == depth + 2:
+                return "leaf"
+            return "".join(part + "/" for part in parts[:depth])
+    return None
+
+
+def _is_content(path: str) -> bool:
+    """RuleSpec content, by path alone.
+
+    The content roots are the encoder's ``RULESPEC_ATOMIC_ROOTS``, at the
+    repository root or one level below a jurisdiction directory.
+    """
+    parts = path.split("/")
+    return parts[0] in RULESPEC_ATOMIC_ROOTS or (
+        len(parts) >= 2 and parts[1] in RULESPEC_ATOMIC_ROOTS
     )
 
 
-def _applied_paths(payload: dict) -> set[str]:
+def _applied_paths(manifest_path: str, payload: dict) -> set[str]:
+    """Repository paths a manifest lists; its paths are relative to its root."""
     applied = payload.get("applied_files")
     if not isinstance(applied, list):
         return set()
+    prefix = _manifest_area(manifest_path)
     return {
-        item["path"]
+        prefix + item["path"]
         for item in applied
         if isinstance(item, dict) and isinstance(item.get("path"), str)
     }
@@ -672,7 +692,9 @@ def _evaluate(name, number, read, evidence) -> Verdict:
         path
         for path in delta
         # A non-regular top-level leaf can alias a jurisdiction directory.
-        if _is_guarded(path) or ("/" not in path and not regular(path))
+        if _is_content(path)
+        or _manifest_area(path) is not None
+        or ("/" not in path and not regular(path))
     )
     if not guarded:
         return Verdict(
@@ -682,10 +704,10 @@ def _evaluate(name, number, read, evidence) -> Verdict:
             evidence,
         )
     for path in guarded:
-        if not regular(path) or path in {".axiom", MANIFEST_DIR}:
+        if not regular(path) or _manifest_area(path) == "leaf":
             raise _Refusal(R_GUARDED_LEAF, path)
-    manifests = [path for path in guarded if path.startswith(MANIFEST_PREFIX)]
-    content = [path for path in guarded if not path.startswith(MANIFEST_PREFIX)]
+    manifests = [path for path in guarded if _manifest_area(path) is not None]
+    content = [path for path in guarded if _manifest_area(path) is None]
     if not manifests:
         raise _Refusal(
             R_CONTENT_WITHOUT_MANIFEST, "RuleSpec content changes with no manifest"
@@ -708,7 +730,7 @@ def _evaluate(name, number, read, evidence) -> Verdict:
     schemas = set(labels)
     if MANIFEST_SCHEMA_V6 not in schemas:
         covered = set().union(
-            *(_applied_paths(payload) for _raw, payload in parsed.values())
+            *(_applied_paths(path, payload) for path, (_raw, payload) in parsed.items())
         )
         if not set(content) <= covered:
             raise _Refusal(
