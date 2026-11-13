@@ -6999,6 +6999,7 @@ def _analyze_rulespec_payload(
                 referral_context=referral_context,
                 floor_imported_exports=imported_export_bindings,
                 floor_source_context=imported_proof_source_context,
+                local_floor_source_context=source_context,
                 printed_operations=printed_operations,
                 partnership_content=content,
                 certified_composition=certified_composition,
@@ -23016,6 +23017,7 @@ def _companion_test_issues(
     investment_evidence: Any = None,
     floor_imported_exports: Sequence[ResolvedImportedExport] = (),
     floor_source_context: Mapping[str, str | None] | None = None,
+    local_floor_source_context: Mapping[str, str | None] | None = None,
     referral_context: Any = None,
 ) -> list[str]:
     issues: list[str] = []
@@ -23578,6 +23580,25 @@ def _companion_test_issues(
                         measurement_roles=measurement_roles,
                         represented_measurement_spans=represented_measurement_spans,
                         measurement_witnesses=measurement_witnesses,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
+        if execution_evidence is not None and partnership_content is not None:
+            from .actual_floor_evidence import same_page_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: same_page_witnesses(
+                        execution_evidence,
+                        branch,
+                        content=partnership_content,
+                        source_context=local_floor_source_context,
+                        source_text=source_text,
+                        corpus_citation_path=corpus_citation_path,
+                        principal_rules=principal_rules,
+                        asserted_by_rule=asserted_by_rule,
+                        formula_environment=formula_environment,
                     )
                     for branch in missing_exception_branches
                 }

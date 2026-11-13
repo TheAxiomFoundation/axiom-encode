@@ -1,0 +1,32 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "origin": "local-diagnostic",
+  "run_id": "local-schedule-n-20261113",
+  "citation": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+  "module_path": "ca/policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment.yaml",
+  "policy_prefix": "ca",
+  "split": "visible",
+  "recorded_verdict": "rejected",
+  "encoder_commit": "e5c4b24d0fcb83291b0d684af21a0c289c1f6cb5",
+  "encoder_tree": "54673baca7068aa23454d443703f21027e5838c9",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --out /tmp/replay.json",
+  "input_origins": {
+    "candidate.yaml": "tests/fixtures/schedule-n-materialized-diagnostic/candidate.yaml",
+    "candidate.test.yaml": "tests/fixtures/schedule-n-materialized-diagnostic/candidate.test.yaml",
+    "source.txt": "tests/fixtures/schedule-n-authenticated-body.txt"
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "recorded_rules": [
+    "complete-source-unit:numeric-recall",
+    "complete-source-unit:schedule-n-evidence",
+    "complete-source-unit:source-explicit-conditions"
+  ],
+  "files": {
+    "candidate.yaml": "b8182d0210ec563ecbb017048d54a73dd23a62923a6eb3f2a32af4382770c13c",
+    "candidate.test.yaml": "6351dffe8fd5d64db72d2d7ba8dc35beab002265e990925437c84dd473942b2e",
+    "source.txt": "06295f18048c53e225bf0e8ba0c2581b4ac500f4702358de380a79f62acc812f",
+    "issues.json": "e91065e4e908206712f1e6c62b636704e38f78fca9a8cb77acd452145f8555a2"
+  }
+}

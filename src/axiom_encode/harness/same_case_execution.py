@@ -703,27 +703,34 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
         companion = pipe._rulespec_test_path(rules_file)
         if pipe.rulespec_dependency_roots or not companion.is_file():
             return None
-        from .scoped_execution import eligible_adapters
+        if imports == []:
+            from .actual_floor_evidence import bind_same_page_floors
+            from .scoped_execution import eligible_adapters
 
-        owners = eligible_adapters(pipe, content) if not imports else ()
-        scoped = len(owners) == 1
-        if not imports and not scoped:
-            return None
-        exports = pipe._complete_source_unit_import_bindings(rules_file)
-        derived = set()
-        for export in exports:
-            provider = _payload(export.content.encode())
-            if any(
-                isinstance(r, dict)
-                and r.get("name") == export.export_name
-                and r.get("kind") == "derived"
-                for r in provider.get("rules", [])
-            ):
-                derived.add(export.export_name)
-        if not scoped and (
-            not derived or not _has_consumer(pipe, content, payload, derived)
-        ):
-            return None
+            owners = eligible_adapters(pipe, content)
+            if len(owners) > 1:
+                return None
+            if not owners:
+                sources = pipe._proof_source_texts_for_rulespec_content(
+                    content,
+                    source_texts=pipe._source_texts_for_rulespec_content(content),
+                )
+                if not bind_same_page_floors(content, sources):
+                    return None
+        else:
+            exports = pipe._complete_source_unit_import_bindings(rules_file)
+            derived = set()
+            for export in exports:
+                provider = _payload(export.content.encode())
+                if any(
+                    isinstance(r, dict)
+                    and r.get("name") == export.export_name
+                    and r.get("kind") == "derived"
+                    for r in provider.get("rules", [])
+                ):
+                    derived.add(export.export_name)
+            if not derived or not _has_consumer(pipe, content, payload, derived):
+                return None
         pending = [rules_file]
         files: dict[Path, ClosureFile] = {}
         while pending:
@@ -845,12 +852,22 @@ def _materialize_snapshot(
         from .scoped_execution import eligible_adapters
 
         owners = eligible_adapters(pipe, rules_file.read_text())
-        if len(owners) != 1:
+        if len(owners) > 1:
             return None
-        module, prefix = owners[0]
-        if not module.activate(pipe, capture):
-            return None
-        setattr(capture, prefix + "_owned", True)
+        if owners:
+            module, prefix = owners[0]
+            if not module.activate(pipe, capture):
+                return None
+            setattr(capture, prefix + "_owned", True)
+        else:
+            from .actual_floor_evidence import bind_same_page_floors
+
+            content = rules_file.read_text()
+            sources = pipe._proof_source_texts_for_rulespec_content(
+                content, source_texts=pipe._source_texts_for_rulespec_content(content)
+            )
+            if not bind_same_page_floors(content, sources):
+                return None
     return capture
 
 

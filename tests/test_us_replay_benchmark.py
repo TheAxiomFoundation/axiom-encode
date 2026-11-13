@@ -165,6 +165,43 @@ def test_committed_fixtures_are_visible_public_and_unlabeled():
             assert not any(part in relative for part in private_paths), directory.name
 
 
+def _assert_local_diagnostic_provenance(directory, case):
+    provenance = case.provenance
+    assert provenance["origin"] == "local-diagnostic"
+    assert provenance["recorded_verdict"] == "rejected"
+    assert provenance["run_id"] == directory.name
+    assert re.fullmatch(r"local-[a-z0-9-]+", directory.name)
+    assert re.fullmatch(r"[0-9a-f]{40}", provenance["encoder_tree"])
+    assert provenance["diagnostic_command"].startswith(
+        "python scripts/replay_us_failure_bundles.py replay --fixtures "
+    )
+    # Local evidence must never masquerade as hosted or signed evidence.
+    assert not {
+        "run_url",
+        "candidate_matches_bundle_inventory",
+        "candidate_matches_recorded_issues",
+        "source_matches_attestation",
+    } & set(provenance)
+    assert set(provenance["input_origins"]) == {
+        "candidate.yaml",
+        "candidate.test.yaml",
+        "source.txt",
+    }
+    repository = Path(__file__).resolve().parents[1]
+    for name, relative in provenance["input_origins"].items():
+        source = repository / relative
+        assert source.resolve().is_relative_to(repository / "tests/fixtures")
+        assert not source.is_symlink()
+        assert source.read_bytes() == (directory / name).read_bytes()
+    report = json.loads((directory / "issues.json").read_text())
+    assert report["id"] == report["run_id"] == directory.name
+    assert report["citation"] == case.citation
+    assert report["module"] == case.module_path
+    assert report["error"] is None and report["issues"]
+    assert report["control"] is False
+    assert sorted(report["rules"]) == provenance["recorded_rules"]
+
+
 def test_fixtures_carry_provenance_and_stay_small():
     total = 0
     for directory in fixture_directories(FIXTURES):
@@ -172,15 +209,21 @@ def test_fixtures_carry_provenance_and_stay_small():
         provenance = case.provenance
         control = provenance.get("recorded_verdict", "rejected") != "rejected"
 
-        assert re.fullmatch(r"[0-9]+", provenance["run_id"])
-        assert directory.name.split("-")[0] == provenance["run_id"]
-        assert provenance["run_url"].endswith(f"/actions/runs/{provenance['run_id']}")
         assert re.fullmatch(r"[0-9a-f]{40}", provenance["encoder_commit"])
-        if not control:
-            # A control's recorded issues are guard failures, not its candidate's.
-            assert provenance["candidate_matches_bundle_inventory"] is True
-            assert provenance["candidate_matches_recorded_issues"] is True
-        assert provenance["source_matches_attestation"] is True
+        if provenance.get("origin") == "local-diagnostic":
+            _assert_local_diagnostic_provenance(directory, case)
+        else:
+            assert provenance.get("origin", "hosted") == "hosted"
+            assert re.fullmatch(r"[0-9]+", provenance["run_id"])
+            assert directory.name.split("-")[0] == provenance["run_id"]
+            assert provenance["run_url"].endswith(
+                f"/actions/runs/{provenance['run_id']}"
+            )
+            if not control:
+                # A control's recorded issues are guard failures, not its candidate's.
+                assert provenance["candidate_matches_bundle_inventory"] is True
+                assert provenance["candidate_matches_recorded_issues"] is True
+            assert provenance["source_matches_attestation"] is True
         assert set(provenance["context_origins"]) == set(provenance["context_imports"])
         assert set(provenance["context_origins"].values()) <= {
             "workspace",
@@ -203,6 +246,28 @@ def test_fixtures_carry_provenance_and_stay_small():
         )
 
     assert total <= MAX_FIXTURE_BYTES
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"run_url": "https://github.com/example/actions/runs/1"},
+        {"source_matches_attestation": True},
+        {"candidate_matches_bundle_inventory": True},
+        {"candidate_matches_recorded_issues": True},
+        {"recorded_verdict": "accepted"},
+        {"encoder_tree": "unresolved"},
+        {"run_id": "1"},
+        {"diagnostic_command": "invented"},
+        {"input_origins": {}},
+    ],
+)
+def test_local_diagnostic_cannot_claim_native_or_unbound_provenance(changes):
+    directory = FIXTURES / "local-schedule2-floor-20261113"
+    case = load_fixture(directory)
+    altered = dataclasses.replace(case, provenance={**case.provenance, **changes})
+    with pytest.raises(AssertionError):
+        _assert_local_diagnostic_provenance(directory, altered)
 
 
 def _copy_fixture(source: Path, tmp_path: Path) -> Path:
