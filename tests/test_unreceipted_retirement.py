@@ -1997,6 +1997,9 @@ def test_manifest_scan_recognition_matches_direct_schema_admission(schema_name):
                 schema_name
                 in {
                     "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+                    # A review record is new, so a Codex manifest with one
+                    # carries CLI provenance on either waiver shape.
+                    "_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
                     "_MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
                 }
                 and backend == "codex"
