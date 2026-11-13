@@ -61133,6 +61133,27 @@ def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> 
             "corpus path(s) not bound by resolver source_attestation: "
             + ", ".join(sorted(unattested_paths))
         )
+    if vars(result).get(_MANIFEST_ONLY_REFRESH_ATTR) is True:
+        expected = vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR)
+        if (
+            not isinstance(expected, str)
+            or re.fullmatch(r"[0-9a-f]{64}", expected) is None
+        ):
+            raise RuntimeError("Manifest refresh requires an immutable RuleSpec digest")
+        immutable_issue = _immutable_rulespec_digest_issue(result, output_file)
+        if immutable_issue:
+            raise RuntimeError(immutable_issue)
+        binding_issues = _source_attestation_binding_issues(
+            attestation, source_verification
+        )
+        if binding_issues:
+            raise RuntimeError(
+                "Cannot refresh manifest with unbound source verification: "
+                + "; ".join(binding_issues)
+            )
+        # Refresh revalidates historical bytes; even a semantically identical
+        # YAML reserialization would invalidate their original digest.
+        return
     if vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is True:
         binding_issues = _source_attestation_binding_issues(
             attestation,
