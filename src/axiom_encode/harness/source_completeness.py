@@ -503,6 +503,16 @@ _ROOT_CHAPEAU_TAIL_QUALIFIER = re.compile(
     r"article|subarticle|act|code|sentence|schedule)s?\b",
     flags=re.IGNORECASE,
 )
+_FIRST_NUMERIC_TAIL_QUALIFIER = re.compile(
+    r"\s*(?:of|in|under)\s+"
+    r"(?:(?:each\s+and\s+every|any\s+and\s+all|this|that|the|these|those|such|"
+    r"any|each|every|a|an|said|other|either|both|all|another|some|same|"
+    r"preceding|following)\s+)*"
+    r"(?:section|subsection|paragraph|subparagraph|clause|subclause|item|"
+    r"subitem|division|subdivision|part|subpart|chapter|subchapter|title|"
+    r"article|subarticle|act|code|sentence|schedule)s?\b",
+    flags=re.IGNORECASE,
+)
 _HEADED_FIRST_ALPHA_OUTLINE_MARKER = re.compile(
     r"[ \t]+(?i:(?:general|special)[ \t]+rules?|definitions?|in[ \t]+general)"
     r"[ \t]+(?P<marker>\(A\))(?=\s)"
@@ -4678,7 +4688,11 @@ def _root_chapeau_first_numeric_matches(
         for match in _FIRST_NUMERIC_ROOT_CHAPEAU.finditer(source_text)
     }
     reference_tail_starts = (
-        _root_chapeau_reference_tail_starts(source_text) if chapeaux else frozenset()
+        _root_chapeau_reference_tail_starts(
+            source_text, qualifier=_FIRST_NUMERIC_TAIL_QUALIFIER
+        )
+        if chapeaux
+        else frozenset()
     )
     command_starts = tuple(
         match.start() for match in _ROOT_CHAPEAU_REFERENCE_COMMAND.finditer(source_text)
@@ -4715,7 +4729,9 @@ def _root_chapeau_first_numeric_matches(
     return tuple(restored)
 
 
-def _root_chapeau_reference_tail_starts(source_text: str) -> frozenset[int]:
+def _root_chapeau_reference_tail_starts(
+    source_text: str, *, qualifier: re.Pattern[str] | None = None
+) -> frozenset[int]:
     """Index first labels whose immediate tail qualifies a legal reference.
 
     A chapeau alone cannot distinguish ``(1) eligible people`` from ``(1) and
@@ -4725,6 +4741,8 @@ def _root_chapeau_reference_tail_starts(source_text: str) -> frozenset[int]:
     rescanning a long failing suffix for every possible first label.
     """
 
+    if qualifier is None:
+        qualifier = _ROOT_CHAPEAU_TAIL_QUALIFIER
     labels = tuple(_ROOT_CHAPEAU_TAIL_LABEL.finditer(source_text))
     blocked: set[int] = set()
     pending: list[int] = []
@@ -4739,7 +4757,7 @@ def _root_chapeau_reference_tail_starts(source_text: str) -> frozenset[int]:
         tail_end = (
             labels[index + 1].start() if index + 1 < len(labels) else len(source_text)
         )
-        if _ROOT_CHAPEAU_TAIL_QUALIFIER.match(source_text, label.end(), tail_end):
+        if qualifier.match(source_text, label.end(), tail_end):
             blocked.update(pending)
             pending.clear()
         previous_end = label.end()
