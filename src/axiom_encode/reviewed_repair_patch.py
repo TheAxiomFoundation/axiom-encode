@@ -1310,6 +1310,7 @@ def apply_reviewed_repair(args) -> None:
             output_root=output_root,
             policy_repo_path=content_root,
             axiom_rules_path=engine,
+            axiom_rules_engine_ref=engine_ref,
             local_corpus_release=release,
             require_complete_source_unit=True,
             deferred_output_review_contract=review_contract,

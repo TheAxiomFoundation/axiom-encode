@@ -764,6 +764,7 @@ def test_command_preserves_validation_and_transaction_boundaries(
 
     def validate(result, **kwargs):
         calls.append("full-validation")
+        assert kwargs["axiom_rules_engine_ref"] == value["engine_ref"]
         assert kwargs["require_complete_source_unit"] is True
         assert kwargs["deferred_output_review_contract"].citation == value["citation"]
         setattr(
@@ -905,6 +906,26 @@ def test_actual_signed_guard_verifies_reconstruction_and_rejects_signed_wrong_po
     release = _bind_test_corpus_release(
         repo, corpus, citation_path=value["citation"], body="Reviewed source fixture.\n"
     )
+    subprocess.run(["git", "-C", str(corpus), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(corpus), "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(corpus),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.test",
+            "commit",
+            "-qm",
+            "Corpus fixture",
+        ],
+        check=True,
+    )
+    value["source"]["corpus_ref"] = subprocess.check_output(
+        ["git", "-C", str(corpus), "rev-parse", "HEAD"], text=True
+    ).strip()
     source = c.resolve_corpus_source_unit(value["citation"], release)
     source_hash = patch.sha256(source.body.encode())
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
@@ -1006,6 +1027,11 @@ def test_actual_signed_guard_verifies_reconstruction_and_rejects_signed_wrong_po
     class ControlledPipeline:
         def __init__(self, **kwargs):
             assert kwargs["require_policy_proofs"] is True
+            assert kwargs["axiom_rules_engine_ref"] == value["engine_ref"]
+            assert kwargs["execution_overlay_origin"] is not None
+            assert kwargs["execution_overlay_origin"].fresh(
+                kwargs["policy_repo_path"].parent
+            )
             assert kwargs["require_complete_source_unit"] is True
             assert kwargs["source_metadata"]["source_attestation"] == attestation
 
@@ -1018,6 +1044,17 @@ def test_actual_signed_guard_verifies_reconstruction_and_rejects_signed_wrong_po
 
     with monkeypatch.context() as scoped:
         scoped.setattr(c, "ValidatorPipeline", ControlledPipeline)
+        # This transport fixture does not execute or claim a verified engine.
+        # Real engine binding/capture is exercised by the separate runtime replay.
+        scoped.setattr(
+            c,
+            "_pinned_apply_engine_binding",
+            lambda *a: {
+                "ref": value["engine_ref"],
+                "binary": "fixture-only",
+                "sha256": "a" * 64,
+            },
+        )
         scoped.setattr(
             c,
             "_record_successful_apply_validation",
@@ -1028,6 +1065,7 @@ def test_actual_signed_guard_verifies_reconstruction_and_rejects_signed_wrong_po
             output_root=output_root,
             policy_repo_path=repo / "ca",
             axiom_rules_path=tmp_path / "engine",
+            axiom_rules_engine_ref=value["engine_ref"],
             local_corpus_release=release,
             validate_dependents=False,
             require_complete_source_unit=True,
@@ -1036,6 +1074,63 @@ def test_actual_signed_guard_verifies_reconstruction_and_rejects_signed_wrong_po
         assert len(reached) == 2 and reached[-1] == "snapshot"
         assert generated.read_bytes() == post[0]
         assert generated.with_suffix(".test.yaml").read_bytes() == post[1]
+        helper_args = dict(
+            policy_content_root=repo / "ca",
+            relative_output=c.Path(target.split("/", 1)[1]),
+            output_file=generated,
+            output_test=generated.with_suffix(".test.yaml"),
+            generated_root=output_root / "reviewed-repair",
+            local_corpus_release=release,
+            expected_engine_binding={"ref": value["engine_ref"]},
+        )
+        assert c._verified_registered_repair_overlay_origin(
+            result, **helper_args
+        ).fresh()
+        # Labels cannot grant the registered capability.
+        assert (
+            c._verified_registered_repair_overlay_origin(
+                SimpleNamespace(**vars(result)), **helper_args
+            )
+            is None
+        )
+        for altered in (
+            replace(result, citation="ca/policy/other"),
+            replace(result, review_binding={}),
+            replace(
+                result, source_attestation={**attestation, "source_sha256": "0" * 64}
+            ),
+            replace(
+                result,
+                source_attestation={**attestation, "generation_input_sha256": "0" * 64},
+            ),
+        ):
+            with pytest.raises(ValueError):
+                c._verified_registered_repair_overlay_origin(altered, **helper_args)
+        for altered_args in (
+            {"expected_engine_binding": None},
+            {"expected_engine_binding": {"ref": "0" * 40}},
+            {"relative_output": c.Path("policies/other.yaml")},
+            {"generated_root": tmp_path / "unrelated-output"},
+        ):
+            with pytest.raises((ValueError, OSError)):
+                c._verified_registered_repair_overlay_origin(
+                    result, **{**helper_args, **altered_args}
+                )
+        for artifact in (generated, generated.with_suffix(".test.yaml")):
+            original = artifact.read_bytes()
+            artifact.write_bytes(original + b"\n")
+            try:
+                with pytest.raises(ValueError, match="exact postimage"):
+                    c._verified_registered_repair_overlay_origin(result, **helper_args)
+            finally:
+                artifact.write_bytes(original)
+        original_base = (repo / target).read_bytes()
+        (repo / target).write_bytes(original_base + b"\n")
+        try:
+            with pytest.raises(ValueError, match="strictly clean"):
+                c._verified_registered_repair_overlay_origin(result, **helper_args)
+        finally:
+            (repo / target).write_bytes(original_base)
         # Explicit context mismatch must refuse before reaching the pipeline.
         context.write_text(
             json.dumps(
@@ -1050,6 +1145,7 @@ def test_actual_signed_guard_verifies_reconstruction_and_rejects_signed_wrong_po
             output_root=output_root,
             policy_repo_path=repo / "ca",
             axiom_rules_path=tmp_path / "engine",
+            axiom_rules_engine_ref=value["engine_ref"],
             local_corpus_release=release,
             validate_dependents=False,
             require_complete_source_unit=True,
