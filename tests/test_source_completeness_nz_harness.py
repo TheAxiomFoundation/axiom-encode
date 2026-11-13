@@ -163,14 +163,17 @@ def test_unrelated_would_apply_clause_retains_actual_eligibility_gates():
 )
 def test_non_german_clause_reference_retains_base_sentence_fallback(citation: str):
     # No complete outline: exercise the fallback independently of table parsing.
+    # U.S. sources no longer read German glued sentence markers (`6AA`, `6B`),
+    # so only the other jurisdictions keep base's sentence fallback.
     source = "The rate in clauses 1 to 6AA applies. 6B identifies the specified person."
-    assert [
+    sentences = [
         branch
         for branch in sc.recognize_source_structure(
             source, corpus_citation_path=citation
         )
         if branch.kind == "sentence"
     ]
+    assert bool(sentences) is not citation.startswith("us/")
     assert "6AA" not in sc.authoritative_numeric_recall_text(
         "The category 6AA is unchanged.", corpus_citation_path=citation
     )

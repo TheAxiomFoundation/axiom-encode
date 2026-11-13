@@ -1,0 +1,108 @@
+- name: personal_tax_2025_second_bracket
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-ri:policies/tax/adv-2025-22/page-2#input.personal_taxable_income_2025: 100000
+  output:
+    us-ri:policies/tax/adv-2025-22/page-2#personal_income_tax_2025: 3951
+- name: personal_tax_2025_third_bracket
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-ri:policies/tax/adv-2025-22/page-2#input.personal_taxable_income_2025: 200000
+  output:
+    us-ri:policies/tax/adv-2025-22/page-2#personal_income_tax_2025: 8928.545
+- name: personal_tax_2026
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-ri:policies/tax/adv-2025-22/page-2#input.personal_taxable_income_2026: 200000
+  output:
+    us-ri:policies/tax/adv-2025-22/page-2#personal_income_tax_2026: 8847.525
+- name: trust_tax_2026
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-ri:policies/tax/adv-2025-22/page-2#input.fiduciary_taxable_income_2026: 12000
+  output:
+    us-ri:policies/tax/adv-2025-22/page-2#trust_estate_income_tax_2026: 556.225
+- name: personal_tax_2026_first_bracket
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-ri:policies/tax/adv-2025-22/page-2#input.personal_taxable_income_2026: 40000
+  output:
+    us-ri:policies/tax/adv-2025-22/page-2#personal_income_tax_2026: 1500
+- name: personal_tax_2026_second_bracket
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-ri:policies/tax/adv-2025-22/page-2#input.personal_taxable_income_2026: 100000
+  output:
+    us-ri:policies/tax/adv-2025-22/page-2#personal_income_tax_2026: 3929.505
+- name: trust_tax_2025_first_bracket
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-ri:policies/tax/adv-2025-22/page-2#input.fiduciary_taxable_income_2025: 2000
+  output:
+    us-ri:policies/tax/adv-2025-22/page-2#trust_estate_income_tax_2025: 75
+- name: trust_tax_2025_second_bracket
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-ri:policies/tax/adv-2025-22/page-2#input.fiduciary_taxable_income_2025: 5000
+  output:
+    us-ri:policies/tax/adv-2025-22/page-2#trust_estate_income_tax_2025: 205.5
+- name: trust_tax_2026_first_bracket
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-ri:policies/tax/adv-2025-22/page-2#input.fiduciary_taxable_income_2026: 2000
+  output:
+    us-ri:policies/tax/adv-2025-22/page-2#trust_estate_income_tax_2026: 75
+- name: trust_tax_2026_second_bracket
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-ri:policies/tax/adv-2025-22/page-2#input.fiduciary_taxable_income_2026: 5000
+  output:
+    us-ri:policies/tax/adv-2025-22/page-2#trust_estate_income_tax_2026: 204.5
+- name: personal_tax_2025_first_bracket
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-ri:policies/tax/adv-2025-22/page-2#input.personal_taxable_income_2025: 40000
+  output:
+    us-ri:policies/tax/adv-2025-22/page-2#personal_income_tax_2025: 1500
+- name: trust_tax_2025
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-ri:policies/tax/adv-2025-22/page-2#input.fiduciary_taxable_income_2025: 12000
+  output:
+    us-ri:policies/tax/adv-2025-22/page-2#trust_estate_income_tax_2025: 560.32
