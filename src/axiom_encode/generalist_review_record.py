@@ -396,22 +396,22 @@ def generalist_review_record_issues(
     if not isinstance(record, dict):
         return ["generalist_review is not an object"]
     if frozenset(record) != _RECORD_FIELDS:
-        return ["generalist_review does not match the exact v1 field set"]
-    issues: list[str] = []
+        return ["generalist_review has an unexpected field set"]
+    problems: list[str] = []
     if record["schema"] != GENERALIST_REVIEW_SCHEMA:
-        issues.append("generalist_review schema is unsupported")
+        problems.append("generalist_review schema is unsupported")
     status = record["status"]
     reason = record["reason"]
     if not isinstance(status, str) or status not in STATUSES:
-        return issues + ["generalist_review status is unsupported"]
+        return problems + ["generalist_review status is unsupported"]
     if not (reason is None or isinstance(reason, str)) or (
         reason not in _REASONS_BY_STATUS[status]
     ):
-        issues.append("generalist_review reason does not match its status")
+        problems.append("generalist_review reason does not match its status")
     if not isinstance(record["required"], bool):
-        issues.append("generalist_review required is not a boolean")
+        problems.append("generalist_review required is not a boolean")
     elif record["required"] and status != STATUS_PASSED:
-        issues.append(
+        problems.append(
             "generalist_review was required but the recorded status is " + status
         )
 
@@ -429,7 +429,7 @@ def generalist_review_record_issues(
         or not isinstance(applied_block, dict)
         or frozenset(applied_block) != _APPLIED_FIELDS
     ):
-        return issues + ["generalist_review has a malformed nested object"]
+        return problems + ["generalist_review has a malformed nested object"]
 
     backend = reviewer["backend"]
     model = reviewer["model"]
@@ -445,7 +445,7 @@ def generalist_review_record_issues(
             )
         )
     ):
-        issues.append("generalist_review reviewer identity is malformed")
+        problems.append("generalist_review reviewer identity is malformed")
 
     passed = verdict["passed"]
     score = verdict["score"]
@@ -453,9 +453,9 @@ def generalist_review_record_issues(
     prompt_sha256 = record["prompt_sha256"]
     content_complete = reviewed["content_complete"]
     if isinstance(issue_count, bool) or not isinstance(issue_count, int):
-        issues.append("generalist_review issue_count is not an integer")
+        problems.append("generalist_review issue_count is not an integer")
     elif issue_count < 0:
-        issues.append("generalist_review issue_count is negative")
+        problems.append("generalist_review issue_count is negative")
 
     scored = reason in {None, REASON_CONTENT_NOT_APPLIED}
     if not scored:
@@ -470,10 +470,10 @@ def generalist_review_record_issues(
             or backend is not None
             or model is not None
         ):
-            issues.append(
+            problems.append(
                 "generalist_review carries a verdict for a review that has none"
             )
-        return issues
+        return problems
 
     if (
         not isinstance(passed, bool)
@@ -485,26 +485,26 @@ def generalist_review_record_issues(
         or not _is_sha256(reviewed["test_content_sha256"])
         or not (content_complete is None or isinstance(content_complete, bool))
     ):
-        return issues + ["generalist_review scored verdict is malformed"]
+        return problems + ["generalist_review scored verdict is malformed"]
     if passed and float(score) < PASS_SCORE_THRESHOLD:
-        issues.append("generalist_review verdict passes below the pass threshold")
+        problems.append("generalist_review verdict passes below the pass threshold")
     if status == STATUS_PASSED and not passed:
-        issues.append("generalist_review status passed contradicts its verdict")
+        problems.append("generalist_review status passed contradicts its verdict")
     if status == STATUS_FAILED and passed:
-        issues.append("generalist_review status failed contradicts its verdict")
+        problems.append("generalist_review status failed contradicts its verdict")
     if status == STATUS_UNAVAILABLE:
         if any(applied_block[field] is not None for field in _DIGEST_FIELDS):
-            issues.append(
+            problems.append(
                 "generalist_review says the reviewed content was not applied, "
                 "but names an applied file"
             )
-        return issues
+        return problems
     manifest_digests = {digest for digest in applied_sha256s if _is_sha256(digest)}
     if (
         applied_block["rulespec_content_sha256"] != reviewed["rulespec_content_sha256"]
         or applied_block["test_content_sha256"] != reviewed["test_content_sha256"]
     ):
-        issues.append(
+        problems.append(
             "generalist_review verdict is on content that differs from the "
             "applied content"
         )
@@ -515,10 +515,10 @@ def generalist_review_record_issues(
             and applied_block["test_content_sha256"] == _ABSENT_TEST_CONTENT_SHA256
         )
     ):
-        issues.append(
+        problems.append(
             "generalist_review verdict is not bound to the applied file digests"
         )
-    return issues
+    return problems
 
 
 def require_review_setting(

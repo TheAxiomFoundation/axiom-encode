@@ -1640,6 +1640,8 @@ _SCAN_SCHEMA_NAMES = (
     "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
     "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
     "_REVIEWED_CANDIDATE_PER_FILE_WAIVER_MANIFEST_FIELDS",
+    "_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+    "_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
 )
 # Independent audited sets: adding a field requires an explicit classification.
 _EXPECTED_COMMON_SCANNED = frozenset(
@@ -1768,6 +1770,22 @@ for _set_name, _per_file_name in (
         _EXPECTED_MANIFEST_CLASSES[_set_name][0],
         (_EXPECTED_MANIFEST_CLASSES[_set_name][1] - {"validation_waiver_set_sha256"})
         | {"validation_waiver_bindings"},
+    )
+# Generalist review record variants (#2146): the per-file model shapes plus the
+# record, which is scanned. It holds digests and enumerated words only.
+for _per_file_name, _review_name in (
+    (
+        "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+        "_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+    ),
+    (
+        "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+        "_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+    ),
+):
+    _EXPECTED_MANIFEST_CLASSES[_review_name] = (
+        _EXPECTED_MANIFEST_CLASSES[_per_file_name][0],
+        _EXPECTED_MANIFEST_CLASSES[_per_file_name][1] | {"generalist_review"},
     )
 _EXPECTED_DESCRIPTIVE_FIELDS = frozenset({"reason", "run_id", "runner", "model"})
 _SCAN_SCHEMAS = {name: getattr(cli, name) for name in _SCAN_SCHEMA_NAMES}
@@ -1960,13 +1978,18 @@ def test_manifest_scan_recognition_matches_direct_schema_admission(schema_name):
                 in {
                     "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
                     "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+                    "_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
                 }
                 and backend != "codex"
             )
             or (
                 # A per-file Codex manifest must carry CLI provenance; only
                 # historical set-digest Codex receipts may omit it.
-                schema_name == "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS"
+                schema_name
+                in {
+                    "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+                    "_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+                }
                 and backend == "codex"
             )
         )
