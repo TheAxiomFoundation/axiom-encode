@@ -3,8 +3,11 @@
 Status: **design, not decided; nothing is active.** This document and the
 evaluator in `src/axiom_encode/content_merge_guard.py` implement no gate. No
 workflow runs the evaluator, no check run is written, no GitHub App exists, no
-branch protection changes, and no manifest reader or writer knows the schema the
-evaluator parses. Every promotion still uses the order in
+branch protection changes, and no manifest writer knows the schema the
+evaluator parses. A reader for that schema exists
+(`src/axiom_encode/applied_manifest_v6.py`, change 2 of §8) and is switched
+off: `V6_READER_ENABLED` is `False`, so every verifier still refuses a v6
+manifest. Every promotion still uses the order in
 `docs/reviewed-pr-promotion.md`. Tracking issue: #2172.
 
 The binding requirements are the "Maintainer decisions (2026-11-12)" in
@@ -405,10 +408,44 @@ test pins its field sets to the live v5 promotion contract in `cli.py`. The
 shape has no run attempt; adding `run_attempt` would let the guard bind one
 (open question 13).
 
-Still to do in later changes: verifiers accept `{v5, v6}` and require the
-block's exact shape; the promotion writer emits v6. A verifier pinned before
-that change rejects v6, so no v6 manifest can pass `validate / validate` until
-`rulespec-us` bumps its encoder pin. That is a built-in ordering gate.
+### Reader (change 2, present and switched off)
+
+`applied_manifest_v6.py` holds the reader contract and one switch,
+`V6_READER_ENABLED`, which is `False`. The switch is a constant on encoder
+main. It has no environment variable, flag or repository setting, so a
+RuleSpec PR or workflow cannot turn it.
+
+- **Off (today):** a manifest labelled v6 is "not an encoder apply manifest"
+  for every reader, as before the change.
+- **On:** two readers admit the v6 label, and only for the promotion contract
+  (the promotion tool, no `backend` key): the top-level verified loader
+  (`_load_verified_applied_encoding_manifest_payload`) and the immutable-base
+  claim reader (`_guard_base_manifest_claims`). They then require a valid
+  signature, the exact v6 field set, the exact `attestation_scope` shape, and
+  `candidate.head_sha == candidate_rulespec_ref`. Producer, validation
+  execution, source and waiver checks are those of the v5 promotion contract.
+- **Never, also when on:** a v6 manifest nested in a retirement, migration or
+  replacement receipt, or read as historical evidence.
+- A verifier works offline. It does not compare the named PR, author or
+  dispatcher with GitHub; the merge guard does (§3 steps 4 and 6).
+- `owner_review_state` returns `none` for v6 and `before-signing` for the
+  earlier lane, so a caller can distinguish validation from approval (D1).
+- **Boundary:** only a manifest labelled v6 takes these paths. A change that
+  carries no manifest (workflows, pins, ledgers, tooling, ProgramSpec) reaches
+  no reader of this change, with the switch on or off.
+
+Not read as v6 yet: `_canonical_replacement_baseline` (preservation context
+for a later re-encode of the module), `prepare_signed_backfill.py`, the
+canonical-refresh selection in `targeted-signed-reencode.yml`, and
+`supabase_sync.py` telemetry. They treat a v6 manifest as absent or foreign.
+They matter only after a v6 module is on `main`, and belong to change 5. The
+unreceipted-retirement scan has no v6 field class, so it scans every string of
+a v6 manifest, which is the conservative reading.
+
+Still to do in later changes: turn the switch on (change 2b); the promotion
+writer emits v6. A verifier pinned before change 2b rejects v6, so no v6
+manifest can pass `validate / validate` until `rulespec-us` bumps its encoder
+pin. That is a built-in ordering gate.
 
 ### Encoder (behind a switch that the activation change flips)
 
@@ -516,7 +553,8 @@ Implementation comes strictly before activation.
 | # | Repo | Change | Rollback |
 |---|---|---|---|
 | 1 | axiom-encode | This change: evaluator, `merge-guard` CLI, tests, CODEOWNERS, this document. Nothing calls it | revert |
-| 2 | axiom-encode | Verifiers admit `applied-rulespec/v6` with the attestation scope; no writer | revert; no v6 exists |
+| 2 | axiom-encode | Verifiers can read `applied-rulespec/v6` with the attestation scope, behind `V6_READER_ENABLED = False`; no writer | revert; no v6 exists |
+| 2b | axiom-encode | Set `V6_READER_ENABLED = True`. May ride with change 3 | set it back; no v6 exists |
 | 3 | axiom-encode | Workflow that runs the guard from `main` and publishes its check, with a dry-run mode | disable the workflow |
 | 4 | rulespec-us | Pin the encoder that verifies v6 | revert the pin |
 | 5 | axiom-encode | Emit v6 and admit without approval, behind a default-off switch | revert |
@@ -529,7 +567,8 @@ can do them.
 
 1. **M** Create the guard App, install it on `rulespec-us`, and store its key in
    an axiom-encode environment restricted to branch `main`.
-2. Merge changes 1-4. Publish the check in shadow mode: visible, not required.
+2. Merge changes 1-4, including 2b. Publish the check in shadow mode: visible,
+   not required.
 3. Run cases 15-18 live on a throwaway PR and confirm every verdict.
 4. **M** Add the guard's check with the guard App's `app_id` to the required
    checks on `rulespec-us` main, only after question 0 of §10 is decided: under

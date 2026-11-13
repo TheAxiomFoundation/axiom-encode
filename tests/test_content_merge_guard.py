@@ -2055,7 +2055,15 @@ def test_nothing_in_the_encoder_calls_the_guard():
             or "merge-guard" in path.read_text(errors="ignore")
         )
     ]
-    assert callers == ["src/axiom_encode/cli.py"]
+    # applied_manifest_v6.py names the merge requirement a v6 manifest must
+    # carry (a string constant). It does not import or call the guard.
+    assert sorted(callers) == [
+        "src/axiom_encode/applied_manifest_v6.py",
+        "src/axiom_encode/cli.py",
+    ]
+    reader = (root / "src/axiom_encode/applied_manifest_v6.py").read_text()
+    assert "import content_merge_guard" not in reader
+    assert "content_merge_guard." not in reader
 
 
 # --- CLI --------------------------------------------------------------------
