@@ -2790,6 +2790,20 @@ def main():
         )
     )
 
+    merge_guard_parser = subparsers.add_parser(
+        "merge-guard",
+        help=(
+            "Evaluate one RuleSpec pull request against the content-bound "
+            "merge guard (inactive; prints a verdict, writes nothing)"
+        ),
+    )
+    merge_guard_parser.add_argument(
+        "--repository",
+        required=True,
+        help="RuleSpec repository short name, for example rulespec-us",
+    )
+    merge_guard_parser.add_argument("--pr", required=True, type=int)
+
     admission_registry_parser = subparsers.add_parser(
         "admission-registry",
         help=(
@@ -4347,6 +4361,10 @@ def main():
         from axiom_encode.notary.merge_guard import command as notary_guard_command
 
         raise SystemExit(notary_guard_command(args))
+    elif args.command == "merge-guard":
+        from axiom_encode.content_merge_guard import command as merge_guard_command
+
+        raise SystemExit(merge_guard_command(args))
     elif args.command == "migrate-retired-source-metadata":
         cmd_migrate_retired_source_metadata(args)
     elif args.command == "guard-generated":
