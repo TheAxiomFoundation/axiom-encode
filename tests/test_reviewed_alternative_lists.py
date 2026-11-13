@@ -6,6 +6,8 @@ See ``docs/reviewed-alternative-lists.md``.
 from __future__ import annotations
 
 import copy
+import dataclasses
+import datetime
 import json
 import tomllib
 from importlib.resources import files
@@ -119,29 +121,99 @@ def test_the_digest_covers_the_text_that_the_check_scans(monkeypatch, capsys):
     assert "from axiom_encode.harness.reviewed_alternative_lists import main" in script
 
 
-def test_no_entry_waits_for_an_owner_review_outside_a_draft():
-    """An owner writes their login into ``reviewer`` before the PR is ready.
+OWNER_TEST = (
+    "tests/test_reviewed_alternative_lists.py::"
+    "test_every_entry_has_an_owner_review_outside_a_draft"
+)
+
+
+def test_every_entry_has_an_owner_review_outside_a_draft():
+    """A code owner signs each entry before the PR is ready.
 
     A local run and a draft pull request may hold pending entries, so that the
-    author can show the effect. A pull request that is ready for review, the
-    merge queue and a push to main may not.
+    author can show the effect. Every other run in GitHub Actions may not. A
+    signed entry must name a code owner of the registry file, with a date that
+    is not in the future, in every run.
     """
 
     entries = registry.load_reviewed_alternative_lists()
-    pending = [
-        entry.citation_path
-        for entry in entries
-        if entry.reviewer == registry.PENDING_REVIEWER
-    ]
     for entry in entries:
-        assert (entry.reviewed_at is None) == (entry.citation_path in pending)
         assert entry.author.strip()
         assert entry.not_examined and entry.owner_must_verify
-    if registry.owner_review_is_required():
-        assert pending == [], (
-            "an owner must check these entries against the source text and "
-            "replace the pending marker with their GitHub login: " + ", ".join(pending)
+    problems = registry.owner_review_problems(
+        entries,
+        codeowners_text=(ROOT / ".github" / "CODEOWNERS").read_text(),
+        today=datetime.date.today(),
+        review_required=registry.owner_review_is_required(),
+    )
+    assert problems == []
+
+
+def test_an_owner_review_names_a_code_owner_and_a_past_date():
+    codeowners = (ROOT / ".github" / "CODEOWNERS").read_text()
+    owners = registry.registry_code_owners(codeowners)
+    assert owners == {"@PavelMakarchuk", "@MaxGhenis"}
+    today = datetime.date(2026, 11, 14)
+    pending = registry.load_reviewed_alternative_lists()[0]
+    assert pending.reviewer == registry.PENDING_REVIEWER
+
+    def problems(entry, *, required=True, text=codeowners):
+        return registry.owner_review_problems(
+            (entry,), codeowners_text=text, today=today, review_required=required
         )
+
+    def signed(reviewer, reviewed_at):
+        return dataclasses.replace(pending, reviewer=reviewer, reviewed_at=reviewed_at)
+
+    assert problems(pending, required=False) == []
+    assert len(problems(pending)) == 1
+    for owner in sorted(owners):
+        assert problems(signed(owner, "2026-11-14")) == []
+        assert problems(signed(owner, "2026-11-01"), required=False) == []
+        # A date in the future is not a review.
+        assert len(problems(signed(owner, "2026-11-15"))) == 1
+        assert len(problems(signed(owner, "2999-01-01"), required=False)) == 1
+        assert len(problems(signed(owner, None))) == 1
+    # A login that is not a code owner of the registry file is not a review,
+    # in a draft too.
+    for stranger in (
+        "@x",
+        "@claude-fable-5-2",
+        "@pending-owner-review",
+        "@pavelmakarchuk",
+    ):
+        entry = signed(stranger, "2026-11-14")
+        assert len(problems(entry)) == 1
+        assert len(problems(entry, required=False)) == 1
+    # Without a CODEOWNERS line for the registry file nobody is an owner.
+    owner = sorted(owners)[0]
+    for text in (
+        "",
+        "/src/axiom_encode/harness/reviewed_alternative_lists.py " + owner + "\n",
+        "# /src/axiom_encode/harness/" + registry.REGISTRY_PATH + " " + owner + "\n",
+        "/src/axiom_encode/harness/" + registry.REGISTRY_PATH + "\n",
+    ):
+        assert registry.registry_code_owners(text) == frozenset()
+        assert len(problems(signed(owner, "2026-11-14"), text=text)) == 1
+    # The last matching line wins, and a trailing comment is not an owner.
+    path = "/src/axiom_encode/harness/" + registry.REGISTRY_PATH
+    assert registry.registry_code_owners(
+        f"{path} @first\n{path} @second @third # @fourth\n"
+    ) == {"@second", "@third"}
+
+
+def test_a_registry_line_with_a_repeated_key_is_rejected():
+    line = _committed_text().splitlines()[0]
+    assert line.startswith('{"citation_path":')
+    repeated = '{"reason":"first",' + line[1:]
+    assert json.loads(repeated)["reason"] == json.loads(line)["reason"]
+    with pytest.raises(ValueError, match="repeats a JSON key"):
+        registry.parse_reviewed_alternative_lists(repeated)
+    # A nested object too.
+    nested = line.replace('"chapeau":{', '"chapeau":{"physical_start":0,', 1)
+    assert nested != line
+    with pytest.raises(ValueError, match="repeats a JSON key"):
+        registry.parse_reviewed_alternative_lists(nested)
 
 
 def _event(tmp_path, payload) -> str:
@@ -153,10 +225,47 @@ def _event(tmp_path, payload) -> str:
 @pytest.mark.parametrize(
     ("environ", "payload", "required"),
     [
-        # Local runs and manual dispatches.
+        # A local run.
         ({}, None, False),
-        ({"GITHUB_EVENT_NAME": "workflow_dispatch"}, None, False),
-        ({"GITHUB_EVENT_NAME": "schedule"}, None, False),
+        ({"GITHUB_ACTIONS": "false"}, None, False),
+        # GitHub Actions: every event but a draft pull request is gated. A
+        # dispatched run attaches its checks to the branch head.
+        ({"GITHUB_ACTIONS": "true"}, None, True),
+        (
+            {"GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "workflow_dispatch"},
+            None,
+            True,
+        ),
+        (
+            {
+                "GITHUB_ACTIONS": "true",
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "GITHUB_REF": "refs/heads/main",
+            },
+            None,
+            True,
+        ),
+        (
+            {
+                "GITHUB_ACTIONS": "true",
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "GITHUB_REF": "refs/heads/fix/branch",
+            },
+            {"pull_request": {"draft": True}},
+            True,
+        ),
+        ({"GITHUB_EVENT_NAME": "workflow_dispatch"}, None, True),
+        ({"GITHUB_EVENT_NAME": "schedule"}, None, True),
+        (
+            {"GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "pull_request"},
+            {"pull_request": {"draft": True}},
+            False,
+        ),
+        (
+            {"GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "pull_request"},
+            {"pull_request": {"draft": False}},
+            True,
+        ),
         # Pull requests: only a draft may wait.
         (
             {"GITHUB_EVENT_NAME": "pull_request"},
@@ -188,9 +297,9 @@ def _event(tmp_path, payload) -> str:
         (
             {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/fix/branch"},
             None,
-            False,
+            True,
         ),
-        ({"GITHUB_EVENT_NAME": "push"}, None, False),
+        ({"GITHUB_EVENT_NAME": "push"}, None, True),
     ],
 )
 def test_the_owner_review_gate_follows_the_draft_gate(
@@ -213,7 +322,10 @@ def test_the_owner_review_gate_reads_the_process_environment(tmp_path, monkeypat
     )
     assert registry.owner_review_is_required() is False
     monkeypatch.delenv("GITHUB_EVENT_NAME")
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     assert registry.owner_review_is_required() is False
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert registry.owner_review_is_required() is True
 
 
 def test_the_draft_gate_of_ci_reads_the_same_event_field():

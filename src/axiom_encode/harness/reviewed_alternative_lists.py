@@ -217,11 +217,22 @@ class ReviewedAlternativeList:
         )
 
 
+def _object_without_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Build one JSON object; a repeated key is an error, not a last-wins value."""
+
+    value = dict(pairs)
+    if len(value) != len(pairs):
+        raise ValueError("a registry line repeats a JSON key")
+    return value
+
+
 def parse_reviewed_alternative_lists(raw: str) -> tuple[ReviewedAlternativeList, ...]:
     """Parse registry text. Any malformed or duplicate entry is an error."""
 
     entries = tuple(
-        ReviewedAlternativeList.from_mapping(json.loads(line))
+        ReviewedAlternativeList.from_mapping(
+            json.loads(line, object_pairs_hook=_object_without_duplicate_keys)
+        )
         for line in raw.splitlines()
         if line
     )
@@ -272,26 +283,81 @@ def reviewed_alternative_lists_for(
 def owner_review_is_required(environ: Mapping[str, str] | None = None) -> bool:
     """Say whether a pending owner review must fail in this run.
 
-    It follows the draft gate of ``.github/workflows/ci.yml``: a draft pull
-    request and a local run may hold pending entries. A pull request that is
-    ready for review, the merge queue and a push to ``main`` may not. A pull
+    A local run may hold pending entries, and so may a draft pull request, so
+    that the author can show the effect first. Every other run in GitHub
+    Actions requires the owner review: a pull request that is ready for
+    review, the merge queue, a push, and a manually dispatched run (which
+    attaches its checks to the branch head like a pull request run). A pull
     request whose event payload cannot be read counts as ready.
     """
 
     environ = os.environ if environ is None else environ
     event = environ.get("GITHUB_EVENT_NAME", "")
-    if event == "merge_group":
-        return True
-    if event == "push":
-        return environ.get("GITHUB_REF", "") == "refs/heads/main"
-    if event not in {"pull_request", "pull_request_target"}:
+    if environ.get("GITHUB_ACTIONS") != "true" and not event:
         return False
+    if event not in {"pull_request", "pull_request_target"}:
+        return True
     try:
         with open(environ["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
             draft = json.load(handle)["pull_request"]["draft"]
     except Exception:
         return True
     return draft is not True
+
+
+def registry_code_owners(codeowners_text: str) -> frozenset[str]:
+    """Return the logins on the registry file's CODEOWNERS line.
+
+    The result is empty when the file has no line for the registry, so that no
+    reviewer can then count as an owner.
+    """
+
+    path = "/src/axiom_encode/harness/" + REGISTRY_PATH
+    owners: frozenset[str] = frozenset()
+    for line in codeowners_text.splitlines():
+        fields = line.split("#", 1)[0].split()
+        if fields and fields[0] == path:
+            # The last matching line wins, as in GitHub.
+            owners = frozenset(
+                field for field in fields[1:] if _GITHUB_LOGIN.fullmatch(field)
+            )
+    return owners
+
+
+def owner_review_problems(
+    entries: tuple[ReviewedAlternativeList, ...],
+    *,
+    codeowners_text: str,
+    today: date,
+    review_required: bool,
+) -> list[str]:
+    """List what is wrong with the owner reviews of the entries.
+
+    A review counts only when ``reviewer`` is a code owner of the registry
+    file and ``reviewed_at`` is not in the future. A pending review is a
+    problem only when ``review_required`` is true.
+    """
+
+    owners = registry_code_owners(codeowners_text)
+    problems = []
+    for entry in entries:
+        if entry.reviewer == PENDING_REVIEWER:
+            if review_required:
+                problems.append(
+                    f"{entry.citation_path}: an owner must check the entry against "
+                    "the source text and write their GitHub login into `reviewer`"
+                )
+        elif entry.reviewer not in owners:
+            problems.append(
+                f"{entry.citation_path}: reviewer {entry.reviewer} is not a code "
+                "owner of the registry file"
+            )
+        elif entry.reviewed_at is None or date.fromisoformat(entry.reviewed_at) > today:
+            problems.append(
+                f"{entry.citation_path}: reviewed_at {entry.reviewed_at} is missing "
+                "or in the future"
+            )
+    return problems
 
 
 def main(argv: list[str] | None = None) -> int:

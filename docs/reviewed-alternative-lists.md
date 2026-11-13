@@ -98,11 +98,18 @@ reading, checks the candidate encoding against `owner_must_verify`, then
 replaces the marker with their GitHub login (`@name`) and sets `reviewed_at`,
 in the same pull request.
 
-CI enforces this. `tests/test_reviewed_alternative_lists.py` fails on any
-pending entry when the run is a pull request that is ready for review, the
-merge queue, or a push to `main`. It passes locally and on a draft pull
-request, so the author can show the replay effect first. The pull request
-cannot leave draft with a green suite until an owner has signed every entry.
+CI enforces this. The test
+`tests/test_reviewed_alternative_lists.py::test_every_entry_has_an_owner_review_outside_a_draft`
+fails on any pending entry in every GitHub Actions run except a draft pull
+request: a pull request that is ready for review, the merge queue, a push, and
+a manually dispatched run. It passes locally and on a draft pull request, so
+the author can show the replay effect first. A signed entry must name a login
+from the registry file's line in `.github/CODEOWNERS`, with a `reviewed_at`
+date that is not in the future; this holds in every run.
+
+Consequence: a manually dispatched full-suite run on a branch with a pending
+entry (`gh workflow run CI --ref <branch>`) shows exactly one expected failure,
+that test, until an owner signs. Any other failure in such a run is a real one.
 
 1. Confirm the false refusal. The finding quotes the source clause and its
    facts. The candidate must encode the alternatives as alternatives.
