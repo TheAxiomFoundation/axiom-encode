@@ -37057,6 +37057,7 @@ class ValidatorPipeline:
         rules_file: Path | None = None,
         proof_source_texts: Mapping[str, str | None] | None = None,
         execution_evidence: SameCaseEvidence | None = None,
+        local_relation_context: object | None = None,
     ) -> list[str]:
         """Apply opt-in completeness checks to the resolver-owned corpus body."""
 
@@ -37121,6 +37122,7 @@ class ValidatorPipeline:
             content,
             authoritative_source_text or "",
             execution_evidence=execution_evidence,
+            local_relation_context=local_relation_context,
             referral_context=collect_referral_context(
                 self, content, rules_file, proof_source_texts
             )
@@ -37764,6 +37766,7 @@ class ValidatorPipeline:
             cwd=self.axiom_rules_path if self.axiom_rules_path.exists() else None,
             env=self._rulespec_engine_env(),
             composed=is_composition,
+            _execution_owner=self,
         )
         if result.returncode != 0:
             return result, None
@@ -39042,8 +39045,13 @@ class ValidatorPipeline:
         }
         command = [str(binary), "run-compiled", "--artifact", str(compiled_path)]
         try:
-            result = subprocess.run(
+            from .local_case_custody import run_observed_case
+
+            result = run_observed_case(
                 command,
+                pipeline=self,
+                case=case,
+                ordinal=case_index,
                 input=json.dumps(request),
                 capture_output=True,
                 text=True,
@@ -39535,9 +39543,16 @@ class ValidatorPipeline:
         self._register_validation_temporary_root(tmpdir)
         try:
             compiled_path = tmpdir / "compiled.json"
-            compile_result, payload = execution_pipeline._compile_rulespec_to_artifact(
-                execution_file, compiled_path
-            )
+            from .local_compile_custody import compile_scope
+
+            with compile_scope(
+                execution_capture, execution_pipeline, execution_file, compiled_path
+            ):
+                compile_result, payload = (
+                    execution_pipeline._compile_rulespec_to_artifact(
+                        execution_file, compiled_path
+                    )
+                )
             raw_output = compile_result.stdout + compile_result.stderr
             if compile_result.returncode != 0:
                 detail = compile_result.stderr.strip() or compile_result.stdout.strip()
@@ -39847,8 +39862,17 @@ class ValidatorPipeline:
                         find_zero_branch_test_coverage_issues(content, payload)
                     )
                     if len(issues) == pre_test_issue_count:
-                        issues.extend(
-                            execution_pipeline._run_rulespec_test_cases(
+                        from .local_case_custody import suite_scope
+
+                        with suite_scope(
+                            execution_capture,
+                            execution_pipeline,
+                            execution_file,
+                            compiled_path,
+                            compiled_payload,
+                            payload,
+                        ) as observed_suite:
+                            case_issues = execution_pipeline._run_rulespec_test_cases(
                                 rules_file=execution_file,
                                 compiled_path=compiled_path,
                                 compiled_payload=compiled_payload,
@@ -39859,22 +39883,38 @@ class ValidatorPipeline:
                                     else {}
                                 ),
                             )
-                        )
+                            if observed_suite is not None:
+                                observed_suite.finish(case_issues)
+                            issues.extend(case_issues)
         elif not issues and not self._is_nonassertable_rulespec_artifact(rules_file):
             issues.append("No tests found.")
 
-        issues.extend(
-            self._complete_source_unit_issues(
-                content,
-                validation_source_texts=validation_source_texts,
-                proof_source_texts=proof_source_texts,
-                test_cases=complete_source_unit_test_cases,
-                execution_evidence=execution_capture.evidence()
-                if execution_capture
-                else None,
-                rules_file=rules_file,
+        from .local_relation_source_evidence import local_relation_source_scope
+
+        with local_relation_source_scope(
+            execution_capture,
+            execution_pipeline,
+            content,
+            complete_source_unit_test_cases,
+            proof_source_texts,
+        ) as local_context:
+            issues.extend(
+                self._complete_source_unit_issues(
+                    content,
+                    validation_source_texts=validation_source_texts,
+                    proof_source_texts=proof_source_texts,
+                    test_cases=complete_source_unit_test_cases,
+                    execution_evidence=execution_capture.evidence()
+                    if execution_capture
+                    else None,
+                    rules_file=rules_file,
+                    **(
+                        {"local_relation_context": local_context}
+                        if local_context is not None
+                        else {}
+                    ),
+                )
             )
-        )
         manual_advice = self._manual_outcome_exception_advice(
             content,
             validation_source_texts=validation_source_texts,

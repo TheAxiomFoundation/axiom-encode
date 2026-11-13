@@ -1,0 +1,151 @@
+CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+
+Protected B when completed
+Calculation of Cumulative Net Investment Loss (CNIL) to December 31, 2025
+Use this form if you had any investment income or investment expenses for 2025.
+Your calculation of cumulative net investment loss (CNIL) reduces the amount of your cumulative gains limit for the year and
+may affect the allowable amount of your capital gains deduction.
+Even if you are not claiming a capital gains deduction in 2025, you should still complete this form if you had any investment
+income or expenses in 2025.
+The balance in your CNIL account represents a cumulative total, so you may need this information in a future year. Keep a
+copy for your records and attach another copy to your return.
+Note: If, in 2025, you have capital gains other than from the disposition of qualified farm or fishing property or qualified small
+business corporation shares, first complete Chart A on page 4 of this form to determine if you have additional investment
+income to include when you calculate your CNIL.
+
+
+Part 1 – Investment expenses claimed on your 2025 return
+
+Part 1 – Investment expenses claimed on your 2025 return
+Carrying charges and interest expenses (line 22100) 1
+Net rental losses (line 12600) + 2
+Limited or non-active partnership losses (line 12200) other than allowable capital losses + 3
+Limited partnership losses of other years after 1985 (line 25100) + 4
+50% of exploration and development expenses (line 22400) + 5
+Any other investment expenses claimed in 2025 to earn property income
+(see the list "Other investment expenses" on the next page) 68080 + 6
+Additional investment expenses: if you did not complete Chart A on page 4 of this form, enter "0".
+Otherwise, enter whichever is less: line 20 in Chart A or line 25300 of your return. + 7
+Add lines 1 to 7. Total investment expenses claimed in 2025 = A
+
+
+Part 2 – Investment income reported on your 2025 return
+
+Part 2 – Investment income reported on your 2025 return
+Investment income (lines 12000 and 12100) 8
+Net rental income, including recaptured capital cost allowance (line 12600) + 9
+Net income from limited or non-active partnership (line 12200) other than taxable capital gains + 10
+Any other property income reported in 2025 (see the list "Other property income" on the next page)
+including annuity payments taxable under paragraph 56(1)(d) minus the capital portion deducted
+under paragraph 60(a) 68100 + 11
+50% of income from the recovery of exploration and development expenses (line 13000) 68110 + 12
+Additional investment income: if you did not complete Chart A on page 4 of this form, enter "0".
+Otherwise, enter the amount from line 20 in Chart A. + 13
+Add lines 8 to 13. Total investment income reported in 2025 = B
+Do not use this area
+68130
+T936 E (25) (Ce formulaire est disponible en français.) Page 1 of 4
+
+Other investment expenses
+Include:
+(cid:129) repayments of inducements
+(cid:129) repayments of refund interest
+(cid:129) sale of agreement for sale, or mortgage or hypothecary claim included in proceeds of disposition in a previous year under
+subsection 20(5)
+(cid:129) foreign non-business tax under subsections 20(11) and 20(12)
+(cid:129) life insurance premiums deducted from property income
+(cid:129) capital cost allowance claimed on certified films and videotapes
+(cid:129) farming or fishing losses claimed by a non-active partner or a limited partner
+(cid:129) the uncollectible portion of proceeds from dispositions of depreciable property (except timber resources, passenger vehicles
+that cost more than $30,000 for vehicles acquired prior to 2022, $34,000 for vehicles acquired in 2022, $36,000 for vehicles
+acquired in 2023, $37,000 for vehicles acquired in 2024, and $38,000 for vehicles acquired in 2025, and zero-emission
+passenger vehicles (ZEPV) that cost more than $55,000 for ZEPV acquired after March 18, 2019, $59,000 for ZEPV acquired
+in 2022, and $61,000 for ZEPV acquired after 2022)
+Do not include:
+(cid:129) expenses incurred to earn business income
+(cid:129) repayment of shareholders' loans deducted under paragraph 20(1)(j)
+(cid:129) interest paid on money borrowed to:
+– buy an income averaging annuity contract
+– pay a premium under a registered retirement savings plan
+– make a contribution to a registered pension plan
+– make a contribution to a deferred profit-sharing plan
+Other property income
+Include:
+(cid:129) amounts from insurance proceeds for the recapture of capital cost allowance
+(other than amounts already included on line 9)
+(cid:129) home insulation or energy conversion grants under paragraph 12(1)(u)
+(cid:129) payments received as an inducement or reimbursement
+(cid:129) income from the appropriation of property to a shareholder
+(cid:129) farming and fishing income reported by a non-active or a limited partner
+(cid:129) other income from a trust
+(cid:129) allowable capital losses included in partnership losses of other years after 1985
+(cid:129) amounts withdrawn from AgriInvest Fund 2
+(cid:129) Canada Pension Plan (CPP) or Quebec Pension Plan (QPP) death benefit payments reported on your
+income tax and benefit return
+Do not include:
+(cid:129) income amounts that relate to business income
+(cid:129) payments received from an income averaging annuity contract
+(cid:129) payments received from an annuity contract bought under a deferred profit-sharing plan
+(cid:129) shareholders' loans included in income under subsection 15(2)
+T936 E (25) Page 2 of 4
+
+Protected B when completed
+
+
+Part 3 – Cumulative net investment loss (CNIL)
+
+Part 3 – Cumulative net investment loss (CNIL)
+Total investment expenses claimed in 2025 (line A of Part 1) 14
+Total investment expenses claimed in previous years after 1987:
+Amount from line 16 in Part 3 of Form T936 for 2024 (if you did not
+complete Form T936 for 2024, see note (1)) + 15
+Line 14 plus line 15 = 16
+Amount from line 17218 of Form T2048 for 2024 to 2025 – 17
+Cumulative investment expenses (line 16 minus line 17) = (cid:379) 18
+Total investment income reported in 2025 (line B of Part 2) 19
+Total investment income reported in previous years after 1987:
+Amount from line 19 of Part 3 of Form T936 for 2024. (if you did not
+complete Form T936 for 2024, see note (2)) + 20
+Cumulative investment income (total of lines 19 and 20) = (cid:379) – 21
+Line 18 minus line 21 (if negative, enter "0") CNIL to December 31, 2025 = C
+If you are claiming a capital gains deduction on your 2025 return, report the amount from line C on line 16 of Step 2
+of Form T657.
+(1) To calculate your total investment expenses from previous years, complete Part 1 of Form T936 for each year from
+1988 to 2024 in which you had investment expenses (do not complete line 7 for 1988 to 1991). Add the amounts from
+line A and enter the total on line 15 above.
+(2) To calculate your total investment income from previous years, complete Part 2 of Form T936 for each year from
+1988 to 2024 in which you had investment income (do not complete line 13 for 1988 to 1991). Add the amounts from
+line B and enter the total on line 20 above.
+T936 E (25) Page 3 of 4
+
+Protected B when completed
+Chart A
+Enter the amount from line 19900 of Schedule 3, Capital Gains or Losses (if negative, show the
+amount in brackets). If the amount is "0", do not complete lines 2 to 17, and enter "0" on line 20. 1
+Amount from line 17215 of Form T2048 – 2
+Line 1 minus line 2 = 3
+Amount from line 10700 of Schedule 3 4
+Amount from line 11000 of Schedule 3 + 5
+Amount from line 12400 of Schedule 3 + 6
+Add lines 4 to 6 (if negative, show in brackets). = 7
+If you reported an amount on line 19200 of Schedule 3, enter the amount
+from line 13 of Form T2017, Summary of Reserves on Dispositions of
+Capital Property (if negative, show in brackets). + 8
+Line 7 plus line 8 (if negative, show in brackets) = 9
+Inclusion rate × 50% 10
+Line 9 multiplied by the percentage on line 10
+(if negative, enter "0") = 11
+Amount from line 17216 of Form T2048 – 12
+Line 11 minus line 12 = (cid:379) – 13
+Line 3 minus line 13 (if negative, enter "0") = 14
+If the total from line 14 is "0", do not complete lines 15 to 19, and enter "0" on line 20.
+If the total from line 14 includes an amount from a T3 slip, complete lines 15 to 19 below.
+Otherwise, enter "0" on line 19 and continue at line 20.
+Enter the amount from box 21 of all 2025 T3 slips. 68140 15
+Enter the amount from box 30 of all 2025 T3 slips. – 16
+Line 15 minus line 16 68150 = 17
+Inclusion rate × 50% 18
+Line 17 multiplied by the percentage on line 18 = (cid:379) – 19
+Line 14 minus line 19 (if negative, enter "0") Additional investment income = 20
+See the privacy notice on your return.
+T936 E (25) Page 4 of 4
