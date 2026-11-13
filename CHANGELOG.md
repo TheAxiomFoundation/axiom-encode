@@ -1,3 +1,15 @@
+## 0.2.2363
+
+- fix: bind copied return categories to source projections (#2129)
+
+## 0.2.2362
+
+- fix: bind Schedule 2 document request evidence to its source duty (#2128)
+
+## 0.2.2361
+
+- Verify actual same-page Schedule 2 floor evidence (#2127)
+
 ## 0.2.2360
 
 - Verify with encoder main: producer floor, verifier record, RuleSpec admissions registry (#2093, #2095; replaces #2101) (#2194)

@@ -356,6 +356,19 @@ class _TemporalFormulaValue:
 
 
 @dataclass(frozen=True)
+class _DeclaredDateTable:
+    """Closed local Date values and declared lineage, not source authentication."""
+
+    name: str
+    indexed_by: str
+    cells: tuple[tuple[int, date], ...]
+    source_atoms: tuple[tuple[str, str, str], ...]
+    index_versions: tuple[tuple[str, str, int, tuple[tuple[str, str, str], ...]], ...]
+    selected_index_atoms: tuple[tuple[str, str, str], ...] = ()
+    selected_index_value: int | None = None
+
+
+@dataclass(frozen=True)
 class _FormulaBranchNode:
     """One parsed RuleSpec conditional or match expression."""
 
@@ -670,6 +683,13 @@ _WORDED_ARITHMETIC_EXPRESSION = re.compile(
     r"(?:plus|minus|mal|less(?!\s+(?:than|often\s+than)\b))\s+(?:the\s+)?"
     r"(?!(?:beträgt|gilt|ist|sind|wird|werden|equals?|applies?)\b)"
     rf"{_SYMBOLIC_ARITHMETIC_OPERAND}",
+    flags=re.IGNORECASE,
+)
+# A monetary operand may end in a qualified statutory reference. Keep this
+# separate from the generic symbolic tokenizer: the reference alone is not
+# an arithmetic operand.
+_REFERENCED_MONETARY_ARITHMETIC_EXPRESSION = re.compile(
+    "\\b(?:payments?|amounts?|income)[ \\t]+(?:taxable|included|deductible)[ \\t]+under[ \\t]+(?:paragraph|subsection)[ \\t]+[1-9]\\d{0,3}(?:\\([A-Za-z0-9]{1,4}\\)){1,4}[ \\t\\r\\n]+(?:minus|plus)[ \\t\\r\\n]+(?:the[ \\t]+)?(?:capital[ \\t]+portion|amounts?|payments?|income)\\b",
     flags=re.IGNORECASE,
 )
 _SYMBOLIC_ARITHMETIC_TOKEN = re.compile(
@@ -3636,6 +3656,9 @@ def recognize_source_structure(
 def _recognize_source_structure(
     source_text: str, *, sentence_markers: bool
 ) -> tuple[SourceStructureBranch, ...]:
+    printed = recognize_printed_rows(source_text, allow_multipage=True)
+    note_markers = () if printed is None else printed.note_marker_spans
+
     branches: list[SourceStructureBranch] = []
     paragraph_segments: list[tuple[tuple[str, ...], int, int, str]] = []
     dotted_matches = _qualified_dotted_subsection_matches(source_text)
@@ -3723,7 +3746,11 @@ def _recognize_source_structure(
                 )
                 paragraph_segments.append((marker.path, marker.start, end, text))
     else:
-        nested_markers = _qualified_parenthesized_legal_outline_markers(source_text)
+        nested_markers = tuple(
+            marker
+            for marker in _qualified_parenthesized_legal_outline_markers(source_text)
+            if (marker.start, marker.start + len(marker.label)) not in note_markers
+        )
         if nested_markers:
             for marker, end in _nested_outline_marker_spans(
                 nested_markers,
@@ -3744,7 +3771,14 @@ def _recognize_source_structure(
                 )
                 paragraph_segments.append((marker.path, marker.start, end, text))
         else:
-            paragraph_matches = list(_PARAGRAPH_MARKER.finditer(source_text))
+            paragraph_matches = [
+                match
+                for match in _PARAGRAPH_MARKER.finditer(source_text)
+                if not any(
+                    a <= match.start("marker") and match.end("marker") <= b
+                    for a, b in note_markers
+                )
+            ]
             for index, match in enumerate(paragraph_matches):
                 start = match.start()
                 end = (
@@ -6167,7 +6201,9 @@ def _has_substantive_arithmetic_expression(source_text: str) -> bool:
                 metadata.end() - metadata.start()
             )
     masked_source_text = "".join(arithmetic_text)
-    if _WORDED_ARITHMETIC_EXPRESSION.search(masked_source_text):
+    if _WORDED_ARITHMETIC_EXPRESSION.search(
+        masked_source_text
+    ) or _REFERENCED_MONETARY_ARITHMETIC_EXPRESSION.search(masked_source_text):
         return True
     for match in _ARITHMETIC_EXPRESSION.finditer(masked_source_text):
         title_prefix = masked_source_text[max(0, match.start() - 120) : match.start()]
@@ -6328,6 +6364,7 @@ def analyze_complete_source_unit(
     resolved_dependency_outputs: Sequence[str] = (),
     source_context: Mapping[str, str | None] | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    local_relation_context: object | None = None,
     referral_context: Any = None,
 ) -> CompleteSourceUnitAnalysis:
     """Analyze one artifact against its authoritative, resolver-owned body."""
@@ -6363,6 +6400,7 @@ def analyze_complete_source_unit(
                 payload,
                 content=content,
                 execution_evidence=execution_evidence,
+                local_relation_context=local_relation_context,
                 referral_context=referral_context,
                 source_text=source_text,
                 raw_source_text=authoritative_source_text,
@@ -6528,6 +6566,7 @@ def _analyze_rulespec_payload(
     source_context: Mapping[str, str | None] | None = None,
     raw_source_text: str | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    local_relation_context: object | None = None,
     referral_context: Any = None,
 ) -> CompleteSourceUnitAnalysis:
     if execution_evidence is not None and not execution_evidence.bound(
@@ -7009,6 +7048,7 @@ def _analyze_rulespec_payload(
                 principal_rules,
                 execution_test_cases=execution_test_cases,
                 execution_evidence=execution_evidence,
+                local_relation_context=local_relation_context,
                 referral_context=referral_context,
                 floor_imported_exports=imported_export_bindings,
                 floor_source_context=imported_proof_source_context,
@@ -7112,8 +7152,12 @@ def _analyze_rulespec_payload(
     if retirement_transfer is not None:
         represented_form_spans.update(retirement_transfer.numeric_spans())
 
+    copied_categories = _bound_copied_amount_categories(
+        payload, source_text, corpus_citation_path, source_context
+    )
+    recall_map = _NumericRecallSourceMap(list(range(len(source_text))))
     numeric_recall_text = authoritative_numeric_recall_text(
-        source_text, corpus_citation_path=corpus_citation_path
+        source_text, corpus_citation_path=corpus_citation_path, _source_map=recall_map
     )
     source_inventory = _us_locator_filtered_inventory(
         numeric_recall_text,
@@ -7127,14 +7171,19 @@ def _analyze_rulespec_payload(
         or represented_measurement_spans
         or represented_form_spans
     ):
+        recall_map = _NumericRecallSourceMap(list(range(len(source_text))))
         unrepresented_recall_text = authoritative_numeric_recall_text(
             _mask_numeric_spans(
                 source_text,
                 represented_annual_spans
                 | represented_measurement_spans
-                | represented_form_spans,
+                | represented_form_spans
+                # Full-source locators must be established before another
+                # offset-preserving mask prevents exact layout recognition.
+                | set(form_numeric_locator_spans(source_text)),
             ),
             corpus_citation_path=corpus_citation_path,
+            _source_map=recall_map,
         )
         unrepresented_inventory = _us_locator_filtered_inventory(
             unrepresented_recall_text,
@@ -7192,6 +7241,38 @@ def _analyze_rulespec_payload(
     missing_source_values: list[float] = []
     missing_occurrences: list[NumericOccurrenceLike] = []
     for occurrence in unrepresented_occurrences:
+        raw_span = recall_map.source_span(occurrence.start, occurrence.end)
+        if local_relation_context is not None:
+            from .local_relation_source_evidence import (
+                prior_form_year_occurrence,
+                vehicle_year_occurrence,
+            )
+
+            if any(
+                check(
+                    local_relation_context,
+                    content=content,
+                    cases=test_cases,
+                    source_text=source_text,
+                    citation=corpus_citation_path,
+                    raw_span=raw_span,
+                    occurrence=occurrence,
+                    recall_text=unrepresented_recall_text,
+                    recall_map=recall_map,
+                )
+                for check in (vehicle_year_occurrence, prior_form_year_occurrence)
+            ):
+                covered_source_values += 1
+                continue
+        if any(
+            raw_span == bound.span
+            and occurrence.value == bound.value
+            and unrepresented_recall_text[occurrence.start : occurrence.end] == "18"
+            and source_text[bound.span[0] : bound.span[1]] == "18"
+            for bound in copied_categories
+        ):
+            covered_source_values += 1
+            continue
         if any(
             numeric_value_is_grounded(named_value, (occurrence,))
             for named_value in named_values
@@ -7235,6 +7316,133 @@ def _analyze_rulespec_payload(
         covered_source_values,
         len(missing_source_values),
     )
+
+
+@dataclass(frozen=True)
+class _CopiedAmountCategory:
+    span: tuple[int, int]
+    value: int
+    rule_name: str
+    input_name: str
+
+
+def _bound_copied_amount_categories(
+    payload: dict[str, Any],
+    source_text: str,
+    corpus_citation_path: str,
+    source_context: Mapping[str, str | None] | None,
+) -> tuple[_CopiedAmountCategory, ...]:
+    """Bind a category number to a source-directed copied return amount.
+
+    This represents the category of an entered amount, not upstream eligibility
+    or authentication of the caller's return. All other obligations remain.
+    """
+    from axiom_encode.printed_source_rows import recognize_printed_rows
+
+    citation = "ca/policy/cra/t1-2025/federal-spouse-transfer-amounts"
+    module = payload.get("module")
+    verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    if (
+        corpus_citation_path != citation
+        or not isinstance(verification, dict)
+        or verification.get("corpus_citation_path") != citation
+        or (source_context or {}).get(citation) != source_text
+        or verification.get("source_sha256")
+        != hashlib.sha256(source_text.encode()).hexdigest()
+        or payload.get("imports", []) != []
+    ):
+        return ()
+    structure = recognize_printed_rows(source_text, allow_detached=True)
+    if structure is None or len(structure.same_page_floors) != 2:
+        return ()
+    row = (
+        "Canada caregiver amount for infirm children under 18 years of age:\n"
+        "Enter the amount from line 30500 of their return.\n\n35300 +\n\n2\n\n"
+    )
+    if source_text.count(row) != 1:
+        return ()
+    rules, inputs = payload.get("rules"), payload.get("inputs")
+    if not isinstance(rules, list) or not isinstance(inputs, list):
+        return ()
+    if not all(
+        isinstance(r, dict) and isinstance(r.get("name"), str) for r in rules + inputs
+    ):
+        return ()
+    names = [r["name"] for r in rules + inputs]
+    if len(set(names)) != len(names):
+        return ()
+    by_input = {r["name"]: r for r in inputs}
+    found = []
+    header = source_text.split("\n", 1)[0]
+    for rule in rules:
+        if tuple(
+            rule.get(k) for k in ("kind", "dtype", "entity", "period", "unit")
+        ) != ("derived", "Money", "Person", "Year", "CAD"):
+            continue
+        if rule.get("rounding") is not None or "resolved_currency_rounding" in rule:
+            continue
+        versions = rule.get("versions")
+        if (
+            not isinstance(versions, list)
+            or len(versions) != 1
+            or not isinstance(versions[0], dict)
+        ):
+            continue
+        version = versions[0]
+        if (
+            str(version.get("effective_from")) != "2025-01-01"
+            or str(version.get("effective_to")) != "2025-12-31"
+        ):
+            continue
+        # A direct local factual projection, never an arithmetic replacement.
+        name = version.get("formula")
+        if not isinstance(name, str) or name not in by_input:
+            continue
+        fact = by_input[name]
+        if tuple(fact.get(k) for k in ("dtype", "entity", "period", "unit")) != (
+            "Money",
+            "Person",
+            "Year",
+            "CAD",
+        ):
+            continue
+        if any(k in fact for k in ("default", "formula", "versions", "indexed_by")):
+            continue
+        # Corroborate the specific entered-return field; the source/proof and
+        # direct identity projection below supply authority, not this name.
+        if name != "spouse_caregiver_infirm_children_amount_line_30500":
+            continue
+        metadata = rule.get("metadata")
+        proof = metadata.get("proof") if isinstance(metadata, dict) else None
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list) or not all(isinstance(a, dict) for a in atoms):
+            continue
+        valid = True
+        for suffix, kind, excerpt in (
+            ("formula", "formula", row[:-1]),
+            ("effective_from", "effective_period", header),
+            ("effective_to", "effective_period", header),
+        ):
+            matches = [a for a in atoms if a.get("path") == "versions[0]." + suffix]
+            if len(matches) != 1 or matches[0].get("kind") != kind:
+                valid = False
+                break
+            source = matches[0].get("source")
+            if (
+                not isinstance(source, dict)
+                or source.get("corpus_citation_path") != citation
+                or source.get("excerpt") != excerpt
+            ):
+                valid = False
+                break
+        if valid:
+            start = source_text.index(row) + row.index("18")
+            found.append(
+                _CopiedAmountCategory((start, start + 2), 18, rule["name"], name)
+            )
+    return tuple(found) if len(found) == 1 else ()
 
 
 _NUMERIC_RECALL_EXCERPT_RADIUS = 60
@@ -19485,6 +19693,30 @@ def _worksheet_monetary_operation_antecedent(body: str) -> str | None:
     return None
 
 
+def _chart_completion_purpose_antecedent(body: str) -> str | None:
+    match = re.fullmatch(
+        r'(?P<antecedent>[^.;:!?"“”●•]+),\s*first\s+complete\s+'
+        r"Chart\s+[A-Z][0-9]?\s+on\s+page\s+[1-9]\d?\s+of\s+this\s+form\s+"
+        r"to\s+determine\s+if\s+you\s+have\s+additional\s+investment\s+income\s+"
+        r"to\s+include\s+when\s+you\s+calculate\s+your\s+[A-Z][A-Z0-9]{1,12}\.\s*",
+        body,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    antecedent = match.group("antecedent")
+    # Nested conditional introducers need the conservative original analysis;
+    # retaining their text alone does not prove the caller preserves the gate.
+    if re.search(r"\b(?:if|unless|when|where|provided|except)\b", antecedent, re.I):
+        return None
+    return re.sub(
+        r"\bqualified[ \t]+small[ \t]*\r?\n[ \t]*business[ \t]+corporation[ \t]+shares\b",
+        "qualified small business corporation shares",
+        antecedent,
+        flags=re.IGNORECASE,
+    )
+
+
 def _nonfiler_return_instruction_antecedent(body: str) -> str | None:
     """Separate a closed same-person hypothetical-return instruction.
 
@@ -19516,6 +19748,10 @@ def _without_worksheet_imperative_consequent(body: str) -> str:
     nonfiler_antecedent = _nonfiler_return_instruction_antecedent(body)
     if nonfiler_antecedent is not None:
         return nonfiler_antecedent
+
+    chart_antecedent = _chart_completion_purpose_antecedent(body)
+    if chart_antecedent is not None:
+        return chart_antecedent
 
     monetary_antecedent = _worksheet_monetary_operation_antecedent(body)
     if monetary_antecedent is not None:
@@ -19820,12 +20056,43 @@ def _closed_filing_return_alternatives(text: str) -> bool:
     return re.fullmatch(pattern, " ".join(text.split()), re.IGNORECASE) is not None
 
 
+def _concessive_form_completion_condition(text: str) -> str | None:
+    """Separate an express non-prerequisite from a same-actor form duty."""
+
+    match = re.fullmatch(
+        r"\s*Even\s+if\s+you\s+are\s+not\s+claiming\s+"
+        r"a\s+capital\s+gains\s+deduction\s+in\s+\d{4},\s*"
+        r"you\s+should\s+still\s+complete\s+this\s+form\s+if\s+"
+        r'(?P<condition>you\b[^.;:!?"“”●•]+)\.\s*',
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    condition = match.group("condition")
+    # This noun phrase can wrap in physical prose. Do not collapse independent
+    # lines or lists elsewhere in the condition.
+    condition = re.sub(
+        r"\binvestment[ \t]*\r?\n[ \t]*income\b",
+        "investment income",
+        condition,
+        flags=re.IGNORECASE,
+    )
+    return "If " + condition + "."
+
+
 def _source_conjunctive_fact_gates(
     text: str,
     *,
     care_source_text: str | None = None,
 ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
     """Return distinct entity/predicate signatures from one condition."""
+
+    actual_condition = _concessive_form_completion_condition(text)
+    if actual_condition is not None:
+        if care_source_text is None:
+            care_source_text = text
+        text = actual_condition
 
     if _closed_filing_return_alternatives(text):
         return ()
@@ -20241,10 +20508,22 @@ def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, in
     boundaries.extend(
         match.start() for match in _SOURCE_INDEPENDENT_CONDITION_BOUNDARY.finditer(text)
     )
+    # An exact proof may include the printed label after punctuation. That
+    # label is an additional end boundary, not a new start: later proofs must
+    # retain the existing leading label and inherited proposition context.
+    row_ends = [
+        match.end()
+        for match in re.finditer(
+            r"[.!?](?:[ \t]+[1-9]\d{0,2}|"
+            r"\([1-9]\d?\)[ \t]+[–−-][ \t]+[1-9]\d{0,2})"
+            r"(?=[ \t]*\r?\n[ \t]*[A-Z])",
+            text,
+        )
+    ]
     ordered = sorted(set(boundaries))
     return (
         max(position for position in ordered if position <= start),
-        min(position for position in ordered if position >= end),
+        min(position for position in (*ordered, *row_ends) if position >= end),
     )
 
 
@@ -23191,6 +23470,7 @@ def _companion_test_issues(
     printed_operations: _PrintedOperationContext | None = None,
     execution_evidence: SameCaseEvidence | None = None,
     execution_test_cases: Sequence[object] | None = None,
+    local_relation_context: object | None = None,
     floor_imported_exports: Sequence[ResolvedImportedExport] = (),
     floor_source_context: Mapping[str, str | None] | None = None,
     local_floor_source_context: Mapping[str, str | None] | None = None,
@@ -23340,6 +23620,7 @@ def _companion_test_issues(
             and branch not in retirement_formula_branches
         ),
         execution_evidence=execution_evidence,
+        local_relation_context=local_relation_context,
         execution_content=partnership_content,
         printed_operations=printed_operations,
         operand_declarations={
@@ -23747,14 +24028,64 @@ def _companion_test_issues(
             if retirement_transfer is not None
             and retirement_transfer.branch_role(b) is not None
         )
+        if local_relation_context is not None and partnership_content is not None:
+            from .local_relation_source_evidence import (
+                boolean_pair_witnesses,
+                numeric_pair_witnesses,
+            )
+
+            toggled_exception_selectors.update(
+                numeric_pair_witnesses(
+                    local_relation_context,
+                    content=partnership_content,
+                    cases=cases,
+                    principal_rules=principal_rules,
+                    source_text=source_text,
+                    citation=corpus_citation_path,
+                )
+            )
+            toggled_exception_selectors.update(
+                boolean_pair_witnesses(
+                    local_relation_context,
+                    content=partnership_content,
+                    cases=cases,
+                    principal_rules=principal_rules,
+                    source_text=source_text,
+                    citation=corpus_citation_path,
+                )
+            )
+        from .local_pair_source_evidence import (
+            reserves_chart_duty,
+            reserves_chart_line1,
+            reserves_expense_group,
+            reserves_signed_copy_branch,
+        )
+
+        # These source-owned duties require their respective complete evidence.
+        # Reserve them independently of candidate validity or runtime context.
+        reserved_signed_branches = tuple(
+            branch
+            for branch in paired_exception_branches
+            if reserves_signed_copy_branch(branch, source_text, corpus_citation_path)
+            or reserves_chart_duty(branch, source_text, corpus_citation_path)
+            or reserves_chart_line1(branch, source_text, corpus_citation_path)
+            or reserves_expense_group(branch, source_text, corpus_citation_path)
+        )
+        ordinary_exception_branches = tuple(
+            branch
+            for branch in paired_exception_branches
+            if branch not in student_exception_branches
+            and branch not in child_exception_branches
+            and branch not in retirement_exception_branches
+            and not (
+                reserves_signed_copy_branch(branch, source_text, corpus_citation_path)
+                or reserves_chart_duty(branch, source_text, corpus_citation_path)
+                or reserves_chart_line1(branch, source_text, corpus_citation_path)
+                or reserves_expense_group(branch, source_text, corpus_citation_path)
+            )
+        )
         missing_exception_branches = _unwitnessed_exception_branches(
-            tuple(
-                branch
-                for branch in paired_exception_branches
-                if branch not in student_exception_branches
-                and branch not in child_exception_branches
-                and branch not in retirement_exception_branches
-            ),
+            ordinary_exception_branches,
             certified_composition=certified_composition,
             certified_replacement=certified_replacement,
             certified_paths=certified_paths,
@@ -23763,6 +24094,7 @@ def _companion_test_issues(
             source_text=source_text,
             input_declarations=input_declarations,
             formula_environment=formula_environment,
+            parameter_rules=parameter_rules,
             represented_annual_spans=represented_annual_spans,
             corpus_citation_path=corpus_citation_path,
             principal_rules=principal_rules,
@@ -23796,6 +24128,23 @@ def _companion_test_issues(
                     corpus_citation_path=corpus_citation_path,
                     principal_rules=principal_rules,
                 )
+            )
+        if local_relation_context is not None and partnership_content is not None:
+            from .local_relation_source_evidence import paired_branch_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: paired_branch_witnesses(
+                        local_relation_context,
+                        branch,
+                        content=partnership_content,
+                        cases=cases,
+                        principal_rules=principal_rules,
+                        source_text=source_text,
+                        citation=corpus_citation_path,
+                    )
+                    for branch in missing_exception_branches
+                }
             )
         if execution_evidence is not None and partnership_content is not None:
             from .floor_retained_referral_evidence import (
@@ -23930,11 +24279,25 @@ def _companion_test_issues(
                 }
             )
         if execution_evidence is not None and partnership_content is not None:
-            from .actual_floor_evidence import same_page_witnesses
+            from .actual_floor_evidence import (
+                same_page_choice_witnesses,
+                same_page_witnesses,
+            )
 
             missing_exception_branches = _unmatched_evidence_obligations(
                 {
                     branch: same_page_witnesses(
+                        execution_evidence,
+                        branch,
+                        content=partnership_content,
+                        source_context=local_floor_source_context,
+                        source_text=source_text,
+                        corpus_citation_path=corpus_citation_path,
+                        principal_rules=principal_rules,
+                        asserted_by_rule=asserted_by_rule,
+                        formula_environment=formula_environment,
+                    )
+                    | same_page_choice_witnesses(
                         execution_evidence,
                         branch,
                         content=partnership_content,
@@ -23990,6 +24353,79 @@ def _companion_test_issues(
         if partnership is not None:
             missing_exception_branches = partnership.unmatched(
                 missing_exception_branches
+            )
+        # No generic or imported fallback may discharge the reserved duty.
+        missing_exception_branches = (
+            *missing_exception_branches,
+            *reserved_signed_branches,
+        )
+        if local_relation_context is not None and partnership_content is not None:
+            from .local_relation_source_evidence import signed_branch_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: signed_branch_witnesses(
+                        local_relation_context,
+                        branch,
+                        content=partnership_content,
+                        cases=cases,
+                        principal_rules=principal_rules,
+                        source_text=source_text,
+                        citation=corpus_citation_path,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
+        if local_relation_context is not None and partnership_content is not None:
+            from .local_relation_source_evidence import chart_duty_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: chart_duty_witnesses(
+                        local_relation_context,
+                        branch,
+                        content=partnership_content,
+                        cases=cases,
+                        principal_rules=principal_rules,
+                        source_text=source_text,
+                        citation=corpus_citation_path,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
+        if local_relation_context is not None and partnership_content is not None:
+            from .local_relation_source_evidence import remaining_chart_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: remaining_chart_witnesses(
+                        local_relation_context,
+                        branch,
+                        content=partnership_content,
+                        cases=cases,
+                        principal_rules=principal_rules,
+                        source_text=source_text,
+                        citation=corpus_citation_path,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
+        if local_relation_context is not None and partnership_content is not None:
+            from .local_relation_source_evidence import expense_group_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: expense_group_witnesses(
+                        local_relation_context,
+                        branch,
+                        content=partnership_content,
+                        cases=cases,
+                        principal_rules=principal_rules,
+                        source_text=source_text,
+                        citation=corpus_citation_path,
+                    )
+                    for branch in missing_exception_branches
+                }
             )
         if student_loan is not None:
             # Owned obligations never enter generic candidate allocation or its
@@ -24559,7 +24995,11 @@ def _printed_operation_context(
     root_relative: str | None = None,
 ) -> _PrintedOperationContext | None:
     structure = _unconflicted_printed_rows(
-        source_text, branches, corpus_citation_path=citation_path, allow_detached=True
+        source_text,
+        branches,
+        corpus_citation_path=citation_path,
+        allow_detached=True,
+        allow_multipage=True,
     )
     raw_form_source = (proof_sources or {}).get(citation_path)
     form = _unconflicted_bound_form(
@@ -24644,9 +25084,12 @@ def _unconflicted_printed_rows(
     *,
     corpus_citation_path: str = "",
     allow_detached: bool = False,
+    allow_multipage: bool = False,
 ) -> PrintedRowStructure | None:
     """Printed groups never supersede existing source ownership boundaries."""
-    evidence = recognize_printed_rows(source_text, allow_detached=allow_detached)
+    evidence = recognize_printed_rows(
+        source_text, allow_detached=allow_detached, allow_multipage=allow_multipage
+    )
     if evidence is None:
         return None
     labels = bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
@@ -25366,6 +25809,7 @@ def _source_clause_spans(
         branches,
         corpus_citation_path=corpus_citation_path,
         allow_detached=True,
+        allow_multipage=True,
     )
     bound_form = _unconflicted_bound_form(source_text, branches, corpus_citation_path)
     bound_rows = tuple(row.span for row in bound_form.rows) if bound_form else ()
@@ -25587,6 +26031,7 @@ def _unwitnessed_formula_branches(
     certified_replacement: BoundWorksheetReplacement | None = None,
     printed_operations: _PrintedOperationContext | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    local_relation_context: object | None = None,
     execution_content: str | None = None,
 ) -> tuple[SourceStructureBranch, ...]:
     """Consume each executed rule/case witness for at most one source formula."""
@@ -25637,6 +26082,45 @@ def _unwitnessed_formula_branches(
                     numeric_value_is_grounded=numeric_value_is_grounded,
                     formula_environment=formula_environment,
                 )
+            )
+    if local_relation_context is not None and execution_content is not None:
+        from .local_relation_source_evidence import (
+            apply_operation_replacements,
+        )
+        from .local_relation_source_evidence import (
+            formula_witnesses as local_formula_witnesses,
+        )
+
+        for branch in branches:
+            replacement_tokens: list[object] = []
+            candidate_witnesses[branch].update(
+                local_formula_witnesses(
+                    local_relation_context,
+                    branch,
+                    _replacement_tokens=replacement_tokens,
+                    content=execution_content,
+                    printed_operations=printed_operations,
+                    operand_declarations=operand_declarations,
+                    certified_replacement=certified_replacement,
+                    source_text=source_text,
+                    represented_annual_spans=represented_annual_spans,
+                    measurement_roles=measurement_roles,
+                    represented_measurement_spans=represented_measurement_spans,
+                    measurement_witnesses=measurement_witnesses,
+                    corpus_citation_path=corpus_citation_path,
+                    principal_rules=principal_rules,
+                    rule_names=principal_formula_clause_rules[branch],
+                    asserted_by_rule=asserted_by_rule,
+                    extract_numeric_occurrences=extract_numeric_occurrences,
+                    numeric_value_is_grounded=numeric_value_is_grounded,
+                    formula_environment=formula_environment,
+                )
+            )
+            apply_operation_replacements(
+                local_relation_context,
+                branch,
+                candidate_witnesses[branch],
+                replacement_tokens,
             )
     return _unmatched_evidence_obligations(candidate_witnesses)
 
@@ -25829,6 +26313,137 @@ def _annual_source_evidence(
             _AnnualSourceEvidence(start, end, year, str(rule["name"]), selected)
         )
     return tuple(evidence)
+
+
+def _annual_form_source_evidence(
+    rule: dict[str, Any],
+    *,
+    case: dict[str, Any],
+    execution: _FormulaExecution | None,
+    branch: SourceStructureBranch,
+    source_text: str,
+    corpus_citation_path: str,
+) -> tuple[_AnnualSourceEvidence, ...]:
+    """Tentative reporting-year roles from a fully recognized annual form.
+
+    Recognition identifies coordinates only. The existing complete formula
+    witness must succeed before the caller commits any represented occurrence.
+    Historical and acquisition years receive no evidence from this path.
+    """
+    if not source_text or source_text[branch.start : branch.end] != branch.text:
+        return ()
+    structure = recognize_printed_rows(source_text, allow_multipage=True)
+    if structure is None or not (
+        structure.annual_form_year_roles or structure.annual_form_as_of_roles
+    ):
+        return ()
+    raw_period = case.get("period")
+    if isinstance(raw_period, dict):
+        if type(_case_runtime_period_start(case)) is not date:
+            return ()
+    elif not isinstance(raw_period, str):
+        return ()
+    period = _normalized_case_period(case)
+    if not _is_iso_calendar_date(period):
+        return ()
+    selected = _selected_rule_formula_version_index(rule, case)
+    if selected is None:
+        return ()
+    intervals = _effective_formula_version_intervals(rule)
+    versions = rule.get("versions", [])
+    if len(intervals) != len(versions):
+        return ()
+    raw_intervals = [(v.get("effective_from"), v.get("effective_to")) for v in versions]
+    if any(
+        not isinstance(a, str)
+        or not isinstance(b, str)
+        or not _is_iso_calendar_date(a)
+        or not _is_iso_calendar_date(b)
+        or a > b
+        for a, b in raw_intervals
+    ) or any(
+        start <= other_end and other_start <= end
+        for i, (start, end) in enumerate(raw_intervals)
+        for other_start, other_end in raw_intervals[i + 1 :]
+    ):
+        return ()
+    if execution is None or not _asserted_formula_runtime_values_equal(
+        rule,
+        _formula_execution_runtime_value(execution),
+        _test_case_asserted_output_value(case, str(rule.get("name") or "")),
+    ):
+        return ()
+    quoted = _annual_source_quoted_spans(source_text)
+    if quoted is None:
+        return ()
+    citation = corpus_citation_path.strip("/").casefold()
+    if not citation:
+        return ()
+    atoms = tuple(_rule_source_excerpt_atoms(rule))
+    version = rule["versions"][selected]
+    result = []
+    for role in (*structure.annual_form_year_roles, *structure.annual_form_as_of_roles):
+        as_of_date = getattr(role, "as_of_date", None)
+        if as_of_date is not None:
+            # A cumulative year-end amount is not a generic date exemption.
+            # Its ordinary query must span that entire annual reporting frame.
+            report_year = as_of_date[:4]
+            if rule.get("period") != "Year" or as_of_date != f"{report_year}-12-31":
+                continue
+            if isinstance(raw_period, dict):
+                if (
+                    set(raw_period) != {"period_kind", "start", "end"}
+                    or raw_period.get("period_kind") != "tax_year"
+                    or str(raw_period["start"]) != f"{report_year}-01-01"
+                    or str(raw_period["end"]) != as_of_date
+                ):
+                    continue
+            elif raw_period not in (
+                report_year,
+                f"{report_year}-01",
+                f"{report_year}-01-01",
+            ):
+                continue
+        start, end = role.year_span
+        owner_start, owner_end = role.owner_span
+        header_start, header_end = role.header_span
+        header = source_text[header_start:header_end]
+        year = int(source_text[start:end])
+        if (
+            not owner_start <= branch.start <= start < end <= branch.end <= owner_end
+            or any(a <= start < b or a <= header_start < b for a, b in quoted)
+            or (version.get("effective_from"), version.get("effective_to"))
+            != (f"{year}-01-01", f"{year}-12-31")
+            or not f"{year}-01-01" <= period <= f"{year}-12-31"
+            or (
+                isinstance(raw_period, dict)
+                and str(raw_period["end"]) > f"{year}-12-31"
+            )
+        ):
+            continue
+        if not all(
+            any(
+                re.sub(r"\s+", "", path) == f"versions[{selected}].{field}"
+                and atom_citation.strip("/").casefold() == citation
+                and excerpt.strip() == header
+                for path, atom_citation, excerpt in atoms
+            )
+            for field in ("effective_from", "effective_to")
+        ):
+            continue
+        owner = source_text[owner_start:owner_end].strip()
+        if not any(
+            _formula_proof_version_index(path) == selected
+            and atom_citation.strip("/").casefold() == citation
+            and excerpt.strip() == owner
+            and source_states_explicit_computation(excerpt)
+            for path, atom_citation, excerpt in atoms
+        ):
+            continue
+        result.append(
+            _AnnualSourceEvidence(start, end, year, str(rule["name"]), selected)
+        )
+    return tuple(result)
 
 
 def _statutory_credit_operand_is_nonaffirmative(text: str) -> bool:
@@ -26342,6 +26957,7 @@ def _formula_branch_test_witnesses(
     operand_declarations: Mapping[str, dict[str, Any]] | None = None,
     certified_replacement: BoundWorksheetReplacement | None = None,
     printed_operations: _PrintedOperationContext | None = None,
+    local_corroboration: object | None = None,
 ) -> set[tuple[str, str]]:
     # A good execution must never hide another invalid source-owned version,
     # alternative, operand or alias after the closed credit demand removal.
@@ -26397,6 +27013,13 @@ def _formula_branch_test_witnesses(
                 branch=branch,
                 source_text=source_text,
                 corpus_citation_path=corpus_citation_path,
+            ) + _annual_form_source_evidence(
+                rule,
+                case=case,
+                execution=execution,
+                branch=branch,
+                source_text=source_text,
+                corpus_citation_path=corpus_citation_path,
             )
             measurement_evidence = (
                 measurement_roles.evidence(
@@ -26419,6 +27042,7 @@ def _formula_branch_test_witnesses(
                 interval=interval,
                 dependency_environment=dependency_environment,
                 require_corroborated_dependencies=True,
+                local_corroboration=local_corroboration,
                 annual_evidence=annual_evidence,
                 measurement_evidence=measurement_evidence,
                 formula_environment=formula_environment,
@@ -27182,8 +27806,15 @@ def _formula_execution_is_source_branch_witness(
     corpus_citation_path: str = "",
     certified_replacement: BoundWorksheetReplacement | None = None,
     printed_operations: _PrintedOperationContext | None = None,
+    local_corroboration: object | None = None,
 ) -> bool:
     """Return whether one resolved execution proves the exact source branch."""
+
+    from .local_relation_source_evidence import (
+        corroborated_dependencies,
+        corroborated_execution,
+        corroborates,
+    )
 
     execution_environment = _case_formula_identifier_environment(
         case,
@@ -27198,7 +27829,12 @@ def _formula_execution_is_source_branch_witness(
         return False
     if require_corroborated_dependencies and any(
         name not in dependency_environment
-        or _test_case_asserted_output_value(case, name) is _UNRESOLVED_CONDITION_VALUE
+        or (
+            _test_case_asserted_output_value(case, name) is _UNRESOLVED_CONDITION_VALUE
+            and not corroborates(
+                local_corroboration, case, name, dependency_environment[name]
+            )
+        )
         for name in _reached_local_formula_dependency_names(
             execution,
             case,
@@ -27267,12 +27903,19 @@ def _formula_execution_is_source_branch_witness(
             formula_environment=formula_environment,
             require_asserted_value=False,
         )
+        observed_environment = corroborated_dependencies(local_corroboration, case)
+        if observed_environment is not None:
+            independent_environment = observed_environment
         independent_execution = _case_formula_execution(
             rule,
             case,
             formula_environment=formula_environment,
             dependency_environment=independent_environment,
         )
+        if observed_environment is not None:
+            independent_execution = corroborated_execution(
+                local_corroboration, rule, case, formula_environment
+            )
         if independent_execution is None or not (
             _formula_execution_runtime_value(independent_execution)
             is not _UNRESOLVED_CONDITION_VALUE
@@ -27293,13 +27936,20 @@ def _formula_execution_is_source_branch_witness(
                 formula_environment=formula_environment,
                 dependency_environment=independent_environment,
             )
+            if observed_environment is not None:
+                replay = corroborated_execution(
+                    local_corroboration, dependency, case, formula_environment
+                )
             if replay is None or replay.currency_rounding is not None:
                 continue
             value = _formula_execution_runtime_value(replay)
             if value is _UNRESOLVED_CONDITION_VALUE or not (
                 _formula_runtime_values_equal(value, dependency_environment[name])
-                and _asserted_formula_runtime_values_equal(
-                    dependency, value, _test_case_asserted_output_value(case, name)
+                and (
+                    _asserted_formula_runtime_values_equal(
+                        dependency, value, _test_case_asserted_output_value(case, name)
+                    )
+                    or corroborates(local_corroboration, case, name, value)
                 )
             ):
                 continue
@@ -31180,9 +31830,27 @@ def _evaluate_rulespec_formula(
                 continue
             if peek() == "LBRACKET":
                 consume("LBRACKET")
-                index = resolve(parse_expression())
+                index_reference = parse_expression()
+                index = resolve(index_reference)
                 consume("RBRACKET")
                 base = resolve(value)
+                if type(base) is _DeclaredDateTable:
+                    selected = _UNRESOLVED_CONDITION_VALUE
+                    if (
+                        is_reference(value)
+                        and value[1] == base.name
+                        and is_reference(index_reference)
+                        and index_reference[1] == base.indexed_by
+                        and type(index) is int
+                        and bool(base.selected_index_atoms)
+                        and index == base.selected_index_value
+                    ):
+                        for key, cell in base.cells:
+                            if key == index:
+                                selected = cell
+                                break
+                    value = selected
+                    continue
                 if (
                     base is _UNRESOLVED_CONDITION_VALUE
                     or index is _UNRESOLVED_CONDITION_VALUE
@@ -31856,6 +32524,26 @@ def _evaluate_condition_expression(
         if expression.id == "false":
             return False
         return environment.get(expression.id, _UNRESOLVED_CONDITION_VALUE)
+    if isinstance(expression, ast.Subscript):
+        if not isinstance(expression.value, ast.Name) or not isinstance(
+            expression.slice, ast.Name
+        ):
+            return _UNRESOLVED_CONDITION_VALUE
+        table = environment.get(expression.value.id)
+        if (
+            type(table) is not _DeclaredDateTable
+            or table.name != expression.value.id
+            or table.indexed_by != expression.slice.id
+            or not table.selected_index_atoms
+        ):
+            return _UNRESOLVED_CONDITION_VALUE
+        key = environment.get(table.indexed_by)
+        if type(key) is not int or key != table.selected_index_value:
+            return _UNRESOLVED_CONDITION_VALUE
+        for cell_key, cell_value in table.cells:
+            if key == cell_key:
+                return cell_value
+        return _UNRESOLVED_CONDITION_VALUE
     if isinstance(expression, ast.BoolOp):
         if isinstance(expression.op, ast.And):
             for item in expression.values:
@@ -34491,6 +35179,7 @@ def _source_exception_branches(
         branches,
         corpus_citation_path=corpus_citation_path,
         allow_detached=True,
+        allow_multipage=True,
     )
     header_spans = (
         ()
@@ -34802,6 +35491,20 @@ def _exception_cues_have_distinct_conditions(between: str) -> bool:
     )
 
 
+def _source_is_agency_review_interrogative(text: str) -> bool:
+    """A review's embedded question is not a claimant-controlled condition.
+
+    Match the complete observed frame; added approval conditions or duties
+    must retain their ordinary paired-witness requirements. Source extraction
+    and proof coverage still retain the agency statement itself.
+    """
+    return _collapse_text(text) == (
+        "Before assessing your return, the Canada Revenue Agency (CRA) will "
+        "review your claim to see if your spouse or common-law partner is "
+        "eligible for the disability tax credit."
+    )
+
+
 def _source_exception_requires_paired_witness(
     text: str,
     *,
@@ -34818,6 +35521,8 @@ def _source_exception_requires_paired_witness(
     """
 
     collapsed = _collapse_text(text)
+    if _source_is_agency_review_interrogative(collapsed):
+        return False
     if _source_is_nonoperative_guidance_instruction(collapsed):
         return False
     if _source_is_guidance_glossary_description(collapsed):
@@ -35506,6 +36211,7 @@ def _unwitnessed_exception_branches(
     source_text: str = "",
     input_declarations: Mapping[str, dict[str, Any]] | None = None,
     formula_environment: dict[str, Any] | None = None,
+    parameter_rules: Mapping[str, dict[str, Any]] | None = None,
     represented_annual_spans: set[tuple[int, int]] | None = None,
     corpus_citation_path: str = "",
     principal_rules: dict[str, dict[str, Any]],
@@ -35531,6 +36237,7 @@ def _unwitnessed_exception_branches(
             source_text=source_text,
             input_declarations=input_declarations,
             formula_environment=formula_environment,
+            parameter_rules=parameter_rules,
             corpus_citation_path=corpus_citation_path,
             principal_rules=principal_rules,
             principal_rule_paths=principal_rule_paths,
@@ -35780,6 +36487,228 @@ def _unconditional_nonapplicability_witnesses(
             ):
                 witnesses.add((rule_name, case_index))
     return witnesses
+
+
+def _document_request_selector_is_relevant(
+    branch: SourceStructureBranch,
+    witness: _ExceptionWitness,
+    *,
+    principal_rules: dict[str, dict[str, Any]],
+    source_text: str,
+    corpus_citation_path: str,
+    input_declarations: Mapping[str, dict[str, Any]] | None,
+    formula_environment: dict[str, Any] | None = None,
+    parameter_rules: Mapping[str, dict[str, Any]] | None = None,
+) -> bool:
+    """Resolve the closed Schedule 2 request ellipsis to its document duty.
+
+    This supplies relevance only. The caller retains the existing fact-pair,
+    active-polarity, output-effect, and distinct-obligation allocation checks.
+    """
+    from axiom_encode.printed_source_rows import recognize_printed_rows
+
+    citation = "ca/policy/cra/t1-2025/federal-spouse-transfer-amounts"
+    antecedent = (
+        "However, you must send the CRA\n"
+        "a new Form T2201 if the previous period of approval ended before 2025 "
+        "or if the CRA asks you to."
+    )
+    condition = "if the CRA asks you to."
+    if (
+        corpus_citation_path != citation
+        or not source_text
+        or not witness.active_value
+        or not witness.boolean_effect
+        or witness.blocks
+        or witness.numeric_transition is not None
+    ):
+        return False
+    structure = recognize_printed_rows(source_text, allow_detached=True)
+    if structure is None or len(structure.same_page_floors) != 2:
+        return False
+    if source_text.count(antecedent) != 1:
+        return False
+    start = source_text.index(antecedent) + antecedent.index(condition)
+    if (
+        branch.text != condition
+        or (branch.start, branch.end) != (start, start + len(condition))
+        or branch.required_principal_output not in (None, witness.rule_name)
+    ):
+        return False
+    rule = principal_rules.get(witness.rule_name)
+    declaration = (input_declarations or {}).get(witness.selector_name)
+    if not isinstance(rule, dict) or not isinstance(declaration, dict):
+        return False
+    if tuple(rule.get(k) for k in ("kind", "dtype", "entity", "period")) != (
+        "derived",
+        "Judgment",
+        "Person",
+        "Year",
+    ) or tuple(declaration.get(k) for k in ("dtype", "entity", "period")) != (
+        "Judgment",
+        "Person",
+        "Year",
+    ):
+        return False
+    if any(k in declaration for k in ("default", "formula", "versions", "unit")):
+        return False
+    # The full antecedent supplies the otherwise absent action and object.
+    # This bounded lexical role check does not alter global synonym matching.
+    if _normalized_selector_name(witness.selector_name) != "cra_requested_new_t2201":
+        return False
+    header = source_text.split("\n", 1)[0]
+
+    def proved(
+        candidate: Any, dtype: str, excerpt: str, *, parameter: bool = False
+    ) -> bool:
+        if not isinstance(candidate, dict) or tuple(
+            candidate.get(k) for k in ("kind", "dtype", "entity", "period", "unit")
+        ) != (
+            "parameter" if parameter else "derived",
+            dtype,
+            None if parameter else "Person",
+            "Year",
+            "CAD" if dtype == "Money" else None,
+        ):
+            return False
+        versions = candidate.get("versions")
+        if (
+            not isinstance(versions, list)
+            or len(versions) != 1
+            or not isinstance(versions[0], dict)
+        ):
+            return False
+        version = versions[0]
+        if (
+            str(version.get("effective_from")) != "2025-01-01"
+            or str(version.get("effective_to")) != "2025-12-31"
+        ):
+            return False
+        metadata = candidate.get("metadata")
+        proof = metadata.get("proof") if isinstance(metadata, dict) else None
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list) or not all(isinstance(a, dict) for a in atoms):
+            return False
+        for suffix, kind, text in (
+            ("formula", "formula", excerpt),
+            ("effective_from", "effective_period", header),
+            ("effective_to", "effective_period", header),
+        ):
+            matches = [a for a in atoms if a.get("path") == "versions[0]." + suffix]
+            if len(matches) != 1 or matches[0].get("kind") != kind:
+                return False
+            source = matches[0].get("source")
+            if (
+                not isinstance(source, dict)
+                or source.get("corpus_citation_path") != citation
+                or source.get("excerpt") != text
+            ):
+                return False
+        return True
+
+    if not proved(rule, "Judgment", antecedent):
+        return False
+    versions = rule["versions"]
+    try:
+        formula = ast.parse(versions[0].get("formula", ""), mode="eval").body
+    except (SyntaxError, ValueError, TypeError):
+        return False
+    if not (
+        isinstance(formula, ast.BoolOp)
+        and isinstance(formula.op, ast.And)
+        and len(formula.values) == 2
+        and isinstance(formula.values[0], ast.Compare)
+        and isinstance(formula.values[1], ast.BoolOp)
+        and isinstance(formula.values[1].op, ast.Or)
+        and len(formula.values[1].values) == 2
+    ):
+        return False
+    amount, alternatives = formula.values
+    if not (
+        isinstance(amount.left, ast.Name)
+        and len(amount.ops) == 1
+        and isinstance(amount.ops[0], ast.Gt)
+        and len(amount.comparators) == 1
+        and isinstance(amount.comparators[0], ast.Constant)
+        and type(amount.comparators[0].value) is int
+        and amount.comparators[0].value == 0
+        and all(isinstance(v, ast.Name) for v in alternatives.values)
+        and alternatives.values[1].id == witness.selector_name
+        and alternatives.values[0].id != witness.selector_name
+    ):
+        return False
+    other = principal_rules.get(alternatives.values[0].id, {})
+    money = (input_declarations or {}).get(amount.left.id, {})
+    if not proved(other, "Judgment", antecedent):
+        return False
+    if tuple(money.get(k) for k in ("dtype", "entity", "period", "unit")) != (
+        "Money",
+        "Person",
+        "Year",
+        "CAD",
+    ):
+        return False
+    if any(k in money for k in ("default", "formula", "versions")):
+        return False
+    projections = [
+        r
+        for r in principal_rules.values()
+        if proved(r, "Money", "Enter the amount from line 31600 of their return.")
+        and r["versions"][0].get("formula") == amount.left.id
+    ]
+    if len(projections) != 1:
+        return False
+    try:
+        prior = ast.parse(other["versions"][0].get("formula", ""), mode="eval").body
+    except (SyntaxError, TypeError, ValueError):
+        return False
+    if not (
+        isinstance(prior, ast.BoolOp)
+        and isinstance(prior.op, ast.And)
+        and len(prior.values) == 2
+        and isinstance(prior.values[0], ast.Name)
+        and isinstance(prior.values[1], ast.Compare)
+    ):
+        return False
+    present, comparison = prior.values
+    if not (
+        isinstance(comparison.left, ast.Name)
+        and len(comparison.ops) == 1
+        and isinstance(comparison.ops[0], ast.Lt)
+        and len(comparison.comparators) == 1
+        and isinstance(comparison.comparators[0], ast.Name)
+    ):
+        return False
+    if (
+        _normalized_selector_name(present.id)
+        != "previous_dtc_approval_has_fixed_end_year"
+        or _normalized_selector_name(comparison.left.id)
+        != "previous_dtc_approval_end_year"
+    ):
+        return False
+    for name, dtype in ((present.id, "Judgment"), (comparison.left.id, "Integer")):
+        fact = (input_declarations or {}).get(name)
+        if (
+            not isinstance(fact, dict)
+            or tuple(fact.get(k) for k in ("dtype", "entity", "period", "unit"))
+            != (dtype, "Person", "Year", None)
+            or any(k in fact for k in ("default", "formula", "versions"))
+        ):
+            return False
+    cutoff_name = comparison.comparators[0].id
+    cutoff_rule = (parameter_rules or {}).get(cutoff_name)
+    if not proved(cutoff_rule, "Integer", antecedent, parameter=True):
+        return False
+    if any(k in cutoff_rule for k in ("default", "formula")):
+        return False
+    cutoff = (formula_environment or {}).get(comparison.comparators[0].id)
+    return (
+        isinstance(cutoff, _TemporalFormulaValue)
+        and cutoff.versions == (("2025-01-01", "2025-12-31", 2025),)
+        and type(cutoff.versions[0][2]) is int
+        and cutoff.version_formula_excerpts == ((antecedent,),)
+        and not cutoff.imported_parameter
+    )
 
 
 def _worksheet_notice_selector_is_relevant(
@@ -37329,6 +38258,7 @@ def _exception_witnesses_for_branch(
     source_text: str = "",
     input_declarations: Mapping[str, dict[str, Any]] | None = None,
     formula_environment: dict[str, Any] | None = None,
+    parameter_rules: Mapping[str, dict[str, Any]] | None = None,
     corpus_citation_path: str = "",
     principal_rules: dict[str, dict[str, Any]],
     principal_rule_paths: dict[str, set[tuple[str, ...]]],
@@ -37494,6 +38424,16 @@ def _exception_witnesses_for_branch(
                     formula_environment=formula_environment,
                 )
                 is not None
+                or _document_request_selector_is_relevant(
+                    branch,
+                    witness,
+                    principal_rules=principal_rules,
+                    source_text=source_text,
+                    corpus_citation_path=corpus_citation_path,
+                    input_declarations=input_declarations,
+                    formula_environment=formula_environment,
+                    parameter_rules=parameter_rules,
+                )
                 or _worksheet_notice_selector_is_relevant(
                     branch,
                     witness,
@@ -42770,6 +43710,175 @@ def _resolved_imported_parameter_rules(
     return {name: rules[0] for name, rules in candidates.items() if len(rules) == 1}
 
 
+def _declared_date_table_environment(
+    payload: dict[str, Any], *, authoritative_citation_path: str
+) -> dict[str, Any]:
+    """Interpret closed Date tables; preserve values lineage without granting trust."""
+
+    rules = payload.get("rules")
+    inputs = payload.get("inputs", [])
+    if not isinstance(rules, list) or not isinstance(inputs, list):
+        return {}
+    declarations: dict[str, list[dict[str, Any]]] = {}
+    for item in [*rules, *inputs]:
+        if isinstance(item, dict) and isinstance(item.get("name"), str):
+            declarations.setdefault(item["name"], []).append(item)
+    result: dict[str, Any] = {}
+    forbidden = ("entity", "unit", "rounding", "default", "formula", "period")
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = rule.get("name")
+        index_name = rule.get("indexed_by")
+        if (
+            not isinstance(name, str)
+            or not isinstance(index_name, str)
+            or len(declarations.get(name, ())) != 1
+            or len(declarations.get(index_name, ())) != 1
+            or rule.get("kind") != "parameter"
+            or rule.get("dtype") != "Date"
+            or any(field in rule for field in forbidden)
+        ):
+            continue
+        index_rule = declarations[index_name][0]
+        if (
+            index_rule not in rules
+            or index_rule.get("kind") != "parameter"
+            or index_rule.get("dtype") != "Integer"
+            or any(field in index_rule for field in (*forbidden, "indexed_by"))
+        ):
+            continue
+        index_versions = index_rule.get("versions")
+        if (
+            not isinstance(index_versions, list)
+            or not index_versions
+            or len(index_versions) > _TEMPORAL_WITNESS_VERSION_LIMIT
+        ):
+            continue
+        index_atoms = tuple(
+            (path, citation, excerpt)
+            for path, citation, excerpt in _rule_source_excerpt_atoms(index_rule)
+            if authoritative_citation_path
+            and citation.strip("/").lower() == authoritative_citation_path
+            and excerpt.strip()
+        )
+        index_entries = []
+        for number, version in enumerate(index_versions):
+            if not isinstance(version, dict) or set(version) - {
+                "effective_from",
+                "effective_to",
+                "formula",
+            }:
+                break
+            start = version.get("effective_from")
+            end = version.get("effective_to", "")
+            if (
+                not isinstance(start, str)
+                or not _is_iso_calendar_date(start)
+                or not isinstance(end, str)
+                or (end and (not _is_iso_calendar_date(end) or end < start))
+            ):
+                break
+            try:
+                index_value = ast.literal_eval(str(version.get("formula")))
+            except (ValueError, SyntaxError):
+                break
+            if type(index_value) is not int:
+                break
+            paths = {
+                f"versions[{number}].formula",
+                f"versions[{number}].effective_from",
+            }
+            if end:
+                paths.add(f"versions[{number}].effective_to")
+            lineage = tuple(atom for atom in index_atoms if atom[0] in paths)
+            if {atom[0] for atom in lineage} != paths:
+                break
+            if any(
+                start <= (b or "9999-12-31") and a <= (end or "9999-12-31")
+                for a, b, _, _ in index_entries
+            ):
+                break
+            index_entries.append((start, end, index_value, lineage))
+        if len(index_entries) != len(index_versions):
+            continue
+        versions = rule.get("versions")
+        if (
+            not isinstance(versions, list)
+            or not versions
+            or len(versions) > _TEMPORAL_WITNESS_VERSION_LIMIT
+        ):
+            continue
+        atoms = tuple(
+            (path, citation, excerpt)
+            for path, citation, excerpt in _rule_source_excerpt_atoms(rule)
+            if authoritative_citation_path
+            and citation.strip("/").lower() == authoritative_citation_path
+            and excerpt.strip()
+        )
+        entries: list[tuple[str, str, Any]] = []
+        for number, version in enumerate(versions):
+            if not isinstance(version, dict) or set(version) - {
+                "effective_from",
+                "effective_to",
+                "values",
+            }:
+                break
+            start = version.get("effective_from")
+            end = version.get("effective_to", "")
+            values = version.get("values")
+            if (
+                not isinstance(start, str)
+                or not _is_iso_calendar_date(start)
+                or not isinstance(end, str)
+                or (end and (not _is_iso_calendar_date(end) or end < start))
+                or not isinstance(values, dict)
+                or not values
+                or len(values) > _TEMPORAL_WITNESS_NAME_LIMIT
+                or any(
+                    type(key) is not int
+                    or not isinstance(value, str)
+                    or not _is_iso_calendar_date(value)
+                    for key, value in values.items()
+                )
+            ):
+                break
+            required_paths = {
+                f"versions[{number}].values",
+                f"versions[{number}].effective_from",
+            }
+            if end:
+                required_paths.add(f"versions[{number}].effective_to")
+            selected_atoms = tuple(atom for atom in atoms if atom[0] in required_paths)
+            if {atom[0] for atom in selected_atoms} != required_paths:
+                break
+            if any(
+                start <= (prior_end or "9999-12-31")
+                and prior_start <= (end or "9999-12-31")
+                for prior_start, prior_end, _ in entries
+            ):
+                break
+            entries.append(
+                (
+                    start,
+                    end,
+                    _DeclaredDateTable(
+                        name,
+                        index_name,
+                        tuple(
+                            (key, date.fromisoformat(value))
+                            for key, value in sorted(values.items())
+                        ),
+                        selected_atoms,
+                        tuple(index_entries),
+                    ),
+                )
+            )
+        if len(entries) == len(versions):
+            result[name] = _TemporalFormulaValue(tuple(entries))
+    return result
+
+
 def _constant_rule_environment(payload: dict[str, Any]) -> dict[str, Any]:
     """Return bounded local parameter values and temporal aliases."""
 
@@ -42864,6 +43973,11 @@ def _constant_rule_environment(payload: dict[str, Any]) -> dict[str, Any]:
             for value in values[1:]
         ):
             environment[name] = values[0]
+    environment.update(
+        _declared_date_table_environment(
+            payload, authoritative_citation_path=authoritative_citation_path
+        )
+    )
     pending_aliases = {
         str(rule.get("name") or "").strip(): rule
         for rule in rules
@@ -43104,6 +44218,11 @@ def _formula_environment_for_case(
         if not _is_iso_calendar_date(period):
             if "period" not in case:
                 candidates = [candidate for _start, _end, candidate in value.versions]
+                if any(
+                    isinstance(candidate, _DeclaredDateTable)
+                    for candidate in candidates
+                ):
+                    continue
                 if candidates and all(
                     type(candidate) is type(candidates[0])
                     and candidate == candidates[0]
@@ -43115,6 +44234,49 @@ def _formula_environment_for_case(
         if len(selected_indexes) != 1:
             continue
         resolved[name] = value.versions[selected_indexes[0]][2]
+    raw_period = case.get("period")
+    valid_date_period = _is_iso_calendar_date(period) and (
+        type(raw_period) is date
+        or (
+            isinstance(raw_period, str)
+            and re.fullmatch(r"\d{4}(?:-\d{2}(?:-\d{2})?)?", raw_period.strip())
+            is not None
+        )
+        or (
+            isinstance(raw_period, dict)
+            and _case_runtime_period_start(case) is not _UNRESOLVED_CONDITION_VALUE
+        )
+    )
+    for name, table in tuple(resolved.items()):
+        if type(table) is not _DeclaredDateTable:
+            continue
+        if not valid_date_period:
+            del resolved[name]
+            continue
+        selected = [
+            entry
+            for entry in table.index_versions
+            if _is_iso_calendar_date(period)
+            and entry[0] <= period
+            and (not entry[1] or period <= entry[1])
+        ]
+        index_value = resolved.get(table.indexed_by)
+        if (
+            len(selected) != 1
+            or type(index_value) is not int
+            or index_value != selected[0][2]
+        ):
+            del resolved[name]
+            continue
+        resolved[name] = _DeclaredDateTable(
+            table.name,
+            table.indexed_by,
+            table.cells,
+            table.source_atoms,
+            table.index_versions,
+            selected[0][3],
+            selected[0][2],
+        )
     return resolved
 
 

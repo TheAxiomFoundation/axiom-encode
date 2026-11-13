@@ -1,0 +1,148 @@
+{
+  "rule": {
+    "name": "other_property_income_line_68100",
+    "kind": "derived",
+    "dtype": "Money",
+    "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+    "entity": "Person",
+    "period": "Year",
+    "unit": "CAD",
+    "versions": [
+      {
+        "effective_from": "2025-01-01",
+        "effective_to": "2025-12-31",
+        "formula": "t936_insurance_recapture_not_already_line9 + t936_home_insulation_energy_conversion_grants_12_1_u + t936_inducement_reimbursement + t936_shareholder_property_appropriation + t936_nonactive_limited_partner_farming_fishing + t936_other_trust_income + t936_allowable_capital_losses_prior_partnership_losses_after1985 + t936_agriinvest_fund2_withdrawals + t936_cpp_qpp_death_benefits + t936_annuity_taxable_56_1_d - t936_annuity_capital_deduction_60_a"
+      }
+    ],
+    "metadata": {
+      "proof": {
+        "atoms": [
+          {
+            "path": "versions[0].formula",
+            "kind": "formula",
+            "source": {
+              "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+              "excerpt": "Any other property income reported in 2025 (see the list \"Other property income\" on the next page)\nincluding annuity payments taxable under paragraph 56(1)(d) minus the capital portion deducted\nunder paragraph 60(a) 68100 + 11\n"
+            }
+          },
+          {
+            "path": "versions[0].formula",
+            "kind": "formula",
+            "source": {
+              "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+              "excerpt": "Other property income\nInclude:\n(cid:129) amounts from insurance proceeds for the recapture of capital cost allowance\n(other than amounts already included on line 9)\n(cid:129) home insulation or energy conversion grants under paragraph 12(1)(u)\n(cid:129) payments received as an inducement or reimbursement\n(cid:129) income from the appropriation of property to a shareholder\n(cid:129) farming and fishing income reported by a non-active or a limited partner\n(cid:129) other income from a trust\n(cid:129) allowable capital losses included in partnership losses of other years after 1985\n(cid:129) amounts withdrawn from AgriInvest Fund 2\n(cid:129) Canada Pension Plan (CPP) or Quebec Pension Plan (QPP) death benefit payments reported on your\nincome tax and benefit return\nDo not include:\n(cid:129) income amounts that relate to business income\n(cid:129) payments received from an income averaging annuity contract\n(cid:129) payments received from an annuity contract bought under a deferred profit-sharing plan\n(cid:129) shareholders' loans included in income under subsection 15(2)\n"
+            }
+          },
+          {
+            "path": "versions[0].effective_from",
+            "kind": "effective_period",
+            "source": {
+              "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+              "excerpt": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss"
+            }
+          },
+          {
+            "path": "versions[0].effective_to",
+            "kind": "effective_period",
+            "source": {
+              "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+              "excerpt": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "case": {
+    "name": "complete_cnil_without_claiming_deduction",
+    "entity_id": "t936-illustrative-person",
+    "period": {
+      "period_kind": "tax_year",
+      "start": "2025-01-01",
+      "end": "2025-12-31"
+    },
+    "input": {
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_19900": 100,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2048_line_17215": 10,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_10700": 20,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_11000": 10,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_12400": -2,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2017_line_13_reserves_qffp_qsbcs": 12,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2048_line_17216": 5,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t3_box_21_capital_gains": 30,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t3_box_30_capital_gains_eligible_for_deduction": 10,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t1_line_25300_net_capital_losses_of_other_years": 50,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.carrying_charges_and_interest_expenses_line_22100": 100,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.net_rental_losses_line_12600": 0,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.limited_or_non_active_partnership_losses_line_12200": 0,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.limited_partnership_losses_of_other_years_line_25100": 0,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.investment_income_lines_12000_and_12100": 30,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.net_rental_income_line_12600": 0,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.limited_or_non_active_partnership_income_line_12200": 0,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2048_2024_to_2025_line_17218": 8,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.exploration_and_development_expenses_line_22400": 20,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.recovery_of_exploration_and_development_expenses_line_13000": 20,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_chart_a_completed": true,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_19200_reported": true,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_chart_a_line_14_includes_t3": true,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_had_investment_income_2025": true,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_had_investment_expenses_2025": true,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_other_than_qffp_qsbcs_gains_2025": true,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_claiming_capital_gains_deduction_2025": false,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_repaid_inducements": 1,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_repaid_refund_interest": 2,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_prior_proceeds_sale_agreement_mortgage_claim": 3,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_foreign_nonbusiness_tax_20_11_12": 4,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_life_insurance_premiums_property_income": 5,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_cca_certified_films_videotapes": 6,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_farming_fishing_losses_nonactive_limited_partner": 7,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_insurance_recapture_not_already_line9": 1,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_home_insulation_energy_conversion_grants_12_1_u": 2,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_inducement_reimbursement": 3,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_shareholder_property_appropriation": 4,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_nonactive_limited_partner_farming_fishing": 5,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_other_trust_income": 6,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_allowable_capital_losses_prior_partnership_losses_after1985": 7,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_agriinvest_fund2_withdrawals": 8,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_cpp_qpp_death_benefits": 9,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_annuity_taxable_56_1_d": 100,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_annuity_capital_deduction_60_a": 60,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_2024_part3_line_16": 1000,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_2024_part3_line_19": 400,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_completed_2024": true,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#relation.t936_depreciable_disposition_for_return": [
+        {
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_acquisition_date": "2025-01-01",
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_acquisition_cost": 38001,
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_is_ordinary_passenger_vehicle": true,
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_is_zero_emission_passenger_vehicle": false,
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_is_timber_resource": false,
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_uncollectible_portion": 100
+        },
+        {
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_acquisition_date": "2020-01-01",
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_acquisition_cost": 999999,
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_is_ordinary_passenger_vehicle": false,
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_is_zero_emission_passenger_vehicle": false,
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_is_timber_resource": false,
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_uncollectible_portion": 70
+        }
+      ]
+    },
+    "output": {
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#other_investment_expenses_line_68080": 98,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#other_property_income_line_68100": 85,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_total_investment_expenses_line_a": 258,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_total_investment_income_line_b": 190,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_total_expenses_after_1987_line_16": 1258,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_cumulative_investment_expenses_line_18": 1250,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_cumulative_investment_income_line_21": 590,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#cumulative_net_investment_loss_t936_part_3_line_c": 660,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_should_report_cnil_to_t657": "not_holds",
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_should_complete_form": "holds",
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_should_keep_copy": "holds",
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_should_attach_copy": "holds",
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_should_first_complete_chart_a": "holds"
+    }
+  }
+}
