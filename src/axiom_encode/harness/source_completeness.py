@@ -19899,33 +19899,71 @@ def _shared_membership_list_body(body: str) -> str:
 
 
 # The chapeau of a bulleted list of alternatives. The grammar is closed and
-# comes from real manual text: "when one or more of the following apply:",
-# "only when any of the following applies:", "Any of the following ... when
-# used ...:", "when either situation occurs:". The quantifier must be in the
-# chapeau's last sentence, which the colon ends. "all of the following" is
-# not in the grammar: its bullets stay conjunctive gates.
+# comes from real manual text. The whole chapeau line must match one shape:
+#
+# - "... when one or more of the following apply:", "... only when any of the
+#   following applies:", "... when either situation occurs:". After the
+#   quantifier only a short predicate may come before the final colon, or
+#   that predicate and "regarding the child support payment" (one real unit).
+# - "Any of the following <things> are considered <class> when used ...:". The
+#   line starts with the quantifier, so the bullets are its subject list. The
+#   tail must not point at a second list.
+#
+# "all of the following" is not in the grammar: its bullets stay conjunctive
+# gates. A line that holds a universal, a negation or a conjunction is not an
+# alternative chapeau either, whatever else it says.
 _ALTERNATIVE_BULLET_CHAPEAU = re.compile(
-    r"\b(?:one\s+or\s+more\s+of\s+the\s+following"
-    r"|any\s+of\s+the\s+following"
-    r"|either\s+situation\s+occurs)\b[^.:\n]*:\s*$",
+    r"(?:"
+    r"[^.:\n]*\b(?:one\s+or\s+more|any)\s+of\s+the\s+following\s+"
+    r"(?:apply|applies|occur|occurs|is\s+true|are\s+true|is\s+met|are\s+met)"
+    r"(?:\s+regarding\s+the\s+child\s+support\s+payment)?"
+    r"|[^.:\n]*\beither\s+situation\s+occurs"
+    r"|any\s+of\s+the\s+following\s+"
+    r"(?:(?!following\b|below\b|these\b|those\b|conditions?\b|requirements?\b"
+    r"|criteri(?:a|on)\b)[^.:\n])*"
+    r"):",
+    flags=re.IGNORECASE,
+)
+_ALTERNATIVE_CHAPEAU_REFUSAL = re.compile(
+    r"\b(?:all|both|each|every|not|no|none|neither|nor|never|and|but|unless"
+    r"|except|without)\b|n't\b",
+    flags=re.IGNORECASE,
+)
+# Words that can make a bullet, or the paragraph after a list, add simultaneous
+# facts to the condition.
+_ALTERNATIVE_LIST_CONJUNCTION = re.compile(
+    r"\b(?:and|nor|both|all|each|every|also|must|as\s+well\s+as"
+    r"|in\s+addition|additionally)\b",
     flags=re.IGNORECASE,
 )
 _SOURCE_BULLET_ITEM = re.compile(r"\s*[●•]\s+\S")
 
 
-def _without_alternative_bullets_or_later_paragraphs(text: str, body: str) -> str:
-    """Keep only the text that can state simultaneous facts of one condition.
+def _without_alternative_bullets_or_later_paragraphs(
+    text: str, body: str, body_start: int
+) -> str:
+    """Drop the bullets that are alternatives, never a conjunct.
 
-    This gate counts simultaneous facts, not alternative triggers. Two physical
-    list shapes made it count other things:
+    This gate counts simultaneous facts, not alternative triggers. A bullet
+    directly under an alternative chapeau is one alternative. Everything else
+    keeps its conservative analysis; when a shape is not certain, the body
+    comes back unchanged.
 
-    - A bullet under an alternative chapeau is one alternative, not a conjunct.
-      Drop it. A bullet that itself holds ``and`` or ``nor`` stays, so a
-      conjunction inside an alternative keeps its conservative analysis. The
-      chapeau, an unbulleted continuation and any trailing proviso also stay.
-    - After a bullet list, a new paragraph that is a sentence (blank line
-      before it, capital first letter, final period or colon) is a new
-      proposition, not another conjunct. The condition ends before it.
+    - The chapeau is the line that holds the condition cue, and the first
+      bullet run follows it directly. ``body_start`` locates that line in
+      ``text``; a search for the bullet text could select another list.
+    - Only the contiguous bullet run under the chapeau is dropped. The run ends
+      at the first non-bullet line.
+    - A wrapped bullet is read with its continuation lines. A bullet that holds
+      ``and`` or ``nor`` stays, so a conjunction inside one alternative is
+      still counted.
+    - Nothing is dropped when the list can hold more than alternatives: a
+      bullet ends with a colon (a nested chapeau), ends with ``and`` or
+      ``nor``, or holds another conjunction word; or text follows the run that
+      is not a new sentence paragraph.
+    - A new sentence paragraph after the run (blank line before it, capital
+      first letter, final period or colon, no conjunction word) is a new
+      proposition. The condition ends before it.
     """
 
     lines = body.split("\n")
@@ -19933,33 +19971,57 @@ def _without_alternative_bullets_or_later_paragraphs(text: str, body: str) -> st
         (index for index, line in enumerate(lines) if _SOURCE_BULLET_ITEM.match(line)),
         None,
     )
-    if first_bullet is None:
+    if first_bullet is None or any(line.strip() for line in lines[1:first_bullet]):
         return body
+    if not text.startswith("\n".join(lines[: first_bullet + 1]), body_start):
+        return body
+    chapeau = (
+        text[text.rfind("\n", 0, body_start) + 1 : body_start] + lines[0]
+    ).strip()
+    if (
+        _SOURCE_BULLET_ITEM.match(chapeau)
+        or _ALTERNATIVE_BULLET_CHAPEAU.fullmatch(chapeau) is None
+        or _ALTERNATIVE_CHAPEAU_REFUSAL.search(chapeau)
+    ):
+        return body
+
     kept = lines[:first_bullet]
-    for index in range(first_bullet, len(lines)):
+    index = first_bullet
+    while index < len(lines):
+        if not lines[index].strip():
+            kept.append(lines[index])
+            index += 1
+            continue
+        if not _SOURCE_BULLET_ITEM.match(lines[index]):
+            break
+        end = index + 1
+        # A wrapped bullet continues on the next line without a capital.
+        while (
+            end < len(lines)
+            and lines[end].strip()
+            and not _SOURCE_BULLET_ITEM.match(lines[end])
+            and not lines[end].strip()[0].isupper()
+        ):
+            end += 1
+        bullet = " ".join(line.strip() for line in lines[index:end])
+        if bullet.endswith(":") or re.search(
+            r"\b(?:and|nor)\W*$", bullet, flags=re.IGNORECASE
+        ):
+            return body
+        if re.search(r"\b(?:and|nor)\b", bullet, flags=re.IGNORECASE):
+            kept.extend(lines[index:end])
+        elif _ALTERNATIVE_LIST_CONJUNCTION.search(bullet):
+            return body
+        index = end
+    if index < len(lines):
         stripped = lines[index].strip()
-        if (
-            stripped
-            and not _SOURCE_BULLET_ITEM.match(stripped)
-            and not lines[index - 1].strip()
+        if not (
+            not lines[index - 1].strip()
             and stripped[0].isupper()
             and stripped[-1] in ".:"
+            and not _ALTERNATIVE_LIST_CONJUNCTION.search(stripped)
         ):
-            break
-        kept.append(lines[index])
-    bullet_position = text.find(lines[first_bullet].strip())
-    preceding = [
-        line.strip()
-        for line in text[: max(bullet_position, 0)].splitlines()
-        if line.strip() and not _SOURCE_BULLET_ITEM.match(line)
-    ]
-    if preceding and _ALTERNATIVE_BULLET_CHAPEAU.search(preceding[-1]):
-        kept = [
-            line
-            for line in kept
-            if not _SOURCE_BULLET_ITEM.match(line)
-            or re.search(r"\b(?:and|nor)\b", line, flags=re.IGNORECASE)
-        ]
+            return body
     return "\n".join(kept)
 
 
@@ -20195,7 +20257,9 @@ def _source_conjunctive_fact_gates(
     body = _without_flattened_pdf_alternative_list(body)
     body = _without_completed_chart_result_label(body, text)
     body = _without_worksheet_imperative_consequent(body)
-    body = _without_alternative_bullets_or_later_paragraphs(text, body)
+    body = _without_alternative_bullets_or_later_paragraphs(
+        text, body, conditional.start("body")
+    )
     membership_body = _shared_membership_list_body(body)
     membership_requirement = None
     if membership_body != body:
