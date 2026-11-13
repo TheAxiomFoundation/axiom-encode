@@ -22,6 +22,7 @@ import itertools
 import math
 import re
 import textwrap
+import threading
 import unicodedata
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
@@ -36,6 +37,7 @@ from decimal import (
     InvalidOperation,
     localcontext,
 )
+from operator import is_
 from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
 import yaml
@@ -1692,6 +1694,12 @@ _DEPENDENCY_CONTEXT_COORDINATION = re.compile(
     r"(?:,\s*)?\b(?:although|and|but|even\s+though|or|though|while|whereas|yet)\s+",
     flags=re.IGNORECASE,
 )
+_OF_THIS_TITLE = re.compile(r"\s+of\s+this\s+title\b", flags=re.IGNORECASE)
+_STATE_CODE_CITATION_TITLE = re.compile(r"\bR\.S\.$", flags=re.IGNORECASE)
+_STATE_CODE_CITATION_SECTION = re.compile(r"\s*\d+[A-Za-z]?:\d+[A-Za-z]?")
+_LEBENSJAHR_FOLLOWS = re.compile(r"\s+Lebensjahr(?:es|e|en)?\b")
+_NUMBER_BEFORE_PERIOD = re.compile(r"(?<!\w)\d+\.$")
+_DIGIT = re.compile(r"\d")
 
 
 def _has_adversative_language(text: str) -> bool:
@@ -6372,6 +6380,7 @@ def analyze_complete_source_unit(
     with (
         _us_manual_prose_scope(corpus_citation_path),
         _condition_cue_scope(corpus_citation_path),
+        _source_index_scope(),
     ):
         source_text = authoritative_source_text.strip()
         if not source_text:
@@ -6778,6 +6787,7 @@ def _analyze_rulespec_payload(
         else None
     )
 
+    branch_index = _source_branch_index(branches)
     for branch in branches:
         if _path_covered(
             branch.path,
@@ -6791,7 +6801,11 @@ def _analyze_rulespec_payload(
             continue
         descendants = tuple(
             candidate
-            for candidate in branches
+            for candidate in (
+                branches
+                if branch_index is None
+                else branch_index.descendants(branch.path)
+            )
             if len(candidate.path) > len(branch.path)
             and candidate.path[: len(branch.path)] == branch.path
         )
@@ -8760,11 +8774,11 @@ def _deferred_coverage(
     authenticated_same_act_aliases: Sequence[str] = (),
     resolved_dependency_outputs: Sequence[str] = (),
     deferred_clauses: list[SourceStructureBranch] | None = None,
-) -> tuple[set[tuple[str, ...]], list[str]]:
+) -> tuple[frozenset[tuple[str, ...]], list[str]]:
     module = payload.get("module")
     records = module.get("deferred_outputs") if isinstance(module, dict) else None
     if not isinstance(records, list):
-        return set(), []
+        return frozenset(), []
     deferral_anchors = _deferral_anchor_bases(corpus_citation_path)
     base_target = deferral_anchors[0]
     preferred_anchor = deferral_anchors[-1]
@@ -8810,13 +8824,7 @@ def _deferred_coverage(
             output_parts = tuple(
                 part.lower() for part in output_path.rstrip("/").split("/") if part
             )
-            matching_branches = [
-                branch
-                for branch in branches
-                if branch.path
-                and len(output_parts) >= len(branch.path)
-                and output_parts[-len(branch.path) :] == branch.path
-            ]
+            matching_branches = _branches_ending_output(output_parts, branches)
             if fragment and uses_local_policy_root and matching_branches:
                 matching_branch = max(
                     matching_branches, key=lambda branch: len(branch.path)
@@ -9097,7 +9105,8 @@ def _deferred_coverage(
                     found=reason or "<empty reason>",
                 )
             )
-    return covered, issues
+    # Frozen, so `_path_is_deferred` can index the set once per analysis.
+    return frozenset(covered), issues
 
 
 # The resolver authenticates these exact known interfaces. Shared words in an
@@ -9285,6 +9294,21 @@ def _resolved_definition_deferral_clauses(
     return tuple(clauses)
 
 
+def _branches_ending_output(
+    output_parts: tuple[str, ...],
+    branches: Sequence[SourceStructureBranch],
+) -> list[SourceStructureBranch]:
+    index = _source_branch_index(branches)
+    pool = branches if index is None else index.ending(output_parts)
+    return [
+        branch
+        for branch in pool
+        if branch.path
+        and len(output_parts) >= len(branch.path)
+        and output_parts[-len(branch.path) :] == branch.path
+    ]
+
+
 def _deferred_source_scope_text(
     path: tuple[str, ...],
     *,
@@ -9293,7 +9317,9 @@ def _deferred_source_scope_text(
 ) -> str:
     if not path:
         return source_text
-    candidates = [branch.text for branch in branches if branch.path == path]
+    index = _source_branch_index(branches)
+    pool = branches if index is None else index.at(path)
+    candidates = [branch.text for branch in pool if branch.path == path]
     return max(candidates, key=len, default="")
 
 
@@ -9307,10 +9333,12 @@ def _deferred_branch_display_path(
 
     if not corpus_citation_path.startswith("us/statute/"):
         return path
+    index = _source_branch_index(branches)
     display_path: list[str] = []
     for depth, segment in enumerate(path, start=1):
         prefix = path[:depth]
-        candidate_texts = (branch.text for branch in branches if branch.path == prefix)
+        pool = branches if index is None else index.at(prefix)
+        candidate_texts = (branch.text for branch in pool if branch.path == prefix)
         source_scope_text = max(candidate_texts, key=len, default="")
         marker_match = re.match(
             r"\s*(?P<markers>(?:\(\s*[A-Za-z0-9]+\s*\)\s*)+)",
@@ -11527,6 +11555,30 @@ def _reason_names_absolute_target(
     )
 
 
+class _SpanContainment:
+    """Whether any of a set of spans contains a query span, in O(log n)."""
+
+    __slots__ = ("_reach", "_starts")
+
+    def __init__(self, spans: Iterable[tuple[int, int]]) -> None:
+        ordered = sorted(spans)
+        self._starts = [start for start, _end in ordered]
+        # The furthest end among the spans that start at or before each one.
+        self._reach = list(itertools.accumulate((end for _start, end in ordered), max))
+
+    def contains(self, start: int, end: int) -> bool:
+        """True when some span has ``span_start <= start`` and ``end <= span_end``."""
+
+        index = bisect.bisect_right(self._starts, start)
+        return bool(index) and self._reach[index - 1] >= end
+
+    def straddles(self, point: int) -> bool:
+        """True when some span has ``span_start < point < span_end``."""
+
+        index = bisect.bisect_left(self._starts, point)
+        return bool(index) and self._reach[index - 1] > point
+
+
 def _reason_dependency_is_source_bound(
     reason: str,
     source_scope_text: str,
@@ -11621,11 +11673,11 @@ def _reason_dependency_is_source_bound(
     current_section = normalize_rulespec_path_segment(
         corpus_citation_path.rstrip("/").rsplit("/", 1)[-1].lower()
     )
+    qualified_spans = _SpanContainment(
+        (dependency.start(), dependency.end()) for dependency in usc_dependencies
+    )
     for match in _PRECISE_DEFERRAL_DEPENDENCY.finditer(reason):
-        if any(
-            dependency.start() <= match.start() and match.end() <= dependency.end()
-            for dependency in usc_dependencies
-        ):
+        if qualified_spans.contains(match.start(), match.end()):
             continue
         dependency = match.group(0).strip()
         if not _reason_match_names_missing_dependency(
@@ -14185,6 +14237,202 @@ def _reason_dependency_occurrence_is_contextual(
 ) -> bool:
     """Reject context attached to this citation without crossing into another one."""
 
+    if type(reason) is not str or (
+        current_usc_title is not None and type(current_usc_title) is not str
+    ):
+        return _reason_dependency_occurrence_is_contextual_by_scan(
+            reason, match, current_usc_title=current_usc_title
+        )
+    groups = match.groupdict()
+    title = groups.get("title")
+    section = groups.get("section")
+    if (
+        title
+        and section
+        and _reason_occurrence_index(reason).has_contextual_occurrence(
+            match, current_usc_title=current_usc_title
+        )
+    ):
+        return True
+
+    stops = _reason_separator_stops(reason)
+    stop = bisect.bisect_left(stops, match.end())
+    if stop == len(stops):
+        return False
+    trailing_clause = reason[
+        stops[stop] + 1 : stops[stop + 1] if stop + 1 < len(stops) else len(reason)
+    ]
+    return bool(
+        not _reason_dependencies(trailing_clause)
+        and _has_adversative_language(trailing_clause)
+    )
+
+
+@functools.lru_cache(maxsize=256)
+def _reason_separator_stops(reason: str) -> tuple[int, ...]:
+    """Offsets of every ``.``, ``;`` and newline in a reason, citations included."""
+
+    return tuple(stop.start() for stop in re.finditer(r"[.;\n]", reason))
+
+
+class _ReasonOccurrenceIndex:
+    """One reason's citation occurrences, grouped for contextual-authority checks.
+
+    ``_reason_dependency_occurrence_is_contextual`` asks whether any occurrence
+    of a citation sits in contextual-authority language. An occurrence is the
+    same citation when it has the same family, title, section and fragments, or
+    when it is an untitled section of the same fragments followed by "of this
+    title" and the citation's title is the current title. Scanning every
+    occurrence, and every dependency around it, once per citation made a reason
+    of n citations cost n³. The occurrences are grouped by that identity, so
+    each group's answer is found once, and an occurrence's local context is
+    read only when its group is first asked about.
+    """
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        self.dependencies = _reason_dependencies(reason)
+        self.starts = [dependency.start() for dependency in self.dependencies]
+        self.ends = [dependency.end() for dependency in self.dependencies]
+        self.reach = list(itertools.accumulate(self.ends, max))
+        self.candidates = (
+            *_qualified_usc_dependencies(reason),
+            *_RELATIVE_USC_DEFERRAL_DEPENDENCY.finditer(reason),
+            *_qualified_louisiana_rs_dependencies(reason),
+        )
+        # Titled occurrences match on family, title, section and fragments;
+        # untitled ones followed by "of this title" match the current title.
+        self.titled: dict[tuple[str, str, str, tuple[str, ...]], list[int]] = {}
+        self.this_title: dict[tuple[str, tuple[str, ...]], list[int]] = {}
+        for index, candidate in enumerate(self.candidates):
+            groups = candidate.groupdict()
+            identity = (
+                normalize_rulespec_path_segment(groups["section"]),
+                _usc_dependency_fragments(candidate),
+            )
+            if groups.get("title"):
+                self.titled.setdefault(
+                    (
+                        _dependency_citation_family(candidate),
+                        groups["title"].lower(),
+                        *identity,
+                    ),
+                    [],
+                ).append(index)
+            elif _OF_THIS_TITLE.match(reason, candidate.end()):
+                self.this_title.setdefault(identity, []).append(index)
+        self.contextual_groups: dict[tuple[Any, ...], bool] = {}
+
+    def has_contextual_occurrence(
+        self,
+        match: re.Match[str],
+        *,
+        current_usc_title: str | None,
+    ) -> bool:
+        groups = match.groupdict()
+        identity = (
+            normalize_rulespec_path_segment(groups["section"]),
+            _usc_dependency_fragments(match),
+        )
+        titled = (
+            _dependency_citation_family(match),
+            groups["title"].lower(),
+            *identity,
+        )
+        if self._group_is_contextual(("titled", titled), self.titled.get(titled, ())):
+            return True
+        return bool(
+            current_usc_title
+            and groups["title"].lower() == current_usc_title.lower()
+            and self._group_is_contextual(
+                ("this-title", identity), self.this_title.get(identity, ())
+            )
+        )
+
+    def _group_is_contextual(
+        self, key: tuple[Any, ...], indexes: Sequence[int]
+    ) -> bool:
+        if key not in self.contextual_groups:
+            self.contextual_groups[key] = any(
+                _CONTEXTUAL_AUTHORITY_LANGUAGE.search(
+                    self.local_context(self.candidates[index])
+                )
+                for index in indexes
+            )
+        return self.contextual_groups[key]
+
+    def local_context(self, match: re.Match[str]) -> str:
+        """The match's clause, cut at the nearest dependencies and coordinations."""
+
+        reason = self.reason
+        clause_start, clause_end = _reason_clause_bounds(reason, match)
+        # The latest-ending dependency between the clause start and the match:
+        # dependencies are ordered by start, so walk back from the match and
+        # stop once no earlier one can end later than the best found.
+        previous_end: int | None = None
+        lowest = bisect.bisect_left(self.starts, clause_start)
+        index = bisect.bisect_right(self.starts, match.start()) - 1
+        while index >= lowest:
+            end = self.ends[index]
+            if end <= match.start() and (previous_end is None or end > previous_end):
+                previous_end = end
+            if previous_end is not None and (
+                index == 0 or self.reach[index - 1] <= previous_end
+            ):
+                break
+            index -= 1
+        following = bisect.bisect_left(self.starts, match.end())
+        next_start = (
+            self.starts[following]
+            if following < len(self.starts) and self.starts[following] < clause_end
+            else clause_end
+        )
+        before = reason[
+            (clause_start if previous_end is None else previous_end) : match.start()
+        ]
+        after = reason[match.end() : next_start]
+        preceding_coordinations = list(
+            _DEPENDENCY_CONTEXT_COORDINATION.finditer(before)
+        )
+        if preceding_coordinations:
+            before = before[preceding_coordinations[-1].end() :]
+        following_coordination = _DEPENDENCY_CONTEXT_COORDINATION.search(after)
+        if following_coordination:
+            after = after[: following_coordination.start()]
+        return before + after
+
+
+@functools.lru_cache(maxsize=256)
+def _reason_occurrence_index(reason: str) -> _ReasonOccurrenceIndex:
+    return _ReasonOccurrenceIndex(reason)
+
+
+def _reason_dependencies(reason: str) -> list[re.Match[str]]:
+    return sorted(
+        (
+            *_qualified_usc_dependencies(reason),
+            *_RELATIVE_USC_DEFERRAL_DEPENDENCY.finditer(reason),
+            *_qualified_louisiana_rs_dependencies(reason),
+            *_PRECISE_DEFERRAL_DEPENDENCY.finditer(reason),
+        ),
+        key=lambda dependency: (dependency.start(), -dependency.end()),
+    )
+
+
+def _reason_dependency_occurrence_is_contextual_by_scan(
+    reason: str,
+    match: re.Match[str],
+    *,
+    current_usc_title: str | None,
+) -> bool:
+    """``_reason_dependency_occurrence_is_contextual`` for other argument types.
+
+    A ``str`` subclass may hash, compare, slice or lowercase unlike its text. A
+    reason of another type is neither indexed nor cached, so every citation
+    rescans it; a current title of another type is read only where this scan
+    reads it, as before.
+    """
+
     groups = match.groupdict()
     title = groups.get("title")
     section = groups.get("section")
@@ -14227,18 +14475,6 @@ def _reason_dependency_occurrence_is_contextual(
     return bool(
         not _reason_dependencies(trailing_clause)
         and _has_adversative_language(trailing_clause)
-    )
-
-
-def _reason_dependencies(reason: str) -> list[re.Match[str]]:
-    return sorted(
-        (
-            *_qualified_usc_dependencies(reason),
-            *_RELATIVE_USC_DEFERRAL_DEPENDENCY.finditer(reason),
-            *_qualified_louisiana_rs_dependencies(reason),
-            *_PRECISE_DEFERRAL_DEPENDENCY.finditer(reason),
-        ),
-        key=lambda dependency: (dependency.start(), -dependency.end()),
     )
 
 
@@ -14331,6 +14567,42 @@ def _reason_clause_bounds(
     reason: str,
     match: re.Match[str],
 ) -> tuple[int, int]:
+    if type(reason) is not str:
+        return _reason_clause_bounds_by_scan(reason, match)
+    stops = _reason_clause_stops(reason)
+    preceding = bisect.bisect_left(stops, match.start())
+    following = bisect.bisect_left(stops, match.end())
+    return (
+        stops[preceding - 1] + 1 if preceding else 0,
+        stops[following] if following < len(stops) else len(reason),
+    )
+
+
+@functools.lru_cache(maxsize=256)
+def _reason_clause_stops(reason: str) -> tuple[int, ...]:
+    """Offsets of a reason's clause stops, outside its qualified citations.
+
+    Scanned once per reason: callers bound one clause per dependency match, so
+    rescanning the reason for each match made a reason of n clauses cost n².
+    """
+
+    masked = list(reason)
+    for dependency in (
+        *_qualified_usc_dependencies(reason),
+        *_qualified_louisiana_rs_dependencies(reason),
+    ):
+        for position in range(dependency.start(), dependency.end()):
+            if masked[position] in {".", ";"}:
+                masked[position] = " "
+    return tuple(stop.start() for stop in re.finditer(r"[.;\n]", "".join(masked)))
+
+
+def _reason_clause_bounds_by_scan(
+    reason: str,
+    match: re.Match[str],
+) -> tuple[int, int]:
+    """``_reason_clause_bounds`` for a reason of another type, rescanned."""
+
     masked = list(reason)
     for dependency in (
         *_qualified_usc_dependencies(reason),
@@ -15781,9 +16053,10 @@ def _is_marker_only_container(
 ) -> bool:
     """Ignore a parent wrapper only when it has no operative chapeau text."""
 
+    index = _source_branch_index(branches)
     direct_child_starts = [
         candidate.start
-        for candidate in branches
+        for candidate in (branches if index is None else index.children(branch.path))
         if len(candidate.path) == len(branch.path) + 1
         and candidate.path[: len(branch.path)] == branch.path
         and branch.start <= candidate.start < branch.end
@@ -15806,16 +16079,129 @@ def _path_covered(
 
 def _path_is_deferred(
     path: tuple[str, ...],
-    deferred_paths: set[tuple[str, ...]],
+    deferred_paths: set[tuple[str, ...]] | frozenset[tuple[str, ...]],
 ) -> bool:
     """Let a precise non-root deferral cover its structural descendants."""
 
     if not path:
         return () in deferred_paths
+    if type(deferred_paths) is frozenset and type(path) is tuple:
+        # An analysis checks every branch against one frozen deferral set, so
+        # it asks an index of that set, built once, instead of scanning every
+        # deferral for every branch.
+        index = _deferred_path_index(deferred_paths)
+        if index is not None:
+            verdict = index.covers(path)
+            if verdict is not None:
+                return verdict
     return any(
         deferred_path and path[: len(deferred_path)] == deferred_path
         for deferred_path in deferred_paths
     )
+
+
+_DEFERRED_PATH_END = object()
+
+
+def _plain_strings(values: Iterable[object]) -> bool:
+    """Whether every value is exactly a ``str``, its type tested by identity.
+
+    Looking each type up in a set would hash and compare the types, which a
+    metaclass can redefine to pass a subclass off as ``str``.
+    """
+
+    return all(map(is_, map(type, values), itertools.repeat(str)))
+
+
+def _plain_path(path: object) -> bool:
+    """Whether ``path`` is a tuple of plain strings, as recognition builds.
+
+    Lookups keyed by such components agree with the slice comparisons they
+    replace: plain strings hash and compare consistently and never raise. A
+    path of any other shape keeps the comparisons themselves.
+    """
+
+    return type(path) is tuple and _plain_strings(path)
+
+
+class _DeferredPathIndex:
+    """The paths one frozen deferral set covers, each path object decided once.
+
+    A trie of the set's paths decides a path in one walk of its components.
+    An analysis asks about the same branch path objects many times, and a
+    deep path can cost a walk of its whole depth, so each verdict is kept by
+    the path's identity. Keying by the path itself would hash its whole depth
+    on every ask wherever tuples do not cache their hash (before 3.14).
+    """
+
+    __slots__ = ("_depth", "_trie", "_verdicts")
+
+    def __init__(self, deferred_paths: frozenset[tuple[str, ...]]) -> None:
+        self._trie: dict[object, Any] = {}
+        self._depth = 0
+        for deferred_path in deferred_paths:
+            if not deferred_path:
+                continue
+            self._depth = max(self._depth, len(deferred_path))
+            node = self._trie
+            for part in deferred_path:
+                node = node.setdefault(part, {})
+            node[_DEFERRED_PATH_END] = True
+        # Each entry holds its path, so the path's id cannot be reused.
+        self._verdicts: dict[int, tuple[tuple[str, ...], bool]] = {}
+
+    def covers(self, path: tuple[str, ...]) -> bool | None:
+        """Whether a non-empty path of the set is a prefix of ``path``.
+
+        ``None`` when a component the slice comparisons would reach is not a
+        plain string, so the caller compares as before.
+        """
+
+        entry = self._verdicts.get(id(path))
+        if entry is not None and entry[0] is path:
+            return entry[1]
+        # The comparisons reach no component past the longest deferral.
+        if not _plain_strings(path[: self._depth]):
+            return None
+        verdict = self._walk(path)
+        self._verdicts[id(path)] = (path, verdict)
+        return verdict
+
+    def _walk(self, path: tuple[str, ...]) -> bool:
+        node = self._trie
+        # Only the checked components: no deferral reaches past them.
+        for part in itertools.islice(path, self._depth):
+            node = node.get(part)
+            if node is None:
+                return False
+            if _DEFERRED_PATH_END in node:
+                return True
+        return False
+
+
+def _deferred_path_index(
+    deferred_paths: frozenset[tuple[str, ...]],
+) -> _DeferredPathIndex | None:
+    """The index of a frozen deferral set within one analysis, else ``None``.
+
+    A set holding anything but tuples of plain strings is scanned: a trie
+    would split a string path into characters, which a slice comparison never
+    matches, and other components may not compare as they hash.
+    """
+
+    indexes = _open_source_indexes()
+    if indexes is None:
+        return None
+    entry = indexes.deferrals.get(id(deferred_paths))
+    if entry is not None and entry[0] is deferred_paths:
+        return entry[1]
+    index = (
+        _DeferredPathIndex(deferred_paths)
+        if all(_plain_path(deferred_path) for deferred_path in deferred_paths)
+        else None
+    )
+    indexes.deferrals[id(deferred_paths)] = (deferred_paths, index)
+    return index
 
 
 def _branch_citation(
@@ -16427,7 +16813,7 @@ def manual_outcome_exception_advice(
     if not body:
         return ()
     body_start = len(source_text) - len(source_text.lstrip())
-    with _us_manual_prose_scope(corpus_citation_path):
+    with _us_manual_prose_scope(corpus_citation_path), _source_index_scope():
         branches = recognize_source_structure(
             body, corpus_citation_path=corpus_citation_path
         )
@@ -25815,6 +26201,152 @@ def _source_clause_spans(
 ) -> Iterable[tuple[int, int, str]]:
     """Yield offset-preserving clauses split at punctuation and structure."""
 
+    if type(source_text) is not str:
+        yield from _source_clause_spans_by_scan(
+            source_text,
+            branches=branches,
+            corpus_citation_path=corpus_citation_path,
+        )
+        return
+
+    # Mask only authenticated structural labels, preserving offsets. The
+    # resulting excerpts retain every operative character of the source.
+    printed_rows = _unconflicted_printed_rows(
+        source_text,
+        branches,
+        corpus_citation_path=corpus_citation_path,
+        allow_detached=True,
+        allow_multipage=True,
+    )
+    bound_form = _unconflicted_bound_form(source_text, branches, corpus_citation_path)
+    bound_rows = tuple(row.span for row in bound_form.rows) if bound_form else ()
+    bare_labels = (
+        bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
+    display_text = mask_bare_labels(source_text, bare_labels)
+    boundary_text = _mask_spaced_german_sentence_labels(display_text)
+    boundary = re.compile(
+        r";|:(?=\s*(?i:provided)\s*,?\s*(?i:that)\b)|"
+        r"[.!?](?=(?:[ \t]+[A-ZÄÖÜ(]|\s*$))",
+        flags=re.MULTILINE,
+    )
+    bound_row_spans = _SpanContainment(bound_rows)
+    inline_operand_list_spans = _SpanContainment(
+        _formula_inline_operand_list_spans(source_text)
+    )
+    atomic_spans = _SpanContainment(
+        printed_rows.atomic_spans if printed_rows is not None else ()
+    )
+    # Each boundary is checked against its own neighborhood only: a check that
+    # re-read the source before or after every boundary cost n² per source.
+    boundary_matches = (
+        match
+        for match in boundary.finditer(boundary_text)
+        if not _source_clause_boundary_splits_state_code_citation(source_text, match)
+        and not bound_row_spans.straddles(match.end())
+        and not (
+            match.group() == "."
+            and _LEBENSJAHR_FOLLOWS.match(source_text, match.end())
+            and _number_ends_before(source_text, match.end())
+        )
+        and not inline_operand_list_spans.straddles(match.end())
+        and not (
+            match.group() == ";"
+            and _FORMULA_DIRECT_FOLLOWING_OPERANDS.search(
+                source_text[max(0, match.start() - 300) : match.start()]
+            )
+            and ":" in source_text[max(0, match.start() - 300) : match.start()]
+            and not _FORMULA_FOLLOWING_OPERAND_PROVISO.match(source_text, match.end())
+        )
+    )
+    split_points = {
+        0,
+        len(source_text),
+        *_post_list_verification_heading_starts(source_text),
+        *_work_chart_heading_starts(source_text),
+        *_printed_chart_arithmetic_starts(source_text),
+        *_printed_page_header_boundaries(source_text),
+        *(
+            point
+            for span in _spaced_german_sentence_label_spans(source_text)
+            for point in span
+        ),
+        *(
+            match.end()
+            for match in boundary_matches
+            if not atomic_spans.straddles(match.end())
+        ),
+        *(
+            point
+            for row in _worksheet_arithmetic_rows(source_text)
+            for point in (row.start(), row.end())
+        ),
+        *(
+            match.start()
+            for match in re.finditer(
+                r"\b(?:Guidance\s+documents\s+lack\s+the\s+force\s+and\s+"
+                r"effect\s+of\s+law|USDA\s+may\s+not\s+cite,\s*use,\s*or\s+"
+                r"rely\s+on\s+any\s+guidance)\b",
+                source_text,
+                flags=re.IGNORECASE,
+            )
+        ),
+        *(branch.start for branch in branches),
+        *(branch.end for branch in branches),
+        *(label.start for label in bare_labels),
+        *(label.marker_end for label in bare_labels),
+        *(
+            (
+                start
+                for start, _term in bare_definition_headers(source_text, bare_labels)
+            )
+            if bare_labels
+            else ()
+        ),
+    }
+    if printed_rows is not None:
+        split_points.update(
+            point
+            for point in printed_rows.boundaries
+            if not atomic_spans.straddles(point)
+        )
+    if bound_form is not None:
+        # Only rows and the transcriber note gain boundaries; preamble and all
+        # separated prose remain ordinary clauses and condition obligations.
+        split_points.update(
+            point
+            for span in (
+                *bound_rows,
+                bound_form.note_span
+                if isinstance(bound_form, BoundScheduleStructure)
+                else bound_form.table.note_span,
+            )
+            for point in span
+        )
+    for start, end in zip(sorted(split_points), sorted(split_points)[1:]):
+        raw = boundary_text[start:end]
+        left_trimmed = len(raw) - len(raw.lstrip())
+        right_trimmed = len(raw.rstrip())
+        if right_trimmed > left_trimmed:
+            yield (
+                start + left_trimmed,
+                start + right_trimmed,
+                display_text[start + left_trimmed : start + right_trimmed],
+            )
+
+
+def _source_clause_spans_by_scan(
+    source_text: str,
+    *,
+    branches: Sequence[SourceStructureBranch],
+    corpus_citation_path: str = "",
+) -> Iterable[tuple[int, int, str]]:
+    """``_source_clause_spans`` for a source of another type, rescanned.
+
+    A ``str`` subclass may slice unlike its text, so every boundary check
+    slices the source before and after the boundary, as before.
+    """
+
     # Mask only authenticated structural labels, preserving offsets. The
     # resulting excerpts retain every operative character of the source.
     printed_rows = _unconflicted_printed_rows(
@@ -25977,6 +26509,27 @@ def _source_clause_boundary_splits_state_code_citation(
 ) -> bool:
     """Keep a line-wrapped ``R.S. 47:...`` citation in one legal clause."""
 
+    if type(source_text) is not str:
+        return _source_clause_boundary_splits_state_code_citation_by_scan(
+            source_text, boundary
+        )
+    # The citation is four characters, one before a final newline at most, so
+    # its prefix check reads six characters (``\b`` reads one more), not the
+    # whole source before the boundary.
+    end = boundary.end()
+    return bool(
+        boundary.group(0) == "."
+        and _STATE_CODE_CITATION_TITLE.search(source_text, max(0, end - 6), end)
+        and _STATE_CODE_CITATION_SECTION.match(source_text, end)
+    )
+
+
+def _source_clause_boundary_splits_state_code_citation_by_scan(
+    source_text: str,
+    boundary: re.Match[str],
+) -> bool:
+    """The state-code citation check for a source of another type, sliced."""
+
     return bool(
         boundary.group(0) == "."
         and re.search(r"\bR\.S\.$", source_text[: boundary.end()], re.IGNORECASE)
@@ -25985,6 +26538,353 @@ def _source_clause_boundary_splits_state_code_citation(
             source_text[boundary.end() :],
         )
     )
+
+
+def _number_ends_before(source_text: str, end: int) -> bool:
+    """``re.search(r"(?<!\\w)\\d+\\.$", source_text[:end])``, reading only the number.
+
+    A match must start where the digit run before the final period starts
+    (``\\d`` is a word character), so the search begins one character before
+    that run instead of at the start of the source.
+    """
+
+    dot = end - 2 if end and source_text[end - 1] == "\n" else end - 1
+    run = dot
+    while run > 0 and _DIGIT.match(source_text, run - 1):
+        run -= 1
+    return _NUMBER_BEFORE_PERIOD.search(source_text, max(0, run - 1), end) is not None
+
+
+class _BranchPathNode:
+    """One path prefix: the branches whose path ends here, and longer prefixes.
+
+    ``first`` and ``last`` bound the slice of the index's preorder that holds
+    the branches under longer prefixes.
+    """
+
+    __slots__ = ("children", "first", "indexes", "last")
+
+    def __init__(self) -> None:
+        self.children: dict[str, _BranchPathNode] = {}
+        self.indexes: list[int] = []
+        self.first = 0
+        self.last = 0
+
+
+class _SourceBranchIndex:
+    """Path and position lookups over one tuple of source branches.
+
+    Per-branch helpers that filtered every branch (those at a path or ending
+    one, its children and descendants, or those containing a span) made an
+    outline of n branches cost n².
+    Each lookup here returns, in their original order and once each, a pool of
+    branches that holds every branch the helper's own filter can accept; the
+    helpers still apply that filter, so their results are unchanged. The path
+    and span structures are built on first use, since some branch tuples are
+    only ever asked one kind of question.
+
+    A structure is built only when the fields it reads have the types
+    recognition gives them (paths of plain strings, integer offsets), and a
+    lookup answers only a question of those types; otherwise it returns every
+    branch, so the helper's filter meets what it always met, in its order.
+    """
+
+    def __init__(self, branches: tuple[SourceStructureBranch, ...]) -> None:
+        self.branches = branches
+
+    @functools.cached_property
+    def plain_kinds(self) -> bool:
+        """Whether every branch's kind is exactly a ``str``.
+
+        Only then may a filter that tests each candidate's kind be given a
+        pool that leaves candidates out: testing a plain string's membership
+        neither raises nor runs other code.
+        """
+
+        return _plain_strings(branch.kind for branch in self.branches)
+
+    @functools.cached_property
+    def _paths(
+        self,
+    ) -> (
+        tuple[_BranchPathNode, dict[tuple[str, ...], _BranchPathNode], list[int]] | None
+    ):
+        if not all(_plain_path(branch.path) for branch in self.branches):
+            return None
+        root = _BranchPathNode()
+        nodes: dict[tuple[str, ...], _BranchPathNode] = {(): root}
+        for index, branch in enumerate(self.branches):
+            path = branch.path
+            node = nodes.get(path)
+            if node is None:
+                # A path usually extends an earlier branch's path by one
+                # component, so start there; walk from the root otherwise.
+                parent = nodes.get(path[:-1])
+                if parent is None:
+                    parent = root
+                    for component in path[:-1]:
+                        child = parent.children.get(component)
+                        if child is None:
+                            child = parent.children[component] = _BranchPathNode()
+                        parent = child
+                node = parent.children.get(path[-1])
+                if node is None:
+                    node = parent.children[path[-1]] = _BranchPathNode()
+                nodes[path] = node
+            node.indexes.append(index)
+        # Number the branches in preorder, so each node's descendants are one
+        # slice and a lookup copies that slice instead of walking the subtree.
+        preorder: list[int] = []
+        pending: list[tuple[_BranchPathNode, bool]] = [(root, False)]
+        while pending:
+            node, leaving = pending.pop()
+            if leaving:
+                node.last = len(preorder)
+                continue
+            preorder.extend(node.indexes)
+            node.first = len(preorder)
+            pending.append((node, True))
+            pending.extend((child, False) for child in reversed(node.children.values()))
+        return root, nodes, preorder
+
+    @functools.cached_property
+    def _spans(self) -> tuple[list[int], list[int], int, list[float], bool] | None:
+        # Branches ordered by start, under a max-segment tree of their ends: the
+        # branches containing a span are those starting at or before it whose
+        # end reaches its end.
+        branches = self.branches
+        if not all(
+            type(branch.start) is int and type(branch.end) is int for branch in branches
+        ):
+            return None
+        by_start = sorted(range(len(branches)), key=lambda i: branches[i].start)
+        starts = [branches[index].start for index in by_start]
+        leaves = 1
+        while leaves < len(branches):
+            leaves *= 2
+        reach: list[float] = [-math.inf] * (2 * leaves)
+        for position, index in enumerate(by_start):
+            reach[leaves + position] = branches[index].end
+        for node in range(leaves - 1, 0, -1):
+            reach[node] = max(reach[2 * node], reach[2 * node + 1])
+        # `recognize_source_structure` sorts its branches by start, and this
+        # sort is stable, so for its tuples start order is branch order.
+        in_branch_order = all(
+            index == position for position, index in enumerate(by_start)
+        )
+        return by_start, starts, leaves, reach, in_branch_order
+
+    def _node(self, path: tuple[str, ...]) -> _BranchPathNode | None:
+        paths = self._paths
+        assert paths is not None
+        root, nodes, _preorder = paths
+        # A branch's own path finds its node in one lookup; a bare prefix walks.
+        node: _BranchPathNode | None = nodes.get(path)
+        if node is not None:
+            return node
+        node = root
+        for component in path:
+            node = node.children.get(component)
+            if node is None:
+                return None
+        return node
+
+    def at(self, path: tuple[str, ...]) -> list[SourceStructureBranch]:
+        """Branches whose path is ``path``."""
+
+        if self._paths is None or not _plain_path(path):
+            return list(self.branches)
+        node = self._node(path)
+        if node is None:
+            return []
+        return [self.branches[index] for index in node.indexes]
+
+    @functools.cached_property
+    def _path_lengths(self) -> list[int]:
+        return sorted({len(branch.path) for branch in self.branches})
+
+    def ending(self, parts: tuple[str, ...]) -> list[SourceStructureBranch]:
+        """Branches whose path is a non-empty suffix of ``parts``.
+
+        Each distinct path length is one slice of ``parts`` to look up, so a
+        call never slices more than a scan, which slices once per branch.
+        """
+
+        paths = self._paths
+        if paths is None or not _plain_path(parts):
+            return list(self.branches)
+        nodes = paths[1]
+        found: list[int] = []
+        for length in self._path_lengths:
+            if 0 < length <= len(parts):
+                node = nodes.get(parts[-length:])
+                if node is not None:
+                    found.extend(node.indexes)
+        return [self.branches[index] for index in sorted(found)]
+
+    def children(self, path: tuple[str, ...]) -> list[SourceStructureBranch]:
+        """Branches whose path is ``path`` plus one component."""
+
+        if self._paths is None or not _plain_path(path):
+            return list(self.branches)
+        node = self._node(path)
+        if node is None:
+            return []
+        return [
+            self.branches[index]
+            for index in sorted(
+                index for child in node.children.values() for index in child.indexes
+            )
+        ]
+
+    def descendants(self, path: tuple[str, ...]) -> list[SourceStructureBranch]:
+        """Branches whose path is longer than ``path`` and starts with it."""
+
+        paths = self._paths
+        if paths is None or not _plain_path(path):
+            return list(self.branches)
+        node = self._node(path)
+        if node is None:
+            return []
+        found = sorted(paths[2][node.first : node.last])
+        return [self.branches[index] for index in found]
+
+    def containing(self, start: int, end: int) -> list[SourceStructureBranch]:
+        """Branches with ``branch.start <= start`` and ``end <= branch.end``."""
+
+        if self._spans is None or type(start) is not int or type(end) is not int:
+            return list(self.branches)
+        return [
+            self.branches[index]
+            for index in sorted(self._containing_indexes(start, end))
+        ]
+
+    def containing_lazily(
+        self, start: int, end: int
+    ) -> Iterator[SourceStructureBranch]:
+        """The pool ``containing`` returns, in the same order, found as needed.
+
+        A caller that stops at its first match stops the search there too.
+        The search runs in start order, so branches out of start order are
+        found all at once and sorted.
+        """
+
+        spans = self._spans
+        if spans is None or type(start) is not int or type(end) is not int:
+            return iter(self.branches)
+        if not spans[4]:
+            return iter(self.containing(start, end))
+        return (self.branches[index] for index in self._containing_indexes(start, end))
+
+    def _containing_indexes(self, start: int, end: int) -> Iterator[int]:
+        spans = self._spans
+        assert spans is not None
+        by_start, starts, leaves, reach, _in_branch_order = spans
+        limit = bisect.bisect_right(starts, start)
+        pending = [(1, 0, leaves)]
+        while pending:
+            node, low, high = pending.pop()
+            if low >= limit or reach[node] < end:
+                continue
+            if high - low == 1:
+                yield by_start[low]
+                continue
+            middle = (low + high) // 2
+            # The left half is popped first, so branches come in start order.
+            pending.extend(((2 * node + 1, middle, high), (2 * node, low, middle)))
+
+
+class _SourceIndexes:
+    """The branch and deferral indexes one analysis has built.
+
+    Each is keyed by the id of the branch tuple or frozen deferral set it
+    indexes, beside that object. The entry holds the object, so its id cannot
+    be reused while the analysis runs. Only the thread that opened the scope
+    reads them, and only while the scope is open.
+    """
+
+    __slots__ = ("branches", "deferrals", "is_open", "owner")
+
+    def __init__(self) -> None:
+        self.branches: dict[
+            int, tuple[tuple[SourceStructureBranch, ...], _SourceBranchIndex | None]
+        ] = {}
+        self.deferrals: dict[
+            int, tuple[frozenset[tuple[str, ...]], _DeferredPathIndex | None]
+        ] = {}
+        self.owner = threading.get_ident()
+        self.is_open = True
+
+    def close(self) -> None:
+        # A context copied during the analysis still refers to this object, so
+        # emptying it is what frees the indexes.
+        self.is_open = False
+        self.branches.clear()
+        self.deferrals.clear()
+
+
+# The indexes of the analysis in progress, which `_source_index_scope` sets.
+# Each analysis recognizes its own branch tuple, so no later analysis could
+# use them; they are dropped when it ends. Outside an analysis the per-branch
+# helpers scan every branch.
+_SOURCE_INDEXES: contextvars.ContextVar[_SourceIndexes | None] = contextvars.ContextVar(
+    "_SOURCE_INDEXES", default=None
+)
+
+
+def _open_source_indexes() -> _SourceIndexes | None:
+    """The indexes of the analysis this thread is running, else ``None``.
+
+    A thread started with a copy of an analysis's context, or a context kept
+    after the analysis ended, sees that analysis's scope; neither reads it.
+    """
+
+    indexes = _SOURCE_INDEXES.get()
+    if indexes is None or not indexes.is_open or indexes.owner != threading.get_ident():
+        return None
+    return indexes
+
+
+@contextlib.contextmanager
+def _source_index_scope() -> Iterator[None]:
+    """Keep the indexes one analysis builds until it ends."""
+
+    if _open_source_indexes() is not None:
+        # An analysis run inside another shares the outer one's indexes.
+        yield
+        return
+    indexes = _SourceIndexes()
+    scope = _SOURCE_INDEXES.set(indexes)
+    try:
+        yield
+    finally:
+        indexes.close()
+        _SOURCE_INDEXES.reset(scope)
+
+
+def _source_branch_index(
+    branches: Sequence[SourceStructureBranch],
+) -> _SourceBranchIndex | None:
+    """The index of an immutable branch tuple within one analysis, else ``None``.
+
+    Analyses pass the same tuple to every per-branch helper, so the index is
+    built once per tuple. A list could change between calls, so it is scanned,
+    and so is a tuple holding anything but source branches.
+    """
+
+    indexes = _open_source_indexes()
+    if indexes is None or type(branches) is not tuple or not branches:
+        return None
+    entry = indexes.branches.get(id(branches))
+    if entry is not None and entry[0] is branches:
+        return entry[1]
+    index = (
+        _SourceBranchIndex(branches)
+        if all(type(branch) is SourceStructureBranch for branch in branches)
+        else None
+    )
+    indexes.branches[id(branches)] = (branches, index)
+    return index
 
 
 def _span_is_deferred(
@@ -25996,11 +26896,14 @@ def _span_is_deferred(
 ) -> bool:
     if not branches:
         return () in deferred_paths
+    index = _source_branch_index(branches)
     return any(
         branch.start <= start
         and end <= branch.end
         and _path_is_deferred(branch.path, deferred_paths)
-        for branch in branches
+        for branch in (
+            branches if index is None else index.containing_lazily(start, end)
+        )
     )
 
 
@@ -26010,8 +26913,11 @@ def _most_specific_containing_branch(
     *,
     branches: Sequence[SourceStructureBranch],
 ) -> SourceStructureBranch | None:
+    index = _source_branch_index(branches)
     candidates = [
-        branch for branch in branches if branch.start <= start and end <= branch.end
+        branch
+        for branch in (branches if index is None else index.containing(start, end))
+        if branch.start <= start and end <= branch.end
     ]
     return max(
         candidates,
@@ -43224,9 +44130,25 @@ def _source_branch_direct_text(
     marker-only intermediate containers from the candidate branch sequence.
     """
 
+    index = _source_branch_index(branches)
+    # The pool is chosen by testing the branch's kind and path up front, which
+    # the filter below does only per candidate; other field types keep it.
+    if index is None or not _plain_path(branch.path) or type(branch.kind) is not str:
+        pool: Sequence[SourceStructureBranch] = branches
+    elif (
+        branch.kind == "sentence"
+        and branch.path
+        and branch.path[-1].startswith("satz-")
+    ):
+        # A sentence's numbered items may sit beside it under its paragraph.
+        # The filter tests the kind of every branch outside the sentence, so
+        # the pool may leave one out only when every kind is a plain string.
+        pool = index.descendants(branch.path[:-1]) if index.plain_kinds else branches
+    else:
+        pool = index.descendants(branch.path)
     descendant_starts = [
         candidate.start
-        for candidate in branches
+        for candidate in pool
         if (
             (
                 len(candidate.path) > len(branch.path)
