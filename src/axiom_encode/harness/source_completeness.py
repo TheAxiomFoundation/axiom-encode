@@ -7139,7 +7139,6 @@ def _analyze_rulespec_payload(
             and source_text[bound.span[0] : bound.span[1]] == "18"
             for bound in copied_categories
         ):
-
             covered_source_values += 1
             continue
         if any(
