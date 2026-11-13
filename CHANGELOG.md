@@ -1,3 +1,8 @@
+## 0.2.2369
+
+- fix: validate complete retirement transfer execution (#2105)
+- Register the reviewed Schedule 2 repair with all original expectations (#2228)
+
 ## 0.2.2368
 
 - Register exact Schedule M repair preserving all companion cases (#2223)
