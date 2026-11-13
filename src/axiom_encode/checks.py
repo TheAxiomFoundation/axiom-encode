@@ -67,6 +67,7 @@ CHECK_MODULES: tuple[str, ...] = (
     "axiom_encode.harness.proof_validator",
     "axiom_encode.harness.validator_pipeline",
     "axiom_encode.infra_checks",
+    "axiom_encode.validation_waivers",
 )
 
 #: Bounds for persisted issue lists, per try.
@@ -621,12 +622,18 @@ def referenced_checks(records: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     return checks
 
 
-def issue_fix_feedback(issues: Sequence[Any]) -> list[str]:
+def issue_fix_feedback(
+    issues: Sequence[Any],
+    *,
+    fix_overrides: Mapping[str, str] | None = None,
+) -> list[str]:
     """Retry feedback lines for typed issues, one block per check.
 
     Each block names the check, what it requires and its fix once, then one
     line per subject with expected versus found when the check recorded them.
     Untyped issues add nothing here; their message stays the only feedback.
+    ``fix_overrides`` replaces the rendered fix of the named checks, for a
+    caller whose own repair guidance orders the alternatives that fix offers.
     """
     by_check: dict[str, list[ValidationIssue]] = {}
     for issue in issues:
@@ -637,7 +644,8 @@ def issue_fix_feedback(issues: Sequence[Any]) -> list[str]:
         check = get_check(check_id)
         assert check is not None
         lines.append(f"- [{check_id}] {check.title}. Requires: {check.requires}")
-        lines.append(f"  Fix: {check.fix}")
+        fix = (fix_overrides or {}).get(check_id, check.fix)
+        lines.append(f"  Fix: {fix}")
         shown: set[str] = set()
         for issue in grouped:
             locator = issue.subject.locator()

@@ -1,0 +1,227 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-ok/statute/68-2906
+    source_sha256: f52351ec888d2a131c77819abf5917d005a17b9bbc6123f22d62c8a9881633c2
+  summary: “Any person sixty-five (65) years of age or older or any totally disabled
+    person” who is head of household, a resident of and domiciled in this state during
+    the entire preceding calendar year, and whose preceding-year gross household income
+    does not exceed $12,000 may file a property tax relief claim. “Each head of household
+    shall be allowed to file only one claim per year.”
+inputs:
+- name: age
+  entity: Person
+  dtype: Integer
+  period: Year
+- name: totally_disabled
+  entity: Person
+  dtype: Boolean
+  period: Year
+- name: is_head_of_household
+  entity: Person
+  dtype: Boolean
+  period: Year
+- name: resident_in_oklahoma_entire_preceding_calendar_year
+  entity: Person
+  dtype: Boolean
+  period: Year
+- name: domiciled_in_oklahoma_entire_preceding_calendar_year
+  entity: Person
+  dtype: Boolean
+  period: Year
+- name: gross_household_income_for_preceding_calendar_year
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+- name: claims_already_filed_by_head_for_year
+  entity: Person
+  dtype: Count
+  period: Year
+rules:
+- name: minimum_age
+  kind: parameter
+  dtype: Integer
+  source: 68 O.S. § 2906, “sixty-five (65) years of age or older”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ok/statute/68-2906
+          excerpt: Any person sixty-five (65) years of age or older or any totally
+            disabled person, who is the head of a household, a resident of and domiciled
+            in this state during the entire preceding calendar year, and whose gross
+            household income for such year does not exceed Twelve Thousand Dollars
+            ($12,000.00) may file a claim for property tax relief on the amount of
+            property taxes paid on the household occupied by such person during the
+            preceding calendar year.
+  versions:
+  - effective_from: '1992-01-01'
+    formula: '65'
+- name: maximum_gross_household_income
+  kind: parameter
+  dtype: Money
+  unit: USD
+  period: Year
+  source: 68 O.S. § 2906, “gross household income for such year does not exceed Twelve
+    Thousand Dollars ($12,000.00)”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ok/statute/68-2906
+          excerpt: Any person sixty-five (65) years of age or older or any totally
+            disabled person, who is the head of a household, a resident of and domiciled
+            in this state during the entire preceding calendar year, and whose gross
+            household income for such year does not exceed Twelve Thousand Dollars
+            ($12,000.00) may file a claim for property tax relief on the amount of
+            property taxes paid on the household occupied by such person during the
+            preceding calendar year.
+  versions:
+  - effective_from: '1992-01-01'
+    formula: '12000'
+- name: maximum_claims_per_head_per_year
+  kind: parameter
+  dtype: Count
+  source: 68 O.S. § 2906, “only one claim per year”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ok/statute/68-2906
+          excerpt: Each head of household shall be allowed to file only one claim
+            per year.
+  versions:
+  - effective_from: '1992-01-01'
+    formula: '1'
+- name: original_law_chapter_number
+  kind: parameter
+  dtype: Integer
+  source: 68 O.S. § 2906, “Laws 1988, c. 162”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ok/statute/68-2906
+          excerpt: Added by Laws 1988, c. 162, § 106, eff. Jan. 1, 1992. Amended by
+            Laws 1996, c. 323, § 4, eff. Jan. 1, 1997.
+  versions:
+  - effective_from: '1992-01-01'
+    formula: '162'
+- name: original_law_year
+  kind: parameter
+  dtype: Integer
+  source: 68 O.S. § 2906, “Laws 1988”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ok/statute/68-2906
+          excerpt: “Laws 1988”
+  versions:
+  - effective_from: '1992-01-01'
+    formula: '1988'
+- name: amending_law_chapter_number
+  kind: parameter
+  dtype: Integer
+  source: 68 O.S. § 2906, “Laws 1996, c. 323”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ok/statute/68-2906
+          excerpt: Added by Laws 1988, c. 162, § 106, eff. Jan. 1, 1992. Amended by
+            Laws 1996, c. 323, § 4, eff. Jan. 1, 1997.
+  versions:
+  - effective_from: '1992-01-01'
+    formula: '323'
+- name: amending_law_year
+  kind: parameter
+  dtype: Integer
+  source: 68 O.S. § 2906, “Laws 1996”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ok/statute/68-2906
+          excerpt: “Laws 1996”
+  versions:
+  - effective_from: '1992-01-01'
+    formula: '1996'
+- name: property_tax_relief_claim_eligible
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Year
+  source: 68 O.S. § 2906, claimant eligibility and one-claim-per-head-per-year limit
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-ok/statute/68-2906
+          excerpt: Any person sixty-five (65) years of age or older or any totally
+            disabled person, who is the head of a household, a resident of and domiciled
+            in this state during the entire preceding calendar year, and whose gross
+            household income for such year does not exceed Twelve Thousand Dollars
+            ($12,000.00) may file a claim for property tax relief on the amount of
+            property taxes paid on the household occupied by such person during the
+            preceding calendar year.
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-ok/statute/68-2906
+          excerpt: Any person sixty-five (65) years of age or older or any totally
+            disabled person, who is the head of a household, a resident of and domiciled
+            in this state during the entire preceding calendar year, and whose gross
+            household income for such year does not exceed Twelve Thousand Dollars
+            ($12,000.00) may file a claim for property tax relief on the amount of
+            property taxes paid on the household occupied by such person during the
+            preceding calendar year.
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ok/statute/68-2906
+          excerpt: Any person sixty-five (65) years of age or older or any totally
+            disabled person, who is the head of a household, a resident of and domiciled
+            in this state during the entire preceding calendar year, and whose gross
+            household income for such year does not exceed Twelve Thousand Dollars
+            ($12,000.00) may file a claim for property tax relief on the amount of
+            property taxes paid on the household occupied by such person during the
+            preceding calendar year.
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-ok/statute/68-2906
+          excerpt: Each head of household shall be allowed to file only one claim
+            per year.
+  versions:
+  - effective_from: '1992-01-01'
+    formula: '(age >= minimum_age or totally_disabled)
+
+      and is_head_of_household
+
+      and resident_in_oklahoma_entire_preceding_calendar_year
+
+      and domiciled_in_oklahoma_entire_preceding_calendar_year
+
+      and gross_household_income_for_preceding_calendar_year <= maximum_gross_household_income
+
+      and claims_already_filed_by_head_for_year < maximum_claims_per_head_per_year'
