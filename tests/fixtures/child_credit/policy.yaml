@@ -1,0 +1,721 @@
+format: rulespec/v1
+imports: []
+module:
+  summary: 'Whole NS479 parent diagnostic: explicit claimant Person and annual per-child
+    SourceEntry table membership; entered eligibility boundaries, per-child arithmetic,
+    and document/refund duties. Not a determination of linked guide eligibility or
+    final payable refund.'
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+    source_sha256: 6b8f99a306ad1815d427ee2406dc5683f3a52701106fc80deddb43287f641068
+units:
+- name: CAD
+  kind: currency
+  minor_units: 2
+inputs:
+- name: ns479_volunteer_firefighters_ground_search_rescue_credit_eligible
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Explicit externally determined applicability of the volunteer credit;
+    this form does not determine detailed eligibility from the linked guidance.
+- name: completing_ns479
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Explicit use of this form, not a claim that calculations or filing
+    have been completed.
+- name: filing_paper_return
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Explicit paper-return filing context.
+- name: using_children_credit_section
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Explicit use of this section; not an eligibility determination or truth
+    of completed table.
+- name: needs_additional_space
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Explicit need for additional space; not inferred from number of child
+    rows.
+- name: taxes_to_pay
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit amount of taxes to pay for conditional credit excess; no default
+    and no claim of final refund settlement.
+  unit: CAD
+- name: child_name
+  entity: SourceEntry
+  dtype: Text
+  period: Year
+  description: Column A child name for this annual per-child table row; not a unique
+    global identity or kinship inference.
+- name: eligible_expenses_b
+  entity: SourceEntry
+  dtype: Money
+  period: Year
+  description: Column B entered annual eligible expenses for this one child; detailed
+    program eligibility is external to this form.
+  unit: CAD
+- name: assistance_received_or_receivable_c
+  entity: SourceEntry
+  dtype: Money
+  period: Year
+  description: Column C assistance received or receivable for expenses in column B,
+    including reimbursements and allowances.
+  unit: CAD
+- name: amount_from_d_claimed_by_others_e
+  entity: SourceEntry
+  dtype: Money
+  period: Year
+  description: Column E entered amount from this child row column D claimed by others.
+  unit: CAD
+rules:
+- name: ns479_2025_volunteer_credit_amount
+  kind: parameter
+  dtype: Money
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Line 1 and line 62400: Volunteer firefighters and ground search
+            and rescue
+
+            tax credit Claim $500 ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 500
+  unit: CAD
+- name: ns479_2025_child_sports_arts_expense_cap
+  kind: parameter
+  dtype: Money
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Column D Column B minus column C (Maximum $500 per child) ^
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 500
+  unit: CAD
+- name: ns479_2025_child_sports_arts_rate
+  kind: parameter
+  dtype: Rate
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Line 3: Applicable rate 8.79%'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 0.0879
+- name: annual_child_row_for_claimant
+  kind: data_relation
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  data_relation:
+    arity: 2
+    arguments:
+    - SourceEntry
+    - Person
+  metadata:
+    proof:
+      atoms:
+      - path: data_relation
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Line 2 and line 62410: Your children''s sports and arts expenses
+            Total of all
+
+            amounts in column F of the table above = ^'
+- name: child_name_column_a
+  kind: derived
+  dtype: Text
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Column A Child's name (one child per line) ^
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: child_name
+  entity: SourceEntry
+  period: Year
+- name: eligible_expenses_column_b
+  kind: derived
+  dtype: Money
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Column B All eligible expenses per child for the year ^
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: eligible_expenses_b
+  entity: SourceEntry
+  period: Year
+  unit: CAD
+- name: assistance_column_c
+  kind: derived
+  dtype: Money
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Column C Assistance received or receivable for amount in column
+            B ^
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: assistance_received_or_receivable_c
+  entity: SourceEntry
+  period: Year
+  unit: CAD
+- name: claimed_by_others_column_e
+  kind: derived
+  dtype: Money
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Column E Amounts from column D claimed by others ^
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: amount_from_d_claimed_by_others_e
+  entity: SourceEntry
+  period: Year
+  unit: CAD
+- name: per_child_column_d
+  kind: derived
+  dtype: Money
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: "Column D: Column B minus column C (Maximum $500 per\nchild);"
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Column D Column B minus column C (Maximum $500 per child) ^
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: min(eligible_expenses_column_b - assistance_column_c, ns479_2025_child_sports_arts_expense_cap)
+  entity: SourceEntry
+  period: Year
+  unit: CAD
+- name: per_child_column_f
+  kind: derived
+  dtype: Money
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Column F Column D minus column E ^
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: per_child_column_d - claimed_by_others_column_e
+  entity: SourceEntry
+  period: Year
+  unit: CAD
+- name: ns479_children_sports_arts_column_d_capped_expenses
+  kind: derived
+  dtype: Money
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Column D Column B minus column C (Maximum $500 per child) ^
+
+
+            Column E Amounts from column D claimed by others ^
+
+
+            Column F Column D minus column E ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: sum(annual_child_row_for_claimant.per_child_column_d)
+  entity: Person
+  period: Year
+  unit: CAD
+- name: ns479_children_sports_arts_expenses_line_62410
+  kind: derived
+  dtype: Money
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Line 2 and line 62410: Your children''s sports and arts expenses
+            Total of all
+
+            amounts in column F of the table above = ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: sum(annual_child_row_for_claimant.per_child_column_f)
+  entity: Person
+  period: Year
+  unit: CAD
+- name: ns479_volunteer_firefighters_ground_search_rescue_tax_credit_line_62400
+  kind: derived
+  dtype: Money
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Line 1 and line 62400: Volunteer firefighters and ground search
+            and rescue
+
+            tax credit Claim $500 ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if ns479_volunteer_firefighters_ground_search_rescue_credit_eligible:\n\
+      \  ns479_2025_volunteer_credit_amount\nelse:\n  0"
+  entity: Person
+  period: Year
+  unit: CAD
+- name: ns479_children_sports_arts_tax_credit_line_4
+  kind: derived
+  dtype: Money
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Line 4: Line 2 multiplied by the percentage from line 3 Children''s
+            sports and
+
+            arts tax credit = ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: ns479_children_sports_arts_expenses_line_62410 * ns479_2025_child_sports_arts_rate
+  entity: Person
+  period: Year
+  unit: CAD
+- name: nova_scotia_credits_line_47900
+  kind: derived
+  dtype: Money
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Line 5: Line 1 plus line 4. Enter this amount on line 47900 of
+            your return.
+
+            Nova Scotia Credits = ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: ns479_volunteer_firefighters_ground_search_rescue_tax_credit_line_62400
+      + ns479_children_sports_arts_tax_credit_line_4
+  entity: Person
+  period: Year
+  unit: CAD
+- name: conditional_credit_excess_over_taxes
+  kind: derived
+  dtype: Money
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'You can claim these refundable tax credits even if you do not
+            have to pay any
+
+            tax. If the total of these credits is more than the amount of taxes you
+            have
+
+            to pay, you may get a refund for the difference.'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if nova_scotia_credits_line_47900 > taxes_to_pay:\n  nova_scotia_credits_line_47900\
+      \ - taxes_to_pay\nelse:\n  0"
+  entity: Person
+  period: Year
+  unit: CAD
+- name: paper_return_form_attachment_required
+  kind: derived
+  dtype: Judgment
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Complete the calculations that apply to you and attach a copy
+            of this form to
+
+            your paper return.'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: completing_ns479 and filing_paper_return
+  entity: Person
+  period: Year
+- name: children_expense_table_completion_required
+  kind: derived
+  dtype: Judgment
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'If applicable, complete the following table and include all of
+            your
+
+            children''s expenses for programs of artistic, cultural, recreational,
+            or
+
+            developmental activity or physical activity. Assistance includes
+
+            reimbursements, allowances, and any form of assistance received or
+
+            receivable.'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: using_children_credit_section
+  entity: Person
+  period: Year
+- name: children_receipts_retention_required
+  kind: derived
+  dtype: Judgment
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Do not include your receipts but keep them in case you are asked
+            to provide
+
+            them later.'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: using_children_credit_section
+  entity: Person
+  period: Year
+- name: children_receipts_non_enclosure_required
+  kind: derived
+  dtype: Judgment
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Do not include your receipts but keep them in case you are asked
+            to provide
+
+            them later.'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: using_children_credit_section
+  entity: Person
+  period: Year
+- name: additional_sheet_attachment_required
+  kind: derived
+  dtype: Judgment
+  source: CRA Form NS479 2025 Nova Scotia Credits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: If you need more space, attach an additional sheet of paper.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: CRA Form NS479 2025 Nova Scotia Credits
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: needs_additional_space
+  entity: Person
+  period: Year

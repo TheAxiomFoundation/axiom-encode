@@ -19,6 +19,10 @@ from tests.test_same_page_floor_binding import BODY, CITATION, CONTENT
         "unbound",
         "ownership_changes",
         "source_changes",
+        "scoped_child_plan",
+        "scoped_child_materialize",
+        "scoped_transfer_plan",
+        "scoped_transfer_materialize",
     ],
 )
 def test_floor_route_never_overrides_scoped_ownership(tmp_path, monkeypatch, mode):
@@ -76,7 +80,7 @@ def test_floor_route_never_overrides_scoped_ownership(tmp_path, monkeypatch, mod
         (owner, owner)
         if mode == "ambiguous"
         else (owner,)
-        if mode == "activation_failure"
+        if mode == "activation_failure" or mode.startswith("scoped_")
         else ()
     )
     owner_calls = []
@@ -86,6 +90,23 @@ def test_floor_route_never_overrides_scoped_ownership(tmp_path, monkeypatch, mod
         if mode == "ownership_changes" and len(owner_calls) > 1:
             return (owner, owner)
         return owners
+
+    if mode.startswith("scoped_"):
+        from axiom_encode.harness import (
+            child_credit_execution,
+            retirement_transfer_execution,
+        )
+
+        family = (
+            child_credit_execution if "child" in mode else retirement_transfer_execution
+        )
+        binding_calls = []
+
+        def overlapping_binding(*args):
+            binding_calls.append(True)
+            return object() if mode.endswith("plan") or len(binding_calls) > 1 else None
+
+        monkeypatch.setattr(family, "_capture_source_binding", overlapping_binding)
 
     monkeypatch.setattr(scoped_execution, "eligible_adapters", eligible)
     with e.compilation_snapshot(pipe, target) as capture:
@@ -97,6 +118,8 @@ def test_floor_route_never_overrides_scoped_ownership(tmp_path, monkeypatch, mod
         else:
             assert capture is None
     assert len(activations) == (1 if mode == "activation_failure" else 0)
+    if mode.startswith("scoped_"):
+        assert len(binding_calls) == (1 if mode.endswith("plan") else 2)
     if mode == "ownership_changes":
         assert len(owner_calls) == 2
     if mode == "source_changes":

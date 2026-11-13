@@ -174,3 +174,27 @@ def test_cross_owner_context_cannot_authorize_n_or_t(n_capture, t_capture):
     assert not capital_gift_capture.valid(t._capital_gift_context, t)
     assert capture_module.observation(t.evidence(), CONTENT) is None
     assert capital_gift_capture.observation(n.evidence(), STATIC["policy_yaml"]) is None
+
+
+@pytest.mark.parametrize(
+    "seed_name", ["_child_credit_seed", "_retirement_transfer_seed"]
+)
+def test_recompile_clears_scoped_contexts_on_cross_family_overlap(n_capture, seed_name):
+    cap, cases, calls = n_capture
+    stage_all(cap, cases, calls)
+    assert cap._investment_adjustment_context is not None
+    cap._capital_gift_context = object()
+    cap._child_credit_context = object()
+    cap._retirement_transfer_context = object()
+    cap._capital_gift_refusals.append(object())
+    cap._investment_adjustment_refusals.append(object())
+    setattr(cap, seed_name, object())
+    cap.compiled(cap.artifact)
+    assert cap.records == []
+    assert cap._capital_gift_refusals == []
+    assert cap._investment_adjustment_refusals == []
+    assert cap._capital_gift_context is None
+    assert cap._investment_adjustment_context is None
+    assert cap._child_credit_context is None
+    assert cap._retirement_transfer_context is None
+    assert cap.evidence() is None

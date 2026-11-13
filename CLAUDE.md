@@ -29,6 +29,20 @@ The encoder emits RuleSpec YAML artifacts. Source documents are expected to live
 - Do not merge encoder PRs while CI is red, stale, or still pending unless the user explicitly overrides that for an emergency.
 - Every PR that fixes a validator false positive adds its failing candidate as a fixture in `tests/fixtures/us_replay_benchmark/` (public sources only; held-out cases, hand labels and private-corpus sources such as 12 CFR 1005/1006 never enter the repository), rewrites `snapshot.json` with `scripts/replay_us_failure_bundles.py snapshot --base-ref origin/main`, and explains in the PR body every change to other fixtures' findings. The required `replay benchmark` check fails on a replay error, on a clean fixture or control that becomes refused without a recorded reason, and on any finding that differs from the committed snapshot. See `docs/us-replay-benchmark.md`.
 
+## PR Linkage
+
+Every PR body to `TheAxiomFoundation/axiom-encode` carries two lines, which the `PR linkage` check (`src/axiom_encode/pr_linkage.py`) enforces:
+
+```text
+Encoding-Target: us/regulation/7/273/7
+Fixes-Run: 42409703021
+```
+
+- When you open a PR that fixes a failing encode, fill both lines from the run you are fixing. `Encoding-Target` is the run's corpus citation path (the `citation` input; the last word of the run name), not a `.yaml` path. `Fixes-Run` is the `targeted-signed-reencode.yml` run id (or its `actions/runs` URL); for a local encode, write `local:<encoding_runs id>` (the `run_id` the encoder logs).
+- List every encoding and run the PR fixes, comma-separated. CI checks that each signed run exists, is a `targeted-signed-reencode.yml` `workflow_dispatch` run on `main`, and that its citation is listed in `Encoding-Target`. That is the run's primary citation (the last word of the run name); list it also when the fix is for a dependent the run repaired, and list the dependent too.
+- For generic work that fixes no particular encoding or run, write `Encoding-Target: none` and `Fixes-Run: none`. Do not omit the lines and do not guess a target.
+- PRs opened by the encoder version-bump App are exempt.
+
 ## Main Components
 
 - `src/axiom_encode/cli.py` - public command surface

@@ -389,6 +389,13 @@ class ExecutionCapture:
         default_factory=list, init=False, repr=False
     )
 
+    # Minted only by snapshot materialization from resolver-owned source bodies.
+    # Neither constructor arguments nor RuleSpec/environment metadata grant it.
+    _child_credit_seed: Any = field(default=None, init=False, repr=False)
+    _child_credit_context: Any = field(default=None, init=False, repr=False)
+    _retirement_transfer_seed: Any = field(default=None, init=False, repr=False)
+    _retirement_transfer_context: Any = field(default=None, init=False, repr=False)
+
     def fresh(self) -> bool:
         try:
             return (
@@ -414,14 +421,69 @@ class ExecutionCapture:
         self.records.clear()
         self._capital_gift_refusals.clear()
         self._investment_adjustment_refusals.clear()
+        self._capital_gift_context = None
+        self._investment_adjustment_context = None
+        self._child_credit_context = None
+        self._retirement_transfer_context = None
         self.artifact = artifact
-        self.artifact_sha256 = digest(artifact.read_bytes())
+        raw = artifact.read_bytes()
+        self.artifact_sha256 = digest(raw)
         from .scoped_execution import adapter
 
         selected = adapter(self)
         if selected is not None:
+            if (
+                self._child_credit_seed is not None
+                or self._retirement_transfer_seed is not None
+            ):
+                return
             module, prefix = selected
             setattr(self, prefix + "_context", module.mint(self))
+            return
+        if (
+            self._child_credit_seed is not None
+            and self._retirement_transfer_seed is not None
+        ):
+            return
+        if self._child_credit_seed is not None:
+            from .child_credit_execution import _bind_capture_context
+
+            root = next(
+                (f for f in self.files if f.relative == self.root_relative), None
+            )
+            companion_path = str(Path(self.root_relative).with_suffix(".test.yaml"))
+            companion = next(
+                (f for f in self.files if f.relative == companion_path), None
+            )
+            if root is not None and companion is not None:
+                self._child_credit_context = _bind_capture_context(
+                    self._child_credit_seed,
+                    root.raw.decode(),
+                    self.root_relative,
+                    self.engine_pin,
+                    raw,
+                    companion.raw,
+                )
+
+        if self._retirement_transfer_seed is not None:
+            from .retirement_transfer_execution import _bind_capture_context
+
+            root = next(
+                (f for f in self.files if f.relative == self.root_relative), None
+            )
+            companion_path = str(Path(self.root_relative).with_suffix(".test.yaml"))
+            companion = next(
+                (f for f in self.files if f.relative == companion_path), None
+            )
+            if root is not None and companion is not None:
+                self._retirement_transfer_context = _bind_capture_context(
+                    self._retirement_transfer_seed,
+                    root.raw.decode(),
+                    self.root_relative,
+                    self.engine_pin,
+                    raw,
+                    companion.raw,
+                )
 
     def stage_refusal(
         self, case, request, returncode, stdout, stderr, binary, artifact, case_index
@@ -493,7 +555,42 @@ class ExecutionCapture:
         ):
             return
         trace = row.get("trace")
-        if not isinstance(trace, dict) or any(
+        if (
+            self._child_credit_seed is not None
+            and self._retirement_transfer_seed is not None
+        ):
+            return
+        if self._child_credit_seed is not None:
+            context = self._child_credit_context
+            if (
+                context is None
+                or context.binding != self._child_credit_seed
+                or context.root_relative != self.root_relative
+                or context.engine_pin != self.engine_pin
+                or not context.accepts(
+                    self.artifact.read_bytes(), case, request, response, case_index
+                )
+            ):
+                return
+        elif self._retirement_transfer_seed is not None:
+            context = self._retirement_transfer_context
+            companion_path = str(Path(self.root_relative).with_suffix(".test.yaml"))
+            closure = {f.relative: f.raw for f in self.files}
+            if (
+                context is None
+                or len(self.files) != 2
+                or set(closure) != {self.root_relative, companion_path}
+                or context.content.encode() != closure.get(self.root_relative)
+                or context.companion_bytes != closure.get(companion_path)
+                or context.binding != self._retirement_transfer_seed
+                or context.root_relative != self.root_relative
+                or context.engine_pin != self.engine_pin
+                or not context.accepts(
+                    self.artifact.read_bytes(), case, request, response, case_index
+                )
+            ):
+                return
+        elif not isinstance(trace, dict) or any(
             not isinstance(n, dict)
             or n.get("id") != key
             or n.get("entity_id") != q.get("entity_id")
@@ -707,28 +804,38 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
             from .actual_floor_evidence import bind_same_page_floors
             from .actual_local_relation_evidence import local_relation_snapshot_eligible
             from .bound_form_operands import bind_local_form_snapshot
+            from .child_credit_execution import _capture_source_binding
+            from .retirement_transfer_execution import (
+                _capture_source_binding as bind_transfer,
+            )
             from .scoped_execution import eligible_adapters
 
             owners = eligible_adapters(pipe, content)
             if len(owners) > 1:
                 return None
-            if not owners:
-                sources = (
-                    pipe._proof_source_texts_for_rulespec_content(
-                        content,
-                        source_texts=pipe._source_texts_for_rulespec_content(content),
-                    )
-                    or {}
+            sources = (
+                pipe._proof_source_texts_for_rulespec_content(
+                    content,
+                    source_texts=pipe._source_texts_for_rulespec_content(content),
                 )
-                local_form = bind_local_form_snapshot(
-                    content, sources, rules_file.relative_to(root).as_posix()
-                )
-                if (
-                    not local_form
-                    and not bind_same_page_floors(content, sources)
-                    and not local_relation_snapshot_eligible(payload)
-                ):
-                    return None
+                or {}
+            )
+            relative = rules_file.relative_to(root).as_posix()
+            child_seed = _capture_source_binding(content, sources, relative)
+            transfer_seed = bind_transfer(content, sources, relative)
+            if (
+                sum((bool(owners), child_seed is not None, transfer_seed is not None))
+                > 1
+            ):
+                return None
+            if not owners and not (
+                child_seed is not None
+                or transfer_seed is not None
+                or bind_local_form_snapshot(content, sources, relative)
+                or bind_same_page_floors(content, sources)
+                or local_relation_snapshot_eligible(payload)
+            ):
+                return None
         else:
             exports = pipe._complete_source_unit_import_bindings(rules_file)
             derived = set()
@@ -860,38 +967,65 @@ def _materialize_snapshot(
     _MATERIALIZED_CAPTURES[capture_identity] = weakref.ref(
         capture, lambda _: _MATERIALIZED_CAPTURES.pop(capture_identity, None)
     )
-    if not _payload(rules_file.read_bytes()).get("imports", []):
-        from .actual_local_relation_evidence import local_relation_snapshot_eligible
+    root_file = next(f for f in capture.files if f.relative == capture.root_relative)
+    content = root_file.raw.decode()
+    if _payload(root_file.raw).get("imports", []) == []:
+        from .bound_form_operands import bind_local_form_snapshot
+        from .child_credit_execution import _capture_source_binding
+
+        sources = (
+            pipe._proof_source_texts_for_rulespec_content(
+                content, source_texts=pipe._source_texts_for_rulespec_content(content)
+            )
+            or {}
+        )
+        from .retirement_transfer_execution import (
+            _capture_source_binding as bind_transfer,
+        )
+
+        seed = _capture_source_binding(content, sources, capture.root_relative)
+        transfer_seed = bind_transfer(content, sources, capture.root_relative)
         from .scoped_execution import eligible_adapters
 
-        owners = eligible_adapters(pipe, rules_file.read_text())
-        if len(owners) > 1:
+        owners = eligible_adapters(pipe, content)
+        if (
+            len(owners) > 1
+            or sum((bool(owners), seed is not None, transfer_seed is not None)) > 1
+        ):
             return None
         if owners:
             module, prefix = owners[0]
             if not module.activate(pipe, capture):
                 return None
             setattr(capture, prefix + "_owned", True)
-        else:
+            return capture
+        if transfer_seed is not None:
+            companion = str(Path(capture.root_relative).with_suffix(".test.yaml"))
+            if {f.relative for f in capture.files} != {
+                capture.root_relative,
+                companion,
+            }:
+                return None
+            capture._retirement_transfer_seed = transfer_seed
+        elif seed is not None:
+            companion = str(Path(capture.root_relative).with_suffix(".test.yaml"))
+            if {f.relative for f in capture.files} != {
+                capture.root_relative,
+                companion,
+            }:
+                return None
+            capture._child_credit_seed = seed
+        elif not bind_local_form_snapshot(content, sources, capture.root_relative):
             from .actual_floor_evidence import bind_same_page_floors
-            from .bound_form_operands import bind_local_form_snapshot
 
-            content = rules_file.read_text()
-            sources = (
-                pipe._proof_source_texts_for_rulespec_content(
-                    content,
-                    source_texts=pipe._source_texts_for_rulespec_content(content),
-                )
-                or {}
-            )
-            local_form = bind_local_form_snapshot(
-                content, sources, rules_file.relative_to(root).as_posix()
-            )
-            if (
-                not local_form
-                and not bind_same_page_floors(content, sources)
-                and not local_relation_snapshot_eligible(_payload(content.encode()))
-            ):
+            # An eligible local graph cannot fall back to an unbound same-entity
+            # capture if its resolver selection changed during cloning. A
+            # same-page floor file is eligible through its own binding.
+            from .actual_local_relation_evidence import local_relation_snapshot_eligible
+
+            if not bind_same_page_floors(
+                content, sources
+            ) and not local_relation_snapshot_eligible(_payload(root_file.raw)):
                 return None
     return capture
 

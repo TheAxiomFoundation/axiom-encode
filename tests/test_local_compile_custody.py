@@ -6,9 +6,42 @@ import subprocess
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from axiom_encode.harness import local_compile_custody as c
+from axiom_encode.harness.actual_local_relation_evidence import (
+    local_relation_snapshot_eligible,
+)
 from axiom_encode.rules_engine_compat import run_rulespec_compile
+
+LOCAL_RELATION_MODULE = """format: rulespec/v1
+module: {}
+imports: []
+rules:
+  - name: members
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, Family]
+  - name: individual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    unit: CAD
+    period: Year
+    versions:
+      - effective_from: 2025-01-01
+        formula: "10"
+  - name: amount
+    kind: derived
+    entity: Family
+    dtype: Money
+    unit: CAD
+    period: Year
+    versions:
+      - effective_from: 2025-01-01
+        formula: sum(members.individual_amount)
+"""
 
 
 def make_world(tmp_path, artifact='{"compiled":true}', *, real_engine=None, admit=True):
@@ -21,20 +54,10 @@ def make_world(tmp_path, artifact='{"compiled":true}', *, real_engine=None, admi
     relative = "policy.yaml" if real_engine is None else "ca/policies/test.yaml"
     source = root / relative
     source.parent.mkdir(parents=True, exist_ok=True)
-    source.write_text("format: rulespec/v1\nmodule: {}\nimports: []\n")
-    if real_engine is not None:
-        source.write_text("""format: rulespec/v1
-module: {}
-imports: []
-rules:
-  - name: amount
-    kind: parameter
-    dtype: Money
-    unit: CAD
-    versions:
-      - effective_from: 2025-01-01
-        formula: "10"
-""")
+    # Use an ordinary admitted local graph without borrowing source evidence.
+    # These tests exercise compile custody, not source or execution clearance.
+    source.write_text(LOCAL_RELATION_MODULE)
+    assert local_relation_snapshot_eligible(yaml.safe_load(source.read_text()))
     subprocess.run(["git", "-C", str(root), "add", relative], check=True)
     subprocess.run(
         [
@@ -72,8 +95,8 @@ rules:
     )
     pipe = SimpleNamespace(
         _declared_engine_pin=lambda: SimpleNamespace(sha=pin),
-        _source_texts_for_rulespec_content=lambda content: {},
-        _proof_source_texts_for_rulespec_content=lambda content, *, source_texts: (
+        _source_texts_for_rulespec_content=lambda _content: {},
+        _proof_source_texts_for_rulespec_content=lambda _content, *, source_texts: dict(
             source_texts
         ),
     )

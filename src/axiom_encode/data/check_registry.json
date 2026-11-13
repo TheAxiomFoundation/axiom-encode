@@ -745,6 +745,18 @@
       "why": "A lock-pinned corpus fetches scopes stored only in R2 with these credentials. Without them the run would fail after the production-signing approval and waste that review."
     },
     {
+      "category": "infra:resolve-registered-reviewed-repair-request",
+      "cause": "infra",
+      "fix": "Read the step's log for the exact refusal, correct that, and dispatch again.",
+      "gate": "workflow",
+      "id": "infra:resolve-registered-reviewed-repair-request",
+      "requires": "A reviewed repair request in `source_bundle_json` names a patch in the code-reviewed registry, is dispatched with `open_pr` false as an ordinary full artifact repair, and carries no queue, dependent or legacy input.",
+      "severity": "important",
+      "site": ".github/workflows/targeted-signed-reencode.yml:Resolve registered reviewed repair request",
+      "title": "The registered reviewed repair request was refused",
+      "why": "The step reads the dispatch inputs before the model runs and refuses a request that it cannot bind to one exact transaction. Nothing was encoded, so the encoder output is not at fault."
+    },
+    {
       "category": "infra:resolve-retired-source-metadata-migration-request",
       "cause": "infra",
       "fix": "Correct the migration plan or drop the conflicting input, then dispatch again.",
@@ -973,6 +985,30 @@
       "why": "The step publishes verified changes. The encode itself finished; a failure here means no pull request or no signed artifact for this run."
     },
     {
+      "category": "manifest:reviewed-repair",
+      "cause": "encoder_output",
+      "fix": "Use the reviewed package registration and its exact binding; do not edit signed artifacts.",
+      "gate": "manifest",
+      "id": "manifest:reviewed-repair/binding",
+      "requires": "The repair binding identifies an exact registered immutable patch package.",
+      "severity": "important",
+      "site": "axiom_encode/cli.py:_applied_manifest_tool_execution_issues",
+      "title": "Reviewed repair binding is invalid",
+      "why": "Caller-supplied hashes cannot authorize unregistered repair bytes."
+    },
+    {
+      "category": "manifest:reviewed-repair",
+      "cause": "encoder_output",
+      "fix": "Restore the authenticated seed and registered patch inputs and regenerate through the supported route.",
+      "gate": "manifest",
+      "id": "manifest:reviewed-repair/lineage",
+      "requires": "The retained seed and registered patch reconstruct the manifest-bound repair exactly.",
+      "severity": "important",
+      "site": "axiom_encode/cli.py:_load_verified_applied_encoding_manifest_payload",
+      "title": "Reviewed repair reconstruction failed",
+      "why": "A valid signature alone does not prove the repair came from the authorized seed and patch."
+    },
+    {
       "category": "proof:source-evidence",
       "cause": "encoder_output",
       "fix": "Copy a short contiguous excerpt verbatim from the cited provision (no ellipsis, paraphrase or joined fragments), or cite the provision that holds the text.",
@@ -1069,6 +1105,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "908ed0c9c5a56f33893c7210d71d9331a1874b5e9be468111c8ed02441a854cc",
+  "registry_sha256": "e6d8dd993394e650925c3e896624eb2432a106f67a349609488a9234f1ee4d28",
   "schema": "axiom-encode/check-registry/v1"
 }

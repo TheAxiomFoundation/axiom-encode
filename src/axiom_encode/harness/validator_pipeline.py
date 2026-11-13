@@ -66,6 +66,8 @@ from axiom_encode.checks import (
     map_issue_text,
 )
 from axiom_encode.codex_cli import (
+    codex_auth_secrets,
+    redact_codex_auth_secrets,
     resolve_codex_cli,
     with_codex_model_availability_hint,
 )
@@ -147,6 +149,7 @@ from axiom_encode.repo_routing import (
     monorepo_checkout_name,
 )
 from axiom_encode.rules_engine_compat import run_rulespec_compile
+from axiom_encode.signing_broker import supervisor_codex_home
 from axiom_encode.statute import (
     citation_to_citation_path,
     normalize_rulespec_path_segment,
@@ -835,12 +838,26 @@ def _run_codex_reviewer_cli(
                 ),
             ),
         )
+        # The read-only sandbox still lets the reviewer read auth.json in its
+        # home. Collect the credential strings before and after the run (a
+        # refresh can rotate them) and strip them from everything kept.
+        if local_environment is None:
+            codex_home = supervisor_codex_home()
+        else:
+            codex_home = local_environment.get("CODEX_HOME") or os.path.join(
+                local_environment["HOME"], ".codex"
+            )
+        secrets = codex_auth_secrets(codex_home)
         if local_environment is None:
             result = _run_subprocess_with_idle_timeout(
                 cmd,
                 timeout=timeout,
                 idle_timeout=idle_timeout,
                 cwd=cwd,
+                # Codex cannot initialize without a home directory. Under the
+                # signing supervisor only its captured, isolated home is
+                # forwarded; the sandbox above keeps the review read-only.
+                include_supervisor_codex_home=True,
             )
         else:
             result = _run_subprocess_with_idle_timeout(
@@ -851,7 +868,11 @@ def _run_codex_reviewer_cli(
                 env=local_environment,
                 env_is_final=True,
             )
-        return _extract_codex_text_output(result.output), result.returncode
+        secrets |= codex_auth_secrets(codex_home)
+        text = _extract_codex_text_output(
+            redact_codex_auth_secrets(result.output, secrets)
+        )
+        return redact_codex_auth_secrets(text, secrets), result.returncode
     except subprocess.TimeoutExpired:
         return f"Timeout after {timeout}s", 1
     except FileNotFoundError:
@@ -886,6 +907,7 @@ def _run_subprocess_with_idle_timeout(
     idle_timeout: int,
     cwd: Optional[Path] = None,
     env: Mapping[str, str] | None = None,
+    include_supervisor_codex_home: bool = False,
     env_is_final: bool = False,
     poll_interval: float = 0.5,
 ) -> _SubprocessRunResult:
@@ -919,9 +941,12 @@ def _run_subprocess_with_idle_timeout(
                     env=(
                         dict(env)
                         if env_is_final and env is not None
-                        else scrub_attestation_signing_keys()
-                        if env is None
-                        else scrub_attestation_signing_keys(env)
+                        else scrub_attestation_signing_keys(
+                            env,
+                            include_supervisor_codex_home=(
+                                include_supervisor_codex_home
+                            ),
+                        )
                     ),
                 )
 
@@ -24294,15 +24319,21 @@ _FAMILY_EXPENSE_TABLE_INSTRUCTION = re.compile(
 def _mask_family_expense_table_instruction(text: str) -> str:
     """Distinguish the expenses' family from an eligibility test's subject.
 
-    Only a complete unqualified instruction paragraph is recognized. This
-    removes a false scope inference; it does not assign a Person actor or
-    establish applicability, eligibility, or compliance with the instruction.
+    Only the complete instruction paragraph is recognized, and only when it is
+    not colon-led and the following text does not open with a listed
+    qualifier or condition word. Qualifying prose that opens otherwise is not
+    detected here; it stays in the text for condition analysis. This removes a
+    false scope inference; it does not assign a Person actor or establish
+    applicability, eligibility, or compliance with the instruction.
     """
     characters = list(text)
     for match in _FAMILY_EXPENSE_TABLE_INSTRUCTION.finditer(text):
         # Blank lines do not sever a colon-led instruction or its qualification.
         if text[: match.start()].rstrip().endswith(":") or re.match(
-            r"(?:unless|except|provided|subject\s+to|but|however)\b",
+            r"(?:unless|except|provided|providing|subject\s+to|but|however|only|if|when"
+            r"|once|until|assuming"
+            r"|where|on\s+condition|conditional|as\s+long\s+as|so\s+long\s+as"
+            r"|in\s+the\s+event|to\s+the\s+extent)\b",
             text[match.end() :].lstrip(),
             flags=re.IGNORECASE,
         ):
@@ -42922,9 +42953,9 @@ Output ONLY valid JSON:
         year: int = 2024,
         sample_size: int | None = None,
     ) -> ValidationResult:
-        """Benchmark RuleSpec encoding against PolicyEngine using Populace.
+        """Benchmark RuleSpec encoding against PolicyEngine using Microcosm.
 
-        Runs PE Microsimulation on Populace, extracts the target
+        Runs PE Microsimulation on Microcosm, extracts the target
         variable for all tax units, and reports the benchmark. This establishes
         the PE baseline that RuleSpec must match as inputs get wired up.
 
