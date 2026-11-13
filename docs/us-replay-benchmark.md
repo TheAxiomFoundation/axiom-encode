@@ -7,7 +7,7 @@ corpus checkout. The `replay benchmark` CI job runs it as a required check.
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 51 committed
+(the `[complete-source-unit:*]` rules of the CI validator) over 52 committed
 fixtures in `tests/fixtures/us_replay_benchmark/`. Hosted fixtures are real candidates from `targeted-reencode-failure` artifacts
 of signed runs:
 
@@ -57,6 +57,13 @@ origins and body-export method. The separate
 excerpt while retaining an unrelated ellipsis refusal. Completeness replay
 does not measure that proof check.
 
+The T2036 country-case-selection fixture retains an unsigned local repair
+candidate and its complete 45-case companion. Unrelated table cases must not
+disable evidence supplied by the country-condition cases. Offline replay still
+retains three finding groups because it does not receive the authenticated
+secondary-source context used by ordinary validation; it is not a native receipt
+or a publication result.
+
 The replay passes the same inputs as `ValidatorPipeline._complete_source_unit_issues`:
 the citation's numeric profile, the companion test cases, imported symbol
 contents, resolved deferral providers and same-act aliases from the source
@@ -67,9 +74,9 @@ FNS guidance, state statutes, manuals and guidance, one Canadian CRA guide
 (three runs), three Canadian CRA forms and one Revenu Québec schedule (local
 diagnostics), and one Israeli statute. It has one control (an Arizona candidate
 that passed validation and then failed a provenance guard). The current snapshot
-has 12 clean fixtures and 39 refused fixtures with 3,336 findings. It preserves
-all 50 `8733aa0e` main-baseline entries exactly; the section 219(g) diagnostic
-retains 33 findings. Read clean counts and per-fixture changes, not only the total.
+has 12 clean fixtures and 40 refused fixtures with 3,339 findings. It preserves
+all 51 `bf69726a` main-baseline entries exactly; the new T2036 diagnostic retains
+three finding groups. Read clean counts and per-fixture changes, not only the total.
 
 ## Public fixtures and the private held-out set
 

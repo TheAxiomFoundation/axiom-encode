@@ -1,0 +1,33 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "origin": "local-diagnostic",
+  "run_id": "local-t2036-country-case-selection-20261113",
+  "citation": "ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit",
+  "module_path": "ca/policies/cra/t1-2025/provincial-territorial-foreign-tax-credit.yaml",
+  "policy_prefix": "ca",
+  "split": "visible",
+  "recorded_verdict": "rejected",
+  "encoder_commit": "317b2e5af609c5b767b40d4c66cc44253a58295f",
+  "encoder_tree": "0a9bdaf00f02d53a6a6c876bc3065549e3c74e09",
+  "encoder_version": "0.2.2367",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --jobs 4 --out replay.json",
+  "input_origins": {
+    "candidate.yaml": "issue233 retained registered-repair reconstruction, unchanged45-case diagnostic policy e857b1b9; local unsigned diagnostic, not hosted output",
+    "candidate.test.yaml": "issue233 retained44cases plus explicit existing-child output projection,45cases402 scalar comparisons",
+    "source.txt": "public corpus d24cbde7e6d125a6f859f43c188b0ffbd115b835, authenticated source retained from native39337066830"
+  },
+  "recorded_issues_scope": "Actual complete-source diagnostic with authenticated primary plus federal-foreign-tax-credits secondary source; offline benchmark intentionally omits source_context and may retain additional proof findings. No hosted receipt or private execution evidence supplied.",
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "recorded_rules": [
+    "complete-source-unit:source-explicit-conditions",
+    "complete-source-unit:tests"
+  ],
+  "files": {
+    "candidate.test.yaml": "1f071c6763514db637daf525892af23476703dc16be30def3715239938470157",
+    "candidate.yaml": "e857b1b909cf7546b7366f0a235349bac58d8f40d5c34083d894178659a5c830",
+    "issues.json": "b795674b5591fb7b1a5cfec23f0f4c31ecab5e998e2bd24f2ac7b1cfe14e5add",
+    "source.txt": "7637ab494fc385b938e9e3ce4d5f3b1af8bc331ad644fe3cedefaee8434028ee"
+  }
+}
