@@ -215,11 +215,30 @@ def observe_student_loan_schedule(binding, evidence, content, cases):
             return None
         path = PurePosixPath(evidence.root_relative)
         if (
-            path.suffix != ".yaml"
+            path.is_absolute()
+            or path.suffix != ".yaml"
             or len(path.parts) < 3
             or path.parts[1] != "policies"
             or ".." in path.parts
+            or str(path) != evidence.root_relative
         ):
+            return None
+        companion = str(path.with_suffix(".test.yaml"))
+        if len(evidence.files) != 2 or {f.relative for f in evidence.files} != {
+            str(path),
+            companion,
+        }:
+            return None
+        from .validator_pipeline import _safe_load_unique_keys
+
+        captured_cases = _safe_load_unique_keys(
+            next(f.raw for f in evidence.files if f.relative == companion).decode()
+        )
+        if isinstance(captured_cases, dict):
+            captured_cases = captured_cases.get("cases")
+        # Match every case, in order and with JSON scalar types preserved;
+        # fresh source bytes alone do not bind a caller's supplied case list.
+        if not isinstance(captured_cases, list) or not _equal(captured_cases, cases):
             return None
         prefix = (
             path.parts[0]
@@ -233,6 +252,11 @@ def observe_student_loan_schedule(binding, evidence, content, cases):
         owners, facts_by_role = dict(binding.rule_roles), dict(binding.input_roles)
         expressions = {owners[k]: v for k, v in _expressions(binding).items()}
         artifact = json.loads(evidence.artifact_bytes)
+        if (
+            type(artifact.get("artifact_format_version")) is not int
+            or artifact["artifact_format_version"] != 2
+        ):
+            return None
         program = artifact["program"]
         if set(program) != {
             "module",
@@ -314,6 +338,7 @@ def observe_student_loan_schedule(binding, evidence, content, cases):
             records = [r for r in evidence.records if r.case_sha256 == key]
             if (
                 len(records) != 1
+                or type(records[0].case_index) is not int
                 or records[0].case_index != index
                 or case["period"] != period
             ):
@@ -550,5 +575,6 @@ def observe_student_loan_schedule(binding, evidence, content, cases):
         IndexError,
         RecursionError,
         InvalidOperation,
+        yaml.YAMLError,
     ):
         return None
