@@ -310,6 +310,17 @@ def advance(world, *, primary=PRIMARY, manifest=None, extra=None, new_base=False
     world.ancestry(base, H, B)
 
 
+def second_read(world, path, later):
+    first = world.api[path]
+    seen = []
+
+    def read():
+        seen.append(1)
+        return first if len(seen) == 1 else later
+
+    world.api[path] = read
+
+
 def expect(world, verdict, reason):
     result = world.evaluate()
     assert (result.verdict, result.reason) == (verdict, reason), result
@@ -357,32 +368,159 @@ def test_per_file_waiver_variant_passes():
     expect(build(mutate=swap), guard.PASS, guard.R_PASS)
 
 
-# --- F1: applicability comes from paths and modes, not from a label ----------
+# --- F1, R2-1, R2-2: the guard stands aside only on an allowlist or a lane ---
 
 
-def plain(files, base_extra=None):
+def plain(files, base_extra=None, removed=()):
     """A PR with no promotion unit: ``files`` over the base, one commit."""
     world = World()
-    world.tree(B, BASE_FILES | (base_extra or {}))
-    world.tree(H, BASE_FILES | (base_extra or {}) | files)
+    base_files = BASE_FILES | (base_extra or {})
+    world.tree(B, base_files)
+    head_files = base_files | files
+    for path in removed:
+        del head_files[path]
+    world.tree(H, head_files)
     world.publish(H, B, [commit(H)])
     world.reviews([])
     return world
 
 
 WORKFLOW = ".github/workflows/repository-checks.yml"
+PIN = ".axiom/workflow-toolchain.toml"
+LEDGER = "known-validation-gaps.yaml"
+LINK = {"type": "blob", "mode": "120000", "sha": "d" * 40}
+SUBMODULE = {"type": "commit", "mode": "160000", "sha": "d" * 40}
+EXECUTABLE = {"type": "blob", "mode": "100755", "sha": "d" * 40}
+V5_UNIT = {P: PRIMARY, T: COMPANION, M: v5_manifest(P, T)}
+
+
+def test_docs_only_pr_is_not_applicable():
+    world = plain(
+        {
+            "README.md": b"changed\n",
+            "NOTICE": b"changed\n",
+            "LICENSE": b"changed\n",
+            "LICENSE-CODE": b"changed\n",
+            "CLAUDE.md": b"changed\n",
+            ".gitignore": b"changed\n",
+            ".gitattributes": b"changed\n",
+            ".claude/settings.json": b"{}\n",
+        }
+    )
+    world.api[PR]["draft"] = True
+    result = expect(world, guard.NOT_APPLICABLE, guard.R_NO_GUARDED_CONTENT)
+    assert result.evidence == {
+        "repository": REPO,
+        "pull_request": 42,
+        "head": H,
+        "base": B,
+    }
+    # Applicability is decided from the two trees alone.
+    assert sorted(world.calls) == sorted(
+        [
+            PR,
+            ROOT + "/git/ref/heads/main",
+            f"{ROOT}/compare/{B}...{H}",
+            f"{ROOT}/git/trees/{B}?recursive=1",
+            f"{ROOT}/git/trees/{H}?recursive=1",
+        ]
+    )
+
+
+def test_removed_allowlisted_file_is_not_applicable():
+    world = plain({}, base_extra={"NOTICE": b"x\n"}, removed=["NOTICE"])
+    expect(world, guard.NOT_APPLICABLE, guard.R_NO_GUARDED_CONTENT)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        # R2-2: content the encoder's atomic-root list does not name.
+        "us-mo/manual/dss/snap/block-1.yaml",
+        "us-mo/manual/dss/snap/block-1.test.yaml",
+        "programs/us-az/snap/fy-2026.yaml",
+        "us-zz/newroot/x.yaml",
+        "us/ca/policies/x.yaml",
+        "us-az/Policies/x.yaml",
+        "us-az/policies/x.yaml",
+        "us-az/statutes/x.yaml",
+        "us-az/regulations/x.yaml",
+        "us-az/legislation/x.yaml",
+        "policies/x.yaml",
+        "us-az/policies/notes.md",
+        "us-az/x.yaml",
+        # R2-2: configuration, pins and ledgers that validation reads.
+        PIN,
+        ".axiom/toolchain.toml",
+        ".axiom/repository-structure.yaml",
+        ".axiom/target-validation-passes.json",
+        INDEX,
+        ".axiom",
+        ".axiom/encoding-manifests",
+        "us-az/.axiom",
+        "us-az/.axiom/encoding-manifests",
+        "us-co/.axiom/notes.md",
+        LEDGER,
+        "known-dangling.yaml",
+        "oracle-coverage-pending.yaml",
+        "household-choices.yaml",
+        WORKFLOW,
+        ".github/CODEOWNERS",
+        # Tooling that CI executes, and anything new at the top level.
+        "tools/generate.py",
+        "bulk/compute_matrix.py",
+        "tests/test_x.py",
+        "docs/guide.md",
+        "newtop/x.txt",
+        "NEWFILE.md",
+        "readme.md",  # the allowlist is exact, also in case
+        ".claude",
+        ".clauded/x",
+    ],
+)
+def test_r2_2_guarded_path_with_no_manifest_has_no_lane(path):
+    fails(plain({path: b"x\n"}), guard.R_NO_LANE)
+
+
+def test_r2_2_guarded_path_next_to_allowlisted_paths_has_no_lane():
+    fails(plain({"README.md": b"x\n", PIN: b"x\n"}), guard.R_NO_LANE)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "us-az/manual",
+        "us-az/policies2",
+        ".axiom/encoding-manifests",
+        ".axiom",
+        "us-az/.axiom/encoding-manifests",
+        "us-az/.axiom",
+        "us-az",
+        "us-az/policies",
+        "policies",
+        P,
+        M,
+        "README.md",  # also an allowlisted path must be a regular file
+        ".claude/link",
+        "scripts/run.sh",
+    ],
+)
+@pytest.mark.parametrize("entry", [LINK, SUBMODULE, EXECUTABLE])
+def test_any_changed_leaf_that_is_not_a_regular_file_fails(path, entry):
+    world = plain({path: entry, "elsewhere/manifest.json": manifest_bytes()})
+    fails(world, guard.R_GUARDED_LEAF)
+
+
+def test_unchanged_non_regular_leaf_on_main_is_not_judged():
+    world = plain({"README.md": b"x\n"}, base_extra={"bulk/run.py": EXECUTABLE})
+    expect(world, guard.NOT_APPLICABLE, guard.R_NO_GUARDED_CONTENT)
 
 
 def test_f1a_content_and_workflow_with_no_manifest_fails():
     world = plain(
-        {
-            P: PRIMARY,
-            T: COMPANION,
-            WORKFLOW: b"jobs: {}\n",
-            ".github/CODEOWNERS": b"\n",
-        }
+        {P: PRIMARY, T: COMPANION, WORKFLOW: b"jobs: {}\n", ".github/CODEOWNERS": b"\n"}
     )
-    fails(world, guard.R_CONTENT_WITHOUT_MANIFEST)
+    fails(world, guard.R_NO_LANE)
 
 
 @pytest.mark.parametrize(
@@ -401,72 +539,12 @@ def test_f1b_manifest_without_a_schema_fails():
     fails(world, guard.R_UNKNOWN_SCHEMA)
 
 
-LINK = {"type": "blob", "mode": "120000", "sha": "d" * 40}
-SUBMODULE = {"type": "commit", "mode": "160000", "sha": "d" * 40}
-EXECUTABLE = {"type": "blob", "mode": "100755", "sha": "d" * 40}
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        ".axiom/encoding-manifests",
-        ".axiom",
-        "us-az/.axiom/encoding-manifests",
-        "us-az/.axiom",
-        "us-az",  # a top-level leaf can alias a jurisdiction directory
-        "us-az/policies",
-        "policies",
-        P,
-        M,
-    ],
-)
-@pytest.mark.parametrize("entry", [LINK, SUBMODULE, EXECUTABLE])
-def test_f1c_non_regular_leaf_at_or_above_guarded_paths_fails(path, entry):
-    world = plain({path: entry, "elsewhere/manifest.json": manifest_bytes()})
-    fails(world, guard.R_GUARDED_LEAF)
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        ".axiom",
-        ".axiom/encoding-manifests",
-        "us-az/.axiom",
-        "us-az/.axiom/encoding-manifests",
-    ],
-)
-def test_f1c_regular_file_where_the_manifest_directory_must_be_fails(path):
-    fails(plain({path: b"not a directory\n"}), guard.R_GUARDED_LEAF)
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "us-az/policies/x.yaml",
-        "us-az/statutes/x.yaml",
-        "us-az/regulations/x.yaml",
-        "us-az/legislation/x.yaml",
-        "policies/x.yaml",
-        "us-az/policies/notes.md",
-    ],
-)
-def test_f1_content_under_every_encoder_root_is_guarded(path):
-    fails(plain({path: b"x\n"}), guard.R_CONTENT_WITHOUT_MANIFEST)
-
-
 def test_f1_removed_content_with_no_manifest_fails():
-    world = World()
-    world.tree(B, BASE_FILES | {P: PRIMARY})
-    world.tree(H, BASE_FILES)
-    world.publish(H, B, [commit(H)])
-    fails(world, guard.R_CONTENT_WITHOUT_MANIFEST)
+    fails(plain({}, base_extra={P: PRIMARY}, removed=[P]), guard.R_NO_LANE)
 
 
 def test_f1_removed_manifest_fails():
-    world = World()
-    world.tree(B, BASE_FILES | {M: v5_manifest()})
-    world.tree(H, BASE_FILES)
-    world.publish(H, B, [commit(H)])
+    world = plain({}, base_extra={M: v5_manifest()}, removed=[M])
     fails(world, guard.R_MANIFEST_REMOVED)
 
 
@@ -475,51 +553,162 @@ def test_f1_mixed_v5_and_v6_manifests_fail():
     fails(build(head_extra={other: v5_manifest()}), guard.R_MIXED_SCHEMAS)
 
 
-def test_f1_v5_lane_with_covered_content_is_not_applicable():
-    world = plain({P: PRIMARY, T: COMPANION, M: v5_manifest(P, T)})
-    expect(world, guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
+# The earlier (v5) lane. Its verdict rests on the lane's scope and on this
+# PR's own green ``validate / validate`` run, never on the manifest's label.
+
+
+def test_v5_promotion_shape_of_rulespec_us_2045_is_the_earlier_lane():
+    # rulespec-us#2045: a v5 promotion manifest at the repository root and
+    # its two module files, with repository-relative applied paths.
+    world = plain(V5_UNIT)
+    result = expect(world, guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
+    assert f"{ROOT}/commits/{H}{CHECKS}" in world.calls
+    assert f"{ROOT}/actions/runs/{CI_RUN}" in world.calls
+    assert world.calls.count(PR) == 2  # re-read
+    assert "primary_sha256" not in result.evidence
 
 
 LOCAL_P = "us-ca/regulations/mpp/63-503/433.yaml"
 LOCAL_T = "us-ca/regulations/mpp/63-503/433.test.yaml"
 LOCAL_M = "us-ca/.axiom/encoding-manifests/regulations/mpp/63-503/433.json"
+LOCAL_MANIFEST = v5_manifest(
+    "regulations/mpp/63-503/433.yaml", "regulations/mpp/63-503/433.test.yaml"
+)
 
 
-def test_f1_v5_lane_with_a_jurisdiction_local_manifest_is_not_applicable():
+def test_v5_lane_with_a_jurisdiction_local_manifest():
     # The layout of most manifests on rulespec-us main: the manifest lives
     # under the jurisdiction and lists paths relative to it.
-    manifest = v5_manifest(
-        "regulations/mpp/63-503/433.yaml", "regulations/mpp/63-503/433.test.yaml"
-    )
-    world = plain({LOCAL_P: PRIMARY, LOCAL_T: COMPANION, LOCAL_M: manifest})
+    world = plain({LOCAL_P: PRIMARY, LOCAL_T: COMPANION, LOCAL_M: LOCAL_MANIFEST})
     expect(world, guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
 
 
-def test_f1_jurisdiction_local_manifest_does_not_cover_another_jurisdiction():
-    manifest = v5_manifest(LOCAL_P, LOCAL_T)  # read as us-ca/us-ca/...
-    world = plain({LOCAL_P: PRIMARY, LOCAL_T: COMPANION, LOCAL_M: manifest})
-    fails(world, guard.R_CONTENT_NOT_COVERED)
-
-
-def test_f1_jurisdiction_local_manifest_alone_is_guarded():
-    relabelled = json.dumps({"schema_version": "x"}).encode()
-    fails(plain({LOCAL_M: relabelled}), guard.R_UNKNOWN_SCHEMA)
-
-
-def test_f1_v6_manifest_at_a_jurisdiction_local_path_fails():
-    world = plain({P: PRIMARY, T: COMPANION, LOCAL_M: manifest_bytes()})
-    world.api[PR]["draft"] = False
-    fails(world, guard.R_MANIFEST_PATH)
-
-
-def test_f1_other_axiom_files_are_not_guarded():
-    world = plain({".axiom/toolchain.toml": b"x\n", "us-co/.axiom/notes.md": b"x\n"})
-    expect(world, guard.NOT_APPLICABLE, guard.R_NO_GUARDED_CONTENT)
-
-
-def test_f1_v5_lane_modifying_a_module_is_not_applicable():
+def test_v5_lane_modifying_a_module():
     older = {P: b"older\n", T: b"older test\n", M: v5_manifest(P, T, generated_at="1")}
-    world = plain({P: PRIMARY, T: COMPANION, M: v5_manifest(P, T)}, base_extra=older)
+    expect(plain(V5_UNIT, base_extra=older), guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
+
+
+@pytest.mark.parametrize(
+    "primary",
+    ["us-mo/manual/dss/snap/block-1.yaml", "us/ca/policies/x.yaml", "policies/x.yaml"],
+)
+def test_v5_lane_admits_any_root_name_and_depth_under_a_jurisdiction(primary):
+    world = plain(
+        {
+            primary: PRIMARY,
+            guard.MANIFEST_PREFIX + primary[:-5] + ".json": v5_manifest(primary),
+        }
+    )
+    expect(world, guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
+
+
+def test_v5_lane_manifest_only_change():
+    expect(plain({M: v5_manifest()}), guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        WORKFLOW,
+        ".github/CODEOWNERS",
+        PIN,
+        LEDGER,
+        INDEX,
+        "programs/us-az/snap/fy-2026.yaml",
+        "tools/generate.py",
+        "README.md",  # the lane claims the whole delta, allowlisted paths too
+        "us-az/policies/notes.md",
+        "us-az/x.yaml",
+        "us-az/.hidden/policies/x.yaml",
+        "us-co/.axiom/notes.yaml",
+        "Us-az/policies/x.yaml",
+        "tests/policies/x.yaml",
+    ],
+)
+def test_r2_1_i_v5_label_with_any_path_outside_the_lane_has_no_lane(extra):
+    # Every extra is listed by the hand-written manifest: coverage is not the
+    # control here, the lane's scope is.
+    manifest = v5_manifest(P, T, extra)
+    world = plain({P: PRIMARY, T: COMPANION, M: manifest, extra: b"x\n"})
+    fails(world, guard.R_NO_LANE)
+
+
+def test_r2_1_i_the_reproduced_bundle_has_no_lane():
+    world = plain(
+        V5_UNIT
+        | {
+            WORKFLOW: b"jobs: {}\n",
+            ".github/CODEOWNERS": b"\n",
+            PIN: b"x\n",
+            LEDGER: b"x\n",
+        }
+    )
+    fails(world, guard.R_NO_LANE)
+
+
+def test_r2_1_ii_v5_lane_reads_ci_and_fails_without_it():
+    world = plain(V5_UNIT)
+    del world.api[f"{ROOT}/commits/{H}{CHECKS}"]
+    fails(world, guard.R_READ_FAILED)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"conclusion": "failure"},
+        {"status": "in_progress", "conclusion": None},
+        {"app": {"id": 99999}},
+        {"head_sha": C1},
+    ],
+)
+def test_r2_1_ii_v5_lane_needs_the_required_check_green(changes):
+    world = plain(V5_UNIT)
+    world.ci(H, **changes)
+    fails(world, guard.R_CI)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("event", "workflow_dispatch"),
+        ("pull_requests", []),
+        ("repository", {"full_name": "fork/rulespec-us"}),
+        ("path", ".github/workflows/imitation.yml"),
+    ],
+)
+def test_r2_1_ii_v5_lane_needs_this_prs_pull_request_run(field, value):
+    world = plain(V5_UNIT)
+    world.api[f"{ROOT}/actions/runs/{CI_RUN}"][field] = value
+    fails(world, guard.R_CI)
+
+
+def test_r2_1_iii_hand_edit_with_a_doctored_v5_manifest_rests_on_ci():
+    # An unsigned v5 manifest cannot be told from a signed one here. The
+    # required check verifies the signature, so the verdict follows CI.
+    older = {P: b"older\n", T: COMPANION, M: v5_manifest(P, T, generated_at="1")}
+    doctored = {P: b"hand edit\n", M: v5_manifest(P, T)}
+    world = plain(doctored, base_extra=older)
+    world.ci(H, conclusion="failure")
+    fails(world, guard.R_CI)
+
+
+def test_r2_1_iv_v5_manifest_that_lists_deletions_rests_on_ci():
+    other = "us-az/policies/des/other.yaml"
+    deleting = json.dumps(
+        {
+            "schema_version": V5,
+            "applied_files": [
+                {"path": P, "deleted": True},
+                {"path": other, "deleted": True},
+            ],
+        }
+    ).encode()
+    world = plain(
+        {M: deleting}, base_extra={P: PRIMARY, other: b"other\n"}, removed=[P, other]
+    )
+    world.ci(H, conclusion="failure")
+    fails(world, guard.R_CI)
+    world.ci(H)
     expect(world, guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
 
 
@@ -532,23 +721,40 @@ def test_f1_v5_lane_modifying_a_module_is_not_applicable():
         json.dumps({"schema_version": V5, "applied_files": [P, T]}).encode(),
     ],
 )
-def test_f1_v5_lane_with_uncovered_content_fails(manifest):
+def test_v5_lane_with_uncovered_content_fails(manifest):
     world = plain({P: PRIMARY, T: COMPANION, M: manifest})
     fails(world, guard.R_CONTENT_NOT_COVERED)
 
 
-def test_f1_v5_lane_limit_extra_files_are_not_judged():
-    # Stated limit: an earlier-schema lane keeps its own controls. The guard
-    # does not check its scope. This test records the limit; it is not a
-    # defence.
-    world = plain(
-        {P: PRIMARY, T: COMPANION, M: v5_manifest(P, T), WORKFLOW: b"jobs: {}\n"}
-    )
-    expect(world, guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
+def test_jurisdiction_local_manifest_does_not_cover_another_jurisdiction():
+    manifest = v5_manifest(LOCAL_P, LOCAL_T)  # read as us-ca/us-ca/...
+    world = plain({LOCAL_P: PRIMARY, LOCAL_T: COMPANION, LOCAL_M: manifest})
+    fails(world, guard.R_CONTENT_NOT_COVERED)
+
+
+def test_jurisdiction_local_manifest_alone_is_guarded():
+    relabelled = json.dumps({"schema_version": "x"}).encode()
+    fails(plain({LOCAL_M: relabelled}), guard.R_UNKNOWN_SCHEMA)
+
+
+def test_v5_lane_refuses_when_the_head_or_main_moves():
+    world = plain(V5_UNIT)
+    moved = copy.deepcopy(world.api[PR])
+    moved["head"]["sha"] = H2
+    second_read(world, PR, moved)
+    fails(world, guard.R_CHANGED)
+    world = plain(V5_UNIT)
+    second_read(world, ROOT + "/git/ref/heads/main", {"object": {"sha": B2}})
+    fails(world, guard.R_CHANGED)
+
+
+def test_v6_manifest_at_a_jurisdiction_local_path_fails():
+    world = plain({P: PRIMARY, T: COMPANION, LOCAL_M: manifest_bytes()})
+    fails(world, guard.R_MANIFEST_PATH)
 
 
 def test_f1_v6_unit_with_any_extra_path_fails():
-    for extra in (WORKFLOW, ".github/CODEOWNERS", "README.md", "docs/new.md"):
+    for extra in (WORKFLOW, ".github/CODEOWNERS", "README.md", "docs/new.md", PIN):
         fails(build(head_extra={extra: b"changed\n"}), guard.R_SCOPE_PATHS)
 
 
@@ -710,12 +916,26 @@ def test_f4_approver_clicked_update_branch():
     fails(world, guard.R_AUTHORED_COMMITS)
 
 
-def test_case_27_unattributed_commit_author_is_a_documented_gap():
-    # Git author metadata is free text. When GitHub attributes the commit to
-    # no account, the evaluator cannot see who wrote it. This test records the
-    # gap; it is not a defence.
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"author": None, "committer": None},
+        {"author": None, "committer": {"id": WEB_FLOW[0], "login": WEB_FLOW[1]}},
+        {"committer": None},
+    ],
+)
+@pytest.mark.parametrize("index", [0, 1])
+def test_r2_3_unattributed_commit_fails(index, change):
+    # Git author metadata is free text. When GitHub attributes a commit to no
+    # account, the evaluator cannot tell that the approver did not write it.
     world = build(author=OUTSIDER, approver=MAX)
-    world.api[PR + "/commits" + PAGE][0].update(author=None, committer=None)
+    world.api[PR + "/commits" + PAGE][index].update(change)
+    fails(world, guard.R_UNATTRIBUTED)
+
+
+def test_r2_3_web_flow_committer_with_an_attributed_author_is_allowed():
+    world = build()
+    assert world.api[PR + "/commits" + PAGE][1]["committer"]["id"] == WEB_FLOW[0]
     expect(world, guard.PASS, guard.R_PASS)
 
 
@@ -1377,17 +1597,6 @@ def test_subdivision_repository_names_are_accepted(name):
 # --- case 18: state moves during the evaluation -----------------------------
 
 
-def second_read(world, path, later):
-    first = world.api[path]
-    seen = []
-
-    def read():
-        seen.append(1)
-        return first if len(seen) == 1 else later
-
-    world.api[path] = read
-
-
 def test_case_18_review_dismissed_between_the_two_reads():
     world = build()
     dismissed = [review(11, MAX, H), review(12, MAX, H, state="DISMISSED")]
@@ -1462,44 +1671,13 @@ def test_draft_promotion_has_no_verdict(draft):
     fails(world, guard.R_PR_DRAFT)
 
 
-# --- case 25: not applicable ------------------------------------------------
+# --- cases 16 and 25: no manifest ------------------------------------------------
 
 
-def test_case_25_maintenance_pr_is_not_applicable():
-    world = plain(
-        {
-            "README.md": b"changed\n",
-            "scripts/run.sh": EXECUTABLE,
-            "docs/link": LINK,
-            ".axiom/admissions/x.json": b"{}\n",
-            INDEX: b"{}\n",
-        }
-    )
-    world.api[PR]["draft"] = True
-    result = expect(world, guard.NOT_APPLICABLE, guard.R_NO_GUARDED_CONTENT)
-    assert result.evidence == {
-        "repository": REPO,
-        "pull_request": 42,
-        "head": H,
-        "base": B,
-    }
-    # Applicability is decided from the two trees alone.
-    assert sorted(world.calls) == sorted(
-        [
-            PR,
-            ROOT + "/git/ref/heads/main",
-            f"{ROOT}/compare/{B}...{H}",
-            f"{ROOT}/git/trees/{B}?recursive=1",
-            f"{ROOT}/git/trees/{H}?recursive=1",
-        ]
-    )
-
-
-def test_case_25_workflow_only_pr_is_not_applicable():
-    # Stated limit: with no guarded content the guard stands aside. This gap
-    # belongs to the publisher binding of ``validate / validate``.
+def test_case_16_workflow_only_pr_has_no_lane():
+    # Decided by round 2: a guarded change that no lane claims fails closed.
     world = plain({WORKFLOW: b"jobs: {}\n", ".github/CODEOWNERS": b"\n"})
-    expect(world, guard.NOT_APPLICABLE, guard.R_NO_GUARDED_CONTENT)
+    fails(world, guard.R_NO_LANE)
 
 
 def test_changed_manifests_beyond_the_read_bound_fail(monkeypatch):
@@ -1521,15 +1699,6 @@ def test_changed_manifests_beyond_the_read_bound_fail(monkeypatch):
     "the guard App's app_id. No App, workflow or check-run writer exists yet."
 )
 def test_case_15_imitated_check_name_from_a_pr_workflow():
-    raise AssertionError("not decidable by the single-PR evaluator")
-
-
-@pytest.mark.skip(
-    reason="Case 16, second half: a PR with no guarded content that rewrites the "
-    "required workflow is not_applicable here by design. That gap is in the "
-    "binding of validate / validate, outside this evaluator."
-)
-def test_case_16_maintenance_pr_rewrites_the_required_workflow():
     raise AssertionError("not decidable by the single-PR evaluator")
 
 

@@ -4,9 +4,21 @@ INACTIVE. Nothing in the encoder, a workflow or a RuleSpec repository calls
 this module, no check run is written, and the manifest schema it reads is not
 emitted by any writer. See ``docs/content-bound-merge-guard.md``.
 
-Applicability is decided from the paths and modes of the complete tree delta,
-never from a label inside a file the pull request supplies. A pull request
-that changes RuleSpec content or an apply manifest is judged. When it carries
+The guard stands aside (``not_applicable``) in two cases only:
+
+* ``no_guarded_content``: every path of the complete tree delta is on a short
+  allowlist of unvalidated locations, and every changed leaf is a regular
+  file. Everything else is guarded: jurisdiction directories, ``programs/``,
+  ``.axiom/``, ``.github/``, root ledgers, tooling and any new top-level entry.
+* ``earlier_lane_v5``: the delta holds only RuleSpec module files and apply
+  manifests, every changed manifest carries an earlier schema label, every
+  module file is listed by one of them, and the required check is green on
+  the head from this pull request's own ``pull_request`` run. The guard does
+  NOT verify the v5 signature and trusts no label for this: the verdict rests
+  on that CI run, whose workflow files and toolchain pin the pull request
+  cannot have changed, because the lane's scope excludes them.
+
+A guarded delta that no lane claims whole gives ``fail``. When the delta is
 one signed ``applied-rulespec/v6`` promotion unit, the evaluator decides
 whether it also carries a live approval, from an enrolled owner who is
 independent of the candidate author, of the dispatcher and of every commit
@@ -55,6 +67,21 @@ ATTESTATION_ORIGIN = "local-candidate"
 PROMOTION_TOOL = "axiom-encode promote-reviewed-candidate"
 MANIFEST_DIR = ".axiom/encoding-manifests"
 MANIFEST_PREFIX = MANIFEST_DIR + "/"
+# Locations a RuleSpec repository does not validate. A delta inside them is
+# not judged. This list is encoder policy: a RuleSpec pull request cannot
+# change it. Every other path is guarded.
+UNGUARDED_ROOT_FILES = frozenset(
+    {
+        ".gitattributes",
+        ".gitignore",
+        "CLAUDE.md",
+        "LICENSE",
+        "LICENSE-CODE",
+        "NOTICE",
+        "README.md",
+    }
+)
+UNGUARDED_DIRECTORIES = (".claude/",)
 # Earlier apply-manifest schemas. Their lanes keep their own controls (the
 # approval is checked before signing); this guard does not judge them.
 EARLIER_MANIFEST_SCHEMAS = frozenset({"axiom-encode/applied-rulespec/v5"})
@@ -120,7 +147,8 @@ R_NO_GUARDED_CONTENT = "no_guarded_content"
 R_EARLIER_LANE = "earlier_lane_v5"
 R_GUARDED_LEAF = "guarded_leaf_not_regular"
 R_MANIFEST_REMOVED = "manifest_removed"
-R_CONTENT_WITHOUT_MANIFEST = "content_without_manifest"
+R_NO_LANE = "no_lane_for_guarded_change"
+R_UNATTRIBUTED = "unattributed_commit"
 R_CONTENT_NOT_COVERED = "content_not_covered"
 R_UNKNOWN_SCHEMA = "unknown_manifest_schema"
 R_MIXED_SCHEMAS = "mixed_manifest_schemas"
@@ -168,6 +196,7 @@ _RUN_ID = re.compile(r"[1-9][0-9]{0,19}")
 # rulespec-<country> and rulespec-<country>-<subdivision> repositories.
 _REPOSITORY = re.compile(r"rulespec-([a-z]{2})(-[a-z0-9]+)*")
 _REGULAR = ("blob", "100644")
+_JURISDICTION = re.compile(r"[a-z]{2}(-[a-z0-9]+)*")
 
 
 @dataclass(frozen=True)
@@ -429,12 +458,18 @@ def _effective_reviews(reviews: list[dict]) -> dict[int, dict]:
 
 
 def _actor_ids(commit: dict) -> set[int]:
-    """GitHub-attributed author and committer. Unattributed commits give none."""
+    """GitHub-attributed author and committer of one commit.
+
+    A commit whose author or committer GitHub cannot attribute refuses: the
+    evaluator cannot tell that the approver did not write it.
+    """
     ids = set()
     for role in ("author", "committer"):
         account = commit.get(role)
         if account is None:
-            continue
+            raise _Refusal(
+                R_UNATTRIBUTED, f"commit {commit.get('sha')} has no GitHub {role}"
+            )
         identity = _object(account, "commit account").get("id")
         if not _strict_int(identity):
             raise AdmissionError("commit account lacks a numeric identity")
@@ -588,16 +623,25 @@ def _manifest_area(path: str) -> str | None:
     return None
 
 
-def _is_content(path: str) -> bool:
-    """RuleSpec content, by path alone.
+def _is_unguarded(path: str) -> bool:
+    """Whether a path is on the allowlist of unvalidated locations."""
+    return path in UNGUARDED_ROOT_FILES or path.startswith(UNGUARDED_DIRECTORIES)
 
-    The content roots are the encoder's ``RULESPEC_ATOMIC_ROOTS``, at the
-    repository root or one level below a jurisdiction directory.
+
+def _is_module_path(path: str) -> bool:
+    """A RuleSpec module file of an earlier lane, by path alone.
+
+    ``<jurisdiction>/<root>/.../<name>.yaml`` in a country repository, or
+    ``<atomic root>/.../<name>.yaml`` at the root of a jurisdiction
+    repository. Nothing under ``.axiom``, ``.github``, ``programs`` or the
+    other top-level directories is a module file.
     """
     parts = path.split("/")
-    return parts[0] in RULESPEC_ATOMIC_ROOTS or (
-        len(parts) >= 2 and parts[1] in RULESPEC_ATOMIC_ROOTS
-    )
+    if not path.endswith(".yaml") or any(part.startswith(".") for part in parts):
+        return False
+    if parts[0] in RULESPEC_ATOMIC_ROOTS:
+        return len(parts) >= 2
+    return len(parts) >= 3 and _JURISDICTION.fullmatch(parts[0]) is not None
 
 
 def _applied_paths(manifest_path: str, payload: dict) -> set[str]:
@@ -682,36 +726,24 @@ def _evaluate(name, number, read, evidence) -> Verdict:
         head_leaves = _leaf_entries(head_tree)
     delta = _delta(base_leaves, head_leaves)
 
-    # 3. Applicability, from paths and modes only. A label inside a file the
-    # pull request supplies never makes the guard stand aside.
-    def regular(path):
-        entry = head_leaves.get(path)
-        return entry is None or (entry["type"], entry["mode"]) == _REGULAR
-
-    guarded = sorted(
-        path
-        for path in delta
-        # A non-regular top-level leaf can alias a jurisdiction directory.
-        if _is_content(path)
-        or _manifest_area(path) is not None
-        or ("/" not in path and not regular(path))
-    )
+    # 3. Applicability, from paths and modes only. The guard stands aside
+    # when the whole delta is on the allowlist; otherwise one lane must claim
+    # the whole delta.
+    for path, entry in head_leaves.items():
+        if path in delta and (entry["type"], entry["mode"]) != _REGULAR:
+            raise _Refusal(R_GUARDED_LEAF, path)
+    guarded = sorted(path for path in delta if not _is_unguarded(path))
     if not guarded:
         return Verdict(
             NOT_APPLICABLE,
             R_NO_GUARDED_CONTENT,
-            "the delta changes no RuleSpec content and no apply manifest",
+            "every changed path is on the allowlist of unvalidated locations",
             evidence,
         )
-    for path in guarded:
-        if not regular(path) or _manifest_area(path) == "leaf":
-            raise _Refusal(R_GUARDED_LEAF, path)
-    manifests = [path for path in guarded if _manifest_area(path) is not None]
-    content = [path for path in guarded if _manifest_area(path) is None]
+    manifests = [path for path in guarded if _manifest_area(path) not in (None, "leaf")]
+    others = [path for path in guarded if path not in manifests]
     if not manifests:
-        raise _Refusal(
-            R_CONTENT_WITHOUT_MANIFEST, "RuleSpec content changes with no manifest"
-        )
+        raise _Refusal(R_NO_LANE, "guarded paths change with no apply manifest")
     if any(delta[path] == "removed" for path in manifests):
         raise _Refusal(R_MANIFEST_REMOVED, "an apply manifest is removed")
     if len(manifests) > MAX_MANIFEST_BLOBS:
@@ -729,18 +761,37 @@ def _evaluate(name, number, read, evidence) -> Verdict:
         raise _Refusal(R_UNKNOWN_SCHEMA, "a changed manifest has an unknown schema")
     schemas = set(labels)
     if MANIFEST_SCHEMA_V6 not in schemas:
+        # The earlier lane. Its label is not trusted: the lane claims only
+        # module files and manifests, so the pull request cannot have changed
+        # the workflow files or the toolchain pin, and the required check
+        # must be green from this pull request's own run. That run verifies
+        # the manifests' signatures; this guard does not.
+        if len(delta) != len(guarded) or not all(
+            _is_module_path(path) for path in others
+        ):
+            raise _Refusal(
+                R_NO_LANE,
+                "an earlier lane holds only RuleSpec module files and manifests",
+            )
         covered = set().union(
             *(_applied_paths(path, payload) for path, (_raw, payload) in parsed.items())
         )
-        if not set(content) <= covered:
+        if not set(others) <= covered:
             raise _Refusal(
                 R_CONTENT_NOT_COVERED,
-                "RuleSpec content changes outside the changed manifests",
+                "RuleSpec module files change outside the changed manifests",
             )
+        with _refuse_as(R_CI):
+            _require_green_ci(read, root, head, number)
+        with _refuse_as(R_CHANGED):
+            after = _object(read(pr_path), "PR recheck")
+            if _pr_identity(after, target) != identity or _main_tip(read, root) != base:
+                raise AdmissionError("PR or main changed during evaluation")
         return Verdict(
             NOT_APPLICABLE,
             R_EARLIER_LANE,
-            "an earlier-schema lane; its approval is checked before signing",
+            "an earlier lane: module files and manifests only, required check "
+            "green from this PR's run; the signature is verified by that run",
             evidence,
         )
     if len(schemas) != 1:
