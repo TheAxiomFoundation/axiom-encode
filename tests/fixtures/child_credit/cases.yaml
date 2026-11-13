@@ -1,0 +1,244 @@
+- name: per_child_900_100
+  entity_id: ns479-claimant
+  period: &id001
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.ns479_volunteer_firefighters_ground_search_rescue_credit_eligible: false
+    ca:policies/cra/t1-2025/ns479-credits#relation.annual_child_row_for_claimant: &id003
+    - ca:policies/cra/t1-2025/ns479-credits#input.child_name: Child One
+      ca:policies/cra/t1-2025/ns479-credits#input.eligible_expenses_b: 900
+      ca:policies/cra/t1-2025/ns479-credits#input.assistance_received_or_receivable_c: 0
+      ca:policies/cra/t1-2025/ns479-credits#input.amount_from_d_claimed_by_others_e: 0
+    - ca:policies/cra/t1-2025/ns479-credits#input.child_name: Child Two
+      ca:policies/cra/t1-2025/ns479-credits#input.eligible_expenses_b: 100
+      ca:policies/cra/t1-2025/ns479-credits#input.assistance_received_or_receivable_c: 0
+      ca:policies/cra/t1-2025/ns479-credits#input.amount_from_d_claimed_by_others_e: 0
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#ns479_volunteer_firefighters_ground_search_rescue_tax_credit_line_62400: 0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_column_d_capped_expenses: 600.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_expenses_line_62410: 600.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_tax_credit_line_4: 52.74
+    ca:policies/cra/t1-2025/ns479-credits#nova_scotia_credits_line_47900: 52.74
+- name: same_aggregates_500_500
+  entity_id: ns479-claimant
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.ns479_volunteer_firefighters_ground_search_rescue_credit_eligible: false
+    ca:policies/cra/t1-2025/ns479-credits#relation.annual_child_row_for_claimant:
+    - ca:policies/cra/t1-2025/ns479-credits#input.child_name: Child One
+      ca:policies/cra/t1-2025/ns479-credits#input.eligible_expenses_b: 500
+      ca:policies/cra/t1-2025/ns479-credits#input.assistance_received_or_receivable_c: 0
+      ca:policies/cra/t1-2025/ns479-credits#input.amount_from_d_claimed_by_others_e: 0
+    - ca:policies/cra/t1-2025/ns479-credits#input.child_name: Child Two
+      ca:policies/cra/t1-2025/ns479-credits#input.eligible_expenses_b: 500
+      ca:policies/cra/t1-2025/ns479-credits#input.assistance_received_or_receivable_c: 0
+      ca:policies/cra/t1-2025/ns479-credits#input.amount_from_d_claimed_by_others_e: 0
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#ns479_volunteer_firefighters_ground_search_rescue_tax_credit_line_62400: 0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_column_d_capped_expenses: 1000.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_expenses_line_62410: 1000.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_tax_credit_line_4: 87.9
+    ca:policies/cra/t1-2025/ns479-credits#nova_scotia_credits_line_47900: 87.9
+- name: new_explicit_refinement_of_underdetermined_historical_case
+  entity_id: ns479-claimant
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.ns479_volunteer_firefighters_ground_search_rescue_credit_eligible: true
+    ca:policies/cra/t1-2025/ns479-credits#relation.annual_child_row_for_claimant: &id002
+    - ca:policies/cra/t1-2025/ns479-credits#input.child_name: Child One
+      ca:policies/cra/t1-2025/ns479-credits#input.eligible_expenses_b: 800
+      ca:policies/cra/t1-2025/ns479-credits#input.assistance_received_or_receivable_c: 50
+      ca:policies/cra/t1-2025/ns479-credits#input.amount_from_d_claimed_by_others_e: 100
+    - ca:policies/cra/t1-2025/ns479-credits#input.child_name: Child Two
+      ca:policies/cra/t1-2025/ns479-credits#input.eligible_expenses_b: 700
+      ca:policies/cra/t1-2025/ns479-credits#input.assistance_received_or_receivable_c: 50
+      ca:policies/cra/t1-2025/ns479-credits#input.amount_from_d_claimed_by_others_e: 100
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#ns479_volunteer_firefighters_ground_search_rescue_tax_credit_line_62400: 500
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_column_d_capped_expenses: 1000.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_expenses_line_62410: 800.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_tax_credit_line_4: 70.32
+    ca:policies/cra/t1-2025/ns479-credits#nova_scotia_credits_line_47900: 570.32
+- name: volunteer_not_applicable_same_entered_rows
+  entity_id: ns479-claimant
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.ns479_volunteer_firefighters_ground_search_rescue_credit_eligible: false
+    ca:policies/cra/t1-2025/ns479-credits#relation.annual_child_row_for_claimant: *id002
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#ns479_volunteer_firefighters_ground_search_rescue_tax_credit_line_62400: 0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_column_d_capped_expenses: 1000.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_expenses_line_62410: 800.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_tax_credit_line_4: 70.32
+    ca:policies/cra/t1-2025/ns479-credits#nova_scotia_credits_line_47900: 70.32
+- name: claimed_by_others_equals_column_d
+  entity_id: ns479-claimant
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.ns479_volunteer_firefighters_ground_search_rescue_credit_eligible: false
+    ca:policies/cra/t1-2025/ns479-credits#relation.annual_child_row_for_claimant:
+    - ca:policies/cra/t1-2025/ns479-credits#input.child_name: Child One
+      ca:policies/cra/t1-2025/ns479-credits#input.eligible_expenses_b: 400
+      ca:policies/cra/t1-2025/ns479-credits#input.assistance_received_or_receivable_c: 100
+      ca:policies/cra/t1-2025/ns479-credits#input.amount_from_d_claimed_by_others_e: 300
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#ns479_volunteer_firefighters_ground_search_rescue_tax_credit_line_62400: 0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_column_d_capped_expenses: 300.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_expenses_line_62410: 0.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_tax_credit_line_4: 0.0
+    ca:policies/cra/t1-2025/ns479-credits#nova_scotia_credits_line_47900: 0.0
+- name: seven_explicit_rows_not_legal_six_limit
+  entity_id: ns479-claimant
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.ns479_volunteer_firefighters_ground_search_rescue_credit_eligible: false
+    ca:policies/cra/t1-2025/ns479-credits#relation.annual_child_row_for_claimant:
+    - ca:policies/cra/t1-2025/ns479-credits#input.child_name: Child 1
+      ca:policies/cra/t1-2025/ns479-credits#input.eligible_expenses_b: 100
+      ca:policies/cra/t1-2025/ns479-credits#input.assistance_received_or_receivable_c: 0
+      ca:policies/cra/t1-2025/ns479-credits#input.amount_from_d_claimed_by_others_e: 0
+    - ca:policies/cra/t1-2025/ns479-credits#input.child_name: Child 2
+      ca:policies/cra/t1-2025/ns479-credits#input.eligible_expenses_b: 100
+      ca:policies/cra/t1-2025/ns479-credits#input.assistance_received_or_receivable_c: 0
+      ca:policies/cra/t1-2025/ns479-credits#input.amount_from_d_claimed_by_others_e: 0
+    - ca:policies/cra/t1-2025/ns479-credits#input.child_name: Child 3
+      ca:policies/cra/t1-2025/ns479-credits#input.eligible_expenses_b: 100
+      ca:policies/cra/t1-2025/ns479-credits#input.assistance_received_or_receivable_c: 0
+      ca:policies/cra/t1-2025/ns479-credits#input.amount_from_d_claimed_by_others_e: 0
+    - ca:policies/cra/t1-2025/ns479-credits#input.child_name: Child 4
+      ca:policies/cra/t1-2025/ns479-credits#input.eligible_expenses_b: 100
+      ca:policies/cra/t1-2025/ns479-credits#input.assistance_received_or_receivable_c: 0
+      ca:policies/cra/t1-2025/ns479-credits#input.amount_from_d_claimed_by_others_e: 0
+    - ca:policies/cra/t1-2025/ns479-credits#input.child_name: Child 5
+      ca:policies/cra/t1-2025/ns479-credits#input.eligible_expenses_b: 100
+      ca:policies/cra/t1-2025/ns479-credits#input.assistance_received_or_receivable_c: 0
+      ca:policies/cra/t1-2025/ns479-credits#input.amount_from_d_claimed_by_others_e: 0
+    - ca:policies/cra/t1-2025/ns479-credits#input.child_name: Child 6
+      ca:policies/cra/t1-2025/ns479-credits#input.eligible_expenses_b: 100
+      ca:policies/cra/t1-2025/ns479-credits#input.assistance_received_or_receivable_c: 0
+      ca:policies/cra/t1-2025/ns479-credits#input.amount_from_d_claimed_by_others_e: 0
+    - ca:policies/cra/t1-2025/ns479-credits#input.child_name: Child 7
+      ca:policies/cra/t1-2025/ns479-credits#input.eligible_expenses_b: 100
+      ca:policies/cra/t1-2025/ns479-credits#input.assistance_received_or_receivable_c: 0
+      ca:policies/cra/t1-2025/ns479-credits#input.amount_from_d_claimed_by_others_e: 0
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#ns479_volunteer_firefighters_ground_search_rescue_tax_credit_line_62400: 0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_column_d_capped_expenses: 700.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_expenses_line_62410: 700.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_tax_credit_line_4: 61.53
+    ca:policies/cra/t1-2025/ns479-credits#nova_scotia_credits_line_47900: 61.53
+- name: actual_source_entry_all_columns
+  entity_id: child-row-explicit
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.child_name: Child One
+    ca:policies/cra/t1-2025/ns479-credits#input.eligible_expenses_b: 800
+    ca:policies/cra/t1-2025/ns479-credits#input.assistance_received_or_receivable_c: 100
+    ca:policies/cra/t1-2025/ns479-credits#input.amount_from_d_claimed_by_others_e: 200
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#child_name_column_a: Child One
+    ca:policies/cra/t1-2025/ns479-credits#eligible_expenses_column_b: 800
+    ca:policies/cra/t1-2025/ns479-credits#assistance_column_c: 100
+    ca:policies/cra/t1-2025/ns479-credits#per_child_column_d: 500
+    ca:policies/cra/t1-2025/ns479-credits#claimed_by_others_column_e: 200
+    ca:policies/cra/t1-2025/ns479-credits#per_child_column_f: 300
+- name: paper_form_use
+  entity_id: ns479-filer
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.completing_ns479: true
+    ca:policies/cra/t1-2025/ns479-credits#input.filing_paper_return: true
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#paper_return_form_attachment_required: holds
+- name: not_paper
+  entity_id: ns479-filer
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.completing_ns479: true
+    ca:policies/cra/t1-2025/ns479-credits#input.filing_paper_return: false
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#paper_return_form_attachment_required: not_holds
+- name: not_completing_form
+  entity_id: ns479-filer
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.completing_ns479: false
+    ca:policies/cra/t1-2025/ns479-credits#input.filing_paper_return: true
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#paper_return_form_attachment_required: not_holds
+- name: children_document_duties_False
+  entity_id: ns479-filer
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.using_children_credit_section: false
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#children_expense_table_completion_required: not_holds
+    ca:policies/cra/t1-2025/ns479-credits#children_receipts_retention_required: not_holds
+    ca:policies/cra/t1-2025/ns479-credits#children_receipts_non_enclosure_required: not_holds
+- name: children_document_duties_True
+  entity_id: ns479-filer
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.using_children_credit_section: true
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#children_expense_table_completion_required: holds
+    ca:policies/cra/t1-2025/ns479-credits#children_receipts_retention_required: holds
+    ca:policies/cra/t1-2025/ns479-credits#children_receipts_non_enclosure_required: holds
+- name: additional_space_False
+  entity_id: ns479-filer
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.needs_additional_space: false
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#additional_sheet_attachment_required: not_holds
+- name: additional_space_True
+  entity_id: ns479-filer
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.needs_additional_space: true
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#additional_sheet_attachment_required: holds
+- name: conditional_excess_below_zero_tax
+  entity_id: ns479-claimant
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.ns479_volunteer_firefighters_ground_search_rescue_credit_eligible: false
+    ca:policies/cra/t1-2025/ns479-credits#relation.annual_child_row_for_claimant: *id003
+    ca:policies/cra/t1-2025/ns479-credits#input.taxes_to_pay: 0
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#ns479_volunteer_firefighters_ground_search_rescue_tax_credit_line_62400: 0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_column_d_capped_expenses: 600.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_expenses_line_62410: 600.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_tax_credit_line_4: 52.74
+    ca:policies/cra/t1-2025/ns479-credits#nova_scotia_credits_line_47900: 52.74
+    ca:policies/cra/t1-2025/ns479-credits#conditional_credit_excess_over_taxes: 52.74
+- name: conditional_excess_equal_credit
+  entity_id: ns479-claimant
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.ns479_volunteer_firefighters_ground_search_rescue_credit_eligible: false
+    ca:policies/cra/t1-2025/ns479-credits#relation.annual_child_row_for_claimant: *id003
+    ca:policies/cra/t1-2025/ns479-credits#input.taxes_to_pay: 52.74
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#ns479_volunteer_firefighters_ground_search_rescue_tax_credit_line_62400: 0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_column_d_capped_expenses: 600.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_expenses_line_62410: 600.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_tax_credit_line_4: 52.74
+    ca:policies/cra/t1-2025/ns479-credits#nova_scotia_credits_line_47900: 52.74
+    ca:policies/cra/t1-2025/ns479-credits#conditional_credit_excess_over_taxes: 0.0
+- name: conditional_excess_above_credit
+  entity_id: ns479-claimant
+  period: *id001
+  input:
+    ca:policies/cra/t1-2025/ns479-credits#input.ns479_volunteer_firefighters_ground_search_rescue_credit_eligible: false
+    ca:policies/cra/t1-2025/ns479-credits#relation.annual_child_row_for_claimant: *id003
+    ca:policies/cra/t1-2025/ns479-credits#input.taxes_to_pay: 100
+  output:
+    ca:policies/cra/t1-2025/ns479-credits#ns479_volunteer_firefighters_ground_search_rescue_tax_credit_line_62400: 0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_column_d_capped_expenses: 600.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_expenses_line_62410: 600.0
+    ca:policies/cra/t1-2025/ns479-credits#ns479_children_sports_arts_tax_credit_line_4: 52.74
+    ca:policies/cra/t1-2025/ns479-credits#nova_scotia_credits_line_47900: 52.74
+    ca:policies/cra/t1-2025/ns479-credits#conditional_credit_excess_over_taxes: 0.0
