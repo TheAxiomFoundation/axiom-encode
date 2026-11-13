@@ -39,8 +39,13 @@
     "candidate.test.yaml": "32253fd9a6c7fb8b0571314b3f89ffd9a1a1df121bf64f36864c3360c4758455",
     "candidate.yaml": "c471883fccef2962b681b63d91dfa5decd2dcc006a63107daafec0d9e2ffd1f8",
     "context/regulations/7-cfr/273/7.yaml": "39dc6d050ebcc8db6eb7b8c4711a082a3707e0761258e159eb516d090e72bf87",
-    "issues.json": "4821525719de1cac4e8f8899ddfd3eda689aa56efcdcd5fd93075485f5ad9c0c",
+    "issues.json": "c96e995b9e009d1ecc99fe3a71565633593389227cca8b722747f87db4aec6b3",
     "source-metadata.json": "dc88ad9809898d8292364cca7494b2184e306078f8f158293bdfa0f4fa112c0a",
     "source.txt": "952a224251d50fcb5c69fc765cb1b671ef797021bf00131426f93610a100ccad"
+  },
+  "issues_serialization": {
+    "method": "Removed insignificant JSON whitespace; string and numeric tokens unchanged.",
+    "original_sha256": "4821525719de1cac4e8f8899ddfd3eda689aa56efcdcd5fd93075485f5ad9c0c",
+    "original_git_blob_sha1": "e2880765f9b77f4affc14c21c6b1b552c5081eb2"
   }
 }

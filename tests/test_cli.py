@@ -8160,6 +8160,7 @@ rules:
         args.json = json_output
         args.axiom_rules_path = axiom_rules_path
         args.rulespec_dependency_root = []
+        args.corpus_path = None
         return args
 
     def test_scalar_match_tolerates_decimal_residue(self):
@@ -9112,6 +9113,7 @@ rules:
         args.json = True
         args.axiom_rules_path = engine_root
         args.rulespec_dependency_root = []
+        args.corpus_path = None
 
         monkeypatch.setattr(
             "axiom_encode.harness.validator_pipeline.ValidatorPipeline._axiom_rules_binary",
