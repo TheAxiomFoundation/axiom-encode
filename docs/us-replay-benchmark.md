@@ -7,7 +7,7 @@ corpus checkout. The `replay benchmark` CI job runs it as a required check.
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 48 committed
+(the `[complete-source-unit:*]` rules of the CI validator) over 49 committed
 fixtures in `tests/fixtures/us_replay_benchmark/`. Hosted fixtures are real candidates from `targeted-reencode-failure` artifacts
 of signed runs:
 
@@ -45,18 +45,22 @@ The T1170 fixture retains the exact unsigned public diagnostic pair and full
 T1170 text. Its 35 offline findings are preserved without supplementary P113
 source context or private execution evidence; the separate 124-request runtime
 diagnostic is not injected into replay.
+The T936 printed-row
+fixture preserves an unsigned source-only diagnostic pair; its offline replay
+does not receive private execution evidence or authenticated resolver context.
 
 The replay passes the same inputs as `ValidatorPipeline._complete_source_unit_issues`:
 the citation's numeric profile, the companion test cases, imported symbol
 contents, resolved deferral providers and same-act aliases from the source
 metadata. `--no-context` leaves out the last three.
 
-The set has 40 distinct citations: federal statutes, CFR regulations, IRS and
+The set has 41 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, one Canadian CRA guide
 (three runs), two Canadian CRA forms (local diagnostics), one Revenu Québec Schedule N form (a local diagnostic), and one Israeli statute. It has one control (an Arizona candidate
-that passed validation and then failed a provenance guard). At 0.2.2349, 12
-fixtures replay clean and 33 have 3,313 findings; four 7 CFR 273.7 candidates
-hold 2,671 of them. Read clean counts and per-fixture changes, not only the
+that passed validation and then failed a provenance guard). In the current snapshot, 12
+fixtures replay clean and 37 have 3,368 findings. All 47 main-baseline fixtures
+are unchanged; the added Schedule N and T1170 diagnostics retain 48 and 35
+findings respectively. Read clean counts and per-fixture changes, not only the
 total. The fixtures total about 3.3 MB and `snapshot.json` about 1.3 MB.
 
 ## Public fixtures and the private held-out set

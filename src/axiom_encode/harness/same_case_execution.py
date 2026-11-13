@@ -705,6 +705,7 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
             return None
         if imports == []:
             from .actual_floor_evidence import bind_same_page_floors
+            from .actual_local_relation_evidence import local_relation_snapshot_eligible
             from .scoped_execution import eligible_adapters
 
             owners = eligible_adapters(pipe, content)
@@ -715,7 +716,9 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
                     content,
                     source_texts=pipe._source_texts_for_rulespec_content(content),
                 )
-                if not bind_same_page_floors(content, sources):
+                if not bind_same_page_floors(
+                    content, sources
+                ) and not local_relation_snapshot_eligible(_payload(content.encode())):
                     return None
         else:
             exports = pipe._complete_source_unit_import_bindings(rules_file)
@@ -849,6 +852,7 @@ def _materialize_snapshot(
         capture, lambda _: _MATERIALIZED_CAPTURES.pop(capture_identity, None)
     )
     if not _payload(rules_file.read_bytes()).get("imports", []):
+        from .actual_local_relation_evidence import local_relation_snapshot_eligible
         from .scoped_execution import eligible_adapters
 
         owners = eligible_adapters(pipe, rules_file.read_text())
@@ -866,7 +870,9 @@ def _materialize_snapshot(
             sources = pipe._proof_source_texts_for_rulespec_content(
                 content, source_texts=pipe._source_texts_for_rulespec_content(content)
             )
-            if not bind_same_page_floors(content, sources):
+            if not bind_same_page_floors(
+                content, sources
+            ) and not local_relation_snapshot_eligible(_payload(content.encode())):
                 return None
     return capture
 
@@ -881,11 +887,18 @@ def compilation_snapshot(
         return
     with tempfile.TemporaryDirectory(prefix="axiom-execution-snapshot-") as directory:
         try:
-            capture = _materialize_snapshot(pipe, rules_file, plan, directory)
+            from .local_compile_custody import _materialize_registered
+
+            capture = _materialize_registered(pipe, rules_file, plan, directory)
         except (OSError, ValueError, subprocess.SubprocessError):
             capture = None
         # Never catch exceptions raised by the caller's validation body.
-        yield capture
+        try:
+            yield capture
+        finally:
+            from .local_compile_custody import _expire
+
+            _expire(capture)
 
 
 def formula_witnesses(

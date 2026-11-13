@@ -55,7 +55,7 @@ def form_numeric_locator_spans(text: str) -> tuple[tuple[int, int], ...]:
     def unquoted(start: int, end: int) -> bool:
         return not any(a < end and start < b for a, b in quoted)
 
-    detached = recognize_printed_rows(text, allow_detached=True)
+    detached = recognize_printed_rows(text, allow_detached=True, allow_multipage=True)
     if detached is not None and detached.numeric_locator_spans:
         return detached.numeric_locator_spans
 
