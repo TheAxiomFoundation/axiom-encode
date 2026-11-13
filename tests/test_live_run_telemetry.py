@@ -1,9 +1,12 @@
 """Tests for live encode-run presence telemetry."""
 
 import json
+import sys
 import threading
 import time
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from axiom_encode import live_run_telemetry
 from axiom_encode.live_run_telemetry import (
@@ -14,6 +17,8 @@ from axiom_encode.live_run_telemetry import (
     PHASE_REVIEW,
     PHASE_VALIDATE,
     LiveRunTelemetry,
+    abnormal_exit_outcome,
+    first_typed_check_id,
     github_run_identity,
     report_phase,
     runner_identity,
@@ -754,3 +759,411 @@ class TestLiveRunPhases:
                 assert live_run_telemetry._active_run is None
                 report_phase(PHASE_GENERATE)
         table.update.assert_not_called()
+
+
+class _MissingColumnError(Exception):
+    """PostgREST's unknown-column error, as supabase-py raises it."""
+
+    code = "PGRST204"
+
+
+def _live_run():
+    return LiveRunTelemetry(
+        citation="us/statute/26/32",
+        backend="codex",
+        model="gpt-5.5",
+        encoder_version="0.1.0",
+    )
+
+
+def _finish_via(monkeypatch, transport, body):
+    """Run ``body(live)`` inside a live run; return the finish update sent."""
+    if transport == "direct":
+        _configured_env(monkeypatch)
+        client, table = _mock_client()
+        with patch(
+            "axiom_encode.supabase_sync.get_supabase_client", return_value=client
+        ):
+            try:
+                with _live_run() as live:
+                    body(live)
+            except BaseException:
+                pass
+        finishes = [
+            call.args[0]
+            for call in table.update.call_args_list
+            if "finished_at" in call.args[0]
+        ]
+    else:
+        _ingest_env(monkeypatch)
+        with _mock_urlopen() as urlopen_mock:
+            try:
+                with _live_run() as live:
+                    body(live)
+            except BaseException:
+                pass
+        finishes = [
+            payload
+            for payload in _ingest_payloads(urlopen_mock)
+            if payload["op"] == "finish"
+        ]
+    assert len(finishes) == 1, finishes
+    return finishes[0]
+
+
+def _raise(error):
+    def body(_live):
+        raise error
+
+    return body
+
+
+@pytest.mark.parametrize("transport", ["direct", "ingest"])
+class TestTerminalOutcome:
+    def test_normal_finish_carries_outcome_fields(self, monkeypatch, transport):
+        finished = _finish_via(
+            monkeypatch,
+            transport,
+            lambda live: live.finish(
+                "failed",
+                run_id="abc12345",
+                outcome_status="apply_blocked_validation",
+                error_rule="complete-source-unit:tests/output-unasserted",
+            ),
+        )
+        assert finished["status"] == "failed"
+        assert finished["run_id"] == "abc12345"
+        assert finished["outcome_status"] == "apply_blocked_validation"
+        assert finished["error_rule"] == "complete-source-unit:tests/output-unasserted"
+
+    def test_successful_finish_sends_no_error_rule(self, monkeypatch, transport):
+        finished = _finish_via(
+            monkeypatch,
+            transport,
+            lambda live: live.finish(
+                "completed", run_id="abc12345", outcome_status="apply_applied"
+            ),
+        )
+        assert finished["outcome_status"] == "apply_applied"
+        assert "error_rule" not in finished
+
+    def test_finish_without_outcome_sends_neither_field(self, monkeypatch, transport):
+        finished = _finish_via(
+            monkeypatch, transport, lambda live: live.finish("completed")
+        )
+        assert "outcome_status" not in finished
+        assert "error_rule" not in finished
+
+    def test_escaped_exception_is_aborted_with_its_class(self, monkeypatch, transport):
+        secret = "/Users/someone/secret/path could not be read"
+        finished = _finish_via(monkeypatch, transport, _raise(RuntimeError(secret)))
+        assert finished["status"] == "failed"
+        assert finished["outcome_status"] == "aborted"
+        assert finished["error_rule"] == "exception:RuntimeError"
+        assert "run_id" not in finished
+        assert secret not in json.dumps(finished)
+
+    def test_system_exit_code_is_exited(self, monkeypatch, transport):
+        finished = _finish_via(monkeypatch, transport, _raise(SystemExit(1)))
+        assert finished["status"] == "failed"
+        assert finished["outcome_status"] == "exited"
+        assert finished["error_rule"] == "exit:1"
+
+    def test_system_exit_without_code_is_exit_zero(self, monkeypatch, transport):
+        finished = _finish_via(monkeypatch, transport, _raise(SystemExit()))
+        assert finished["outcome_status"] == "exited"
+        assert finished["error_rule"] == "exit:0"
+
+    def test_exit_zero_without_explicit_finish_still_closes_failed(
+        self, monkeypatch, transport
+    ):
+        # Known limit, kept on purpose: leaving the context through any
+        # SystemExit without an explicit finish is 'failed', as before these
+        # fields existed. The encode loop always finishes before it exits.
+        def body(_live):
+            sys.exit(0)
+
+        finished = _finish_via(monkeypatch, transport, body)
+        assert finished["status"] == "failed"
+        assert finished["outcome_status"] == "exited"
+        assert finished["error_rule"] == "exit:0"
+        assert "run_id" not in finished
+
+    def test_system_exit_message_is_never_sent(self, monkeypatch, transport):
+        message = "Policy checkout /private/repo is dirty"
+        finished = _finish_via(monkeypatch, transport, _raise(SystemExit(message)))
+        assert finished["outcome_status"] == "exited"
+        assert finished["error_rule"] == "exit:message"
+        assert message not in json.dumps(finished)
+        assert "/private/repo" not in json.dumps(finished)
+
+    def test_keyboard_interrupt_is_interrupted(self, monkeypatch, transport):
+        finished = _finish_via(monkeypatch, transport, _raise(KeyboardInterrupt()))
+        assert finished["status"] == "failed"
+        assert finished["outcome_status"] == "interrupted"
+        assert finished["error_rule"] == "exception:KeyboardInterrupt"
+
+    @pytest.mark.parametrize(
+        "outcome_status, error_rule",
+        [
+            ("x" * 65, "e" * 161),
+            ("has space", "Could not read /tmp/file: denied"),
+            ("", ""),
+            (7, {"check": "a"}),
+            ("ünïcode", "exception:Ünï"),
+            ("line\nbreak", "a;b"),
+        ],
+    )
+    def test_oversize_or_unsafe_values_are_dropped(
+        self, monkeypatch, transport, outcome_status, error_rule
+    ):
+        finished = _finish_via(
+            monkeypatch,
+            transport,
+            lambda live: live.finish(
+                "failed", outcome_status=outcome_status, error_rule=error_rule
+            ),
+        )
+        assert finished["status"] == "failed"
+        assert "outcome_status" not in finished
+        assert "error_rule" not in finished
+
+    def test_values_at_the_bounds_are_kept(self, monkeypatch, transport):
+        finished = _finish_via(
+            monkeypatch,
+            transport,
+            lambda live: live.finish(
+                "failed", outcome_status="s" * 64, error_rule="A-z0_9.:/" + "r" * 151
+            ),
+        )
+        assert finished["outcome_status"] == "s" * 64
+        assert len(finished["error_rule"]) == 160
+
+    def test_one_unsafe_value_does_not_drop_the_other(self, monkeypatch, transport):
+        finished = _finish_via(
+            monkeypatch,
+            transport,
+            lambda live: live.finish(
+                "failed", outcome_status="standalone_failed", error_rule="not safe"
+            ),
+        )
+        assert finished["outcome_status"] == "standalone_failed"
+        assert "error_rule" not in finished
+
+    def test_first_finish_wins_over_the_exit_outcome(self, monkeypatch, transport):
+        def body(live):
+            live.finish(
+                "failed", run_id="abc12345", outcome_status="apply_blocked_generation"
+            )
+            # The encode loop exits right after its explicit finish.
+            raise SystemExit(1)
+
+        finished = _finish_via(monkeypatch, transport, body)
+        assert finished["outcome_status"] == "apply_blocked_generation"
+        assert finished["run_id"] == "abc12345"
+        assert "error_rule" not in finished
+
+    def test_heartbeats_never_carry_outcome_fields(self, monkeypatch, transport):
+        if transport == "direct":
+            _configured_env(monkeypatch)
+            client, table = _mock_client()
+            with patch(
+                "axiom_encode.supabase_sync.get_supabase_client", return_value=client
+            ):
+                with _live_run() as live:
+                    live.set_phase(PHASE_GENERATE)
+                    _wait_for_calls(table.update, 1)
+                    live.finish("completed", outcome_status="standalone_validated")
+            sent = [call.args[0] for call in table.update.call_args_list]
+            heartbeats = [data for data in sent if "finished_at" not in data]
+        else:
+            _ingest_env(monkeypatch)
+            with _mock_urlopen() as urlopen_mock:
+                with _live_run() as live:
+                    live.set_phase(PHASE_GENERATE)
+                    _wait_for_calls(urlopen_mock, 2)
+                    live.finish("completed", outcome_status="standalone_validated")
+            heartbeats = [
+                payload
+                for payload in _ingest_payloads(urlopen_mock)
+                if payload["op"] != "finish"
+            ]
+        assert heartbeats
+        for data in heartbeats:
+            assert "outcome_status" not in data
+            assert "error_rule" not in data
+
+
+class TestTerminalOutcomeDirectFallback:
+    def _run(self, monkeypatch, side_effect, **finish_kwargs):
+        _configured_env(monkeypatch)
+        client, table = _mock_client()
+        table.update.return_value.execute.side_effect = side_effect
+        with patch(
+            "axiom_encode.supabase_sync.get_supabase_client", return_value=client
+        ):
+            with _live_run() as live:
+                live.finish("failed", run_id="abc12345", **finish_kwargs)
+        return [call.args[0] for call in table.update.call_args_list]
+
+    def test_unknown_column_retries_once_without_outcome_fields(self, monkeypatch):
+        sent = self._run(
+            monkeypatch,
+            [
+                _MissingColumnError("Could not find the 'error_rule' column"),
+                MagicMock(),
+            ],
+            outcome_status="aborted",
+            error_rule="exception:RuntimeError",
+        )
+        assert len(sent) == 2
+        assert sent[0]["outcome_status"] == "aborted"
+        assert sent[0]["error_rule"] == "exception:RuntimeError"
+        retry = sent[1]
+        assert "outcome_status" not in retry
+        assert "error_rule" not in retry
+        # Everything else survives, so the row still closes.
+        assert retry["status"] == "failed"
+        assert retry["run_id"] == "abc12345"
+        assert retry["finished_at"]
+        assert {key: value for key, value in sent[0].items() if key in retry} == retry
+
+    def test_code_less_unknown_column_message_also_retries(self, monkeypatch):
+        sent = self._run(
+            monkeypatch,
+            [
+                Exception('column "outcome_status" of relation x does not exist'),
+                MagicMock(),
+            ],
+            outcome_status="aborted",
+        )
+        assert len(sent) == 2
+        assert "outcome_status" not in sent[1]
+
+    def test_retry_failure_is_swallowed_and_not_repeated(self, monkeypatch):
+        sent = self._run(
+            monkeypatch,
+            _MissingColumnError("Could not find the 'error_rule' column"),
+            outcome_status="aborted",
+            error_rule="exception:RuntimeError",
+        )
+        assert len(sent) == 2
+
+    def test_other_errors_do_not_retry(self, monkeypatch):
+        sent = self._run(
+            monkeypatch,
+            RuntimeError("connection reset"),
+            outcome_status="aborted",
+        )
+        assert len(sent) == 1
+
+    def test_unknown_column_without_outcome_fields_does_not_retry(self, monkeypatch):
+        sent = self._run(
+            monkeypatch,
+            _MissingColumnError("Could not find the 'phase' column"),
+        )
+        assert len(sent) == 1
+
+    def test_missing_table_does_not_retry(self, monkeypatch):
+        error = _MissingColumnError("Could not find the table")
+        error.code = "PGRST205"
+        sent = self._run(monkeypatch, error, outcome_status="aborted")
+        assert len(sent) == 1
+
+
+class TestAbnormalExitOutcome:
+    def test_bool_exit_code_reads_as_its_integer(self):
+        assert abnormal_exit_outcome(SystemExit, SystemExit(True)) == (
+            "exited",
+            "exit:1",
+        )
+
+    def test_subclass_reports_its_own_class_name(self):
+        class CorpusUnavailable(RuntimeError):
+            pass
+
+        assert abnormal_exit_outcome(CorpusUnavailable, CorpusUnavailable("x")) == (
+            "aborted",
+            "exception:CorpusUnavailable",
+        )
+
+    def test_telemetry_never_raises_on_exit(self, monkeypatch):
+        _ingest_env(monkeypatch)
+        with (
+            _mock_urlopen() as urlopen_mock,
+            patch.object(
+                live_run_telemetry,
+                "abnormal_exit_outcome",
+                side_effect=RuntimeError("boom"),
+            ),
+        ):
+            with pytest.raises(ValueError):
+                with _live_run():
+                    raise ValueError("original")
+        finished = _ingest_payloads(urlopen_mock)[-1]
+        assert finished["op"] == "finish"
+        assert finished["status"] == "failed"
+        assert "outcome_status" not in finished
+
+
+class TestFirstTypedCheckId:
+    @staticmethod
+    def _run(*documents):
+        from axiom_encode.harness.encoding_db import Iteration, IterationError
+
+        earlier = Iteration(
+            attempt=1,
+            duration_ms=1,
+            errors=[
+                IterationError(
+                    error_type="validation",
+                    message="earlier",
+                    issue_document={"issues": [{"check": "earlier:check"}]},
+                )
+            ],
+        )
+        final = Iteration(
+            attempt=2,
+            duration_ms=1,
+            errors=[
+                IterationError(
+                    error_type="validation", message="m", issue_document=document
+                )
+                for document in documents
+            ],
+        )
+        return MagicMock(iterations=[earlier, final])
+
+    def test_reads_first_typed_issue_of_the_final_attempt(self):
+        run = self._run(
+            {
+                "issues": [
+                    {"check": None, "message": "untyped"},
+                    {"check": "complete-source-unit:tests/output-unasserted"},
+                    {"check": "later:check"},
+                ]
+            }
+        )
+        assert (
+            first_typed_check_id(run) == "complete-source-unit:tests/output-unasserted"
+        )
+
+    def test_real_typed_issue_document_round_trips(self):
+        from axiom_encode import checks
+
+        check_id = "complete-source-unit:tests/output-unasserted"
+        issue = checks.ValidationIssue("Output never asserted", check=check_id)
+        run = self._run(checks.typed_issue_document([("ci", [issue])]))
+        assert first_typed_check_id(run) == check_id
+
+    def test_none_without_a_typed_issue(self):
+        assert first_typed_check_id(self._run(None)) is None
+        assert first_typed_check_id(self._run({"issues": [{"check": None}]})) is None
+        assert first_typed_check_id(self._run()) is None
+        assert first_typed_check_id(MagicMock(iterations=[])) is None
+        assert first_typed_check_id(None) is None
+
+    def test_never_raises_on_malformed_runs(self):
+        assert first_typed_check_id(self._run({"issues": 5})) is None
+        assert first_typed_check_id(self._run({"issues": ["text"]})) is None
+        assert first_typed_check_id(MagicMock(iterations=7)) is None
