@@ -53,14 +53,18 @@ def head_oid(pr):
     return found
 
 def as_json(pr, graphql=False):
-    # gh reports an App author as app/<slug>; GraphQL as the bare slug.
+    # gh reports an App author as app/<slug>; GraphQL as the bare slug, with
+    # __typename Bot. A user account can hold the bare slug as its login.
     login = pr.get("author", "app")
+    author = {"login": login}
     if login == "app":
-        login = APP if graphql else f"app/{APP}"
+        author["login"] = APP if graphql else f"app/{APP}"
+    if graphql:
+        author["__typename"] = "Bot" if login == "app" else "User"
     return {
         "number": pr["number"], "url": pr["url"], "headRefName": pr["head"],
         "headRefOid": head_oid(pr), "isCrossRepository": pr.get("fork", False),
-        "author": {"login": login},
+        "author": author,
         "autoMergeRequest": {"enabledAt": "x"} if pr["auto"] else None,
     }
 
@@ -85,6 +89,8 @@ elif args[:2] == ["pr", "list"]:
     if "--head" in args:
         # Like GitHub: the branch name alone, whichever repository it is in.
         prs = [pr for pr in prs if pr["head"] == value("--head")]
+    # Like gh: 30 pull requests unless --limit says otherwise.
+    prs = prs[: int(value("--limit")) if "--limit" in args else 30]
     emit([as_json(pr) for pr in prs])
 elif args[:2] == ["pr", "create"]:
     if state["fail_create"]:
@@ -325,6 +331,22 @@ def test_an_older_bump_pull_request_outside_the_queue_is_superseded(
     ]
 
 
+def test_an_older_bump_pull_request_past_the_first_page_is_superseded(
+    tmp_path: Path, remote: Path
+):
+    # gh pr list returns 30 pull requests by default; this repository has
+    # more open than that, so the close loop must ask for more.
+    others = [_pr(n, f"feature/{n}") for n in range(10, 50)]
+    older = _pr(60, "automation/encoder-version-0.2.10-aaaaaaaaaaaa", auto=True)
+    state = _state(tmp_path, prs=[*others, older])
+
+    result, _ = _run(tmp_path, remote, state, 1)
+
+    assert result.returncode == 0, result.stderr
+    prs = {pr["number"]: pr for pr in json.loads(state.read_text())["prs"]}
+    assert prs[60]["state"] == "closed"
+
+
 def _pr(number: int, head: str, **values) -> dict:
     pr = {
         "number": number,
@@ -383,7 +405,10 @@ def test_only_the_apps_own_bump_pull_requests_are_held_for_or_closed(
     # A fork's pull request whose author reads as the App: only the
     # same-repository check keeps it out.
     app_fork = _pr(10, prefix + "cccccccccccc", fork=True)
-    prs = [fork, human, other, app_fork]
+    # A user account registered with the App's bare slug as its login: only
+    # the Bot type keeps it out of the queue hold.
+    squatter = _pr(11, prefix + "dddddddddddd", author="axiom-encoder-version-bump")
+    prs = [fork, human, other, app_fork, squatter]
     # Queued pull requests named like a bump, none of them the App's own.
     state = _state(tmp_path, queue=prs, prs=prs)
 
@@ -392,11 +417,12 @@ def test_only_the_apps_own_bump_pull_requests_are_held_for_or_closed(
     assert result.returncode == 0, result.stderr
     assert "merge queue" not in result.stdout
     prs = {pr["number"]: pr for pr in json.loads(state.read_text())["prs"]}
-    assert {number: prs[number]["state"] for number in (7, 8, 9, 10)} == {
+    assert {number: prs[number]["state"] for number in (7, 8, 9, 10, 11)} == {
         7: "open",
         8: "open",
         9: "open",
         10: "open",
+        11: "open",
     }
     assert _remote_branch(remote, outputs["branch"]) is not None
 

@@ -45,11 +45,13 @@ _NEUTRAL_GIT_ENVIRONMENT = {
     "GIT_CONFIG_GLOBAL": "/dev/null",
     "GIT_CONFIG_SYSTEM": "/dev/null",
     "GIT_CONFIG_NOSYSTEM": "1",
-    "GIT_CONFIG_COUNT": "2",
+    "GIT_CONFIG_COUNT": "3",
     "GIT_CONFIG_KEY_0": "core.commitGraph",
     "GIT_CONFIG_VALUE_0": "false",
     "GIT_CONFIG_KEY_1": "advice.graftFileDeprecated",
     "GIT_CONFIG_VALUE_1": "false",
+    "GIT_CONFIG_KEY_2": "log.showSignature",
+    "GIT_CONFIG_VALUE_2": "false",
     "GIT_TERMINAL_PROMPT": "0",
 }
 _HOSTILE_GIT_ENVIRONMENT = {
