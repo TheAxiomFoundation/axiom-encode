@@ -1,0 +1,262 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/4
+    source_sha256: 846140bd0e210be0f69a81dc1006c3914c81b0dd7faebedcdd978be7526601b3
+  summary: '“No person is eligible to participate in the Program unless that person
+    is”
+
+    in a listed citizenship or alien-status category. “Subsequent adjustment
+
+    to a more limited status does not override eligibility based on an earlier
+
+    less rigorous status.” For a sponsored alien''s indigence determination,
+
+    “If the household refuses the determination,” sponsor deeming applies.
+
+    The determination_refused Person fact records that household''s refusal
+
+    concerning the selected person in the explicit query context and period;
+
+    it is not the alien''s refusal of consent to information sharing.'
+  deferred_outputs:
+  - output: us:regulations/7-cfr/273/4/b#illegal_alien_reporting_administration
+    reason: us/regulation/7/273/4(b)(1) requires an immediate notification event routed
+      to the local USCIS office after certification or recertification personnel determine
+      that a household member is present in violation of the INA. That event-and-routing
+      workflow is not represented by a monthly person-status output.
+  - output: us:regulations/7-cfr/273/4/c#sponsored_alien_household_deeming_administration
+    reason: us/regulation/7/273/4(c)(2)-(6) requires sponsor-to-alien and sponsor-spouse
+      relations, household income and resource determinations, verification events,
+      consent and notification workflows, and restitution-demand context. The selected-indigence-determination
+      relation does not supply those capabilities.
+  - output: us:regulations/7-cfr/273/4/a/1#citizen_status_determination
+    reason: us/regulation/7/273/4(a)(1) names U.S. citizenship. A separate citizenship
+      determination is not supplied by this status module; the preserved person-level
+      eligibility interface consumes the explicit member_is_us_citizen fact.
+  - output: us:regulations/7-cfr/273/4/a/2#noncitizen_national_status_determination
+    reason: us/regulation/7/273/4(a)(2) names U.S. non-citizen nationality. A separate
+      nationality determination is not supplied by this status module; the preserved
+      person-level eligibility interface consumes the explicit member_is_us_noncitizen_national
+      fact.
+  - output: us:regulations/7-cfr/273/4/a/3#complete_american_indian_status_determination
+    reason: us/regulation/7/273/4(a)(3) requires a determination combining the separately
+      stated Canadian-birth and recognized-tribe alternatives; the preserved status
+      interface supplies only their combined fact.
+  - output: us:regulations/7-cfr/273/4/a/3/i#canadian_born_american_indian_status
+    reason: us/regulation/7/273/4(a)(3)(i) requires Canadian birth, American Indian
+      blood fraction, and applicability of INA section 289. Those separate person
+      facts are not supplied by the preserved combined status interface.
+  - output: us:regulations/7-cfr/273/4/a/3/ii#recognized_tribe_member_status
+    reason: us/regulation/7/273/4(a)(3)(ii) requires membership in a tribe recognized
+      as eligible for the specified U.S. programs and services. That separate tribal-recognition
+      determination is not supplied by the preserved combined status interface.
+  - output: us:regulations/7-cfr/273/4/a/6/iv#other_status_review
+    reason: us/regulation/7/273/4(a)(6)(iv) also requires the State agency to determine
+      whether another eligible status exists when eligibility under one status expires.
+      An expired-status event and agency review workflow are not represented by this
+      person-level output.
+rules:
+- name: household_refuses_determination
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: 7 CFR 273.4(c)(3)(iv)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: If the household refuses the determination
+  versions:
+  - effective_from: '0001-01-01'
+    formula: only_related(household_determination_subject, determination_refused)
+      == true
+- name: eligibility_based_on_earlier_less_rigorous_alien_status_preserved
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 CFR 273.4(a)(6)(iv)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: Subsequent adjustment to a more limited status does not override
+            eligibility based on an earlier less rigorous status.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'member_has_eligibility_based_on_earlier_less_rigorous_alien_status
+
+      and member_subsequently_adjusted_to_more_limited_alien_status'
+- name: american_indian_blood_fraction_threshold
+  kind: parameter
+  dtype: Rate
+  source: 7 CFR 273.4(a)(3)(i)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: at least 50 per centum of blood of the American Indian race
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '0.50'
+- name: household_determination_subject
+  kind: data_relation
+  data_relation:
+    predicate: household_determination_subject
+    arity: 2
+    arguments:
+    - Household
+    - Person
+  source: 7 CFR 273.4(c)(3)(iv)
+- name: snap_member_citizenship_or_alien_status_eligible
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 CFR 273.4(a)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: No person is eligible to participate in the Program unless that
+            person is
+  versions:
+  - effective_from: '0001-01-01'
+    formula: "not alien_status_documentation_missing_or_unwilling\nand (\n  member_is_us_citizen\n\
+      \  or member_is_us_noncitizen_national\n  or member_is_american_indian_born_in_canada_or_recognized_indian_tribe_member\n\
+      \  or member_is_hmong_or_highland_laotian_qualifying_person_or_family_member\n\
+      \  or member_is_trafficking_victim_or_qualifying_family_member\n  or member_has_eligibility_based_on_earlier_less_rigorous_alien_status\n\
+      \  or (\n    member_is_qualified_alien_subject_to_five_year_wait\n    and qualified_alien_five_year_status_period_met\n\
+      \  )\n  or member_is_qualified_alien_with_forty_qualifying_quarters\n  or member_is_refugee\n\
+      \  or member_is_asylee\n  or member_has_deportation_or_removal_withheld\n  or\
+      \ member_is_cuban_or_haitian_entrant\n  or member_is_amerasian_immigrant\n \
+      \ or member_has_eligible_military_connection\n  or member_receives_blindness_or_disability_benefits\n\
+      \  or member_was_lawfully_residing_on_1996_08_22_and_born_on_or_before_1931_08_22\n\
+      \  or member_is_under_age_eighteen\n)"
+- name: sponsor_earned_income_reduction_rate
+  kind: parameter
+  dtype: Rate
+  source: 7 CFR 273.4(c)(2)(i)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: A 20 percent earned income amount
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '0.20'
+inputs:
+- name: determination_refused
+  entity: Person
+  dtype: Boolean
+  period: Month
+  description: The actual household refusal concerning this selected person's indigence
+    determination in the explicit query context and period, not refusal of consent
+    to information sharing.
+- name: alien_status_documentation_missing_or_unwilling
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_has_deportation_or_removal_withheld
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_has_eligibility_based_on_earlier_less_rigorous_alien_status
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_has_eligible_military_connection
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_amerasian_immigrant
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_american_indian_born_in_canada_or_recognized_indian_tribe_member
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_asylee
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_cuban_or_haitian_entrant
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_hmong_or_highland_laotian_qualifying_person_or_family_member
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_lawful_permanent_resident
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_lawfully_residing_in_united_states_under_compact_of_free_association
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_qualified_alien_subject_to_five_year_wait
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_qualified_alien_with_forty_qualifying_quarters
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_refugee
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_trafficking_victim_or_qualifying_family_member
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_under_age_eighteen
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_us_citizen
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_us_noncitizen_national
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_receives_blindness_or_disability_benefits
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_subsequently_adjusted_to_more_limited_alien_status
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_was_lawfully_residing_on_1996_08_22_and_born_on_or_before_1931_08_22
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: qualified_alien_five_year_status_period_met
+  entity: Person
+  dtype: Boolean
+  period: Month

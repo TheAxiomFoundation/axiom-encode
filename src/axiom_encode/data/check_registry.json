@@ -971,8 +971,56 @@
       "site": "axiom_encode/harness/proof_validator.py:_proof_excerpt_subsection_scope_issues",
       "title": "Proof excerpt lies outside the rule's declared subsection",
       "why": "A proof atom ties a rule to the exact source words it implements. An excerpt that is not in the cited provision, or not in the rule's own subsection, proves nothing and can hide an invented value or condition."
+    },
+    {
+      "category": "validation-waivers:verifier-restate",
+      "cause": "encoder_output",
+      "fix": "Restore the protected-base entries, owner, issue, expiry and pending records. Change only active fingerprints or remove active-only entries; submit other waiver or policy changes in a separate reviewed transaction.",
+      "gate": "ci",
+      "id": "validation-waivers:verifier-restate/invalid-removal",
+      "requires": "A removed entry has an active record and no pending record.",
+      "severity": "important",
+      "site": "axiom_encode/validation_waivers.py:verifier_restate_transition_issues",
+      "title": "A verifier restate removes an entry with pending or inactive state",
+      "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
+    },
+    {
+      "category": "validation-waivers:verifier-restate",
+      "cause": "encoder_output",
+      "fix": "Restore the protected-base entries, owner, issue, expiry and pending records. Change only active fingerprints or remove active-only entries; submit other waiver or policy changes in a separate reviewed transaction.",
+      "gate": "ci",
+      "id": "validation-waivers:verifier-restate/metadata-changed",
+      "requires": "Only the active fingerprint may change; active state, owner, issue, expiry and pending records stay as on the protected base.",
+      "severity": "important",
+      "site": "axiom_encode/validation_waivers.py:verifier_restate_transition_issues",
+      "title": "A verifier restate changes protected waiver metadata",
+      "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
+    },
+    {
+      "category": "validation-waivers:verifier-restate",
+      "cause": "encoder_output",
+      "fix": "Restore the protected-base entries, owner, issue, expiry and pending records. Change only active fingerprints or remove active-only entries; submit other waiver or policy changes in a separate reviewed transaction.",
+      "gate": "ci",
+      "id": "validation-waivers:verifier-restate/new-entry",
+      "requires": "Every head waiver entry already exists on the protected base.",
+      "severity": "important",
+      "site": "axiom_encode/validation_waivers.py:verifier_restate_transition_issues",
+      "title": "A verifier restate adds a waiver entry",
+      "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
+    },
+    {
+      "category": "validation-waivers:verifier-restate",
+      "cause": "encoder_output",
+      "fix": "Remove the RuleSpec, apply-manifest and receipt changes from the verifier restate. Submit those bytes through their separate reviewed encoding or promotion transaction.",
+      "gate": "ci",
+      "id": "validation-waivers:verifier-restate/protected-files-changed",
+      "requires": "A verifier restate changes no RuleSpec files, apply manifests or receipts.",
+      "severity": "important",
+      "site": "axiom_encode/cli.py:_guard_manifest_waiver_set_identity",
+      "title": "A verifier restate includes policy or provenance changes",
+      "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "716132e942d166dddaaf0bda24effda9977888684e9be4a5432ff0ec6fd8ebb7",
+  "registry_sha256": "80af8a0eb54292431e3a4ba217ebad6f19052d4b2dcf01d58ae4cb9f189bc648",
   "schema": "axiom-encode/check-registry/v1"
 }

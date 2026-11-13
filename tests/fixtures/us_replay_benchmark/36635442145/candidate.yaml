@@ -1,0 +1,43 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/regulation/42/457/800
+    source_sha256: 3fbbaaf39b74a3cb00bccf6b21678b4697295d4b9ad8b047edb83ad094d1b44a
+  summary: 'Paragraph (a) identifies the statutory basis and the State-plan description
+    requirement. Paragraph (b) identifies the subpart''s scope. Paragraph (c) states:
+    “The requirements of this subpart apply to separate child health programs.”'
+  deferred_outputs:
+  - output: us:regulations/42-cfr/457/800/a#state_plan_substitution_procedure_description
+    reason: 42 CFR 457.800(a) requires a State-plan description of procedures ensuring
+      that State-plan health benefits coverage does not substitute for group health
+      plan coverage; the State-plan description and procedures needed to assess that
+      requirement are not supplied.
+  - output: us:regulations/42-cfr/457/800/b#substitution_requirements
+    reason: 42 CFR 457.800(b) identifies the scope of requirements concerning substitution
+      of coverage generally and under premium assistance programs; it does not supply
+      the substantive subpart requirements needed to assess either category.
+inputs:
+- name: program_is_separate_child_health_program
+  entity: StateAgency
+  dtype: Boolean
+  period: Month
+rules:
+- name: substitution_subpart_applies
+  kind: derived
+  entity: StateAgency
+  dtype: Judgment
+  period: Month
+  source: 42 CFR 457.800(c)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/regulation/42/457/800
+          excerpt: apply to separate child health programs
+  versions:
+  - effective_from: '0001-01-01'
+    formula: program_is_separate_child_health_program
