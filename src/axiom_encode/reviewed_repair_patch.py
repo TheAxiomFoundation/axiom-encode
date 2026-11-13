@@ -1,7 +1,7 @@
 """Closed, reviewed patch packages; never a source or signature authority.
 
-The registry is intentionally empty. Adding an entry requires independent review
-of the immutable package and a normal encoder change. Caller hashes do not grant
+Each registry entry requires independent review of the immutable package and a
+normal encoder change. Caller hashes do not grant
 admission. Command integration must bind these bytes to actual validated state.
 """
 
@@ -11,8 +11,11 @@ import base64
 import binascii
 import hashlib
 import json
+import os
 import re
+import selectors
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -62,7 +65,110 @@ class ReviewedPatchRegistration:
     members: tuple[tuple[str, str, int], ...]
 
 
-REVIEWED_REPAIR_PATCHES = MappingProxyType({})
+REVIEWED_REPAIR_PATCHES = MappingProxyType(
+    {
+        "issue233-ca-t2036-2025-39337066830": ReviewedPatchRegistration(
+            commit="cdb71fff53a581b5e520e7fa74abdf8f798a9895",
+            members=(
+                (
+                    "ccedc03ab3cb6731347e6c2a47560911bb1b7d5f",
+                    "c5d99514b1c7042a14491ddcfbfb6debbe7636c539771502139274bfb2cfa850",
+                    5923,
+                ),
+                (
+                    "b0ea800a3ca6d6e18026a827d020fc1e521a5705",
+                    "96ba3d5a899d790de9c35e3d37d336f93f914af9b8ac6904c6ec1e3d9ac0061b",
+                    58163,
+                ),
+                (
+                    "a7a7b17b3c3b4084be3ed4011711e3d4543dffb4",
+                    "63af0f90f56b2f22ab229b115f5a74d67781b60ee3f6251684b72b0359c9d074",
+                    142528,
+                ),
+            ),
+        ),
+        "issue233-ca-nl479-2025-43477826390": ReviewedPatchRegistration(
+            commit="5e307f8b41044e9f8fbb61896b1861964824169a",
+            members=(
+                (
+                    "9e288eb3e05995634c430b03426a5afef6b53300",
+                    "e60e3f7b6d500dfa4f869c81f69c023ddeb818bfd5c570630d59c9f6e86d30e6",
+                    2923,
+                ),
+                (
+                    "b0d1a4516d176334fd77c239dd516b108c714e1d",
+                    "d7f75137f252caf57b7ca3f3bbc54186ef66ae483bec1996e93da2ef10a56dac",
+                    14903,
+                ),
+                (
+                    "ee1f22adefaa3558848c250745744745aa43f75a",
+                    "fc841e4110b8dfa201e3f745ab56c6f82a237974a642ac87cd480affdaa4491b",
+                    15624,
+                ),
+            ),
+        ),
+        "issue233-ca-nb-s12-2025-43477831512": ReviewedPatchRegistration(
+            commit="5e307f8b41044e9f8fbb61896b1861964824169a",
+            members=(
+                (
+                    "f92efc39e675af8df5dbf78ee9a41de54adf15f5",
+                    "8210364cd29c00ff87db90342f7eb59505c39e12148365d7c05ee7aaba925fb7",
+                    3772,
+                ),
+                (
+                    "b1ca7e16d668b60a46e3531f0489628d5a62abdc",
+                    "dfd63fe017e70e17264967e4ba6dcbd892bcdc248379435ee8decb76283ff08b",
+                    25981,
+                ),
+                (
+                    "3dd74a649a972aa9699f28dd6ce8ba66152681b9",
+                    "2524588d2b87855979132631f3584a06178312e99e0e2d7afa5b611fc763a413",
+                    17317,
+                ),
+            ),
+        ),
+        "ca-schedule2-2025-full60-seed43376780727": ReviewedPatchRegistration(
+            commit="0ffaf1799c4754247b2f44a1ab5d6a0f8a5da1dc",
+            members=(
+                (
+                    "c708ed808b766ed85689771ae0efb0da272d8544",
+                    "f67186b7a3b48f7d76b21c446eff0eb73cafc596f4b6e50645cd9d2243b7fdd7",
+                    5356,
+                ),
+                (
+                    "6ff92eccddd5995479262911bc60c91389a92198",
+                    "ed8df5a3c7a8370f1f9840f057991117fdfe76780fa5ab524f152400175d2fa4",
+                    44872,
+                ),
+                (
+                    "d8c44e0a95d0850783300a8ec79a64f417cbdc32",
+                    "0ef5c2e190ecdc9769dfdb37f8a632a01409ec918f81dd0793d060f24fa30f2a",
+                    180615,
+                ),
+            ),
+        ),
+        "issue233-ca-schedule-m-2025-43445779735": ReviewedPatchRegistration(
+            commit="3b962ac0a5e845b25bbee1708c5a6489f08b85d4",
+            members=(
+                (
+                    "7321e5c59d20a63f37f3ccd5247c0a809c61ecac",
+                    "1aaed89e26657d912d99f5ac0bf4b6d35f3f7d852e7798b302ef9a62995dbd3e",
+                    3145,
+                ),
+                (
+                    "5f9a1307a7d2e15b1a559a32400eddad4d68ed10",
+                    "0ad95b443c29f4bc9b25571ff70ed4410c68f0001f0ab4024ae9ef97517ebeb0",
+                    15593,
+                ),
+                (
+                    "2d6ac88c9a84e9dc809ee278367070b54bdf7afd",
+                    "c8f8bdb50d959f87fb3b77b900885aedfefe402401d631f5cf965f986a409fe2",
+                    25057,
+                ),
+            ),
+        ),
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -372,6 +478,93 @@ def _registration(patch_id: object) -> ReviewedPatchRegistration:
     return registration
 
 
+# Bound the whole immutable listing, including unrelated paths, before selecting
+# registered members. The protected wrapper permits this exact query shape.
+MAX_TREE_BYTES = 16 * 1024 * 1024
+MAX_TREE_ENTRIES = 100_000
+GIT_READ_TIMEOUT = 30
+
+
+def _bounded_git_read(checkout: Path, *args: str, limit: int) -> bytes:
+    command = ["git", "-C", str(checkout), *args]
+    deadline = time.monotonic() + GIT_READ_TIMEOUT
+    with subprocess.Popen(command, stdout=subprocess.PIPE) as process:
+        assert process.stdout is not None
+        try:
+            data = bytearray()
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdout, selectors.EVENT_READ)
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or not selector.select(remaining):
+                        raise ValueError("reviewed repair Git read timed out")
+                    chunk = os.read(
+                        process.stdout.fileno(), min(65536, limit + 1 - len(data))
+                    )
+                    if not chunk:
+                        break
+                    data.extend(chunk)
+                    if len(data) > limit:
+                        raise ValueError("reviewed repair Git read exceeds bound")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ValueError("reviewed repair Git read timed out")
+            if process.wait(timeout=remaining):
+                raise subprocess.CalledProcessError(process.returncode, command)
+            return bytes(data)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+
+
+def _immutable_tree(
+    checkout: Path, commit: str
+) -> dict[str, tuple[str, str, str, int | None]]:
+    _digest(commit, _COMMIT)
+    raw = _bounded_git_read(
+        checkout,
+        "ls-tree",
+        "-r",
+        "-l",
+        "-z",
+        "--full-tree",
+        commit,
+        limit=MAX_TREE_BYTES,
+    )
+    if raw and not raw.endswith(b"\0"):
+        raise ValueError("reviewed repair Git tree is truncated")
+    records = raw.split(b"\0")[:-1]
+    if len(records) > MAX_TREE_ENTRIES:
+        raise ValueError("reviewed repair Git tree exceeds entry bound")
+    entries = {}
+    for record in records:
+        header, path = record.split(b"\t", 1)
+        mode, kind, blob, size_text = header.decode("ascii").split()
+        _digest(blob, _COMMIT)
+        name = path.decode("utf-8")
+        if not name or name in entries:
+            raise ValueError("reviewed repair Git tree has duplicate or empty path")
+        if size_text == "-" and kind != "blob":
+            size = None
+        elif size_text.isascii() and size_text.isdecimal():
+            size = int(size_text)
+        else:
+            raise ValueError("reviewed repair Git tree has invalid size")
+        entries[name] = (mode, kind, blob, size)
+    return entries
+
+
+def _immutable_blob(checkout: Path, blob: str, size: int) -> bytes:
+    _digest(blob, _COMMIT)
+    if type(size) is not int or not 0 <= size <= MAX_MEMBER_BYTES:
+        raise ValueError("reviewed repair Git blob exceeds size bound")
+    raw = _bounded_git_read(checkout, "cat-file", "blob", blob, limit=size)
+    if len(raw) != size:
+        raise ValueError("reviewed repair Git blob size mismatch")
+    return raw
+
+
 def load_registered_patch(checkout: Path, patch_id: str) -> ReviewedRepairPackage:
     """Read only registry-pinned official Git blobs; no caller path/hash authority."""
     registration = _registration(patch_id)
@@ -384,13 +577,11 @@ def load_registered_patch(checkout: Path, patch_id: str) -> ReviewedRepairPackag
     ):
         raise ValueError("reviewed patch checkout must have official origin")
     prefix = f"reviewed-repair-patches/{patch_id}"
-    tree = git("ls-tree", "-r", "-z", registration.commit, "--", prefix)
-    entries = {}
-    for record in tree.split(b"\0"):
-        if record:
-            header, path = record.split(b"\t", 1)
-            mode, kind, blob = header.decode().split()
-            entries[path.decode()] = (mode, kind, blob)
+    entries = {
+        path: entry
+        for path, entry in _immutable_tree(checkout, registration.commit).items()
+        if path == prefix or path.startswith(prefix + "/")
+    }
     if set(entries) != {f"{prefix}/{name}" for name in MEMBERS}:
         raise ValueError("reviewed patch package has missing or extra files")
     result = []
@@ -403,11 +594,11 @@ def load_registered_patch(checkout: Path, patch_id: str) -> ReviewedRepairPackag
         total += size
         if total > MAX_PACKAGE_BYTES:
             raise ValueError("reviewed patch package exceeds total bound")
-        if entries[f"{prefix}/{name}"] != ("100644", "blob", blob):
+        if entries[f"{prefix}/{name}"][:3] != ("100644", "blob", blob):
             raise ValueError("reviewed patch member mode or Git blob mismatch")
-        if int(git("cat-file", "-s", blob)) != size:
+        if entries[f"{prefix}/{name}"][3] != size:
             raise ValueError("reviewed patch Git blob size mismatch")
-        raw = git("cat-file", "blob", blob)
+        raw = _immutable_blob(checkout, blob, size)
         if len(raw) != size or sha256(raw) != digest:
             raise ValueError("reviewed patch bytes do not match registry")
         result.append(raw)
@@ -540,31 +731,31 @@ def verify_predecessor(
 
     if git("rev-parse", "HEAD").decode().strip() != base:
         raise ValueError("reviewed repair checkout is not exact reviewed base")
-    if git("status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"):
+    if git(
+        "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching"
+    ):
         raise ValueError("reviewed repair requires a strictly clean base")
     if not _official_origin(
         git("remote", "get-url", "origin").decode().strip(),
         f"rulespec-{_target_country(target.as_posix())}",
     ):
         raise ValueError("reviewed repair base origin invalid")
+    entries = _immutable_tree(checkout, base)
     snapshot = {}
     for path, digest in (
         (target, previous["rulespec_sha256"]),
         (target.with_suffix(".test.yaml"), previous["tests_sha256"]),
         (Path(previous["path"]), previous["sha256"]),
     ):
-        entry = git("ls-tree", base, "--", path.as_posix()).decode().strip()
-        if not entry:
+        entry = entries.get(path.as_posix())
+        if entry is None:
             raise ValueError("reviewed predecessor file absent from exact base")
-        header, name = entry.split("\t", 1)
-        mode, kind, blob = header.split()
-        if mode != "100644" or kind != "blob" or name != path.as_posix():
+        mode, kind, blob, size = entry
+        if mode != "100644" or kind != "blob":
             raise ValueError("reviewed predecessor must be tracked regular bytes")
         if path == Path(previous["path"]) and blob != previous["blob"]:
             raise ValueError("reviewed predecessor Git blob differs")
-        if int(git("cat-file", "-s", blob)) > MAX_MEMBER_BYTES:
-            raise ValueError("reviewed predecessor exceeds size bound")
-        raw = git("cat-file", "blob", blob)
+        raw = _immutable_blob(checkout, blob, size)
         live = read_bounded_regular_file(
             checkout,
             checkout / path,
@@ -579,7 +770,16 @@ def verify_predecessor(
     if old.get("schema_version") != previous["schema"]:
         raise ValueError("reviewed predecessor schema differs")
     if previous["canonical_manifest"] == "absent":
-        if git("ls-tree", base, "--", canonical.as_posix()):
+        if _bounded_git_read(
+            checkout,
+            "ls-tree",
+            "-z",
+            "--full-tree",
+            base,
+            "--",
+            canonical.as_posix(),
+            limit=MAX_TREE_BYTES,
+        ):
             raise ValueError("canonical manifest unexpectedly present at base")
         path = checkout / canonical
         if path.exists() or path.is_symlink():
@@ -770,24 +970,22 @@ def verify_manifest_reconstruction(
         raise ValueError(
             "reviewed repair base is not an ancestor of current tree"
         ) from exc
+    entries = _immutable_tree(checkout, base)
     predecessor = declared["predecessor"]
     for path, expected_hash in (
         (target, predecessor["rulespec_sha256"]),
         (companion, predecessor["tests_sha256"]),
         (predecessor["path"], predecessor["sha256"]),
     ):
-        tree = git("ls-tree", "-z", base, "--", path).split(b"\0")
-        if len(tree) != 2 or not tree[0]:
+        entry = entries.get(path)
+        if entry is None:
             raise ValueError("reviewed repair base member absent")
-        header, actual_path = tree[0].split(b"\t", 1)
-        mode, kind, blob = header.decode().split()
-        if mode != "100644" or kind != "blob" or actual_path.decode() != path:
+        mode, kind, blob, size = entry
+        if mode != "100644" or kind != "blob":
             raise ValueError(
                 "reviewed repair base member is not canonical regular bytes"
             )
-        if int(git("cat-file", "-s", blob)) > MAX_MEMBER_BYTES:
-            raise ValueError("reviewed repair base member exceeds bound")
-        raw = git("cat-file", "blob", blob)
+        raw = _immutable_blob(checkout, blob, size)
         if sha256(raw) != expected_hash:
             raise ValueError("reviewed repair base member differs from registration")
         if path == predecessor["path"]:
@@ -808,8 +1006,15 @@ def verify_manifest_reconstruction(
                 )
                 if current != raw:
                     raise ValueError("reviewed historical predecessor changed")
-    if predecessor["canonical_manifest"] == "absent" and git(
-        "ls-tree", base, "--", canonical
+    if predecessor["canonical_manifest"] == "absent" and _bounded_git_read(
+        checkout,
+        "ls-tree",
+        "-z",
+        "--full-tree",
+        base,
+        "--",
+        canonical,
+        limit=MAX_TREE_BYTES,
     ):
         raise ValueError("reviewed repair canonical manifest was not absent at base")
 

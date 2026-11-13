@@ -1,3 +1,31 @@
+## 0.2.2370
+
+- fix: scope T2036 country evidence to its asserted cases (#2232)
+- Register reviewed NL479 and NB Schedule 12 source-binding repairs (#2236)
+- fix: load reviewed repair packages through protected Git (#2233)
+
+## 0.2.2369
+
+- fix: validate complete retirement transfer execution (#2105)
+- Register the reviewed Schedule 2 repair with all original expectations (#2228)
+
+## 0.2.2368
+
+- Register exact Schedule M repair preserving all companion cases (#2223)
+
+## 0.2.2367
+
+- Lock the build backends and build every locked source against them (#1887)
+- Balance waiver audit shards by measured cost and print progress (#2177)
+- Say Microcosm in prose, help text and private names (#2183)
+- Protected reviewer runtime: supervisor Codex home, signer subscription options, reprovisioning and source-lane replay (#2037)
+- Align proof excerpts to the printed source text; fix imports pruning (0.2.2349) (#1900)
+- Apply exact registered repairs through protected validation (#1963)
+- Publish signed RuleSpec PRs onto a main tip that moved only through plumbing (#1892)
+- Require Encoding-Target and Fixes-Run lines in every PR body (#2156)
+- Add content-bound merge guard evaluator (inactive, #2172) (#2204)
+- Declare the validation effect in automated version-bump PRs (#2197)
+
 ## 0.2.2366
 
 - Bind Canadian form and Schedule M obligations to observed execution (#2083)
