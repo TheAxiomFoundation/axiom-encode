@@ -2780,19 +2780,19 @@ def main():
         )
     )
 
-    from axiom_encode.content_merge_guard import (
-        add_arguments as add_merge_guard_arguments,
+    merge_guard_parser = subparsers.add_parser(
+        "merge-guard",
+        help=(
+            "Evaluate one RuleSpec pull request against the content-bound "
+            "merge guard (inactive; prints a verdict, writes nothing)"
+        ),
     )
-
-    add_merge_guard_arguments(
-        subparsers.add_parser(
-            "merge-guard",
-            help=(
-                "Evaluate one RuleSpec pull request against the content-bound "
-                "merge guard (inactive; prints a verdict, writes nothing)"
-            ),
-        )
+    merge_guard_parser.add_argument(
+        "--repository",
+        required=True,
+        help="RuleSpec repository short name, for example rulespec-us",
     )
+    merge_guard_parser.add_argument("--pr", required=True, type=int)
 
     admission_registry_parser = subparsers.add_parser(
         "admission-registry",

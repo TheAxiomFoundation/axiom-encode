@@ -4,11 +4,14 @@ INACTIVE. Nothing in the encoder, a workflow or a RuleSpec repository calls
 this module, no check run is written, and the manifest schema it reads is not
 emitted by any writer. See ``docs/content-bound-merge-guard.md``.
 
-The evaluator decides whether one open pull request that carries a signed
-``applied-rulespec/v6`` promotion manifest also carries a live approval, from
-an enrolled owner who is independent of the candidate author and of the
-dispatcher, on a commit whose primary, companion and manifest blobs are the
-blobs at the current head. Every read is live and goes through one injected
+Applicability is decided from the paths and modes of the complete tree delta,
+never from a label inside a file the pull request supplies. A pull request
+that changes RuleSpec content or an apply manifest is judged. When it carries
+one signed ``applied-rulespec/v6`` promotion unit, the evaluator decides
+whether it also carries a live approval, from an enrolled owner who is
+independent of the candidate author, of the dispatcher and of every commit
+author, on a commit whose primary, companion and manifest blobs are the blobs
+at the current head. Every read is live and goes through one injected
 ``fetch`` callable. Any error, truncation or disagreement gives ``fail``.
 """
 
@@ -24,9 +27,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Callable
 
-from axiom_encode.prepare_signed_backfill import citation_rulespec_path
+from axiom_encode.prepare_signed_backfill import (
+    RULESPEC_ATOMIC_ROOTS,
+    citation_rulespec_path,
+)
 from axiom_encode.reviewed_pr_admission import (
-    INDEX_PATH,
     TRUSTED_SIGNING_REVIEWERS,
     AdmissionError,
     PromotionSelector,
@@ -48,7 +53,11 @@ ATTESTATION_VALIDATION = "encoder-main-complete-source"
 ATTESTATION_OWNER_REVIEW = "none"
 ATTESTATION_ORIGIN = "local-candidate"
 PROMOTION_TOOL = "axiom-encode promote-reviewed-candidate"
-MANIFEST_PREFIX = ".axiom/encoding-manifests/"
+MANIFEST_DIR = ".axiom/encoding-manifests"
+MANIFEST_PREFIX = MANIFEST_DIR + "/"
+# Earlier apply-manifest schemas. Their lanes keep their own controls (the
+# approval is checked before signing); this guard does not judge them.
+EARLIER_MANIFEST_SCHEMAS = frozenset({"axiom-encode/applied-rulespec/v5"})
 
 _V6_COMMON_FIELDS = frozenset(
     {
@@ -89,7 +98,9 @@ ATTESTATION_CANDIDATE_FIELDS = frozenset(
 ATTESTATION_DISPATCHER_FIELDS = frozenset({"id", "login"})
 
 # Live policy the evaluator checks against.
-ENCODER_ROOT = "/repos/TheAxiomFoundation/axiom-encode"
+ORGANISATION = "TheAxiomFoundation"
+ENCODER_REPOSITORY = ORGANISATION + "/axiom-encode"
+ENCODER_ROOT = "/repos/" + ENCODER_REPOSITORY
 SIGNING_WORKFLOW_PATH = ".github/workflows/targeted-signed-reencode.yml"
 REQUIRED_CHECK_NAME = "validate / validate"
 REQUIRED_CHECK_APP_ID = 15368  # GitHub Actions
@@ -101,10 +112,19 @@ MAX_BLOB_BYTES = 10 * 1024 * 1024
 PASS = "pass"
 FAIL = "fail"
 NOT_APPLICABLE = "not_applicable"
+EXIT_CODES = {PASS: 0, FAIL: 1, NOT_APPLICABLE: 3}
 
 # Reason codes. One per refusal; tests assert them.
 R_PASS = "content_bound_approval"
-R_NO_V6_MANIFEST = "no_v6_manifest"
+R_NO_GUARDED_CONTENT = "no_guarded_content"
+R_EARLIER_LANE = "earlier_lane_v5"
+R_GUARDED_LEAF = "guarded_leaf_not_regular"
+R_MANIFEST_REMOVED = "manifest_removed"
+R_CONTENT_WITHOUT_MANIFEST = "content_without_manifest"
+R_CONTENT_NOT_COVERED = "content_not_covered"
+R_UNKNOWN_SCHEMA = "unknown_manifest_schema"
+R_MIXED_SCHEMAS = "mixed_manifest_schemas"
+R_UNSUPPORTED_REPOSITORY = "unsupported_repository"
 R_INVALID_REQUEST = "invalid_request"
 R_READ_FAILED = "github_read_failed"
 R_EVALUATION_ERROR = "evaluation_error"
@@ -114,7 +134,6 @@ R_BASE_NOT_CURRENT = "base_not_current_main"
 R_DELTA_INCOMPLETE = "delta_incomplete"
 R_DELTA_DISAGREES = "delta_disagrees"
 R_TOO_MANY_MANIFESTS = "too_many_manifests"
-R_MANIFEST_NOT_REGULAR = "manifest_not_regular_blob"
 R_BLOB_UNREADABLE = "blob_unreadable"
 R_MANIFEST_UNPARSEABLE = "manifest_unparseable"
 R_MULTIPLE_V6 = "multiple_v6_manifests"
@@ -124,7 +143,6 @@ R_CITATION = "citation_not_canonical"
 R_MANIFEST_PATH = "manifest_path_not_canonical"
 R_SCOPE_PATHS = "scope_paths"
 R_SCOPE_NOT_NEW = "scope_not_new_module"
-R_SCOPE_NOT_REGULAR = "scope_not_regular_blob"
 R_APPLIED_FILES = "applied_files_mismatch"
 R_RUN = "signing_run_not_bound"
 R_DISPATCHER_MISMATCH = "dispatcher_mismatch"
@@ -147,6 +165,9 @@ _SHA = re.compile(r"[0-9a-f]{40}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _LOGIN = re.compile(r"[A-Za-z0-9-]{1,39}")
 _RUN_ID = re.compile(r"[1-9][0-9]{0,19}")
+# rulespec-<country> and rulespec-<country>-<subdivision> repositories.
+_REPOSITORY = re.compile(r"rulespec-([a-z]{2})(-[a-z0-9]+)*")
+_REGULAR = ("blob", "100644")
 
 
 @dataclass(frozen=True)
@@ -203,7 +224,8 @@ class _Manifest:
     applied: dict
     dispatcher_id: int
     dispatcher_login: str
-    author_id: int
+    candidate_head: str
+    candidate_base: str
 
 
 def _reader(fetch: Callable[[str], object]) -> Callable[[str], object]:
@@ -360,10 +382,11 @@ def _parse_manifest(
         candidate["repository"] != repository
         or candidate["pull_request"] != number
         or candidate["author_id"] != author_id
+        or candidate["head_sha"] != ref
     ):
         raise _Refusal(
             R_MANIFEST_CANDIDATE,
-            "manifest names another repository, pull request or author",
+            "manifest names another repository, pull request, author or candidate",
         )
     return _Manifest(
         citation=citation,
@@ -371,25 +394,38 @@ def _parse_manifest(
         applied=digests,
         dispatcher_id=dispatcher["id"],
         dispatcher_login=dispatcher["login"],
-        author_id=candidate["author_id"],
+        candidate_head=candidate["head_sha"],
+        candidate_base=candidate["base_sha"],
     )
 
 
 def _effective_reviews(reviews: list[dict]) -> dict[int, dict]:
-    """The latest decisive review of each reviewer, as admission computes it."""
+    """The latest decisive review of each reviewer, as admission computes it.
+
+    A review whose account was deleted (``user`` is null) is ignored: it can
+    never count as an approval and is not an enrolled or associated blocker.
+    """
     decisive: dict[int, dict] = {}
     for review in reviews:
         if not _strict_int(review.get("id")):
             raise AdmissionError("review lacks a numeric identity")
     for review in sorted(reviews, key=lambda item: item["id"]):
-        identity = _object(review.get("user"), "reviewer").get("id")
+        state = review.get("state")
+        if state not in {
+            "CHANGES_REQUESTED",
+            "APPROVED",
+            "DISMISSED",
+            "COMMENTED",
+            "PENDING",
+        }:
+            raise AdmissionError("unknown review state")
+        if review.get("user") is None:
+            continue
+        identity = _object(review["user"], "reviewer").get("id")
         if not _strict_int(identity):
             raise AdmissionError("reviewer lacks a numeric identity")
-        state = review.get("state")
         if state in {"CHANGES_REQUESTED", "APPROVED", "DISMISSED"}:
             decisive[identity] = review
-        elif state not in {"COMMENTED", "PENDING"}:
-            raise AdmissionError("unknown review state")
     return decisive
 
 
@@ -416,18 +452,6 @@ def _commit_shas(commits: list[dict]) -> list[str]:
     return shas
 
 
-def _path_history(
-    read: Callable[[str], object], root: str, head: str, path: str
-) -> list[dict]:
-    """Commits reachable from the head that change one path."""
-    query = (
-        f"{root}/commits?sha={head}&path={urllib.parse.quote(path, safe='')}"
-        "&per_page=100&page="
-    )
-    # ``_pages`` owns the page bound; it appends ``?per_page=100&page=N``.
-    return _pages(lambda url: read(query + url.rpartition("=")[2]), "")
-
-
 def _main_tip(read: Callable[[str], object], root: str) -> str:
     main = _object(read(root + "/git/ref/heads/main"), "main ref")
     sha = _object(main.get("object"), "main object").get("sha")
@@ -436,28 +460,53 @@ def _main_tip(read: Callable[[str], object], root: str) -> str:
     return sha
 
 
+def _is_ancestor(
+    read: Callable[[str], object], root: str, ancestor: str, descendant: str
+) -> bool:
+    """Whether ``ancestor`` is ``descendant`` or one of its ancestors."""
+    if ancestor == descendant:
+        return True
+    comparison = _object(read(f"{root}/compare/{ancestor}...{descendant}"), "ancestry")
+    return (
+        comparison.get("status") == "ahead"
+        and _object(comparison.get("merge_base_commit"), "merge base").get("sha")
+        == ancestor
+    )
+
+
 def _signing_run(read: Callable[[str], object], run_id: str) -> tuple[int, int, str]:
+    """The actor ids of a successful signing dispatch from encoder ``main``."""
     run = _object(read(f"{ENCODER_ROOT}/actions/runs/{run_id}"), "signing run")
     actor = _object(run.get("actor"), "run actor")
     trigger = _object(run.get("triggering_actor"), "triggering actor")
+    commit = run.get("head_sha")
     if (
         str(run.get("id")) != run_id
+        or _object(run.get("repository"), "run repository").get("full_name")
+        != ENCODER_REPOSITORY
         or run.get("event") != "workflow_dispatch"
         or run.get("path") != SIGNING_WORKFLOW_PATH
         or run.get("head_branch") != "main"
+        or not isinstance(commit, str)
+        or not _SHA.fullmatch(commit)
         or run.get("status") != "completed"
         or run.get("conclusion") != "success"
         or not _strict_int(actor.get("id"))
         or not _strict_int(trigger.get("id"))
-        or not isinstance(trigger.get("login"), str)
     ):
         raise AdmissionError(
             "manifest run is not a successful central main signing dispatch"
         )
-    return actor["id"], trigger["id"], trigger["login"]
+    # ``head_branch`` is a name; a tag or another ref may carry it. The run's
+    # commit must be on the encoder's protected ``main`` history.
+    if not _is_ancestor(read, ENCODER_ROOT, commit, _main_tip(read, ENCODER_ROOT)):
+        raise AdmissionError("signing run commit is not on encoder main")
+    return actor["id"], trigger["id"], trigger.get("login")
 
 
-def _require_green_ci(read: Callable[[str], object], root: str, head: str) -> None:
+def _require_green_ci(
+    read: Callable[[str], object], root: str, head: str, number: int
+) -> None:
     name = urllib.parse.quote(REQUIRED_CHECK_NAME, safe="")
     listing = _object(
         read(
@@ -494,21 +543,69 @@ def _require_green_ci(read: Callable[[str], object], root: str, head: str) -> No
         workflow = _object(
             read(f"{root}/actions/runs/{match.group(1)}"), "check workflow run"
         )
+        pulls = workflow.get("pull_requests")
         if (
             str(workflow.get("id")) != match.group(1)
+            or workflow.get("event") != "pull_request"
             or workflow.get("path") != REQUIRED_CHECK_WORKFLOW_PATH
             or workflow.get("head_sha") != head
+            or _object(workflow.get("repository"), "run repository").get("full_name")
+            != repository
+            or _object(workflow.get("head_repository"), "run head repository").get(
+                "full_name"
+            )
+            != repository
+            or not isinstance(pulls, list)
+            or not any(
+                isinstance(pull, dict)
+                and pull.get("number") == number
+                and _object(pull.get("head"), "run PR head").get("sha") == head
+                for pull in pulls
+            )
         ):
-            raise AdmissionError("required check did not come from the protected run")
+            raise AdmissionError(
+                "required check did not come from this PR's pull_request run"
+            )
+
+
+def _is_guarded(path: str) -> bool:
+    """RuleSpec content or apply-manifest territory, by path alone.
+
+    The content roots are the encoder's ``RULESPEC_ATOMIC_ROOTS``, at the
+    repository root or one level below a jurisdiction directory. A leaf at
+    ``.axiom`` or at the manifest directory itself replaces a directory.
+    """
+    parts = path.split("/")
+    return (
+        path in {".axiom", MANIFEST_DIR}
+        or path.startswith(MANIFEST_PREFIX)
+        or parts[0] in RULESPEC_ATOMIC_ROOTS
+        or (len(parts) >= 2 and parts[1] in RULESPEC_ATOMIC_ROOTS)
+    )
+
+
+def _applied_paths(payload: dict) -> set[str]:
+    applied = payload.get("applied_files")
+    if not isinstance(applied, list):
+        return set()
+    return {
+        item["path"]
+        for item in applied
+        if isinstance(item, dict) and isinstance(item.get("path"), str)
+    }
 
 
 def evaluate(
-    country: str, pr: int, *, fetch: Callable[[str], object] = github_json
+    repository: str, pr: int, *, fetch: Callable[[str], object] = github_json
 ) -> Verdict:
-    """Evaluate one pull request of ``rulespec-<country>``. Never raises."""
+    """Evaluate one pull request of ``TheAxiomFoundation/<repository>``.
+
+    ``repository`` is a short name: ``rulespec-us``, ``rulespec-us-tn``.
+    Never raises.
+    """
     evidence: dict = {"pull_request": pr}
     try:
-        return _evaluate(country, pr, _reader(fetch), evidence)
+        return _evaluate(repository, pr, _reader(fetch), evidence)
     except _Refusal as refusal:
         return Verdict(FAIL, refusal.reason, refusal.detail, evidence)
     except Exception as exc:  # fail closed on anything unforeseen
@@ -520,14 +617,11 @@ def evaluate_merge_group(*_args, **_kwargs) -> Verdict:
     return Verdict(FAIL, R_MERGE_GROUP, "merge-group evaluation is not implemented")
 
 
-def _evaluate(country, number, read, evidence) -> Verdict:
-    if (
-        not isinstance(country, str)
-        or not re.fullmatch(r"[a-z]{2}", country)
-        or not _strict_int(number)
-    ):
-        raise _Refusal(R_INVALID_REQUEST, "invalid country or pull request number")
-    repository = f"TheAxiomFoundation/rulespec-{country}"
+def _evaluate(name, number, read, evidence) -> Verdict:
+    match = _REPOSITORY.fullmatch(name) if isinstance(name, str) else None
+    if match is None or not _strict_int(number):
+        raise _Refusal(R_INVALID_REQUEST, "invalid repository or pull request number")
+    repository = f"{ORGANISATION}/{name}"
     root = "/repos/" + repository
     pr_path = f"{root}/pulls/{number}"
     evidence["repository"] = repository
@@ -570,37 +664,80 @@ def _evaluate(country, number, read, evidence) -> Verdict:
         head_leaves = _leaf_entries(head_tree)
     delta = _delta(base_leaves, head_leaves)
 
-    # 3. Applicability: every changed manifest blob is read and parsed.
-    manifest_paths = sorted(
+    # 3. Applicability, from paths and modes only. A label inside a file the
+    # pull request supplies never makes the guard stand aside.
+    def regular(path):
+        entry = head_leaves.get(path)
+        return entry is None or (entry["type"], entry["mode"]) == _REGULAR
+
+    guarded = sorted(
         path
-        for path, status in delta.items()
-        if path.startswith(MANIFEST_PREFIX) and status != "removed"
+        for path in delta
+        # A non-regular top-level leaf can alias a jurisdiction directory.
+        if _is_guarded(path) or ("/" not in path and not regular(path))
     )
-    if len(manifest_paths) > MAX_MANIFEST_BLOBS:
-        raise _Refusal(R_TOO_MANY_MANIFESTS, "changed manifests exceed the read bound")
-    promotions = {}
-    for path in manifest_paths:
-        entry = head_leaves[path]
-        if (entry["type"], entry["mode"]) != ("blob", "100644"):
-            raise _Refusal(R_MANIFEST_NOT_REGULAR, path)
-        raw = _blob(read, root, entry["sha"])
-        payload = _parse_json_object(raw)
-        if payload.get("schema_version") == MANIFEST_SCHEMA_V6:
-            promotions[path] = (raw, payload)
-    if not promotions:
+    if not guarded:
         return Verdict(
             NOT_APPLICABLE,
-            R_NO_V6_MANIFEST,
-            "the delta adds or changes no v6 promotion manifest",
+            R_NO_GUARDED_CONTENT,
+            "the delta changes no RuleSpec content and no apply manifest",
             evidence,
         )
-    if len(promotions) != 1:
+    for path in guarded:
+        if not regular(path) or path in {".axiom", MANIFEST_DIR}:
+            raise _Refusal(R_GUARDED_LEAF, path)
+    manifests = [path for path in guarded if path.startswith(MANIFEST_PREFIX)]
+    content = [path for path in guarded if not path.startswith(MANIFEST_PREFIX)]
+    if not manifests:
+        raise _Refusal(
+            R_CONTENT_WITHOUT_MANIFEST, "RuleSpec content changes with no manifest"
+        )
+    if any(delta[path] == "removed" for path in manifests):
+        raise _Refusal(R_MANIFEST_REMOVED, "an apply manifest is removed")
+    if len(manifests) > MAX_MANIFEST_BLOBS:
+        raise _Refusal(R_TOO_MANY_MANIFESTS, "changed manifests exceed the read bound")
+    parsed = {}
+    for path in manifests:
+        raw = _blob(read, root, head_leaves[path]["sha"])
+        parsed[path] = (raw, _parse_json_object(raw))
+    labels = [payload.get("schema_version") for _raw, payload in parsed.values()]
+    if not all(
+        isinstance(label, str)
+        and label in EARLIER_MANIFEST_SCHEMAS | {MANIFEST_SCHEMA_V6}
+        for label in labels
+    ):
+        raise _Refusal(R_UNKNOWN_SCHEMA, "a changed manifest has an unknown schema")
+    schemas = set(labels)
+    if MANIFEST_SCHEMA_V6 not in schemas:
+        covered = set().union(
+            *(_applied_paths(payload) for _raw, payload in parsed.values())
+        )
+        if not set(content) <= covered:
+            raise _Refusal(
+                R_CONTENT_NOT_COVERED,
+                "RuleSpec content changes outside the changed manifests",
+            )
+        return Verdict(
+            NOT_APPLICABLE,
+            R_EARLIER_LANE,
+            "an earlier-schema lane; its approval is checked before signing",
+            evidence,
+        )
+    if len(schemas) != 1:
+        raise _Refusal(R_MIXED_SCHEMAS, "v6 and earlier manifests in one PR")
+    if len(parsed) != 1:
         raise _Refusal(R_MULTIPLE_V6, "exactly one v6 manifest is allowed per PR")
+    if match.group(2) is not None:
+        raise _Refusal(
+            R_UNSUPPORTED_REPOSITORY,
+            "the promotion lane publishes only to rulespec-<country>",
+        )
+    country = match.group(1)
     if before.get("draft") is not False:
         raise _Refusal(R_PR_DRAFT, "a draft pull request has no merge verdict")
 
-    # 4. Scope and canonical paths.
-    ((manifest_path, (manifest_raw, payload)),) = promotions.items()
+    # 4. Scope and canonical paths: the delta is exactly one new unit.
+    ((manifest_path, (manifest_raw, payload)),) = parsed.items()
     with _refuse_as(R_DELTA_DISAGREES):
         files = _pages(read, pr_path + "/files")
         if before.get("changed_files") != len(files):
@@ -611,6 +748,7 @@ def _evaluate(country, number, read, evidence) -> Verdict:
     )
     evidence["dispatcher_id"] = manifest.dispatcher_id
     evidence["run_id"] = manifest.run_id
+    evidence["candidate_head"] = manifest.candidate_head
     try:
         primary = str(citation_rulespec_path(manifest.citation))
         selector = PromotionSelector(
@@ -634,17 +772,13 @@ def _evaluate(country, number, read, evidence) -> Verdict:
         "companion": companion,
         "manifest": manifest_path,
     }
-    if set(delta) - {INDEX_PATH} != set(unit) or delta.get(INDEX_PATH) == "removed":
+    if set(delta) != set(unit):
         raise _Refusal(
             R_SCOPE_PATHS,
-            "delta is not exactly the primary, companion, manifest and optional index",
+            "delta is not exactly the primary, companion and manifest",
         )
-    if any(delta[path] != "added" or path in base_leaves for path in unit):
+    if any(delta[path] != "added" for path in unit):
         raise _Refusal(R_SCOPE_NOT_NEW, "promotion paths already exist on main")
-    for path in (*unit, INDEX_PATH):
-        entry = head_leaves.get(path)
-        if entry is not None and (entry["type"], entry["mode"]) != ("blob", "100644"):
-            raise _Refusal(R_SCOPE_NOT_REGULAR, path)
     digests = {
         primary: hashlib.sha256(
             _blob(read, root, head_leaves[primary]["sha"])
@@ -660,6 +794,48 @@ def _evaluate(country, number, read, evidence) -> Verdict:
         raise _Refusal(
             R_APPLIED_FILES, "manifest applied_files differ from the head blobs"
         )
+
+    # The PR's commits: the candidate the manifest names, and who wrote them.
+    with _refuse_as(R_COMMITS):
+        commits = _pages(read, pr_path + "/commits")
+        commit_shas = _commit_shas(commits)
+        if before.get("commits") != len(commits) or head not in commit_shas:
+            raise AdmissionError("PR commit list is incomplete")
+        commit_actors: set[int] = set()
+        for commit in commits:
+            commit_actors |= _actor_ids(commit)
+
+    def entries_at(commit, label):
+        return _leaf_entries(
+            _object(read(f"{root}/git/trees/{commit}?recursive=1"), label)
+        )
+
+    def same_blobs(leaves, paths):
+        return all(
+            path in leaves
+            and (leaves[path]["type"], leaves[path]["mode"], leaves[path]["sha"])
+            == (
+                head_leaves[path]["type"],
+                head_leaves[path]["mode"],
+                head_leaves[path]["sha"],
+            )
+            for path in paths
+        )
+
+    # The candidate the signer validated is a commit of this PR that carries
+    # the head's primary and companion, cut from an ancestor of this base.
+    with _refuse_as(R_MANIFEST_CANDIDATE):
+        if (
+            manifest.candidate_head not in commit_shas
+            or not same_blobs(
+                entries_at(manifest.candidate_head, "candidate tree"),
+                (primary, companion),
+            )
+            or not _is_ancestor(read, root, manifest.candidate_base, base)
+        ):
+            raise AdmissionError(
+                "manifest candidate is not a commit of this PR with the head content"
+            )
 
     # 6 (first half). The signing run and the dispatcher it authenticates.
     with _refuse_as(R_RUN):
@@ -690,20 +866,21 @@ def _evaluate(country, number, read, evidence) -> Verdict:
         ):
             raise _Refusal(R_CHANGES_REQUESTED, f"review {review['id']}")
 
-    with _refuse_as(R_COMMITS):
-        commits = _pages(read, pr_path + "/commits")
-        commit_shas = _commit_shas(commits)
-        if before.get("commits") != len(commits) or head not in commit_shas:
-            raise AdmissionError("PR commit list is incomplete")
-        content_authors: set[int] = set()
-        for path in (primary, companion):
-            history = _path_history(read, root, head, path)
-            if not history or not set(_commit_shas(history)) <= set(commit_shas):
-                raise AdmissionError("path history disagrees with the PR commits")
-            for commit in history:
-                content_authors |= _actor_ids(commit)
-
     # 5 and 6. A counting approval is enrolled, independent and content-bound.
+    def content_bound(commit):
+        if not isinstance(commit, str) or commit not in commit_shas:
+            return False
+        if commit == head:
+            return True
+        with _refuse_as(R_DELTA_INCOMPLETE):
+            ancestry = _object(read(f"{root}/compare/{base}...{commit}"), "ancestry")
+            fork = _object(ancestry.get("merge_base_commit"), "merge base").get("sha")
+            if not isinstance(fork, str) or not _SHA.fullmatch(fork):
+                raise AdmissionError("approved commit has no merge base with main")
+            approved = entries_at(commit, "approved tree")
+            scope = set(_delta(entries_at(fork, "fork tree"), approved))
+        return scope == set(unit) and same_blobs(approved, unit)
+
     approvals, rejected = [], []
     for reviewer_id in sorted(effective):
         review = effective[reviewer_id]
@@ -716,22 +893,13 @@ def _evaluate(country, number, read, evidence) -> Verdict:
             or reviewer.get("type") != "User"
         ):
             reason = R_NOT_ENROLLED
-        elif reviewer_id in {author_id, manifest.author_id}:
+        elif reviewer_id == author_id:
             reason = R_IS_AUTHOR
         elif reviewer_id in dispatchers:
             reason = R_IS_DISPATCHER
-        elif reviewer_id in content_authors:
+        elif reviewer_id in commit_actors:
             reason = R_AUTHORED_COMMITS
-        elif not _content_bound(
-            read,
-            root,
-            review.get("commit_id"),
-            head,
-            base,
-            commit_shas,
-            unit,
-            head_leaves,
-        ):
+        elif not content_bound(review.get("commit_id")):
             reason = R_NOT_CONTENT_BOUND
         else:
             approvals.append(
@@ -760,9 +928,9 @@ def _evaluate(country, number, read, evidence) -> Verdict:
     evidence["review_id"] = approvals[0]["review_id"]
     evidence["reviewer_id"] = approvals[0]["reviewer_id"]
 
-    # 7. Current-head CI from the protected workflow definition.
+    # 7. Current-head CI from this PR's pull_request run.
     with _refuse_as(R_CI):
-        _require_green_ci(read, root, head)
+        _require_green_ci(read, root, head, number)
 
     # 8. Re-read the mutable state; any movement refuses this evaluation.
     with _refuse_as(R_CHANGED):
@@ -777,43 +945,11 @@ def _evaluate(country, number, read, evidence) -> Verdict:
     return Verdict(PASS, R_PASS, "", evidence)
 
 
-def _content_bound(
-    read, root, commit, head, base, commit_shas, unit, head_leaves
-) -> bool:
-    """Whether the unit blobs at the approved commit are those at the head."""
-    if not isinstance(commit, str) or commit not in commit_shas:
-        return False
-    if commit == head:
-        return True
-    with _refuse_as(R_DELTA_INCOMPLETE):
-        comparison = _object(read(f"{root}/compare/{base}...{commit}"), "ancestry")
-        fork = _object(comparison.get("merge_base_commit"), "merge base").get("sha")
-        if not isinstance(fork, str) or not _SHA.fullmatch(fork):
-            raise AdmissionError("approved commit has no merge base with main")
-        fork_leaves = _leaf_entries(
-            _object(read(f"{root}/git/trees/{fork}?recursive=1"), "fork tree")
-        )
-        commit_leaves = _leaf_entries(
-            _object(read(f"{root}/git/trees/{commit}?recursive=1"), "approved tree")
-        )
-    if set(_delta(fork_leaves, commit_leaves)) - {INDEX_PATH} != set(unit):
-        return False
-
-    def identity(entry):
-        return (entry["type"], entry["mode"], entry["sha"])
-
-    return all(
-        identity(commit_leaves[path]) == identity(head_leaves[path]) for path in unit
-    )
-
-
-def add_arguments(parser) -> None:
-    parser.add_argument("--country", required=True, help="Two-letter country code")
-    parser.add_argument("--pr", required=True, type=int, help="Pull request number")
-
-
 def command(args) -> int:
-    """Print one verdict as JSON. Exit 0 for pass or not_applicable, else 1."""
-    verdict = evaluate(args.country, args.pr, fetch=github_json)
-    print(json.dumps(verdict.as_dict(), indent=2, sort_keys=True))
-    return 0 if verdict.verdict in {PASS, NOT_APPLICABLE} else 1
+    """Print one verdict as one JSON line.
+
+    Exit 0 for pass, 1 for fail, 3 for not_applicable. (2 is a usage error.)
+    """
+    verdict = evaluate(args.repository, args.pr, fetch=github_json)
+    print(json.dumps(verdict.as_dict(), sort_keys=True, separators=(",", ":")))
+    return EXIT_CODES[verdict.verdict]
