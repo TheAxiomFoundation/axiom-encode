@@ -509,6 +509,13 @@ environment variable, CLI flag, dispatch input or repository setting.
   lock 1 before checklist step 4 is done and confirmed.
 - With the switch on, the lane also needs `V6_READER_ENABLED`: a v6 manifest
   that no verifier admits cannot be written.
+- **Known limit: the anonymous rate limit (availability only).** One run of
+  the candidate lane makes 45 anonymous reads (7 of them the branch record;
+  the reviewed lane makes 38), against GitHub's 60 per hour per address. A
+  second run in the same hour from the same address is refused. It fails
+  closed. Follow-up, not built: send the reads with the workflow token when
+  one is available. The record is public, so a token only raises the limit;
+  any error must still refuse.
 
 **With lock 1 off, nothing changes.** `verify_reviewed_pr` and
 `revalidate_admission` make the same reads and return the same results and
@@ -712,6 +719,21 @@ and every check passes. The guard reduces this to "both accounts must act" and
 records who did. It cannot prove that a human read the bytes. Closing this would
 need approval credentials that agents cannot hold, for example a hardware-backed
 signed approval (option c in §3) or a separate approver account.
+
+**Residual risk the owners accept with activation: an enrolled owner who is
+also a repository administrator.** Lock 3 of §5 is read again, never cached,
+at five points of a signing run: the preflight (start and end), the root
+provisioner (start and end), before validation, immediately before signing,
+and before publication. After publication only the GitHub setting protects
+the merge. Today the approval before signing is enforced by encoder code,
+independent of repository settings. After activation an enrolled owner with
+administrator rights can sign their own candidate, then remove the required
+check (or lower `enforcement_level`, or use the guard App key) and merge with
+no second approval. The table above puts administrator abuse out of scope;
+this paragraph states what that costs. What exists against it: the
+organisation audit log records the settings change, and the push to `main`
+still runs validation. Neither prevents the merge, and neither supplies a
+review.
 
 ## 10. Open questions
 

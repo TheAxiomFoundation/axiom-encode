@@ -457,6 +457,9 @@ def test_on_unreadable_reviews_refuse(on, world, review):
         {"id": 110687043, "login": "PavelMakarchuk", "type": "Bot"},
         {"id": 110687043, "login": "PavelMakarchuk"},
         {"id": "110687043", "login": "PavelMakarchuk", "type": "User"},
+        # Equal to the enrolled id and found in the enrolled mapping, but not
+        # an integer.
+        {"id": 110687043.0, "login": "PavelMakarchuk", "type": "User"},
         {"id": True, "login": "PavelMakarchuk", "type": "User"},
     ],
 )

@@ -58,6 +58,25 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 # requirement at admission and before signing. A repository administrator can
 # remove a required check afterwards; that adversary is out of scope (design,
 # section 9). Do not turn lock 1 before activation checklist step 4 is done.
+#
+# RESIDUAL RISK the owners accept with lock 1. Lock 3 is read again, never
+# cached, at five points: preflight (start and end), root provisioner (start
+# and end), before validation, immediately before signing, before
+# publication. AFTER publication only the GitHub setting protects the merge.
+# Today the approval before signing is enforced by this module, independent
+# of repository settings. After activation an enrolled owner who is also a
+# repository administrator can sign their own candidate, then remove the
+# required check (or lower its enforcement level, or use the guard App key)
+# and merge with no second approval. What exists against that: the
+# organisation audit log records the settings change, and the push to main
+# still runs validation. Neither prevents the merge or supplies a review.
+#
+# KNOWN LIMIT (availability only). Every read is anonymous. One run of this
+# lane makes 45 reads (7 of them the branch record; the reviewed lane makes
+# 38) against GitHub's 60 per hour per address, so a second run in the same
+# hour from the same address is refused. Follow-up: send the reads with the
+# workflow token when one is available. The record is public, so a token
+# only raises the limit; any error must still refuse.
 V6_WRITER_ENABLED: Final[bool] = False
 # The enforcing check of the merge guard, and the App that must publish it.
 # The shadow check of the runner has another name and never satisfies this.
