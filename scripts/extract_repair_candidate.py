@@ -428,35 +428,50 @@ def _source_repair_candidates(
     ):
         lane = f"source-{index:02d}"
         expected_module = _expected_module_path(country, rulespec_path)
-        candidate_pattern = re.compile(
-            rf"{re.escape(lane)}/({RUNNER_PATTERN.pattern})/"
-            rf"{re.escape(expected_module)}"
+        # A lane's verified retained export is the best rejected attempt. It
+        # wins over whatever live pair a later failed model call left behind;
+        # an invalid export fails closed rather than falling back to live files.
+        retained = _retained_candidate(
+            bundle,
+            members,
+            files,
+            repair_lane=lane,
+            expected_module=expected_module,
+            citation=citation,
         )
-        runners = sorted(
-            {
-                match.group(1)
-                for path in files
-                if (match := candidate_pattern.fullmatch(path)) is not None
-                and f"{lane}/{match.group(1)}/"
-                f"{expected_module.removesuffix('.yaml')}.test.yaml"
-                in files
-            }
-        )
-        escalated = [name for name in ESCALATION_RUNNERS if name in runners]
-        if escalated:
-            runner = escalated[0]
-        elif len(runners) == 1:
-            runner = runners[0]
+        if retained is not None:
+            candidate, tests = retained
+            runner = "retained-best"
         else:
-            raise ValueError(
-                f"repair artifact does not bind one final source candidate: {lane}"
+            candidate_pattern = re.compile(
+                rf"{re.escape(lane)}/({RUNNER_PATTERN.pattern})/"
+                rf"{re.escape(expected_module)}"
             )
-        candidate_path = f"{lane}/{runner}/{expected_module}"
-        tests_path = (
-            f"{lane}/{runner}/{expected_module.removesuffix('.yaml')}.test.yaml"
-        )
-        candidate = _verified_generated_file(bundle, members, files, candidate_path)
-        tests = _verified_generated_file(bundle, members, files, tests_path)
+            runners = sorted(
+                {
+                    match.group(1)
+                    for path in files
+                    if (match := candidate_pattern.fullmatch(path)) is not None
+                    and f"{lane}/{match.group(1)}/"
+                    f"{expected_module.removesuffix('.yaml')}.test.yaml"
+                    in files
+                }
+            )
+            escalated = [name for name in ESCALATION_RUNNERS if name in runners]
+            if escalated:
+                runner = escalated[0]
+            elif len(runners) == 1:
+                runner = runners[0]
+            else:
+                raise ValueError(
+                    f"repair artifact does not bind one final source candidate: {lane}"
+                )
+            candidate_path = f"{lane}/{runner}/{expected_module}"
+            tests_path = (
+                f"{lane}/{runner}/{expected_module.removesuffix('.yaml')}.test.yaml"
+            )
+            candidate = _verified_generated_file(bundle, members, files, candidate_path)
+            tests = _verified_generated_file(bundle, members, files, tests_path)
         root = destination / "source-candidates" / lane / runner
         _write_candidate_pair(root, expected_module, candidate, tests)
         extracted.append(

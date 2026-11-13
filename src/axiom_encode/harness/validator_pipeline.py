@@ -66,6 +66,8 @@ from axiom_encode.checks import (
     map_issue_text,
 )
 from axiom_encode.codex_cli import (
+    codex_auth_secrets,
+    redact_codex_auth_secrets,
     resolve_codex_cli,
     with_codex_model_availability_hint,
 )
@@ -147,6 +149,7 @@ from axiom_encode.repo_routing import (
     monorepo_checkout_name,
 )
 from axiom_encode.rules_engine_compat import run_rulespec_compile
+from axiom_encode.signing_broker import supervisor_codex_home
 from axiom_encode.statute import (
     citation_to_citation_path,
     normalize_rulespec_path_segment,
@@ -793,12 +796,26 @@ def _run_codex_reviewer_cli(
                 ),
             ),
         )
+        # The read-only sandbox still lets the reviewer read auth.json in its
+        # home. Collect the credential strings before and after the run (a
+        # refresh can rotate them) and strip them from everything kept.
+        if local_environment is None:
+            codex_home = supervisor_codex_home()
+        else:
+            codex_home = local_environment.get("CODEX_HOME") or os.path.join(
+                local_environment["HOME"], ".codex"
+            )
+        secrets = codex_auth_secrets(codex_home)
         if local_environment is None:
             result = _run_subprocess_with_idle_timeout(
                 cmd,
                 timeout=timeout,
                 idle_timeout=idle_timeout,
                 cwd=cwd,
+                # Codex cannot initialize without a home directory. Under the
+                # signing supervisor only its captured, isolated home is
+                # forwarded; the sandbox above keeps the review read-only.
+                include_supervisor_codex_home=True,
             )
         else:
             result = _run_subprocess_with_idle_timeout(
@@ -809,7 +826,11 @@ def _run_codex_reviewer_cli(
                 env=local_environment,
                 env_is_final=True,
             )
-        return _extract_codex_text_output(result.output), result.returncode
+        secrets |= codex_auth_secrets(codex_home)
+        text = _extract_codex_text_output(
+            redact_codex_auth_secrets(result.output, secrets)
+        )
+        return redact_codex_auth_secrets(text, secrets), result.returncode
     except subprocess.TimeoutExpired:
         return f"Timeout after {timeout}s", 1
     except FileNotFoundError:
@@ -844,6 +865,7 @@ def _run_subprocess_with_idle_timeout(
     idle_timeout: int,
     cwd: Optional[Path] = None,
     env: Mapping[str, str] | None = None,
+    include_supervisor_codex_home: bool = False,
     env_is_final: bool = False,
     poll_interval: float = 0.5,
 ) -> _SubprocessRunResult:
@@ -877,9 +899,12 @@ def _run_subprocess_with_idle_timeout(
                     env=(
                         dict(env)
                         if env_is_final and env is not None
-                        else scrub_attestation_signing_keys()
-                        if env is None
-                        else scrub_attestation_signing_keys(env)
+                        else scrub_attestation_signing_keys(
+                            env,
+                            include_supervisor_codex_home=(
+                                include_supervisor_codex_home
+                            ),
+                        )
                     ),
                 )
 
@@ -24221,10 +24246,65 @@ def _mask_person_resource_type_description(text: str) -> str:
     return "".join(characters)
 
 
+_TABLE_INSTRUCTION_SPACE = r"(?:[ \t]|\r?\n(?![ \t]*\r?\n))+"
+_FAMILY_EXPENSE_TABLE_INSTRUCTION = re.compile(
+    r"(?:\A|(?<=\n\n)|(?<=\r\n\r\n))"
+    + _TABLE_INSTRUCTION_SPACE.join(
+        (
+            "If",
+            "applicable,",
+            "complete",
+            "the",
+            "following",
+            "table",
+            "and",
+            "include",
+            "all",
+            "of",
+            "your",
+            r"(?P<modifier>family)'s",
+            "eligible",
+            "physical",
+            "activity",
+            r"expenses\.",
+        )
+    )
+    + r"(?=[ \t]*(?:\Z|\r?\n[ \t]*\r?\n))",
+    flags=re.IGNORECASE,
+)
+
+
+def _mask_family_expense_table_instruction(text: str) -> str:
+    """Distinguish the expenses' family from an eligibility test's subject.
+
+    Only the complete instruction paragraph is recognized, and only when it is
+    not colon-led and the following text does not open with a listed
+    qualifier or condition word. Qualifying prose that opens otherwise is not
+    detected here; it stays in the text for condition analysis. This removes a
+    false scope inference; it does not assign a Person actor or establish
+    applicability, eligibility, or compliance with the instruction.
+    """
+    characters = list(text)
+    for match in _FAMILY_EXPENSE_TABLE_INSTRUCTION.finditer(text):
+        # Blank lines do not sever a colon-led instruction or its qualification.
+        if text[: match.start()].rstrip().endswith(":") or re.match(
+            r"(?:unless|except|provided|providing|subject\s+to|but|however|only|if|when"
+            r"|once|until|assuming"
+            r"|where|on\s+condition|conditional|as\s+long\s+as|so\s+long\s+as"
+            r"|in\s+the\s+event|to\s+the\s+extent)\b",
+            text[match.end() :].lstrip(),
+            flags=re.IGNORECASE,
+        ):
+            continue
+        start, end = match.span("modifier")
+        characters[start:end] = " " * (end - start)
+    return "".join(characters)
+
+
 def _classify_source_scope(text: str) -> str | None:
     """Return a clear source scope, or None when the text is mixed/vague."""
     classification_text = _mask_person_resource_type_description(
-        _mask_household_filing_statuses(text)
+        _mask_family_expense_table_instruction(_mask_household_filing_statuses(text))
     )
     person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(classification_text) is not None
     unit_scoped = (
@@ -24241,7 +24321,7 @@ def _classify_source_scope(text: str) -> str | None:
 def _classify_source_unit_entity(text: str) -> str | None:
     """Return a clear unit entity from source text, or None when generic/mixed."""
     classification_text = _mask_person_resource_type_description(
-        _mask_household_filing_statuses(text)
+        _mask_family_expense_table_instruction(_mask_household_filing_statuses(text))
     )
     if _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(classification_text):
         return "taxunit"
@@ -37008,6 +37088,7 @@ class ValidatorPipeline:
         rules_file: Path | None = None,
         proof_source_texts: Mapping[str, str | None] | None = None,
         execution_evidence: SameCaseEvidence | None = None,
+        local_relation_context: object | None = None,
     ) -> list[str]:
         """Apply opt-in completeness checks to the resolver-owned corpus body."""
 
@@ -37072,6 +37153,7 @@ class ValidatorPipeline:
             content,
             authoritative_source_text or "",
             execution_evidence=execution_evidence,
+            local_relation_context=local_relation_context,
             referral_context=collect_referral_context(
                 self, content, rules_file, proof_source_texts
             )
@@ -37715,6 +37797,7 @@ class ValidatorPipeline:
             cwd=self.axiom_rules_path if self.axiom_rules_path.exists() else None,
             env=self._rulespec_engine_env(),
             composed=is_composition,
+            _execution_owner=self,
         )
         if result.returncode != 0:
             return result, None
@@ -38993,8 +39076,13 @@ class ValidatorPipeline:
         }
         command = [str(binary), "run-compiled", "--artifact", str(compiled_path)]
         try:
-            result = subprocess.run(
+            from .local_case_custody import run_observed_case
+
+            result = run_observed_case(
                 command,
+                pipeline=self,
+                case=case,
+                ordinal=case_index,
                 input=json.dumps(request),
                 capture_output=True,
                 text=True,
@@ -39486,9 +39574,16 @@ class ValidatorPipeline:
         self._register_validation_temporary_root(tmpdir)
         try:
             compiled_path = tmpdir / "compiled.json"
-            compile_result, payload = execution_pipeline._compile_rulespec_to_artifact(
-                execution_file, compiled_path
-            )
+            from .local_compile_custody import compile_scope
+
+            with compile_scope(
+                execution_capture, execution_pipeline, execution_file, compiled_path
+            ):
+                compile_result, payload = (
+                    execution_pipeline._compile_rulespec_to_artifact(
+                        execution_file, compiled_path
+                    )
+                )
             raw_output = compile_result.stdout + compile_result.stderr
             if compile_result.returncode != 0:
                 detail = compile_result.stderr.strip() or compile_result.stdout.strip()
@@ -39742,7 +39837,10 @@ class ValidatorPipeline:
         if strict_layout_checks:
             issues.extend(find_rule_source_metadata_issues(content))
 
-        test_path = self._rulespec_test_path(rules_file)
+        # Compile and execute one captured closure. Reading the original
+        # companion here could execute a transient edit that is reverted
+        # before the capture's freshness check.
+        test_path = execution_pipeline._rulespec_test_path(execution_file)
         if test_path.exists():
             try:
                 payload = _safe_load_unique_keys(test_path.read_text())
@@ -39795,8 +39893,17 @@ class ValidatorPipeline:
                         find_zero_branch_test_coverage_issues(content, payload)
                     )
                     if len(issues) == pre_test_issue_count:
-                        issues.extend(
-                            execution_pipeline._run_rulespec_test_cases(
+                        from .local_case_custody import suite_scope
+
+                        with suite_scope(
+                            execution_capture,
+                            execution_pipeline,
+                            execution_file,
+                            compiled_path,
+                            compiled_payload,
+                            payload,
+                        ) as observed_suite:
+                            case_issues = execution_pipeline._run_rulespec_test_cases(
                                 rules_file=execution_file,
                                 compiled_path=compiled_path,
                                 compiled_payload=compiled_payload,
@@ -39807,22 +39914,38 @@ class ValidatorPipeline:
                                     else {}
                                 ),
                             )
-                        )
+                            if observed_suite is not None:
+                                observed_suite.finish(case_issues)
+                            issues.extend(case_issues)
         elif not issues and not self._is_nonassertable_rulespec_artifact(rules_file):
             issues.append("No tests found.")
 
-        issues.extend(
-            self._complete_source_unit_issues(
-                content,
-                validation_source_texts=validation_source_texts,
-                proof_source_texts=proof_source_texts,
-                test_cases=complete_source_unit_test_cases,
-                execution_evidence=execution_capture.evidence()
-                if execution_capture
-                else None,
-                rules_file=rules_file,
+        from .local_relation_source_evidence import local_relation_source_scope
+
+        with local_relation_source_scope(
+            execution_capture,
+            execution_pipeline,
+            content,
+            complete_source_unit_test_cases,
+            proof_source_texts,
+        ) as local_context:
+            issues.extend(
+                self._complete_source_unit_issues(
+                    content,
+                    validation_source_texts=validation_source_texts,
+                    proof_source_texts=proof_source_texts,
+                    test_cases=complete_source_unit_test_cases,
+                    execution_evidence=execution_capture.evidence()
+                    if execution_capture
+                    else None,
+                    rules_file=rules_file,
+                    **(
+                        {"local_relation_context": local_context}
+                        if local_context is not None
+                        else {}
+                    ),
+                )
             )
-        )
         manual_advice = self._manual_outcome_exception_advice(
             content,
             validation_source_texts=validation_source_texts,
@@ -42678,9 +42801,9 @@ Output ONLY valid JSON:
         year: int = 2024,
         sample_size: int | None = None,
     ) -> ValidationResult:
-        """Benchmark RuleSpec encoding against PolicyEngine using Populace.
+        """Benchmark RuleSpec encoding against PolicyEngine using Microcosm.
 
-        Runs PE Microsimulation on Populace, extracts the target
+        Runs PE Microsimulation on Microcosm, extracts the target
         variable for all tax units, and reports the benchmark. This establishes
         the PE baseline that RuleSpec must match as inputs get wired up.
 

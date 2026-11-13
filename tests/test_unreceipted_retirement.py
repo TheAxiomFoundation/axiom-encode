@@ -1628,6 +1628,7 @@ _SCAN_SCHEMA_NAMES = (
     "_MODEL_APPLY_MANIFEST_FIELDS",
     "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
     "_REVIEWED_CANDIDATE_MANIFEST_FIELDS",
+    "_REVIEWED_REPAIR_MANIFEST_FIELDS",
     "_RETIRE_APPLY_MANIFEST_FIELDS",
     "_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS",
     "_PATH_MIGRATION_APPLY_MANIFEST_FIELDS",
@@ -1678,6 +1679,17 @@ _EXPECTED_MANIFEST_CLASSES = {
         | {
             "citation",
             "reviewed_rulespec_ref",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+        },
+    ),
+    "_REVIEWED_REPAIR_MANIFEST_FIELDS": (
+        frozenset({"run_id"}),
+        _EXPECTED_COMMON_SCANNED
+        | {
+            "citation",
+            "reviewed_repair",
             "applied_files",
             "source_attestation",
             "validation_execution",
@@ -1841,6 +1853,7 @@ def test_manifest_scan_classes_cover_each_schema_and_all_schema_constants():
 
 _SCAN_ADMISSION_TOOLS = {
     "_REVIEWED_CANDIDATE_MANIFEST_FIELDS": cli.APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+    "_REVIEWED_REPAIR_MANIFEST_FIELDS": cli.APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
     "_RETIRE_APPLY_MANIFEST_FIELDS": cli.APPLIED_ENCODING_RETIRE_TOOL,
     "_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS": cli.APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL,
     "_PATH_MIGRATION_APPLY_MANIFEST_FIELDS": cli.APPLIED_ENCODING_PATH_MIGRATION_TOOL,

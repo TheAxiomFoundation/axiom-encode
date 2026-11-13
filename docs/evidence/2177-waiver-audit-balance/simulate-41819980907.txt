@@ -1,0 +1,9 @@
+ratchet overhead per leg (setup+report, median) = 0.6 min
+A round-robin, path order within leg (main today)          ratchet max  58.4 (us-vt) median  33.6 | job max 111.9 (us)
+   simulator check vs observed ratchet: median |err| 0.1 min, max 0.2; observed max 58.3
+B round-robin, longest-first within leg (oracle cost)      ratchet max  49.5 (us-vt) median  26.8 | job max 104.3 (us)
+C LPT across legs + longest-first (oracle cost)            ratchet max  49.5 (us   ) median  26.3 | job max 126.5 (us)
+D LPT across legs + longest-first (byte proxy)             ratchet max  49.5 (us-ga) median  28.5 | job max 103.5 (us-co)
+E LPT with each leg's own job time as initial load (oracle) ratchet max  49.5 (us-ks) median  28.4 | job max  77.6 (us)
+lower bound on ratchet max: max module 48.9 + overhead 0.6
+job time without any audit share, worst legs: [(77, 'us'), (72, 'us-co'), (56, 'us-ak'), (53, 'us-nc'), (46, 'us-sc')]

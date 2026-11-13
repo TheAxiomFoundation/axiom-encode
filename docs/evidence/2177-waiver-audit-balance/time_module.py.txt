@@ -1,0 +1,155 @@
+"""Fingerprint one waiver module exactly as the audit's serial executor does, and measure it.
+
+Usage (run with the venv of the encoder under test, -I so only that venv is used):
+  .venv/bin/python -I time_module.py ROOT CORPUS ENGINE MODULE OUT_JSON LIMIT_SECONDS
+
+Writes OUT_JSON every 30 s and at the end:
+  - elapsed seconds, whether the module finished, the fingerprint and pass state;
+  - work counts: corpus_resolver._read_corpus_artifact calls and bytes they read,
+    resolve_local_corpus_source calls, subprocess.run/Popen launches;
+  - a stack sample of the main thread every 0.5 s, aggregated by innermost
+    axiom_encode frame and by "in a child process wait" (engine subprocess) vs
+    Python work.
+At LIMIT_SECONDS it writes the file and exits without finishing the module.
+"""
+
+from __future__ import annotations
+
+import collections
+import json
+import os
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+ROOT, CORPUS, ENGINE, MODULE, OUT = (Path(a) for a in sys.argv[1:6])
+LIMIT = float(sys.argv[6])
+CURRENT_KEY = "KwIYEbbs/905yxn/9Yi6jYTF8oyZcq1FlxiG4e0y0tg="
+RETIRED_KEY = "9EJzeLnZsdBoDEDkU8xbi7HjYVVvd4HDX/BxPHPvXTk="
+
+from axiom_encode import cli, corpus_resolver  # noqa: E402
+from axiom_encode.toolchain import local_corpus_release_verification  # noqa: E402
+
+counts = collections.Counter()
+read_bytes = [0]
+
+_orig_read = corpus_resolver._read_corpus_artifact
+
+
+def _counted_read(*args, **kwargs):
+    counts["read_corpus_artifact_calls"] += 1
+    for value in list(args) + list(kwargs.values()):
+        if isinstance(value, Path):
+            try:
+                read_bytes[0] += value.stat().st_size
+            except OSError:
+                pass
+            break
+    return _orig_read(*args, **kwargs)
+
+
+corpus_resolver._read_corpus_artifact = _counted_read
+
+_orig_resolve = corpus_resolver.resolve_local_corpus_source
+
+
+def _counted_resolve(*args, **kwargs):
+    counts["resolve_local_corpus_source_calls"] += 1
+    return _orig_resolve(*args, **kwargs)
+
+
+corpus_resolver.resolve_local_corpus_source = _counted_resolve
+# Rebind every module that imported the name directly.
+for name, module in list(sys.modules.items()):
+    if name.startswith("axiom_encode") and getattr(module, "resolve_local_corpus_source", None) is _orig_resolve:
+        module.resolve_local_corpus_source = _counted_resolve
+
+_orig_popen_init = subprocess.Popen.__init__
+
+
+def _counted_popen_init(self, *args, **kwargs):
+    counts["subprocess_launches"] += 1
+    argv = args[0] if args else kwargs.get("args")
+    exe = Path(str(argv[0] if isinstance(argv, (list, tuple)) else argv)).name
+    counts[f"launch:{exe}"] += 1
+    return _orig_popen_init(self, *args, **kwargs)
+
+
+subprocess.Popen.__init__ = _counted_popen_init
+
+leaf = collections.Counter()
+mode = collections.Counter()
+started = time.perf_counter()
+state = {"finished": False, "result": None, "error": None}
+main_ident = threading.get_ident()
+
+
+def sample() -> None:
+    while True:
+        time.sleep(0.5)
+        frame = sys._current_frames().get(main_ident)
+        if frame is None:
+            continue
+        stack = []
+        while frame is not None:
+            code = frame.f_code
+            stack.append((code.co_filename, code.co_name))
+            frame = frame.f_back
+        in_wait = any(
+            fn.endswith("subprocess.py") and name in {"communicate", "wait", "_wait", "_communicate"}
+            for fn, name in stack
+        )
+        mode["child_process_wait" if in_wait else "python"] += 1
+        inner = next(
+            (f"{Path(fn).name}:{name}" for fn, name in stack if "axiom_encode" in fn),
+            "<outside axiom_encode>",
+        )
+        leaf[inner] += 1
+
+
+def write(final: bool = False) -> None:
+    payload = {
+        "module": str(MODULE),
+        "encoder": cli.__dict__.get("__version__") or __import__("axiom_encode").__version__,
+        "elapsed_seconds": round(time.perf_counter() - started, 1),
+        "finished": state["finished"],
+        "final": final,
+        "error": state["error"],
+        "passed": None if state["result"] is None else state["result"]["passed"],
+        "fingerprint": None if state["result"] is None else state["result"]["fingerprint"],
+        "counts": dict(counts),
+        "read_corpus_artifact_bytes": read_bytes[0],
+        "samples_by_mode": dict(mode),
+        "top_innermost_axiom_encode_frames": leaf.most_common(25),
+    }
+    tmp = OUT.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, indent=1))
+    tmp.replace(OUT)
+
+
+def watchdog() -> None:
+    while True:
+        time.sleep(30)
+        write()
+        if time.perf_counter() - started > LIMIT:
+            write(final=True)
+            os._exit(3)
+
+
+threading.Thread(target=sample, daemon=True).start()
+threading.Thread(target=watchdog, daemon=True).start()
+try:
+    with local_corpus_release_verification(CURRENT_KEY, retired_public_keys=(RETIRED_KEY,)):
+        rows = cli._fingerprint_validation_waiver_modules(
+            [MODULE], root=ROOT, corpus_path=CORPUS, axiom_rules_path=ENGINE
+        )
+    state["result"] = rows[0]
+    state["finished"] = True
+except Exception as exc:  # record, then re-raise
+    state["error"] = f"{type(exc).__name__}: {exc}"[:2000]
+    write(final=True)
+    raise
+write(final=True)
+print(json.dumps({"elapsed": round(time.perf_counter() - started, 1), "passed": rows[0]["passed"], "fingerprint": rows[0]["fingerprint"]}))

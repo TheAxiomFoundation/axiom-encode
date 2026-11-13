@@ -1,1 +1,1 @@
-Add a generic US Populace PolicyEngine comparator for direct RuleSpec variable mappings.
+Add a generic US Microcosm PolicyEngine comparator for direct RuleSpec variable mappings.

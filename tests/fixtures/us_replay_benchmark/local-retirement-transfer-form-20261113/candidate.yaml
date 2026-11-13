@@ -1,0 +1,835 @@
+format: rulespec/v1
+module:
+  summary: Complete selected-pair ScheduleQ diagnostic; source-authorized transfers,
+    proportional withholding and form duties. General For more information referral
+    remains informational context; no guide-law import.
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+    source_sha256: e7a0bbfd4382c5329fd53a6174e2bdc94f86e8aacf64259a6763bb811d19317b
+units:
+- name: CAD
+  kind: currency
+  minor_units: 2
+inputs:
+- name: schedule_q_retirement_income_line_122_line_10
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Entered amount from line122 on line10.
+  unit: CAD
+- name: schedule_q_annuity_rrsp_rrif_prpp_transfer_line_12
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Entered deduction included in amount on line10, 12.
+  unit: CAD
+- name: schedule_q_unused_prpp_vrsp_refund_deduction_line_13
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Entered deduction included in amount on line10, 13.
+  unit: CAD
+- name: schedule_q_line_293_deduction_line_14
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Entered deduction included in amount on line10, 14.
+  unit: CAD
+- name: schedule_q_line_297_point_12_deduction_line_16
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Entered deduction included in amount on line10, 16.
+  unit: CAD
+- name: schedule_q_requested_retirement_income_transfer_line_22
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Requested selected retirement transfer, not automatic half.
+  unit: CAD
+- name: quebec_rl2_box_j_from_line20
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Quebec withholding from income on line20, RL2 boxJ.
+  unit: CAD
+- name: quebec_rl1_box_e_from_included_compensation
+  entity: Person
+  dtype: Money
+  period: Year
+  description: RL1 boxE for retirement compensation included in line20.
+  unit: CAD
+- name: has_selected_spouse_at_reference_date
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Explicit association to selected spouse at reference date, not household
+    inference.
+- name: jointly_decided_retirement_income_transfer
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Explicit joint decision of selected transferor and recipient.
+- name: compensation_included_in_line20
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Whether income on line20 includes retirement compensation arrangement
+    amounts.
+- name: received_retirement_compensation_amounts
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Whether claimant received retirement compensation arrangement amounts;
+    guide referral premise.
+- name: is_completing_retirement_transfer_schedule
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Explicit transferor form-use, not actual enclosure or filing.
+- name: wants_retirement_transfer_schedule_copy
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Explicit wish to keep a copy, not compliance.
+- name: transferor_birth_date
+  entity: Person
+  dtype: Date
+  period: Year
+  description: Actual transferor date of birth.
+- name: spouse_reference_date
+  entity: Person
+  dtype: Date
+  period: Year
+  description: Date at which selected spouse association fact is asserted.
+rules:
+- name: quebec_2025_schedule_q_transfer_cap_rate
+  kind: parameter
+  dtype: Rate
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: 'Retirement income you are transferring to your spouse on December
+            31, 2025 (maximum: 50% of the amount on line 20).
+
+            Carry this amount to line 245 of your return.
+
+            Your spouse must enter the same amount on line 123 of their return.'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 0.5
+- name: schedule_q_retirement_income_deductions_line_18
+  kind: derived
+  dtype: Money
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: 'Amount from line 10 used to purchase an annuity or transferred
+            to an RRSP, a RRIF
+
+            or a PRPP/VRSP (included in the amount on line 250 [point 4])
+
+            12
+
+            Deduction claimed on line 250 (point 6) for a refund of unused PRPP/VRSP
+
+            contributions included in the amount on line 10 above
+
+            + 13
+
+            Deduction claimed on line 293 of your return for the amount on line 10
+
+            + 14
+
+            Deduction claimed on line 297 (point 12) of your return for the amount
+            on line 10
+
+            + 16
+
+            Add lines 12 through 16.
+
+            =
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_q_annuity_rrsp_rrif_prpp_transfer_line_12 + schedule_q_unused_prpp_vrsp_refund_deduction_line_13
+      + schedule_q_line_293_deduction_line_14 + schedule_q_line_297_point_12_deduction_line_16
+  entity: Person
+  period: Year
+  unit: CAD
+- name: schedule_q_eligible_retirement_income_line_20
+  kind: derived
+  dtype: Money
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Subtract line 18 from line 10.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_q_retirement_income_line_122_line_10 - schedule_q_retirement_income_deductions_line_18
+  entity: Person
+  period: Year
+  unit: CAD
+- name: normalized_requested_retirement_income_transfer
+  kind: derived
+  dtype: Money
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: 'Retirement income you are transferring to your spouse on December
+            31, 2025 (maximum: 50% of the amount on line 20).
+
+            Carry this amount to line 245 of your return.
+
+            Your spouse must enter the same amount on line 123 of their return.'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: min(max(0, schedule_q_requested_retirement_income_transfer_line_22),
+      schedule_q_eligible_retirement_income_line_20 * quebec_2025_schedule_q_transfer_cap_rate)
+  entity: Person
+  period: Year
+  unit: CAD
+- name: retirement_income_transfer_permission_applies
+  kind: derived
+  dtype: Judgment
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: 'If you were born before January 1, 1961, and you had a spouse
+            on December 31, 2025, you and your spouse can jointly decide to include
+            a portion
+
+            of your retirement income in the calculation of your spouse’s income. '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: transferor_birth_date < retirement_transfer_birth_cutoff[schedule_q_source_year]
+      and has_selected_spouse_at_reference_date and spouse_reference_date == retirement_transfer_spouse_reference_date[schedule_q_source_year]
+      and jointly_decided_retirement_income_transfer
+  entity: Person
+  period: Year
+- name: schedule_q_retirement_income_transferred_line_245
+  kind: derived
+  dtype: Money
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: 'Retirement income you are transferring to your spouse on December
+            31, 2025 (maximum: 50% of the amount on line 20).
+
+            Carry this amount to line 245 of your return.
+
+            Your spouse must enter the same amount on line 123 of their return.'
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: 'If you were born before January 1, 1961, and you had a spouse
+            on December 31, 2025, you and your spouse can jointly decide to include
+            a portion
+
+            of your retirement income in the calculation of your spouse’s income. '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if retirement_income_transfer_permission_applies:\n  normalized_requested_retirement_income_transfer\n\
+      else:\n  0"
+  entity: Person
+  period: Year
+  unit: CAD
+- name: entered_quebec_withholding_line50
+  kind: derived
+  dtype: Money
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: 'Québec income tax withheld (RL-2 slip, box J ) from the income
+            on line 20.
+
+            If the income includes amounts received under a retirement compensation
+            arrangement,
+
+            include, on this line, the amount shown in box E of your RL-1 slip.
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if compensation_included_in_line20:\n  quebec_rl2_box_j_from_line20\
+      \ + quebec_rl1_box_e_from_included_compensation\nelse:\n  quebec_rl2_box_j_from_line20"
+  entity: Person
+  period: Year
+  unit: CAD
+- name: schedule_q_quebec_withholding_transferred_line_451_1
+  kind: derived
+  dtype: Money
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: 'Amount from line 22
+
+            Amount from line 20
+
+            Multiply line 50 by line 52. Divide the result by line 53.
+
+            Carry this amount to line 451.1 of your return.
+
+            Your spouse must enter the same amount on line 451.3 of their return.'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if schedule_q_retirement_income_transferred_line_245 > 0:\n  entered_quebec_withholding_line50\
+      \ * schedule_q_retirement_income_transferred_line_245 / schedule_q_eligible_retirement_income_line_20\n\
+      else:\n  0"
+  entity: Person
+  period: Year
+  unit: CAD
+- name: retirement_income_transferred_to
+  kind: data_relation
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  data_relation:
+    arity: 2
+    arguments:
+    - Person
+    - Person
+  metadata:
+    proof:
+      atoms:
+      - path: data_relation
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: 'If you were born before January 1, 1961, and you had a spouse
+            on December 31, 2025, you and your spouse can jointly decide to include
+            a portion
+
+            of your retirement income in the calculation of your spouse’s income. '
+- name: retirement_income_received_line123
+  kind: derived
+  dtype: Money
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Your spouse must enter the same amount on line 123 of their return.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: sum(retirement_income_transferred_to.schedule_q_retirement_income_transferred_line_245)
+  entity: Person
+  period: Year
+  unit: CAD
+- name: quebec_withholding_received_line451_3
+  kind: derived
+  dtype: Money
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Your spouse must enter the same amount on line 451.3 of their return.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: sum(retirement_income_transferred_to.schedule_q_quebec_withholding_transferred_line_451_1)
+  entity: Person
+  period: Year
+  unit: CAD
+- name: corresponding_withholding_transfer_required
+  kind: derived
+  dtype: Judgment
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: If you transfer a portion of your retirement income to your spouse,
+            you must also transfer the corresponding Québec income tax withheld from
+            that income.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_q_retirement_income_transferred_line_245 > 0
+  entity: Person
+  period: Year
+- name: retirement_transfer_schedule_enclosure_required
+  kind: derived
+  dtype: Judgment
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Only the person transferring retirement income must enclose Schedule
+            Q with their return.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: is_completing_retirement_transfer_schedule and schedule_q_retirement_income_transferred_line_245
+      > 0
+  entity: Person
+  period: Year
+- name: spouse_identification_reporting_required
+  kind: derived
+  dtype: Judgment
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: 'Your spouse’s
+
+            social insurance number
+
+
+            Last name and first name of your spouse on December 31, 2025
+
+            3'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: is_completing_retirement_transfer_schedule
+  entity: Person
+  period: Year
+- name: compensation_eligible_income_guide_consultation_required
+  kind: derived
+  dtype: Judgment
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: 'Amount from line 122 of your return. If you received amounts under
+            a retirement compensation arrangement,
+
+            see “Eligible retirement income” in the instructions for line 122 in the
+            guide.
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: received_retirement_compensation_amounts
+  entity: Person
+  period: Year
+- name: retirement_transfer_copy_guide_consultation_required
+  kind: derived
+  dtype: Judgment
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: If you want to keep a copy for your records, see the guide.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: wants_retirement_transfer_schedule_copy
+  entity: Person
+  period: Year
+- name: recipient_income_reporting_required
+  kind: derived
+  dtype: Judgment
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Your spouse must enter the same amount on line 123 of their return.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: retirement_income_received_line123 > 0
+  entity: Person
+  period: Year
+- name: recipient_withholding_reporting_required
+  kind: derived
+  dtype: Judgment
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Your spouse must enter the same amount on line 451.3 of their return.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: retirement_income_received_line123 > 0
+  entity: Person
+  period: Year
+- name: retirement_transfer_birth_cutoff
+  kind: parameter
+  dtype: Date
+  indexed_by: source_year
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: 'If you were born before January 1, 1961, and you had a spouse
+            on December 31, 2025, you and your spouse can jointly decide to include
+            a portion
+
+            of your retirement income in the calculation of your spouse’s income. '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    values:
+      2025: '1961-01-01'
+- name: retirement_transfer_spouse_reference_date
+  kind: parameter
+  dtype: Date
+  indexed_by: source_year
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: 'If you were born before January 1, 1961, and you had a spouse
+            on December 31, 2025, you and your spouse can jointly decide to include
+            a portion
+
+            of your retirement income in the calculation of your spouse’s income. '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    values:
+      2025: '2025-12-31'
+- name: schedule_q_source_year
+  kind: parameter
+  dtype: Integer
+  source: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer
+          excerpt: Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to
+            Your Spouse
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 2025

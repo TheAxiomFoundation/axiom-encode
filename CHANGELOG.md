@@ -1,3 +1,62 @@
+## 0.2.2369
+
+- fix: validate complete retirement transfer execution (#2105)
+- Register the reviewed Schedule 2 repair with all original expectations (#2228)
+
+## 0.2.2368
+
+- Register exact Schedule M repair preserving all companion cases (#2223)
+
+## 0.2.2367
+
+- Lock the build backends and build every locked source against them (#1887)
+- Balance waiver audit shards by measured cost and print progress (#2177)
+- Say Microcosm in prose, help text and private names (#2183)
+- Protected reviewer runtime: supervisor Codex home, signer subscription options, reprovisioning and source-lane replay (#2037)
+- Align proof excerpts to the printed source text; fix imports pruning (0.2.2349) (#1900)
+- Apply exact registered repairs through protected validation (#1963)
+- Publish signed RuleSpec PRs onto a main tip that moved only through plumbing (#1892)
+- Require Encoding-Target and Fixes-Run lines in every PR body (#2156)
+- Add content-bound merge guard evaluator (inactive, #2172) (#2204)
+- Declare the validation effect in automated version-bump PRs (#2197)
+
+## 0.2.2366
+
+- Bind Canadian form and Schedule M obligations to observed execution (#2083)
+
+## 0.2.2365
+
+- Add failure classes and a pre-encode gate that stops empty and repealed targets before a model call (#1997)
+- Count only listed values in numeric-recall retry feedback (#2209)
+
+## 0.2.2364
+
+- Bind complete form source evidence to verified execution (#2139)
+- Add immutable complete T936 producer guidance reference (#2208)
+
+## 0.2.2363
+
+- fix: bind copied return categories to source projections (#2129)
+
+## 0.2.2362
+
+- fix: bind Schedule 2 document request evidence to its source duty (#2128)
+
+## 0.2.2361
+
+- Verify actual same-page Schedule 2 floor evidence (#2127)
+
+## 0.2.2360
+
+- Verify with encoder main: producer floor, verifier record, RuleSpec admissions registry (#2093, #2095; replaces #2101) (#2194)
+- Avoid treating complete informational URL referrals as computations (#2068)
+- Scope the session-law deferral reader to statute self-references (#1930)
+- Keep nonfiler return instructions out of factual gate counts (#2122)
+- Allow complete GPT-6 authoring output and reject incomplete responses (#2117)
+- Send the Codex prompt on stdin instead of argv (#1205) (#2184)
+- Record the terminal outcome of a live encode run (#2189)
+- Rewrite the US replay snapshot for the located numeric-recall message (main is red) (#2195)
+
 ## 0.2.2359
 
 - fix: retain strict proof requirements in partial repairs (#2089)
