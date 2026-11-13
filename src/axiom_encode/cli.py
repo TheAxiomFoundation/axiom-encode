@@ -2509,7 +2509,7 @@ def main():
         action="store_true",
         help=(
             "Exit non-zero when an included active wired PolicyEngine program "
-            "surface lacks validated Populace comparison metadata"
+            "surface lacks validated Microcosm comparison metadata"
         ),
     )
     oracle_coverage_parser.add_argument(
@@ -2696,51 +2696,51 @@ def main():
         "--json", action="store_true", help="Output as JSON"
     )
 
-    snap_populace_compare_parser = subparsers.add_parser(
+    snap_microcosm_compare_parser = subparsers.add_parser(
         "snap-populace-compare",
-        help="Compare SNAP RuleSpec output against PolicyEngine over Populace",
+        help="Compare SNAP RuleSpec output against PolicyEngine over Microcosm",
     )
-    configure_snap_populace_compare_parser(snap_populace_compare_parser)
+    configure_snap_populace_compare_parser(snap_microcosm_compare_parser)
 
-    tax_populace_compare_parser = subparsers.add_parser(
+    tax_microcosm_compare_parser = subparsers.add_parser(
         "tax-populace-compare",
-        help="Compare federal tax RuleSpec output against PolicyEngine over Populace",
+        help="Compare federal tax RuleSpec output against PolicyEngine over Microcosm",
     )
-    configure_tax_populace_compare_parser(tax_populace_compare_parser)
+    configure_tax_populace_compare_parser(tax_microcosm_compare_parser)
 
-    medicaid_populace_compare_parser = subparsers.add_parser(
+    medicaid_microcosm_compare_parser = subparsers.add_parser(
         "medicaid-populace-compare",
-        help="Compare Medicaid RuleSpec eligibility against PolicyEngine over Populace",
+        help="Compare Medicaid RuleSpec eligibility against PolicyEngine over Microcosm",
     )
-    configure_medicaid_populace_compare_parser(medicaid_populace_compare_parser)
+    configure_medicaid_populace_compare_parser(medicaid_microcosm_compare_parser)
 
-    us_populace_compare_parser = subparsers.add_parser(
+    us_microcosm_compare_parser = subparsers.add_parser(
         "us-populace-compare",
-        help="Compare direct-variable US RuleSpec output against PolicyEngine over Populace",
+        help="Compare direct-variable US RuleSpec output against PolicyEngine over Microcosm",
     )
-    configure_us_populace_compare_parser(us_populace_compare_parser)
+    configure_us_populace_compare_parser(us_microcosm_compare_parser)
 
-    uk_populace_compare_parser = subparsers.add_parser(
+    uk_microcosm_compare_parser = subparsers.add_parser(
         "uk-populace-compare",
-        help="Compare UK RuleSpec output against PolicyEngine over Populace",
+        help="Compare UK RuleSpec output against PolicyEngine over Microcosm",
     )
-    configure_uk_populace_compare_parser(uk_populace_compare_parser)
+    configure_uk_populace_compare_parser(uk_microcosm_compare_parser)
 
-    uk_populace_coverage_parser = subparsers.add_parser(
+    uk_microcosm_coverage_parser = subparsers.add_parser(
         "uk-populace-coverage",
-        help="Report PE-UK Populace computed-variable coverage and backlog",
+        help="Report PE-UK Microcosm computed-variable coverage and backlog",
     )
-    configure_uk_populace_coverage_parser(uk_populace_coverage_parser)
+    configure_uk_populace_coverage_parser(uk_microcosm_coverage_parser)
 
-    uk_populace_hbai_coverage_parser = subparsers.add_parser(
+    uk_microcosm_hbai_coverage_parser = subparsers.add_parser(
         "uk-populace-hbai-coverage",
         help="Report HBAI net-income policy-component coverage",
     )
-    configure_uk_populace_hbai_coverage_parser(uk_populace_hbai_coverage_parser)
+    configure_uk_populace_hbai_coverage_parser(uk_microcosm_hbai_coverage_parser)
 
     snap_readiness_parser = subparsers.add_parser(
         "snap-readiness",
-        help="Report SNAP corpus, RuleSpec, and Populace oracle readiness by state repo",
+        help="Report SNAP corpus, RuleSpec, and Microcosm oracle readiness by state repo",
     )
     snap_readiness_parser.add_argument(
         "--root",
@@ -7953,7 +7953,7 @@ def cmd_oracle_coverage(args):
     fail_on_pending_program_surfaces = (
         getattr(args, "fail_on_pending_program_surfaces", False) is True
     )
-    fail_on_unvalidated_populace_surfaces = (
+    fail_on_unvalidated_microcosm_surfaces = (
         getattr(args, "fail_on_unvalidated_populace_surfaces", False) is True
     )
     fail_on_incomplete_comparable = (
@@ -7989,7 +7989,7 @@ def cmd_oracle_coverage(args):
     pending_program_surfaces = int(
         (report.get("program_surfaces") or {}).get("active_pending_surfaces", 0)
     )
-    unvalidated_populace_surfaces = int(
+    unvalidated_microcosm_surfaces = int(
         (report.get("program_surfaces") or {}).get("unvalidated_populace_surfaces", 0)
     )
     # "Nothing to gate": the classifier found no executable outputs at --root. A
@@ -8027,9 +8027,9 @@ def cmd_oracle_coverage(args):
             and pending_program_surfaces
         )
         or (
-            fail_on_unvalidated_populace_surfaces
+            fail_on_unvalidated_microcosm_surfaces
             and include_program_surfaces
-            and unvalidated_populace_surfaces
+            and unvalidated_microcosm_surfaces
         )
     )
     if fail_on_empty and no_gateable_content:
@@ -8072,7 +8072,7 @@ def cmd_oracle_coverage(args):
             f"status={_format_counter(surfaces['status_counts'])} "
             f"pending={surfaces['pending_surfaces']} "
             f"active_pending={surfaces.get('active_pending_surfaces', 0)} "
-            f"unvalidated_populace={surfaces.get('unvalidated_populace_surfaces', 0)}"
+            f"unvalidated_microcosm={surfaces.get('unvalidated_populace_surfaces', 0)}"
         )
         print(
             "PolicyEngine surface priorities: "
@@ -8080,7 +8080,7 @@ def cmd_oracle_coverage(args):
         )
         if surfaces.get("populace_validation_counts"):
             print(
-                "PolicyEngine Populace validation: "
+                "PolicyEngine Microcosm validation: "
                 f"{_format_counter(surfaces['populace_validation_counts'])}"
             )
         policybench = surfaces.get("policybench")
@@ -8173,16 +8173,16 @@ def cmd_oracle_coverage(args):
         if len(pending_surface_items) > args.limit:
             print(f"  - ... {len(pending_surface_items) - args.limit} more")
 
-    unvalidated_populace_items = (report.get("program_surfaces") or {}).get(
+    unvalidated_microcosm_items = (report.get("program_surfaces") or {}).get(
         "unvalidated_populace_items"
     ) or []
-    if unvalidated_populace_items:
+    if unvalidated_microcosm_items:
         print()
         print(
-            "Active wired PolicyEngine program surfaces without Populace "
+            "Active wired PolicyEngine program surfaces without Microcosm "
             f"validation (first {args.limit}):"
         )
-        for item in unvalidated_populace_items[: args.limit]:
+        for item in unvalidated_microcosm_items[: args.limit]:
             state = f" [{item['state']}]" if item.get("state") else ""
             weight = item.get("policybench_household_weight")
             weight_prefix = (
@@ -8193,8 +8193,8 @@ def cmd_oracle_coverage(args):
                 f"{item.get('populace_validation_status') or 'not_configured'} "
                 f"({item['program_id']})"
             )
-        if len(unvalidated_populace_items) > args.limit:
-            print(f"  - ... {len(unvalidated_populace_items) - args.limit} more")
+        if len(unvalidated_microcosm_items) > args.limit:
+            print(f"  - ... {len(unvalidated_microcosm_items) - args.limit} more")
 
     sys.exit(1 if should_fail else 0)
 
@@ -8510,7 +8510,7 @@ def cmd_classify(args):
 
 
 def cmd_snap_readiness(args):
-    """Report SNAP corpus, RuleSpec, and Populace oracle readiness."""
+    """Report SNAP corpus, RuleSpec, and Microcosm oracle readiness."""
     root = args.root.resolve()
     corpus_root = args.corpus_path.resolve()
     report = build_snap_readiness_report(root, corpus_root=corpus_root)
@@ -8536,7 +8536,7 @@ def cmd_snap_readiness(args):
             f"files={item['rulespec_files']} "
             f"outputs={item['executable_outputs']} "
             f"tests={item['companion_test_files']} "
-            f"populace_config={str(item['policyengine_populace_configured']).lower()} "
+            f"microcosm_config={str(item['policyengine_populace_configured']).lower()} "
             f"program_module={str(item['program_module_exists']).lower()}"
             f"{blocker_suffix}"
         )
