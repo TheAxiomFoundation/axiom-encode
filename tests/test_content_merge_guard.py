@@ -802,6 +802,19 @@ def test_r3_v5_manifest_alone_at_a_position_of_no_module_has_no_lane(path):
     fails(plain({path: v5_manifest()}), guard.R_NO_LANE)
 
 
+def test_r3_removed_file_must_be_listed_by_its_own_manifest():
+    older = {P: PRIMARY, T: COMPANION, M: v5_manifest(P, T, generated_at="1")}
+    world = plain({M: v5_manifest(P)}, base_extra=older, removed=[T])
+    fails(world, guard.R_CONTENT_NOT_COVERED)
+
+
+def test_r3_lookalike_directory_is_not_a_manifest_directory():
+    # Past the length of the real prefix this path reads as a module position.
+    path = "us-az/encoding-manifests/pus-az/policies/existing.json"
+    assert path[len(guard.MANIFEST_PREFIX) :] == "us-az/policies/existing.json"
+    fails(plain({path: v5_manifest()}), guard.R_NO_LANE)
+
+
 def test_r3_jurisdictions_come_from_the_base_not_from_the_head():
     assert guard._base_jurisdictions(
         {path: {} for path in [*BASE_FILES, "policies/root.yaml", ".x/a/b.yaml"]}

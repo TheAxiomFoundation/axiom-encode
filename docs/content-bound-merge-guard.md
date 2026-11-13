@@ -89,15 +89,18 @@ reason code and evidence.
    for either.
    - Any added or modified leaf that is not a regular `100644` blob, anywhere:
      `fail`.
-   - **Allowlist.** Every delta path is one of `README.md`, `LICENSE`,
-     `LICENSE-CODE`, `NOTICE`, `CLAUDE.md`, `.gitignore`, `.gitattributes`, or
-     under `.claude/`: `not_applicable` (`no_guarded_content`). The list is
-     encoder policy (`UNGUARDED_ROOT_FILES`, `UNGUARDED_DIRECTORIES`), matched
-     exactly. Every other path is *guarded*: every jurisdiction directory at
-     every depth and root name, `programs/`, all of `.axiom/`, all of
-     `.github/`, the root ledgers (`known-*.yaml`,
-     `oracle-coverage-pending.yaml`, `household-choices.yaml`), `tools/`,
-     `bulk/`, `tests/`, and any new top-level entry.
+   - **Allowlist.** Every delta path is exactly one of `README.md`, `LICENSE`,
+     `LICENSE-CODE`, `NOTICE`, `.gitignore` at the repository root:
+     `not_applicable` (`no_guarded_content`). The list is encoder policy
+     (`UNGUARDED_ROOT_FILES`), matched on the whole path. Every other path is
+     *guarded*: every jurisdiction directory at every depth and root name,
+     `programs/`, all of `.axiom/`, all of `.github/`, the root ledgers
+     (`known-*.yaml`, `oracle-coverage-pending.yaml`,
+     `household-choices.yaml`), `tools/`, `bulk/`, `tests/`, `.gitattributes`
+     (it changes checked-out bytes and review diffs, so CI and the guard would
+     no longer judge the same bytes), `CLAUDE.md` and `.claude/` (they steer
+     the agent sessions that author, dispatch and approve), and any new
+     top-level entry.
    - A guarded delta needs one lane to claim the **whole** delta.
      A manifest is a file under `.axiom/encoding-manifests/` at the repository
      root or under one jurisdiction directory (both layouts exist on
@@ -109,12 +112,18 @@ reason code and evidence.
    - **Earlier lane (v5).** Every changed manifest is labelled v5, and:
      - every other delta path is a RuleSpec module file,
        `<jurisdiction>/<root>/.../<name>.yaml` (or `<atomic root>/...yaml` at
-       the root), with no hidden path segment. So the delta has no path under
-       `.github/`, no other `.axiom/` file, no ledger, no ProgramSpec and no
-       allowlisted file. Otherwise `fail` (`no_lane_for_guarded_change`);
-     - every module file is listed in `applied_files` of a changed manifest
-       (paths are relative to the manifest directory's parent). Otherwise
-       `fail`;
+       the root), with no hidden path segment, under a jurisdiction that
+       already holds modules on the **base** tree. So the delta has no path
+       under `.github/`, no other `.axiom/` file, no ledger, no ProgramSpec, no
+       allowlisted file and no new jurisdiction. Otherwise `fail`
+       (`no_lane_for_guarded_change`);
+     - every changed manifest sits at the position of one module of a base
+       jurisdiction, in either layout. Otherwise `fail`
+       (`no_lane_for_guarded_change`);
+     - every changed module file is listed in `applied_files` of the manifest
+       at its own canonical position (a `.test.yaml` belongs to its primary),
+       with the sha256 of its head bytes; a removed file needs the listing
+       only. Otherwise `fail`;
      - `validate / validate` is green on `H` from this PR's own `pull_request`
        run, with the binding of step 7. Otherwise `fail`;
      - the PR and `main` did not move during the evaluation.
@@ -247,14 +256,16 @@ attempt of the run signed it.
 ### Census: the last 50 merged `rulespec-us` PRs under this classifier
 
 Read-only, 2026-11-12: the 50 most recently merged PRs to `main` among the 100
-most recently updated closed PRs. The census reads file lists and the changed
-manifests at the merge commit. It does not read modes or CI; a merged PR is
+most recently updated closed PRs, classified with the round-3 rules (reduced
+allowlist, digest and position binding). The census reads file lists, the
+changed manifests and the module bytes at the merge commit, and takes the
+jurisdictions from today's `main`. It does not read modes or CI; a merged PR is
 taken as regular and green. `pass` is impossible because no v6 manifest exists.
 
 | Verdict | PRs |
 |---|---|
 | `not_applicable` (`no_guarded_content`, allowlist) | 0 |
-| `not_applicable` (`earlier_lane_v5`) | 1 (#2154, a merge train of 5 signed manifests) |
+| `not_applicable` (`earlier_lane_v5`) | 1 (#2154, a merge train of 5 signed manifests; all 5 satisfy the digest and position rules) |
 | `fail` (`no_lane_for_guarded_change`) | 49 |
 | `fail`, other reasons | 0 |
 
@@ -470,6 +481,15 @@ Added by security review round 2:
 | 41 | A symlink, submodule or executable anywhere in the delta | fail | yes |
 | 42 | A PR commit with no GitHub author or committer | fail | yes |
 
+Added by security review round 3:
+
+| # | Attack | Expected verdict | Test |
+|---|---|---|---|
+| 43 | `.gitattributes` that rewrites checked-out module bytes or hides diffs | fail (no lane) | yes |
+| 44 | `CLAUDE.md` or `.claude/` change that steers agent sessions | fail (no lane) | yes |
+| 45 | v5 modules "covered" by an unrelated manifest position, a wrong digest, a manifest under a non-jurisdiction, or a new jurisdiction | fail | yes |
+| 46 | Allowlisted basename at another path (`sub/README.md`) | fail (no lane) | yes |
+
 Cases 15-18 must also run live in the shadow period (§8).
 
 ## 8. Delivery plan
@@ -513,7 +533,8 @@ satisfies D2d.
 |---|---|---|
 | Write collaborator, not enrolled | Yes for a v6 unit; through CI for a v5 lane; blocked otherwise | Cannot dispatch, cannot give a counting approval, cannot publish as the guard App. A v6 unit refuses every extra file. A v5 lane needs this PR's own green run. Any other guarded change has no lane |
 | PR that edits workflow files, pins, ledgers or `.axiom/` configuration | Yes, by refusal | No lane claims it: `fail`. This also blocks legitimate changes (§10, question 1) |
-| PR that relabels or hides its manifest, or uses a root the encoder does not name | Yes | The guard stands aside only on the allowlist (step 3) |
+| PR that relabels or hides its manifest, or uses a root the encoder does not name | Yes | The guard stands aside only on the five-file allowlist or on the v5 lane, which needs this PR's green CI (step 3) |
+| PR that changes `CLAUDE.md`, `.claude/` or `.gitattributes` | Yes, by refusal | Instruction and settings files steer the agents that hold the enrolled identities; Git attributes change the bytes CI validates. Both are guarded with no lane |
 | Hand-written v5 manifest | Through CI | The guard does not verify the signature. The lane's scope keeps the PR from changing the workflow and the pin, and the PR's own `validate / validate` run must be green |
 | `validate / validate` produced by a run that is not this PR's `pull_request` run | Yes | Step 7 |
 | Forged or unsigned v6 manifest | Partly | Current-head CI verifies the signature; the guard does not (open question 3) |
@@ -538,7 +559,8 @@ signed approval (option c in §3) or a separate approver account.
 
 | # | Question | Recommendation |
 |---|---|---|
-| 0 | **First decision.** Which lane do infrastructure changes (`.github/**`, `.axiom/` pins and configuration, ledgers, tooling) and ProgramSpec changes get? Today none: `fail`. 49 of the last 50 merged PRs are in this class | Decide before the check is required. One option is the same enrolled-owner, content-bound approval as the v6 lane, without a manifest |
+| 0 | **First decision.** Which lane do infrastructure changes (`.github/**`, `.axiom/` pins and configuration, ledgers, tooling, `.gitattributes`, `CLAUDE.md`, `.claude/`) and ProgramSpec changes get? Today none: `fail`. 49 of the last 50 merged PRs are in this class | Decide before the check is required. One option is the same enrolled-owner, content-bound approval as the v6 lane, without a manifest |
+| 0b | A module under a jurisdiction that the base lacks has no lane, also with a v5 manifest. How is a new jurisdiction added? | Through the lane of question 0 |
 | 1 | App-published check or an organisation required-workflow ruleset? | The App. Switch only if the ruleset documentation confirms the capability |
 | 2 | Is a polling sweep (about 5 minutes) acceptable as the trigger? | Yes for the pilot |
 | 3 | Should the guard verify the manifest signature itself, or rely on current-head `validate / validate`? | Rely on CI for v1, since step 4 pins the workflow definitions |
