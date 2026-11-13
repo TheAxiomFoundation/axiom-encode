@@ -1,5 +1,7 @@
 """Narrow, editable prompt surfaces for eval-suite tuning experiments."""
 
+from datetime import date
+
 
 def render_uk_legislation_guidance() -> str:
     """Return UK-specific eval prompt guidance."""
@@ -161,11 +163,90 @@ def render_single_amount_row_guidance() -> str:
 """
 
 
-def render_date_silent_scaffold_guidance() -> str:
-    """Return fallback guidance for date-silent source slices."""
-    return """
-- If `./source.txt` is silent on effective dates, no supplied corpus metadata or amendment/commencement context supplies a date, and no copied precedent file provides a scaffold date, you may use `effective_from: '0001-01-01'` as a neutral scaffold date solely to satisfy RuleSpec syntax.
+def render_date_silent_scaffold_guidance(*, precedent_dates: bool = True) -> str:
+    """Return fallback guidance for date-silent source slices.
+
+    ``precedent_dates=False`` is the form for a corpus manual unit, where a
+    date of a copied precedent is not a start date (#2212).
+    """
+    precedent_clause = (
+        ", and no copied precedent file provides a scaffold date"
+        if precedent_dates
+        else ""
+    )
+    and_metadata = "" if precedent_dates else "and "
+    return f"""
+- If `./source.txt` is silent on effective dates, {and_metadata}no supplied corpus metadata or amendment/commencement context supplies a date{precedent_clause}, you may use `effective_from: '0001-01-01'` as a neutral scaffold date solely to satisfy RuleSpec syntax.
 - This fallback never applies to behavior derived from an amending provision. Use its authenticated commencement date on the principal rule's affected version; if the principal target or applicable commencement is missing, stop with an explicit unresolved-context blocker naming the missing evidence.
 - Treat that `0001-01-01` scaffold as a harness-only fallback, not as a claim about the true legal effective date.
 - Numeric grounding rules do not apply to the `0001-01-01` tokens inside that neutral scaffold date.
+"""
+
+
+def render_date_silent_start_guidance(
+    *,
+    source_as_of: date | None,
+    expression_date: date | None,
+    evidence_floor: date | None,
+    preferred_start: date,
+) -> str:
+    """Return the start-date rule for a date-silent manual unit (#2212).
+
+    The dates come from the resolver attestation and are computed in code; the
+    ``complete-source-unit:effective-date/start-unsupported`` check enforces
+    the same rule for the same units.
+    """
+    supported = [
+        "a date printed in `./source.txt`, or printed in a proof-atom excerpt "
+        "that you cite from supplied corpus context (for example a change "
+        "notice)"
+    ]
+    if source_as_of is not None and evidence_floor is not None:
+        supported.append(
+            f"the evidence floor `{evidence_floor.isoformat()}`: the first day "
+            "of the first full calendar month that starts on or after the "
+            f"corpus `source_as_of` (`{source_as_of.isoformat()}`)"
+        )
+    corpus_dates = [
+        f"`{name}` (`{value.isoformat()}`)"
+        for name, value in (
+            ("expression_date", expression_date),
+            ("source_as_of", source_as_of),
+        )
+        if value is not None
+    ]
+    if corpus_dates:
+        supported.append("the corpus " + " or ".join(corpus_dates) + " itself")
+    supported.append("the neutral scaffold `0001-01-01`")
+    numbered = "\n".join(
+        f"  {index}. {item};" for index, item in enumerate(supported, start=1)
+    )
+    chosen = f"`{preferred_start.isoformat()}`"
+    if evidence_floor is None:
+        preference = (
+            "Prefer a printed date. The corpus metadata gives no `source_as_of`, "
+            "so there is no evidence floor: without a printed date, use "
+            + (
+                f"the corpus `expression_date` {chosen}."
+                if expression_date is not None
+                else f"the neutral scaffold {chosen}."
+            )
+        )
+    elif preferred_start == evidence_floor:
+        preference = (
+            f"Prefer a printed date. Without one, use the evidence floor {chosen}."
+        )
+    else:
+        preference = (
+            "Prefer a printed date. Without one, use the corpus "
+            f"`expression_date` {chosen}: it is later than the evidence floor, "
+            "so the corpus does not show this text in force before it."
+        )
+    return f"""
+- Start date of a date-silent unit: when `./source.txt` prints no effective date for a rule, every `effective_from` you write for that rule must be supported by evidence of this source unit. The supported dates are:
+{numbered}
+  {preference}
+- A date copied from a precedent module or a sibling module is not support, also when that module encodes the same manual or program. Do not reuse a neighbour's start date.
+- The evidence floor is an evidence-coverage floor, not a claimed legal commencement date: the corpus holds this text from that date, and earlier coverage is unproven. Do not call it an effective date or a commencement date in names, summaries or tests.
+- Put every companion test period on or after the start date you choose.
 """

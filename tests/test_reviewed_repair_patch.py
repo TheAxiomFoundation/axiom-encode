@@ -738,6 +738,9 @@ def test_command_preserves_validation_and_transaction_boundaries(
             name=source["release_name"], content_sha256=source["release_sha256"]
         ),
     )
+    amendment_document = SimpleNamespace(
+        citation_path="ca/statute/amending-act", body="The amount is amended."
+    )
     monkeypatch.setattr(
         c,
         "resolve_corpus_source_unit",
@@ -746,6 +749,7 @@ def test_command_preserves_validation_and_transaction_boundaries(
             requested=value["citation"],
             citation_path=value["citation"],
             source_attestation=attestation,
+            amendment_documents=(amendment_document,),
         ),
     )
 
@@ -766,6 +770,11 @@ def test_command_preserves_validation_and_transaction_boundaries(
         calls.append("full-validation")
         assert kwargs["require_complete_source_unit"] is True
         assert kwargs["deferred_output_review_contract"].citation == value["citation"]
+        # The unit's amendment context reaches complete-source validation.
+        assert kwargs["amendment_documents"] == (amendment_document,)
+        assert kwargs["amendment_source_texts"] == {
+            "ca/statute/amending-act": "The amount is amended."
+        }
         setattr(
             result,
             c._APPLY_VALIDATION_SNAPSHOT_ATTR,

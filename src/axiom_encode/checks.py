@@ -64,6 +64,7 @@ Severity = Literal["critical", "important", "minor", "info"]
 #: :func:`declare_check` is missing here.
 CHECK_MODULES: tuple[str, ...] = (
     "axiom_encode.harness.source_completeness",
+    "axiom_encode.harness.start_date_evidence",
     "axiom_encode.harness.proof_validator",
     "axiom_encode.harness.validator_pipeline",
     "axiom_encode.infra_checks",

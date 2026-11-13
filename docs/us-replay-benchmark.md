@@ -76,7 +76,10 @@ that require live execution evidence.
 The replay passes the same inputs as `ValidatorPipeline._complete_source_unit_issues`:
 the citation's numeric profile, the companion test cases, imported symbol
 contents, resolved deferral providers and same-act aliases from the source
-metadata. `--no-context` leaves out the last three.
+metadata. `--no-context` leaves out the last three. It also passes the
+attestation's `source_as_of` and `expression_date` to the date-silent
+start-date check (`docs/validator-checks.md`), always without amendment
+context, because a fixture records no amendment documents.
 
 The set has 45 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, eight Canadian citations

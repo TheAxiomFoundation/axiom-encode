@@ -1293,6 +1293,15 @@ def apply_reviewed_repair(args) -> None:
             local_corpus_release=release,
             require_complete_source_unit=True,
             deferred_output_review_contract=review_contract,
+            # The same amendment context an encode of this unit binds, so the
+            # complete-source checks that depend on it (the date-silent
+            # start-date check leaves a unit with amendment context alone)
+            # read the unit as the encode did.
+            amendment_documents=source_unit.amendment_documents,
+            amendment_source_texts={
+                document.citation_path: document.body
+                for document in source_unit.amendment_documents
+            },
         )
         if not valid:
             raise RuntimeError(
