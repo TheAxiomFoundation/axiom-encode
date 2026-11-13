@@ -1,0 +1,528 @@
+format: rulespec/v1
+module:
+  summary: '“Column D Column B minus column C (Maximum $500 per child)” and
+
+    “Column F Column D minus column E”. Line 2 totals column F; line 4
+
+    applies 8.79%; line 5 enters the credits on line 47900.'
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+    source_sha256: 6b8f99a306ad1815d427ee2406dc5683f3a52701106fc80deddb43287f641068
+rules:
+- name: per_child_column_f
+  kind: derived
+  entity: SourceEntry
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: NS479 children's sports and arts table, columns D through F
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Column D: Column B minus column C (Maximum $500 per
+
+            child);'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Column F: Column D minus column E.'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Column F Column D minus column E ^
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: per_child_column_d - claimed_by_others_column_e
+- name: form_tax_year
+  kind: parameter
+  dtype: Integer
+  source: CRA Form NS479 2025 heading
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: "2025"
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "2025"
+- name: printed_child_table_entry_spaces
+  kind: parameter
+  dtype: Integer
+  source: NS479 transcriber's note describing the printed table, not a limit on claims
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: with the possibility of six entries
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "6"
+- name: per_child_column_d
+  kind: derived
+  entity: SourceEntry
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: NS479 children's sports and arts table, column D
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Column D: Column B minus column C (Maximum $500 per
+
+            child);'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Column D Column B minus column C (Maximum $500 per child) ^
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: min(eligible_expenses_column_b - assistance_column_c, ns479_2025_child_sports_arts_expense_cap)
+- name: ns479_2025_volunteer_credit_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: NS479 2025 line 1 claims $500.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Volunteer firefighters and ground search and rescue tax credit
+            Claim $500
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 500
+- name: ns479_2025_child_sports_arts_expense_cap
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: NS479 2025 column D maximum $500 per child.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Column D Column B minus column C (Maximum $500 per child)
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 500
+- name: ns479_2025_child_sports_arts_rate
+  kind: parameter
+  dtype: Rate
+  source: NS479 2025 line 3 applicable rate is 8.79%.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Line 3: Applicable rate 8.79%'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 0.0879
+- name: annual_child_row_for_claimant
+  kind: data_relation
+  source: NS479 table identifies one child per line and totals the amounts in column
+    F.
+  data_relation:
+    predicate: annual_child_row_for_claimant
+    arity: 2
+    arguments:
+    - SourceEntry
+    - Person
+  metadata:
+    proof:
+      atoms:
+      - path: data_relation
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Column A: Child''s name (one child per line)'
+- name: child_name_column_a
+  kind: derived
+  entity: SourceEntry
+  dtype: Text
+  period: Year
+  source: NS479 column A identifies the child's name.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Column A Child's name (one child per line)
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: child_name
+- name: eligible_expenses_column_b
+  kind: derived
+  entity: SourceEntry
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: NS479 column B records all eligible expenses per child for the year.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Column B All eligible expenses per child for the year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: eligible_expenses_b
+- name: assistance_column_c
+  kind: derived
+  entity: SourceEntry
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: NS479 column C records assistance received or receivable for column B.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Column C Assistance received or receivable for amount in column
+            B
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: assistance_received_or_receivable_c
+- name: claimed_by_others_column_e
+  kind: derived
+  entity: SourceEntry
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: NS479 column E records amounts from column D claimed by others.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Column E Amounts from column D claimed by others
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: amount_from_d_claimed_by_others_e
+- name: ns479_children_sports_arts_column_d_capped_expenses
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: NS479 column D is calculated per child; column D is capped at $500 per child.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Column D Column B minus column C (Maximum $500 per child)
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: sum(annual_child_row_for_claimant.per_child_column_d)
+- name: ns479_children_sports_arts_expenses_line_62410
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: NS479 line 2 totals all amounts in column F.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Line 2 and line 62410: Your children''s sports and arts expenses
+            Total of all amounts in column F of the table above ='
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Column F: Column D minus column E.'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: sum(annual_child_row_for_claimant.per_child_column_f)
+- name: ns479_volunteer_firefighters_ground_search_rescue_tax_credit_line_62400
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: NS479 line 1 claims $500 when the volunteer credit applies.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Line 1 and line 62400: Volunteer firefighters and ground search
+            and rescue tax credit Claim $500'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 'if ns479_volunteer_firefighters_ground_search_rescue_credit_eligible:
+      ns479_2025_volunteer_credit_amount else: 0'
+- name: ns479_children_sports_arts_tax_credit_line_4
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: NS479 line 4 multiplies line 2 by the line 3 percentage.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Line 4: Line 2 multiplied by the percentage from line 3 Children''s
+            sports and arts tax credit ='
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: ns479_children_sports_arts_expenses_line_62410 * ns479_2025_child_sports_arts_rate
+- name: nova_scotia_credits_line_47900
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: NS479 line 5 adds line 1 and line 4 and enters the amount on T1 line 47900.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: 'Line 5: Line 1 plus line 4. Enter this amount on line 47900 of
+            your return. Nova Scotia Credits ='
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: ns479_volunteer_firefighters_ground_search_rescue_tax_credit_line_62400
+      + ns479_children_sports_arts_tax_credit_line_4
+- name: conditional_credit_excess_over_taxes
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: NS479 says a refund may result where total credits exceed taxes to pay.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: If the total of these credits is more than the amount of taxes
+            you have to pay, you may get a refund for the difference.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 'if nova_scotia_credits_line_47900 > taxes_to_pay: nova_scotia_credits_line_47900
+      - taxes_to_pay else: 0'
+- name: paper_return_form_attachment_required
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: NS479 directs attachment of the form to a paper return.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Complete the calculations that apply to you and attach a copy of
+            this form to your paper return.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: completing_ns479 and filing_paper_return
+- name: children_expense_table_completion_required
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: NS479 directs completion of the table if applicable, including all children's
+    expenses.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: If applicable, complete the following table and include all of
+            your children's expenses
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: using_children_credit_section
+- name: children_receipts_retention_required
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: NS479 instructs filers to keep receipts in case they are asked to provide
+    them later.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Do not include your receipts but keep them in case you are asked
+            to provide them later.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: using_children_credit_section
+- name: children_receipts_non_enclosure_required
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: NS479 says not to include receipts with the form.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: Do not include your receipts
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: using_children_credit_section
+- name: additional_sheet_attachment_required
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: NS479 directs an additional sheet if more space is needed.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/ns479-credits
+          excerpt: If you need more space, attach an additional sheet of paper.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: needs_additional_space
+units:
+- name: CAD
+  kind: currency
+  minor_units: 2
+inputs:
+- name: ns479_volunteer_firefighters_ground_search_rescue_credit_eligible
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Externally determined applicability of the volunteer credit.
+- name: completing_ns479
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Use of this form.
+- name: filing_paper_return
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Whether the return is filed on paper.
+- name: using_children_credit_section
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Use of the children's sports and arts section.
+- name: needs_additional_space
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Whether additional space is needed.
+- name: taxes_to_pay
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Amount of taxes to pay.
+- name: child_name
+  entity: SourceEntry
+  dtype: Text
+  period: Year
+  description: Column A child's name for this annual table row.
+- name: eligible_expenses_b
+  entity: SourceEntry
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Column B annual eligible expenses entered for this child.
+- name: assistance_received_or_receivable_c
+  entity: SourceEntry
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Column C assistance received or receivable for column B.
+- name: amount_from_d_claimed_by_others_e
+  entity: SourceEntry
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Column E amount from this child's column D claimed by others.

@@ -1,0 +1,14 @@
+{
+  "run_id": "43506739931",
+  "run_attempt": "1",
+  "producer": "d75d1dca321ed1e25e5ae1a2ce3535c7da236a1f",
+  "archive_sha256": "5fbe40902e61904488ecb544874b042e19d7b778e94631cd94f936db972c899f",
+  "source_url": "https://www.canada.ca/content/dam/cra-arc/formspubs/pbg/5003-tc/5003-tc-25e.txt",
+  "members": {
+    "seed.yaml": "70959af111065152d3a5c0672fc69fd4c88d91287dec68649961273ddb9b587e",
+    "seed.test.yaml": "5faba1d0f8efc959520dbc1fa96eb7c1b145e31d14e4135ec909266e64b88abf",
+    "transaction.json": "6b0085da867cbc9ea67629c62addc582d26a46d8f8bbb3a46ff34f8ecadc2d4b",
+    "source.txt": "6b8f99a306ad1815d427ee2406dc5683f3a52701106fc80deddb43287f641068"
+  },
+  "limits": "Public failed native candidate and exact required contract; no signed artifact or publication claim."
+}
