@@ -452,7 +452,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          uv sync --locked --python 3.13 --extra api --no-dev
+          uv sync --no-config --locked --python 3.13 --extra api --no-dev
 
       - name: Preflight live reviewed PR promotion
         id: reviewed_pr_admission

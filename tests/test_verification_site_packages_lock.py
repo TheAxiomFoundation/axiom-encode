@@ -873,6 +873,55 @@ def test_every_workflow_target_install_is_locked():
     assert found == EXPECTED_TARGET_INSTALLS
 
 
+def _uv_syncs_reading_config(
+    workflows: dict[str, dict], names: frozenset[str]
+) -> list[str]:
+    """`uv sync` calls without --no-config in jobs that stage a --target tree."""
+    calls = []
+    for name, job, index, step in _steps(workflows):
+        if name not in names:
+            continue
+        for command in _commands(name, job, step["run"]):
+            parsed = _uv_arguments(command)
+            if parsed:
+                calls.append((name, job, index, command.line, *parsed))
+    staging = {
+        (name, job)
+        for name, job, _index, _line, subcommand, values, _ in calls
+        if subcommand == "pip install" and "--target" in values
+    }
+    return [
+        f"{name}:{job}[{index}]: {line}"
+        for name, job, index, line, subcommand, values, _ in calls
+        if (name, job) in staging
+        and subcommand == "sync"
+        and "--no-config" not in values
+    ]
+
+
+def test_workflows_that_stage_a_locked_tree_sync_without_uv_config():
+    # A `uv sync` that reads user or parent-directory uv config builds the
+    # .venv that the locked tree is staged from (#2185's preflight runtime
+    # ran one before the staging step).
+    workflows = _load_workflows()
+    assert (
+        _uv_syncs_reading_config(workflows, frozenset(EXPECTED_TARGET_INSTALLS)) == []
+    )
+    signed = "targeted-signed-reencode.yml"
+    text = yaml.safe_dump(workflows[signed])
+    assert "uv sync --no-config --locked --python 3.13 --extra api --no-dev" in text
+    regressed = {
+        signed: yaml.safe_load(
+            text.replace(
+                "uv sync --no-config --locked --python 3.13 --extra api --no-dev",
+                "uv sync --locked --python 3.13 --extra api --no-dev",
+                1,
+            )
+        )
+    }
+    assert _uv_syncs_reading_config(regressed, frozenset({signed}))
+
+
 def test_the_selftest_exemption_is_still_needed():
     workflows = _load_workflows()
     for workflow in EXEMPT_WORKFLOWS:
