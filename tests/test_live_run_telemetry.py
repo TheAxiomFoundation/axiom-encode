@@ -1213,6 +1213,7 @@ class TestPromotionLiveRun:
             "admission": PHASE_RESOLVE,
             "validation": PHASE_VALIDATE,
             "signing": PHASE_APPLY,
+            "post_install": PHASE_APPLY,
         }
 
     @pytest.mark.parametrize(
@@ -1221,6 +1222,11 @@ class TestPromotionLiveRun:
             ((), PHASE_RESOLVE, "promotion_failed_admission"),
             (("validation",), PHASE_VALIDATE, "promotion_failed_validation"),
             (("validation", "signing"), PHASE_APPLY, "promotion_failed_signing"),
+            (
+                ("validation", "signing", "post_install"),
+                PHASE_APPLY,
+                "promotion_failed_post_install",
+            ),
             (("validation", "unknown"), PHASE_VALIDATE, "promotion_failed_validation"),
         ],
     )
@@ -1245,6 +1251,8 @@ class TestPromotionLiveRun:
         ("raised", "outcome", "rule"),
         [
             (SystemExit(3), "exited", "exit:3"),
+            # Pins today's behaviour; the promotion body has no sys.exit.
+            (SystemExit(0), "exited", "exit:0"),
             (KeyboardInterrupt(), "interrupted", "exception:KeyboardInterrupt"),
         ],
     )
@@ -1260,6 +1268,116 @@ class TestPromotionLiveRun:
         assert finish["status"] == "failed"
         assert finish["outcome_status"] == outcome
         assert finish["error_rule"] == rule
+
+    def test_direct_transport_writes_the_promotion_row(self, monkeypatch):
+        _configured_env(monkeypatch)
+        _github_env(monkeypatch)
+        client, table = _mock_client()
+        with patch(
+            "axiom_encode.supabase_sync.get_supabase_client", return_value=client
+        ):
+            with pytest.raises(ValueError):
+                with self._run():
+                    report_promotion_stage("validation")
+                    raise ValueError("refused")
+        inserted = table.insert.call_args[0][0]
+        assert inserted["status"] == "running"
+        assert inserted["backend"] == "reviewed-candidate"
+        assert inserted["model"] == "reviewed-candidate-promotion-v1"
+        assert inserted["runner"]["github_run_id"] == "12345678901"
+        final = table.update.call_args_list[-1][0][0]
+        assert final["status"] == "failed"
+        assert final["phase"] == PHASE_VALIDATE
+        assert final["outcome_status"] == "promotion_failed_validation"
+        assert final["error_rule"] == "exception:ValueError"
+
+    def test_failed_direct_start_leaves_no_row_and_no_ingest_fallback(
+        self, monkeypatch
+    ):
+        _configured_env(monkeypatch)
+        with (
+            _mock_urlopen() as urlopen_mock,
+            patch(
+                "axiom_encode.supabase_sync.get_supabase_client",
+                side_effect=OSError("supabase down"),
+            ),
+        ):
+            with self._run():
+                report_promotion_stage("validation")
+        urlopen_mock.assert_not_called()
+
+    def test_long_citation_is_cut_with_a_marker(self, monkeypatch):
+        _ingest_env(monkeypatch)
+        limit = live_run_telemetry.PROMOTION_CITATION_MAX_LENGTH
+        with _mock_urlopen() as urlopen_mock:
+            with PromotionLiveRun(citation="c" * 5012, encoder_version="1.2.3"):
+                pass
+            with PromotionLiveRun(citation="d" * limit, encoder_version="1.2.3"):
+                pass
+        long_start, exact_start = (
+            p for p in _ingest_payloads(urlopen_mock) if p["op"] == "start"
+        )
+        assert len(long_start["citation"]) == limit
+        assert long_start["citation"].endswith("...[truncated]")
+        assert exact_start["citation"] == "d" * limit
+
+    def test_slow_start_does_not_hold_the_command(self, monkeypatch):
+        _ingest_env(monkeypatch)
+        monkeypatch.setattr(live_run_telemetry, "PROMOTION_START_TIMEOUT_SECONDS", 0.05)
+        release = threading.Event()
+        payloads = []
+        closed = threading.Event()
+
+        def slow_post(_self, payload):
+            if payload["op"] == "start":
+                release.wait(10)
+            payloads.append(payload)
+            if payload["op"] == "finish":
+                closed.set()
+            return True
+
+        with patch.object(LiveRunTelemetry, "_post_ingest", slow_post):
+            began = time.monotonic()
+            with pytest.raises(RuntimeError):
+                with self._run():
+                    report_promotion_stage("validation")
+                    raise RuntimeError("invalid")
+            # The command ended while the start was still in flight.
+            assert time.monotonic() - began < 2.0
+            assert payloads == []
+            release.set()
+            assert closed.wait(10)
+        # A heartbeat may publish the pending stage between the two.
+        ops = [p["op"] for p in payloads]
+        assert ops[0] == "start" and ops.count("start") == 1
+        assert ops.count("finish") == 1
+        finish = next(p for p in payloads if p["op"] == "finish")
+        assert finish["phase"] == PHASE_VALIDATE
+        assert finish["status"] == "failed"
+        assert finish["outcome_status"] == "promotion_failed_validation"
+        assert finish["error_rule"] == "exception:RuntimeError"
+
+    def test_inner_promotion_gives_report_phase_back_to_the_outer_run(
+        self, monkeypatch
+    ):
+        _ingest_env(monkeypatch)
+        with _mock_urlopen():
+            with LiveRunTelemetry(
+                citation="us/statute/26/32",
+                backend="codex",
+                model="gpt-5.5",
+                encoder_version="0.1.0",
+            ) as outer:
+                with self._run() as outer_promotion:
+                    with self._run() as inner_promotion:
+                        assert live_run_telemetry._active_promotion is inner_promotion
+                    assert live_run_telemetry._active_promotion is outer_promotion
+                    assert live_run_telemetry._active_run is outer_promotion._live
+                assert live_run_telemetry._active_promotion is None
+                assert live_run_telemetry._active_run is outer
+                report_phase(PHASE_GENERATE)
+                assert outer.phase == PHASE_GENERATE
+        assert live_run_telemetry._active_run is None
 
     def test_stage_report_outside_a_promotion_is_a_no_op(self):
         report_promotion_stage("validation")
@@ -1318,8 +1436,13 @@ def _promotion_checkout(tmp_path):
     return repo, head, binding
 
 
-def _run_promotion_command(tmp_path, *, case):
-    """Run the real command body; ``case`` is signed, refused, or invalid."""
+def _run_promotion_command(tmp_path, *, case, events=None):
+    """Run the real command body.
+
+    ``case`` is signed, refused, invalid, or stray (a path other than the
+    manifest appears with the install). With ``events``, the run uses a live
+    reviewed-PR admission and records its revalidations and the signature.
+    """
     from axiom_encode import cli
 
     repo, head, binding = _promotion_checkout(tmp_path)
@@ -1372,6 +1495,41 @@ def _run_promotion_command(tmp_path, *, case):
         for path, content in files:
             path.parent.mkdir(parents=True)
             path.write_bytes(content)
+        if case == "stray":
+            (repo / "stray.txt").write_text("unexpected\n")
+
+    runtime = {"path": str(tmp_path / "runtime-attestation.json"), "commit": "e" * 40}
+    environment = {}
+    if events is not None:
+        args.run_id = "12345"
+        environment[cli._TRUSTED_RUNTIME_ENV] = "1"
+        Path(runtime["path"]).write_text(
+            json.dumps(
+                {
+                    "reviewed_pr_admission": {
+                        "workflow_commit": runtime["commit"],
+                        "selector": {
+                            "country": "us",
+                            "pr": 42,
+                            "head": head,
+                            "citation": args.citation,
+                            "rulespec_path": args.rulespec_path,
+                            "branch": "codex/candidate",
+                            "actor": "PavelMakarchuk",
+                            "run_id": args.run_id,
+                        },
+                        "record": json.loads(record.read_text()),
+                    }
+                }
+            )
+        )
+
+    def note(name):
+        def record_event(*_args, **_kwargs):
+            if events is not None:
+                events.append(name)
+
+        return record_event
 
     source_unit = SimpleNamespace(
         body="Source text.", source_attestation={}, amendment_documents=()
@@ -1399,8 +1557,16 @@ def _run_promotion_command(tmp_path, *, case):
         patch.object(
             cli, "verify_rulespec_validation_waiver_set", return_value="c" * 64
         ),
-        patch.object(cli, "_sign_applied_encoding_manifest") as sign,
+        patch.object(
+            cli, "_sign_applied_encoding_manifest", side_effect=note("sign")
+        ) as sign,
         patch.object(cli, "_install_apply_transaction", side_effect=install),
+        patch.object(cli, "_load_trusted_runtime_attestation", return_value=runtime),
+        patch(
+            "axiom_encode.reviewed_pr_admission.revalidate_admission",
+            side_effect=note("revalidate"),
+        ),
+        patch.dict("os.environ", environment),
     ):
         try:
             result = cli.cmd_promote_reviewed_candidate(args)
@@ -1413,6 +1579,8 @@ _PROMOTION_RESULTS = {
     "signed": (type(None), 1, True),
     "refused": (ValueError, 0, False),
     "invalid": (RuntimeError, 0, False),
+    # Signed and installed; only the final check failed.
+    "stray": (RuntimeError, 1, True),
 }
 
 
@@ -1443,6 +1611,13 @@ class TestPromoteReviewedCandidateCommand:
                 "promotion_failed_validation",
                 "exception:RuntimeError",
             ),
+            (
+                "stray",
+                "failed",
+                PHASE_APPLY,
+                "promotion_failed_post_install",
+                "exception:RuntimeError",
+            ),
         ],
     )
     def test_command_opens_and_closes_its_live_row(
@@ -1469,7 +1644,49 @@ class TestPromoteReviewedCandidateCommand:
             # The exception message never leaves the process.
             assert message and message not in json.dumps(payloads)
 
-    @pytest.mark.parametrize("case", ["signed", "refused", "invalid"])
+    def test_no_telemetry_call_between_last_revalidation_and_signature(
+        self, tmp_path, monkeypatch
+    ):
+        _ingest_env(monkeypatch)
+        events = []
+        main_thread = threading.current_thread()
+
+        def recorded(name, original):
+            def wrapper(self, *args, **kwargs):
+                if threading.current_thread() is main_thread:
+                    events.append(name)
+                return original(self, *args, **kwargs)
+
+            return wrapper
+
+        with (
+            _mock_urlopen(),
+            patch.object(
+                LiveRunTelemetry,
+                "set_phase",
+                recorded("set_phase", LiveRunTelemetry.set_phase),
+            ),
+            patch.object(
+                LiveRunTelemetry, "_send", recorded("send", LiveRunTelemetry._send)
+            ),
+        ):
+            _assert_promotion_result(
+                "signed", _run_promotion_command(tmp_path, case="signed", events=events)
+            )
+        # Admission revalidates, then the stages report; the second
+        # revalidation is followed at once by the signature, and the main
+        # thread touches telemetry again only after it.
+        assert events == [
+            "revalidate",
+            "set_phase",
+            "set_phase",
+            "revalidate",
+            "sign",
+            "set_phase",
+            "send",
+        ]
+
+    @pytest.mark.parametrize("case", ["signed", "refused", "invalid", "stray"])
     def test_nothing_is_sent_in_the_default_test_environment(
         self, tmp_path, monkeypatch, case
     ):
@@ -1482,7 +1699,7 @@ class TestPromoteReviewedCandidateCommand:
         urlopen_mock.assert_not_called()
         start_direct.assert_not_called()
 
-    @pytest.mark.parametrize("case", ["signed", "refused", "invalid"])
+    @pytest.mark.parametrize("case", ["signed", "refused", "invalid", "stray"])
     @pytest.mark.parametrize(
         "broken", ["__init__", "__enter__", "set_phase", "finish", "urlopen"]
     )

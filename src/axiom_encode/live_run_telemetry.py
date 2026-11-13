@@ -96,13 +96,35 @@ model ran. Its stages reuse the encode phases:
 - ``validation`` (phase ``validate``): complete-source overlay validation
   of the exact candidate bytes.
 - ``signing`` (phase ``apply``): the last admission revalidation, the
-  signature, and the manifest install.
+  signature, and the manifest install, until the install transaction
+  returns.
+- ``post_install`` (phase ``apply``): the final check after the signed
+  manifest is installed. A failure here means "signed, then the final check
+  failed": the manifest is on disk.
 
 A promotion that completes closes ``completed`` with ``outcome_status``
 ``promotion_signed``. One that raises closes ``failed`` with
 ``promotion_failed_<stage>`` and ``error_rule`` ``exception:<ClassName>``.
 ``SystemExit`` and ``KeyboardInterrupt`` keep the ``exited`` and
-``interrupted`` tokens above.
+``interrupted`` tokens above. As for ``encode``, that also holds for
+``sys.exit(0)``: it would close the row ``failed`` / ``exited`` /
+``exit:0``; the promotion body has no ``sys.exit`` today.
+
+The promotion runs in the signing path, so it never waits long for its row.
+The row is opened on a helper thread and the command waits at most
+`PROMOTION_START_TIMEOUT_SECONDS` for it, then continues. A start that
+completes later still gets the current stage, and the terminal outcome if
+the command has ended by then. ``encode`` is unchanged: it opens its row on
+the main thread.
+
+The citation is sent before the command validates it, so the promotion row
+bounds it to `PROMOTION_CITATION_MAX_LENGTH` characters (the ingest
+endpoint's limit); a longer one is cut and ends with ``...[truncated]``.
+
+There is no fallback between transports. With credentials present the
+promotion uses the direct transport only: if that start fails, the run has
+no row. An ingest row cannot join to its workflow run, because the ingest
+endpoint drops the GitHub run fields of ``runner``.
 """
 
 import getpass
@@ -162,11 +184,16 @@ PROMOTION_MODEL = "reviewed-candidate-promotion-v1"
 PROMOTION_STAGE_ADMISSION = "admission"
 PROMOTION_STAGE_VALIDATION = "validation"
 PROMOTION_STAGE_SIGNING = "signing"
+PROMOTION_STAGE_POST_INSTALL = "post_install"
 PROMOTION_STAGE_PHASES = {
     PROMOTION_STAGE_ADMISSION: PHASE_RESOLVE,
     PROMOTION_STAGE_VALIDATION: PHASE_VALIDATE,
     PROMOTION_STAGE_SIGNING: PHASE_APPLY,
+    PROMOTION_STAGE_POST_INSTALL: PHASE_APPLY,
 }
+PROMOTION_START_TIMEOUT_SECONDS = 3.0
+PROMOTION_CITATION_MAX_LENGTH = 300
+PROMOTION_CITATION_TRUNCATED_MARKER = "...[truncated]"
 PROMOTION_OUTCOME_SIGNED = "promotion_signed"
 PROMOTION_OUTCOME_FAILED_PREFIX = "promotion_failed_"
 
@@ -647,20 +674,36 @@ def report_promotion_stage(stage: str) -> None:
         promotion.stage(stage)
 
 
+def bounded_promotion_citation(citation: str) -> str:
+    """``citation`` within `PROMOTION_CITATION_MAX_LENGTH`, marked when cut."""
+    if len(citation) <= PROMOTION_CITATION_MAX_LENGTH:
+        return citation
+    marker = PROMOTION_CITATION_TRUNCATED_MARKER
+    return citation[: PROMOTION_CITATION_MAX_LENGTH - len(marker)] + marker
+
+
 class PromotionLiveRun:
     """Live row of one ``promote-reviewed-candidate`` invocation.
 
     Wraps `LiveRunTelemetry` and never changes the command: no telemetry
-    error leaves this class, and an exception from the command always
-    propagates unchanged.
+    error leaves this class, an exception from the command always propagates
+    unchanged, and the command never waits more than
+    `PROMOTION_START_TIMEOUT_SECONDS` for the row to open.
     """
 
     def __init__(self, *, citation: str, encoder_version: str):
         self._stage = PROMOTION_STAGE_ADMISSION
+        self._lock = threading.Lock()
+        # The row is open (its start returned), and the terminal fields once
+        # the command has ended. Whichever of the two comes second closes it.
+        self._opened = False
+        self._final: Optional[dict] = None
+        self._previous_promotion: Optional["PromotionLiveRun"] = None
+        self._previous_run: Optional[LiveRunTelemetry] = None
         self._live: Optional[LiveRunTelemetry] = None
         try:
             self._live = LiveRunTelemetry(
-                citation=citation,
+                citation=bounded_promotion_citation(citation),
                 backend=PROMOTION_BACKEND,
                 model=PROMOTION_MODEL,
                 encoder_version=encoder_version,
@@ -671,10 +714,19 @@ class PromotionLiveRun:
 
     def __enter__(self) -> "PromotionLiveRun":
         global _active_promotion
+        self._previous_promotion = _active_promotion
+        self._previous_run = _active_run
         _active_promotion = self
         if self._live is not None:
             try:
-                self._live.__enter__()
+                returned = threading.Event()
+                threading.Thread(
+                    target=self._open,
+                    args=(returned,),
+                    name="promotion-live-run-start",
+                    daemon=True,
+                ).start()
+                returned.wait(PROMOTION_START_TIMEOUT_SECONDS)
             except Exception:
                 self._live = None
         return self
@@ -687,6 +739,7 @@ class PromotionLiveRun:
         self._stage = stage
         if self._live is not None:
             try:
+                # Records state only; a row that opens later starts from it.
                 self._live.set_phase(phase)
             except Exception:
                 pass
@@ -694,20 +747,69 @@ class PromotionLiveRun:
     def __exit__(self, exc_type, exc, tb) -> None:
         global _active_promotion
         if _active_promotion is self:
-            _active_promotion = None
+            _active_promotion = self._previous_promotion
         if self._live is None:
             return
         try:
             if exc_type is None:
-                self._live.finish("completed", outcome_status=PROMOTION_OUTCOME_SIGNED)
+                final = {
+                    "status": "completed",
+                    "outcome_status": PROMOTION_OUTCOME_SIGNED,
+                }
             elif issubclass(exc_type, Exception):
-                self._live.finish(
-                    "failed",
-                    outcome_status=PROMOTION_OUTCOME_FAILED_PREFIX + self._stage,
-                    error_rule=f"exception:{exc_type.__name__}",
-                )
+                final = {
+                    "status": "failed",
+                    "outcome_status": PROMOTION_OUTCOME_FAILED_PREFIX + self._stage,
+                    "error_rule": f"exception:{exc_type.__name__}",
+                }
             else:
                 # SystemExit and KeyboardInterrupt: `exited` / `interrupted`.
-                self._live.__exit__(exc_type, exc, tb)
+                outcome_status, error_rule = abnormal_exit_outcome(exc_type, exc)
+                final = {
+                    "status": "failed",
+                    "outcome_status": outcome_status,
+                    "error_rule": error_rule,
+                }
+            with self._lock:
+                self._final = final
+                opened = self._opened
+            if opened:
+                self._close(final)
         except Exception:
             pass
+
+    # -- internals -----------------------------------------------------------
+
+    def _open(self, returned: threading.Event) -> None:
+        """Open the row off the main thread; close it if the command ended."""
+        try:
+            self._live.__enter__()
+            with self._lock:
+                self._opened = True
+                final = self._final
+            if final is not None:
+                self._close(final)
+        except Exception:
+            pass
+        finally:
+            returned.set()
+
+    def _close(self, final: dict) -> None:
+        try:
+            self._live.finish(
+                final["status"],
+                outcome_status=final.get("outcome_status"),
+                error_rule=final.get("error_rule"),
+            )
+        finally:
+            self._restore_outer_run()
+
+    def _restore_outer_run(self) -> None:
+        """Give `report_phase` back to the run that was live before this one."""
+        global _active_run
+        previous = self._previous_run
+        if previous is None or previous._finished:
+            return
+        with _active_run_lock:
+            if _active_run is None or _active_run is self._live:
+                _active_run = previous

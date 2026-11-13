@@ -465,6 +465,7 @@ from .legacy_replacement_overlay import (
 from .live_run_telemetry import (
     PHASE_APPLY,
     PHASE_RESOLVE,
+    PROMOTION_STAGE_POST_INSTALL,
     PROMOTION_STAGE_SIGNING,
     PROMOTION_STAGE_VALIDATION,
     LiveRunTelemetry,
@@ -10106,6 +10107,7 @@ def _promote_reviewed_candidate(args):
                 pre_install_check=require_unchanged_reviewed_head,
                 post_install_check=verify_installed_manifest,
             )
+            report_promotion_stage(PROMOTION_STAGE_POST_INSTALL)
 
     changed_records = {
         record
