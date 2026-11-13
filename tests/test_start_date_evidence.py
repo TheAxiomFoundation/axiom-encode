@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -345,12 +345,29 @@ def test_an_import_does_not_take_other_dates_out_of_the_check():
         ([("another", provider("2025-10-01"))], (IMPORT,)),
         ([("amount", "rules: [")], (IMPORT,)),  # unreadable provider
         ([("amount", provider("2024-10-01", name="renamed"))], (IMPORT,)),
-        ([("amount", provider("2024-10-01"))], (IMPORT, "no-symbol")),
         ([("amount", provider("2024-10-01"))], (IMPORT, 7)),
+        ([("amount", provider("2024-10-01"))], (IMPORT, None)),
     ],
 )
 def test_module_with_an_unverifiable_import_is_not_examined(contents, imports):
     assert import_issues("2025-10-01", contents, imports) == []
+
+
+FILE_IMPORT = "us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-13"
+
+
+def test_file_level_import_takes_nothing_out_of_the_check():
+    # The block-16 module with a start of 2025-10-01 and a file-level import
+    # (no `#symbol`): the import names no export and brings no date.
+    assert len(import_issues("2025-10-01", [], (FILE_IMPORT,))) == 1
+    assert import_issues("2026-08-01", [], (FILE_IMPORT,)) == []
+    contents = [("amount", provider("2024-10-01"))]
+    both = (FILE_IMPORT, IMPORT)
+    assert len(import_issues("2025-10-01", contents, both)) == 1
+    assert import_issues("2024-10-01", contents, both) == []
+    # A `#symbol` import without a provider still cannot be compared.
+    assert import_issues("2025-10-01", [], both) == []
+    assert sde.imported_export_starts(module(imports=[FILE_IMPORT]), ()) == frozenset()
 
 
 def test_import_shapes():
@@ -428,10 +445,55 @@ def test_one_issue_per_refused_date_with_distinct_fingerprints():
     assert found[1].fingerprint == issues(module("2025-10-01"))[0].fingerprint
 
 
-def test_unreadable_start_values_are_left_to_other_checks():
-    assert issues(module("October 2025")) == []
+@pytest.mark.parametrize(
+    "start",
+    [
+        "2025-10-1",  # the engine compiles a start without zero padding
+        "2025-10-01 ",
+        datetime(2025, 10, 1),
+        datetime(2025, 10, 1, 12, 30),
+        date(2025, 10, 1),
+    ],
+)
+def test_lenient_start_forms_are_read_as_their_calendar_day(start):
+    found = issues(module(start))
+    assert len(found) == 1
+    assert found[0].found == "2025-10-01"
+    assert found[0].fingerprint == issues(module("2025-10-01"))[0].fingerprint
+
+
+@pytest.mark.parametrize(
+    "start", ["2026-8-1", "2026-08-1", datetime(2026, 8, 1), "0001-1-1", "2026-7-17"]
+)
+def test_lenient_forms_of_a_supported_start_pass(start):
+    assert issues(module(start)) == []
+
+
+@pytest.mark.parametrize(
+    ("start", "found"),
+    [
+        ("October 2025", "October 2025"),
+        ("2025-10-01T00:00:00", "2025-10-01T00:00:00"),
+        ("2025-13-01", "2025-13-01"),
+        ("20251001", "20251001"),
+        (20251001, "20251001"),
+        ("", ""),
+        (True, "True"),
+    ],
+)
+def test_unreadable_start_in_scope_is_refused_not_skipped(start, found):
+    result = issues(module(start))
+    assert len(result) == 1
+    assert f"`rules[].versions[].effective_from` is `{found}`" in result[0]
+    # Out of scope it stays with the other validators.
+    assert issues(module(start), citation="us/statute/7/2014/e") == []
+
+
+def test_version_without_a_start_is_left_to_other_checks():
     assert issues(module(None)) == []
-    assert issues(module(20251001)) == []
+    payload = module("2026-08-01")
+    del payload["rules"][0]["versions"][0]["effective_from"]
+    assert issues(payload) == []
 
 
 # --------------------------------------------------------------------------

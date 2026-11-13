@@ -37,7 +37,7 @@ import calendar
 import re
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import yaml
@@ -344,17 +344,40 @@ def proof_excerpts(payload: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(excerpts)
 
 
-def _version_start(version: Mapping[str, Any]) -> date | None:
+_LENIENT_ISO_DATE = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})")
+
+
+def _version_start(version: Mapping[str, Any]) -> date | str | None:
+    """The start of one version: a date, an unreadable text, or ``None``.
+
+    ``None`` means that the version states no start. The engine also compiles
+    a start without zero padding (``2025-10-1``), and YAML reads an unquoted
+    timestamp as a ``datetime``; both are read as their calendar day. Any
+    other non-null value is returned as text: the caller cannot show that it
+    is a supported date.
+    """
+
     raw = version.get("effective_from")
-    if type(raw) is date:
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw.date()
+    if isinstance(raw, date):
         return raw
-    return _strict_iso_date(raw.strip()) if isinstance(raw, str) else None
+    if isinstance(raw, str):
+        match = _LENIENT_ISO_DATE.fullmatch(raw.strip())
+        if match is not None:
+            try:
+                return date(*(int(part) for part in match.groups()))
+            except ValueError:
+                pass
+    return repr(raw) if not isinstance(raw, str) else raw
 
 
 def _version_starts(
     payload: Mapping[str, Any],
-) -> Iterator[tuple[str, int, date]]:
-    """``(rule name, version index, start)`` for every readable version start."""
+) -> Iterator[tuple[str, int, date | str]]:
+    """``(rule name, version index, start)`` for every stated version start."""
 
     for rule in _mappings(payload.get("rules")):
         for index, version in enumerate(_mappings(rule.get("versions"))):
@@ -370,8 +393,9 @@ def imported_export_starts(
     """Version starts of the exports the module imports, or ``None``.
 
     ``None`` means that the comparison cannot be made: an ``imports`` entry is
-    malformed, or the provider of an imported symbol was not supplied or does
-    not declare exactly one rule of that name. No imports gives an empty set.
+    not a string, or the provider of an imported ``#symbol`` was not supplied
+    or does not declare exactly one rule of that name. No imports, and
+    file-level imports without a ``#symbol``, give an empty set.
     """
 
     imports = payload.get("imports")
@@ -384,8 +408,12 @@ def imported_export_starts(
         providers.setdefault(symbol, []).append(content)
     starts: set[date] = set()
     for item in imports:
-        if not isinstance(item, str) or "#" not in item:
+        if not isinstance(item, str):
             return None
+        if "#" not in item:
+            # A file-level import names no export, so it brings no start date
+            # and takes nothing out of the check.
+            continue
         symbol = item.rsplit("#", 1)[1].strip()
         contents = providers.get(symbol)
         if not contents:
@@ -400,7 +428,9 @@ def imported_export_starts(
             if len(exports) != 1:
                 return None
             starts.update(
-                start for _name, _index, start in _version_starts({"rules": exports})
+                start
+                for _name, _index, start in _version_starts({"rules": exports})
+                if isinstance(start, date)
             )
     return frozenset(starts)
 
@@ -452,12 +482,15 @@ def date_silent_start_issues(
         return []
     supported = evidence.supported_corpus_dates | imported_starts
     excerpts = proof_excerpts(payload)
-    refused: dict[date, list[tuple[str, int]]] = {}
+    refused: dict[str, list[tuple[str, int]]] = {}
     for rule_name, index, start in _version_starts(payload):
-        if start in supported:
-            continue
-        if any(text_prints_date(excerpt, start) for excerpt in excerpts):
-            continue
+        if isinstance(start, date):
+            if start in supported:
+                continue
+            if any(text_prints_date(excerpt, start) for excerpt in excerpts):
+                continue
+            start = start.isoformat()
+        # A start that is not a readable date cannot be shown to be supported.
         refused.setdefault(start, []).append((rule_name, index))
     issues: list[ValidationIssue] = []
     permitted = _permitted_dates_text(evidence)
@@ -483,7 +516,7 @@ def date_silent_start_issues(
         issues.append(
             ValidationIssue(
                 "[complete-source-unit:effective-date] "
-                f"`{_START_FIELD}` is `{start.isoformat()}` in {len(sites)} "
+                f"`{_START_FIELD}` is `{start}` in {len(sites)} "
                 f"version(s) (rules {named}{more}), but the source unit prints "
                 f"no date and nothing in its own evidence supports that start: "
                 f"{reason}. A date copied from a neighbouring module is not "
@@ -495,7 +528,7 @@ def date_silent_start_issues(
                     field=f"versions[{first_index}].effective_from",
                 ),
                 expected=permitted,
-                found=start.isoformat(),
+                found=start,
             )
         )
     return issues
