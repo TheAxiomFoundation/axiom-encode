@@ -1539,9 +1539,15 @@ _STRUCTURAL_SOURCE_LINE_PATTERN = re.compile(
     r"^(?!\d+[A-Za-z]?$)[\(\[]?(?:\d+[A-Za-z]?|[ivxlcdm]+|[a-z])[\)\].]?$",
     re.IGNORECASE,
 )
+# Here and in the step reference and schedule row patterns below, an optional
+# item takes the whitespace after it into its own group (``\s*(?:-\s*)?``, not
+# ``\s*-?\s*``): two whitespace runs side by side split a run of n spaces
+# n + 1 ways, so a line that fails after the run backtracks through every
+# split. The two-line table row key and the value-bearing table row avoid the
+# split in other ways, each noted where it appears.
 _STRUCTURAL_SOURCE_HEADING_PATTERN = re.compile(
     r"^(?:(?:PART|CHAPTER|SCHEDULE|REGULATION)\b|"
-    r"ARTICLE\b\s*(?:\d+[A-Za-z]?)?\s*$)",
+    r"ARTICLE\b\s*(?:\d+[A-Za-z]?\s*)?$)",
     re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_CITATION_PATTERN = re.compile(
@@ -1738,7 +1744,8 @@ _SOURCE_REFERENCE_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(
-        rf"\b(?:step|steps)\s+{_SOURCE_REFERENCE_SEQUENCE_PATTERN}(?:\s*,?\s*(?:above|below))?",
+        rf"\b(?:step|steps)\s+{_SOURCE_REFERENCE_SEQUENCE_PATTERN}"
+        r"(?:\s*(?:,\s*)?(?:above|below))?",
         re.IGNORECASE,
     ),
     re.compile(
@@ -1900,18 +1907,19 @@ _ORDINAL_WORD_PATTERN = re.compile(
 )
 _SCHEDULE_BLOCK_HEADING_PATTERN = re.compile(r"^[A-Z][A-Z0-9_ ]+:\s*$")
 _SCHEDULE_SIZE_ROW_PATTERN = re.compile(
-    r"^\s*[-*]?\s*(?:size|household size|unit size)(?:\s+\d+(?:\s+or\s+more)?)?\s*:\s*"
+    r"^\s*(?:[-*]\s*)?(?:size|household size|unit size)"
+    r"(?:\s+\d+(?:\s+or\s+more)?)?\s*:\s*"
     r"(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
     re.IGNORECASE,
 )
 _SCHEDULE_PIPE_ROW_PATTERN = re.compile(
-    r"^\s*[-*]?\s*(?:\d+(?:\s+or\s+more)?|size\s+\d+(?:\s+or\s+more)?|"
+    r"^\s*(?:[-*]\s*)?(?:\d+(?:\s+or\s+more)?|size\s+\d+(?:\s+or\s+more)?|"
     r"household size\s+\d+(?:\s+or\s+more)?|unit size\s+\d+(?:\s+or\s+more)?)\s*\|\s*"
     r"(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
     re.IGNORECASE,
 )
 _SCHEDULE_ARROW_ROW_PATTERN = re.compile(
-    r"^\s*[-*]?\s*(?:\d+(?:\s+or\s+more)?|size\s+\d+(?:\s+or\s+more)?|"
+    r"^\s*(?:[-*]\s*)?(?:\d+(?:\s+or\s+more)?|size\s+\d+(?:\s+or\s+more)?|"
     r"household size\s+\d+(?:\s+or\s+more)?|unit size\s+\d+(?:\s+or\s+more)?)\s*"
     r"(?:=>|->|=)\s*(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
     re.IGNORECASE,
@@ -1933,17 +1941,22 @@ _TWO_LINE_TABLE_CONTEXT_PATTERN = re.compile(
     r"rate|standard|standards|threshold)\b",
     re.IGNORECASE,
 )
+# The label's last character is a letter or hyphen, so its trailing spaces
+# belong to ``\s*`` alone.
 _TWO_LINE_TABLE_ROW_KEY_PATTERN = re.compile(
     r"^\s*(?:\d{1,3}|"
     r"(?:(?:\d{1,3}(?:st|nd|rd|th)|first|second|third|fourth|fifth|sixth|"
-    r"seventh|eighth|ninth|tenth)\s+[A-Za-z][A-Za-z -]*))\s*$",
+    r"seventh|eighth|ninth|tenth)\s+[A-Za-z](?:[A-Za-z -]*[A-Za-z-])?))\s*$",
     re.IGNORECASE,
 )
 _SOURCE_SUBDIVISION_LINE_PATTERN = re.compile(
     r"^\s*\((?:\d+[A-Za-z]?|[a-z]|[ivxlcdm]+)\)\s*", re.IGNORECASE
 )
+# ``[^:]+`` already takes a row's indent and list bullet. Spelling them out
+# in front of it as ``^\s*[-*]?\s*`` put three whitespace runs side by side, so
+# an indented line with no colon backtracked cubically in its indent.
 _VALUE_BEARING_TABLE_ROW_PATTERN = re.compile(
-    r"^\s*[-*]?\s*[^:]+:\s*(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
+    r"^[^:]+:\s*(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
     re.IGNORECASE,
 )
 _SUBPOUND_MONEY_PATTERN = re.compile(
@@ -7935,9 +7948,11 @@ _GERMAN_MONTH_YEAR_PATTERN = re.compile(
     rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
+# The optional comma takes the spaces after it into its own group, as in
+# `_STRUCTURAL_SOURCE_HEADING_PATTERN`.
 _ENGLISH_MONTH_DAY_YEAR_PATTERN = re.compile(
     rf"\b{_MONTH_NAME_BODY}\s+(?P<day>0?[1-9]|[12]\d|3[01])"
-    rf"(?:st|nd|rd|th)?\s*,?\s*(?P<year>{_TEMPORAL_YEAR_BODY})"
+    rf"(?:st|nd|rd|th)?\s*(?:,\s*)?(?P<year>{_TEMPORAL_YEAR_BODY})"
     rf"{_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
@@ -9126,11 +9141,16 @@ _HEBREW_GREGORIAN_MONTH_PATTERN = re.compile(
 # own line and table cell. Elsewhere a homograph may be speaking: "הסובל מאי
 # ספיקת לב" (National Health Insurance Law, schedule 2) is "suffering from
 # heart failure", "במאי" is also a director and "מרץ" vigour.
+# In the next two patterns, as in the structural heading pattern, an optional
+# separator or comma takes the spaces after it into its own group. The first
+# runs between each pair of adjacent month names, the second after the last
+# name of a group. Written as ``[^\S\n]*,?[^\S\n]*``, two runs split one run
+# of spaces between them, quadratic in the run when nothing after it matches.
 _HEBREW_MONTH_LIST_GAP_PATTERN = re.compile(
-    "[^\\S\\n]*(?:,|;|[\u05be\u2013\u2014-]|עד|ועד|או)?[^\\S\\n]*"
+    "[^\\S\\n]*(?:(?:,|;|[\u05be\u2013\u2014-]|עד|ועד|או)[^\\S\\n]*)?"
 )
 _HEBREW_MONTH_YEAR_AFTER_PATTERN = re.compile(
-    rf"[^\S\n]*,?[^\S\n]*(?:(?:ב|של[^\S\n]+)?שנת[^\S\n]+)?"
+    rf"[^\S\n]*(?:,[^\S\n]*)?(?:(?:ב|של[^\S\n]+)?שנת[^\S\n]+)?"
     rf"{_TEMPORAL_YEAR_BODY}{_TEMPORAL_YEAR_END}"
 )
 _HEBREW_MONTH_YEAR_OF_AFTER_PATTERN = re.compile(
@@ -36988,6 +37008,7 @@ class ValidatorPipeline:
         rules_file: Path | None = None,
         proof_source_texts: Mapping[str, str | None] | None = None,
         execution_evidence: SameCaseEvidence | None = None,
+        local_relation_context: object | None = None,
     ) -> list[str]:
         """Apply opt-in completeness checks to the resolver-owned corpus body."""
 
@@ -37052,6 +37073,7 @@ class ValidatorPipeline:
             content,
             authoritative_source_text or "",
             execution_evidence=execution_evidence,
+            local_relation_context=local_relation_context,
             referral_context=collect_referral_context(
                 self, content, rules_file, proof_source_texts
             )
@@ -37695,6 +37717,7 @@ class ValidatorPipeline:
             cwd=self.axiom_rules_path if self.axiom_rules_path.exists() else None,
             env=self._rulespec_engine_env(),
             composed=is_composition,
+            _execution_owner=self,
         )
         if result.returncode != 0:
             return result, None
@@ -38973,8 +38996,13 @@ class ValidatorPipeline:
         }
         command = [str(binary), "run-compiled", "--artifact", str(compiled_path)]
         try:
-            result = subprocess.run(
+            from .local_case_custody import run_observed_case
+
+            result = run_observed_case(
                 command,
+                pipeline=self,
+                case=case,
+                ordinal=case_index,
                 input=json.dumps(request),
                 capture_output=True,
                 text=True,
@@ -39466,9 +39494,16 @@ class ValidatorPipeline:
         self._register_validation_temporary_root(tmpdir)
         try:
             compiled_path = tmpdir / "compiled.json"
-            compile_result, payload = execution_pipeline._compile_rulespec_to_artifact(
-                execution_file, compiled_path
-            )
+            from .local_compile_custody import compile_scope
+
+            with compile_scope(
+                execution_capture, execution_pipeline, execution_file, compiled_path
+            ):
+                compile_result, payload = (
+                    execution_pipeline._compile_rulespec_to_artifact(
+                        execution_file, compiled_path
+                    )
+                )
             raw_output = compile_result.stdout + compile_result.stderr
             if compile_result.returncode != 0:
                 detail = compile_result.stderr.strip() or compile_result.stdout.strip()
@@ -39775,8 +39810,17 @@ class ValidatorPipeline:
                         find_zero_branch_test_coverage_issues(content, payload)
                     )
                     if len(issues) == pre_test_issue_count:
-                        issues.extend(
-                            execution_pipeline._run_rulespec_test_cases(
+                        from .local_case_custody import suite_scope
+
+                        with suite_scope(
+                            execution_capture,
+                            execution_pipeline,
+                            execution_file,
+                            compiled_path,
+                            compiled_payload,
+                            payload,
+                        ) as observed_suite:
+                            case_issues = execution_pipeline._run_rulespec_test_cases(
                                 rules_file=execution_file,
                                 compiled_path=compiled_path,
                                 compiled_payload=compiled_payload,
@@ -39787,22 +39831,38 @@ class ValidatorPipeline:
                                     else {}
                                 ),
                             )
-                        )
+                            if observed_suite is not None:
+                                observed_suite.finish(case_issues)
+                            issues.extend(case_issues)
         elif not issues and not self._is_nonassertable_rulespec_artifact(rules_file):
             issues.append("No tests found.")
 
-        issues.extend(
-            self._complete_source_unit_issues(
-                content,
-                validation_source_texts=validation_source_texts,
-                proof_source_texts=proof_source_texts,
-                test_cases=complete_source_unit_test_cases,
-                execution_evidence=execution_capture.evidence()
-                if execution_capture
-                else None,
-                rules_file=rules_file,
+        from .local_relation_source_evidence import local_relation_source_scope
+
+        with local_relation_source_scope(
+            execution_capture,
+            execution_pipeline,
+            content,
+            complete_source_unit_test_cases,
+            proof_source_texts,
+        ) as local_context:
+            issues.extend(
+                self._complete_source_unit_issues(
+                    content,
+                    validation_source_texts=validation_source_texts,
+                    proof_source_texts=proof_source_texts,
+                    test_cases=complete_source_unit_test_cases,
+                    execution_evidence=execution_capture.evidence()
+                    if execution_capture
+                    else None,
+                    rules_file=rules_file,
+                    **(
+                        {"local_relation_context": local_context}
+                        if local_context is not None
+                        else {}
+                    ),
+                )
             )
-        )
         manual_advice = self._manual_outcome_exception_advice(
             content,
             validation_source_texts=validation_source_texts,

@@ -1,0 +1,1 @@
+Verify Schedule 2 same-page floor obligations from bound actual execution evidence, preserving unrelated source findings. Retain the public local failure as an explicitly identified diagnostic replay fixture.
