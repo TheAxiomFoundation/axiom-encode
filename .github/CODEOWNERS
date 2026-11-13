@@ -46,6 +46,11 @@
 /scripts/provision_axiom_compose_runtime.py @PavelMakarchuk @MaxGhenis
 /scripts/prepare_retired_source_metadata.py @PavelMakarchuk @MaxGhenis
 
+# The PR linkage check (Encoding-Target / Fixes-Run). The workflow runs the base
+# branch's checker, but a pull request can still edit the workflow itself.
+/.github/workflows/pr-linkage.yml @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/pr_linkage.py @PavelMakarchuk @MaxGhenis
+
 # This file.
 /.github/CODEOWNERS @PavelMakarchuk @MaxGhenis
 # RuleSpec-repo admissions registry and the validation-effect gate (#2095, #2094).

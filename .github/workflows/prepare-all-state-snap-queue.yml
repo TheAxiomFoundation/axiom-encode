@@ -127,4 +127,8 @@ jobs:
             --base main \
             --head "$branch" \
             --title "Add durable all-state SNAP encoding queue" \
-            --body "Creates the authenticated, paused 50-state-plus-DC SNAP queue tracked by #1287. The queue is generated from the pinned signed corpus release and remains paused until the protected RuleSpec branch is green and independently reviewed."
+            --body "$(printf '%s\n' \
+              'Creates the authenticated, paused 50-state-plus-DC SNAP queue tracked by #1287. The queue is generated from the pinned signed corpus release and remains paused until the protected RuleSpec branch is green and independently reviewed.' \
+              '' \
+              'Encoding-Target: none' \
+              'Fixes-Run: none')"
