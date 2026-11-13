@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
@@ -946,17 +947,52 @@ def base_advance_admitted(github: GitHub, repo: str, base: str, tip: str) -> boo
 
 
 def _regular_file_bytes(github: GitHub, repo: str, path: str, ref: str) -> bytes | None:
-    """One file's bytes at ``ref``, or None if it is absent or not a file."""
+    """Read one mode-100644 blob through immutable, non-recursive Git trees."""
 
     try:
-        payload = github.get(f"repos/{repo}/contents/{path}", {"ref": ref})
+        commit = github.get(f"repos/{repo}/git/commits/{ref}")
+        if commit.get("sha") != ref:
+            return None
+        object_sha = commit["tree"]["sha"]
+        parts = path.split("/")
+        for index, part in enumerate(parts):
+            if not isinstance(object_sha, str) or not SHA_PATTERN.fullmatch(object_sha):
+                return None
+            tree = github.get(f"repos/{repo}/git/trees/{object_sha}")
+            if (
+                tree.get("sha") != object_sha
+                or tree.get("truncated") is not False
+                or not isinstance(tree.get("tree"), list)
+            ):
+                return None
+            entries = [entry for entry in tree["tree"] if entry.get("path") == part]
+            if len(entries) != 1:
+                return None
+            entry = entries[0]
+            expected = (
+                ("100644", "blob") if index == len(parts) - 1 else ("040000", "tree")
+            )
+            if (entry.get("mode"), entry.get("type")) != expected:
+                return None
+            object_sha = entry.get("sha")
+        if not isinstance(object_sha, str) or not SHA_PATTERN.fullmatch(object_sha):
+            return None
+        payload = github.get(f"repos/{repo}/git/blobs/{object_sha}")
+        if (
+            payload.get("sha") != object_sha
+            or payload.get("encoding") != "base64"
+            or not isinstance(payload.get("content"), str)
+        ):
+            return None
+        content = base64.b64decode("".join(payload["content"].split()), validate=True)
+        identity = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
+        return content if identity == object_sha else None
     except GitHubError as exc:
         if exc.status == 404:
             return None
         raise
-    if not isinstance(payload, dict) or payload.get("type") != "file":
+    except (AttributeError, KeyError, TypeError, ValueError):
         return None
-    return base64.b64decode(payload["content"])
 
 
 def reconcile_dispatched(

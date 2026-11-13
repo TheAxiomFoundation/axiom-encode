@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -95,6 +96,41 @@ def _toml_payload(text: str) -> dict[str, str]:
     return {"type": "file", "content": base64.b64encode(text.encode()).decode()}
 
 
+def _workflow_git_objects(ref: str, text: str) -> dict[str, dict[str, Any]]:
+    raw = text.encode()
+    blob = hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest()
+    root = hashlib.sha1(f"root:{ref}:{blob}".encode()).hexdigest()
+    directory = hashlib.sha1(f"directory:{ref}:{blob}".encode()).hexdigest()
+    prefix = f"repos/{RULESPEC_REPO}/git"
+    return {
+        f"{prefix}/commits/{ref}": {"sha": ref, "tree": {"sha": root}},
+        f"{prefix}/trees/{root}": {
+            "sha": root,
+            "truncated": False,
+            "tree": [
+                {"path": ".axiom", "mode": "040000", "type": "tree", "sha": directory}
+            ],
+        },
+        f"{prefix}/trees/{directory}": {
+            "sha": directory,
+            "truncated": False,
+            "tree": [
+                {
+                    "path": "workflow-toolchain.toml",
+                    "mode": "100644",
+                    "type": "blob",
+                    "sha": blob,
+                }
+            ],
+        },
+        f"{prefix}/blobs/{blob}": {
+            "sha": blob,
+            "encoding": "base64",
+            "content": base64.b64encode(raw).decode(),
+        },
+    }
+
+
 def _toolchain(release: str = RELEASE) -> str:
     return f'[toolchain]\naxiom_corpus_release = "{release}"\n'
 
@@ -152,6 +188,7 @@ class FakeGitHub:
         self.comparisons: dict[str, dict[str, Any]] = {}
         # ref -> workflow-toolchain text, overriding the default for that ref.
         self.workflow_toolchains: dict[str, str] = {}
+        self.git_objects: dict[str, dict[str, Any]] = {}
         self.next_id = 1000
 
     # helpers used by tests
@@ -183,6 +220,18 @@ class FakeGitHub:
                 self.workflow_toolchains.get(params.get("ref", ""))
                 or _workflow_toolchain()
             )
+        match = re.fullmatch(
+            rf"repos/{RULESPEC_REPO}/git/commits/([0-9a-f]{{40}})", path
+        )
+        if match:
+            ref = match.group(1)
+            self.git_objects.update(
+                _workflow_git_objects(
+                    ref, self.workflow_toolchains.get(ref) or _workflow_toolchain()
+                )
+            )
+        if path in self.git_objects:
+            return copy.deepcopy(self.git_objects[path])
         match = re.fullmatch(rf"repos/{RULESPEC_REPO}/compare/(.+)", path)
         if match:
             if match.group(1) not in self.comparisons:
@@ -1155,21 +1204,35 @@ def test_base_advance_admitted_treats_network_errors_as_stale(error):
     assert not q.base_advance_admitted(Failing(), RULESPEC_REPO, TIP, "b" * 40)
 
 
-def test_a_symlinked_workflow_toolchain_is_not_admitted():
+def test_a_followed_symlink_workflow_toolchain_is_not_admitted():
     github = FakeGitHub()
     tip = _advance(github, [".axiom/workflow-toolchain.toml"])
     original_get = github.get
+    tip_objects = _workflow_git_objects(tip, _workflow_toolchain())
 
     def get(path, params=None):
         payload = original_get(path, params)
-        if path.endswith("/contents/.axiom/workflow-toolchain.toml") and (
-            (params or {}).get("ref") == tip
-        ):
-            return {**payload, "type": "symlink"}
+        if path in tip_objects and "/git/trees/" in path:
+            for entry in payload["tree"]:
+                if entry["path"] == "workflow-toolchain.toml":
+                    entry["mode"] = "120000"
         return payload
 
     github.get = get  # type: ignore[method-assign]
 
+    assert (
+        github.get(
+            f"repos/{RULESPEC_REPO}/contents/.axiom/workflow-toolchain.toml",
+            {"ref": tip},
+        )["type"]
+        == "file"
+    )
+    assert (
+        q._regular_file_bytes(
+            github, RULESPEC_REPO, ".axiom/workflow-toolchain.toml", TIP
+        )
+        == _workflow_toolchain().encode()
+    )
     assert not q.base_advance_admitted(github, RULESPEC_REPO, TIP, tip)
 
 
