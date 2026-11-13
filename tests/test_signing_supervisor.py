@@ -3385,11 +3385,75 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'repo="TheAxiomFoundation/rulespec-${COUNTRY}"' in publish_command
     assert '"$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"' in prepare_branch["run"]
     assert "core.hooksPath=/dev/null" in publish_command
-    assert "fetch --no-tags origin \\\n" in verify_base["run"]
-    assert "refs/remotes/origin/${PR_BASE_BRANCH}" in verify_base["run"]
-    assert '" = "$RULESPEC_REF"' in verify_base["run"]
+    verify_command = verify_base["run"]
+    prepare_command = prepare_branch["run"]
+    assert "fetch --no-tags origin \\\n" in verify_command
+    assert "refs/remotes/origin/${PR_BASE_BRANCH}" in verify_command
+    assert (
+        "merge-base --is-ancestor \\\n"
+        '  "$RULESPEC_REF" "refs/remotes/origin/${PR_BASE_BRANCH}"'
+    ) in verify_command
     assert steps.index(verify_base) < steps.index(prepare_branch)
     assert steps.index(prepare_branch) < steps.index(publish_step)
+    assert (
+        "axiom-encode/scripts/prepare_signed_backfill.py \\\n"
+        "  advance-publication-base \\\n"
+        '  "$RULESPEC_CHECKOUT" "$RULESPEC_REF" "$PR_BASE_BRANCH" \\\n'
+        '  > "$publication_base"'
+    ) in prepare_command
+    assert (
+        'publication_base="$RUNNER_TEMP/targeted-reencode/publication-base.json"'
+        in prepare_command
+    )
+    assert '" = "$published_base"' in prepare_command
+    assert '" = "$published_head"' in prepare_command
+    assert '"$RULESPEC_REF" "$published_base"' in prepare_command
+    assert ".base_advance_paths | length" in prepare_command
+    assert 'base_advance_paths" ' not in prepare_command
+    for output in (
+        "branch",
+        "published_base",
+        "published_head",
+        "base_advance_count",
+        "publication_base_sha256",
+    ):
+        assert f'echo "{output}=${output}"' in prepare_command
+        assert publish_step["env"][
+            output.upper() if output != "branch" else ("PREPARED_BRANCH")
+        ] == (f"${{{{ steps.reviewed_lane_pull_request_branch.outputs.{output} }}}}")
+    assert '" = "$PUBLISHED_HEAD"' in publish_command
+    assert "Base commit: \\`${RULESPEC_REF}\\`" in publish_command
+    assert "Published base commit: \\`${PUBLISHED_BASE}\\`" in publish_command
+    assert (
+        "Base advance paths: ${BASE_ADVANCE_COUNT} (publication-base.json sha256 "
+        "\\`${PUBLICATION_BASE_SHA256}\\`)"
+    ) in publish_command
+    identity_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Verify immutable checkout identities"
+    )
+    for env_name, input_name in (
+        ("REPLACE_LEGACY_RULESPEC_PATH", "replace_legacy_rulespec_path"),
+        (
+            "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+            "legacy_exact_dependent_rulespec_path",
+        ),
+        (
+            "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+            "second_legacy_exact_dependent_rulespec_path",
+        ),
+        (
+            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON",
+            "legacy_retained_successor_rulespec_paths_json",
+        ),
+    ):
+        assert identity_step["env"][env_name] == f"${{{{ inputs.{input_name} }}}}"
+        assert f"${env_name}" in identity_step["run"] or (
+            f"${{{env_name}" in identity_step["run"]
+        )
+    assert "base_args+=(--require-exact-tip)" in identity_step["run"]
+    assert '${base_args[@]+"${base_args[@]}"}' in identity_step["run"]
     assert '"HEAD:refs/heads/${branch}"' in publish_command
     assert publish_command.count('"HEAD:refs/heads/${branch}"') == 1
     assert "gh api --method POST" in publish_command
@@ -3398,7 +3462,12 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "Queue item:" in publish_command
     assert "Queue generation SHA-256:" in publish_command
     assert "Queue manifest SHA-256:" in publish_command
-    assert "'.base.ref == $branch and .base.sha == $sha'" in publish_command
+    assert '--arg sha "$PUBLISHED_BASE"' in publish_command
+    assert '--arg head "$PUBLISHED_HEAD"' in publish_command
+    assert (
+        "'.base.ref == $branch and .base.sha == $sha and .head.sha == $head'"
+        in publish_command
+    )
     assert "pulls/${pr_number}" in publish_command
     assert "-f state=closed" in publish_command
     assert '":refs/heads/${branch}"' in publish_command
