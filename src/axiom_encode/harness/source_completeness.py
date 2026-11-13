@@ -28805,9 +28805,10 @@ def _formula_text_has_executable_branch_tree(formula_text: str) -> bool:
     return validate(formula_text, depth=0)
 
 
-# Parentheses, brackets, call argument lists and unary operators a leaf may nest.
-# A parenthesis costs each parser nine frames, so a leaf at this limit needs about
-# 590 of the default 1,000.
+# Levels a leaf may nest. A parenthesized group, a bracket index, a call's
+# arguments and a unary operator each open one; an empty call such as `f()` opens
+# none. A parenthesis costs each parser nine frames, so a leaf at this limit needs
+# about 590 of the default 1,000.
 _FORMULA_EXPRESSION_NESTING_LIMIT = 64
 
 

@@ -585,6 +585,8 @@ def _mixed_nesting(levels):
 _NESTING_SHAPES = {
     "parentheses": _nested,
     "calls": lambda levels: "f(" * levels + "1" + ")" * levels,
+    # The innermost `f()` opens no level: an empty argument list parses nothing.
+    "calls_around_an_empty_call": lambda levels: "f(" * levels + "f()" + ")" * levels,
     "brackets": lambda levels: "x[" * levels + "1" + "]" * levels,
     "minus": lambda levels: "- " * levels + "1",
     "not": lambda levels: "not " * levels + "x",
@@ -605,6 +607,34 @@ def test_nesting_limit_clears_the_deepest_tracked_formula():
 
     assert _NESTING_LIMIT == 64
     assert sc._formula_leaf_has_executable_syntax(_nested(52)) is True
+
+
+_LEVEL_CLOSERS = {"(": ")", "- ": "", "f(": ")", "not ": "", "x[": "]"}
+
+
+@settings(max_examples=200, deadline=None)
+@given(
+    openers=st.integers(min_value=0, max_value=_NESTING_LIMIT + 4).flatmap(
+        lambda levels: st.lists(
+            st.sampled_from(tuple(_LEVEL_CLOSERS)), min_size=levels, max_size=levels
+        )
+    ),
+    innermost=st.sampled_from(("1", "x", "f()")),
+)
+@example(openers=[], innermost="f()")
+@example(openers=["f("] * _NESTING_LIMIT, innermost="f()")
+@example(openers=["f("] * (_NESTING_LIMIT + 1), innermost="f()")
+def test_leaf_parser_counts_a_level_per_opener_and_none_for_an_empty_call(
+    openers, innermost
+):
+    # Each parenthesized group, bracket index, call's arguments and unary operator
+    # opens one level; an empty call such as `f()` opens none.
+    closers = "".join(_LEVEL_CLOSERS[opener] for opener in reversed(openers))
+    text = "".join(openers) + innermost + closers
+
+    assert sc._formula_leaf_has_executable_syntax(text) is (
+        len(openers) <= _NESTING_LIMIT
+    )
 
 
 _SIBLING_RUNS = {
@@ -791,7 +821,14 @@ def _names_recursion_error(kind):
 
     if isinstance(kind, ast.Tuple):
         return any(_names_recursion_error(item) for item in kind.elts)
-    return isinstance(kind, ast.Name) and kind.id in {
+    # A qualified name such as `builtins.RuntimeError` catches it too.
+    if isinstance(kind, ast.Attribute):
+        name = kind.attr
+    elif isinstance(kind, ast.Name):
+        name = kind.id
+    else:
+        return False
+    return name in {
         "BaseException",
         "Exception",
         "RecursionError",
