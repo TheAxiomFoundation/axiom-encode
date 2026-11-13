@@ -11,8 +11,9 @@ from axiom_encode.harness import local_compile_custody as c
 from axiom_encode.rules_engine_compat import run_rulespec_compile
 
 
-def make_world(tmp_path, artifact='{"compiled":true}', *, real_engine=None):
-    from axiom_encode.harness.same_case_execution import ClosureFile, digest
+def make_world(tmp_path, artifact='{"compiled":true}', *, real_engine=None, admit=True):
+    from axiom_encode.harness import actual_local_relation_evidence as evidence
+    from axiom_encode.harness.same_case_execution import ClosureFile, _payload, digest
 
     root = tmp_path / "rulespec-ca"
     root.mkdir(parents=True)
@@ -69,7 +70,13 @@ rules:
         if real_engine is not None
         else "fixture-pin"
     )
-    pipe = SimpleNamespace(_declared_engine_pin=lambda: SimpleNamespace(sha=pin))
+    pipe = SimpleNamespace(
+        _declared_engine_pin=lambda: SimpleNamespace(sha=pin),
+        _source_texts_for_rulespec_content=lambda content: {},
+        _proof_source_texts_for_rulespec_content=lambda content, *, source_texts: (
+            source_texts
+        ),
+    )
     plan = (
         root,
         {source: ClosureFile(relative, source, source.read_bytes())},
@@ -79,9 +86,23 @@ rules:
         root,
         None,
     )
-    capture = c._materialize_registered(
-        pipe, source, plan, str(tmp_path / "materialized")
-    )
+    # This fixture tests compile custody, not source/recording eligibility.
+    # Admit only its exact payload, and restore eligibility before compilation.
+    fixture_payload = _payload(source.read_bytes())
+    original_eligibility = evidence.local_relation_snapshot_eligible
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            evidence,
+            "local_relation_snapshot_eligible",
+            lambda payload: admit and payload == fixture_payload,
+        )
+        capture = c._materialize_registered(
+            pipe, source, plan, str(tmp_path / "materialized")
+        )
+    assert evidence.local_relation_snapshot_eligible is original_eligibility
+    if not admit:
+        assert capture is None
+        return None
     assert capture is not None
     pipeline = SimpleNamespace(
         _rulespec_compile_roots=lambda: (capture.snapshot_root,),
@@ -120,6 +141,16 @@ def compile_and_bind(world, *, owner=None):
         hashlib.sha256(output.read_bytes()).hexdigest() if output.exists() else None
     )
     return result
+
+
+def test_refused_recording_admission_creates_no_compile_owner(tmp_path):
+    from axiom_encode.harness import actual_local_relation_evidence as evidence
+
+    original_eligibility = evidence.local_relation_snapshot_eligible
+    owners_before = dict(c._owners)
+    assert make_world(tmp_path, admit=False) is None
+    assert c._owners == owners_before
+    assert evidence.local_relation_snapshot_eligible is original_eligibility
 
 
 def test_success_consumed_once(world):
