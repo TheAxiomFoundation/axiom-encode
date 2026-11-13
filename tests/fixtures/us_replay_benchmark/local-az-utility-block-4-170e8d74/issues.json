@@ -1,0 +1,21 @@
+{
+  "id": "local-az-utility-block-4-170e8d74",
+  "run_id": "local-az-utility-block-4-170e8d74",
+  "citation": "us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4",
+  "module": "us-az/policies/des/faa5/na-utility-expenses-and-allowances/block-4.yaml",
+  "imports_resolved": 0,
+  "imports_unresolved": [],
+  "deferral_providers_resolved": [],
+  "deferral_providers_unresolved": [],
+  "split": "visible",
+  "control": false,
+  "issues": [
+    "[complete-source-unit:source-explicit-conditions] Derived formula version(s) delegate multiple conjunctive factual gates stated in their exact authoritative source clause to too few terminal local inputs or canonical imports: `monthly_utility_exchange_allowance_path` versions[0] (`pays_utility_expense_and_receives_monthly_utility_contribution_from_another_budgetary_unit`, `shared_utility_expenses_verified` for 2 source gates); `separate_housing_shared_meter_allowance_path` versions[0] (`incurs_shared_meter_utility_expenses`, `obligated_to_pay_those_shared_meter_utility_expenses`, `occupies_separate_housing_unit_from_other_units_sharing_that_meter`, `shared_utility_expenses_verified` for 2 source gates); `shared_residence_utility_allowance_path` versions[0] (`shared_utility_expenses_verified`, `shares_residence_and_utility_expenses_with_another_budgetary_unit` for 2 source gates). Encode the source-stated facts as distinct local inputs or canonical imports, declare every local fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`), combine them in a source-proved derived Judgment, and test each gate. Reserve aggregate boundary statuses for source-atomic or externally determined conditions.",
+    "[complete-source-unit:tests] Companion tests do not exercise every source-stated boundary input; missing: source unit=1."
+  ],
+  "rules": {
+    "complete-source-unit:source-explicit-conditions": 1,
+    "complete-source-unit:tests": 1
+  },
+  "error": null
+}

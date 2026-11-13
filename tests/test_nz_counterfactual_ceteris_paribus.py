@@ -79,6 +79,26 @@ def opaque_issues(source: str, module=sc) -> list[str]:
     )
 
 
+def without_clause_detail(issues: list[str]) -> list[str]:
+    """Drop what the finding now adds to base's words: the quoted source clause
+    with its facts, and the sentence that says what to change."""
+
+    return [
+        re.sub(
+            r' \[source clause ".*?(?:fact \d+|is not met)\](?=[;.])',
+            "",
+            issue,
+            flags=re.DOTALL,
+        ).replace(
+            " For each fact that a bracket names without an input, declare one "
+            "input or canonical import whose name uses that fact's source words, "
+            "and use it on every formula path that the quoted clause governs.",
+            "",
+        )
+        for issue in issues
+    ]
+
+
 @pytest.fixture(scope="module")
 def receipts():
     sys.path.insert(0, str(SCRIPT_DIR))
@@ -202,7 +222,7 @@ def test_other_shapes_keep_base_gates(base, source):
     assert sc._source_conjunctive_fact_gates(
         source
     ) == base._source_conjunctive_fact_gates(source)
-    assert opaque_issues(source) == opaque_issues(source, base)
+    assert without_clause_detail(opaque_issues(source)) == opaque_issues(source, base)
 
 
 STATUS_STOPWORDS = (

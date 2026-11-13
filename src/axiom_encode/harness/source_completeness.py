@@ -19786,33 +19786,69 @@ def _shared_membership_list_body(body: str) -> str:
     )
 
 
-def _is_pure_physical_alternative_condition(body: str) -> bool:
-    """Recognize a closed OR-list, never a conjunctive or qualified list.
+# The chapeau of a bulleted list of alternatives. The grammar is closed and
+# comes from real manual text: "when one or more of the following apply:",
+# "only when any of the following applies:", "Any of the following ... when
+# used ...:", "when either situation occurs:". The quantifier must be in the
+# chapeau's last sentence, which the colon ends. "all of the following" is
+# not in the grammar: its bullets stay conjunctive gates.
+_ALTERNATIVE_BULLET_CHAPEAU = re.compile(
+    r"\b(?:one\s+or\s+more\s+of\s+the\s+following"
+    r"|any\s+of\s+the\s+following"
+    r"|either\s+situation\s+occurs)\b[^.:\n]*:\s*$",
+    flags=re.IGNORECASE,
+)
+_SOURCE_BULLET_ITEM = re.compile(r"\s*[●•]\s+\S")
 
-    This gate counts simultaneous facts, not alternative triggers. Decline
-    any shared prerequisite, nested condition, or unbulleted continuation;
-    their existing conservative gate analysis must remain in force.
+
+def _without_alternative_bullets_or_later_paragraphs(text: str, body: str) -> str:
+    """Keep only the text that can state simultaneous facts of one condition.
+
+    This gate counts simultaneous facts, not alternative triggers. Two physical
+    list shapes made it count other things:
+
+    - A bullet under an alternative chapeau is one alternative, not a conjunct.
+      Drop it. A bullet that itself holds ``and`` or ``nor`` stays, so a
+      conjunction inside an alternative keeps its conservative analysis. The
+      chapeau, an unbulleted continuation and any trailing proviso also stay.
+    - After a bullet list, a new paragraph that is a sentence (blank line
+      before it, capital first letter, final period or colon) is a new
+      proposition, not another conjunct. The condition ends before it.
     """
 
-    header, separator, tail = body.strip().partition(":")
-    if not separator or not re.fullmatch(
-        r"one\s+or\s+more\s+of\s+the\s+following\s+occurs\s+regarding\s+"
-        r"the\s+child\s+support\s+payment",
-        header,
-        flags=re.IGNORECASE,
-    ):
-        return False
-    lines = [line.strip() for line in tail.splitlines() if line.strip()]
-    if len(lines) < 2 or any(not re.match(r"^[●•]\s+\S", line) for line in lines):
-        return False
-    return not any(
-        re.search(
-            r"\b(?:and|nor|but|if|when|unless|provided|except|only)\b|[;:]",
-            line,
-            flags=re.IGNORECASE,
-        )
-        for line in lines
+    lines = body.split("\n")
+    first_bullet = next(
+        (index for index, line in enumerate(lines) if _SOURCE_BULLET_ITEM.match(line)),
+        None,
     )
+    if first_bullet is None:
+        return body
+    kept = lines[:first_bullet]
+    for index in range(first_bullet, len(lines)):
+        stripped = lines[index].strip()
+        if (
+            stripped
+            and not _SOURCE_BULLET_ITEM.match(stripped)
+            and not lines[index - 1].strip()
+            and stripped[0].isupper()
+            and stripped[-1] in ".:"
+        ):
+            break
+        kept.append(lines[index])
+    bullet_position = text.find(lines[first_bullet].strip())
+    preceding = [
+        line.strip()
+        for line in text[: max(bullet_position, 0)].splitlines()
+        if line.strip() and not _SOURCE_BULLET_ITEM.match(line)
+    ]
+    if preceding and _ALTERNATIVE_BULLET_CHAPEAU.search(preceding[-1]):
+        kept = [
+            line
+            for line in kept
+            if not _SOURCE_BULLET_ITEM.match(line)
+            or re.search(r"\b(?:and|nor)\b", line, flags=re.IGNORECASE)
+        ]
+    return "\n".join(kept)
 
 
 _SOURCE_ANY_REASON_PREFIX = "source_any_reason:"
@@ -20013,8 +20049,6 @@ def _source_conjunctive_fact_gates(
         and re.match(r"\s*all\s+of\s+the\s+following\s+apply:", body, re.IGNORECASE)
         else None
     )
-    if _is_pure_physical_alternative_condition(body):
-        return ()
     if conditional.group("cue").strip().casefold() != "unless":
         trailing_exception = re.search(
             r"\b(?:unless|except(?:\s+(?:if|when))?)\b",
@@ -20049,6 +20083,7 @@ def _source_conjunctive_fact_gates(
     body = _without_flattened_pdf_alternative_list(body)
     body = _without_completed_chart_result_label(body, text)
     body = _without_worksheet_imperative_consequent(body)
+    body = _without_alternative_bullets_or_later_paragraphs(text, body)
     membership_body = _shared_membership_list_body(body)
     membership_requirement = None
     if membership_body != body:
@@ -21218,13 +21253,30 @@ def _terminal_names_corroborate_source_gates(
 ) -> bool:
     """Require a distinct semantically related terminal for every source gate."""
 
+    return not _source_gates_without_distinct_terminal(
+        names,
+        gates,
+        terminal_evidence=terminal_evidence,
+        neutral_polarity_imports=neutral_polarity_imports,
+    )
+
+
+def _source_gates_without_distinct_terminal(
+    names: frozenset[str],
+    gates: tuple[tuple[frozenset[str], frozenset[str]], ...],
+    *,
+    terminal_evidence: Mapping[str, _TerminalGateEvidence],
+    neutral_polarity_imports: frozenset[str] = frozenset(),
+) -> tuple[int, ...]:
+    """Return the gates that a maximum distinct name matching leaves unmatched."""
+
     if not gates:
-        return True
+        return ()
     if (
         len(gates) > _SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT
         or len(names) > _SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT
     ):
-        return False
+        return tuple(range(len(gates)))
     repeated_predicates = [
         frozenset().union(
             *(
@@ -21485,8 +21537,6 @@ def _terminal_names_corroborate_source_gates(
                 continue
             matches.append(name)
         candidates.append(tuple(matches))
-    if any(not values for values in candidates):
-        return False
     order = sorted(range(len(gates)), key=lambda index: (len(candidates[index]), index))
 
     matched_gate_by_terminal: dict[str, int] = {}
@@ -21502,7 +21552,12 @@ def _terminal_names_corroborate_source_gates(
                 return True
         return False
 
-    return all(augment(gate_index, set()) for gate_index in order)
+    # Augmenting paths give a maximum matching, so the gates that stay
+    # unmatched are a true count, and none stays unmatched exactly when every
+    # gate has its own terminal.
+    return tuple(
+        sorted(gate_index for gate_index in order if not augment(gate_index, set()))
+    )
 
 
 CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED = declare_check(
@@ -21967,6 +22022,9 @@ def _opaque_same_source_condition_input_issues(
         )
 
     findings: list[tuple[str, int, int, frozenset[str]]] = []
+    finding_details: list[
+        tuple[str, tuple[frozenset[str], ...], tuple[int, ...]] | None
+    ] = []
     for rule_name, rule in sorted(principal_rules.items()):
         if (
             not reviewed_care_source
@@ -22016,11 +22074,13 @@ def _opaque_same_source_condition_input_issues(
                             ),
                         )
                     )
+                    finding_details.append(None)
                 continue
             gate_sets: dict[
                 tuple[tuple[str, ...], int, int],
                 tuple[tuple[frozenset[str], frozenset[str]], ...],
             ] = {}
+            gate_clause_texts: dict[tuple[tuple[str, ...], int, int], str] = {}
             reversed_negative_gate_keys: set[tuple[tuple[str, ...], int, int]] = set()
             ambiguous_ownership = False
             for excerpt in excerpts:
@@ -22123,6 +22183,7 @@ def _opaque_same_source_condition_input_issues(
                     excerpt_has_gates = True
                     clause_key = (clause.branch_path, clause.start, clause.end)
                     gate_sets[clause_key] = gates
+                    gate_clause_texts[clause_key] = clause.text
                     if _direct_exception_reverses_negative_proposition(
                         clause.text
                     ) and _rule_has_negative_output_semantics(
@@ -22261,6 +22322,28 @@ def _opaque_same_source_condition_input_issues(
                     tuple(sorted(value.names)),
                 ),
             )
+            # Name the clause and the facts that the weakest path leaves
+            # without an input, so a retry knows what to change.
+            weakest_detail: tuple[str, tuple[frozenset[str], ...], tuple[int, ...]]
+            weakest_detail = ("", (), ())
+            for clause_key, gates in gate_sets.items():
+                unmatched = _source_gates_without_distinct_terminal(
+                    reversed_names
+                    if clause_key in reversed_negative_gate_keys
+                    else least_supported.names,
+                    gates,
+                    terminal_evidence=terminal_evidence,
+                    neutral_polarity_imports=frozenset(imported_names),
+                )
+                if (len(unmatched), len(gates)) > (
+                    len(weakest_detail[2]),
+                    len(weakest_detail[1]),
+                ):
+                    weakest_detail = (
+                        gate_clause_texts[clause_key],
+                        tuple(predicates for _entities, predicates in gates),
+                        unmatched,
+                    )
             findings.append(
                 (
                     rule_name,
@@ -22269,15 +22352,57 @@ def _opaque_same_source_condition_input_issues(
                     direct_selectors | least_supported.names,
                 )
             )
+            finding_details.append(weakest_detail)
     if not findings:
         return []
 
-    findings.sort(key=lambda item: (item[0], item[1], tuple(sorted(item[3]))))
+    ordered = sorted(
+        zip(findings, finding_details, strict=True),
+        key=lambda pair: (pair[0][0], pair[0][1], tuple(sorted(pair[0][3]))),
+    )
+
+    def render_detail(
+        detail: tuple[str, tuple[frozenset[str], ...], tuple[int, ...]] | None,
+    ) -> str:
+        """Say which clause and which of its facts lack an input."""
+
+        if detail is None or not detail[1]:
+            return ""
+        clause_text, gate_words, unmatched = detail
+        facts = "; ".join(
+            f"fact {index} ("
+            + (
+                ", ".join(sorted(word for word in words if word.isalpha())[:8])
+                or ", ".join(
+                    sorted(word.replace("_", " ") for word in words if ":" not in word)[
+                        :8
+                    ]
+                )
+                or "no plain source words"
+            )
+            + ")"
+            for index, words in enumerate(gate_words, start=1)
+        )
+        matched = len(gate_words) - len(unmatched)
+        missing = (
+            "no input name matches the source words of "
+            + ", ".join(f"fact {index + 1}" for index in unmatched)
+            if unmatched
+            else "the facts are matched, but the clause that owns them is "
+            "ambiguous or its reviewed fact contract is not met"
+        )
+        return (
+            f' [source clause "{_bounded_source_feedback_excerpt(clause_text, limit=200)}" '
+            f"states {len(gate_words)} facts by their source words: {facts}. The "
+            f"least-supported formula path gives {matched} of {len(gate_words)} "
+            f"facts its own input; {missing}]"
+        )
+
     rendered = [
         f"`{rule_name}` versions[{version_index}] "
         f"({_bounded_identifier_feedback(tuple(evidence_names)) or 'no resolved fact selectors'} "
-        f"for {gate_count} source gates)"
-        for rule_name, version_index, gate_count, evidence_names in findings[
+        f"for {gate_count} source gates)" + render_detail(detail)
+        for (rule_name, version_index, gate_count, evidence_names), detail in ordered[
             :_SOURCE_EXPLICIT_CONDITION_DIAGNOSTIC_LIMIT
         ]
     ]
@@ -22286,7 +22411,17 @@ def _opaque_same_source_condition_input_issues(
             f"... ({len(findings) - _SOURCE_EXPLICIT_CONDITION_DIAGNOSTIC_LIMIT} "
             "additional formula versions omitted)"
         )
-    first_rule, first_version, first_gate_count, first_evidence = findings[0]
+    (first_rule, first_version, first_gate_count, first_evidence), first_detail = (
+        ordered[0]
+    )
+    if first_detail is not None and first_detail[1]:
+        first_found = (
+            f"{len(first_detail[1]) - len(first_detail[2])} of "
+            f"{len(first_detail[1])} source gates with their own terminal input "
+            "on the least-supported formula path"
+        )
+    else:
+        first_found = f"{len(first_evidence)} terminal selectors"
     return [
         ValidationIssue(
             "[complete-source-unit:source-explicit-conditions] Derived formula "
@@ -22296,7 +22431,10 @@ def _opaque_same_source_condition_input_issues(
             "as distinct local inputs or canonical imports, declare every local fact "
             "in the RuleSpec document-root `inputs` list (a sibling of `module` and "
             "`rules`, never nested under `module`), combine them in a "
-            "source-proved derived Judgment, and test each gate. Reserve aggregate "
+            "source-proved derived Judgment, and test each gate. For each fact "
+            "that a bracket names without an input, declare one input or canonical "
+            "import whose name uses that fact's source words, and use it on every "
+            "formula path that the quoted clause governs. Reserve aggregate "
             "boundary statuses for source-atomic or externally determined conditions.",
             check=CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED,
             subject=IssueSubject(
@@ -22305,7 +22443,7 @@ def _opaque_same_source_condition_input_issues(
                 field=f"rules.{first_rule}.versions[{first_version}].formula",
             ),
             expected=f"{first_gate_count} distinct gate inputs",
-            found=f"{len(first_evidence)} terminal selectors",
+            found=first_found,
         )
     ]
 

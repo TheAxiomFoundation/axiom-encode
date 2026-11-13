@@ -1,0 +1,170 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-14
+    source_sha256: 9bab68c4c8c38bbe78d9bcfdd0c94c28c249c4298b1af43d7e8145e3ceb8fade
+  summary: |-
+    The expense for basic service fees of landlines or cell phones are allowable when the budgetary unit is obligated to pay any portion of the telephone expense.
+# Each UtilityExpenseComponent identifies the same expense throughout its facts.
+# Billing separately from or itemized with rent or mortgage is illustrative,
+# not an additional mandatory gate. Responsibility includes bills naming others.
+# These outputs determine component allowability, not an allowance amount or
+# complete SNAP eligibility. A negative result does not exclude other utilities.
+# 2026-08-01 is the first full Month evidence coverage floor after the
+# authenticated snapshot, not a legal commencement date. Earlier coverage
+# is unproven.
+# Branch inventory: basic-service chapeau, separate/itemized billing example,
+# participant-responsibility example, Lifeline chapeau, partial-discount limb,
+# and purchased-airtime-after-exhaustion limb: all ENCODE.
+inputs:
+  - name: component_is_basic_service_fee
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_landline_expense
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_cell_phone_expense
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: budgetary_unit_obligated_to_pay_any_portion_of_component
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: participant_responsible_for_component_charges
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: budgetary_unit_participates_in_lifeline
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: lifeline_discount_does_not_pay_component_in_full
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_purchased_extra_airtime
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: free_minutes_exhausted_before_component_purchase
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+rules:
+  - name: telephone_basic_service_component
+    kind: derived
+    entity: UtilityExpenseComponent
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Utility Expenses and Allowances, block 14, basic service fees
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-14
+              excerpt: The expense for basic service fees of landlines or cell phones are allowable when the budgetary unit is obligated to pay any portion of the telephone expense.
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          component_is_basic_service_fee
+          and (component_is_landline_expense or component_is_cell_phone_expense)
+
+  - name: lifeline_component_expense_condition
+    kind: derived
+    entity: UtilityExpenseComponent
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Utility Expenses and Allowances, block 14, Lifeline chapeau and both alternatives
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-14
+              excerpt: "When the budgetary unit participates in the Lifeline Assistance Program, a telephone expense is allowable when one or more of the following apply:"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-14
+              excerpt: The discount program does not pay the expense in full
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-14
+              excerpt: Extra airtime is purchased after exhausting free minutes
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          budgetary_unit_participates_in_lifeline
+          and (
+            lifeline_discount_does_not_pay_component_in_full
+            or (
+              component_is_purchased_extra_airtime
+              and free_minutes_exhausted_before_component_purchase
+            )
+          )
+
+  - name: snap_telephone_expense_component_allowable
+    kind: derived
+    entity: UtilityExpenseComponent
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Utility Expenses and Allowances, block 14, telephone expenses and Lifeline
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-14
+              excerpt: The expense for basic service fees of landlines or cell phones are allowable when the budgetary unit is obligated to pay any portion of the telephone expense.
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-14
+              excerpt: When the expense is billed separate from or itemized with rent or mortgage.
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-14
+              excerpt: When the participant is responsible for the charges (even when it is billed to another person).
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-14
+              excerpt: "When the budgetary unit participates in the Lifeline Assistance Program, a telephone expense is allowable when one or more of the following apply:"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-14
+              excerpt: The discount program does not pay the expense in full
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-14
+              excerpt: Extra airtime is purchased after exhausting free minutes
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          (
+            budgetary_unit_obligated_to_pay_any_portion_of_component
+            or participant_responsible_for_component_charges
+          )
+          and (
+            (
+              telephone_basic_service_component
+              and not budgetary_unit_participates_in_lifeline
+            )
+            or (
+              (component_is_landline_expense or component_is_cell_phone_expense)
+              and lifeline_component_expense_condition
+            )
+          )

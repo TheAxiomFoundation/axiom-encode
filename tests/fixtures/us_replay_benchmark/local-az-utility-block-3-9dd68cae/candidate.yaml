@@ -1,0 +1,223 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-3
+    source_sha256: ed5675f21d4c8beda2a0c1b75a358bc8ea488f85f99c32952ad59074690b6e55
+  summary: |-
+    Any of the following utility expenses are considered heating sources when used to provide heat for the home:
+    The cost for any of the following supplemental sources of heating or cooling do not qualify for the SUA:
+# Scope: classification of one UtilityExpenseComponent, not complete household
+# SUA eligibility or an allowance amount. All facts describe that same component.
+# A negative component classification does not deny other household SUA paths.
+# 2026-08-01 is the first full Month evidence coverage floor following the
+# authenticated snapshot, not a legal commencement date. Earlier coverage
+# is unproven.
+# Branch inventory: heating chapeau and electricity, gas, propane, coal, wood,
+# oil; cooling chapeau and central air conditioners, evaporative coolers,
+# room air conditioners; exclusion chapeau and electric blankets, fans,
+# heat lamps, evaporative-cooler water, heating/cooling equipment maintenance,
+# chimney maintenance, wood-cutting equipment (including chainsaws,
+# chainsaw maintenance, and axes). All branches are encoded.
+inputs:
+  - name: component_is_electricity
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_gas
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_propane
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_coal
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_wood
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_oil
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_used_to_provide_heat_for_home
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_central_air_conditioner
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_evaporative_cooler
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_room_air_conditioner
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_electric_blanket
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_fan
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_heat_lamp
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_water_for_evaporative_cooler
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_heating_or_cooling_equipment_maintenance
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_chimney_maintenance
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+  - name: component_is_wood_cutting_equipment_or_maintenance
+    entity: UtilityExpenseComponent
+    dtype: Boolean
+    period: Month
+rules:
+  - name: component_is_heating_source
+    kind: derived
+    entity: UtilityExpenseComponent
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Utility Expenses and Allowances, block 3, heating sources
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-3
+              excerpt: |-
+                Any of the following utility expenses are considered heating sources when used to provide heat for the home:
+
+                ● Electricity
+
+                ● Gas or propane
+
+                ● Coal, wood, or oil
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          component_used_to_provide_heat_for_home
+          and (
+            component_is_electricity
+            or component_is_gas
+            or component_is_propane
+            or component_is_coal
+            or component_is_wood
+            or component_is_oil
+          )
+  - name: component_is_cooling_source
+    kind: derived
+    entity: UtilityExpenseComponent
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Utility Expenses and Allowances, block 3, cooling sources
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-3
+              excerpt: |-
+                Any of the following are considered cooling sources:
+
+                ● Central air conditioners
+
+                ● Evaporative coolers
+
+                ● Room air conditioners
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          component_is_central_air_conditioner
+          or component_is_evaporative_cooler
+          or component_is_room_air_conditioner
+  - name: component_is_supplemental_source_excluded_from_sua
+    kind: derived
+    entity: UtilityExpenseComponent
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Utility Expenses and Allowances, block 3, supplemental-source exclusions
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-3
+              excerpt: |-
+                The cost for any of the following supplemental sources of heating or cooling do not qualify for the SUA:
+
+                ● Electric blankets
+
+                ● Fans
+
+                ● Heat lamps
+
+                ● Water for evaporative coolers
+
+                ● Heating or cooling equipment maintenance
+
+                ● Chimney maintenance
+
+                ● Equipment for cutting wood (i.e. chainsaws, chainsaw maintenance, axe)
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          component_is_electric_blanket
+          or component_is_fan
+          or component_is_heat_lamp
+          or component_is_water_for_evaporative_cooler
+          or component_is_heating_or_cooling_equipment_maintenance
+          or component_is_chimney_maintenance
+          or component_is_wood_cutting_equipment_or_maintenance
+  - name: heating_or_cooling_component_qualifies_for_sua
+    kind: derived
+    entity: UtilityExpenseComponent
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Utility Expenses and Allowances, block 3, source classification with supplemental exclusions
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-3
+              excerpt: |-
+                Any of the following utility expenses are considered heating sources when used to provide heat for the home:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-3
+              excerpt: |-
+                Any of the following are considered cooling sources:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-3
+              excerpt: |-
+                The cost for any of the following supplemental sources of heating or cooling do not qualify for the SUA:
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          (component_is_heating_source or component_is_cooling_source)
+          and not component_is_supplemental_source_excluded_from_sua

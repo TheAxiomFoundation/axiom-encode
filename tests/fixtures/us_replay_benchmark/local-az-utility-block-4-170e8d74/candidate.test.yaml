@@ -1,0 +1,155 @@
+- name: residence_shared_with_another_budgetary_unit
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shared_utility_expenses_verified: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shares_residence_and_utility_expenses_with_another_budgetary_unit
+    : true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shares_housing_unit_with_others_who_do_not_receive_na
+    : false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#shared_residence_utility_allowance_path: holds
+- name: shared_residence_expenses_unverified
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shared_utility_expenses_verified: false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shares_residence_and_utility_expenses_with_another_budgetary_unit
+    : true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shares_housing_unit_with_others_who_do_not_receive_na
+    : false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#shared_residence_utility_allowance_path: not_holds
+- name: neither_shared_residence_branch
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shared_utility_expenses_verified: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shares_residence_and_utility_expenses_with_another_budgetary_unit
+    : false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shares_housing_unit_with_others_who_do_not_receive_na
+    : false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#shared_residence_utility_allowance_path: not_holds
+- name: housing_shared_with_nonparticipants
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shared_utility_expenses_verified: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shares_residence_and_utility_expenses_with_another_budgetary_unit
+    : false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shares_housing_unit_with_others_who_do_not_receive_na
+    : true
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#shared_residence_utility_allowance_path: holds
+- name: nonparticipant_housing_expenses_unverified
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shared_utility_expenses_verified: false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shares_residence_and_utility_expenses_with_another_budgetary_unit
+    : false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shares_housing_unit_with_others_who_do_not_receive_na
+    : true
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#shared_residence_utility_allowance_path: not_holds
+- name: utility_bill_payer_receiving_monthly_contribution
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shared_utility_expenses_verified: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.pays_utility_expense_and_receives_monthly_utility_contribution_from_another_budgetary_unit
+    : true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.makes_monthly_utility_contribution_to_budgetary_unit_paying_that_expense
+    : false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#monthly_utility_exchange_allowance_path: holds
+- name: receiving_unit_expenses_unverified
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shared_utility_expenses_verified: false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.pays_utility_expense_and_receives_monthly_utility_contribution_from_another_budgetary_unit
+    : true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.makes_monthly_utility_contribution_to_budgetary_unit_paying_that_expense
+    : false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#monthly_utility_exchange_allowance_path: not_holds
+- name: neither_monthly_exchange_role
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shared_utility_expenses_verified: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.pays_utility_expense_and_receives_monthly_utility_contribution_from_another_budgetary_unit
+    : false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.makes_monthly_utility_contribution_to_budgetary_unit_paying_that_expense
+    : false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#monthly_utility_exchange_allowance_path: not_holds
+- name: monthly_contributing_budgetary_unit
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shared_utility_expenses_verified: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.pays_utility_expense_and_receives_monthly_utility_contribution_from_another_budgetary_unit
+    : false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.makes_monthly_utility_contribution_to_budgetary_unit_paying_that_expense
+    : true
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#monthly_utility_exchange_allowance_path: holds
+- name: contributing_unit_expenses_unverified
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shared_utility_expenses_verified: false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.pays_utility_expense_and_receives_monthly_utility_contribution_from_another_budgetary_unit
+    : false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.makes_monthly_utility_contribution_to_budgetary_unit_paying_that_expense
+    : true
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#monthly_utility_exchange_allowance_path: not_holds
+- name: separate_housing_shared_meter_all_gates
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shared_utility_expenses_verified: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.incurs_shared_meter_utility_expenses: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.occupies_separate_housing_unit_from_other_units_sharing_that_meter
+    : true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.obligated_to_pay_those_shared_meter_utility_expenses
+    : true
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#separate_housing_shared_meter_allowance_path: holds
+- name: shared_meter_expenses_unverified
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shared_utility_expenses_verified: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.incurs_shared_meter_utility_expenses: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.occupies_separate_housing_unit_from_other_units_sharing_that_meter
+    : true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.obligated_to_pay_those_shared_meter_utility_expenses
+    : true
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#separate_housing_shared_meter_allowance_path: not_holds
+- name: no_shared_meter_expense_incurred
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shared_utility_expenses_verified: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.incurs_shared_meter_utility_expenses: false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.occupies_separate_housing_unit_from_other_units_sharing_that_meter
+    : true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.obligated_to_pay_those_shared_meter_utility_expenses
+    : true
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#separate_housing_shared_meter_allowance_path: not_holds
+- name: housing_units_not_separate
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shared_utility_expenses_verified: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.incurs_shared_meter_utility_expenses: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.occupies_separate_housing_unit_from_other_units_sharing_that_meter
+    : false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.obligated_to_pay_those_shared_meter_utility_expenses
+    : true
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#separate_housing_shared_meter_allowance_path: not_holds
+- name: no_obligation_for_that_shared_meter_expense
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.shared_utility_expenses_verified: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.incurs_shared_meter_utility_expenses: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.occupies_separate_housing_unit_from_other_units_sharing_that_meter
+    : true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#input.obligated_to_pay_those_shared_meter_utility_expenses
+    : false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-4#separate_housing_shared_meter_allowance_path: not_holds

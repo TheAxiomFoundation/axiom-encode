@@ -39,16 +39,19 @@ The Schedule 2 floor fixture uses this route; its offline findings remain
 unresolved because replay has no live execution evidence. Its separate
 real-engine test verifies the targeted floor witnesses. The T936 printed-row
 fixture preserves an unsigned source-only diagnostic pair; its offline replay
-does not receive private execution evidence or authenticated resolver context.
+does not receive private execution evidence or authenticated resolver context. The six
+Arizona utility fixtures (`local-az-utility-block-*`) record the
+`gates-collapsed` findings of encoder 0.2.2361 on bulleted alternative lists;
+the current analyzer no longer raises them.
 
 The replay passes the same inputs as `ValidatorPipeline._complete_source_unit_issues`:
 the citation's numeric profile, the companion test cases, imported symbol
 contents, resolved deferral providers and same-act aliases from the source
 metadata. `--no-context` leaves out the last three.
 
-The set has 39 distinct citations: federal statutes, CFR regulations, IRS and
+The set has 42 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, one Canadian CRA guide
-(three runs), two Canadian CRA forms (local diagnostics), and one Israeli statute. It has one control (an Arizona candidate
+(three runs), two Canadian CRA forms (local diagnostics), three Arizona utility manual units with bulleted alternative lists (six local diagnostics), and one Israeli statute. It has one control (an Arizona candidate
 that passed validation and then failed a provenance guard). At 0.2.2349, 12
 fixtures replay clean and 33 have 3,313 findings; four 7 CFR 273.7 candidates
 hold 2,671 of them. Read clean counts and per-fixture changes, not only the

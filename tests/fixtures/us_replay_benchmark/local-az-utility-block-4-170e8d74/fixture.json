@@ -1,0 +1,34 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "origin": "local-diagnostic",
+  "run_id": "local-az-utility-block-4-170e8d74",
+  "citation": "us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4",
+  "module_path": "us-az/policies/des/faa5/na-utility-expenses-and-allowances/block-4.yaml",
+  "policy_prefix": "us-az",
+  "split": "visible",
+  "recorded_verdict": "rejected",
+  "encoder_commit": "547274cd0893b785fbf89f219e9df26491e04f5f",
+  "encoder_tree": "2bf5aeb1187baa1c84ffced878b334e7f925ad07",
+  "encoder_version": "0.2.2361",
+  "local_run_id": "170e8d74",
+  "runner": "codex-gpt-6.1-sol",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --out /tmp/replay.json",
+  "input_origins": {
+    "candidate.yaml": "tests/fixtures/az-utility-alternative-lists/block-4-170e8d74/candidate.yaml",
+    "candidate.test.yaml": "tests/fixtures/az-utility-alternative-lists/block-4-170e8d74/candidate.test.yaml",
+    "source.txt": "tests/fixtures/az-utility-alternative-lists/block-4-170e8d74/source.txt"
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "recorded_rules": [
+    "complete-source-unit:source-explicit-conditions",
+    "complete-source-unit:tests"
+  ],
+  "files": {
+    "candidate.yaml": "7ea6b0c65d497177d94ff5396f04e9714d9b69b889f8ade88a767fe29b137be6",
+    "candidate.test.yaml": "0eb2cb1cd1a9ce484b9a824bc203c0633d70a91030b29ba9ab1408c75a34a8d5",
+    "source.txt": "acdd452f1b956a0ad51c1ac3df42dad0217a27dd698180904be4fae69b774008",
+    "issues.json": "e79156a1fe94feaeba4365924b7d852e5a5fd9d17dfb34b2aeed896eab5b380d"
+  }
+}

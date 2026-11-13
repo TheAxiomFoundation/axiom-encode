@@ -1,0 +1,1 @@
+Stop counting bullets under an alternative list chapeau ("one or more of the following", "any of the following", "either situation occurs") and later sentence paragraphs as simultaneous source facts in `complete-source-unit:source-explicit-conditions/gates-collapsed`, and name the source clause, its facts and true matched counts in the finding.
