@@ -1,0 +1,1 @@
+Targeted signed re-encodes no longer crash for RuleSpec repositories without `.axiom/workflow-toolchain.toml` (rulespec-ca, rulespec-dk). An absent file now pins no axiom-compose, the same as a file without `axiom_compose_ref`; a present but unusable path still fails.
