@@ -9,6 +9,8 @@
   "deferral_providers_unresolved": [],
   "split": "visible",
   "control": false,
+  "expected_class": null,
+  "expected_subclass": null,
   "issues": [
     "[complete-source-unit:t1170-evidence] Complete private T1170 source-role, typed principal and direct/provider refusal evidence is required; generic witnesses cannot replace absent or stale owned evidence.",
     "[complete-source-unit:source-explicit-conditions] Derived formula version(s) delegate multiple conjunctive factual gates stated in their exact authoritative source clause to too few terminal local inputs or canonical imports: `federal_2025_t1170_gift_capital_gain_column_5` versions[0] (`t1170_disposition_date`, `t1170_gift_within_form_scope`, `t1170_property_instrument_kind`, `t1170_property_source_class`, `t1170_qualified_donee` for 3 source gates); `federal_2025_t1170_taxable_capital_gain_from_gift` versions[0] (no resolved fact selectors for 3 source gates); `t1170_bonds_other_table_other_gain` versions[0] (`t1170_bonds_other_row_within_table_scope`, `t1170_disposition_date`, `t1170_property_instrument_kind`, `t1170_property_source_class`, `t1170_qualified_donee` for 3 source gates); `t1170_bonds_other_table_proceeds` versions[0] (`t1170_bonds_other_row_within_table_scope`, `t1170_disposition_date`, `t1170_property_instrument_kind`, `t1170_property_source_class`, `t1170_qualified_donee` for 3 source gates); `t1170_bonds_other_table_zero_inclusion` versions[0] (`t1170_bonds_other_row_within_table_scope`, `t1170_disposition_date`, `t1170_property_instrument_kind`, `t1170_property_source_class`, `t1170_qualified_donee` for 3 source gates); `t1170_ecological_land_table_other_gain` versions[0] (`t1170_disposition_date`, `t1170_ecological_land_row_within_table_scope`, `t1170_property_instrument_kind`, `t1170_property_source_class`, `t1170_qualified_donee` for 3 source gates); `t1170_ecological_land_table_proceeds` versions[0] (`t1170_disposition_date`, `t1170_ecological_land_row_within_table_scope`, `t1170_property_instrument_kind`, `t1170_property_source_class`, `t1170_qualified_donee` for 3 source gates); `t1170_ecological_land_table_zero_inclusion` versions[0] (`t1170_disposition_date`, `t1170_ecological_land_row_within_table_scope`, `t1170_property_instrument_kind`, `t1170_property_source_class`, `t1170_qualified_donee` for 3 source gates); ... (5 additional formula versions omitted). Encode the source-stated facts as distinct local inputs or canonical imports, declare every local fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`), combine them in a source-proved derived Judgment, and test each gate. Reserve aggregate boundary statuses for source-atomic or externally determined conditions.",
@@ -51,5 +53,6 @@
     "complete-source-unit:source-explicit-conditions": 1,
     "complete-source-unit:t1170-evidence": 14
   },
-  "error": null
+  "error": null,
+  "seconds": 1.36
 }

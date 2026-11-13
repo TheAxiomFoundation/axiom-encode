@@ -9,6 +9,8 @@
   "deferral_providers_unresolved": [],
   "split": "visible",
   "control": false,
+  "expected_class": null,
+  "expected_subclass": null,
   "issues": [
     "[complete-source-unit:schedule-n-evidence] Complete authenticated Schedule N source binding, all principal/condition/boundary witnesses and the Part C refusal pair are required; generic evidence cannot replace a missing or stale private observation.",
     "[complete-source-unit:source-explicit-conditions] Derived formula version(s) delegate multiple conjunctive factual gates stated in their exact authoritative source clause to too few terminal local inputs or canonical imports: `schedule_n_investment_expense_adjustment_line_260` versions[0] (no resolved fact selectors for 3 source gates); `schedule_n_investment_income_line_36` versions[0] (no resolved fact selectors for 2 source gates); `schedule_n_other_investment_expenses_line_54` versions[0] (`limited_partnership_loss_deduction_entered`, `schedule_n_part_c_input_consistent` for 2 source gates); `schedule_n_resource_deduction_recovery_line_28` versions[0] (no resolved fact selectors for 2 source gates). Encode the source-stated facts as distinct local inputs or canonical imports, declare every local fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`), combine them in a source-proved derived Judgment, and test each gate. Reserve aggregate boundary statuses for source-atomic or externally determined conditions.",
@@ -64,5 +66,6 @@
     "complete-source-unit:schedule-n-evidence": 19,
     "complete-source-unit:source-explicit-conditions": 1
   },
-  "error": null
+  "error": null,
+  "seconds": 0.428
 }

@@ -37,14 +37,13 @@ bundle inventory. The same file hashes, public-only restrictions and snapshot
 gates apply. Local fixtures are rejected examples, never production controls.
 The Schedule 2 floor fixture uses this route; its offline findings remain
 unresolved because replay has no live execution evidence. Its separate
-real-engine test verifies the targeted floor witnesses. The Schedule N fixture
-retains 48 offline findings without the guide context and fresh execution
-evidence used by its separate runtime diagnostic; it does not claim native
-validation or publication clearance.
-The T1170 fixture retains the exact unsigned public diagnostic pair and full
-T1170 text. Its 35 offline findings are preserved without supplementary P113
-source context or private execution evidence; the separate 124-request runtime
-diagnostic is not injected into replay.
+real-engine test verifies the targeted floor witnesses. The Schedule N and T1170
+fixtures retain exact public diagnostic inputs. Their metadata records producer
+`6df4522a6ff20c78d8d70991c55f0353d49338b5`, tree
+`d7746713dd0823cdf7983ce2edff73d2ec422a5f`, and each input's Git blob. A fresh
+offline replay at that producer records 48 and 35 findings respectively, without
+supplemental guide context or private execution evidence. Historical call records
+serve as test data; they grant no fresh execution or source authority.
 The T936 printed-row
 fixture preserves an unsigned source-only diagnostic pair; its offline replay
 does not receive private execution evidence or authenticated resolver context.
@@ -58,9 +57,9 @@ The set has 41 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, one Canadian CRA guide
 (three runs), two Canadian CRA forms (local diagnostics), one Revenu Québec Schedule N form (a local diagnostic), and one Israeli statute. It has one control (an Arizona candidate
 that passed validation and then failed a provenance guard). In the current snapshot, 12
-fixtures replay clean and 37 have 3,368 findings. All 47 main-baseline fixtures
-are unchanged; the added Schedule N and T1170 diagnostics retain 48 and 35
-findings respectively. Read clean counts and per-fixture changes, not only the
+fixtures replay clean and 37 have 3,368 findings. The snapshot preserves all 47
+`f6d314a8` main-baseline entries; the Schedule N and T1170 diagnostics retain 48
+and 35 findings respectively. Read clean counts and per-fixture changes, not only the
 total. The fixtures total about 3.3 MB and `snapshot.json` about 1.3 MB.
 
 ## Public fixtures and the private held-out set
@@ -151,10 +150,12 @@ Every PR that fixes a validator false positive:
 
 ## Fidelity
 
-Each fixture was replayed with the encoder source of its own run. Almost all
-reproduce the recorded completeness findings exactly or within two findings,
-with no replay errors. Three 7 CFR 273.7 runs stopped before the completeness
-check in production; the replay finds 653 to 695 findings each.
+The author earlier reported replaying the hosted fixtures with each run's
+encoder source. That report describes almost all hosted replays reproducing
+the recorded completeness findings exactly or within two findings, with no
+replay errors. Three reported 7 CFR 273.7 runs stopped before the completeness
+check in production; those offline replays found 653 to 695 findings each.
+Local diagnostics record fresh offline findings and producer metadata separately.
 
 ## Limits
 

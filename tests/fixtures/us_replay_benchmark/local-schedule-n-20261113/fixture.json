@@ -7,9 +7,9 @@
   "policy_prefix": "ca",
   "split": "visible",
   "recorded_verdict": "rejected",
-  "encoder_commit": "e5c4b24d0fcb83291b0d684af21a0c289c1f6cb5",
-  "encoder_tree": "54673baca7068aa23454d443703f21027e5838c9",
-  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --out /tmp/replay.json",
+  "encoder_commit": "6df4522a6ff20c78d8d70991c55f0353d49338b5",
+  "encoder_tree": "d7746713dd0823cdf7983ce2edff73d2ec422a5f",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --jobs 1 --out /tmp/pavel-2110-provenance-capture-6df4522a-20261113.json",
   "input_origins": {
     "candidate.yaml": "tests/fixtures/schedule-n-materialized-diagnostic/candidate.yaml",
     "candidate.test.yaml": "tests/fixtures/schedule-n-materialized-diagnostic/candidate.test.yaml",
@@ -27,6 +27,12 @@
     "candidate.yaml": "b8182d0210ec563ecbb017048d54a73dd23a62923a6eb3f2a32af4382770c13c",
     "candidate.test.yaml": "6351dffe8fd5d64db72d2d7ba8dc35beab002265e990925437c84dd473942b2e",
     "source.txt": "06295f18048c53e225bf0e8ba0c2581b4ac500f4702358de380a79f62acc812f",
-    "issues.json": "e91065e4e908206712f1e6c62b636704e38f78fca9a8cb77acd452145f8555a2"
+    "issues.json": "1db3216698954cd8dcf9e30307f9d267288e1bf233e39b950c18fca915812665"
+  },
+  "encoder_version": "0.2.2363",
+  "input_git_blob_sha1": {
+    "candidate.yaml": "d02a2f929faf55f5d87bb435504241b3087fa7f2",
+    "candidate.test.yaml": "ecf99ba4350e83243f5d179d0a634a59ae2003b5",
+    "source.txt": "61bcaaf9146141c4b45bfad5d5b4e3d4904513b5"
   }
 }
