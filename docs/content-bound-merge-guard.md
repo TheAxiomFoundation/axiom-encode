@@ -84,40 +84,55 @@ reason code and evidence.
    the live `main` tip. `compare(B...H)` must be `ahead` with merge base `B`.
 2. **Complete delta.** Read the complete trees of `B` and `H` with
    `_leaf_entries`. `Δ(H)` is their leaf delta.
-3. **Applicability, from paths and modes only.** A label inside a file that the
-   PR supplies never makes the guard stand aside. A delta path is *guarded* when
-   it is:
-   - under a RuleSpec content root. The roots are the encoder's
-     `RULESPEC_ATOMIC_ROOTS` (`legislation`, `policies`, `regulations`,
-     `statutes`), at the repository root or one level below a jurisdiction
-     directory;
-   - at or under an apply-manifest directory, or at its `.axiom` parent. The
-     directories are `.axiom/encoding-manifests` at the repository root and at
-     each jurisdiction directory (`us-co/.axiom/encoding-manifests`); both
-     layouts exist on `rulespec-us` main;
-   - a top-level leaf that is not a regular `100644` blob (a symlink or a
-     submodule there can alias a jurisdiction directory).
+3. **Applicability, from paths and modes only.** The guard stands aside in two
+   cases and no other. No label inside a file that the PR supplies is trusted
+   for either.
+   - Any added or modified leaf that is not a regular `100644` blob, anywhere:
+     `fail`.
+   - **Allowlist.** Every delta path is one of `README.md`, `LICENSE`,
+     `LICENSE-CODE`, `NOTICE`, `CLAUDE.md`, `.gitignore`, `.gitattributes`, or
+     under `.claude/`: `not_applicable` (`no_guarded_content`). The list is
+     encoder policy (`UNGUARDED_ROOT_FILES`, `UNGUARDED_DIRECTORIES`), matched
+     exactly. Every other path is *guarded*: every jurisdiction directory at
+     every depth and root name, `programs/`, all of `.axiom/`, all of
+     `.github/`, the root ledgers (`known-*.yaml`,
+     `oracle-coverage-pending.yaml`, `household-choices.yaml`), `tools/`,
+     `bulk/`, `tests/`, and any new top-level entry.
+   - A guarded delta needs one lane to claim the **whole** delta.
+     A manifest is a file under `.axiom/encoding-manifests/` at the repository
+     root or under one jurisdiction directory (both layouts exist on
+     `rulespec-us` main). No changed manifest: `fail`
+     (`no_lane_for_guarded_change`). A removed manifest, more than
+     `MAX_MANIFEST_BLOBS` (256) changed manifests, a manifest that is not one
+     JSON object or has a duplicate key or a non-finite number, or a
+     `schema_version` that is neither v6 nor v5: `fail`.
+   - **Earlier lane (v5).** Every changed manifest is labelled v5, and:
+     - every other delta path is a RuleSpec module file,
+       `<jurisdiction>/<root>/.../<name>.yaml` (or `<atomic root>/...yaml` at
+       the root), with no hidden path segment. So the delta has no path under
+       `.github/`, no other `.axiom/` file, no ledger, no ProgramSpec and no
+       allowlisted file. Otherwise `fail` (`no_lane_for_guarded_change`);
+     - every module file is listed in `applied_files` of a changed manifest
+       (paths are relative to the manifest directory's parent). Otherwise
+       `fail`;
+     - `validate / validate` is green on `H` from this PR's own `pull_request`
+       run, with the binding of step 7. Otherwise `fail`;
+     - the PR and `main` did not move during the evaluation.
 
-   Then:
-   - No guarded path: `not_applicable` (`no_guarded_content`). A PR that edits
-     only `.github/**` is in this class; see §9.
-   - A guarded head leaf that is not a regular blob, or any leaf at `.axiom` or
-     at a manifest directory itself: `fail`.
-   - Guarded content with no changed manifest: `fail`.
-   - A removed manifest: `fail`.
-   - More than `MAX_MANIFEST_BLOBS` (256) changed manifests: `fail`.
-   - A changed manifest that is not one JSON object, has a duplicate key or a
-     non-finite number, or whose `schema_version` is neither v6 nor a known
-     earlier schema (v5 today): `fail`.
-   - **Every changed manifest is v5** and every changed content path is listed
-     in `applied_files` of one of them (paths are relative to the manifest
-     directory's parent): `not_applicable` (`earlier_lane_v5`).
-     Those lanes keep their own controls: the approval is checked before
-     signing. The guard does not check their scope (open question 12). Content
-     outside the manifests' `applied_files`: `fail`.
-   - v6 together with v5: `fail`. Two or more v6 manifests: `fail`.
-   - Exactly one changed manifest and it is v6: continue. A repository that is
-     not `rulespec-<country>`: `fail`. A draft PR: `fail`.
+     Then `not_applicable` (`earlier_lane_v5`). **What this verdict rests on:**
+     the guard does not verify the v5 signature and cannot tell a signed
+     manifest from a hand-written one. It relies on the `validate / validate`
+     run, which verifies the signature, and on the lane's scope, which proves
+     that the PR changed neither the workflow files nor the toolchain pin that
+     the run executes. The approval of a v5 lane is checked before signing, by
+     admission; the guard does not check it again.
+   - **v6 lane.** v6 together with v5: `fail`. Two or more v6 manifests:
+     `fail`. Exactly one changed manifest and it is v6: continue. A repository
+     that is not `rulespec-<country>`: `fail`. A draft PR: `fail`.
+   - Everything else that touches a guarded path has no lane and gets `fail`:
+     workflow changes, `.axiom/` configuration and pins, ledgers, ProgramSpec,
+     tooling, and mixed changes. This is deliberately fail-closed while the
+     code is inactive. It is the first open question (§10).
 4. **Scope and canonical paths.** `M` is the v6 manifest.
    - `_require_immutable_delta` cross-checks the tree delta against the PR file
      list and the compare file list.
@@ -166,8 +181,12 @@ reason code and evidence.
    - id differs from `dispatcher.id`, and from `actor.id` and
      `triggering_actor.id` of the run;
    - id differs from the GitHub-attributed author and committer of **every**
-     commit of the PR. This check is best-effort, since Git author metadata is
-     free text. There is no bot exemption: the signing workflow's manifest
+     commit of the PR. A commit whose author or committer GitHub cannot
+     attribute to an account gives `fail` (`unattributed_commit`), because Git
+     author metadata is free text and the evaluator cannot tell that the
+     approver did not write it. The remedy is to re-author the commit with an
+     email that GitHub links to an account, and to sign again. There is no bot
+     exemption: the signing workflow's manifest
      commit is attributed to the dispatcher's account with GitHub's `web-flow`
      as committer (observed on rulespec-us#2045, commit `9be9d91e5`), and neither
      can approve.
@@ -198,11 +217,15 @@ attempt of the run signed it.
 
 ### Known limits
 
-- A PR with no guarded content is never judged, also when it edits workflows.
-- The content roots are exactly the encoder's atomic roots. `programs/`,
-  `tests/`, `tools/` and the other `.axiom` files (toolchain pin, waivers,
-  admissions) are not guarded.
-- A v5-lane PR is `not_applicable`; its extra files are not judged.
+- A v5-lane PR is `not_applicable` on the strength of CI and scope; its
+  approval is not checked by this guard.
+- An infrastructure, ledger, ProgramSpec or tooling PR has no lane and gets
+  `fail`. Once the check is required, every such PR is blocked until a lane
+  for it is decided (§10, question 1).
+- A signed v5 PR that also changes another tracked file has no lane. Observed:
+  rulespec-us#1470 (a signed manifest together with
+  `.axiom/legacy-replacements/<digest>.json`, `.axiom/toolchain.toml`,
+  `known-validation-gaps.yaml` and a test file). The lane was not widened.
 - A fork PR and a stale PR get `fail`, not `not_applicable`.
 - 1000 reviews on one PR, also comment-only reviews from outside accounts,
   exhaust the page bound and give a permanent `fail`. The remedy is a new PR.
@@ -210,9 +233,43 @@ attempt of the run signed it.
   gives `dispatcher_mismatch` permanently. The remedy is a new signing run.
 - An approver who clicks "Update branch" becomes a commit author and can no
   longer approve.
-- A v5 lane whose manifest does not list every changed content path in
-  `applied_files` gets `fail`. Whether the retire and path-migration manifests
-  list them was not checked.
+- A write collaborator can block the remaining approver by pushing a commit
+  authored as that approver, or an unattributed commit. The remedy is to drop
+  the commit, which needs a new signing run.
+- Two PRs on one head both appear in the CI run's `pull_requests`; the guard
+  accepts the run for each.
+- A v5 lane whose manifest does not list every changed module file in
+  `applied_files` gets `fail`. The retire and path-migration manifest shapes
+  were not checked.
+- The lanes are defined for the layouts seen on `rulespec-us`. Other
+  repositories were not surveyed.
+
+### Census: the last 50 merged `rulespec-us` PRs under this classifier
+
+Read-only, 2026-11-12: the 50 most recently merged PRs to `main` among the 100
+most recently updated closed PRs. The census reads file lists and the changed
+manifests at the merge commit. It does not read modes or CI; a merged PR is
+taken as regular and green. `pass` is impossible because no v6 manifest exists.
+
+| Verdict | PRs |
+|---|---|
+| `not_applicable` (`no_guarded_content`, allowlist) | 0 |
+| `not_applicable` (`earlier_lane_v5`) | 1 (#2154, a merge train of 5 signed manifests) |
+| `fail` (`no_lane_for_guarded_change`) | 49 |
+| `fail`, other reasons | 0 |
+
+The 49 are: toolchain and corpus pins and staged waiver fingerprints in
+`.axiom/toolchain.toml` or `.axiom/workflow-toolchain.toml` (about 21), ledger
+and register changes (`known-*.yaml`, `oracle-coverage-pending.yaml`), workflow
+changes under `.github/`, ProgramSpec changes under `programs/`, tests and
+tooling, and one signed manifest PR with extra files (#1470). Over a wider
+window of 200 merged PRs the counts were 136 no-lane, 2 earlier lane and 62
+other; the 39 of those 62 that were listed all carried the historic
+`applied-rulespec/v1` label, written before v5 existed.
+
+**Reading:** as written, the guard would block almost every PR that
+`rulespec-us` merges today. It cannot be made a required check until the
+maintainers decide which lane these changes get.
 
 ### CLI
 
@@ -375,7 +432,7 @@ reason; it is not a pass.
 | 13 | Primary is a symlink, mode `100755`, or a submodule | fail | yes |
 | 14 | Primary at a non-canonical path for the citation | fail | yes |
 | 15 | PR adds a workflow with a job named like the guard's check | merge blocked: wrong `app_id` | skipped: needs the App binding |
-| 16 | PR rewrites `repository-checks.yml` so `validate / validate` passes | fail (scope) | yes for a PR with guarded content; skipped for a PR with none (§9) |
+| 16 | PR rewrites `repository-checks.yml` so `validate / validate` passes | fail | yes: scope for a v6 unit, no lane otherwise |
 | 17 | Truncated tree, an 11th page of reviews, a redirect, or HTTP 403/500 | fail; no cached pass | yes, for every read of a passing evaluation |
 | 18 | Review dismissed between the first and second read | fail | yes |
 | 19 | v6 manifest whose `candidate.pull_request` names another PR | fail | yes |
@@ -384,9 +441,9 @@ reason; it is not a pass.
 | 22 | `validate / validate` green on an older head, pending on `H` | fail | yes |
 | 23 | Modification of a module that already exists on `main` | fail | yes |
 | 24 | Merge group with two units, one unapproved | fail for the group | skipped: merge group is a stub |
-| 25 | PR with no guarded content (maintenance) | not_applicable | yes |
+| 25 | PR that changes only allowlisted files (docs) | not_applicable | yes |
 | 26 | Unparseable JSON at a manifest path in the delta | fail | yes |
-| 27 | Enrolled owner authored the commits; a third account opened the PR; the owner approves | fail when GitHub attributes the commits; documented gap when it does not | yes, both halves |
+| 27 | Enrolled owner authored the commits; a third account opened the PR; the owner approves | fail, also when GitHub attributes the commit to no account | yes |
 
 Added by security review round 1:
 
@@ -401,6 +458,17 @@ Added by security review round 1:
 | 34 | Manifest names a candidate commit outside the PR, or one with other content, or a base that is not an ancestor | fail | yes |
 | 35 | Approver authored or committed any commit of the PR, also the manifest commit | fail | yes |
 | 36 | Approval on `H`, then a new head that changes only the derived index | fail | yes |
+
+Added by security review round 2:
+
+| # | Attack | Expected verdict | Test |
+|---|---|---|---|
+| 37 | Hand-written v5 manifest with content plus workflow, CODEOWNERS, toolchain pin or ledger | fail (no lane) | yes |
+| 38 | v5-labelled PR with CI absent, red, or from another run | fail | yes |
+| 39 | Hand edit or deletions under a doctored v5 manifest | follows CI: fail when red | yes |
+| 40 | Content under `manual`, `programs/`, an unknown root, depth 3 or another case; `.axiom` pins and configuration; ledgers; `.github/**`; tooling; a new top-level entry | fail (no lane) | yes |
+| 41 | A symlink, submodule or executable anywhere in the delta | fail | yes |
+| 42 | A PR commit with no GitHub author or committer | fail | yes |
 
 Cases 15-18 must also run live in the shadow period (§8).
 
@@ -427,8 +495,8 @@ can do them.
 2. Merge changes 1-4. Publish the check in shadow mode: visible, not required.
 3. Run cases 15-18 live on a throwaway PR and confirm every verdict.
 4. **M** Add the guard's check with the guard App's `app_id` to the required
-   checks on `rulespec-us` main. Confirm that maintenance PRs get
-   `not_applicable` and can merge.
+   checks on `rulespec-us` main, only after question 0 of §10 is decided: under
+   the current classifier most maintenance PRs get `fail`.
 5. Run the current-order canary (rulespec-us#2045) to completion.
 6. Merge change 5 with the switch off.
 7. Merge change 6. The first promotion in the new order is the pilot.
@@ -443,10 +511,10 @@ satisfies D2d.
 
 | Adversary | Defended? | How |
 |---|---|---|
-| Write collaborator, not enrolled, on a PR with guarded content | Yes | Cannot dispatch, cannot give a counting approval, cannot publish as the guard App; a v6 unit refuses every extra file; content without a manifest fails |
-| PR that edits workflow files and carries a v6 unit | Yes | Scope check (steps 3 and 4) |
-| PR that edits workflow files and has no guarded content, or is a v5-lane PR | **No** | The guard gives `not_applicable`. Pre-existing gap in the `validate / validate` binding, outside this guard; step 8 of the checklist mitigates |
-| PR that relabels or hides its manifest to avoid the guard | Yes | Applicability comes from paths and modes (step 3) |
+| Write collaborator, not enrolled | Yes for a v6 unit; through CI for a v5 lane; blocked otherwise | Cannot dispatch, cannot give a counting approval, cannot publish as the guard App. A v6 unit refuses every extra file. A v5 lane needs this PR's own green run. Any other guarded change has no lane |
+| PR that edits workflow files, pins, ledgers or `.axiom/` configuration | Yes, by refusal | No lane claims it: `fail`. This also blocks legitimate changes (§10, question 1) |
+| PR that relabels or hides its manifest, or uses a root the encoder does not name | Yes | The guard stands aside only on the allowlist (step 3) |
+| Hand-written v5 manifest | Through CI | The guard does not verify the signature. The lane's scope keeps the PR from changing the workflow and the pin, and the PR's own `validate / validate` run must be green |
 | `validate / validate` produced by a run that is not this PR's `pull_request` run | Yes | Step 7 |
 | Forged or unsigned v6 manifest | Partly | Current-head CI verifies the signature; the guard does not (open question 3) |
 | Second workflow imitating the check name | Yes, once the App binding exists | `app_id` binding |
@@ -456,7 +524,7 @@ satisfies D2d.
 | GitHub API failure | Fails closed for new verdicts | A green check already written is not withdrawn during an outage |
 | Repository admin, or theft of the guard App key | No | Out of scope |
 | Semantic change brought in by the base while the approved bytes stay the same | Partly | Current-head CI catches it; the human approval does not cover it |
-| Commit authored by the approver but not attributed by GitHub | No | Git author metadata is free text (case 27) |
+| Commit authored by the approver but not attributed by GitHub | Yes, by refusal | An unattributed commit gives `fail` (case 42). A commit attributed to a third account by a forged author email is not detected |
 
 **Residual risk: agents acting under the two enrolled identities.** The guard
 authenticates a GitHub account, not a person. If agent sessions hold both
@@ -470,6 +538,7 @@ signed approval (option c in §3) or a separate approver account.
 
 | # | Question | Recommendation |
 |---|---|---|
+| 0 | **First decision.** Which lane do infrastructure changes (`.github/**`, `.axiom/` pins and configuration, ledgers, tooling) and ProgramSpec changes get? Today none: `fail`. 49 of the last 50 merged PRs are in this class | Decide before the check is required. One option is the same enrolled-owner, content-bound approval as the v6 lane, without a manifest |
 | 1 | App-published check or an organisation required-workflow ruleset? | The App. Switch only if the ruleset documentation confirms the capability |
 | 2 | Is a polling sweep (about 5 minutes) acceptable as the trigger? | Yes for the pilot |
 | 3 | Should the guard verify the manifest signature itself, or rely on current-head `validate / validate`? | Rely on CI for v1, since step 4 pins the workflow definitions |
@@ -481,15 +550,19 @@ signed approval (option c in §3) or a separate approver account.
 | 9 | A fork PR, a stale PR and a PR with more than 256 changed manifests get `fail`, not `not_applicable`. Is that acceptable for a required check? | Yes for forks and stale heads (`strict` already requires an up-to-date head). Decide the bound before a bulk manifest migration |
 | 10 | Should a `CHANGES_REQUESTED` from an outside account block? | No (step 7); it differs from today's admission rule |
 | 11 | `candidate.head_sha` is bound to the PR's commits, so a rebase needs a new signing run. Acceptable? | Yes: the binding is worth more than rebase support |
-| 12 | Which verdict for a v5-lane PR: `not_applicable` (today's choice), or a scope check like the v6 one? | Decide before the check is required. `not_applicable` leaves the v5 lanes exactly as they are |
-| 13 | Which verdict for RuleSpec content with no manifest, a removed manifest, or a v5 manifest that does not list the changed content: `fail` (today's choice) or `not_applicable`? | `fail`, after a census of the retire, path-migration and waiver PR shapes; CI already rejects unmanifested content |
+| 12 | The v5 lane is `not_applicable` on scope plus this PR's green CI, with no approval check. Enough? | Yes while admission checks the approval before signing |
+| 13 | A signed v5 PR that also changes a receipt, pin, ledger or test (rulespec-us#1470) has no lane. Widen the v5 lane, or split such PRs? | Split, or give the extra files the lane of question 0 |
 | 14 | Add `run_attempt` to `attestation_scope`? | Yes, in the change that defines the v6 writer |
 | 15 | The approver may not be the author or committer of any commit, so the approver cannot click "Update branch". Acceptable? | Yes for the pilot |
 
 ## 11. What was not verified
 
 A read-only live run, `merge-guard --repository rulespec-us --pr 2045`, returned
-`not_applicable` / `earlier_lane_v5` on 2026-11-12 (a v5 promotion PR).
+`not_applicable` / `earlier_lane_v5` on 2026-11-12, after that PR's CI went
+green. It is a v5 promotion PR: one root-layout manifest and two module files.
+The run exercised the real check-run listing and the real `pull_request` run
+binding. The green head carried exactly one check run named
+`validate / validate`.
 
 Verified against live data on 2026-11-12 (rulespec-us#2045 and its signing run):
 the fields of an Actions run (`event`, `path`, `head_sha`, `head_branch`,
@@ -501,9 +574,6 @@ commit.
 
 Not verified:
 
-- How many check runs carry the exact name `validate / validate` on a green
-  head. On a red head there were two (one `skipped`, one `failure`); the matrix
-  jobs carry a suffix. The evaluator requires every one to be `success`.
 - Whether `pull_requests` on an Actions run stays populated after the PR's
   branch moves, and for a re-run. It is empty for fork PRs, which the guard
   refuses anyway.
@@ -516,7 +586,8 @@ Not verified:
 - Whether workflow-run metadata for `manifest.run_id` stays readable for the
   life of a PR. A deleted run makes step 6 fail closed.
 - The shapes of v5 retire, path-migration and legacy manifests, and so whether
-  those lanes get `not_applicable` or `fail` (open question 13).
+  those lanes get `not_applicable` or `fail`.
+- File modes and CI state of the PRs in the census.
 - The content layout of `rulespec-<country>-<subdivision>` repositories. The
   evaluator assumes the content roots sit at the root or one level down.
 - Whether `pr.base.sha` follows the `main` tip. The evaluator does not use it.

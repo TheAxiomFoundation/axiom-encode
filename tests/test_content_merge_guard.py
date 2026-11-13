@@ -737,6 +737,20 @@ def test_jurisdiction_local_manifest_alone_is_guarded():
     fails(plain({LOCAL_M: relabelled}), guard.R_UNKNOWN_SCHEMA)
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "us-az/encoding-manifests/policies/x.json",
+        "encoding-manifests/x.json",
+        "us/az/.axiom/encoding-manifests/x.json",
+        ".axiom/manifests/x.json",
+    ],
+)
+def test_manifest_outside_a_manifest_directory_is_not_a_manifest(path):
+    world = plain({P: PRIMARY, T: COMPANION, path: v5_manifest(P, T)})
+    fails(world, guard.R_NO_LANE)
+
+
 def test_v5_lane_refuses_when_the_head_or_main_moves():
     world = plain(V5_UNIT)
     moved = copy.deepcopy(world.api[PR])
