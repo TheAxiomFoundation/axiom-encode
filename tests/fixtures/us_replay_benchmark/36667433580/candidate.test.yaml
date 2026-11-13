@@ -1,0 +1,339 @@
+- name: screening_on_receipt_day
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-07-21'
+    end: '2026-07-21'
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.application_received_outside_normal_business_hours
+    : false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.day_is_next_business_day_after_receipt
+    : false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.day_is_application_receipt_day
+    : true
+  output:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#expedited_screening_due_today: holds
+- name: outside_hours_not_screened_on_receipt_day
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-07-21'
+    end: '2026-07-21'
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.application_received_outside_normal_business_hours
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.day_is_next_business_day_after_receipt
+    : false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.day_is_application_receipt_day
+    : true
+  output:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#expedited_screening_due_today: not_holds
+- name: identity_sufficient_other_verification_postponed
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-07-21'
+    end: '2026-07-21'
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.applicant_identity_established
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.authorized_representative_at_interview_without_head_of_household
+    : false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.authorized_representative_identity_established
+    : false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.other_verification_unavailable_at_interview
+    : true
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#expedited_identity_verification_sufficient
+    : holds
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#unavailable_other_verification_may_be_postponed
+    : holds
+- name: identity_missing_blocks_postponement
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-07-21'
+    end: '2026-07-21'
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.applicant_identity_established
+    : false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.authorized_representative_at_interview_without_head_of_household
+    : false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.authorized_representative_identity_established
+    : false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.other_verification_unavailable_at_interview
+    : true
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#expedited_identity_verification_sufficient
+    : not_holds
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#unavailable_other_verification_may_be_postponed
+    : not_holds
+- name: expedited_issuance_on_seventh_day
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-07-21'
+    end: '2026-07-21'
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.household_entitled_to_expedited_services
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.applicant_identity_established
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.authorized_representative_at_interview_without_head_of_household
+    : false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.authorized_representative_identity_established
+    : false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.day_is_within_seven_calendar_days_of_request
+    : true
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.seventh_day_office_closed: false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.day_is_working_day_prior_to_closure
+    : false
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.day_is_seventh_calendar_day: true
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#expedited_identity_verification_sufficient
+    : holds
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#expedited_benefits_due_on_day: holds
+- name: closure_moves_issuance_to_prior_working_day
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-07-21'
+    end: '2026-07-21'
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.household_entitled_to_expedited_services
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.applicant_identity_established
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.authorized_representative_at_interview_without_head_of_household
+    : false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.authorized_representative_identity_established
+    : false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.day_is_within_seven_calendar_days_of_request
+    : true
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.seventh_day_office_closed: true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.day_is_working_day_prior_to_closure
+    : true
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.day_is_seventh_calendar_day: false
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#expedited_identity_verification_sufficient
+    : holds
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#expedited_benefits_due_on_day: holds
+- name: denial_explanation_when_information_needed
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-07-21'
+    end: '2026-07-21'
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.expedited_issuance_found_ineligible_at_interview
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.more_information_needed_to_determine_eligibility
+    : true
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#expedited_denial_explanation_required
+    : holds
+- name: no_denial_explanation_trigger_without_information_need
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-07-21'
+    end: '2026-07-21'
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.expedited_issuance_found_ineligible_at_interview
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.more_information_needed_to_determine_eligibility
+    : false
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#expedited_denial_explanation_required
+    : not_holds
+- name: timely_verification_supports_ongoing_benefits
+  period: 2026-07
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.all_postponed_verification_received_timely
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.ongoing_basic_food_ineligible_from_verification
+    : false
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#ongoing_benefits_without_break_after_postponement
+    : holds
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#denial_letter_required_after_postponed_verification
+    : not_holds
+- name: adverse_verification_requires_denial
+  period: 2026-07
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.all_postponed_verification_received_timely
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.ongoing_basic_food_ineligible_from_verification
+    : true
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#ongoing_benefits_without_break_after_postponement
+    : not_holds
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#denial_letter_required_after_postponed_verification
+    : holds
+- name: income_excludes_excluded_income
+  period: 2026-07
+  input:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.income_before_taxes: 2400
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.excluded_income: 400
+  output:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#gross_monthly_income: 2000
+- name: request_by_checkbox
+  period: 2026-07
+  input:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.food_checked_on_application: true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.application_submitted_without_program_choice
+    : false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.food_request_confirmed_during_client_contact
+    : false
+  output:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#basic_food_request_confirmed: holds
+- name: request_by_contact
+  period: 2026-07
+  input:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.food_checked_on_application: false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.application_submitted_without_program_choice
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.food_request_confirmed_during_client_contact
+    : true
+  output:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#basic_food_request_confirmed: holds
+- name: contact_without_confirmation
+  period: 2026-07
+  input:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.food_checked_on_application: false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.application_submitted_without_program_choice
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.food_request_confirmed_during_client_contact
+    : false
+  output:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#basic_food_request_confirmed: not_holds
+- name: countable_resources_despite_categorical_eligibility
+  period: 2026-07
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.has_countable_liquid_resources
+    : true
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#countable_liquid_resources_must_be_considered
+    : holds
+- name: no_countable_liquid_resources
+  period: 2026-07
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.has_countable_liquid_resources
+    : false
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#countable_liquid_resources_must_be_considered
+    : not_holds
+- name: expedited_rules_control_conflict
+  period: 2026-07
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.expedited_approval_conflicts_with_regular_verification
+    : true
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#expedited_approval_supersedes_regular_verification
+    : holds
+- name: no_verification_conflict
+  period: 2026-07
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.expedited_approval_conflicts_with_regular_verification
+    : false
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#expedited_approval_supersedes_regular_verification
+    : not_holds
+- name: institutional_release_on_day_thirty
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-07-21'
+    end: '2026-07-21'
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.applicant_lives_in_institution
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.days_until_release_after_application
+    : 30
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#institutional_application_not_denied_for_residence
+    : holds
+- name: institutional_release_after_day_thirty
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-07-21'
+    end: '2026-07-21'
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.applicant_lives_in_institution
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.days_until_release_after_application
+    : 31
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#institutional_application_not_denied_for_residence
+    : not_holds
+- name: abawd_months_available
+  period: 2026-07
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.abawd_has_nonqualifying_months_available
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.disqualified_for_unmet_abawd_participation
+    : false
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.abawd_has_requalified: false
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#abawd_may_be_considered_for_expedited_services
+    : holds
+- name: abawd_disqualified_without_requalification
+  period: 2026-07
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.abawd_has_nonqualifying_months_available
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.disqualified_for_unmet_abawd_participation
+    : true
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.abawd_has_requalified: false
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#abawd_may_be_considered_for_expedited_services
+    : not_holds
+- name: abawd_requalified
+  period: 2026-07
+  input:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.abawd_has_nonqualifying_months_available
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.disqualified_for_unmet_abawd_participation
+    : true
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.abawd_has_requalified: true
+  output:
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#abawd_may_be_considered_for_expedited_services
+    : holds
+- name: gross_monthly_income_subtracts_excluded_income
+  period: 2026-07
+  input:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.income_before_taxes: 2400
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.excluded_income: 400
+  output:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#gross_monthly_income: 2000
+- name: basic_food_request_by_food_checkbox
+  period: 2026-07
+  input:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.food_checked_on_application: true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.application_submitted_without_program_choice
+    : false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.food_request_confirmed_during_client_contact
+    : false
+  output:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#basic_food_request_confirmed: holds
+- name: basic_food_request_confirmed_during_contact
+  period: 2026-07
+  input:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.food_checked_on_application: false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.application_submitted_without_program_choice
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.food_request_confirmed_during_client_contact
+    : true
+  output:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#basic_food_request_confirmed: holds
+- name: no_basic_food_request
+  period: 2026-07
+  input:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.food_checked_on_application: false
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.application_submitted_without_program_choice
+    : true
+    ? us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#input.food_request_confirmed_during_client_contact
+    : false
+  output:
+    us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#basic_food_request_confirmed: not_holds

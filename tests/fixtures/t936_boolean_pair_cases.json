@@ -1,0 +1,801 @@
+[
+  {
+    "case": {
+      "name": "chart_expense_limit_50",
+      "entity_id": "t936-illustrative-person",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_19900": 100,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2048_line_17215": 10,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_10700": 20,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_11000": 10,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_12400": -2,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_19200_reported": true,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2017_line_13_reserves_qffp_qsbcs": 12,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2048_line_17216": 5,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_chart_a_line_14_includes_t3": true,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t3_box_21_capital_gains": 30,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t3_box_30_capital_gains_eligible_for_deduction": 10,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_chart_a_completed": true,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t1_line_25300_net_capital_losses_of_other_years": 50
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_expenses_line_7": 50,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_income_line_13": 65
+      }
+    },
+    "request": {
+      "mode": "explain",
+      "dataset": {
+        "inputs": [
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_19900",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 100
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2048_line_17215",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 10
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_10700",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 20
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_11000",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 10
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_12400",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": -2
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_19200_reported",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2017_line_13_reserves_qffp_qsbcs",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 12
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2048_line_17216",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 5
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_chart_a_line_14_includes_t3",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t3_box_21_capital_gains",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 30
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t3_box_30_capital_gains_eligible_for_deduction",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 10
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_chart_a_completed",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t1_line_25300_net_capital_losses_of_other_years",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 50
+            }
+          }
+        ],
+        "relations": []
+      },
+      "queries": [
+        {
+          "entity_id": "t936-illustrative-person",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": [
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_expenses_line_7",
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_income_line_13"
+          ]
+        }
+      ]
+    },
+    "response": {
+      "metadata": {
+        "requested_mode": "explain",
+        "actual_mode": "explain",
+        "fallback_reason": null
+      },
+      "results": [
+        {
+          "entity_id": "t936-illustrative-person",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": {
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_expenses_line_7": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_additional_expenses_line_7",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_expenses_line_7",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "50"
+              }
+            },
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_income_line_13": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_additional_income_line_13",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_income_line_13",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "65"
+              }
+            }
+          },
+          "trace": {
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_expenses_line_7": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_additional_expenses_line_7",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_expenses_line_7",
+              "entity_id": "t936-illustrative-person",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "50"
+              },
+              "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+              "executed_expression": "(if (input(\"t936_chart_a_completed\") == true) then min(ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_additional_investment_income_line_20, input(\"t1_line_25300_net_capital_losses_of_other_years\")) else 0)",
+              "dependencies": [
+                "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_additional_investment_income_line_20"
+              ]
+            },
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_income_line_13": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_additional_income_line_13",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_income_line_13",
+              "entity_id": "t936-illustrative-person",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "65"
+              },
+              "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+              "executed_expression": "(if (input(\"t936_chart_a_completed\") == true) then ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_additional_investment_income_line_20 else 0)",
+              "dependencies": [
+                "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_additional_investment_income_line_20"
+              ]
+            },
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_additional_investment_income_line_20": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_chart_a_additional_investment_income_line_20",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_additional_investment_income_line_20",
+              "entity_id": "t936-illustrative-person",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "65"
+              },
+              "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+              "executed_expression": "(if (input(\"schedule_3_line_19900\") == 0) then 0 else (if (ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_chart_a_line_14_non_eligible_taxable_capital_gains == 0) then 0 else max(0, (ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_chart_a_line_14_non_eligible_taxable_capital_gains - ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_19))))",
+              "dependencies": [
+                "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_chart_a_line_14_non_eligible_taxable_capital_gains",
+                "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_19"
+              ]
+            },
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_11": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_chart_a_line_11",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_11",
+              "entity_id": "t936-illustrative-person",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "20"
+              },
+              "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+              "executed_expression": "max(0, (ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_9 * ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_inclusion_rate[0]))",
+              "parameter_reads": [
+                {
+                  "parameter": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_inclusion_rate",
+                  "name": "federal_2025_t936_chart_a_inclusion_rate",
+                  "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_inclusion_rate",
+                  "index": 0,
+                  "value": {
+                    "kind": "decimal",
+                    "value": "0.5"
+                  },
+                  "effective_from": "2025-01-01",
+                  "effective_to": "2025-12-31",
+                  "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss"
+                }
+              ],
+              "dependencies": [
+                "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_9"
+              ]
+            },
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_13": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_chart_a_line_13",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_13",
+              "entity_id": "t936-illustrative-person",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "15"
+              },
+              "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+              "executed_expression": "(ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_11 - input(\"t2048_line_17216\"))",
+              "dependencies": [
+                "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_11"
+              ]
+            },
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_17": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_chart_a_line_17",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_17",
+              "entity_id": "t936-illustrative-person",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "20"
+              },
+              "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+              "executed_expression": "(input(\"t3_box_21_capital_gains\") - input(\"t3_box_30_capital_gains_eligible_for_deduction\"))",
+              "dependencies": []
+            },
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_19": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_chart_a_line_19",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_19",
+              "entity_id": "t936-illustrative-person",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "10"
+              },
+              "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+              "executed_expression": "(if (input(\"t936_chart_a_line_14_includes_t3\") == true) then (ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_17 * ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_inclusion_rate[0]) else 0)",
+              "parameter_reads": [
+                {
+                  "parameter": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_inclusion_rate",
+                  "name": "federal_2025_t936_chart_a_inclusion_rate",
+                  "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_inclusion_rate",
+                  "index": 0,
+                  "value": {
+                    "kind": "decimal",
+                    "value": "0.5"
+                  },
+                  "effective_from": "2025-01-01",
+                  "effective_to": "2025-12-31",
+                  "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss"
+                }
+              ],
+              "dependencies": [
+                "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_17"
+              ]
+            },
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_3": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_chart_a_line_3",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_3",
+              "entity_id": "t936-illustrative-person",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "90"
+              },
+              "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+              "executed_expression": "(input(\"schedule_3_line_19900\") - input(\"t2048_line_17215\"))",
+              "dependencies": []
+            },
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_7": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_chart_a_line_7",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_7",
+              "entity_id": "t936-illustrative-person",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "28"
+              },
+              "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+              "executed_expression": "((input(\"schedule_3_line_10700\") + input(\"schedule_3_line_11000\")) + input(\"schedule_3_line_12400\"))",
+              "dependencies": []
+            },
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_9": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_chart_a_line_9",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_9",
+              "entity_id": "t936-illustrative-person",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "40"
+              },
+              "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+              "executed_expression": "(ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_7 + ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_chart_a_line_8)",
+              "dependencies": [
+                "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_7",
+                "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_chart_a_line_8"
+              ]
+            },
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_chart_a_line_14_non_eligible_taxable_capital_gains": {
+              "kind": "scalar",
+              "name": "t936_chart_a_line_14_non_eligible_taxable_capital_gains",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_chart_a_line_14_non_eligible_taxable_capital_gains",
+              "entity_id": "t936-illustrative-person",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "75"
+              },
+              "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+              "executed_expression": "max(0, (ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_3 - ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_13))",
+              "dependencies": [
+                "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_3",
+                "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_line_13"
+              ]
+            },
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_chart_a_line_8": {
+              "kind": "scalar",
+              "name": "t936_chart_a_line_8",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_chart_a_line_8",
+              "entity_id": "t936-illustrative-person",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 12
+              },
+              "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+              "executed_expression": "(if (input(\"schedule_3_line_19200_reported\") == true) then input(\"t2017_line_13_reserves_qffp_qsbcs\") else 0)",
+              "dependencies": []
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "case": {
+      "name": "chart_not_completed_with_explicit_unused_facts",
+      "entity_id": "t936-illustrative-person",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_19900": 100,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2048_line_17215": 10,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_10700": 20,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_11000": 10,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_12400": -2,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_19200_reported": true,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2017_line_13_reserves_qffp_qsbcs": 12,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2048_line_17216": 5,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_chart_a_line_14_includes_t3": true,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t3_box_21_capital_gains": 30,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t3_box_30_capital_gains_eligible_for_deduction": 10,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_chart_a_completed": false,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t1_line_25300_net_capital_losses_of_other_years": 50
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_expenses_line_7": 0,
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_income_line_13": 0
+      }
+    },
+    "request": {
+      "mode": "explain",
+      "dataset": {
+        "inputs": [
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_19900",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 100
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2048_line_17215",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 10
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_10700",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 20
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_11000",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 10
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_12400",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": -2
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.schedule_3_line_19200_reported",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2017_line_13_reserves_qffp_qsbcs",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 12
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t2048_line_17216",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 5
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_chart_a_line_14_includes_t3",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t3_box_21_capital_gains",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 30
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t3_box_30_capital_gains_eligible_for_deduction",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 10
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_chart_a_completed",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "bool",
+              "value": false
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t1_line_25300_net_capital_losses_of_other_years",
+            "entity": "Person",
+            "entity_id": "t936-illustrative-person",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 50
+            }
+          }
+        ],
+        "relations": []
+      },
+      "queries": [
+        {
+          "entity_id": "t936-illustrative-person",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": [
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_expenses_line_7",
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_income_line_13"
+          ]
+        }
+      ]
+    },
+    "response": {
+      "metadata": {
+        "requested_mode": "explain",
+        "actual_mode": "explain",
+        "fallback_reason": null
+      },
+      "results": [
+        {
+          "entity_id": "t936-illustrative-person",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": {
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_expenses_line_7": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_additional_expenses_line_7",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_expenses_line_7",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "0"
+              }
+            },
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_income_line_13": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_additional_income_line_13",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_income_line_13",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "0"
+              }
+            }
+          },
+          "trace": {
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_expenses_line_7": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_additional_expenses_line_7",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_expenses_line_7",
+              "entity_id": "t936-illustrative-person",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "0"
+              },
+              "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+              "executed_expression": "(if (input(\"t936_chart_a_completed\") == true) then min(ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_additional_investment_income_line_20, input(\"t1_line_25300_net_capital_losses_of_other_years\")) else 0)",
+              "dependencies": [],
+              "not_evaluated_dependencies": [
+                {
+                  "dependency": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_additional_investment_income_line_20",
+                  "reason": "branch_not_selected"
+                }
+              ]
+            },
+            "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_income_line_13": {
+              "kind": "scalar",
+              "name": "federal_2025_t936_additional_income_line_13",
+              "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_income_line_13",
+              "entity_id": "t936-illustrative-person",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "0"
+              },
+              "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+              "executed_expression": "(if (input(\"t936_chart_a_completed\") == true) then ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_additional_investment_income_line_20 else 0)",
+              "dependencies": [],
+              "not_evaluated_dependencies": [
+                {
+                  "dependency": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_additional_investment_income_line_20",
+                  "reason": "branch_not_selected"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+]
