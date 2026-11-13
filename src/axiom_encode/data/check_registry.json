@@ -541,6 +541,18 @@
       "why": "The run builds its tools and checkouts from pinned revisions before the model runs. Nothing was encoded, so the encoder output is not at fault."
     },
     {
+      "category": "infra:install-locked-preflight-runtime",
+      "cause": "infra",
+      "fix": "Read the step's log. Correct a checkout or lock mismatch in axiom-encode; retry a package-index or Python download outage. Keep the explicit locked virtualenv interpreter for preflight.",
+      "gate": "workflow",
+      "id": "infra:install-locked-preflight-runtime",
+      "requires": "The encoder checkout matches `GITHUB_SHA`, and its Python 3.13 preflight environment installs from `uv.lock` with the API extra.",
+      "severity": "important",
+      "site": ".github/workflows/targeted-signed-reencode.yml:Install locked preflight runtime",
+      "title": "The locked preflight runtime installation failed",
+      "why": "The run builds its tools and checkouts from pinned revisions before the model runs. Nothing was encoded, so the encoder output is not at fault."
+    },
+    {
       "category": "infra:install-rust-toolchain",
       "cause": "infra",
       "fix": "Retry the run; if it fails again, check the pinned setup action.",
@@ -1007,8 +1019,56 @@
       "site": "axiom_encode/harness/validator_pipeline.py:_run_rulespec_test_cases",
       "title": "Expected refusal has no authenticated execution context",
       "why": "An expected-error label alone cannot prove that a source restriction rejected the intended principal computation."
+    },
+    {
+      "category": "validation-waivers:verifier-restate",
+      "cause": "encoder_output",
+      "fix": "Restore the protected-base entries, owner, issue, expiry and pending records. Change only active fingerprints or remove active-only entries; submit other waiver or policy changes in a separate reviewed transaction.",
+      "gate": "ci",
+      "id": "validation-waivers:verifier-restate/invalid-removal",
+      "requires": "A removed entry has an active record and no pending record.",
+      "severity": "important",
+      "site": "axiom_encode/validation_waivers.py:verifier_restate_transition_issues",
+      "title": "A verifier restate removes an entry with pending or inactive state",
+      "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
+    },
+    {
+      "category": "validation-waivers:verifier-restate",
+      "cause": "encoder_output",
+      "fix": "Restore the protected-base entries, owner, issue, expiry and pending records. Change only active fingerprints or remove active-only entries; submit other waiver or policy changes in a separate reviewed transaction.",
+      "gate": "ci",
+      "id": "validation-waivers:verifier-restate/metadata-changed",
+      "requires": "Only the active fingerprint may change; active state, owner, issue, expiry and pending records stay as on the protected base.",
+      "severity": "important",
+      "site": "axiom_encode/validation_waivers.py:verifier_restate_transition_issues",
+      "title": "A verifier restate changes protected waiver metadata",
+      "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
+    },
+    {
+      "category": "validation-waivers:verifier-restate",
+      "cause": "encoder_output",
+      "fix": "Restore the protected-base entries, owner, issue, expiry and pending records. Change only active fingerprints or remove active-only entries; submit other waiver or policy changes in a separate reviewed transaction.",
+      "gate": "ci",
+      "id": "validation-waivers:verifier-restate/new-entry",
+      "requires": "Every head waiver entry already exists on the protected base.",
+      "severity": "important",
+      "site": "axiom_encode/validation_waivers.py:verifier_restate_transition_issues",
+      "title": "A verifier restate adds a waiver entry",
+      "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
+    },
+    {
+      "category": "validation-waivers:verifier-restate",
+      "cause": "encoder_output",
+      "fix": "Remove the RuleSpec, apply-manifest and receipt changes from the verifier restate. Submit those bytes through their separate reviewed encoding or promotion transaction.",
+      "gate": "ci",
+      "id": "validation-waivers:verifier-restate/protected-files-changed",
+      "requires": "A verifier restate changes no RuleSpec files, apply manifests or receipts.",
+      "severity": "important",
+      "site": "axiom_encode/cli.py:_guard_manifest_waiver_set_identity",
+      "title": "A verifier restate includes policy or provenance changes",
+      "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "c56eafaad89a1ea2fbf6de2c3a28188d6a29bc39756b824c51d1f2421a5fea41",
+  "registry_sha256": "908ed0c9c5a56f33893c7210d71d9331a1874b5e9be468111c8ed02441a854cc",
   "schema": "axiom-encode/check-registry/v1"
 }

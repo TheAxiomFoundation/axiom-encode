@@ -61,7 +61,7 @@ UV_OPTIONS = workflow_shell.load_uv_options()
 
 # workflow -> jobs whose environment runs the repository's tests or linters.
 TEST_ENVIRONMENTS = {
-    "ci.yml": {"test", "real-engine", "quick-tests", "lint"},
+    "ci.yml": {"test", "real-engine", "quick-tests", "lint", "replay-benchmark"},
     "signing-supervisor.yml": {"build-and-test"},
 }
 # The only `if:` a test job may have, exactly: one that skips the whole job, so
