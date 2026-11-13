@@ -398,13 +398,15 @@ change 3 exists and is inert; "Runner as built" below says what it does.
 | App private key | Environment secret `MERGE_GUARD_APP_KEY` |
 | Token | Minted per run for `rulespec-<country>` only: `checks: read` in `dry-run`, `checks: write` in `shadow`; `pull_requests`, `contents`, `actions`: `read`. The CLI reads it from `MERGE_GUARD_TOKEN` and has no token argument |
 | `dry-run` (default) | Prints one JSON report. Writes nothing |
-| `shadow` | Also creates one check run per judged head, named `content-bound-merge-guard (shadow)`, conclusion always `neutral`, verdict in the title and summary. It skips the write when the newest shadow check on that head already carries the same verdict |
+| `shadow` | Also creates one check run per judged head, named `content-bound-merge-guard (shadow)`, conclusion always `neutral`, verdict in the title and summary. It skips the write only when the guard App's own newest shadow check on that head (matched by the App's client ID, `MERGE_GUARD_APP_CLIENT_ID`) already carries the same verdict. A check with the shadow name from another publisher never counts, so a pull request workflow cannot suppress its verdict |
 | Enforcing mode | None. The name `content-bound-merge-guard` is reserved for it and is never published by this change |
 
 - **The shadow check must never be a required check.** `neutral` satisfies a
   required check, so requiring the shadow name would require nothing. The
-  check to require later is `content-bound-merge-guard`, from the change that
-  adds an enforcing mode.
+  check to require later is `content-bound-merge-guard`, from change 3b of
+  §8, which adds the enforcing mode. Until 3b is on `main` no code reports
+  that name, so requiring it blocks every pull request. The writer in this
+  change refuses any check that is not the neutral shadow check.
 - **Fail closed.** A missing variable, credential or token stops the run with
   a message that names it. A pull request list that fails, is malformed or
   reaches its page bound (10 pages of 100) is a run error, never an empty
@@ -416,7 +418,16 @@ change 3 exists and is inert; "Runner as built" below says what it does.
   can read the public signing run in `axiom-encode` (step 6; reached only for
   a v6 unit, and none exists). The request volume of a timed sweep: about 49
   pull requests were open on 2026-11-13, and each evaluation makes many reads.
-  Size the cadence before the `schedule` trigger is added.
+  Size the cadence before the `schedule` trigger is added. Whether a check
+  run's `app` object carries `client_id` for an App-published check: if it
+  does not, the runner writes the verdict again on every run (more check
+  runs, never a wrong skip).
+- **Known limit of the sweep, acceptable for shadow only.** The list is read
+  by page number. A pull request that opens or closes during the read shifts
+  the pages, so one sweep can miss a pull request or see one twice (twice is
+  a run error). A missed pull request has no shadow check until the next
+  sweep. For an enforcing check that is a missing required check; change 3b
+  must read from a stable snapshot or trigger per head.
 
 ## 5. Manifest and encoder changes (planned, not in this change)
 
@@ -615,6 +626,7 @@ Implementation comes strictly before activation.
 | 2 | axiom-encode | Verifiers can read `applied-rulespec/v6` with the attestation scope, behind `V6_READER_ENABLED = False`; no writer | revert; no v6 exists |
 | 2b | axiom-encode | Set `V6_READER_ENABLED = True`. May ride with change 3. Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request. | set it back; no v6 exists |
 | 3 | axiom-encode | Workflow that runs the guard from `main` and publishes its check, with a dry-run mode. Built as shadow only and inert: manual dispatch, behind `MERGE_GUARD_RUNNER_ENABLED` (§4, "Runner as built"). It does not flip `V6_READER_ENABLED`; change 2b stays a separate one-line commit to `applied_manifest_v6.py` | unset the variable; disable the workflow |
+| 3b | axiom-encode | **Enforcing runner (not built).** A mode that reports the real check `content-bound-merge-guard` (`success` for `pass` and `not_applicable`, `failure` for `fail`) and a trigger that runs it on every pull request head and after every review change (a `schedule` sweep or an event), with a work list read from a stable snapshot instead of page numbers, and the request volume sized. Hard precondition of checklist step 4 | remove the check from the required checks first, then disable the trigger |
 | 4 | rulespec-us | Pin the encoder that verifies v6 | revert the pin |
 | 5 | axiom-encode | Emit v6 and admit without approval, behind a default-off switch | revert |
 | 6 | axiom-encode | **Activation**: turn the switch on; update `docs/reviewed-pr-promotion.md` | flip the switch back; the required check stays |
@@ -634,8 +646,15 @@ can do them.
    Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request.
 3. Run cases 15-18 live on a throwaway PR and confirm every verdict.
 4. **M** Add the guard's check with the guard App's `app_id` to the required
-   checks on `rulespec-us` main, only after question 0 of §10 is decided: under
-   the current classifier most maintenance PRs get `fail`.
+   checks on `rulespec-us` main. Hard preconditions: change 3b is on `main`
+   and reports `content-bound-merge-guard` on every open pull request head,
+   and question 0 of §10 is decided (under the current classifier most
+   maintenance PRs get `fail`).
+   **WARNING:** require the name `content-bound-merge-guard` only. Never
+   require `content-bound-merge-guard (shadow)`: it is always neutral, a
+   neutral check satisfies a required check, and so nothing would be
+   required. Without change 3b no code reports the real name, and requiring
+   it blocks every pull request, administrators included.
 5. Run the current-order canary (rulespec-us#2045) to completion.
 6. Merge change 5 with the switch off.
 7. Merge change 6. The first promotion in the new order is the pilot.
@@ -648,7 +667,8 @@ satisfies D2d.
 
 What fixes the order. D2d ("deployed and enforced before the pre-sign approval
 is removed") forces the guard App (step 1), the runner and the v6 reader pin
-(step 2) and the required check (step 4) before activation (step 7). The
+(step 2), the enforcing runner (change 3b) and the required check (step 4)
+before activation (step 7). The
 canary (step 5) is the maintainers' sequence decision. The shadow period and
 the live cases (steps 2 and 3) are this document's own choice, not a
 requirement of D2d.

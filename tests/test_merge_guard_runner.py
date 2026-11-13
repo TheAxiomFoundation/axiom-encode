@@ -47,6 +47,16 @@ RECORDED = json.loads(
     ).read_text("utf-8")
 )
 TOKEN = "ghs_" + "x" * 36
+CLIENT = "Iv23liGuardAppClient"
+OUR_APP = {"id": 987654, "slug": "axiom-merge-guard", "client_id": CLIENT}
+
+
+def sweep(*args, **kwargs):
+    """``runner.run`` as the guard App whose client ID is ``CLIENT``."""
+    kwargs.setdefault("app_client_id", CLIENT)
+    return runner.run(*args, **kwargs)
+
+
 PULLS = ROOT + "/pulls?state=open&base=main&per_page=100&page="
 SHADOW_LISTING = (
     f"{ROOT}/commits/{H}/check-runs"
@@ -198,7 +208,7 @@ def test_sweep_whose_list_fails_is_a_run_error_not_an_empty_sweep():
     def fetch(path):
         raise runner.RunnerError("GitHub GET request failed: HTTPError")
 
-    report, code = runner.run(NAME, None, runner.DRY_RUN, fetch=fetch)
+    report, code = sweep(NAME, None, runner.DRY_RUN, fetch=fetch)
     assert code == runner.EXIT_RUN_ERROR
     assert report["complete"] is False
     assert report["results"] == []
@@ -206,7 +216,7 @@ def test_sweep_whose_list_fails_is_a_run_error_not_an_empty_sweep():
 
 
 def test_sweep_of_an_empty_list_is_complete():
-    report, code = runner.run(
+    report, code = sweep(
         NAME, None, runner.DRY_RUN, fetch={PULLS + "1": []}.__getitem__
     )
     assert (code, report["complete"], report["results"]) == (0, True, [])
@@ -219,9 +229,7 @@ def test_sweep_of_an_empty_list_is_complete():
 def test_dry_run_evaluates_and_writes_nothing():
     world = build()
     writer = Writer()
-    report, code = runner.run(
-        NAME, [42], runner.DRY_RUN, fetch=world.fetch, post=writer
-    )
+    report, code = sweep(NAME, [42], runner.DRY_RUN, fetch=world.fetch, post=writer)
     assert code == 0 and report["complete"] is True
     (entry,) = report["results"]
     assert entry["verdict"]["verdict"] == "pass"
@@ -234,7 +242,7 @@ def test_dry_run_evaluates_and_writes_nothing():
 def test_sweep_evaluates_each_listed_pull_request():
     world = build()
     world.api[PULLS + "1"] = pulls([42, 43])
-    report, code = runner.run(NAME, None, runner.DRY_RUN, fetch=world.fetch)
+    report, code = sweep(NAME, None, runner.DRY_RUN, fetch=world.fetch)
     # 43 is not readable in the fake: an unreadable pull request is a run
     # error, and its verdict is fail, never "skipped".
     first, second = report["results"]
@@ -256,7 +264,7 @@ def test_sweep_evaluates_each_listed_pull_request():
 def test_shadow_writes_one_neutral_check_for_every_kind_of_verdict(world, verdict):
     world = shadow_world(world())
     writer = Writer()
-    report, code = runner.run(NAME, [42], runner.SHADOW, fetch=world.fetch, post=writer)
+    report, code = sweep(NAME, [42], runner.SHADOW, fetch=world.fetch, post=writer)
     assert code == 0 and report["complete"] is True
     (entry,) = report["results"]
     assert entry["verdict"]["verdict"] == verdict
@@ -275,9 +283,7 @@ def test_truncated_tree_fails_closed_and_is_reported_as_fail():
     world.tree(H, {"README.md": b"x\n"}, truncated=True)
     world = shadow_world(world)
     writer = Writer()
-    report, _code = runner.run(
-        NAME, [42], runner.SHADOW, fetch=world.fetch, post=writer
-    )
+    report, _code = sweep(NAME, [42], runner.SHADOW, fetch=world.fetch, post=writer)
     (entry,) = report["results"]
     assert entry["verdict"]["verdict"] == "fail"
     ((_path, body),) = writer.calls
@@ -291,22 +297,28 @@ def test_truncated_file_list_fails_closed():
     world.api[ROOT + "/pulls/42/files?per_page=100&page=1"] = world.api[
         ROOT + "/pulls/42/files?per_page=100&page=1"
     ][:-1]
-    report, _code = runner.run(NAME, [42], runner.DRY_RUN, fetch=world.fetch)
+    report, _code = sweep(NAME, [42], runner.DRY_RUN, fetch=world.fetch)
     assert report["results"][0]["verdict"]["verdict"] == "fail"
 
 
 def test_shadow_does_not_repeat_an_unchanged_verdict():
     world = plain({"README.md": b"x\n"})
     digest = runner.shadow_check_body(world.evaluate(), H)["external_id"]
-    older = {"id": 5, "name": runner.SHADOW_CHECK_NAME, "external_id": "other"}
+    older = {
+        "id": 5,
+        "name": runner.SHADOW_CHECK_NAME,
+        "external_id": "other",
+        "app": OUR_APP,
+    }
     newest = {
         "id": 6,
         "name": runner.SHADOW_CHECK_NAME,
         "external_id": digest,
         "status": "completed",
+        "app": OUR_APP,
     }
     writer = Writer()
-    report, code = runner.run(
+    report, code = sweep(
         NAME,
         [42],
         runner.SHADOW,
@@ -326,11 +338,23 @@ def test_shadow_reports_again_when_the_newest_check_differs():
         "name": runner.SHADOW_CHECK_NAME,
         "external_id": digest,
         "status": "completed",
+        "app": OUR_APP,
     }
-    newest = {"id": 6, "name": runner.SHADOW_CHECK_NAME, "external_id": "other"}
-    other_name = {"id": 7, "name": "validate / validate", "external_id": digest}
+    newest = {
+        "id": 6,
+        "name": runner.SHADOW_CHECK_NAME,
+        "external_id": "other",
+        "app": OUR_APP,
+    }
+    other_name = {
+        "id": 7,
+        "name": "validate / validate",
+        "external_id": digest,
+        "status": "completed",
+        "app": OUR_APP,
+    }
     writer = Writer()
-    report, _code = runner.run(
+    report, _code = sweep(
         NAME,
         [42],
         runner.SHADOW,
@@ -357,7 +381,7 @@ def test_incomplete_check_listing_is_a_publication_error(listing):
     world = plain({"README.md": b"x\n"})
     world.api[SHADOW_LISTING] = listing
     writer = Writer()
-    report, code = runner.run(NAME, [42], runner.SHADOW, fetch=world.fetch, post=writer)
+    report, code = sweep(NAME, [42], runner.SHADOW, fetch=world.fetch, post=writer)
     assert code == runner.EXIT_RUN_ERROR and report["complete"] is False
     assert report["results"][0]["publication"] == "error"
     assert writer.calls == []
@@ -374,7 +398,7 @@ def test_incomplete_check_listing_is_a_publication_error(listing):
 )
 def test_unconfirmed_check_run_is_a_publication_error(changes):
     world = shadow_world(plain({"README.md": b"x\n"}))
-    report, code = runner.run(
+    report, code = sweep(
         NAME, [42], runner.SHADOW, fetch=world.fetch, post=Writer(**changes)
     )
     assert code == runner.EXIT_RUN_ERROR
@@ -387,7 +411,7 @@ def test_write_failure_is_a_publication_error():
     def post(path, body):
         raise runner.RunnerError("GitHub POST request failed: HTTPError")
 
-    report, code = runner.run(NAME, [42], runner.SHADOW, fetch=world.fetch, post=post)
+    report, code = sweep(NAME, [42], runner.SHADOW, fetch=world.fetch, post=post)
     assert code == runner.EXIT_RUN_ERROR
     assert report["results"][0]["publication_error"].endswith("HTTPError")
 
@@ -396,7 +420,7 @@ def test_evaluation_without_a_head_publishes_nothing():
     world = plain({"README.md": b"x\n"})
     world.api[ROOT + "/pulls/42"]["state"] = "closed"
     writer = Writer()
-    report, code = runner.run(NAME, [42], runner.SHADOW, fetch=world.fetch, post=writer)
+    report, code = sweep(NAME, [42], runner.SHADOW, fetch=world.fetch, post=writer)
     (entry,) = report["results"]
     assert entry["verdict"]["reason"] == guard.R_PR_IDENTITY
     assert entry["publication"] == "no_head"
@@ -409,7 +433,7 @@ def test_a_read_error_inside_an_evaluation_is_a_run_error():
     world = shadow_world(plain({"README.md": b"x\n"}))
     del world.api[f"{ROOT}/git/trees/{H}?recursive=1"]
     writer = Writer()
-    report, code = runner.run(NAME, [42], runner.SHADOW, fetch=world.fetch, post=writer)
+    report, code = sweep(NAME, [42], runner.SHADOW, fetch=world.fetch, post=writer)
     (entry,) = report["results"]
     assert entry["verdict"]["verdict"] == "fail"
     assert entry["verdict"]["reason"] == guard.R_READ_FAILED
@@ -432,7 +456,7 @@ def test_a_read_error_inside_an_evaluation_is_a_run_error():
 )
 def test_run_refuses_unknown_modes_and_bad_requests(numbers, mode, post):
     world = build()
-    report, code = runner.run(NAME, numbers, mode, fetch=world.fetch, post=post)
+    report, code = sweep(NAME, numbers, mode, fetch=world.fetch, post=post)
     assert code == runner.EXIT_RUN_ERROR
     assert report["results"] == [] and report["complete"] is False
     assert world.calls == []
@@ -566,14 +590,15 @@ def test_default_opener_refuses_redirects_and_ignores_proxies(monkeypatch):
 def test_writer_posts_check_runs_only_and_requires_created():
     opener = Opener(status=201, raw=b'{"id": 1}')
     post = runner.check_writer(TOKEN, opener=opener)
-    assert post(ROOT + "/check-runs", {"name": "n"}) == {"id": 1}
+    body = runner.shadow_check_body(guard.Verdict(guard.FAIL, guard.R_NO_LANE), H)
+    assert post(ROOT + "/check-runs", body) == {"id": 1}
     (request,) = opener.requests
     assert request.get_method() == "POST"
-    assert json.loads(request.data) == {"name": "n"}
+    assert json.loads(request.data) == body
     assert request.get_header("Authorization") == "Bearer " + TOKEN
     with pytest.raises(runner.RunnerError):
         runner.check_writer(TOKEN, opener=Opener(status=200))(
-            ROOT + "/check-runs", {"name": "n"}
+            ROOT + "/check-runs", body
         )
 
 
@@ -591,8 +616,9 @@ def test_writer_posts_check_runs_only_and_requires_created():
 )
 def test_writer_refuses_every_other_write(path):
     opener = Opener(status=201)
-    with pytest.raises(runner.RunnerError):
-        runner.check_writer(TOKEN, opener=opener)(path, {})
+    with pytest.raises(runner.RunnerError, match="check runs only"):
+        # A valid shadow body: the path alone must refuse.
+        runner.check_writer(TOKEN, opener=opener)(path, _body())
     assert opener.requests == []
 
 
@@ -775,3 +801,226 @@ def test_fixture_tree_and_modules_are_what_the_tests_assume():
     world = plain({P: PRIMARY, T: COMPANION})
     assert world.api[ROOT + "/pulls/42"]["head"]["sha"] == H
     assert commit(H)["sha"] == H
+
+
+# --- independent review round 1 ------------------------------------------------
+
+
+def _digest_world():
+    world = plain({"README.md": b"x\n"})
+    return world, runner.shadow_check_body(world.evaluate(), H)["external_id"]
+
+
+def _check(digest, **changes):
+    return {
+        "id": 6,
+        "name": runner.SHADOW_CHECK_NAME,
+        "external_id": digest,
+        "status": "completed",
+        "app": OUR_APP,
+    } | changes
+
+
+def _publication(world, existing, **kwargs):
+    writer = Writer()
+    report, _code = sweep(
+        NAME,
+        [42],
+        runner.SHADOW,
+        fetch=shadow_world(world, existing).fetch,
+        post=writer,
+        **kwargs,
+    )
+    return report["results"][0]["publication"], writer.calls
+
+
+@pytest.mark.parametrize(
+    "app",
+    [
+        {"id": 15368, "slug": "github-actions", "client_id": "Iv1.other"},
+        {"id": 987654, "slug": "axiom-merge-guard"},
+        {"id": 987654, "client_id": None},
+        {"client_id": CLIENT.lower()},
+        {},
+        None,
+        "x",
+    ],
+)
+def test_a_shadow_named_check_of_another_app_does_not_suppress_the_verdict(app):
+    # A pull request workflow can create a check with the shadow name and the
+    # public verdict digest. Only a check of the guard App counts as ours.
+    world, digest = _digest_world()
+    publication, calls = _publication(world, [_check(digest, app=app)])
+    assert publication == "created"
+    assert len(calls) == 1
+
+
+def test_a_forged_newer_check_does_not_hide_our_older_one():
+    world, digest = _digest_world()
+    forged = _check("other", id=9, app={"client_id": "Iv1.other"})
+    publication, calls = _publication(world, [forged, _check(digest)])
+    assert (publication, calls) == ("unchanged", [])
+
+
+def test_without_the_app_client_id_every_verdict_is_written():
+    world, digest = _digest_world()
+    for client in (None, ""):
+        publication, calls = _publication(world, [_check(digest)], app_client_id=client)
+        assert publication == "created"
+        assert len(calls) == 1
+    assert not any("check_name=content-bound" in path for path in world.calls)
+
+
+@pytest.mark.parametrize("status", ["in_progress", "queued", None])
+def test_an_unfinished_check_of_ours_is_not_an_unchanged_verdict(status):
+    world, digest = _digest_world()
+    publication, _calls = _publication(world, [_check(digest, status=status)])
+    assert publication == "created"
+
+
+def test_a_check_of_ours_with_another_name_is_not_the_shadow_check():
+    world, digest = _digest_world()
+    other = _check(digest, id=9, name="some other check")
+    publication, _calls = _publication(world, [other, _check("older", id=5)])
+    assert publication == "created"
+
+
+def test_an_unforeseen_evaluation_error_is_a_run_error(monkeypatch):
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("unforeseen")
+
+    monkeypatch.setattr(guard, "_evaluate", broken)
+    report, code = sweep(NAME, [42], runner.DRY_RUN, fetch=build().fetch)
+    assert report["results"][0]["verdict"]["reason"] == guard.R_EVALUATION_ERROR
+    assert code == runner.EXIT_RUN_ERROR and report["complete"] is False
+
+
+def _body(**changes):
+    verdict = guard.Verdict(guard.FAIL, guard.R_NO_LANE)
+    return runner.shadow_check_body(verdict, H) | changes
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        _body(name=runner.GUARD_CHECK_NAME),
+        _body(name="validate / validate"),
+        _body(conclusion="success"),
+        _body(conclusion="failure"),
+        _body(status="in_progress"),
+        {k: v for k, v in _body().items() if k != "name"},
+        {k: v for k, v in _body().items() if k != "conclusion"},
+        {},
+        None,
+        [],
+    ],
+)
+def test_the_writer_itself_refuses_everything_but_a_neutral_shadow_check(body):
+    opener = Opener(status=201, raw=b'{"id": 1}')
+    with pytest.raises(runner.RunnerError, match="shadow"):
+        runner.check_writer(TOKEN, opener=opener)(ROOT + "/check-runs", body)
+    assert opener.requests == []
+
+
+def test_command_reads_the_app_client_id_from_the_environment(capsys, monkeypatch):
+    world, digest = _digest_world()
+    shadow_world(world, [_check(digest)])
+    writer = Writer()
+    monkeypatch.setattr(runner, "token_reader", lambda token, opener=None: world.fetch)
+    monkeypatch.setattr(runner, "check_writer", lambda token, opener=None: writer)
+    environ = {runner.TOKEN_ENV: TOKEN, runner.APP_CLIENT_ID_ENV: CLIENT}
+    assert runner.command(arguments(mode="shadow"), environ=environ) == 0
+    assert json.loads(capsys.readouterr().out)["results"][0]["publication"] == (
+        "unchanged"
+    )
+    assert runner.command(
+        arguments(mode="shadow"), environ={runner.TOKEN_ENV: TOKEN}
+    ) == (0)
+    assert json.loads(capsys.readouterr().out)["results"][0]["publication"] == (
+        "created"
+    )
+
+
+def test_workflow_gives_the_app_client_id_to_the_command():
+    steps = workflow()["jobs"]["run"]["steps"]
+    evaluate = next(step for step in steps if step.get("name") == "Evaluate and report")
+    assert runner.APP_CLIENT_ID_ENV == "MERGE_GUARD_APP_CLIENT_ID"
+    assert evaluate["env"][runner.APP_CLIENT_ID_ENV] == (
+        "${{ vars.MERGE_GUARD_APP_CLIENT_ID }}"
+    )
+
+
+def gate(**changes):
+    """Run the gate job's script as the runner does, with these values."""
+    import subprocess
+
+    (step,) = workflow()["jobs"]["gate"]["steps"]
+    env = {
+        "PATH": "/usr/bin:/bin:/usr/local/bin",
+        "REF": "refs/heads/main",
+        "ENABLED": "true",
+        "COUNTRY": "us",
+        "PR": "",
+    } | changes
+    return subprocess.run(
+        ["bash", "-c", step["run"]], env=env, capture_output=True, text=True
+    ).returncode
+
+
+@pytest.mark.parametrize(
+    "changes", [{}, {"PR": "12"}, {"COUNTRY": "nz", "PR": "999999999"}]
+)
+def test_gate_script_admits_a_valid_dispatch(changes):
+    assert gate(**changes) == 0
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        # Multi-line values: a per-line match would admit these, and the token
+        # action splits ``repositories`` on newlines and commas.
+        {"COUNTRY": "us\naxiom-encode"},
+        {"COUNTRY": "axiom-encode\nus"},
+        {"COUNTRY": "us\n"},
+        {"COUNTRY": "us,axiom-encode"},
+        {"PR": "12\n--mode"},
+        {"PR": "--sweep\n12"},
+        {"PR": "12\n"},
+        {"COUNTRY": "US"},
+        {"COUNTRY": "usa"},
+        {"COUNTRY": "u"},
+        {"COUNTRY": ""},
+        {"COUNTRY": "u s"},
+        {"PR": "0"},
+        {"PR": "012"},
+        {"PR": "abc"},
+        {"PR": "1234567890"},
+        {"PR": "-1"},
+        {"ENABLED": ""},
+        {"ENABLED": "True"},
+        {"ENABLED": "true\n"},
+        {"ENABLED": "false"},
+        {"REF": "refs/heads/feature"},
+        {"REF": "refs/heads/main\nx"},
+        {"REF": ""},
+    ],
+)
+def test_gate_script_refuses(changes):
+    assert gate(**changes) == 1
+
+
+def test_design_names_the_enforcing_runner_as_its_own_change_before_step_4():
+    doc = (REPOSITORY_ROOT / "docs" / "content-bound-merge-guard.md").read_text()
+    rows = [line for line in doc.splitlines() if line.startswith("| 3b |")]
+    assert len(rows) == 1
+    row = rows[0]
+    assert "enforcing" in row.lower() and "`content-bound-merge-guard`" in row
+    assert "every" in row and "trigger" in row.lower()
+    assert "snapshot" in row  # the page-number sweep is fixed there
+    flat = " ".join(doc.split())
+    start = flat.index("4. **M** Add the guard's check")
+    step = flat[start : flat.index("5. Run the current-order canary")]
+    assert "change 3b" in step and "precondition" in step.lower()
+    assert "WARNING" in step
+    assert f"`{runner.SHADOW_CHECK_NAME}`" in step
+    assert f"`{runner.GUARD_CHECK_NAME}`" in step

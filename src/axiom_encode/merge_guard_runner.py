@@ -14,7 +14,9 @@ What it can and cannot do:
   never be made a required check: ``neutral`` satisfies a required check, so
   requiring it would require nothing.
 - There is no enforcing mode. ``GUARD_CHECK_NAME`` is the name reserved for
-  the enforcing check of a later change; this module refuses to publish it.
+  the enforcing check of a later change (3b of the design). The one writer,
+  ``check_writer``, refuses every body that is not a completed, neutral check
+  named ``SHADOW_CHECK_NAME``, so this module cannot publish the real name.
 
 Nothing here carries authority. The list of open pull requests is only a work
 list: every verdict comes from the evaluator's own live reads. A read that
@@ -40,6 +42,9 @@ from axiom_encode import content_merge_guard as guard
 from axiom_encode.reviewed_pr_admission import MAX_RESPONSE_BYTES, _NoRedirect
 
 TOKEN_ENV: Final = "MERGE_GUARD_TOKEN"
+# The guard App's client ID (not a secret). With it the runner can tell its
+# own earlier shadow check from one that another publisher gave the same name.
+APP_CLIENT_ID_ENV: Final = "MERGE_GUARD_APP_CLIENT_ID"
 # The enforcing check of a later change. Reserved: never published here.
 GUARD_CHECK_NAME: Final = "content-bound-merge-guard"
 SHADOW_CHECK_NAME: Final = "content-bound-merge-guard (shadow)"
@@ -151,7 +156,14 @@ def check_writer(token: str, *, opener=None) -> Post:
 
     def post(path: str, body: dict) -> object:
         if _CHECK_RUNS_PATH.fullmatch(path) is None:
-            raise RunnerError("the runner writes check runs only")
+            raise RunnerError("the runner writes shadow check runs only")
+        if (
+            not isinstance(body, dict)
+            or body.get("name") != SHADOW_CHECK_NAME
+            or body.get("conclusion") != SHADOW_CONCLUSION
+            or body.get("status") != "completed"
+        ):
+            raise RunnerError("the runner writes a neutral shadow check only")
         return _request("POST", path, token, body, opener, 201)
 
     return post
@@ -217,8 +229,19 @@ def shadow_check_body(verdict: guard.Verdict, head: str) -> dict:
     }
 
 
-def _already_reported(root: str, head: str, digest: str, fetch: Fetch) -> bool:
-    """Whether the newest shadow check on ``head`` carries this verdict."""
+def _already_reported(
+    root: str, head: str, digest: str, fetch: Fetch, app_client_id: str | None
+) -> bool:
+    """Whether the guard App's newest shadow check on ``head`` has this verdict.
+
+    Only a check that the guard App itself published counts. Any workflow of
+    the RuleSpec repository can create a check with the shadow name and the
+    (public) verdict digest; trusting it would let a pull request suppress its
+    own verdict. Without the App's client ID nothing counts and the verdict is
+    written again.
+    """
+    if not isinstance(app_client_id, str) or not app_client_id:
+        return False
     name = urllib.parse.quote(SHADOW_CHECK_NAME, safe="")
     listing = fetch(
         f"{root}/commits/{head}/check-runs?check_name={name}&filter=latest&per_page=100"
@@ -234,7 +257,12 @@ def _already_reported(root: str, head: str, digest: str, fetch: Fetch) -> bool:
     for run in runs:
         if not isinstance(run, dict) or not _strict_int(run.get("id")):
             raise RunnerError("check run listing entry is invalid")
-        if run.get("name") == SHADOW_CHECK_NAME:
+        app = run.get("app")
+        if (
+            run.get("name") == SHADOW_CHECK_NAME
+            and isinstance(app, dict)
+            and app.get("client_id") == app_client_id
+        ):
             ours.append(run)
     if not ours:
         return False
@@ -249,6 +277,7 @@ def report_one(
     *,
     fetch: Fetch,
     post: Post | None,
+    app_client_id: str | None = None,
 ) -> dict:
     """Evaluate one pull request and, in shadow mode, publish the verdict.
 
@@ -271,7 +300,7 @@ def report_one(
     root = f"/repos/{guard.ORGANISATION}/{repository}"
     try:
         body = shadow_check_body(verdict, head)
-        if _already_reported(root, head, body["external_id"], fetch):
+        if _already_reported(root, head, body["external_id"], fetch, app_client_id):
             entry["publication"] = "unchanged"
             return entry
         created = post(root + "/check-runs", body)
@@ -298,6 +327,7 @@ def run(
     *,
     fetch: Fetch,
     post: Post | None = None,
+    app_client_id: str | None = None,
 ) -> tuple[dict, int]:
     """Evaluate ``numbers``, or every open pull request to ``main``.
 
@@ -328,7 +358,14 @@ def run(
             raise RunnerError("invalid pull request number")
         for number in numbers:
             report["results"].append(
-                report_one(repository, number, mode, fetch=fetch, post=post)
+                report_one(
+                    repository,
+                    number,
+                    mode,
+                    fetch=fetch,
+                    post=post,
+                    app_client_id=app_client_id,
+                )
             )
     except RunnerError as exc:
         report["error"] = str(exc)
@@ -380,6 +417,7 @@ def command(args, *, environ=None, opener=None) -> int:
             args.mode,
             fetch=token_reader(token, opener=opener),
             post=check_writer(token, opener=opener) if args.mode == SHADOW else None,
+            app_client_id=environ.get(APP_CLIENT_ID_ENV) or None,
         )
     print(json.dumps(report, sort_keys=True, separators=(",", ":")))
     return code

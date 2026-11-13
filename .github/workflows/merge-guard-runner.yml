@@ -80,11 +80,15 @@ jobs:
             echo "::error::The merge guard runner is switched off: the repository variable MERGE_GUARD_RUNNER_ENABLED is not 'true'. See docs/content-bound-merge-guard.md section 8."
             exit 1
           fi
-          if ! printf '%s' "$COUNTRY" | grep -Eqx '[a-z]{2}'; then
+          # Whole-string matches. A per-line match (grep -x) admits a value
+          # with a second line, and the token action splits its repository
+          # list on newlines and commas.
+          export LC_ALL=C
+          if ! [[ "$COUNTRY" =~ ^[a-z]{2}$ ]]; then
             echo "::error::country must be two lowercase letters."
             exit 1
           fi
-          if [ -n "$PR" ] && ! printf '%s' "$PR" | grep -Eqx '[1-9][0-9]{0,8}'; then
+          if [ -n "$PR" ] && ! [[ "$PR" =~ ^[1-9][0-9]{0,8}$ ]]; then
             echo "::error::pr must be a pull request number or empty."
             exit 1
           fi
@@ -140,6 +144,7 @@ jobs:
       - name: Evaluate and report
         env:
           MERGE_GUARD_TOKEN: ${{ steps.app-token.outputs.token }}
+          MERGE_GUARD_APP_CLIENT_ID: ${{ vars.MERGE_GUARD_APP_CLIENT_ID }}
           COUNTRY: ${{ inputs.country }}
           PR: ${{ inputs.pr }}
           MODE: ${{ inputs.mode }}
