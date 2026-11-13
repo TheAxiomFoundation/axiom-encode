@@ -132,6 +132,7 @@ class TestPinnedCodexCLI:
         source = tmp_path / member
         source.parent.mkdir(parents=True)
         source.write_bytes(binary)
+        (source.parent / "codex-code-mode-host").write_bytes(b"reviewed host")
         archive = tmp_path / "codex.tgz"
         with tarfile.open(archive, "w:gz") as bundle:
             bundle.add(tmp_path / "package", arcname="package")
@@ -166,6 +167,52 @@ class TestPinnedCodexCLI:
         )
 
     @pytest.mark.parametrize(
+        ("key", "digest"),
+        [
+            (
+                ("darwin", "arm64"),
+                "c83b50d881ea5153fa9855cad6763fd7f847b24e60931b26513311fed3f71fbd",
+            ),
+            (
+                ("linux", "x64"),
+                "160c7ea08738447582821fbb2611ee016d6dd628853401bbc441767cb4e95ef8",
+            ),
+        ],
+    )
+    def test_reviewed_host_pins(self, key, digest):
+        pin = provisioner._CODEX_CLI_PINS[key]
+        assert pin["host_member"] == pin["member"] + "-code-mode-host"
+        assert pin["host_sha256"] == digest
+
+    @pytest.mark.parametrize("fault", ["missing", "symlink", "digest", "duplicate"])
+    def test_host_failure_does_not_publish_config(self, tmp_path, monkeypatch, fault):
+        pin = provisioner._CODEX_CLI_PINS[("darwin", "arm64")]
+        binary = b"reviewed binary"
+        self._archive(tmp_path, binary)
+        host = tmp_path / pin["host_member"]
+        if fault in {"missing", "symlink"}:
+            host.unlink()
+        if fault == "symlink":
+            host.symlink_to("codex")
+        archive = tmp_path / "changed.tgz"
+        with tarfile.open(archive, "w:gz") as bundle:
+            bundle.add(tmp_path / "package", arcname="package")
+            if fault == "duplicate":
+                bundle.add(host, arcname=pin["host_member"])
+        monkeypatch.setattr(provisioner.sys, "platform", "darwin")
+        monkeypatch.setattr(provisioner.platform, "machine", lambda: "arm64")
+        monkeypatch.setitem(pin, "sha256", hashlib.sha256(binary).hexdigest())
+        monkeypatch.setitem(
+            pin, "archive_sha256", hashlib.sha256(archive.read_bytes()).hexdigest()
+        )
+        monkeypatch.setitem(pin, "host_sha256", "0" * 64)
+        destination = tmp_path / "runtime"
+        destination.mkdir()
+        with pytest.raises(SystemExit):
+            provisioner._install_pinned_codex_cli(destination, archive)
+        assert not (destination / "codex-cli.json").exists()
+
+    @pytest.mark.parametrize(
         ("platform_name", "machine", "pin_key"),
         [
             ("darwin", "arm64", ("darwin", "arm64")),
@@ -188,6 +235,9 @@ class TestPinnedCodexCLI:
             provisioner.hashlib.sha256(binary).hexdigest(),
         )
         monkeypatch.setitem(
+            pin, "host_sha256", hashlib.sha256(b"reviewed host").hexdigest()
+        )
+        monkeypatch.setitem(
             pin,
             "archive_sha256",
             hashlib.sha256(archive.read_bytes()).hexdigest(),
@@ -199,11 +249,16 @@ class TestPinnedCodexCLI:
         assert installed.read_bytes() == binary
         assert stat.S_IMODE(installed.stat().st_mode) == 0o755
         assert config == {
-            "schema": "axiom-encode/trusted-codex-cli/v1",
+            "schema": "axiom-encode/trusted-codex-cli/v2",
             "version": "0.159.0",
             "sha256": hashlib.sha256(binary).hexdigest(),
             "path": str(installed),
+            "code_mode_host_path": str(destination / "bin/codex-code-mode-host"),
+            "code_mode_host_sha256": hashlib.sha256(b"reviewed host").hexdigest(),
         }
+        host = destination / "bin/codex-code-mode-host"
+        assert host.read_bytes() == b"reviewed host"
+        assert stat.S_IMODE(host.stat().st_mode) == 0o755
         identity = destination / "codex-cli.json"
         assert json.loads(identity.read_text()) == config
         assert stat.S_IMODE(identity.stat().st_mode) == 0o444
@@ -2017,7 +2072,7 @@ class TestEncoderSnapshotProvisioning:
 
     GIT = Path(shutil.which("git") or "git")
     OFFICIAL = "github.com/TheAxiomFoundation/axiom-encode"
-    CODEX = {"version": "0.test", "sha256": "c" * 64}
+    CODEX = {"version": "0.test", "sha256": "c" * 64, "code_mode_host_sha256": "d" * 64}
 
     def _git(self, path: Path, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(

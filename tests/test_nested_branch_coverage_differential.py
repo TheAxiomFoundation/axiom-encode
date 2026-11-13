@@ -1064,8 +1064,23 @@ def _complete_source_obligations(module, complete_source_module, outline):
         branch.pop("display_path", None)
         branch.setdefault("computation_chapeaux", ())
         branch.setdefault("required_principal_output", None)
+    # The first numeric-recall issue carries a repair-context suffix (source
+    # locations of every missing value) that the pinned baseline predates. It
+    # describes demands and never changes them, so only that suffix is
+    # removed: the demanded value, every other finding and all counts are
+    # still compared exactly.
+    # Self-contained: the baseline worker runs this function's source alone.
+    recall_head = _re.compile(
+        r"^\[complete-source-unit:numeric-recall\] Authoritative corpus numeric "
+        r"value \S+ has no named scalar representation\. `module\.summary` is not "
+        r"consulted\."
+    )
     payload["issues"] = tuple(
-        rendered_branch.sub(_branch_path, issue) for issue in payload["issues"]
+        rendered_branch.sub(
+            _branch_path,
+            head.group(0) if (head := recall_head.match(issue)) is not None else issue,
+        )
+        for issue in payload["issues"]
     )
     return payload
 

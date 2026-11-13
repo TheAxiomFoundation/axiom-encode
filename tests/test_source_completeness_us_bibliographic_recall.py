@@ -592,7 +592,23 @@ def test_source_and_unrepresented_views_share_one_locator_decision(monkeypatch):
         branch.covered_source_numeric_occurrence_count
         == main.covered_source_numeric_occurrence_count
     )
-    assert set(branch.issues) <= set(main.issues)
+    # Compare demands, not presentation: the first numeric-recall issue
+    # carries a repair-context suffix that depends on which values are missing.
+    assert set(map(_recall_demand, branch.issues)) <= set(
+        map(_recall_demand, main.issues)
+    )
+
+
+_RECALL_DEMAND_HEAD = re.compile(
+    r"^\[complete-source-unit:numeric-recall\] Authoritative corpus numeric "
+    r"value \S+ has no named scalar representation\. `module\.summary` is not "
+    r"consulted\."
+)
+
+
+def _recall_demand(issue: str) -> str:
+    head = _RECALL_DEMAND_HEAD.match(issue)
+    return head.group(0) if head is not None else issue
 
 
 def test_both_views_drop_locators_together_with_a_represented_span(monkeypatch):
