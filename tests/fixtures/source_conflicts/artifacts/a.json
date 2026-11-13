@@ -1,0 +1,253 @@
+{
+ "artifact_format_version": 2,
+ "engine_version": "0.2.2",
+ "metadata": {
+  "evaluation_order": [
+   "work_requirement_met"
+  ],
+  "fast_path": {
+   "blockers": [],
+   "compatible": true,
+   "strategy": "generic_bulk"
+  },
+  "input_catalog": [
+   {
+    "canonical_request_name": "us:statutes/999/1/a#input.monthly_total_hours",
+    "request_names": [
+     "us:statutes/999/1/a#input.monthly_total_hours"
+    ],
+    "slot": "monthly_total_hours"
+   },
+   {
+    "canonical_request_name": "us:statutes/999/1/a#input.subject_to_requirement",
+    "request_names": [
+     "us:statutes/999/1/a#input.subject_to_requirement"
+    ],
+    "slot": "subject_to_requirement"
+   }
+  ]
+ },
+ "program": {
+  "derived": [
+   {
+    "dtype": "judgment",
+    "entity": "Person",
+    "expr": {
+     "items": [
+      {
+       "kind": "comparison",
+       "left": {
+        "kind": "input",
+        "name": "subject_to_requirement"
+       },
+       "op": "eq",
+       "right": {
+        "kind": "literal",
+        "value": {
+         "kind": "bool",
+         "value": true
+        }
+       }
+      },
+      {
+       "kind": "comparison",
+       "left": {
+        "kind": "input",
+        "name": "monthly_total_hours"
+       },
+       "op": "gte",
+       "right": {
+        "index": {
+         "kind": "literal",
+         "value": {
+          "kind": "integer",
+          "value": 0
+         }
+        },
+        "kind": "parameter_lookup",
+        "parameter": "monthly_hours_requirement"
+       }
+      }
+     ],
+     "kind": "and"
+    },
+    "id": "us:statutes/999/1/a#work_requirement_met",
+    "name": "work_requirement_met",
+    "period": "Month",
+    "semantics": "judgment",
+    "source": "Fixture statute (a)",
+    "source_url": null,
+    "unit": null,
+    "versions": [
+     {
+      "effective_from": "0001-01-01",
+      "expr": {
+       "items": [
+        {
+         "kind": "comparison",
+         "left": {
+          "kind": "input",
+          "name": "subject_to_requirement"
+         },
+         "op": "eq",
+         "right": {
+          "kind": "literal",
+          "value": {
+           "kind": "bool",
+           "value": true
+          }
+         }
+        },
+        {
+         "kind": "comparison",
+         "left": {
+          "kind": "input",
+          "name": "monthly_total_hours"
+         },
+         "op": "gte",
+         "right": {
+          "index": {
+           "kind": "literal",
+           "value": {
+            "kind": "integer",
+            "value": 0
+           }
+          },
+          "kind": "parameter_lookup",
+          "parameter": "monthly_hours_requirement"
+         }
+        }
+       ],
+       "kind": "and"
+      },
+      "semantics": "judgment"
+     }
+    ]
+   }
+  ],
+  "module": {
+   "summary": "Fixture statute for the source-conflict compare step. A person meets the\nwork requirement for a month with not less than 80 hours of work and\ncommunity service together."
+  },
+  "parameters": [
+   {
+    "id": "us:statutes/999/1/a#monthly_hours_requirement",
+    "indexed_by": null,
+    "name": "monthly_hours_requirement",
+    "source": "Fixture statute (a)(1)",
+    "source_url": null,
+    "unit": null,
+    "versions": [
+     {
+      "effective_from": "0001-01-01",
+      "values": {
+       "0": {
+        "kind": "integer",
+        "value": 80
+       }
+      }
+     }
+    ]
+   }
+  ],
+  "relations": [],
+  "units": [
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "GBP"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "USD"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "EUR"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "CHF"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "NOK"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "GHS"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 0,
+    "name": "GHp"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "NGN"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 0,
+    "name": "UGX"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "ZMW"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "ETB"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 0,
+    "name": "RWF"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "TZS"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "DKK"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "AMD"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "ILS"
+   },
+   {
+    "kind": "count",
+    "name": "count"
+   },
+   {
+    "kind": "count",
+    "name": "person"
+   },
+   {
+    "kind": "ratio",
+    "name": "ratio"
+   },
+   {
+    "kind": "custom",
+    "label": "judgment",
+    "name": "status"
+   }
+  ]
+ }
+}

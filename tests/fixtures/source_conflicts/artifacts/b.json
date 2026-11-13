@@ -1,0 +1,519 @@
+{
+ "artifact_format_version": 2,
+ "engine_version": "0.2.2",
+ "metadata": {
+  "evaluation_order": [
+   "individual_in_scope",
+   "monthly_income_threshold",
+   "counted_work_hours",
+   "hours_path_met"
+  ],
+  "fast_path": {
+   "blockers": [],
+   "compatible": true,
+   "strategy": "generic_bulk"
+  },
+  "input_catalog": [
+   {
+    "canonical_request_name": "us:regulations/99-cfr/1/2#input.agency_counts_income_as_hours",
+    "request_names": [
+     "us:regulations/99-cfr/1/2#input.agency_counts_income_as_hours"
+    ],
+    "slot": "agency_counts_income_as_hours"
+   },
+   {
+    "canonical_request_name": "us:regulations/99-cfr/1/2#input.documented_hours",
+    "request_names": [
+     "us:regulations/99-cfr/1/2#input.documented_hours"
+    ],
+    "slot": "documented_hours"
+   },
+   {
+    "canonical_request_name": "us:regulations/99-cfr/1/2#input.income_for_month",
+    "request_names": [
+     "us:regulations/99-cfr/1/2#input.income_for_month"
+    ],
+    "slot": "income_for_month"
+   },
+   {
+    "canonical_request_name": "us:regulations/99-cfr/1/2#input.individual_is_covered",
+    "request_names": [
+     "us:regulations/99-cfr/1/2#input.individual_is_covered"
+    ],
+    "slot": "individual_is_covered"
+   },
+   {
+    "canonical_request_name": "us:regulations/99-cfr/1/2#input.minimum_wage_rate",
+    "request_names": [
+     "us:regulations/99-cfr/1/2#input.minimum_wage_rate"
+    ],
+    "slot": "minimum_wage_rate"
+   },
+   {
+    "canonical_request_name": "us:regulations/99-cfr/1/2#input.service_hours",
+    "request_names": [
+     "us:regulations/99-cfr/1/2#input.service_hours"
+    ],
+    "slot": "service_hours"
+   }
+  ]
+ },
+ "program": {
+  "derived": [
+   {
+    "dtype": "decimal",
+    "entity": "Person",
+    "expr": {
+     "kind": "mul",
+     "left": {
+      "kind": "input",
+      "name": "minimum_wage_rate"
+     },
+     "right": {
+      "index": {
+       "kind": "literal",
+       "value": {
+        "kind": "integer",
+        "value": 0
+       }
+      },
+      "kind": "parameter_lookup",
+      "parameter": "required_monthly_hours"
+     }
+    },
+    "id": "us:regulations/99-cfr/1/2#monthly_income_threshold",
+    "name": "monthly_income_threshold",
+    "period": "Month",
+    "semantics": "scalar",
+    "source": "Fixture regulation (b)(1)",
+    "source_url": null,
+    "unit": "USD",
+    "versions": [
+     {
+      "effective_from": "0001-01-01",
+      "expr": {
+       "kind": "mul",
+       "left": {
+        "kind": "input",
+        "name": "minimum_wage_rate"
+       },
+       "right": {
+        "index": {
+         "kind": "literal",
+         "value": {
+          "kind": "integer",
+          "value": 0
+         }
+        },
+        "kind": "parameter_lookup",
+        "parameter": "required_monthly_hours"
+       }
+      },
+      "semantics": "scalar"
+     }
+    ]
+   },
+   {
+    "dtype": "decimal",
+    "entity": "Person",
+    "expr": {
+     "condition": {
+      "items": [
+       {
+        "kind": "comparison",
+        "left": {
+         "kind": "input",
+         "name": "agency_counts_income_as_hours"
+        },
+        "op": "eq",
+        "right": {
+         "kind": "literal",
+         "value": {
+          "kind": "bool",
+          "value": true
+         }
+        }
+       },
+       {
+        "kind": "comparison",
+        "left": {
+         "kind": "input",
+         "name": "income_for_month"
+        },
+        "op": "lt",
+        "right": {
+         "kind": "derived",
+         "name": "monthly_income_threshold"
+        }
+       }
+      ],
+      "kind": "and"
+     },
+     "else_expr": {
+      "kind": "input",
+      "name": "documented_hours"
+     },
+     "kind": "if",
+     "then_expr": {
+      "kind": "div",
+      "left": {
+       "kind": "input",
+       "name": "income_for_month"
+      },
+      "right": {
+       "kind": "input",
+       "name": "minimum_wage_rate"
+      }
+     }
+    },
+    "id": "us:regulations/99-cfr/1/2#counted_work_hours",
+    "name": "counted_work_hours",
+    "period": "Month",
+    "semantics": "scalar",
+    "source": "Fixture regulation (b)(2)",
+    "source_url": null,
+    "unit": null,
+    "versions": [
+     {
+      "effective_from": "0001-01-01",
+      "expr": {
+       "condition": {
+        "items": [
+         {
+          "kind": "comparison",
+          "left": {
+           "kind": "input",
+           "name": "agency_counts_income_as_hours"
+          },
+          "op": "eq",
+          "right": {
+           "kind": "literal",
+           "value": {
+            "kind": "bool",
+            "value": true
+           }
+          }
+         },
+         {
+          "kind": "comparison",
+          "left": {
+           "kind": "input",
+           "name": "income_for_month"
+          },
+          "op": "lt",
+          "right": {
+           "kind": "derived",
+           "name": "monthly_income_threshold"
+          }
+         }
+        ],
+        "kind": "and"
+       },
+       "else_expr": {
+        "kind": "input",
+        "name": "documented_hours"
+       },
+       "kind": "if",
+       "then_expr": {
+        "kind": "div",
+        "left": {
+         "kind": "input",
+         "name": "income_for_month"
+        },
+        "right": {
+         "kind": "input",
+         "name": "minimum_wage_rate"
+        }
+       }
+      },
+      "semantics": "scalar"
+     }
+    ]
+   },
+   {
+    "dtype": "judgment",
+    "entity": "Person",
+    "expr": {
+     "items": [
+      {
+       "kind": "comparison",
+       "left": {
+        "kind": "input",
+        "name": "individual_is_covered"
+       },
+       "op": "eq",
+       "right": {
+        "kind": "literal",
+        "value": {
+         "kind": "bool",
+         "value": true
+        }
+       }
+      },
+      {
+       "kind": "comparison",
+       "left": {
+        "items": [
+         {
+          "kind": "derived",
+          "name": "counted_work_hours"
+         },
+         {
+          "kind": "input",
+          "name": "service_hours"
+         }
+        ],
+        "kind": "add"
+       },
+       "op": "gte",
+       "right": {
+        "index": {
+         "kind": "literal",
+         "value": {
+          "kind": "integer",
+          "value": 0
+         }
+        },
+        "kind": "parameter_lookup",
+        "parameter": "required_monthly_hours"
+       }
+      }
+     ],
+     "kind": "and"
+    },
+    "id": "us:regulations/99-cfr/1/2#hours_path_met",
+    "name": "hours_path_met",
+    "period": "Month",
+    "semantics": "judgment",
+    "source": "Fixture regulation (a)(1)",
+    "source_url": null,
+    "unit": null,
+    "versions": [
+     {
+      "effective_from": "0001-01-01",
+      "expr": {
+       "items": [
+        {
+         "kind": "comparison",
+         "left": {
+          "kind": "input",
+          "name": "individual_is_covered"
+         },
+         "op": "eq",
+         "right": {
+          "kind": "literal",
+          "value": {
+           "kind": "bool",
+           "value": true
+          }
+         }
+        },
+        {
+         "kind": "comparison",
+         "left": {
+          "items": [
+           {
+            "kind": "derived",
+            "name": "counted_work_hours"
+           },
+           {
+            "kind": "input",
+            "name": "service_hours"
+           }
+          ],
+          "kind": "add"
+         },
+         "op": "gte",
+         "right": {
+          "index": {
+           "kind": "literal",
+           "value": {
+            "kind": "integer",
+            "value": 0
+           }
+          },
+          "kind": "parameter_lookup",
+          "parameter": "required_monthly_hours"
+         }
+        }
+       ],
+       "kind": "and"
+      },
+      "semantics": "judgment"
+     }
+    ]
+   },
+   {
+    "dtype": "judgment",
+    "entity": "Person",
+    "expr": {
+     "kind": "comparison",
+     "left": {
+      "kind": "input",
+      "name": "individual_is_covered"
+     },
+     "op": "eq",
+     "right": {
+      "kind": "literal",
+      "value": {
+       "kind": "bool",
+       "value": true
+      }
+     }
+    },
+    "id": "us:regulations/99-cfr/1/2#individual_in_scope",
+    "name": "individual_in_scope",
+    "period": "Month",
+    "semantics": "judgment",
+    "source": "Fixture regulation (c)",
+    "source_url": null,
+    "unit": null,
+    "versions": [
+     {
+      "effective_from": "0001-01-01",
+      "expr": {
+       "kind": "comparison",
+       "left": {
+        "kind": "input",
+        "name": "individual_is_covered"
+       },
+       "op": "eq",
+       "right": {
+        "kind": "literal",
+        "value": {
+         "kind": "bool",
+         "value": true
+        }
+       }
+      },
+      "semantics": "judgment"
+     }
+    ]
+   }
+  ],
+  "module": {
+   "summary": "Fixture regulation for the source-conflict compare step. It repeats the\nstatute's 80 hours, and lets an agency with no record of hours count\nmonthly income divided by the minimum wage as hours."
+  },
+  "parameters": [
+   {
+    "id": "us:regulations/99-cfr/1/2#required_monthly_hours",
+    "indexed_by": null,
+    "name": "required_monthly_hours",
+    "source": "Fixture regulation (a)(1)",
+    "source_url": null,
+    "unit": null,
+    "versions": [
+     {
+      "effective_from": "0001-01-01",
+      "values": {
+       "0": {
+        "kind": "integer",
+        "value": 80
+       }
+      }
+     }
+    ]
+   }
+  ],
+  "relations": [],
+  "units": [
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "GBP"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "USD"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "EUR"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "CHF"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "NOK"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "GHS"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 0,
+    "name": "GHp"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "NGN"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 0,
+    "name": "UGX"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "ZMW"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "ETB"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 0,
+    "name": "RWF"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "TZS"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "DKK"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "AMD"
+   },
+   {
+    "kind": "currency",
+    "minor_units": 2,
+    "name": "ILS"
+   },
+   {
+    "kind": "count",
+    "name": "count"
+   },
+   {
+    "kind": "count",
+    "name": "person"
+   },
+   {
+    "kind": "ratio",
+    "name": "ratio"
+   },
+   {
+    "kind": "custom",
+    "label": "judgment",
+    "name": "status"
+   }
+  ]
+ }
+}
