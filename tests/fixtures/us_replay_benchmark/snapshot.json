@@ -2,17 +2,17 @@
  "schema": "axiom-encode/us-replay-snapshot/v2",
  "context": "workspace",
  "totals": {
-  "cases": 48,
+  "cases": 50,
   "clean": 12,
-  "issues": 3291,
+  "issues": 3303,
   "rules": {
    "complete-source-unit:declaration-collision": 2,
    "complete-source-unit:deferral": 172,
    "complete-source-unit:formula-output": 763,
-   "complete-source-unit:numeric-recall": 320,
-   "complete-source-unit:source-explicit-conditions": 6,
+   "complete-source-unit:numeric-recall": 324,
+   "complete-source-unit:source-explicit-conditions": 7,
    "complete-source-unit:structure": 1847,
-   "complete-source-unit:tests": 181
+   "complete-source-unit:tests": 188
   }
  },
  "allowed_regressions": {},
@@ -3809,6 +3809,25 @@
    "error": null,
    "findings": []
   },
+  "local-nb-schedule-20261113": {
+   "citation": "ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit",
+   "control": false,
+   "issues": 6,
+   "rules": {
+    "complete-source-unit:numeric-recall": 1,
+    "complete-source-unit:source-explicit-conditions": 1,
+    "complete-source-unit:tests": 4
+   },
+   "error": null,
+   "findings": [
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 2025 has no named scalar representation. `module.summary` is not consulted. First source location of 2025: character (code point) offsets 21:25 in source.txt, ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit [source unit]: `CRA Schedule NB(S12) 2025 New Brunswick Seniors' Home Renovation Tax Credit`. The displayed text is only a bounded locator; copy any proof excerpt verbatim from `source.txt`.",
+    "[complete-source-unit:source-explicit-conditions] Derived formula version(s) delegate multiple conjunctive factual gates stated in their exact authoritative source clause to too few terminal local inputs or canonical imports: `medical_separation_claim_permission_applies` versions[0] (`has_spouse_or_common_law_partner_at_reference_date`, `medical_separation_reference_date`, `occupied_separate_principal_residences_at_reference_date`, `principal_residence_separation_was_for_medical_reasons` for 3 source gates); `spouse_residence_address_reporting_required` versions[0] (`has_spouse_or_common_law_partner_at_reference_date`, `medical_separation_claim_permission_applies`, `medical_separation_reference_date`, `occupied_separate_principal_residences_at_reference_date`, `principal_residence_separation_was_for_medical_reasons` for 3 source gates). Encode the source-stated facts as distinct local inputs or canonical imports, declare every local fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`), combine them in a source-proved derived Judgment, and test each gate. Reserve aggregate boundary statuses for source-atomic or externally determined conditions.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 10 at ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit [source unit]. Exact source computation (characters 1072:1121): `Line 3: Line 1 minus line 2 (maximum $10,000) = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 12 at ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit [source unit]. Exact source computation (characters 1225:1296): `Line 5 and line 60360: Line 3 minus line 4 Home renovation expenses = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 14 at ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit [source unit]. Exact source computation (characters 1327:1484): `Line 7: Line 5 multiplied by the percentage from line 6 Enter this amount on line 47900 of your return. New Brunswick seniors' home renovation tax credit = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit [source unit] [change]: `Involuntary separation Line 60890: If, on December 31, 2025, you and your spouse or common-law partner occupied separate principal residences f ... cal reasons, you can both claim the seniors' home renovation tax credit.`; ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit [source unit] [change]: `If yes, tick this box. ^ If not, enter the address of the residence they relate to: ^ See the privacy notice on your return.`. The evaluator recognized 22 directional formula-toggle witnesses from 8 distinct case pairs, but these do not cover every listed source condition. Check affected rule/path, source-selector relevance, active orientation, required effect, and distinct-condition witness allocation before adding cases. Recognized test pairs alone do not establish source coverage."
+   ]
+  },
   "local-nl479-form-20261113": {
    "citation": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
    "control": false,
@@ -3839,6 +3858,24 @@
    "findings": [
     "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 18 has no named scalar representation. `module.summary` is not consulted. First source location of 18: character (code point) offsets 1372:1374 in source.txt, ca/policy/cra/t1-2025/federal-spouse-transfer-amounts [source unit]: `Canada caregiver amount for infirm children under 18 years of age:`. The displayed text is only a bounded locator; copy any proof excerpt verbatim from `source.txt`.",
     "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts [source unit] [change]: `You may be able to claim all or part of certain amounts that your spouse or common-law partner qualifies for if they do not need to use them to reduce their federal tax to zero.`; ca/policy/cra/t1-2025/federal-spouse-transfer-amounts [source unit] [change]: `Age amount (if your spouse or common-law partner was born in 1960 or earlier): Enter the amount from line 30100 of their return. 35200 1`; ca/policy/cra/t1-2025/federal-spouse-transfer-amounts [source unit] [change]: `Spouse's or common-law partner's adjusted taxable income: Line 7 minus line 11 (if negative, enter \"0\") – 12`; ca/policy/cra/t1-2025/federal-spouse-transfer-amounts [source unit] [change]: `Line 6 minus line 12 (if negative, enter \"0\") Enter this amount on line 32600 of your return. = 13`; ca/policy/cra/t1-2025/federal-spouse-transfer-amounts [source unit] [change]: `Spouse's or common-law partner's taxable income: Enter the amount from line 26000 of their return on line 7 if it is $57,375 or less. If it is ... the following calculation: amount from line 76 of their return ÷ 14.5% =`. The evaluator recognized 47 directional formula-toggle witnesses from 15 distinct case pairs, but these do not cover every listed source condition. Check affected rule/path, source-selector relevance, active orientation, required effect, and distinct-condition witness allocation before adding cases. Recognized test pairs alone do not establish source coverage."
+   ]
+  },
+  "local-student-loan-schedule-20261113": {
+   "citation": "ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest",
+   "control": false,
+   "issues": 6,
+   "rules": {
+    "complete-source-unit:numeric-recall": 3,
+    "complete-source-unit:tests": 3
+   },
+   "error": null,
+   "findings": [
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 1997 has no named scalar representation. `module.summary` is not consulted. First source location of 1997: character (code point) offsets 435:439 in source.txt, ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit]: `If interest was paid on your student loan after 1997, but in 2024 you did not calculate the amount that could be ...`. All 3 values of this source without a named scalar, grouped by source branch, with character (code point) offsets in source.txt. Represent each of the 3 listed first in this attempt with a named scalar whose proof excerpt is copied verbatim from `source.txt`, or precisely defer the branch that states it. Displayed text is only a bounded locator. In ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit]: 2025 at 187:191: `Complete this schedule if interest was paid in 2025 on a student loan granted to you.`; 2024 at 262:266: `Also complete this schedule if, for 2024, you calculated an amount for interest paid on a student loan ...`; 1997 at 435:439: `If interest was paid on your student loan after 1997, but in 2024 you did not calculate the amount that could be ...`;",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 2024 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 2025 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 4 at ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit]. Exact source computation (characters 226:386): `Also complete this schedule if, for 2024, you calculated an amount for interest paid on a student loan and decided to carry the amount forward to a future year.`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. The best-effort unbound-formula diagnostic scan was capped at 32 rules and 8 cases per rule; additional matching principal formulas may exist beyond the reported names. The best-effort dependency-corroboration diagnostic scan was capped at 32 rules and 8 cases per rule; additional missing dependency assertions may exist beyond the reported names. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 5 at ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit]. Exact source computation (characters 387:720): `If interest was paid on your student loan after 1997, but in 2024 you did not calculate the amount that could be carried forward, enter the result of the following calculation on line 46: interest paid for 1998 through 2024 minus the interest already used to calculate a credit for interest paid on a student loan for previous years.`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. The best-effort unbound-formula diagnostic scan was capped at 32 rules and 8 cases per rule; additional matching principal formulas may exist beyond the reported names. The best-effort dependency-corroboration diagnostic scan was capped at 32 rules and 8 cases per rule; additional missing dependency assertions may exist beyond the reported names. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit] [change]: `M -V (2025-12) T Interest Paid on a Student Loan SCHEDULE M Complete this schedule if interest was paid in 2025 on a student loan granted to you.`; ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit] [change]: `Also complete this schedule if, for 2024, you calculated an amount for interest paid on a student loan and decided to carry the amount forward to a future year.`; ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit] [change]: `If interest was paid on your student loan after 1997, but in 2024 you did not calculate the amount that could be carried forward, enter the res ... lculate a credit for interest paid on a student loan for previous years.`; ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit] [change]: `If you want to keep a copy for your records, see the guide.`; ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit] [change]: `Enclose this schedule with your return.`. The evaluator recognized 30 directional formula-toggle witnesses from 10 distinct case pairs, but these do not cover every listed source condition. Check affected rule/path, source-selector relevance, active orientation, required effect, and distinct-condition witness allocation before adding cases. Recognized test pairs alone do not establish source coverage."
    ]
   },
   "local-t936-printed-row-20261113": {

@@ -7,7 +7,7 @@ corpus checkout. The `replay benchmark` CI job runs it as a required check.
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 48 committed
+(the `[complete-source-unit:*]` rules of the CI validator) over 50 committed
 fixtures in `tests/fixtures/us_replay_benchmark/`. Hosted fixtures are real candidates from `targeted-reencode-failure` artifacts
 of signed runs:
 
@@ -42,19 +42,26 @@ an earlier primary-document diagnostic; it is separate from the full parent-form
 engine replay and does not inherit that replay’s execution evidence.
 The T936 printed-row fixture preserves an unsigned source-only diagnostic pair; its offline replay
 does not receive private execution evidence or authenticated resolver context.
+The NB Schedule 12 and Schedule M fixtures retain complete public diagnostic pairs.
+The Schedule M companion exports the verbatim `/cases` value from its public
+JSON record, with explicit origin hashes; it does not reconstruct historical
+engine companion bytes. Offline replay retains six findings for each fixture
+because it supplies no captured execution evidence. Separate Schedule M real-engine tests
+check the supported and unsupported engine profiles.
 
 The replay passes the same inputs as `ValidatorPipeline._complete_source_unit_issues`:
 the citation's numeric profile, the companion test cases, imported symbol
 contents, resolved deferral providers and same-act aliases from the source
 metadata. `--no-context` leaves out the last three.
 
-The set has 40 distinct citations: federal statutes, CFR regulations, IRS and
+The set has 42 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, one Canadian CRA guide
-(three runs), two Canadian CRA forms (local diagnostics), and one Israeli statute. It has one control (an Arizona candidate
-that passed validation and then failed a provenance guard). In the current snapshot, 12
-fixtures replay clean and 36 have 3,291 findings. The added NL479 diagnostic
-retains six findings; all 47 fixtures from the main baseline are unchanged. Read clean counts and per-fixture changes, not only the
-total. The fixtures total about 3.3 MB and `snapshot.json` about 1.3 MB.
+(three runs), three Canadian CRA forms and one Revenu Québec schedule (local
+diagnostics), and one Israeli statute. It has one control (an Arizona candidate
+that passed validation and then failed a provenance guard). The current snapshot
+has 12 clean fixtures and 38 refused fixtures with 3,303 findings. It preserves
+all 48 earlier fixture rows; each of the two new schedule diagnostics retains
+six findings. Read clean counts and per-fixture changes, not only the total.
 
 ## Public fixtures and the private held-out set
 
