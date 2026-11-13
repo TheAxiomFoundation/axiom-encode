@@ -7,7 +7,7 @@ corpus checkout. The `replay benchmark` CI job runs it as a required check.
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 53 committed
+(the `[complete-source-unit:*]` rules of the CI validator) over 54 committed
 fixtures in `tests/fixtures/us_replay_benchmark/`. Hosted fixtures are real candidates from `targeted-reencode-failure` artifacts
 of signed runs:
 
@@ -57,6 +57,13 @@ origins and body-export method. The separate
 excerpt while retaining an unrelated ellipsis refusal. Completeness replay
 does not measure that proof check.
 
+The T2036 country-case-selection fixture retains an unsigned local repair
+candidate and its complete 45-case companion. Unrelated table cases must not
+disable evidence supplied by the country-condition cases. Offline replay still
+retains three finding groups because it does not receive the authenticated
+secondary-source context used by ordinary validation; it is not a native receipt
+or a publication result.
+
 Five Canadian form fixtures cover NL479, the New Brunswick seniors' home
 renovation schedule, student-loan interest, child credits and retirement-income
 transfers. They copy existing public candidate and source bytes. The
@@ -73,9 +80,9 @@ metadata. `--no-context` leaves out the last three.
 
 The set has 45 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, eight Canadian citations
-and one Israeli statute. Its 53 fixtures include one Arizona control that passed
+and one Israeli statute. Its 54 fixtures include one Arizona control that passed
 validation and then failed a provenance guard. The current snapshot has 12 clean
-fixtures and 41 refused fixtures with 3,361 findings. It preserves every snapshot
+fixtures and 42 refused fixtures with 3,364 findings. It preserves every snapshot
 row from both integration parents unchanged. The child-credit and retirement-transfer
 diagnostics retain six and 19 findings; the section 219(g) diagnostic retains 33.
 Read clean counts and per-fixture changes, not only the total.
