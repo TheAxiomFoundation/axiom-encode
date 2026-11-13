@@ -1,3 +1,15 @@
+## 0.2.2367
+
+- Balance waiver audit shards by measured cost and print progress (#2177)
+- Say Microcosm in prose, help text and private names (#2183)
+- Protected reviewer runtime: supervisor Codex home, signer subscription options, reprovisioning and source-lane replay (#2037)
+- Align proof excerpts to the printed source text; fix imports pruning (0.2.2349) (#1900)
+- Apply exact registered repairs through protected validation (#1963)
+- Publish signed RuleSpec PRs onto a main tip that moved only through plumbing (#1892)
+- Require Encoding-Target and Fixes-Run lines in every PR body (#2156)
+- Add content-bound merge guard evaluator (inactive, #2172) (#2204)
+- Declare the validation effect in automated version-bump PRs (#2197)
+
 ## 0.2.2366
 
 - Bind Canadian form and Schedule M obligations to observed execution (#2083)
