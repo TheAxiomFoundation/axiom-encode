@@ -868,7 +868,7 @@ _APPLIED_MANIFEST_SCHEMA_VARIANTS = {
 # applied-rulespec/v6 (#2172): the promotion contract with the reviewed ref
 # renamed and the attestation scope added. Read only by the top-level verified
 # loader and the immutable-base claim reader, and only while
-# the reader switch in applied_manifest_v6.py is on (it is off). No writer
+# the reader switch of the v6 reader module is on (it is off). No writer
 # emits it. A manifest without the v6 label takes none of these paths.
 _REVIEWED_CANDIDATE_V6_MANIFEST_VARIANTS = _manifest_v6.v6_field_variants(
     _APPLIED_MANIFEST_SCHEMA_VARIANTS["reviewed candidate promotion"],
