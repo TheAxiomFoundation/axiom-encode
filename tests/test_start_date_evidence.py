@@ -338,47 +338,69 @@ def test_an_import_does_not_take_other_dates_out_of_the_check():
     assert "import" not in found.lower()
 
 
+GHOST_IMPORT = (
+    "us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-13#pays_telephone"
+)
+FILE_IMPORT = "us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-13"
+
+
 @pytest.mark.parametrize(
     ("contents", "imports"),
     [
         ([], (IMPORT,)),  # provider not supplied
         ([("another", provider("2025-10-01"))], (IMPORT,)),
         ([("amount", "rules: [")], (IMPORT,)),  # unreadable provider
-        ([("amount", provider("2024-10-01", name="renamed"))], (IMPORT,)),
-        ([("amount", provider("2024-10-01"))], (IMPORT, 7)),
-        ([("amount", provider("2024-10-01"))], (IMPORT, None)),
+        ([("amount", "- not a mapping")], (IMPORT,)),
+        # A "ghost" symbol: the provider is supplied but has no such rule.
+        ([("pays_telephone", provider("2025-10-01"))], (GHOST_IMPORT,)),
+        ([("amount", provider("2025-10-01", name="renamed"))], (IMPORT,)),
+        # Several rules of the imported name in one provider.
+        ([("other", provider("2025-10-01", name="other"))], (IMPORT + "x#other",)),
+        ([], (FILE_IMPORT,)),  # file-level import, no `#symbol`
+        ([("amount", provider("2025-10-01"))], (FILE_IMPORT,)),
+        ([("amount", provider("2025-10-01"))], ("no-symbol", 7, None, ["x#amount"])),
+        ([("", provider("2025-10-01", name=""))], ("#",)),
     ],
 )
-def test_module_with_an_unverifiable_import_is_not_examined(contents, imports):
-    assert import_issues("2025-10-01", contents, imports) == []
+def test_unverifiable_import_adds_nothing_and_the_module_is_examined(contents, imports):
+    # Refused at the copied date, passes at the floor: the module is examined
+    # exactly as a module without imports.
+    assert len(import_issues("2025-10-01", contents, imports)) == 1
+    assert import_issues("2026-08-01", contents, imports) == []
+    payload = module("2025-10-01", imports=list(imports))
+    assert sde.imported_export_starts(payload, contents) == frozenset()
 
 
-FILE_IMPORT = "us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-13"
+@pytest.mark.parametrize("imports", ["x#amount", {"a": IMPORT}, 7, True])
+def test_imports_that_are_not_a_list_add_nothing(imports):
+    contents = [("amount", provider("2025-10-01"))]
+    found = date_silent_start_issues(
+        module("2025-10-01", imports=imports),
+        SOURCE,
+        corpus_citation_path=CITATION,
+        evidence=EVIDENCE,
+        imported_symbol_contents=contents,
+    )
+    assert len(found) == 1
 
 
-def test_file_level_import_takes_nothing_out_of_the_check():
-    # The block-16 module with a start of 2025-10-01 and a file-level import
-    # (no `#symbol`): the import names no export and brings no date.
-    assert len(import_issues("2025-10-01", [], (FILE_IMPORT,))) == 1
-    assert import_issues("2026-08-01", [], (FILE_IMPORT,)) == []
+def test_verifiable_import_beside_unverifiable_ones_still_adds_its_starts():
     contents = [("amount", provider("2024-10-01"))]
-    both = (FILE_IMPORT, IMPORT)
-    assert len(import_issues("2025-10-01", contents, both)) == 1
-    assert import_issues("2024-10-01", contents, both) == []
-    # A `#symbol` import without a provider still cannot be compared.
-    assert import_issues("2025-10-01", [], both) == []
-    assert sde.imported_export_starts(module(imports=[FILE_IMPORT]), ()) == frozenset()
+    mixed = (FILE_IMPORT, GHOST_IMPORT, 7, IMPORT)
+    assert import_issues("2024-10-01", contents, mixed) == []
+    assert len(import_issues("2025-10-01", contents, mixed)) == 1
+    # Two supplied providers of one symbol name: the readable one counts.
+    two = [("amount", "rules: ["), ("amount", provider("2025-10-01"))]
+    assert import_issues("2025-10-01", two) == []
 
 
 def test_import_shapes():
     assert sde.imported_export_starts(module("2025-10-01"), ()) == frozenset()
     assert sde.imported_export_starts(module(imports=[]), ()) == frozenset()
-    assert sde.imported_export_starts(module(imports="x#y"), ()) is None
     assert sde.imported_export_starts(
-        module(imports=[IMPORT]), [("amount", provider("2024-10-01"))]
+        module(imports=[IMPORT]), [("amount", provider("2024-10-01", "bad-date"))]
     ) == frozenset({date(2024, 10, 1)})
-    # An empty list is no import; an `import` proof atom alone is no import.
-    assert len(issues(module("2025-10-01", imports=[]))) == 1
+    # An `import` proof atom alone is no import.
     with_import_atom = module("2025-10-01")
     with_import_atom["rules"][0]["metadata"] = {
         "proof": {"atoms": [{"kind": "import", "import": IMPORT}]}

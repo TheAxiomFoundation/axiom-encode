@@ -244,15 +244,21 @@ code; every other document class keeps its earlier prompt text.
 | The citation's document class (second path segment) is not `manual` | not examined |
 | The unit text prints any date, month-year, fiscal year or bare year | not examined |
 | The run binds amendment or commencement documents | not examined |
-| The module imports a symbol whose provider module the validator was not given, or whose provider does not declare exactly one rule of that name | not examined |
 | `effective_from` is `0001-01-01`, `expression_date`, `source_as_of` or the evidence floor | passes |
 | `effective_from` is printed in a `rules[].metadata.proof.atoms[].source.excerpt` of the module | passes |
-| `effective_from` equals a version start of an export the module imports | passes |
+| `effective_from` equals a version start of an export the module verifiably imports: a `path#symbol` item whose supplied provider declares exactly one rule of that name | passes |
 | Any other `effective_from`, also one after the snapshot | refused, one issue per distinct date |
 
-`effective_to`, `values` keys and companion test periods are not examined. The
-import row leaves decision 2 of #2212 open (whether an imported date is
-support); the issue message and the check's `fix` text do not mention it.
+`effective_to`, `values` keys and companion test periods are not examined.
+
+An import can only add supported dates; it never takes a module out of the
+check. An import that cannot be verified (no `#symbol`, a provider that the
+validator was not given or cannot read, no rule or several rules of that name,
+an item that is not a string) contributes nothing, so a start that only such
+an import would justify is refused. The import row leaves decision 2 of #2212
+open (whether an imported date is support); the issue message and the check's
+`fix` text do not mention it. A start without zero padding (`2025-10-1`) and a
+`datetime` are read as their calendar day; any other non-null start is refused.
 
 Missing metadata never counts as support. When the resolver attestation has no
 `source_as_of`, or the value is not a `YYYY-MM-DD` date, or its two copies

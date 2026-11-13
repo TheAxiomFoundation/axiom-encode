@@ -23,10 +23,10 @@ the evidence floor, or a date printed in an excerpt of a proof atom
 (``rules[].metadata.proof.atoms[].source.excerpt``). Any other start is
 refused, also one that lies after the snapshot.
 
-Imports: a start that equals a version start of an export the module imports
-is not examined (whether such a date is support is an open decision of #2212).
-A module with an import whose provider this module was not given is not
-examined at all, because that comparison cannot be made.
+Imports can only add supported dates; they never take a module out of the
+check. A start that equals a version start of an export the module verifiably
+imports passes (whether such a date is support is an open decision of #2212).
+An import that cannot be verified contributes nothing.
 
 ``effective_to``, ``values`` keys and companion test periods are not examined.
 """
@@ -386,47 +386,44 @@ def _version_starts(
                 yield str(rule.get("name") or "").strip(), index, start
 
 
+_SYMBOL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
 def imported_export_starts(
     payload: Mapping[str, Any],
     imported_symbol_contents: Sequence[tuple[str, str]],
-) -> frozenset[date] | None:
-    """Version starts of the exports the module imports, or ``None``.
+) -> frozenset[date]:
+    """Version starts of the exports the module verifiably imports.
 
-    ``None`` means that the comparison cannot be made: an ``imports`` entry is
-    not a string, or the provider of an imported ``#symbol`` was not supplied
-    or does not declare exactly one rule of that name. No imports, and
-    file-level imports without a ``#symbol``, give an empty set.
+    An import can only add supported dates; it never takes a module out of
+    the check. An ``imports`` item contributes the version starts of its
+    export when it is a ``path#symbol`` string and a supplied provider of that
+    symbol declares exactly one rule of that name. Every other item
+    contributes nothing: a file-level import without ``#symbol``, a provider
+    that was not supplied or cannot be read, a provider with no rule or with
+    several rules of that name, and an item that is not a string.
     """
 
     imports = payload.get("imports")
-    if imports is None or imports == []:
-        return frozenset()
-    if not isinstance(imports, list):
-        return None
     providers: dict[str, list[str]] = {}
     for symbol, content in imported_symbol_contents:
         providers.setdefault(symbol, []).append(content)
     starts: set[date] = set()
-    for item in imports:
-        if not isinstance(item, str):
-            return None
-        if "#" not in item:
-            # A file-level import names no export, so it brings no start date
-            # and takes nothing out of the check.
+    for item in imports if isinstance(imports, list) else ():
+        if not isinstance(item, str) or "#" not in item:
             continue
         symbol = item.rsplit("#", 1)[1].strip()
-        contents = providers.get(symbol)
-        if not contents:
-            return None
-        for content in contents:
+        if not _SYMBOL.fullmatch(symbol):
+            continue
+        for content in providers.get(symbol, ()):
             try:
                 provider = yaml.safe_load(content)
             except (yaml.YAMLError, TypeError, ValueError):
-                return None
+                continue
             rules = provider.get("rules") if isinstance(provider, Mapping) else None
             exports = [rule for rule in _mappings(rules) if rule.get("name") == symbol]
             if len(exports) != 1:
-                return None
+                continue
             starts.update(
                 start
                 for _name, _index, start in _version_starts({"rules": exports})
@@ -463,8 +460,7 @@ def date_silent_start_issues(
     """Refuse an unsupported start date of a date-silent manual unit.
 
     Out of scope (no issue): a unit that is not a corpus ``manual`` document,
-    prints any date, has amendment context, or has an import whose provider
-    is not in ``imported_symbol_contents``. In scope, one issue per distinct
+    prints any date, or has amendment context. In scope, one issue per distinct
     refused date. When ``source_as_of`` is missing or unreadable there is no
     snapshot date and no evidence floor, so only the scaffold, a readable
     ``expression_date`` or a printed date pass: missing metadata never counts
@@ -477,10 +473,9 @@ def date_silent_start_issues(
         or text_prints_any_date(source_text)
     ):
         return []
-    imported_starts = imported_export_starts(payload, imported_symbol_contents)
-    if imported_starts is None:
-        return []
-    supported = evidence.supported_corpus_dates | imported_starts
+    supported = evidence.supported_corpus_dates | imported_export_starts(
+        payload, imported_symbol_contents
+    )
     excerpts = proof_excerpts(payload)
     refused: dict[str, list[tuple[str, int]]] = {}
     for rule_name, index, start in _version_starts(payload):
