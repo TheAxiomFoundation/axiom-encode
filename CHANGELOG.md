@@ -1,3 +1,7 @@
+## 0.2.2368
+
+- Register exact Schedule M repair preserving all companion cases (#2223)
+
 ## 0.2.2367
 
 - Lock the build backends and build every locked source against them (#1887)

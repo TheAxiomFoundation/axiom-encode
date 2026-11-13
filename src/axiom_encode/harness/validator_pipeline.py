@@ -24299,15 +24299,21 @@ _FAMILY_EXPENSE_TABLE_INSTRUCTION = re.compile(
 def _mask_family_expense_table_instruction(text: str) -> str:
     """Distinguish the expenses' family from an eligibility test's subject.
 
-    Only a complete unqualified instruction paragraph is recognized. This
-    removes a false scope inference; it does not assign a Person actor or
-    establish applicability, eligibility, or compliance with the instruction.
+    Only the complete instruction paragraph is recognized, and only when it is
+    not colon-led and the following text does not open with a listed
+    qualifier or condition word. Qualifying prose that opens otherwise is not
+    detected here; it stays in the text for condition analysis. This removes a
+    false scope inference; it does not assign a Person actor or establish
+    applicability, eligibility, or compliance with the instruction.
     """
     characters = list(text)
     for match in _FAMILY_EXPENSE_TABLE_INSTRUCTION.finditer(text):
         # Blank lines do not sever a colon-led instruction or its qualification.
         if text[: match.start()].rstrip().endswith(":") or re.match(
-            r"(?:unless|except|provided|subject\s+to|but|however)\b",
+            r"(?:unless|except|provided|providing|subject\s+to|but|however|only|if|when"
+            r"|once|until|assuming"
+            r"|where|on\s+condition|conditional|as\s+long\s+as|so\s+long\s+as"
+            r"|in\s+the\s+event|to\s+the\s+extent)\b",
             text[match.end() :].lstrip(),
             flags=re.IGNORECASE,
         ):

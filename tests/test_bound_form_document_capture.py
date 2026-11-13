@@ -197,3 +197,32 @@ def test_compiled_boolean_literal_is_type_exact(tmp_path, versioned):
     assert not observed_form_frame(
         bind(d["content"]), evidence(tmp_path, d), d["content"], d["cases"]
     )
+
+
+def _bool_lookup_indexes(node):
+    count = 0
+    if isinstance(node, dict):
+        if node.get("kind") == "parameter_lookup":
+            value = node["index"]["value"]
+            assert value["value"] == 0 and type(value["value"]) is int
+            value["value"] = False
+            count += 1
+        for child in node.values():
+            count += _bool_lookup_indexes(child)
+    elif isinstance(node, list):
+        for child in node:
+            count += _bool_lookup_indexes(child)
+    return count
+
+
+@pytest.mark.parametrize("site", ["expr", "versions"])
+def test_arithmetic_compiled_expression_is_bool_int_type_exact(tmp_path, site):
+    d = data()
+    changed = sum(
+        _bool_lookup_indexes(declaration[site])
+        for declaration in d["artifact"]["program"]["derived"]
+    )
+    assert changed
+    assert not observed_form_frame(
+        bind(d["content"]), evidence(tmp_path, d), d["content"], d["cases"]
+    )
