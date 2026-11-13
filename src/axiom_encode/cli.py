@@ -477,10 +477,15 @@ from .legacy_replacement_overlay import (
 from .live_run_telemetry import (
     PHASE_APPLY,
     PHASE_RESOLVE,
+    PROMOTION_STAGE_POST_INSTALL,
+    PROMOTION_STAGE_SIGNING,
+    PROMOTION_STAGE_VALIDATION,
     LiveRunTelemetry,
+    PromotionLiveRun,
     first_typed_check_id,
     github_run_identity,
     report_phase,
+    report_promotion_stage,
     telemetry_blocked_for_tests,
 )
 from .numeric_equality import rulespec_numeric_values_equal
@@ -10047,6 +10052,17 @@ def _promotion_reviewed_rulespec_record_root() -> Path | None:
 def cmd_promote_reviewed_candidate(args):
     """Validate and sign one exact allowlisted reviewed RuleSpec commit."""
 
+    # Telemetry only: the live row never changes the result or the exit code.
+    with PromotionLiveRun(
+        citation=str(getattr(args, "citation", "") or ""),
+        encoder_version=__version__,
+    ):
+        _promote_reviewed_candidate(args)
+
+
+def _promote_reviewed_candidate(args):
+    """The promotion itself; `cmd_promote_reviewed_candidate` adds telemetry."""
+
     from .prepare_signed_backfill import (
         UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS,
         ReviewedRulespecRecord,
@@ -10302,6 +10318,7 @@ def cmd_promote_reviewed_candidate(args):
                     hashlib.sha256(before[rulespec_relative]).hexdigest(),
                 )
                 setattr(result, _REVIEWED_CANDIDATE_PROMOTION_ATTR, True)
+                report_promotion_stage(PROMOTION_STAGE_VALIDATION)
                 valid, validation_issues, supplemental_files = (
                     _run_generated_encoding_overlay_validation(
                         result,
@@ -10358,6 +10375,7 @@ def cmd_promote_reviewed_candidate(args):
                         "reviewed candidate validation lacks execution provenance"
                     )
 
+            report_promotion_stage(PROMOTION_STAGE_SIGNING)
             axiom_encode_git = _require_clean_axiom_encode_git_provenance()
             payload: dict[str, object] = {
                 "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
@@ -10448,6 +10466,7 @@ def cmd_promote_reviewed_candidate(args):
                 pre_install_check=require_unchanged_reviewed_head,
                 post_install_check=verify_installed_manifest,
             )
+            report_promotion_stage(PROMOTION_STAGE_POST_INSTALL)
 
     changed_records = {
         record
