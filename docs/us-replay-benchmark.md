@@ -67,9 +67,8 @@ FNS guidance, state statutes, manuals and guidance, one Canadian CRA guide
 (three runs), three Canadian CRA forms and one Revenu Québec schedule (local
 diagnostics), and one Israeli statute. It has one control (an Arizona candidate
 that passed validation and then failed a provenance guard). The current snapshot
-has 12 clean fixtures and 39 refused fixtures with 3,336 findings. It preserves
-all 50 `8733aa0e` main-baseline entries exactly; the section 219(g) diagnostic
-retains 33 findings. Read clean counts and per-fixture changes, not only the total.
+has 12 clean fixtures and 39 refused fixtures with 3,247 findings. Read clean
+counts and per-fixture changes, not only the total.
 
 ## Public fixtures and the private held-out set
 
