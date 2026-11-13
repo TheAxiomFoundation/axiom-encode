@@ -58,7 +58,8 @@ excerpt while retaining an unrelated ellipsis refusal. Completeness replay
 does not measure that proof check.
 The six Arizona utility fixtures (`local-az-utility-block-*`) record the
 `gates-collapsed` findings of encoder 0.2.2361 on bulleted alternative lists;
-the current analyzer no longer raises them.
+the current analyzer no longer raises them, because each unit has a reviewed
+reading bound to its exact text (`docs/reviewed-alternative-lists.md`).
 
 The replay passes the same inputs as `ValidatorPipeline._complete_source_unit_issues`:
 the citation's numeric profile, the companion test cases, imported symbol

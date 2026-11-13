@@ -26,7 +26,8 @@ The six rejected candidates encode a bulleted list of alternatives ("one or
 more of the following apply", "either situation occurs", "any of the
 following") as alternatives. The check read each bullet, and in block 3 each
 later paragraph, as one more simultaneous fact. `tests/test_source_alternative_list_gates.py`
-pins that the check no longer fires on them. Block 16 has a true "all of the
+pins that the check no longer fires on them, because each unit has a reviewed
+reading bound to this exact text (`docs/reviewed-alternative-lists.md`). Block 16 has a true "all of the
 following" list; the test merges its facts into one input and requires the
 check to fire.
 

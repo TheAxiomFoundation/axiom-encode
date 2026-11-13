@@ -1,23 +1,26 @@
-"""Bulleted alternatives are not simultaneous facts for the gates-collapsed check.
+"""Reviewed lists of alternatives are not simultaneous facts for gates-collapsed.
 
 The fixtures are real rejected candidates of three Arizona utility units; see
-``tests/fixtures/az-utility-alternative-lists/README.md``.
+``tests/fixtures/az-utility-alternative-lists/README.md``. The exception is a
+registry entry bound to the citation and the exact text; see
+``docs/reviewed-alternative-lists.md``. There is no text grammar.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import functools
-import re
 from pathlib import Path
 
 import pytest
 import yaml
 
+from axiom_encode.harness import reviewed_alternative_lists as registry
 from axiom_encode.harness import validator_pipeline as vp
 from axiom_encode.harness.source_completeness import (
     CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED,
     _source_conjunctive_fact_gates,
-    _without_alternative_bullets_or_later_paragraphs,
+    _without_reviewed_alternative_lines,
     analyze_complete_source_unit,
 )
 
@@ -51,9 +54,10 @@ def _collapsed(
     block: int,
     content: str | None = None,
     source: str | None = None,
+    citation_block: int | None = None,
 ):
     folder = FIXTURES / directory
-    citation = f"{UNIT}/block-{block}"
+    citation = f"{UNIT}/block-{citation_block or block}"
     profile = vp._numeric_profile_for_citation_path(citation)
     analysis = analyze_complete_source_unit(
         content or (folder / "candidate.yaml").read_text(),
@@ -78,19 +82,85 @@ def _collapsed(
     ]
 
 
-@pytest.mark.parametrize(
-    ("directory", "block"),
-    [
-        ("block-14-e9371ed3", 14),
-        ("block-14-66be7798", 14),
-        ("block-3-07b0428f", 3),
-        ("block-3-9dd68cae", 3),
-        ("block-4-170e8d74", 4),
-        ("block-4-28d570f4", 4),
-    ],
-)
+SIX = [
+    ("block-14-e9371ed3", 14),
+    ("block-14-66be7798", 14),
+    ("block-3-07b0428f", 3),
+    ("block-3-9dd68cae", 3),
+    ("block-4-170e8d74", 4),
+    ("block-4-28d570f4", 4),
+]
+
+
+@pytest.mark.parametrize(("directory", "block"), SIX)
 def test_candidates_that_encode_alternatives_as_alternatives_pass(directory, block):
     assert _collapsed(directory, block) == []
+
+
+@pytest.mark.parametrize(("directory", "block"), SIX)
+def test_a_candidate_fails_without_its_registry_entry(directory, block, monkeypatch):
+    monkeypatch.setattr(
+        "axiom_encode.harness.source_completeness.reviewed_alternative_lists_for",
+        lambda citation, text: (),
+    )
+    assert len(_collapsed(directory, block)) == 1
+
+
+@pytest.mark.parametrize(("directory", "block"), SIX)
+@pytest.mark.parametrize("error", [ValueError("malformed"), OSError("unreadable")])
+def test_a_candidate_fails_when_the_registry_cannot_be_read(
+    directory, block, error, monkeypatch
+):
+    def broken():
+        raise error
+
+    monkeypatch.setattr(registry, "load_reviewed_alternative_lists", broken)
+    assert len(_collapsed(directory, block)) == 1
+
+
+@pytest.mark.parametrize(("directory", "block"), SIX)
+def test_an_entry_does_not_apply_under_another_citation(directory, block, monkeypatch):
+    source = (FIXTURES / directory / "source.txt").read_text()
+    citation = f"{UNIT}/block-{block}"
+    (entry,) = registry.reviewed_alternative_lists_for(citation, source)
+    for other in (f"{UNIT}/block-16", citation + "/1", citation.upper(), "", None):
+        assert registry.reviewed_alternative_lists_for(other, source) == ()
+    # The same reviewed text, recorded for another unit, does not help this one.
+    elsewhere = dataclasses.replace(entry, citation_path=f"{UNIT}/block-99")
+    monkeypatch.setattr(
+        registry, "load_reviewed_alternative_lists", lambda: (elsewhere,)
+    )
+    assert registry.reviewed_alternative_lists_for(elsewhere.citation_path, source)
+    assert len(_collapsed(directory, block)) == 1
+
+
+@pytest.mark.parametrize(("directory", "block"), SIX)
+def test_an_entry_does_not_apply_to_a_changed_text(directory, block):
+    source = (FIXTURES / directory / "source.txt").read_text()
+    (entry,) = registry.reviewed_alternative_lists_for(f"{UNIT}/block-{block}", source)
+    bullet = next(line for line in entry.lines if line.reading == "alternative")
+    last = bullet.physical_end - 1
+    assert source[last].isalpha() or source[last] == "."
+    changes = [
+        # One character of a recorded bullet.
+        source[:last] + ("x" if source[last] != "x" else "y") + source[last + 1 :],
+        # A new bullet in the list.
+        source[: bullet.physical_end]
+        + "\n\n● The parent is employed"
+        + source[bullet.physical_end :],
+    ]
+    # One character outside the recorded lines: only the digest differs.
+    if entry.chapeau.physical_start:
+        changes.append("Tho" + source[3:])
+    if entry.lines[-1].physical_end < len(source):
+        changes.append(source[:-1] + "!")
+    assert len(changes) == (2 if block == 3 else 3)
+    for changed in changes:
+        assert changed != source
+        assert (
+            registry.reviewed_alternative_lists_for(entry.citation_path, changed) == ()
+        )
+        assert len(_collapsed(directory, block, source=changed)) == 1, changed
 
 
 def test_all_of_the_following_list_still_passes_with_separate_facts():
@@ -169,503 +239,109 @@ def test_merged_shared_meter_conjunction_still_fails_and_names_its_clause():
     )
 
 
-@pytest.mark.parametrize("clause", [LIFELINE, SHARED, HEATING])
-def test_bullets_under_an_alternative_chapeau_are_not_conjunctive_gates(clause):
-    assert _source_conjunctive_fact_gates(clause) == ()
+def _bound(clause: str, block: int, source: str | None = None):
+    """Return the entries for the unit and the offset of ``clause`` in it."""
 
-
-@pytest.mark.parametrize(
-    "clause",
-    [
-        WOOD,
-        LIFELINE.replace(
-            "one or more of the following apply", "all of the following apply"
-        ),
-        SHARED.replace("either situation occurs", "both situations occur"),
-        # Words outside the closed grammar keep the conservative reading.
-        SHARED.replace("either situation occurs", "the following situations occur"),
-        # A conjunction inside one alternative is still counted.
-        LIFELINE.replace(
-            "● Extra airtime is purchased after exhausting free minutes",
-            "● The parent is eligible and the child is disabled",
-        ),
-        # A proviso after the list is part of the condition.
-        LIFELINE + "\n\nprovided that the parent is eligible and the child is disabled",
-        # A conjunction in the chapeau itself is still counted.
-        LIFELINE.replace(
-            "when one or more",
-            "when the parent is eligible and the child is disabled and one or more",
-        ),
-    ],
-)
-def test_conjunctions_near_an_alternative_list_are_still_gates(clause):
-    assert len(_source_conjunctive_fact_gates(clause)) >= 2
-
-
-LIFELINE_CHAPEAU, SHARED_CHAPEAU, HEATING_CHAPEAU = (
-    clause.split("\n\n")[0] for clause in (LIFELINE, SHARED, HEATING)
-)
-HEATING_REST = HEATING[HEATING.index("Any of the following are considered cooling") :]
-EMPLOYED = "● The parent is employed"
-DISABLED = "● The child is disabled"
-EXEMPT = "● The household is exempt"
-ELDERLY = "● The household is elderly"
-
-
-def _list(*paragraphs: str) -> str:
-    return "\n\n".join(paragraphs)
-
-
-def _body_is_unchanged(clause: str) -> bool:
-    """Run the helper as `_source_conjunctive_fact_gates` does, on the first cue."""
-
-    cue = re.search(r"\b(?:if|when|provided\s+that|unless)\b", clause, re.IGNORECASE)
-    assert cue is not None
-    body = clause[cue.end() :]
-    return (
-        _without_alternative_bullets_or_later_paragraphs(clause, body, cue.end())
-        == body
+    source = (
+        source or (FIXTURES / dict(BLOCK_FIXTURE)[block] / "source.txt").read_text()
     )
+    entries = registry.reviewed_alternative_lists_for(f"{UNIT}/block-{block}", source)
+    return entries, source.index(clause)
 
 
-def _swap(chapeau: str, old: str, new: str) -> str:
-    assert old in chapeau
-    return chapeau.replace(old, new)
+BLOCK_FIXTURE = [(block, directory) for directory, block in SIX[::2]]
+CLAUSES = [(LIFELINE, 14), (SHARED, 4), (HEATING, 3)]
 
 
-@pytest.mark.parametrize(
-    "clause",
-    [
-        _list(LIFELINE_CHAPEAU, EMPLOYED, DISABLED),
-        _list(SHARED_CHAPEAU, EXEMPT, ELDERLY),
-        "\n".join([LIFELINE_CHAPEAU, EMPLOYED, DISABLED]),
-        # The closed forms after the cue.
-        _list(
-            _swap(
-                LIFELINE_CHAPEAU,
-                "when one or more of the following apply",
-                "if any of the following are met",
-            ),
-            EMPLOYED,
-            DISABLED,
-        ),
-        _list(
-            _swap(
-                SHARED_CHAPEAU, "either situation occurs", "any of the following occur"
-            ),
-            EXEMPT,
-            ELDERLY,
-        ),
-        # Typographic spaces are plain spaces.
-        _list(
-            _swap(LIFELINE_CHAPEAU, "is allowable", "is allowable"),
-            EMPLOYED.replace("● ", "● "),
-            DISABLED,
-        ),
-        # A preceding paragraph does not change the chapeau.
-        _list("The child is disabled.", LIFELINE_CHAPEAU, EMPLOYED, DISABLED),
-    ],
-)
-def test_the_allowlisted_alternative_lists_drop_their_bullets(clause):
-    assert len(_source_conjunctive_fact_gates(clause)) < 2
+@pytest.mark.parametrize(("clause", "block"), CLAUSES)
+def test_a_bound_entry_drops_the_alternative_lines(clause, block):
+    entries, start = _bound(clause, block)
+    assert len(entries) == 1
+    # Without the registry entry and the offset, every bullet is a gate.
+    plain = _source_conjunctive_fact_gates(clause)
+    assert plain == _source_conjunctive_fact_gates(
+        clause, reviewed_alternative_lists=entries
+    )
+    assert plain == _source_conjunctive_fact_gates(clause, text_start=start)
+    bound = _source_conjunctive_fact_gates(
+        clause, reviewed_alternative_lists=entries, text_start=start
+    )
+    assert len(bound) < 2
+    assert bound != plain or block == 3
 
 
-def test_the_heating_list_needs_the_exact_rest_of_its_unit():
-    assert _source_conjunctive_fact_gates(HEATING) == ()
-    assert _source_conjunctive_fact_gates(HEATING + "\n") == ()
-    first_list = HEATING[: -len(HEATING_REST)].rstrip()
-    assert _source_conjunctive_fact_gates(first_list) == ()
-    for changed in (
-        # Other text after the list may continue the condition.
-        _list(first_list, "In addition, all of the following must occur:")
-        + "\n\n"
-        + _list(EMPLOYED, DISABLED),
-        HEATING
-        + "\n\n"
-        + _list("All of the following must occur:", EMPLOYED, DISABLED),
-        HEATING.replace("● Fans", "● Fans and heat lamps"),
-        # No blank line before the rest.
-        first_list + "\n" + HEATING_REST,
-    ):
-        assert len(_source_conjunctive_fact_gates(changed)) >= 2, changed
+def _reread(clause: str, block: int, *, body=None, shift=0, start_shift=0, text=None):
+    entries, start = _bound(clause, block)
+    cue = clause.index(" when ") + len(" when") if block != 14 else len("When")
+    text = clause if text is None else text
+    original = text[cue:] if body is None else body
+    result = _without_reviewed_alternative_lines(
+        text, original, cue + shift, start + start_shift, entries
+    )
+    return original, result
 
 
-@pytest.mark.parametrize(
-    "chapeau",
-    [
-        # Reviewer shapes: a main clause outside the allowlist.
-        "The unit is eligible when any of the following apply:",
-        "The unit is eligible when one or more of the following apply:",
-        "The unit is eligible when either situation occurs:",
-        "The unit is eligible when the worker cannot verify that any of the "
-        "following apply:",
-        "The unit is eligible when it isn’t shown that any of the following apply:",
-        "The unit is eligible when the unit fails to show that any of the "
-        "following are true:",
-        "The unit is eligible when the worker cannot confirm either situation occurs:",
-        "Any of the following costs are deductible when:",
-        "Any of the following fuels qualifies when it meets the two tests listed:",
-        "Any of the following utility expenses are considered heating sources "
-        "when the unit:",
-        # Text between the cue and the quantifier, or after the verb.
-        _swap(
-            LIFELINE_CHAPEAU,
-            "when one or more",
-            "when the worker cannot verify that one or more",
-        ),
-        _swap(
-            SHARED_CHAPEAU,
-            "when either",
-            "when the worker cannot rule out that either",
-        ),
-        _swap(LIFELINE_CHAPEAU, "apply:", "apply to each member:"),
-        _swap(LIFELINE_CHAPEAU, "apply:", "apply"),
-        LIFELINE_CHAPEAU + " Both facts below are needed.",
-        _swap(LIFELINE_CHAPEAU, "apply:", "apply."),
-        _swap(HEATING_CHAPEAU, "for the home:", "for the home when:"),
-        # Another quantifier or cue.
-        _swap(LIFELINE_CHAPEAU, "one or more of", "all of"),
-        _swap(LIFELINE_CHAPEAU, "one or more of", "any one of"),
-        _swap(LIFELINE_CHAPEAU, "one or more of", "at least two of"),
-        _swap(SHARED_CHAPEAU, "either situation occurs", "both situations occur"),
-        # A main clause that is not the real one, word for word.
-        _swap(LIFELINE_CHAPEAU, "is allowable", "is not allowable"),
-        _swap(LIFELINE_CHAPEAU, "is allowable", "isn’t allowable"),
-        _swap(LIFELINE_CHAPEAU, "a telephone expense", "no telephone expense"),
-        _swap(LIFELINE_CHAPEAU, "allowable", "allow​able"),
-        LIFELINE_CHAPEAU.upper(),
-        "The child is disabled. " + LIFELINE_CHAPEAU,
-        # The chapeau is one physical line.
-        _swap(LIFELINE_CHAPEAU, "following apply", "following\napply"),
-        _swap(LIFELINE_CHAPEAU, "a telephone", "a\ntelephone"),
-    ],
-)
-def test_a_chapeau_outside_the_allowlist_keeps_its_bullets(chapeau):
-    clause = _list(chapeau, EMPLOYED, DISABLED)
-    assert len(_source_conjunctive_fact_gates(clause)) >= 2
-
-
-@pytest.mark.parametrize(
-    "clause",
-    [
-        # A line wrap can hide a negation on the line before.
-        "A unit qualifies that does not show\n"
-        + _list(HEATING_CHAPEAU, EMPLOYED, DISABLED),
-        "It is false that\n"
-        + _list(LIFELINE_CHAPEAU[0].lower() + LIFELINE_CHAPEAU[1:], EMPLOYED, DISABLED),
-        "The child is disabled.\n" + _list(LIFELINE_CHAPEAU, EMPLOYED, DISABLED),
-        # Only blank lines may stand between the chapeau and the list.
-        _list(LIFELINE_CHAPEAU, "The facts below are required:", EMPLOYED, DISABLED),
-        # The condition cue is on another line than the chapeau.
-        _list(
-            "The unit is eligible when all of the following apply.",
-            HEATING_CHAPEAU,
-            EMPLOYED,
-            DISABLED,
-        ),
-    ],
-)
-def test_the_chapeau_is_the_cue_line_after_a_blank_line(clause):
-    assert len(_source_conjunctive_fact_gates(clause)) >= 2
-
-
-@pytest.mark.parametrize(
-    "items",
-    [
-        # A conjunction or a requirement word in a bullet.
-        [EMPLOYED + " and the child is disabled", EXEMPT],
-        [EXEMPT + ";", EMPLOYED + "; and", DISABLED + "."],
-        [EMPLOYED, "● and the child is disabled"],
-        [EMPLOYED + " & the child is disabled", EXEMPT],
-        [EMPLOYED + " together with the child is disabled", EXEMPT],
-        [EMPLOYED + " so long as the child is disabled", EXEMPT],
-        [EMPLOYED + " provided the child is disabled", EXEMPT],
-        ["● The parent must be employed", EXEMPT],
-        ["● The parent is required to be employed", EXEMPT],
-        [EMPLOYED + " (the child is disabled)", EXEMPT],
-        [EMPLOYED + ";", DISABLED + ";"],
-        ["● Employment: the parent is employed", EXEMPT],
-        # A nested chapeau.
-        [EXEMPT, "● The household meets the following:", EMPLOYED, DISABLED],
-        [
-            EXEMPT,
-            "● The household meets the tests below",
-            "  " + EMPLOYED,
-            "  " + DISABLED,
-        ],
-        # Another glyph or list marker.
-        [EMPLOYED, DISABLED.replace("●", "•")],
-        [EXEMPT, ELDERLY, "1. The parent is employed", "2. The child is disabled"],
-        # One bullet is not a list.
-        [EMPLOYED, "The child is disabled."],
-        # Text after the list.
-        [EMPLOYED, DISABLED, "so long as the household is billed for the expense"],
-        [EMPLOYED, DISABLED, "The household is required to be billed for the expense."],
-        [EMPLOYED, DISABLED, "The household has to be billed for the expense."],
-        [
-            EXEMPT,
-            ELDERLY,
-            "The following requirements apply as well:",
-            EMPLOYED,
-            DISABLED,
-        ],
-        [
-            EXEMPT,
-            ELDERLY,
-            "Furthermore, the following conditions apply:",
-            EMPLOYED,
-            DISABLED,
-        ],
-        [EXEMPT, ELDERLY, "when all of the following apply:", EMPLOYED, DISABLED],
-        [EMPLOYED, DISABLED, "unless the household is billed and the child is absent"],
-    ],
-)
-def test_a_list_outside_the_allowlist_keeps_every_gate(items):
-    assert len(_source_conjunctive_fact_gates(_list(LIFELINE_CHAPEAU, *items))) >= 2
-
-
-@pytest.mark.parametrize(
-    "lines",
-    [
-        # Single-newline text: a continuation line is never joined to a bullet.
-        [
-            EXEMPT,
-            "● The household meets these tests",
-            "o The parent is employed",
-            "o The child is disabled",
-        ],
-        [
-            EXEMPT,
-            "● The household meets these tests:",
-            "o The parent is employed",
-            "o The child is disabled",
-        ],
-        [
-            EXEMPT,
-            "● The participant is a student who",
-            "- is enrolled half time",
-            "- is employed 20 hours",
-        ],
-        [
-            EXEMPT,
-            "● The household meets these tests",
-            "(a) the parent is employed",
-            "(b) the child is disabled",
-        ],
-        [
-            EXEMPT,
-            "● The household meets the following:",
-            "the parent is employed",
-            "the child is disabled",
-        ],
-        [EMPLOYED, DISABLED, "so long as the household is billed for the expense"],
-        [EXEMPT, ELDERLY, "All of the following must also apply:", EMPLOYED, DISABLED],
-        [EMPLOYED + "\twhile the child is disabled", EXEMPT],
-        ["● The parent is employed", "while the child is disabled", EXEMPT],
-    ],
-)
-def test_a_continuation_line_keeps_every_gate(lines):
-    clause = "\n".join([LIFELINE_CHAPEAU, *lines])
-    assert len(_source_conjunctive_fact_gates(clause)) >= 2
-
-
-@pytest.mark.parametrize(
-    "clause",
-    [
-        # These have fewer than two gates on main too, so the count cannot
-        # show the refusal; the body must come back unchanged.
-        _list(
-            _swap(LIFELINE_CHAPEAU, "allowable when", "allowable unless"),
-            EMPLOYED,
-            DISABLED,
-        ),
-        _list(
-            _swap(LIFELINE_CHAPEAU, "allowable when", "allowable except when"),
-            EMPLOYED,
-            DISABLED,
-        ),
-        _list(LIFELINE_CHAPEAU, EMPLOYED, DISABLED, HEATING_REST),
-        _list(
-            HEATING[: -len(HEATING_REST)].rstrip(),
-            "The home is required to be heated.",
-        ),
-        _list(HEATING_CHAPEAU, "● Electricity"),
-        _list(HEATING_CHAPEAU, "● Electricity", "  ● Gas or propane"),
-        _list(HEATING_CHAPEAU, "● Electricity", "• Gas or propane"),
-        _list(HEATING_CHAPEAU, "● Electricity", "● Gas, when used for heat"),
-    ],
-)
-def test_a_refused_shape_leaves_the_body_unchanged(clause):
-    assert _body_is_unchanged(clause)
-
-
-def test_the_real_bullet_with_its_own_conjunction_stays_in_the_body():
-    first, second = SHARED.split("\n\n")[1:]
+def test_the_reading_keeps_conjuncts_and_drops_the_rest():
+    chapeau, first, second = SHARED.split("\n\n")
+    original, result = _reread(SHARED, 4)
+    assert result == original.split("\n")[0] + "\n" + first
     assert " and " in first
-    body = _without_alternative_bullets_or_later_paragraphs(SHARED, SHARED, 0)
-    assert body == SHARED_CHAPEAU + "\n" + first
-    # The same bullet does not open the list to other conjunctions.
-    nested = _list(SHARED_CHAPEAU, first, "● The household meets the following:")
-    assert _without_alternative_bullets_or_later_paragraphs(nested, nested, 0) == (
-        nested
-    )
-    other = _list(SHARED_CHAPEAU, first.replace("shares", "splits"), second)
-    assert _without_alternative_bullets_or_later_paragraphs(other, other, 0) == other
+
+    original, result = _reread(HEATING, 3)
+    assert result == original.split("\n")[0]
+    original, result = _reread(LIFELINE, 14)
+    assert result == original.split("\n")[0]
 
 
-def test_the_body_must_be_the_untouched_rest_of_the_text():
-    clause = _list(LIFELINE_CHAPEAU, EMPLOYED, DISABLED)
-    start = clause.index(" the budgetary unit")
-    body = clause[start:]
-    assert (
-        _without_alternative_bullets_or_later_paragraphs(clause, body, start)
-        == (body.split("\n")[0])
-    )
-    # An earlier step cut the body: the text goes on, so nothing is dropped.
-    longer = clause + "\n\nunless the parent is absent and the child is absent"
-    assert _without_alternative_bullets_or_later_paragraphs(longer, body, start) == (
-        body
-    )
-    # An earlier step rewrote a later line of the body.
-    rewritten = body.replace(DISABLED, DISABLED + " and the parent is absent")
-    assert rewritten != body
-    assert (
-        _without_alternative_bullets_or_later_paragraphs(clause, rewritten, start)
-        == rewritten
-    )
-    # The body does not start at the cue position.
-    assert (
-        _without_alternative_bullets_or_later_paragraphs(clause, body, start + 1)
-        == body
-    )
-    assert len(_source_conjunctive_fact_gates(longer)) >= 2
-
-
-WOOD_BULLETS = WOOD.split("\n\n")[1:]
-WOOD_LEAD = "The budgetary unit is eligible for SUA when "
-UNIT_EXEMPT = "● The budgetary unit is exempt"
-UNIT_ELDERLY = "● The budgetary unit is elderly"
-
-
-def _merged_wood_issues(source_head: str, excerpt: str):
-    folder = FIXTURES / "control-block-16-858a1c04"
-    source = (folder / "source.txt").read_text()
-    assert source.startswith(WOOD) and excerpt in source_head
-    payload = yaml.safe_load((folder / "candidate.yaml").read_text())
-    template = payload["inputs"][0]
-    payload["inputs"].append(
-        {
-            "name": "wood_sua_conditions_met",
-            "entity": template["entity"],
-            "dtype": "Boolean",
-            "period": template["period"],
-        }
-    )
-    rule = payload["rules"][0]
-    rule["versions"][0]["formula"] = "wood_sua_conditions_met"
-    rule["metadata"]["proof"]["atoms"][0]["source"]["excerpt"] = excerpt
-    return _collapsed(
-        "control-block-16-858a1c04",
-        16,
-        yaml.safe_dump(payload, sort_keys=False),
-        source=source_head + source[len(WOOD) :],
-    )
+@pytest.mark.parametrize(("clause", "block"), CLAUSES)
+def test_any_mismatch_with_the_recorded_place_keeps_the_body(clause, block):
+    original, result = _reread(clause, block)
+    assert result != original
+    # The clause is at another offset of the source text.
+    for start_shift in (-1, 1, 7):
+        original, result = _reread(clause, block, start_shift=start_shift)
+        assert result == original
+    # An earlier step cut or rewrote the body.
+    original, result = _reread(clause, block, body=clause[clause.index("●") :])
+    assert result == original
+    original, result = _reread(clause, block, shift=1)
+    assert result == original
+    # A line that is not recorded follows the list.
+    extra = clause + "\n\nThe parent is employed and the child is disabled."
+    original, result = _reread(clause, block, text=extra)
+    assert result == original
+    # A recorded line is missing.
+    shorter = clause[: clause.rindex("●")].rstrip()
+    original, result = _reread(clause, block, text=shorter)
+    assert result == original
+    # A recorded line has one other character, at the same offsets.
+    last = clause.rindex("●") + 2
+    changed = clause[:last] + ("x" if clause[last] != "x" else "y") + clause[last + 1 :]
+    original, result = _reread(clause, block, text=changed)
+    assert result == original
+    # The chapeau has one other character.
+    changed = clause.replace("when", "When", 1) if block != 14 else "w" + clause[1:]
+    assert changed != clause and len(changed) == len(clause)
+    original, result = _reread(clause, block, text=changed)
+    assert result == original
+    # A line moved: one more blank line before the last bullet.
+    moved = clause[: clause.rindex("●")] + "\n" + clause[clause.rindex("●") :]
+    original, result = _reread(clause, block, text=moved)
+    assert result == original
 
 
 @pytest.mark.parametrize(
-    ("lead", "body"),
+    "clause",
     [
-        ("all of the following occur:", _list("", *WOOD_BULLETS)),
-        # Without the real main clause even a plain alternative list is kept.
-        ("one or more of the following occur:", _list("", *WOOD_BULLETS)),
-        (
-            "the worker cannot verify that any of the following occur:",
-            _list("", *WOOD_BULLETS),
-        ),
-        (
-            "it isn’t verified that any of the following occur:",
-            _list("", *WOOD_BULLETS),
-        ),
-        (
-            "the worker cannot rule out that either situation occurs:",
-            _list("", *WOOD_BULLETS),
-        ),
-        (
-            "any of the following occur:",
-            "\n"
-            + "\n".join(
-                [
-                    UNIT_EXEMPT,
-                    "● The budgetary unit meets the following:",
-                    *(bullet.replace("●", "o") for bullet in WOOD_BULLETS),
-                ]
-            ),
-        ),
-        (
-            "any of the following occur:",
-            _list(
-                "",
-                UNIT_EXEMPT,
-                "● The budgetary unit meets the tests below",
-                *("  " + bullet for bullet in WOOD_BULLETS),
-            ),
-        ),
-        (
-            "one or more of the following occur:",
-            _list(
-                "",
-                UNIT_EXEMPT,
-                UNIT_ELDERLY,
-                "The budgetary unit is required to meet the following conditions:",
-                *WOOD_BULLETS,
-            ),
-        ),
-        (
-            "one or more of the following occur:",
-            _list(
-                "",
-                UNIT_EXEMPT,
-                UNIT_ELDERLY,
-                "The following requirements apply as well:",
-                *WOOD_BULLETS,
-            ),
-        ),
-        (
-            "one or more of the following occur:",
-            _list(
-                "",
-                UNIT_EXEMPT,
-                WOOD_BULLETS[0],
-                "The wood is required to be used to produce heat.",
-            ),
-        ),
+        LIFELINE,
+        SHARED,
+        HEATING,
+        WOOD,
+        "The unit is eligible when any of the following apply:\n\n"
+        "● The parent is employed\n\n● The child is disabled",
+        "The unit is eligible when one or more of the following apply:\n\n"
+        "● The parent is employed\n\n● The child is disabled",
     ],
 )
-def test_a_merged_conjunctive_list_near_alternative_words_still_fails(lead, body):
-    assert len(_merged_wood_issues(WOOD_LEAD + lead + body, WOOD_LEAD + lead)) == 1
-
-
-@pytest.mark.parametrize(
-    ("chapeau", "excerpt"),
-    [
-        (
-            "Any of the following wood costs qualify the budgetary unit for SUA when:",
-            None,
-        ),
-        (
-            "Any of the following budgetary units is eligible for SUA when it "
-            "meets the two tests listed:",
-            None,
-        ),
-        (
-            "A budgetary unit is eligible for SUA that does not show\n"
-            "any of the following when the application is filed:",
-            "any of the following when the application is filed:",
-        ),
-    ],
-)
-def test_a_merged_condition_list_under_a_subject_quantifier_still_fails(
-    chapeau, excerpt
-):
-    issues = _merged_wood_issues(_list(chapeau, *WOOD_BULLETS), excerpt or chapeau)
-    assert len(issues) == 1
+def test_without_an_entry_every_bullet_is_a_gate_as_on_main(clause):
+    assert len(_source_conjunctive_fact_gates(clause)) >= 2

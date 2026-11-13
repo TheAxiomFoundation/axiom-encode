@@ -93,6 +93,10 @@ from axiom_encode.harness.repayment_alternative_evidence import (
     certify_repayment_alternatives,
 )
 from axiom_encode.harness.reporting_route_evidence import certify_reporting_routes
+from axiom_encode.harness.reviewed_alternative_lists import (
+    ReviewedAlternativeList,
+    reviewed_alternative_lists_for,
+)
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.printed_source_rows import (
     PrintedRowStructure,
@@ -19927,164 +19931,59 @@ def _is_pure_physical_alternative_condition(body: str) -> bool:
     )
 
 
-def _exact_words(sentence: str) -> str:
-    """Return a pattern for these exact words with any spacing between them."""
-
-    return r"\s+".join(re.escape(word) for word in sentence.split())
-
-
-# The chapeau of a bulleted list of alternatives is an allowlist. The whole
-# chapeau line must be one of these forms; any other line keeps every gate.
-#
-#   <main clause> (when|if) (any|one or more) of the following
-#       (apply|applies|occur|occurs|is true|are true|is met|are met):
-#   <main clause> (when|if) either situation occurs:
-#   Any of the following utility expenses are considered heating sources when
-#       used to provide heat for the home:
-#
-# Nothing may stand between the cue and the quantifier, and nothing after the
-# verb. <main clause> is also closed, because a negative or exceptive main
-# clause ("No expense is allowable when any ...", "... except when any ...")
-# makes the list a conjunction. Each entry is the sentence of a real unit.
-_ALTERNATIVE_CHAPEAU_MAIN_CLAUSES = (
-    # us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-14
-    "When the budgetary unit participates in the Lifeline Assistance Program, "
-    "a telephone expense is allowable",
-    # us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
-    "The budgetary unit is entitled to a utility allowance based on utility "
-    "expenses verified",
-)
-_ALTERNATIVE_BULLET_CHAPEAU = re.compile(
-    r"(?:"
-    + "|".join(_exact_words(clause) for clause in _ALTERNATIVE_CHAPEAU_MAIN_CLAUSES)
-    + r")\s+(?:when|if)\s+"
-    r"(?:(?:any|one\s+or\s+more)\s+of\s+the\s+following\s+"
-    r"(?:apply|applies|occur|occurs|is\s+true|are\s+true|is\s+met|are\s+met)"
-    r"|either\s+situation\s+occurs):"
-    # us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-3
-    r"|(?P<heating_sources>"
-    + _exact_words(
-        "Any of the following utility expenses are considered heating sources "
-        "when used to provide heat for the home:"
-    )
-    + r")"
-)
-# The condition must end with the list. When text follows the list, it must be
-# known not to continue the condition. This is an allowlist too: the whole
-# rest of the unit after the heating-sources list, word for word.
-_TEXT_AFTER_ALTERNATIVE_LIST = re.compile(
-    # us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-3
-    _exact_words(
-        "Any of the following are considered cooling sources:\n"
-        "● Central air conditioners\n"
-        "● Evaporative coolers\n"
-        "● Room air conditioners\n"
-        "The cost for any of the following supplemental sources of heating or cooling do not qualify for the SUA:\n"
-        "● Electric blankets\n"
-        "● Fans\n"
-        "● Heat lamps\n"
-        "● Water for evaporative coolers\n"
-        "● Heating or cooling equipment maintenance\n"
-        "● Chimney maintenance\n"
-        "● Equipment for cutting wood (i.e. chainsaws, chainsaw maintenance, axe)\n"
-    )
-)
-# One alternative: one physical line, plain words, an optional final period.
-_ALTERNATIVE_BULLET_LINE = re.compile(
-    r"(?P<lead>[ \t]*[●•]) +[A-Za-z][A-Za-z0-9 ,'-]*[A-Za-z0-9]\.?"
-)
-_ALTERNATIVE_BULLET_REFUSAL = re.compile(
-    r"\b(?:and|nor|but|both|all|each|every|also|plus|together|while|if|when"
-    r"|only|unless|except|provided|must|required|requires?|so\s+long\s+as"
-    r"|as\s+long\s+as|as\s+well\s+as|in\s+addition)\b",
-    flags=re.IGNORECASE,
-)
-# A real alternative that holds its own conjunction. It is not dropped: it
-# stays in the condition, so its conjunction is still counted.
-_ALTERNATIVE_BULLET_WITH_OWN_CONJUNCTION = re.compile(
-    # us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
-    r"[●•] +"
-    + _exact_words(
-        "More than one budgetary unit lives in the same residence and shares "
-        "utility expenses."
-    )
-)
-_SOURCE_TYPOGRAPHY = str.maketrans(
-    {
-        "‘": "'",
-        "’": "'",
-        **dict.fromkeys("        ", " "),
-        **dict.fromkeys("    　", " "),
-    }
-)
-
-
-def _without_alternative_bullets_or_later_paragraphs(
-    text: str, body: str, body_start: int
+def _without_reviewed_alternative_lines(
+    text: str,
+    body: str,
+    body_start: int,
+    text_start: int,
+    reviewed_lists: Sequence[ReviewedAlternativeList],
 ) -> str:
-    """Drop the bullets of an allowlisted list of alternatives.
+    """Drop the lines that a registry entry reads as alternatives.
 
-    This gate counts simultaneous facts, not alternative triggers. The body
-    comes back unchanged unless every one of these holds:
+    This gate counts simultaneous facts, not alternative triggers. There is no
+    grammar here: ``reviewed_lists`` are the registry entries already bound to
+    this citation and this exact source text, and ``text_start`` is the offset
+    of ``text`` in that source text. The body comes back unchanged unless:
 
     - ``body`` is the untouched rest of ``text`` after the cue at
-      ``body_start``; no earlier step cut or rewrote it.
-    - The chapeau is the physical line that holds the cue. It starts the text
-      or follows a blank line, and matches ``_ALTERNATIVE_BULLET_CHAPEAU``.
-    - Only blank lines separate the chapeau from the bullet run. Every line of
-      the run is one bullet with the same glyph and indentation, of plain
-      words (so no colon, semicolon or other list marker), with no word of
-      ``_ALTERNATIVE_BULLET_REFUSAL``. There are at least two bullets and no
-      continuation line. A bullet of
-      ``_ALTERNATIVE_BULLET_WITH_OWN_CONJUNCTION`` is the one exception: it
-      stays in the body with its conjunction.
-    - The condition ends with the run: the text ends there, or a blank line
-      and exactly the text of ``_TEXT_AFTER_ALTERNATIVE_LIST`` follow the
-      heating-sources list.
+      ``body_start``; no earlier step cut or rewrote it;
+    - the physical line that holds the cue is the chapeau of an entry, at its
+      recorded offset; and
+    - the nonblank lines after it, to the end of ``text``, are exactly the
+      recorded lines of that entry, each at its recorded offset.
 
-    Curly apostrophes and non-breaking or typographic spaces are read as plain
-    ones. Any other character outside the forms above refuses the match.
+    Then the body keeps the chapeau and the lines read as ``conjunct``.
     """
 
     if text[body_start:] != body:
         return body
-    plain_text = text.translate(_SOURCE_TYPOGRAPHY)
-    line_start = plain_text.rfind("\n", 0, body_start) + 1
-    if line_start and plain_text[:line_start].strip(" \t\r")[-2:] != "\n\n":
-        return body
-    lines = plain_text[line_start:].split("\n")
-    chapeau = _ALTERNATIVE_BULLET_CHAPEAU.fullmatch(lines[0].strip())
-    if chapeau is None:
-        return body
-    index = 1
-    kept = [0]
-    leads = set()
-    bullets = 0
-    while index < len(lines):
-        line = lines[index].rstrip(" \t\r")
-        if line:
-            bullet = _ALTERNATIVE_BULLET_LINE.fullmatch(line)
-            if bullet is None:
-                break
-            if _ALTERNATIVE_BULLET_WITH_OWN_CONJUNCTION.fullmatch(line.strip()):
-                kept.append(index)
-            elif _ALTERNATIVE_BULLET_REFUSAL.search(line):
-                return body
-            leads.add(bullet["lead"])
-            bullets += 1
-        index += 1
-    if bullets < 2 or len(leads) != 1:
-        return body
-    if index < len(lines) and (
-        lines[index - 1].strip()
-        or chapeau["heating_sources"] is None
-        or _TEXT_AFTER_ALTERNATIVE_LIST.fullmatch("\n".join(lines[index:]).strip())
-        is None
-    ):
-        return body
-    body_lines = text[line_start:].split("\n")
-    body_lines[0] = body.split("\n", 1)[0]
-    return "\n".join(body_lines[line] for line in kept)
+    line_start = text.rfind("\n", 0, body_start) + 1
+    lines = text[line_start:].split("\n")
+    for reviewed in reviewed_lists:
+        if (
+            reviewed.chapeau.physical_start != text_start + line_start
+            or reviewed.chapeau.line != lines[0]
+        ):
+            continue
+        expected = iter(reviewed.lines)
+        kept = [body.split("\n", 1)[0]]
+        offset = text_start + line_start + len(lines[0]) + 1
+        for line in lines[1:]:
+            if line.strip():
+                recorded = next(expected, None)
+                if (
+                    recorded is None
+                    or recorded.physical_start != offset
+                    or recorded.line != line
+                ):
+                    return body
+                if recorded.reading == "conjunct":
+                    kept.append(line)
+            offset += len(line) + 1
+        if next(expected, None) is not None:
+            return body
+        return "\n".join(kept)
+    return body
 
 
 _SOURCE_ANY_REASON_PREFIX = "source_any_reason:"
@@ -20237,14 +20136,23 @@ def _source_conjunctive_fact_gates(
     text: str,
     *,
     care_source_text: str | None = None,
+    reviewed_alternative_lists: Sequence[ReviewedAlternativeList] = (),
+    text_start: int | None = None,
 ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
-    """Return distinct entity/predicate signatures from one condition."""
+    """Return distinct entity/predicate signatures from one condition.
+
+    ``reviewed_alternative_lists`` are registry entries bound to the citation
+    and exact source text that ``text`` comes from, and ``text_start`` is the
+    offset of ``text`` in that source text. Without both, every bullet under
+    the cue stays a simultaneous fact.
+    """
 
     actual_condition = _concessive_form_completion_condition(text)
     if actual_condition is not None:
         if care_source_text is None:
             care_source_text = text
         text = actual_condition
+        text_start = None
 
     if _closed_filing_return_alternatives(text):
         return ()
@@ -20321,9 +20229,14 @@ def _source_conjunctive_fact_gates(
     body = _without_flattened_pdf_alternative_list(body)
     body = _without_completed_chart_result_label(body, text)
     body = _without_worksheet_imperative_consequent(body)
-    body = _without_alternative_bullets_or_later_paragraphs(
-        text, body, conditional.start("body")
-    )
+    if reviewed_alternative_lists and text_start is not None:
+        body = _without_reviewed_alternative_lines(
+            text,
+            body,
+            conditional.start("body"),
+            text_start,
+            reviewed_alternative_lists,
+        )
     membership_body = _shared_membership_list_body(body)
     membership_requirement = None
     if membership_body != body:
@@ -21987,13 +21900,28 @@ def _opaque_same_source_condition_input_issues(
             selector_cache[key] = tuple(group - context_names for group in groups)
         return selector_cache[key]
 
+    reviewed_alternative_lists = reviewed_alternative_lists_for(
+        corpus_citation_path, source_text
+    )
+
     def source_clause_gates(
         clause: _SourceConditionClause,
     ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
         identity = (clause.branch_path, clause.start, clause.end)
         if identity not in source_gate_cache:
+            # A reviewed reading needs the clause at a known place in the
+            # exact source text; else every bullet stays a gate.
+            raw_clause = source_text[clause.start : clause.end]
             source_gate_cache[identity] = _source_conjunctive_fact_gates(
-                clause.text, care_source_text=care_source_text
+                clause.text,
+                care_source_text=care_source_text,
+                reviewed_alternative_lists=reviewed_alternative_lists,
+                text_start=(
+                    clause.start + len(raw_clause) - len(raw_clause.lstrip(" ;,"))
+                    if reviewed_alternative_lists
+                    and raw_clause.strip(" ;,") == clause.text
+                    else None
+                ),
             )
         return source_gate_cache[identity]
 
