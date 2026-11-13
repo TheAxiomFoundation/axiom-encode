@@ -71,110 +71,177 @@ Three options were considered.
 | (b) Approver states digests in the review body | Rejected: an agent can paste them, humans mistype them, and it adds no binding that (a) lacks |
 | (c) Separate signed approval artifact | Rejected for v1: needs per-owner keys and custody, and would run under the same sessions as the GitHub identity. Revisit if the §9 residual risk is judged too high |
 
-### Algorithm `evaluate(country, pr, fetch=...)`
+### Algorithm `evaluate(repository, pr, fetch=...)`
 
-This is what `content_merge_guard.evaluate` does. Every read is live and goes
-through the injected `fetch`. Any error, truncation or disagreement gives
-`fail`. The function never raises. A verdict is `pass`, `fail` or
-`not_applicable`, with a reason code and evidence.
+This is what `content_merge_guard.evaluate` does. `repository` is a short name
+such as `rulespec-us` or `rulespec-us-tn`. Every read is live and goes through
+the injected `fetch`. Any error, truncation or disagreement gives `fail`. The
+function never raises. A verdict is `pass`, `fail` or `not_applicable`, with a
+reason code and evidence.
 
 1. **PR identity.** Read the PR and take its head `H` and branch. Reuse
    `_pr_identity`: open, unmerged, same-repository head, base `main`. Let `B` be
    the live `main` tip. `compare(B...H)` must be `ahead` with merge base `B`.
 2. **Complete delta.** Read the complete trees of `B` and `H` with
    `_leaf_entries`. `Δ(H)` is their leaf delta.
-3. **Applicability.** For each added or modified path in `Δ(H)` under
-   `.axiom/encoding-manifests/`, read the head blob.
-   - No blob with schema v6: `not_applicable`.
-   - A blob that is not one JSON object, has a duplicate key or a non-finite
-     number, or is not a regular blob: `fail`.
+3. **Applicability, from paths and modes only.** A label inside a file that the
+   PR supplies never makes the guard stand aside. A delta path is *guarded* when
+   it is:
+   - under a RuleSpec content root. The roots are the encoder's
+     `RULESPEC_ATOMIC_ROOTS` (`legislation`, `policies`, `regulations`,
+     `statutes`), at the repository root or one level below a jurisdiction
+     directory;
+   - at or under `.axiom/encoding-manifests`, or at `.axiom`;
+   - a top-level leaf that is not a regular `100644` blob (a symlink or a
+     submodule there can alias a jurisdiction directory).
+
+   Then:
+   - No guarded path: `not_applicable` (`no_guarded_content`). A PR that edits
+     only `.github/**` is in this class; see §9.
+   - A guarded head leaf that is not a regular blob, or any leaf at `.axiom` or
+     at `.axiom/encoding-manifests` itself: `fail`.
+   - Guarded content with no changed manifest: `fail`.
+   - A removed manifest: `fail`.
    - More than `MAX_MANIFEST_BLOBS` (256) changed manifests: `fail`.
-   - Two or more v6 manifests: `fail`. Exactly one: continue. A draft PR:
-     `fail`.
+   - A changed manifest that is not one JSON object, has a duplicate key or a
+     non-finite number, or whose `schema_version` is neither v6 nor a known
+     earlier schema (v5 today): `fail`.
+   - **Every changed manifest is v5** and every changed content path is listed
+     in `applied_files` of one of them: `not_applicable` (`earlier_lane_v5`).
+     Those lanes keep their own controls: the approval is checked before
+     signing. The guard does not check their scope (open question 12). Content
+     outside the manifests' `applied_files`: `fail`.
+   - v6 together with v5: `fail`. Two or more v6 manifests: `fail`.
+   - Exactly one changed manifest and it is v6: continue. A repository that is
+     not `rulespec-<country>`: `fail`. A draft PR: `fail`.
 4. **Scope and canonical paths.** `M` is the v6 manifest.
    - `_require_immutable_delta` cross-checks the tree delta against the PR file
-     list and the compare file list, and refuses any changed non-regular blob.
+     list and the compare file list.
    - `M` has exactly the v6 shape of §5.
    - `manifest.attestation_scope.candidate` names this repository, this PR and
-     the live PR author id.
+     the live PR author id, and `candidate.head_sha` equals
+     `candidate_rulespec_ref`.
    - `P` is `citation_rulespec_path(manifest.citation)`, `T` is its companion,
      and `M` is at the path `_applied_encoding_manifest_path(P)` gives.
-   - `Δ(H)` is exactly `{P, T, M}` plus optionally `INDEX_PATH`, which may be
-     added or modified.
-   - `P`, `T`, `M` are absent from `tree(B)`, added, and regular `100644` blobs.
+   - `Δ(H)` is exactly `{P, T, M}`, all added. Any other path gives `fail`,
+     including `.github/**`, CODEOWNERS, a second module and the derived index
+     `.axiom/index/provisions_to_rules.json`. The live lane still permits the
+     index (`reviewed_pr_admission.INDEX_PATH`), because RuleSpec repositories
+     tracked it when that lane was built. `rulespec-us` stopped tracking it
+     (rulespec-us#2152), and an index outside the approved set could change
+     after the approval, so the guard is stricter.
    - `sha256(P)` and `sha256(T)` equal `manifest.applied_files`. Each blob read
      is checked against its Git object id.
+   - `candidate.head_sha` is a commit of this PR, and `P` and `T` at that commit
+     are the blobs at `H`. `candidate.base_sha` is `B` or an ancestor of `B`.
 5. **Content-bound approval.** Take the effective review per reviewer (the
-   latest of `APPROVED`, `CHANGES_REQUESTED`, `DISMISSED`). An `APPROVED` review
-   on commit `C` counts only if all hold:
+   latest of `APPROVED`, `CHANGES_REQUESTED`, `DISMISSED`). A review from a
+   deleted account is ignored. An `APPROVED` review on commit `C` counts only if
+   all hold:
    - `C` is in the PR's commit list.
-   - With `B_C = merge-base(C, main)`, the path set of `Δ(C)` minus
-     `INDEX_PATH` equals `{P, T, M}`.
+   - With `B_C = merge-base(C, main)`, the path set of `Δ(C)` equals
+     `{P, T, M}`.
    - The type, mode and Git blob id of `P`, `T`, `M` at `C` equal those at `H`.
 
    Consequences:
    - An approval made before signing never counts, because `M` is missing at
      `C`.
-   - "Update branch" or a rebase that leaves the three blobs unchanged keeps the
-     approval.
+   - "Update branch" (a merge of `main`) that leaves the three blobs unchanged
+     keeps the approval, when someone other than the approver makes it.
    - Any byte change to `P`, `T` or `M`, including a re-sign, voids it.
-   - The index blob is outside the approved set, because it is derived and base
-     merges change it. Its correctness is left to current-head CI (see §11).
-6. **Independence.** The run `manifest.run_id` must be
-   `targeted-signed-reencode.yml`, `workflow_dispatch`, on `main`, concluded
-   `success`. Its `triggering_actor` must equal `attestation_scope.dispatcher`
-   by id and login, and that identity must be enrolled (D3). The reviewer must
-   satisfy all of:
+   - A rebase removes the candidate commit from the PR, so it needs a new
+     signing run.
+6. **Independence.** The run `manifest.run_id` must be a run of
+   `TheAxiomFoundation/axiom-encode`, `targeted-signed-reencode.yml`,
+   `workflow_dispatch`, `head_branch` `main`, concluded `success`, and its
+   `head_sha` must be the encoder `main` tip or an ancestor of it. Its
+   `triggering_actor` must equal `attestation_scope.dispatcher` by id and login,
+   and that identity must be enrolled (D3). The reviewer must satisfy all of:
    - id in the enrolled list, matching login, `type == "User"`;
-   - id differs from the PR author and from `candidate.author_id`;
+   - id differs from the PR author;
    - id differs from `dispatcher.id`, and from `actor.id` and
      `triggering_actor.id` of the run;
-   - id differs from the GitHub-attributed author and committer of every commit
-     that changes `P` or `T`. This check is best-effort, since Git author
-     metadata is free text.
+   - id differs from the GitHub-attributed author and committer of **every**
+     commit of the PR. This check is best-effort, since Git author metadata is
+     free text. There is no bot exemption: the signing workflow's manifest
+     commit is attributed to the dispatcher's account with GitHub's `web-flow`
+     as committer (observed on rulespec-us#2045, commit `9be9d91e5`), and neither
+     can approve.
 7. **Blocking reviews and CI.**
    - An effective `CHANGES_REQUESTED` from an enrolled identity, or from a
      reviewer whose `author_association` is OWNER, MEMBER or COLLABORATOR, gives
      `fail`. Today's admission rule (any account) lets any GitHub account block a
      public PR.
-   - `validate / validate` on `H` must be `success` from app 15368, and its
-     Actions run must have path `.github/workflows/repository-checks.yml` and
-     `head_sha == H`. Step 4 proves `.github/**` at `H` equals the base, so that
-     run used the protected workflow definitions.
+   - Every check run named `validate / validate` on `H` must be `success` from
+     app 15368. Its Actions run must have event `pull_request`, path
+     `.github/workflows/repository-checks.yml`, `head_sha == H`, this repository
+     as repository and head repository, and this PR with head `H` in its
+     `pull_requests`. Step 4 proves `.github/**` at `H` equals the base, so a
+     `pull_request` run of `H` used the protected workflow definitions. That
+     holds only for a `pull_request` run: a `workflow_dispatch` run can use
+     another ref's definitions, so it is refused.
 8. **Re-read.** Read the PR, the `main` tip and the reviews again. If anything
    changed, `fail`, and the next evaluation decides.
 
 Pass evidence: PR number, head, base, the sha256 of `P`, `T` and `M`, the review
-id, the reviewer id, the dispatcher id and the run id.
+id, the reviewer id, the dispatcher id, the run id and the candidate commit.
+
+**The guard does not verify the manifest signature** (open question 3). Until
+it does, the binding of `M` to the signing service rests on current-head CI
+(which verifies the signature) plus the run and candidate checks of steps 4 and
+6. The manifest does not record a run attempt, so the guard cannot tell which
+attempt of the run signed it.
+
+### Known limits
+
+- A PR with no guarded content is never judged, also when it edits workflows.
+- A v5-lane PR is `not_applicable`; its extra files are not judged.
+- A fork PR and a stale PR get `fail`, not `not_applicable`.
+- 1000 reviews on one PR, also comment-only reviews from outside accounts,
+  exhaust the page bound and give a permanent `fail`. The remedy is a new PR.
+- A re-run of the signing run by another person changes `triggering_actor` and
+  gives `dispatcher_mismatch` permanently. The remedy is a new signing run.
+- An approver who clicks "Update branch" becomes a commit author and can no
+  longer approve.
+- A v5 lane whose manifest does not list every changed content path in
+  `applied_files` gets `fail`. Whether the retire and path-migration manifests
+  list them was not checked.
+
+### CLI
+
+`axiom-encode merge-guard --repository rulespec-us --pr <n>` prints one JSON
+line (`schema`, `verdict`, `reason`, `detail`, `evidence`). Exit codes: 0 pass,
+1 fail, 3 not_applicable, 2 usage error.
 
 ### Where the implementation differs from the first design, and why
 
 The code at `main` wins where the two disagree.
 
-- `_require_immutable_delta` refuses every changed non-regular blob. That is
-  right for a promotion and wrong for applicability, because a maintenance PR
-  may add an executable file. The evaluator computes a mode-agnostic delta from
-  `_leaf_entries` first and calls `_require_immutable_delta` only for a
-  promotion.
+- The first design decided applicability from the manifest's `schema_version`.
+  A PR controls that label, so applicability now comes from paths and modes.
+- `_require_immutable_delta` refuses every changed non-regular blob, so it
+  cannot classify a maintenance PR. The evaluator computes a mode-agnostic
+  delta from `_leaf_entries` first and calls `_require_immutable_delta` only for
+  a v6 unit.
 - `_pr_identity` takes a selector that already names the head. The evaluator
   reads the head from the PR and passes a four-field target. `_pr_identity`
-  refuses a fork head, so a fork PR gets `fail`, never `not_applicable` (open
-  question 9).
+  refuses a fork head.
 - `_approved_reviews` cannot be reused: it requires the exact head, refuses on
   any account's `CHANGES_REQUESTED`, and binds the dispatcher by login. The
   evaluator has its own effective-review code and binds by numeric id.
-- `_pages` cannot carry a query string. The path-history read wraps it, so the
-  page bound stays in one place.
 - Admission requires `pr.base.sha` to equal the `main` tip. The evaluator uses
   the live `main` tip as `B` and does not rely on `pr.base.sha`.
 - Admission reads files through the contents API. The evaluator reads
   `git/blobs/<id>` and recomputes the object id from the bytes.
-- "Every commit that changes `P` or `T`" is read from
-  `commits?sha=H&path=...`. Each listed commit must be in the PR's commit list.
-- Added beyond the first design: `candidate.author_id` must be the live PR
-  author; the manifest dispatcher must be the run's `triggering_actor` and
-  enrolled; duplicate JSON keys are refused; the PR's `commits` count must
-  match the listed commits; the changed-manifest read bound.
+- Added beyond the first design: the index is excluded; every commit author is
+  excluded; the candidate and base named by the manifest are bound; the
+  dispatcher must be the run's `triggering_actor` and enrolled; the CI run and
+  the signing run are bound to their repository, event and commit; duplicate
+  JSON keys are refused.
+- The promotion lane maps a jurisdiction to `rulespec-<country>`
+  (`PromotionSelector.repository`). The evaluator accepts
+  `rulespec-<country>-<subdivision>` names for applicability, and a v6 unit
+  there gives `fail`.
 - The default `fetch` is the anonymous `github_json`. A recurring check needs a
   token-capable bounded reader (for example `notary.remote.GitHubReader`); the
   change that adds the runner injects it. The evaluator has no client of its
@@ -190,7 +257,8 @@ The code at `main` wins where the two disagree.
 | `CHANGES_REQUESTED` after a pass | Same: the next evaluation gives `fail` |
 | Re-approval | A new review on the new `C`; evaluated as above |
 | Push that changes content | The new head has no verdict; old approvals fail step 5 |
-| Base-only update | New head, same blobs: the approval is retained |
+| Base-only update by merge | New head, same blobs: the approval is retained |
+| Rebase | The candidate commit leaves the PR: `fail` until a new signing run |
 
 ## 4. Where the guard would run and why it would be trusted
 
@@ -243,7 +311,9 @@ variant) with `reviewed_rulespec_ref` replaced by `candidate_rulespec_ref`, plus
 ```
 
 The evaluator parses exactly this shape and treats anything else as `fail`. A
-test pins its field sets to the live v5 promotion contract in `cli.py`.
+test pins its field sets to the live v5 promotion contract in `cli.py`. The
+shape has no run attempt; adding `run_attempt` would let the guard bind one
+(open question 13).
 
 Still to do in later changes: verifiers accept `{v5, v6}` and require the
 block's exact shape; the promotion writer emits v6. A verifier pinned before
@@ -298,7 +368,7 @@ reason; it is not a pass.
 | 13 | Primary is a symlink, mode `100755`, or a submodule | fail | yes |
 | 14 | Primary at a non-canonical path for the citation | fail | yes |
 | 15 | PR adds a workflow with a job named like the guard's check | merge blocked: wrong `app_id` | skipped: needs the App binding |
-| 16 | PR rewrites `repository-checks.yml` so `validate / validate` passes | fail (scope) | yes for a promotion PR; skipped for a maintenance PR (§9) |
+| 16 | PR rewrites `repository-checks.yml` so `validate / validate` passes | fail (scope) | yes for a PR with guarded content; skipped for a PR with none (§9) |
 | 17 | Truncated tree, an 11th page of reviews, a redirect, or HTTP 403/500 | fail; no cached pass | yes, for every read of a passing evaluation |
 | 18 | Review dismissed between the first and second read | fail | yes |
 | 19 | v6 manifest whose `candidate.pull_request` names another PR | fail | yes |
@@ -307,9 +377,23 @@ reason; it is not a pass.
 | 22 | `validate / validate` green on an older head, pending on `H` | fail | yes |
 | 23 | Modification of a module that already exists on `main` | fail | yes |
 | 24 | Merge group with two units, one unapproved | fail for the group | skipped: merge group is a stub |
-| 25 | PR with no manifest change (maintenance) | not_applicable | yes |
+| 25 | PR with no guarded content (maintenance) | not_applicable | yes |
 | 26 | Unparseable JSON at a manifest path in the delta | fail | yes |
 | 27 | Enrolled owner authored the commits; a third account opened the PR; the owner approves | fail when GitHub attributes the commits; documented gap when it does not | yes, both halves |
+
+Added by security review round 1:
+
+| # | Attack | Expected verdict | Test |
+|---|---|---|---|
+| 28 | Content plus a rewritten workflow, with no manifest | fail | yes |
+| 29 | Manifest relabelled to an unknown schema (`v7`, missing, not a string) | fail | yes |
+| 30 | `.axiom`, the manifest directory, a jurisdiction or a content root replaced by a symlink, submodule or executable | fail | yes |
+| 31 | v5 and v6 manifests in one PR; a removed manifest; v5 manifest that does not cover the content | fail | yes |
+| 32 | `validate / validate` green from a `workflow_dispatch` run, another repository or another PR | fail | yes |
+| 33 | Signing run from another repository, or whose commit is not on encoder `main` | fail | yes |
+| 34 | Manifest names a candidate commit outside the PR, or one with other content, or a base that is not an ancestor | fail | yes |
+| 35 | Approver authored or committed any commit of the PR, also the manifest commit | fail | yes |
+| 36 | Approval on `H`, then a new head that changes only the derived index | fail | yes |
 
 Cases 15-18 must also run live in the shadow period (§8).
 
@@ -352,9 +436,12 @@ satisfies D2d.
 
 | Adversary | Defended? | How |
 |---|---|---|
-| Write collaborator, not enrolled | Yes | Cannot dispatch, cannot give a counting approval, cannot publish as the guard App; scope refuses extra files |
-| PR that edits workflow files | Yes, for promotion PRs | Scope check (steps 2 and 4) |
-| PR that edits workflow files on a maintenance PR | **No** | Pre-existing gap in the `validate / validate` binding, outside this guard; step 8 of the checklist mitigates |
+| Write collaborator, not enrolled, on a PR with guarded content | Yes | Cannot dispatch, cannot give a counting approval, cannot publish as the guard App; a v6 unit refuses every extra file; content without a manifest fails |
+| PR that edits workflow files and carries a v6 unit | Yes | Scope check (steps 3 and 4) |
+| PR that edits workflow files and has no guarded content, or is a v5-lane PR | **No** | The guard gives `not_applicable`. Pre-existing gap in the `validate / validate` binding, outside this guard; step 8 of the checklist mitigates |
+| PR that relabels or hides its manifest to avoid the guard | Yes | Applicability comes from paths and modes (step 3) |
+| `validate / validate` produced by a run that is not this PR's `pull_request` run | Yes | Step 7 |
+| Forged or unsigned v6 manifest | Partly | Current-head CI verifies the signature; the guard does not (open question 3) |
 | Second workflow imitating the check name | Yes, once the App binding exists | `app_id` binding |
 | Stale approval after a content change | Yes | Blob equality |
 | Push racing an approval | Yes | The verdict belongs to one head and is computed from that head's tree |
@@ -386,27 +473,41 @@ signed approval (option c in §3) or a separate approver account.
 | 8 | Merge-queue group size for promotions? | 1 during the pilot |
 | 9 | A fork PR, a stale PR and a PR with more than 256 changed manifests get `fail`, not `not_applicable`. Is that acceptable for a required check? | Yes for forks and stale heads (`strict` already requires an up-to-date head). Decide the bound before a bulk manifest migration |
 | 10 | Should a `CHANGES_REQUESTED` from an outside account block? | No (step 7); it differs from today's admission rule |
-| 11 | Should `candidate.head_sha` and `candidate_rulespec_ref` be bound to the PR's commits? | Not in v1: a rebase that keeps the blobs would void the manifest |
+| 11 | `candidate.head_sha` is bound to the PR's commits, so a rebase needs a new signing run. Acceptable? | Yes: the binding is worth more than rebase support |
+| 12 | Which verdict for a v5-lane PR: `not_applicable` (today's choice), or a scope check like the v6 one? | Decide before the check is required. `not_applicable` leaves the v5 lanes exactly as they are |
+| 13 | Which verdict for RuleSpec content with no manifest, a removed manifest, or a v5 manifest that does not list the changed content: `fail` (today's choice) or `not_applicable`? | `fail`, after a census of the retire, path-migration and waiver PR shapes; CI already rejects unmanifested content |
+| 14 | Add `run_attempt` to `attestation_scope`? | Yes, in the change that defines the v6 writer |
+| 15 | The approver may not be the author or committer of any commit, so the approver cannot click "Update branch". Acceptable? | Yes for the pilot |
 
 ## 11. What was not verified
 
+Verified against live data on 2026-11-12 (rulespec-us#2045 and its signing run):
+the fields of an Actions run (`event`, `path`, `head_sha`, `head_branch`,
+`repository`, `head_repository`, `pull_requests`, `actor`,
+`triggering_actor`), the `details_url` form of a check run, the v5 promotion
+manifest's `applied_files` paths (repository-relative), and the attribution of
+the signing workflow's manifest commit.
+
+Not verified:
+
+- How many check runs carry the exact name `validate / validate` on a green
+  head. On a red head there were two (one `skipped`, one `failure`); the matrix
+  jobs carry a suffix. The evaluator requires every one to be `success`.
+- Whether `pull_requests` on an Actions run stays populated after the PR's
+  branch moves, and for a re-run. It is empty for fork PRs, which the guard
+  refuses anyway.
 - Whether a required check with a non-Actions `app_id` is honoured on
   merge-group commits, and how to list a group's PRs.
 - Which workflow file version `pull_request_review` and `merge_group` runs use.
 - Organisation plan and availability of required-workflow rulesets.
 - Whether the Go signer or supervisor inspects `schema_version` or field names.
   Their tests mention `applied-rulespec/v5`; the code was not read.
-- Whether current CI verifies the derived index against the tree. The guard
-  leaves the index outside the approved set on that assumption.
 - Whether workflow-run metadata for `manifest.run_id` stays readable for the
   life of a PR. A deleted run makes step 6 fail closed.
-- Whether `commits?sha=&path=` omits a merge commit that leaves the path equal
-  to a parent, and lists one that changes it. The evaluator assumes Git's
-  default history simplification.
-- The exact REST field values the evaluator matches: an Actions run `path`
-  without a ref suffix, a check run `details_url` of the form
-  `.../actions/runs/<id>/job/<id>`, and `filter=latest` on check runs. The tests
-  use fixtures, not recorded responses.
+- The shapes of v5 retire, path-migration and legacy manifests, and so whether
+  those lanes get `not_applicable` or `fail` (open question 13).
+- The content layout of `rulespec-<country>-<subdivision>` repositories. The
+  evaluator assumes the content roots sit at the root or one level down.
 - Whether `pr.base.sha` follows the `main` tip. The evaluator does not use it.
 - Tree size: a recursive tree that GitHub truncates gives `fail` for every PR
   of that repository.

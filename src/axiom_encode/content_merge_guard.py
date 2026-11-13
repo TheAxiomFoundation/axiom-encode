@@ -361,7 +361,6 @@ def _parse_manifest(
     shape(
         isinstance(candidate, dict)
         and set(candidate) == ATTESTATION_CANDIDATE_FIELDS
-        and isinstance(candidate["repository"], str)
         and _strict_int(candidate["pull_request"])
         and _strict_int(candidate["author_id"])
         and all(
@@ -519,7 +518,6 @@ def _require_green_ci(
     if (
         not isinstance(runs, list)
         or not runs
-        or len(runs) > 100
         or listing.get("total_count") != len(runs)
     ):
         raise AdmissionError("required check is absent or its listing is incomplete")

@@ -578,6 +578,13 @@ def test_case_05_base_update_that_adds_a_workflow_fails_scope():
     fails(world, guard.R_SCOPE_PATHS)
 
 
+def test_approved_commit_without_a_merge_base_fails():
+    world = build()
+    advance(world, new_base=True)
+    world.ancestry(B2, H, None)
+    fails(world, guard.R_DELTA_INCOMPLETE)
+
+
 def test_approval_on_a_commit_outside_the_pr_does_not_count():
     world = build()
     world.reviews([review(11, MAX, oid("elsewhere"))])
@@ -978,6 +985,11 @@ SCOPE = "attestation_scope"
         scope_change("signature", {}),
         scope_change("applied_files", []),
         scope_change("applied_files", [{"path": P, "sha256": "0" * 64}] * 2),
+        scope_change("applied_files", 0, "unexpected", 1),
+        scope_change("applied_files", 0, "path", 5),
+        scope_change("applied_files", 0, "sha256", 5),
+        scope_change("applied_files", 0, "sha256", "abc"),
+        scope_change(SCOPE, "dispatcher", "login", 5),
         scope_change(SCOPE, "schema", "axiom-encode/attestation-scope/v2"),
         scope_change(SCOPE, "validation", "none"),
         scope_change(SCOPE, "owner_review", "approved"),
@@ -1000,6 +1012,15 @@ def test_anything_but_the_exact_v6_shape_fails(mutate):
 
 
 # --- dispatcher and signing run (decision 3, F5) -----------------------------
+
+
+def test_manifest_author_id_must_be_an_integer():
+    # ``True == 1`` in Python; a boolean must not pass as the author id 1.
+    world = build(
+        author=(1, "first-account"),
+        mutate=scope_change(SCOPE, "candidate", "author_id", True),
+    )
+    fails(world, guard.R_MANIFEST_SHAPE)
 
 
 def test_dispatcher_must_be_enrolled():
@@ -1083,6 +1104,7 @@ def test_f5_signing_run_at_the_encoder_main_tip_needs_no_comparison():
     "changes",
     [
         {"status": "in_progress", "conclusion": None},
+        {"status": "in_progress"},
         {"conclusion": "failure"},
         {"conclusion": "skipped"},
         {"app": {"id": 99999}},
@@ -1359,6 +1381,8 @@ def test_case_18_converted_to_draft_between_the_two_reads():
         {"user": {"id": 0, "login": "zero"}},
         {"head": {"sha": H, "ref": "codex/medical", "repo": {"full_name": "fork/x"}}},
         {"head": {"sha": H, "ref": "", "repo": {"full_name": REPO}}},
+        {"head": {"sha": H, "ref": None, "repo": {"full_name": REPO}}},
+        {"head": {"sha": H, "ref": 5, "repo": {"full_name": REPO}}},
         {"base": {"sha": B, "ref": "release", "repo": {"full_name": REPO}}},
         {"head": {"sha": "main", "ref": "codex/medical", "repo": {"full_name": REPO}}},
     ],
