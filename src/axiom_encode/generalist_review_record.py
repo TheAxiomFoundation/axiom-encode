@@ -526,15 +526,10 @@ def build_generalist_review_record(
         or not _is_sha256(state.prompt_sha256)
         or not isinstance(evidence, Mapping)
         or not _is_sha256(evidence.get("reviewed_rulespec_sha256"))
-        # The file as reviewed, or as apply rewrites it, must have a digest.
-        or not (
-            _is_sha256(evidence.get("reviewed_rulespec_content_sha256"))
-            or _is_sha256(evidence.get("reviewed_" + _DUMPED_FIELD))
-        )
-        or not (
-            evidence.get("reviewed_rulespec_content_sha256") is None
-            or _is_sha256(evidence.get("reviewed_rulespec_content_sha256"))
-        )
+        # The file as reviewed must have a digest: with a repeated key, an
+        # alias or a merge key the reviewer read an ambiguous file, and the
+        # dump would silently pick one reading of it.
+        or not _is_sha256(evidence.get("reviewed_rulespec_content_sha256"))
         or not (
             evidence.get("reviewed_test_sha256") is None
             or _is_sha256(evidence.get("reviewed_test_sha256"))
@@ -756,10 +751,7 @@ def generalist_review_record_issues(
         or _finite_score(score) is None
         or not _is_sha256(prompt_sha256)
         or not _is_sha256(reviewed["rulespec_sha256"])
-        or not (
-            _is_sha256(reviewed["rulespec_content_sha256"])
-            or _is_sha256(reviewed[_DUMPED_FIELD])
-        )
+        or not _is_sha256(reviewed["rulespec_content_sha256"])
         or not (reviewed["test_sha256"] is None or _is_sha256(reviewed["test_sha256"]))
         or not _is_sha256(reviewed["test_content_sha256"])
     ):

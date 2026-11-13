@@ -1986,23 +1986,89 @@ def test_review_stays_bound_when_the_dump_respells_a_scalar(value):
     assert _issues(record) == []
 
 
-def test_review_stays_bound_when_the_dump_resolves_a_merge_key():
-    applied = _as_apply_rewrites(MERGE_RULE)
-    assert review_content_sha256(MERGE_RULE, rulespec=True) is None
+REPEATED_KEY_RULE = b"""format: rulespec/v1
+rules:
+  - name: amount
+    value: 100
+    value: 5000
+"""
+SCALAR_MERGE_RULE = b"""format: rulespec/v1
+rules:
+  - name: amount
+    <<: {dtype: Money}
+    value: 5
+"""
+
+
+@pytest.mark.parametrize(
+    "reviewed",
+    [REPEATED_KEY_RULE, SCALAR_MERGE_RULE, MERGE_RULE],
+    ids=["repeated-key", "inline-merge-key", "aliased-merge-key"],
+)
+def test_ambiguous_reviewed_file_is_never_bound_by_its_dump(reviewed):
+    # The reviewer read a file a reader can resolve in more than one way; the
+    # dump silently picks one reading (the last `value`, the merged mapping).
+    assert review_content_sha256(reviewed, rulespec=True) is None
+    assert yaml.safe_load(reviewed) is not None
+    applied = _as_apply_rewrites(reviewed)
+    evidence = _evidence(rulespec=reviewed)
 
     record = build_generalist_review_record(
-        _state(evidence=_evidence(rulespec=MERGE_RULE)),
+        _state(evidence=evidence, required=True),
         [applied_pair(applied, TEST_BYTES)],
     )
 
-    # safe_dump writes the shared mapping as an anchor and alias again, so the
-    # applied file has no content digest either: never bound.
-    if review_content_sha256(applied, rulespec=True) is None:
-        assert record["status"] == "unavailable"
-    else:
-        assert record["status"] == "passed"
-        assert record["reviewed"]["rulespec_content_sha256"] is None
-        assert _issues(record) == []
+    assert record["status"] == "unavailable"
+    assert record["reason"] == "unreadable_review_result"
+    assert review_requirement_refusal(record) is not None
+    # The reader refuses a record that binds through the dump alone.
+    applied_digests = _digests(applied_pair(applied, TEST_BYTES))
+    if applied_digests["rulespec_content_sha256"] is not None:
+        forged = _build()
+        forged["reviewed"] = {
+            **forged["reviewed"],
+            "rulespec_content_sha256": None,
+            "rulespec_dumped_content_sha256": applied_digests[
+                "rulespec_content_sha256"
+            ],
+        }
+        forged["applied"] = applied_digests
+        forged["files"] = _files(
+            (applied_digests["rulespec_sha256"], True, True),
+            (applied_digests["test_sha256"], True, True),
+        )
+        assert _issues(forged) == ["generalist_review scored verdict is malformed"]
+
+
+def test_a_missing_digest_never_binds():
+    # Reviewed: a file apply would not rewrite (no dumped digest). Applied: a
+    # file with no content digest. None must not equal None.
+    reviewed = b"- a list\n"
+    assert dumped_review_content_sha256(reviewed) is None
+    unparsable = AppliedPair(
+        rulespec_sha256=OTHER_SHA,
+        rulespec_content_sha256=None,
+        test_sha256=PAIR.test_sha256,
+        test_content_sha256=PAIR.test_content_sha256,
+    )
+
+    record = build_generalist_review_record(
+        _state(evidence=_evidence(rulespec=reviewed)), [unparsable]
+    )
+
+    assert record["reviewed"]["rulespec_dumped_content_sha256"] is None
+    assert record["status"] == "unavailable"
+    assert record["reason"] == "reviewed_content_not_applied"
+
+    # The reader: a passed record whose applied content digest is None.
+    passed = _build()
+    forged = copy.deepcopy(passed)
+    forged["reviewed"]["rulespec_dumped_content_sha256"] = None
+    forged["applied"]["rulespec_content_sha256"] = None
+    assert (
+        "generalist_review verdict is on content that differs from the applied content"
+        in _issues(forged)
+    )
 
 
 @pytest.mark.parametrize(
@@ -2063,13 +2129,47 @@ def test_dumped_digest_is_none_when_apply_would_not_rewrite():
     assert dumped_review_content_sha256(RULE_BYTES) == PAIR.rulespec_content_sha256
 
 
-def test_apply_stamp_writes_with_the_dump_the_binding_uses(tmp_path):
+STAMP_SHA = "5" * 64
+# Fixed input text and the exact bytes the apply stamp writes for it. The
+# expected bytes are literal (taken from unchanged `main`), so a change to the
+# dump call fails here whatever the binding code does.
+STAMP_CASES = {
+    "non-canonical-number": (
+        b"format: rulespec/v1\nrules:\n  - name: rate\n    value: 0.10\n"
+        b"    cap: 1_000\n",
+        b"format: rulespec/v1\nrules:\n- name: rate\n  value: 0.1\n  cap: 1000\n"
+        b"module:\n  source_verification:\n"
+        b"    corpus_citation_path: us/statute/26/24\n"
+        b'    source_sha256: "' + STAMP_SHA.encode() + b'"\n',
+    ),
+    "comment-and-key-order": (
+        b"# a comment\nrules:\n  - name: b\n    kind: derived\n  - name: a\n"
+        b"format: rulespec/v1\nmodule:\n  summary: 'Caf\xc3\xa9: yes'\n",
+        b"rules:\n- name: b\n  kind: derived\n- name: a\nformat: rulespec/v1\n"
+        b"module:\n  summary: 'Caf\xc3\xa9: yes'\n  source_verification:\n"
+        b"    corpus_citation_path: us/statute/26/24\n"
+        b'    source_sha256: "' + STAMP_SHA.encode() + b'"\n',
+    ),
+    "existing-stamp": (
+        b"format: rulespec/v1\nmodule:\n  source_verification:\n"
+        b"    source_sha256: old\n    corpus_citation_path: us/old\n"
+        b"    note: kept\nrules: []\n",
+        b"format: rulespec/v1\nmodule:\n  source_verification:\n"
+        b'    source_sha256: "' + STAMP_SHA.encode() + b'"\n'
+        b"    corpus_citation_path: us/statute/26/24\n    note: kept\nrules: []\n",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(STAMP_CASES))
+def test_apply_stamp_writes_these_exact_bytes(tmp_path, case):
+    original, expected = STAMP_CASES[case]
     output_file = tmp_path / "rule.yaml"
-    output_file.write_bytes(_rule("0.10"))
+    output_file.write_bytes(original)
     attestation = {
         "requested_corpus_citation_path": "us/statute/26/24",
         "resolved_corpus_citation_path": "us/statute/26/24",
-        "source_sha256": "5" * 64,
+        "source_sha256": STAMP_SHA,
     }
     with (
         patch(
@@ -2082,10 +2182,16 @@ def test_apply_stamp_writes_with_the_dump_the_binding_uses(tmp_path):
             SimpleNamespace(backend="openai"), output_file
         )
 
-    assert output_file.read_bytes() == _as_apply_rewrites(_rule("0.10"))
-    assert review_content_sha256(output_file.read_bytes(), rulespec=True) == (
-        dumped_review_content_sha256(_rule("0.10"))
+    assert output_file.read_bytes() == expected
+    # The binding digests the reviewed file through the same dump.
+    assert dumped_review_content_sha256(original) == review_content_sha256(
+        expected, rulespec=True
     )
+    record = build_generalist_review_record(
+        _state(evidence=_evidence(rulespec=original)),
+        [applied_pair(expected, TEST_BYTES)],
+    )
+    assert record["status"] == "passed"
 
 
 # --- documents the digest refuses ----------------------------------------
