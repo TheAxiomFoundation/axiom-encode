@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2026-05-10",
+    "generation_input_sha256": "f52351ec888d2a131c77819abf5917d005a17b9bbc6123f22d62c8a9881633c2",
+    "provision_file": "data/corpus/provisions/us-ok/statute/2026-07-16-pit-central-us-ok-title-68-r2026-07-24-immutable.jsonl",
+    "provision_file_sha256": "bdb4ad4c112fcd5f5a48628ec06322e0f9cbd0788c3a4875ebabbe599c3727d7",
+    "requested_corpus_citation_path": "us-ok/statute/68-2906",
+    "resolved_corpus_citation_path": "us-ok/statute/68-2906",
+    "resolved_text_sha256": "f52351ec888d2a131c77819abf5917d005a17b9bbc6123f22d62c8a9881633c2",
+    "row": {
+      "body_sha256": "f52351ec888d2a131c77819abf5917d005a17b9bbc6123f22d62c8a9881633c2",
+      "citation_path": "us-ok/statute/68-2906",
+      "document_class": "statute",
+      "expression_date": "2026-05-10",
+      "jurisdiction": "us-ok",
+      "line_number": 1298,
+      "provision_file": "data/corpus/provisions/us-ok/statute/2026-07-16-pit-central-us-ok-title-68-r2026-07-24-immutable.jsonl",
+      "provision_file_sha256": "bdb4ad4c112fcd5f5a48628ec06322e0f9cbd0788c3a4875ebabbe599c3727d7",
+      "record_id": "61d73962-0885-5687-85d3-0484c7223b8e",
+      "source_as_of": "2026-05-10",
+      "source_path": "sources/us-ok/statute/2026-07-16-pit-central-us-ok-title-68-r2026-07-24-immutable/oklahoma-statutes-rtf/os68.rtf",
+      "version": "2026-07-16-pit-central-us-ok-title-68-r2026-07-24-immutable"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us-ok",
+    "source_as_of": "2026-05-10",
+    "source_sha256": "f52351ec888d2a131c77819abf5917d005a17b9bbc6123f22d62c8a9881633c2"
+  }
+}

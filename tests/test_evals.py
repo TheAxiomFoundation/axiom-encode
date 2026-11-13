@@ -16696,8 +16696,13 @@ rules:
 class TestOpenAIEvalRequest:
     @pytest.mark.parametrize(
         ("model", "expected_max_output_tokens", "explicit_cache"),
-        [("gpt-5.6-sol", 32768, True), ("gpt-4o", 16384, False)],
-        ids=["extended-gpt-5", "compatible-fallback"],
+        [
+            ("gpt-6-luna", 128000, True),
+            ("gpt-6-sol", 128000, True),
+            ("gpt-6-luna-unknown", 32768, True),
+            ("gpt-5.6-sol", 32768, True),
+            ("gpt-4o", 16384, False),
+        ],
     )
     def test_openai_prompt_eval_requests_full_rulespec_output_budget(
         self,
@@ -23625,6 +23630,125 @@ rules: []
     assert observed_amendment_sources == [{amendment_citation_path: amendment_body}]
 
 
+@pytest.mark.parametrize(
+    ("skip_reviewers", "ci_passes", "expected_phases"),
+    [
+        (False, True, ["validate", "review"]),
+        (True, True, ["validate"]),
+        # A deterministically rejected candidate never reaches the reviewer,
+        # so the live run must not claim it is in review.
+        (False, False, ["validate"]),
+    ],
+)
+def test_evaluate_artifact_reports_validate_and_review_phases(
+    tmp_path, monkeypatch, skip_reviewers, ci_passes, expected_phases
+):
+    source_citation_path = "us/statute/7/2017/a"
+    source_text = "The source amount is 100."
+    corpus_release = _write_test_corpus_provision(
+        tmp_path,
+        citation_path=source_citation_path,
+        body=source_text,
+    )
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    rules_file = policy_repo / "statutes/7/2017/a.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        f"    corpus_citation_path: {source_citation_path}\n"
+        "rules: []\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        ValidatorPipeline,
+        "_run_compile_check",
+        lambda _self, _path: ValidationResult("compile", passed=True),
+    )
+    monkeypatch.setattr(
+        ValidatorPipeline,
+        "_run_ci",
+        lambda _self, _path: ValidationResult(
+            "ci", passed=ci_passes, issues=[] if ci_passes else ["ci rejected"]
+        ),
+    )
+    # The autouse _mock_generalist_reviewer fixture already stubs a passing
+    # reviewer. Re-patching it with monkeypatch would restore that stub after
+    # the fixture's own teardown and leak it into later test files.
+    phases: list[str] = []
+    monkeypatch.setattr("axiom_encode.harness.evals.report_phase", phases.append)
+
+    evaluate_artifact(
+        rulespec_file=rules_file,
+        policy_repo_root=policy_repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        source_text=source_text,
+        skip_reviewers=skip_reviewers,
+        reviewers_require_deterministic_pass=True,
+        local_corpus_release=corpus_release,
+        source_citation_path=source_citation_path,
+    )
+
+    assert phases == expected_phases
+
+
+def test_run_model_eval_reports_generate_before_the_model_call(tmp_path):
+    corpus_release = _write_test_corpus_provision(
+        tmp_path,
+        citation_path="us/statute/7/2017/a",
+        body="The source amount is 100.",
+    )
+    policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
+    events: list[str] = []
+
+    def prompt_eval(*_args, **_kwargs):
+        events.append("model_call")
+        response = Mock()
+        response.text = (
+            "=== FILE: a.yaml ===\n"
+            "format: rulespec/v1\n"
+            "rules: []\n"
+            "=== FILE: a.test.yaml ===\n"
+            "[]\n"
+        )
+        response.duration_ms = 1
+        response.tokens = None
+        response.estimated_cost_usd = None
+        response.actual_cost_usd = None
+        response.trace = {}
+        response.unexpected_accesses = []
+        response.error = None
+        return response
+
+    def evaluate(**_kwargs):
+        events.append("evaluate_artifact")
+        return None
+
+    with (
+        patch(
+            "axiom_encode.harness.evals.report_phase",
+            side_effect=lambda phase: events.append(f"phase:{phase}"),
+        ),
+        patch("axiom_encode.harness.evals._run_prompt_eval", side_effect=prompt_eval),
+        patch("axiom_encode.harness.evals.evaluate_artifact", side_effect=evaluate),
+    ):
+        run_model_eval(
+            citations=["us/statute/7/2017/a"],
+            runner_specs=["codex:gpt-5.4"],
+            output_root=tmp_path / "out",
+            policy_path=policy_repo_root,
+            runtime_axiom_rules_path=tmp_path / "axiom-rules-engine",
+            corpus_release=corpus_release,
+            mode="cold",
+            include_tests=True,
+            skip_reviewers=True,
+        )
+
+    assert events[:2] == ["phase:generate", "model_call"]
+    assert events.count("phase:generate") == 1
+
+
 class TestSourceEval:
     def test_run_model_eval_passes_validation_options_to_evaluate_artifact(
         self,
@@ -24951,22 +25075,21 @@ def test_older_openai_models_reuse_stable_prefix_key_across_retries(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("model", "extended", "explicit_cache"),
+    ("model", "expected_tokens", "explicit_cache"),
     [
-        ("gpt-6-luna", True, True),
-        ("gpt-6-sol", True, True),
-        ("gpt-5.6-terra", True, True),
-        ("gpt-5.4", True, False),
-        ("gpt-60-luna", False, False),
-        ("gpt-4.1", False, False),
+        ("gpt-6-luna", 128000, True),
+        ("gpt-6-sol", 128000, True),
+        ("gpt-6-luna-unknown", 32768, True),
+        ("gpt-6.1-sol", 16384, False),
+        ("gpt-5.6-terra", 32768, True),
+        ("gpt-5.4", 32768, False),
+        ("gpt-60-luna", 16384, False),
+        ("gpt-4.1", 16384, False),
     ],
 )
-def test_openai_generation_gates_cover_gpt_6_models(model, extended, explicit_cache):
-    expected_tokens = (
-        evals_module._OPENAI_EXTENDED_PROMPT_MAX_OUTPUT_TOKENS
-        if extended
-        else evals_module._OPENAI_DEFAULT_PROMPT_MAX_OUTPUT_TOKENS
-    )
+def test_openai_generation_gates_cover_gpt_6_models(
+    model, expected_tokens, explicit_cache
+):
     assert evals_module._openai_prompt_max_output_tokens(model) == expected_tokens
     assert (
         evals_module._openai_model_supports_explicit_prompt_cache(model)
@@ -25041,3 +25164,80 @@ def test_eval_numeric_coverage_keeps_unrecognized_armenian_parenthetical(
     metrics = _armenian_minimum_wage_metrics(tmp_path, source, complete=complete)
 
     assert any("500" in issue for issue in metrics.numeric_occurrence_issues)
+
+
+@pytest.mark.parametrize(
+    "details", [{"reason": "max_output_tokens"}, None, "malformed"]
+)
+def test_openai_incomplete_response_retains_evidence_not_artifact(monkeypatch, details):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    payload = {
+        "status": "incomplete",
+        "incomplete_details": details,
+        "output_text": "format: rulespec/v1\nrules: []\n",
+        "usage": {
+            "input_tokens": 100,
+            "output_tokens": 128000,
+            "output_tokens_details": {"reasoning_tokens": 20000},
+        },
+    }
+    response = Mock(status_code=200, headers={"x-request-id": "incomplete-test"})
+    response.json.return_value = payload
+    with patch(
+        "axiom_encode.harness.evals._post_openai_eval_request", return_value=response
+    ) as post:
+        result = evals_module._run_openai_prompt_eval(
+            parse_runner_spec("openai:gpt-6-luna"), SimpleNamespace(), "complete policy"
+        )
+    assert post.call_count == 1
+    assert result.text == ""
+    assert result.error.startswith("OpenAI response incomplete:")
+    assert result.tokens.output_tokens == 128000
+    assert result.tokens.reasoning_output_tokens == 20000
+    assert result.trace["json_result"] == payload
+    assert result.trace["request_id"] == "incomplete-test"
+    assert result.estimated_cost_usd is not None
+
+
+@pytest.mark.parametrize("reason", ["max_output_tokens", "content_filter"])
+def test_openai_incomplete_response_caller_does_not_publish_or_retry(
+    monkeypatch, tmp_path, reason
+):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    output = tmp_path / "artifacts" / "sample.yaml"
+    output.parent.mkdir()
+    payload = {
+        "status": "incomplete",
+        "incomplete_details": {"reason": reason},
+        "output_text": "format: rulespec/v1\nrules: []\n",
+        "usage": {"input_tokens": 100, "output_tokens": 128000},
+    }
+    response = Mock(status_code=200, headers={})
+    response.json.return_value = payload
+    with patch(
+        "axiom_encode.harness.evals._post_openai_eval_request",
+        return_value=response,
+    ) as post:
+        result, wrote, retries, paths = (
+            evals_module._run_prompt_eval_with_empty_artifact_retry(
+                parse_runner_spec("openai:gpt-6-luna"),
+                SimpleNamespace(root=workspace),
+                "complete policy",
+                output,
+                "source",
+                output.name,
+                True,
+                artifact_root=output.parent,
+            )
+        )
+    assert post.call_count == 1
+    assert result.error == f"OpenAI response incomplete: {reason}"
+    assert result.trace["json_result"] == payload
+    assert result.tokens.output_tokens == 128000
+    assert wrote is False
+    assert retries == 0
+    assert paths == frozenset()
+    assert not output.exists()
+    assert not output.with_suffix(".test.yaml").exists()
