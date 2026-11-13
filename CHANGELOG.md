@@ -1,3 +1,7 @@
+## 0.2.2372
+
+- Register reviewed Nova Scotia NS479 repair (#2244)
+
 ## 0.2.2371
 
 - Register reviewed T2036 full-artifact repair (#2241)
