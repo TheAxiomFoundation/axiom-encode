@@ -1,15 +1,15 @@
 # US replay benchmark
 
-The US replay benchmark gives every validator PR an offline before/after
-measure on real candidates. It needs no model call, network, rules engine or
-corpus checkout. The `replay benchmark` CI job runs it as a required check.
+The US replay benchmark measures source completeness before and after a
+validator change on real candidates. It needs no model call, network, rules
+engine or corpus checkout. The `replay benchmark` CI job runs it as a required check.
 
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 45 committed
-fixtures in `tests/fixtures/us_replay_benchmark/`. Each fixture is a real
-candidate from a `targeted-reencode-failure` artifact of a signed run:
+(the `[complete-source-unit:*]` rules of the CI validator) over 48 committed
+fixtures in `tests/fixtures/us_replay_benchmark/`. Hosted fixtures are real candidates from `targeted-reencode-failure` artifacts
+of signed runs:
 
 - `candidate.yaml` and `candidate.test.yaml`: the final candidate and its
   companion tests. For a rejected candidate, their hashes match the bundle
@@ -28,14 +28,35 @@ candidate from a `targeted-reencode-failure` artifact of a signed run:
   candidate that production validation accepted) and `split` (`visible`, the
   default, or `held_out`; only a private fixture set uses `held_out`).
 
+Local diagnostic failures may also be committed with explicit
+`origin: local-diagnostic` provenance. They retain exact public source,
+candidate, companion and actual rejected replay findings, a producer commit
+and tree, the reproducible replay command, and byte-identical repository input
+origins. They cannot claim a hosted run URL, signed source attestation or native
+bundle inventory. The same file hashes, public-only restrictions and snapshot
+gates apply. Local fixtures are rejected examples, never production controls.
+The Schedule 2 floor fixture uses this route; its offline findings remain
+unresolved because replay has no live execution evidence. Its separate
+real-engine test verifies the targeted floor witnesses. The T936 printed-row
+fixture preserves an unsigned source-only diagnostic pair; its offline replay
+does not receive private execution evidence or authenticated resolver context.
+The section 219(g) fixture retains a public RuleSpec candidate and its six
+companion cases from `rulespec-us` at `a7c6d805`, plus the decoded body of the
+public corpus row at `bcf433c5`.
+`tests/fixtures/proof-parenthetical-219g/provenance.json` records the public Git
+origins and body-export method. The separate
+`tests/test_public_retained_proof_fixture.py` checks the joint-return proof
+excerpt while retaining an unrelated ellipsis refusal. Completeness replay
+does not measure that proof check.
+
 The replay passes the same inputs as `ValidatorPipeline._complete_source_unit_issues`:
 the citation's numeric profile, the companion test cases, imported symbol
 contents, resolved deferral providers and same-act aliases from the source
 metadata. `--no-context` leaves out the last three.
 
-The set has 37 distinct citations: federal statutes, CFR regulations, IRS and
+The set has 40 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, one Canadian CRA guide
-(three runs) and one Israeli statute. It has one control (an Arizona candidate
+(three runs), two Canadian CRA forms (local diagnostics), and one Israeli statute. It has one control (an Arizona candidate
 that passed validation and then failed a provenance guard). At 0.2.2349, 12
 fixtures replay clean and 33 have 3,313 findings; four 7 CFR 273.7 candidates
 hold 2,671 of them. Read clean counts and per-fixture changes, not only the
@@ -129,10 +150,11 @@ Every PR that fixes a validator false positive:
 
 ## Fidelity
 
-Each fixture was replayed with the encoder source of its own run. Almost all
-reproduce the recorded completeness findings exactly or within two findings,
-with no replay errors. Three 7 CFR 273.7 runs stopped before the completeness
-check in production; the replay finds 653 to 695 findings each.
+Earlier author-reported replays used each hosted fixture's original encoder
+source. Almost all reproduced the recorded completeness findings exactly or
+within two findings, with no replay errors. Three 7 CFR 273.7 runs stopped before the completeness
+check in production; the replay finds 653 to 695 findings each. Local diagnostics
+record fresh offline findings and producer metadata separately.
 
 ## Limits
 

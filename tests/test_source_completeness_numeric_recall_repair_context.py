@@ -231,7 +231,15 @@ def test_locator_values_are_grouped_apart_and_never_the_first_example(
 ):
     issues = _recall_issues(_analysis(source, citation=citation))
     first = issues[0]
-    assert f"First source location of {operative}:" in first
+    headline = HEAD.match(first).group(1)
+    if headline == operative:
+        assert f"First source location of {operative}:" in first
+    else:
+        # The example is not this issue's own value, and the text says so.
+        assert (
+            f"First source location of another missing value, {operative} "
+            f"({headline} is shown below with the others):"
+        ) in first
     assert "appear to be citation, caption or section locators" in first
     tail = first.split("appear to be citation, caption or section locators", 1)[1]
     assert re.search(rf"(?:^|[ ,]){re.escape(locator)}(?:,| at [0-9]+:[0-9]+:)", tail)
@@ -264,3 +272,59 @@ def test_context_omits_numbers_the_us_locator_filter_drops():
     assert "500, 3 at " in issues[0]
     assert "111" not in issues[0]
     assert "226" not in issues[0]
+
+
+def test_first_example_names_its_own_value_when_it_is_the_headline():
+    first = _recall_issues(_analysis(SOURCE))[0]
+    headline = HEAD.match(first).group(1)
+    assert f"First source location of {headline}:" in first
+    assert "another missing value" not in first
+
+
+def _represent_count(issue: str) -> int | None:
+    match = re.search(r"Represent each of the ([0-9]+) listed first", issue)
+    return int(match.group(1)) if match else None
+
+
+def test_all_locator_sources_do_not_ask_to_represent_zero_values():
+    # Replay case 36610775618 (MD SNAP manual 214): every missing value is a
+    # section heading, and the text said "Represent each of the 0 listed".
+    source = (
+        "214.2 Shared Utility Costs (continued)\n"
+        "A. The household shares the cost.\n"
+        "214.3 Telephone Allowance\n"
+        "B. The household pays for a telephone."
+    )
+    issues = _recall_issues(
+        _analysis(source, citation="us-md/guidance/dhs/fia/snap-manual-214/page-5")
+    )
+    assert [HEAD.match(issue).group(1) for issue in issues] == ["214.2", "214.3"]
+    first = issues[0]
+    assert "All 2 values of this source without a named scalar" in first
+    assert "Represent each" not in first
+    assert "appear to be citation, caption or section locators" in first
+    assert "Displayed text is only a bounded locator." in first
+
+
+def test_represent_count_is_the_number_of_values_listed_first():
+    # Replay cases 41715697959 and others (7 CFR 273.7): the cap left values
+    # unlisted, but the text still asked to represent "each of the 43 listed".
+    rows = "\n".join(f"| row {index} | ${1000 + index * 7:,} |" for index in range(400))
+    first = _recall_issues(_analysis("(a) Table.\n" + rows))[0]
+    count = _represent_count(first)
+    listed = first.split(" Not located above (", 1)[0]
+    shown = re.findall(
+        r"(?:In [^:]+:)? ([0-9.]+(?:, [0-9.]+)*) at [0-9]+:[0-9]+:", listed
+    )
+    assert count == sum(len(group.split(", ")) for group in shown)
+    assert 0 < count < len(_recall_issues(_analysis("(a) Table.\n" + rows)))
+
+
+def test_represent_count_excludes_locators():
+    source = (
+        "(G) An alien child whose parent has been battered; 2 or\n"
+        "(H) The household pays $1,500 for 12 months."
+    )
+    issues = _recall_issues(_analysis(source, citation="us/regulation/7/273/4"))
+    assert len(issues) == 3
+    assert _represent_count(issues[0]) == 2

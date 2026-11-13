@@ -1,3 +1,25 @@
+## 0.2.2365
+
+- Add failure classes and a pre-encode gate that stops empty and repealed targets before a model call (#1997)
+- Count only listed values in numeric-recall retry feedback (#2209)
+
+## 0.2.2364
+
+- Bind complete form source evidence to verified execution (#2139)
+- Add immutable complete T936 producer guidance reference (#2208)
+
+## 0.2.2363
+
+- fix: bind copied return categories to source projections (#2129)
+
+## 0.2.2362
+
+- fix: bind Schedule 2 document request evidence to its source duty (#2128)
+
+## 0.2.2361
+
+- Verify actual same-page Schedule 2 floor evidence (#2127)
+
 ## 0.2.2360
 
 - Verify with encoder main: producer floor, verifier record, RuleSpec admissions registry (#2093, #2095; replaces #2101) (#2194)
