@@ -78,8 +78,31 @@ Both are bounded before sending: ``outcome_status`` to 64 characters,
 ``error_rule`` to 160, both to ``[A-Za-z0-9_.:/-]``. A value that does not
 fit is dropped, not truncated. The columns come from
 ``migrations/009_live_encoding_run_outcome.sql``; until it is applied, the
-direct transport retries a rejected finish once without the two fields, and
-the ingest endpoint ignores fields it does not know.
+direct transport retries a rejected finish once without the two fields. The
+ingest endpoint accepts and stores ``outcome_status`` and ``error_rule`` on
+``finish`` (since axiom.org#407), and still ignores fields it does not know.
+
+Reviewed candidate promotion
+----------------------------
+``axiom-encode promote-reviewed-candidate`` makes no model call and never
+runs ``encode``, so `PromotionLiveRun` opens its row instead. The row has the
+same columns and transports; ``backend`` is ``reviewed-candidate`` and
+``model`` is ``reviewed-candidate-promotion-v1``, fixed markers that say no
+model ran. Its stages reuse the encode phases:
+
+- ``admission`` (phase ``resolve``): every check before validation: the
+  exact checkout, the admission record and its live revalidation, the
+  binding, the clean checkout, and source resolution.
+- ``validation`` (phase ``validate``): complete-source overlay validation
+  of the exact candidate bytes.
+- ``signing`` (phase ``apply``): the last admission revalidation, the
+  signature, and the manifest install.
+
+A promotion that completes closes ``completed`` with ``outcome_status``
+``promotion_signed``. One that raises closes ``failed`` with
+``promotion_failed_<stage>`` and ``error_rule`` ``exception:<ClassName>``.
+``SystemExit`` and ``KeyboardInterrupt`` keep the ``exited`` and
+``interrupted`` tokens above.
 """
 
 import getpass
@@ -132,6 +155,20 @@ OUTCOME_EXITED = "exited"
 OUTCOME_INTERRUPTED = "interrupted"
 TERMINAL_OUTCOME_COLUMNS = ("outcome_status", "error_rule")
 _OUTCOME_TOKEN_RE = re.compile(r"[A-Za-z0-9_.:/-]+")
+
+# Reviewed candidate promotion; the module docstring documents the contract.
+PROMOTION_BACKEND = "reviewed-candidate"
+PROMOTION_MODEL = "reviewed-candidate-promotion-v1"
+PROMOTION_STAGE_ADMISSION = "admission"
+PROMOTION_STAGE_VALIDATION = "validation"
+PROMOTION_STAGE_SIGNING = "signing"
+PROMOTION_STAGE_PHASES = {
+    PROMOTION_STAGE_ADMISSION: PHASE_RESOLVE,
+    PROMOTION_STAGE_VALIDATION: PHASE_VALIDATE,
+    PROMOTION_STAGE_SIGNING: PHASE_APPLY,
+}
+PROMOTION_OUTCOME_SIGNED = "promotion_signed"
+PROMOTION_OUTCOME_FAILED_PREFIX = "promotion_failed_"
 
 
 def _utcnow() -> str:
@@ -596,3 +633,81 @@ class LiveRunTelemetry:
                 return 200 <= response.status < 300
         except Exception:
             return False
+
+
+# The promotion of this process, registered while its context is open, so the
+# command reports stages without threading the object through its body.
+_active_promotion: Optional["PromotionLiveRun"] = None
+
+
+def report_promotion_stage(stage: str) -> None:
+    """Move this process's promotion to ``stage``; a no-op without one."""
+    promotion = _active_promotion
+    if promotion is not None:
+        promotion.stage(stage)
+
+
+class PromotionLiveRun:
+    """Live row of one ``promote-reviewed-candidate`` invocation.
+
+    Wraps `LiveRunTelemetry` and never changes the command: no telemetry
+    error leaves this class, and an exception from the command always
+    propagates unchanged.
+    """
+
+    def __init__(self, *, citation: str, encoder_version: str):
+        self._stage = PROMOTION_STAGE_ADMISSION
+        self._live: Optional[LiveRunTelemetry] = None
+        try:
+            self._live = LiveRunTelemetry(
+                citation=citation,
+                backend=PROMOTION_BACKEND,
+                model=PROMOTION_MODEL,
+                encoder_version=encoder_version,
+                phase=PROMOTION_STAGE_PHASES[PROMOTION_STAGE_ADMISSION],
+            )
+        except Exception:
+            self._live = None
+
+    def __enter__(self) -> "PromotionLiveRun":
+        global _active_promotion
+        _active_promotion = self
+        if self._live is not None:
+            try:
+                self._live.__enter__()
+            except Exception:
+                self._live = None
+        return self
+
+    def stage(self, stage: str) -> None:
+        """Enter ``stage`` (a key of `PROMOTION_STAGE_PHASES`); others are ignored."""
+        phase = PROMOTION_STAGE_PHASES.get(stage)
+        if phase is None:
+            return
+        self._stage = stage
+        if self._live is not None:
+            try:
+                self._live.set_phase(phase)
+            except Exception:
+                pass
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        global _active_promotion
+        if _active_promotion is self:
+            _active_promotion = None
+        if self._live is None:
+            return
+        try:
+            if exc_type is None:
+                self._live.finish("completed", outcome_status=PROMOTION_OUTCOME_SIGNED)
+            elif issubclass(exc_type, Exception):
+                self._live.finish(
+                    "failed",
+                    outcome_status=PROMOTION_OUTCOME_FAILED_PREFIX + self._stage,
+                    error_rule=f"exception:{exc_type.__name__}",
+                )
+            else:
+                # SystemExit and KeyboardInterrupt: `exited` / `interrupted`.
+                self._live.__exit__(exc_type, exc, tb)
+        except Exception:
+            pass
