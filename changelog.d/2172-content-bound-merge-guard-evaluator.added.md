@@ -1,0 +1,1 @@
+Add the inactive content-bound merge guard evaluator for promoted RuleSpec pull requests (#2172): `axiom-encode merge-guard --country <cc> --pr <n>` prints a pass, fail or not_applicable verdict and writes nothing. No workflow, check run or manifest writer uses it; see `docs/content-bound-merge-guard.md`.
