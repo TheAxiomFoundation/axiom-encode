@@ -390,6 +390,11 @@ copies that file to the `--codex-auth-outbox` path whether or not the child
 succeeded. The outbox then receives the older token, which the provider may
 already have rotated out. The reviewer runs in the supervisor's home directly.
 
+A supervisor runs the encoder package that was provisioned into its root-owned
+runtime, so these changes reach it only after it is re-provisioned with an
+encoder that contains them. Until then, its reviewer still runs without the
+supervisor's `CODEX_HOME`.
+
 ### ChatGPT subscription generation
 
 The tier-1 provisioner can additionally install the repository-pinned Codex CLI:
