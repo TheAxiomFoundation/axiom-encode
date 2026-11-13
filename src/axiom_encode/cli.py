@@ -51220,8 +51220,10 @@ def _quote_unquoted_source_scalars(*, rules_file: Path) -> list[str]:
             <= column_index
             < match.start("body") + len(value)
             or line[column_index] != ":"
-            or column_index + 1 >= len(line)
-            or line[column_index + 1] not in " \t"
+            # A value indicator is `:` before a space, a tab or the end of
+            # the line. A source excerpt that ends a list lead-in ("one of
+            # the following:") has its `:` at the end of the line.
+            or (column_index + 1 < len(line) and line[column_index + 1] not in " \t")
         ):
             return []
         quoted = value.replace("'", "''")
