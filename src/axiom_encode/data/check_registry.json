@@ -721,6 +721,18 @@
       "why": "A lock-pinned corpus fetches scopes stored only in R2 with these credentials. Without them the run would fail after the production-signing approval and waste that review."
     },
     {
+      "category": "infra:resolve-registered-reviewed-repair-request",
+      "cause": "infra",
+      "fix": "Read the step's log for the exact refusal, correct that, and dispatch again.",
+      "gate": "workflow",
+      "id": "infra:resolve-registered-reviewed-repair-request",
+      "requires": "A reviewed repair request in `source_bundle_json` names a patch in the code-reviewed registry, is dispatched with `open_pr` false as an ordinary full artifact repair, and carries no queue, dependent or legacy input.",
+      "severity": "important",
+      "site": ".github/workflows/targeted-signed-reencode.yml:Resolve registered reviewed repair request",
+      "title": "The registered reviewed repair request was refused",
+      "why": "The step reads the dispatch inputs before the model runs and refuses a request that it cannot bind to one exact transaction. Nothing was encoded, so the encoder output is not at fault."
+    },
+    {
       "category": "infra:resolve-retired-source-metadata-migration-request",
       "cause": "infra",
       "fix": "Correct the migration plan or drop the conflicting input, then dispatch again.",
@@ -1045,6 +1057,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "2114aa291a5154842b48876a5373e36a82431fe71ed23f99b806dd1d75e92897",
+  "registry_sha256": "2d24a58c18a52093f02d154d169b283ed00447786dbcdf8fdf1ea90b96be89dc",
   "schema": "axiom-encode/check-registry/v1"
 }
