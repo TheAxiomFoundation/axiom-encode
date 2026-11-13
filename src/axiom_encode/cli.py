@@ -63665,6 +63665,18 @@ def _is_canonical_apply_transaction_target(
         return True
     if historical_manifest_deletion:
         parts = relative.parts
+        prefix = APPLIED_ENCODING_MANIFEST_DIR.parts
+        tail = parts[len(prefix) :]
+        if (
+            parts[: len(prefix)] == prefix
+            and len(tail) >= 2
+            and tail[0] in RULESPEC_ATOMIC_MODULE_ROOTS
+            and relative.suffix == ".json"
+            and not relative.name.endswith(".test.json")
+            and not any(part in {"", ".", ".."} for part in tail)
+            and is_rulespec_source_checkout_root(checkout_root)
+        ):
+            return True
         if (
             len(parts) >= 5
             and parts[1 : 1 + len(APPLIED_ENCODING_MANIFEST_DIR.parts)]
@@ -64168,6 +64180,23 @@ def _install_apply_transaction(
         Path(os.path.abspath(Path(target).expanduser())): digest
         for target, digest in (expected_originals or {}).items()
     }
+    for target, raw in normalized_files:
+        relative = Path(_apply_transaction_relative_path(checkout_root, target))
+        if not _is_canonical_apply_transaction_target(
+            checkout_root, relative
+        ) and _is_canonical_apply_transaction_target(
+            checkout_root, relative, historical_manifest_deletion=True
+        ):
+            digest = normalized_expected.get(target)
+            if (
+                raw is not None
+                or target not in historical_manifest_deletions
+                or not isinstance(digest, str)
+                or _SHA256_HEX_PATTERN.fullmatch(digest) is None
+            ):
+                raise RuntimeError(
+                    "Historical manifest deletion requires its exact expected old hash"
+                )
     relative_targets = {
         target: _apply_transaction_target_relative_path(
             checkout_root,
@@ -65423,7 +65452,7 @@ def _require_applied_manifest_not_shrunk(
 def _legacy_replacement_base_manifest_path(
     repo_path: Path, base_commit: str, source: Path
 ) -> Path:
-    """Find the sole Git-bound v1 owner in either historical manifest layout."""
+    """Find the sole Git-bound v1 owner across the historical manifest layouts."""
 
     if (
         len(source.parts) < 3
@@ -65436,9 +65465,12 @@ def _legacy_replacement_base_manifest_path(
     jurisdiction = (
         Path(source.parts[0]) / APPLIED_ENCODING_MANIFEST_DIR / Path(*source.parts[1:])
     ).with_suffix(".json")
+    historical_root = (
+        APPLIED_ENCODING_MANIFEST_DIR / Path(*source.parts[1:])
+    ).with_suffix(".json")
     present = [
         candidate
-        for candidate in (canonical, jurisdiction)
+        for candidate in (canonical, jurisdiction, historical_root)
         if _rulespec_migration_git_bytes(
             repo_path,
             "ls-tree",
