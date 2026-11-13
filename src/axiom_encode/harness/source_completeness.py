@@ -4698,6 +4698,7 @@ def _root_chapeau_first_numeric_matches(
         match.start() for match in _ROOT_CHAPEAU_REFERENCE_COMMAND.finditer(source_text)
     )
     restored = []
+    proof_positions: list[tuple[int, int, int]] = []
     restored_roots: set[int] = set()
     for match in candidates:
         start = match.start("marker")
@@ -4725,8 +4726,18 @@ def _root_chapeau_first_numeric_matches(
         if command_index >= 0 and command_starts[command_index] >= root_end:
             continue
         restored.append(match)
+        proof_positions.append((root.start, chapeau_start, start))
         restored_roots.add(root.start)
-    return tuple(restored)
+    if not restored:
+        return ()
+    context = _source_context_checkpoints(
+        source_text, [point for positions in proof_positions for point in positions]
+    )
+    return tuple(
+        match
+        for match, positions in zip(restored, proof_positions)
+        if all(context[point] != "PROTECTED" for point in positions)
+    )
 
 
 def _root_chapeau_reference_tail_starts(
@@ -25320,13 +25331,8 @@ class _AnnualSourceEvidence:
     version_index: int
 
 
-@functools.lru_cache(maxsize=256)
-def _annual_source_quoted_spans(text: str) -> tuple[tuple[int, int], ...] | None:
-    """Require balanced source context before inferring a temporal role.
-
-    Word apostrophes and unquoted possessives are punctuation, not delimiters.
-    Unknown mixed quotes or mismatched brackets conservatively reject evidence.
-    """
+def _source_quote_group_walk(text: str, checkpoints: Sequence[int] = ()):
+    """One shared lexical walk with optional prefix-causal checkpoints."""
 
     open_quotes = {'"': '"', "'": "'", "“": "”", "‘": "’", "«": "»"}
     close_quotes = set(open_quotes.values())
@@ -25335,7 +25341,24 @@ def _annual_source_quoted_spans(text: str) -> tuple[tuple[int, int], ...] | None
     quote: str | None = None
     quote_start = 0
     spans: list[tuple[int, int]] = []
+    states: dict[int, str] = {}
+    checkpoint = 0
+    unknown = False
     for index, character in enumerate(text):
+        if checkpoints:
+            if index == checkpoints[checkpoint]:
+                states[index] = (
+                    "UNKNOWN"
+                    if unknown
+                    else "PROTECTED"
+                    if quote is not None or stack
+                    else "OUTSIDE"
+                )
+                checkpoint += 1
+                if checkpoint == len(checkpoints):
+                    return None, states
+            if _source_context_character_is_unknown(character):
+                unknown = True
         previous = text[index - 1] if index else ""
         following = text[index + 1] if index + 1 < len(text) else ""
         apostrophe = (
@@ -25350,19 +25373,70 @@ def _annual_source_quoted_spans(text: str) -> tuple[tuple[int, int], ...] | None
                 spans.append((quote_start, index + 1))
                 quote = None
             elif character in open_quotes or character in close_quotes:
-                return None
+                return None, states
             continue
         if character in open_quotes:
             quote = open_quotes[character]
             quote_start = index
         elif character in close_quotes:
-            return None
+            return None, states
         elif character in "([{":
             stack.append(character)
         elif character in closing:
             if not stack or stack.pop() != closing[character]:
-                return None
-    return None if quote is not None or stack else tuple(spans)
+                return None, states
+    return (None if quote is not None or stack else tuple(spans)), states
+
+
+def _source_context_character_is_unknown(character: str) -> bool:
+    """Use the later-heading surface's closed syntax only to mark uncertainty."""
+
+    supported_quotes = frozenset("\"'“”‘’«»")
+    name = unicodedata.name(character, "")
+    return (
+        character in "\\`<>"
+        or (
+            character not in supported_quotes
+            and (
+                "QUOTATION" in name
+                or "APOSTROPHE" in name
+                or unicodedata.category(character) in {"Pi", "Pf"}
+            )
+        )
+        or (
+            character not in supported_quotes
+            and character not in "()[]{}"
+            and unicodedata.category(character) in {"Ps", "Pe"}
+        )
+    )
+
+
+def _source_context_checkpoints(
+    source_text: str, positions: Sequence[int]
+) -> dict[int, str]:
+    """Veto known protection only; unsupported prior syntax remains UNKNOWN.
+
+    Consume the same lexical primitive as the legacy annual-role API. Observe
+    before a queried marker's own opener and stop at the last needed offset.
+    Later malformed or unsupported text cannot erase earlier proof states.
+    """
+
+    points = tuple(sorted(set(positions)))
+    if not points:
+        return {}
+    _spans, states = _source_quote_group_walk(source_text, points)
+    return {point: states.get(point, "UNKNOWN") for point in points}
+
+
+@functools.lru_cache(maxsize=256)
+def _annual_source_quoted_spans(text: str) -> tuple[tuple[int, int], ...] | None:
+    """Require balanced source context before inferring a temporal role.
+
+    Word apostrophes and unquoted possessives are punctuation, not delimiters.
+    Unknown mixed quotes or mismatched brackets conservatively reject evidence.
+    """
+
+    return _source_quote_group_walk(text)[0]
 
 
 def _annual_source_evidence(
