@@ -374,6 +374,16 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
         "the step's message specifies; keep the existing routing restrictions.",
     ),
     (
+        "Resolve registered reviewed repair request",
+        "The registered reviewed repair request was refused",
+        "A reviewed repair request in `source_bundle_json` names a patch in "
+        "the code-reviewed registry, is dispatched with `open_pr` false as an "
+        "ordinary full artifact repair, and carries no queue, dependent or "
+        "legacy input.",
+        _REQUEST_WHY,
+        _READ_LOG_FIX,
+    ),
+    (
         "Validate optional authenticated corpus transport request",
         "The corpus transport request in the source bundle is invalid",
         "A corpus-artifact-transport or provision-prefetch wrapper in "

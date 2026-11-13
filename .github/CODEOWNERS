@@ -18,9 +18,11 @@
 /src/axiom_encode/version_provenance.py @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/prepare_signed_backfill.py @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/reviewed_pr_admission.py @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/content_merge_guard.py @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/cli.py @PavelMakarchuk @MaxGhenis
 /scripts/prepare_reviewed_pr_promotion.py @PavelMakarchuk @MaxGhenis
 /tests/test_reviewed_pr_admission.py @PavelMakarchuk @MaxGhenis
+/tests/test_content_merge_guard.py @PavelMakarchuk @MaxGhenis
 /tests/test_prepare_reviewed_pr_promotion.py @PavelMakarchuk @MaxGhenis
 /data/reviewed-rulespec-refs/ @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/corpus_artifact_transport.py @PavelMakarchuk @MaxGhenis
@@ -43,6 +45,11 @@
 /scripts/materialize_corpus_release.py @PavelMakarchuk @MaxGhenis
 /scripts/provision_axiom_compose_runtime.py @PavelMakarchuk @MaxGhenis
 /scripts/prepare_retired_source_metadata.py @PavelMakarchuk @MaxGhenis
+
+# The PR linkage check (Encoding-Target / Fixes-Run). The workflow runs the base
+# branch's checker, but a pull request can still edit the workflow itself.
+/.github/workflows/pr-linkage.yml @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/pr_linkage.py @PavelMakarchuk @MaxGhenis
 
 # This file.
 /.github/CODEOWNERS @PavelMakarchuk @MaxGhenis

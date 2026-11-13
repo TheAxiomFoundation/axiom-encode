@@ -1,0 +1,37 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "origin": "local-diagnostic",
+  "run_id": "local-219g-proof-parenthetical-20261113",
+  "citation": "us/statute/26/219/g",
+  "module_path": "us/statutes/26/219/g.yaml",
+  "policy_prefix": "us",
+  "split": "visible",
+  "recorded_verdict": "rejected",
+  "encoder_commit": "3e46d4122d5f7db1c07a9a398b74de7ee1e0a37e",
+  "encoder_tree": "a4e2a884963e495bbab65b1f5ddfd85d7b640153",
+  "encoder_version": "0.2.2360",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --out /tmp/replay.json",
+  "input_origins": {
+    "candidate.yaml": "tests/fixtures/proof-parenthetical-219g/candidate.yaml",
+    "candidate.test.yaml": "tests/fixtures/proof-parenthetical-219g/candidate.test.yaml",
+    "source.txt": "tests/fixtures/proof-parenthetical-219g/source.txt"
+  },
+  "public_input_provenance": "tests/fixtures/proof-parenthetical-219g/provenance.json",
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "recorded_rules": [
+    "complete-source-unit:deferral",
+    "complete-source-unit:formula-output",
+    "complete-source-unit:numeric-recall",
+    "complete-source-unit:structure",
+    "complete-source-unit:tests"
+  ],
+  "files": {
+    "candidate.yaml": "6c4e54a5eeb420d061f4423d5060253a2b794e58e00dade857d426091f268139",
+    "candidate.test.yaml": "d0d700c4b28981e2e7c5a11666aaec823e7e9ffdb5bf9a03ebdf39eb7da3ae6a",
+    "source.txt": "8f95a886a386e46b6967ed3f41512e8c2952cfb3f2779e2ad46045275f19018b",
+    "issues.json": "e3ffc42f4e64848980a862939d543142e40dba68ca4cd9dd22e83806231acda1"
+  },
+  "capture_entrypoint": "scripts.replay_us_failure_bundles.replay_case (offline Python API)"
+}
