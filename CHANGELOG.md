@@ -1,3 +1,8 @@
+## 0.2.2370
+
+- Register reviewed NL479 and NB Schedule 12 source-binding repairs (#2236)
+- fix: load reviewed repair packages through protected Git (#2233)
+
 ## 0.2.2369
 
 - fix: validate complete retirement transfer execution (#2105)
