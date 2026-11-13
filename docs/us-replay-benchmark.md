@@ -7,7 +7,7 @@ corpus checkout. The `replay benchmark` CI job runs it as a required check.
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 52 committed
+(the `[complete-source-unit:*]` rules of the CI validator) over 54 committed
 fixtures in `tests/fixtures/us_replay_benchmark/`. Hosted fixtures are real candidates from `targeted-reencode-failure` artifacts
 of signed runs:
 
@@ -64,19 +64,28 @@ retains three finding groups because it does not receive the authenticated
 secondary-source context used by ordinary validation; it is not a native receipt
 or a publication result.
 
+Five Canadian form fixtures cover NL479, the New Brunswick seniors' home
+renovation schedule, student-loan interest, child credits and retirement-income
+transfers. They copy existing public candidate and source bytes. The
+student-loan companion exports the existing JSON `cases` value without
+changing scalar types; the retirement-transfer companion preserves the
+existing JSON `companion_raw` string as UTF-8 bytes. Their metadata records
+each export's origin, JSON pointer and hashes. Offline replay retains findings
+that require live execution evidence.
+
 The replay passes the same inputs as `ValidatorPipeline._complete_source_unit_issues`:
 the citation's numeric profile, the companion test cases, imported symbol
 contents, resolved deferral providers and same-act aliases from the source
 metadata. `--no-context` leaves out the last three.
 
-The set has 43 distinct citations: federal statutes, CFR regulations, IRS and
-FNS guidance, state statutes, manuals and guidance, one Canadian CRA guide
-(three runs), three Canadian CRA forms and one Revenu Québec schedule (local
-diagnostics), and one Israeli statute. It has one control (an Arizona candidate
-that passed validation and then failed a provenance guard). The current snapshot
-has 12 clean fixtures and 40 refused fixtures with 3,339 findings. It preserves
-all 51 `bf69726a` main-baseline entries exactly; the new T2036 diagnostic retains
-three finding groups. Read clean counts and per-fixture changes, not only the total.
+The set has 45 distinct citations: federal statutes, CFR regulations, IRS and
+FNS guidance, state statutes, manuals and guidance, eight Canadian citations
+and one Israeli statute. Its 54 fixtures include one Arizona control that passed
+validation and then failed a provenance guard. The current snapshot has 12 clean
+fixtures and 42 refused fixtures with 3,364 findings. It preserves every snapshot
+row from both integration parents unchanged. The child-credit and retirement-transfer
+diagnostics retain six and 19 findings; the section 219(g) diagnostic retains 33.
+Read clean counts and per-fixture changes, not only the total.
 
 ## Public fixtures and the private held-out set
 
