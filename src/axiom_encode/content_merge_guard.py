@@ -15,8 +15,12 @@ The guard stands aside (``not_applicable``) in two cases only:
   module file is listed by one of them, and the required check is green on
   the head from this pull request's own ``pull_request`` run. The guard does
   NOT verify the v5 signature and trusts no label for this: the verdict rests
-  on that CI run, whose workflow files and toolchain pin the pull request
-  cannot have changed, because the lane's scope excludes them.
+  on that CI run. The lane's scope proves that THIS pull request did not
+  change the workflow files or the toolchain pin the run used. It proves
+  nothing about an earlier pull request: whatever changed them and reached
+  ``main`` is the base this run trusts. So this lane is only as strong as
+  the control over changes to those files (design section 3, "Proposed
+  three-class lane").
 
 A guarded delta that no lane claims whole gives ``fail``. When the delta is
 one signed ``applied-rulespec/v6`` promotion unit, the evaluator decides
@@ -77,23 +81,43 @@ UNGUARDED_ROOT_FILES = frozenset(
     {".gitignore", "LICENSE", "LICENSE-CODE", "NOTICE", "README.md"}
 )
 # PROPOSAL, OFF (design section 10, question 0; not a maintainer decision).
-# While this is False the classifier is unchanged: an infrastructure change
-# has no lane and gets ``fail``. When True, a pull request whose whole delta
-# is infrastructure gets ``not_applicable``: the guard stands aside and the
-# pull request merges under the controls it has today (the required
-# ``validate / validate`` check, no enforced approval). A pull request that
-# mixes infrastructure with RuleSpec content or a manifest is refused in both
-# states. The switch is a constant on encoder main, with no runtime override.
+# While this is False the classifier is unchanged: every change outside the
+# manifest lanes has no lane and gets ``fail``. When True, three classes
+# exist (``classify_path``): content keeps its lanes; a control-plane change
+# needs one content-bound approval from an enrolled owner; an
+# infrastructure-only change gets ``not_applicable``. Content mixed with
+# anything else is refused in both states. The switch is a constant on
+# encoder main, with no runtime override.
 INFRASTRUCTURE_LANE_ENABLED = False
-# Top-level directories that hold no generated RuleSpec. ``.axiom`` excludes
-# its ``encoding-manifests`` directory, which is content territory.
-INFRASTRUCTURE_ROOT_DIRECTORIES = frozenset(
-    {".axiom", ".claude", ".github", "bulk", "programs", "tests", "tools"}
+# Top-level directories whose changes run in CI but do not decide what
+# validation accepts. Named control-plane files inside them are excepted.
+INFRASTRUCTURE_ROOT_DIRECTORIES = frozenset({"bulk", "tests", "tools"})
+# Top-level directories that decide what validation runs or accepts, what a
+# program computes, or what the agent sessions do. ``.axiom`` is default-deny:
+# every file in it that is not an apply manifest is control plane.
+CONTROL_PLANE_ROOT_DIRECTORIES = frozenset({".axiom", ".claude", ".github", "programs"})
+# Registers of accepted failures that live among the tools.
+CONTROL_PLANE_FILES = frozenset(
+    {"tools/known-broken-specs.txt", "tools/known-engine-load-failures.txt"}
 )
 PATH_UNGUARDED = "unguarded"
 PATH_CONTENT = "content"
+PATH_CONTROL_PLANE = "control_plane"
 PATH_INFRASTRUCTURE = "infrastructure"
 PATH_UNKNOWN = "unknown"
+# Names with a meaning to the classifier. A segment that equals one of them
+# only after case folding is refused: on a case-insensitive checkout it is
+# the guarded name.
+_GUARDED_NAMES = (
+    UNGUARDED_ROOT_FILES
+    | INFRASTRUCTURE_ROOT_DIRECTORIES
+    | CONTROL_PLANE_ROOT_DIRECTORIES
+    | RULESPEC_ATOMIC_ROOTS
+    | {"encoding-manifests", ".gitattributes", "CLAUDE.md"}
+    | {path.split("/")[1] for path in CONTROL_PLANE_FILES}
+)
+_GUARDED_NAMES_FOLDED = frozenset(name.casefold() for name in _GUARDED_NAMES)
+_PATH_SEGMENT = re.compile(r"[!-.0-\[\]-~]+")  # printable ASCII, no "/" or "\\"
 # Earlier apply-manifest schemas. Their lanes keep their own controls (the
 # approval is checked before signing); this guard does not judge them.
 EARLIER_MANIFEST_SCHEMAS = frozenset({"axiom-encode/applied-rulespec/v5"})
@@ -158,6 +182,7 @@ R_PASS = "content_bound_approval"
 R_NO_GUARDED_CONTENT = "no_guarded_content"
 R_EARLIER_LANE = "earlier_lane_v5"
 R_INFRASTRUCTURE = "infrastructure_as_today"
+R_CONTROL_PLANE_PASS = "control_plane_content_bound_approval"
 R_GUARDED_LEAF = "guarded_leaf_not_regular"
 R_MANIFEST_REMOVED = "manifest_removed"
 R_NO_LANE = "no_lane_for_guarded_change"
@@ -697,23 +722,49 @@ def _is_module_path(path: str, jurisdictions: frozenset[str]) -> bool:
     )
 
 
+def _well_formed(path: object) -> bool:
+    """A canonical repository path the classifier may reason about."""
+    if not isinstance(path, str) or not path:
+        return False
+    for segment in path.split("/"):
+        if (
+            _PATH_SEGMENT.fullmatch(segment) is None
+            or segment in {".", ".."}
+            or (
+                segment.casefold() in _GUARDED_NAMES_FOLDED
+                and segment not in _GUARDED_NAMES
+            )
+        ):
+            return False
+    return True
+
+
 def classify_path(path: str, jurisdictions: frozenset[str]) -> str:
     """Sort one changed path into a class, from the path alone.
 
+    - ``unknown``: a path that is not canonical (empty, an empty or dot
+      segment, a backslash, a control or non-ASCII character, a guarded name
+      in another case), and any top-level directory no class names. No lane.
     - ``unguarded``: the five root files of ``UNGUARDED_ROOT_FILES``.
     - ``content``: where generated RuleSpec and its manifests live. Every
       path at or under a jurisdiction directory (one that holds modules on
       the base, or any name of jurisdiction shape, so a new jurisdiction is
-      never infrastructure), every path at or under an atomic root at the
+      never another class), every path at or under an atomic root at the
       repository root, and every apply-manifest directory. The class is
       deliberately wide: ``us-mo/manual/...``, ``us-az/.axiom/...`` and
       ``us-az/README.md`` are content, because the encoder does not own the
       list of what the engine loads below a jurisdiction.
-    - ``infrastructure``: a path under one of
-      ``INFRASTRUCTURE_ROOT_DIRECTORIES``, or a file at the repository root
-      (ledgers, ``.gitattributes``, ``CLAUDE.md``).
-    - ``unknown``: any other top-level directory. It has no lane.
+    - ``control_plane``: what decides which validation runs, what it accepts,
+      what a program computes and what the agent sessions do. Everything
+      under ``CONTROL_PLANE_ROOT_DIRECTORIES`` (``.axiom`` without its
+      manifests), ``CONTROL_PLANE_FILES``, and every other file at the
+      repository root (the ``known-*.yaml`` registers,
+      ``oracle-coverage-pending.yaml``, ``household-choices.yaml``,
+      ``.gitattributes``, ``CLAUDE.md``, and any new root file).
+    - ``infrastructure``: the rest of ``INFRASTRUCTURE_ROOT_DIRECTORIES``.
     """
+    if not _well_formed(path):
+        return PATH_UNKNOWN
     if _is_unguarded(path):
         return PATH_UNGUARDED
     head = path.split("/")[0]
@@ -724,9 +775,142 @@ def classify_path(path: str, jurisdictions: frozenset[str]) -> str:
         or _JURISDICTION.fullmatch(head) is not None
     ):
         return PATH_CONTENT
-    if "/" not in path or head in INFRASTRUCTURE_ROOT_DIRECTORIES:
+    if (
+        "/" not in path
+        or head in CONTROL_PLANE_ROOT_DIRECTORIES
+        or path in CONTROL_PLANE_FILES
+    ):
+        return PATH_CONTROL_PLANE
+    if head in INFRASTRUCTURE_ROOT_DIRECTORIES:
         return PATH_INFRASTRUCTURE
     return PATH_UNKNOWN
+
+
+def _control_plane_verdict(
+    read,
+    root,
+    pr_path,
+    before,
+    target,
+    identity,
+    base,
+    head,
+    head_leaves,
+    delta,
+    evidence,
+) -> Verdict:
+    """One content-bound approval from an enrolled owner, for the whole delta.
+
+    The binding is the one of the v6 lane, over every path of the delta: an
+    approval on commit ``C`` counts when the delta of ``C`` against its merge
+    base with ``main`` has the same paths and, for each path, the same blob
+    (or the same absence) as the head. There is no manifest, no signature and
+    no dispatcher. The approver is enrolled, is not the pull request author,
+    and is not the author or committer of any commit.
+    """
+    number, author_id = target.pr, identity[1]
+    if before.get("draft") is not False:
+        raise _Refusal(R_PR_DRAFT, "a draft pull request has no merge verdict")
+    with _refuse_as(R_COMMITS):
+        commits = _pages(read, pr_path + "/commits")
+        commit_shas = _commit_shas(commits)
+        if before.get("commits") != len(commits) or head not in commit_shas:
+            raise AdmissionError("PR commit list is incomplete")
+        commit_actors: set[int] = set()
+        for commit in commits:
+            commit_actors |= _actor_ids(commit)
+    with _refuse_as(R_REVIEWS):
+        reviews = _pages(read, pr_path + "/reviews")
+        effective = _effective_reviews(reviews)
+    for reviewer_id, review in effective.items():
+        if review["state"] == "CHANGES_REQUESTED" and (
+            reviewer_id in TRUSTED_SIGNING_REVIEWERS
+            or review.get("author_association") in BLOCKING_ASSOCIATIONS
+            or not isinstance(review.get("author_association"), str)
+        ):
+            raise _Refusal(R_CHANGES_REQUESTED, f"review {review['id']}")
+
+    def leaf(leaves, path):
+        entry = leaves.get(path)
+        return None if entry is None else (entry["type"], entry["mode"], entry["sha"])
+
+    def content_bound(commit):
+        if not isinstance(commit, str) or commit not in commit_shas:
+            return False
+        with _refuse_as(R_DELTA_INCOMPLETE):
+            ancestry = _object(read(f"{root}/compare/{base}...{commit}"), "ancestry")
+            fork = _object(ancestry.get("merge_base_commit"), "merge base").get("sha")
+            if not isinstance(fork, str) or not _SHA.fullmatch(fork):
+                raise AdmissionError("approved commit has no merge base with main")
+            approved = _leaf_entries(
+                _object(read(f"{root}/git/trees/{commit}?recursive=1"), "approved tree")
+            )
+            forked = _leaf_entries(
+                _object(read(f"{root}/git/trees/{fork}?recursive=1"), "fork tree")
+            )
+        return set(_delta(forked, approved)) == set(delta) and all(
+            leaf(approved, path) == leaf(head_leaves, path) for path in delta
+        )
+
+    approvals, rejected = [], []
+    for reviewer_id in sorted(effective):
+        review = effective[reviewer_id]
+        if review["state"] != "APPROVED":
+            continue
+        reviewer = review["user"]
+        if (
+            reviewer_id not in TRUSTED_SIGNING_REVIEWERS
+            or reviewer.get("login") != TRUSTED_SIGNING_REVIEWERS[reviewer_id]
+            or reviewer.get("type") != "User"
+        ):
+            reason = R_NOT_ENROLLED
+        elif reviewer_id == author_id:
+            reason = R_IS_AUTHOR
+        elif reviewer_id in commit_actors:
+            reason = R_AUTHORED_COMMITS
+        elif not content_bound(review.get("commit_id")):
+            reason = R_NOT_CONTENT_BOUND
+        else:
+            approvals.append(
+                {
+                    "review_id": review["id"],
+                    "reviewer_id": reviewer_id,
+                    "commit_id": review["commit_id"],
+                }
+            )
+            continue
+        rejected.append(
+            {"review_id": review["id"], "reviewer_id": reviewer_id, "reason": reason}
+        )
+    if not approvals:
+        evidence["rejected_approvals"] = rejected
+        reasons = {item["reason"] for item in rejected}
+        raise _Refusal(
+            R_NO_APPROVAL
+            if not rejected
+            else reasons.pop()
+            if len(reasons) == 1
+            else R_NO_COUNTING_APPROVAL,
+            "no enrolled, independent approval is bound to the head content",
+        )
+    evidence["approvals"] = approvals
+    evidence["review_id"] = approvals[0]["review_id"]
+    evidence["reviewer_id"] = approvals[0]["reviewer_id"]
+    evidence["paths"] = sorted(delta)
+    with _refuse_as(R_CI):
+        ci_state = _require_green_ci(read, root, head, number)
+    with _refuse_as(R_CHANGED):
+        after = _object(read(pr_path), "PR recheck")
+        if (
+            _pr_identity(after, target) != identity
+            or after.get("draft") is not False
+            or _main_tip(read, root) != base
+            or _pages(read, pr_path + "/reviews") != reviews
+        ):
+            raise AdmissionError("PR, main or reviews changed during evaluation")
+        if _require_green_ci(read, root, head, number) != ci_state:
+            raise AdmissionError("required CI changed during evaluation")
+    return Verdict(PASS, R_CONTROL_PLANE_PASS, "", evidence)
 
 
 def _manifest_module(manifest_path: str) -> str | None:
@@ -880,19 +1064,35 @@ def _evaluate(name, number, read, evidence) -> Verdict:
             evidence,
         )
     if INFRASTRUCTURE_LANE_ENABLED is True:
-        # Proposal, off. The whole delta must be infrastructure (allowlisted
-        # files may ride along); one content or unknown path leaves the pull
-        # request to the lanes below, which refuse a mixed delta.
+        # Proposal, off. Every path of the delta, the allowlisted ones too,
+        # must be infrastructure or control plane; one content or unknown
+        # path leaves the pull request to the lanes below, which refuse a
+        # mixed delta. One control-plane path puts the whole delta under the
+        # approval. A changed leaf that is not a regular 100644 file was
+        # refused above, so an executable tool has no lane here either.
         jurisdictions = _base_jurisdictions(base_leaves)
-        if all(
-            classify_path(path, jurisdictions) == PATH_INFRASTRUCTURE
-            for path in guarded
-        ):
+        classes = {classify_path(path, jurisdictions) for path in guarded}
+        if classes <= {PATH_INFRASTRUCTURE, PATH_CONTROL_PLANE}:
+            if PATH_CONTROL_PLANE in classes:
+                return _control_plane_verdict(
+                    read,
+                    root,
+                    pr_path,
+                    before,
+                    target,
+                    identity,
+                    base,
+                    head,
+                    head_leaves,
+                    delta,
+                    evidence,
+                )
             return Verdict(
                 NOT_APPLICABLE,
                 R_INFRASTRUCTURE,
-                "infrastructure only: no RuleSpec content and no manifest; "
-                "the pull request keeps the controls it has today",
+                "infrastructure only: no RuleSpec content, no manifest and no "
+                "control-plane file; the pull request keeps the controls it "
+                "has today",
                 evidence,
             )
     manifests = [path for path in guarded if _manifest_area(path) not in (None, "leaf")]
