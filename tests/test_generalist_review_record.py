@@ -1435,6 +1435,35 @@ def test_reader_refuses_a_manifest_whose_record_is_inconsistent(tmp_path, path, 
     assert added and all("manifest generalist_review" in issue for issue in added)
 
 
+@pytest.mark.parametrize(
+    ("path", "value", "check"),
+    [
+        (("status",), "approved", "manifest:generalist-review/shape"),
+        (("verdict", "passed"), False, "manifest:generalist-review/verdict"),
+        (
+            ("applied", "rulespec_sha256"),
+            OTHER_SHA,
+            "manifest:generalist-review/binding",
+        ),
+    ],
+)
+def test_reader_findings_are_typed_issues_of_declared_checks(
+    tmp_path, path, value, check
+):
+    from axiom_encode import checks
+
+    payload, _ = _write_manifest(tmp_path, per_file=True, review_state=_bound_state())
+    baseline = _schema_issues(payload)
+    payload[GENERALIST_REVIEW_FIELD] = _tampered(
+        payload[GENERALIST_REVIEW_FIELD], path, value
+    )
+
+    added = [issue for issue in _schema_issues(payload) if issue not in baseline]
+    assert [issue.check for issue in added] == [check]
+    assert added[0].startswith("manifest generalist_review ")
+    assert check in checks.load_checks()
+
+
 def test_reader_refuses_a_pass_bound_to_a_file_the_manifest_does_not_apply(tmp_path):
     payload, _ = _write_manifest(tmp_path, per_file=True, review_state=_bound_state())
     baseline = _schema_issues(payload)

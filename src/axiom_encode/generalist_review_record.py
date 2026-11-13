@@ -50,6 +50,8 @@ from typing import Any, Iterable, Mapping
 
 import yaml
 
+from axiom_encode.checks import ValidationIssue, declare_check
+
 GENERALIST_REVIEW_FIELD = "generalist_review"
 GENERALIST_REVIEW_SCHEMA = "axiom-encode/generalist-review/v1"
 GENERALIST_REVIEWER_NAME = "generalist-reviewer"
@@ -74,6 +76,58 @@ _REASONS_BY_STATUS = {
     ),
     STATUS_SKIPPED: frozenset({REASON_SKIP_FLAG, REASON_NOT_RUN}),
 }
+
+_RECORD_WHY = (
+    "The record is the only statement in a signed manifest about whether a "
+    "model reviewed the applied module; a wrong record reads as a review."
+)
+_RECORD_FIX = (
+    "Do not edit a signed manifest. Run encode --apply again so the encoder "
+    "writes and signs the record itself."
+)
+_RECORD_SITE = (
+    "axiom_encode/generalist_review_record.py:generalist_review_record_issues"
+)
+CHECK_REVIEW_RECORD_SHAPE = declare_check(
+    "manifest:generalist-review/shape",
+    title="Generalist review record is malformed",
+    requires=(
+        "The record has the exact v1 fields, a supported status and reason, "
+        "and well-formed reviewer, verdict and digest values."
+    ),
+    why=_RECORD_WHY,
+    fix=_RECORD_FIX,
+    cause="encoder_output",
+    gate="manifest",
+    site=_RECORD_SITE,
+)
+CHECK_REVIEW_RECORD_VERDICT = declare_check(
+    "manifest:generalist-review/verdict",
+    title="Generalist review status contradicts its verdict",
+    requires=(
+        "A passed or failed status carries the matching verdict, a pass is at "
+        "or above the threshold, an unscored status carries no verdict, and a "
+        "required review is passed."
+    ),
+    why=_RECORD_WHY,
+    fix=_RECORD_FIX,
+    cause="encoder_output",
+    gate="manifest",
+    site=_RECORD_SITE,
+)
+CHECK_REVIEW_RECORD_BINDING = declare_check(
+    "manifest:generalist-review/binding",
+    title="Generalist review verdict is not bound to the applied files",
+    requires=(
+        "A passed or failed record has equal reviewed and applied content "
+        "digests and names applied file digests that the manifest lists."
+    ),
+    why=_RECORD_WHY,
+    fix=_RECORD_FIX,
+    cause="encoder_output",
+    gate="manifest",
+    site=_RECORD_SITE,
+)
 
 PASS_SCORE_THRESHOLD = 7.0
 _MAX_SCORE = 10.0
@@ -383,7 +437,7 @@ def build_generalist_review_record(
 def generalist_review_record_issues(
     record: object,
     applied_sha256s: Iterable[str],
-) -> list[str]:
+) -> list[ValidationIssue]:
     """Return every reason ``record`` is not a well-formed, bound record.
 
     This is the reader's check, from the manifest alone. A record that says
@@ -394,25 +448,57 @@ def generalist_review_record_issues(
     """
 
     if not isinstance(record, dict):
-        return ["generalist_review is not an object"]
+        return [
+            ValidationIssue(
+                "generalist_review is not an object", check=CHECK_REVIEW_RECORD_SHAPE
+            )
+        ]
     if frozenset(record) != _RECORD_FIELDS:
-        return ["generalist_review has an unexpected field set"]
-    problems: list[str] = []
+        return [
+            ValidationIssue(
+                "generalist_review has an unexpected field set",
+                check=CHECK_REVIEW_RECORD_SHAPE,
+            )
+        ]
+    issues: list[ValidationIssue] = []
     if record["schema"] != GENERALIST_REVIEW_SCHEMA:
-        problems.append("generalist_review schema is unsupported")
+        issues.append(
+            ValidationIssue(
+                "generalist_review schema is unsupported",
+                check=CHECK_REVIEW_RECORD_SHAPE,
+            )
+        )
     status = record["status"]
     reason = record["reason"]
     if not isinstance(status, str) or status not in STATUSES:
-        return problems + ["generalist_review status is unsupported"]
+        return issues + [
+            ValidationIssue(
+                "generalist_review status is unsupported",
+                check=CHECK_REVIEW_RECORD_SHAPE,
+            )
+        ]
     if not (reason is None or isinstance(reason, str)) or (
         reason not in _REASONS_BY_STATUS[status]
     ):
-        problems.append("generalist_review reason does not match its status")
+        issues.append(
+            ValidationIssue(
+                "generalist_review reason does not match its status",
+                check=CHECK_REVIEW_RECORD_SHAPE,
+            )
+        )
     if not isinstance(record["required"], bool):
-        problems.append("generalist_review required is not a boolean")
+        issues.append(
+            ValidationIssue(
+                "generalist_review required is not a boolean",
+                check=CHECK_REVIEW_RECORD_SHAPE,
+            )
+        )
     elif record["required"] and status != STATUS_PASSED:
-        problems.append(
-            "generalist_review was required but the recorded status is " + status
+        issues.append(
+            ValidationIssue(
+                "generalist_review was required but the recorded status is " + status,
+                check=CHECK_REVIEW_RECORD_VERDICT,
+            )
         )
 
     reviewer = record["reviewer"]
@@ -429,7 +515,12 @@ def generalist_review_record_issues(
         or not isinstance(applied_block, dict)
         or frozenset(applied_block) != _APPLIED_FIELDS
     ):
-        return problems + ["generalist_review has a malformed nested object"]
+        return issues + [
+            ValidationIssue(
+                "generalist_review has a malformed nested object",
+                check=CHECK_REVIEW_RECORD_SHAPE,
+            )
+        ]
 
     backend = reviewer["backend"]
     model = reviewer["model"]
@@ -445,7 +536,12 @@ def generalist_review_record_issues(
             )
         )
     ):
-        problems.append("generalist_review reviewer identity is malformed")
+        issues.append(
+            ValidationIssue(
+                "generalist_review reviewer identity is malformed",
+                check=CHECK_REVIEW_RECORD_SHAPE,
+            )
+        )
 
     passed = verdict["passed"]
     score = verdict["score"]
@@ -453,9 +549,19 @@ def generalist_review_record_issues(
     prompt_sha256 = record["prompt_sha256"]
     content_complete = reviewed["content_complete"]
     if isinstance(issue_count, bool) or not isinstance(issue_count, int):
-        problems.append("generalist_review issue_count is not an integer")
+        issues.append(
+            ValidationIssue(
+                "generalist_review issue_count is not an integer",
+                check=CHECK_REVIEW_RECORD_SHAPE,
+            )
+        )
     elif issue_count < 0:
-        problems.append("generalist_review issue_count is negative")
+        issues.append(
+            ValidationIssue(
+                "generalist_review issue_count is negative",
+                check=CHECK_REVIEW_RECORD_SHAPE,
+            )
+        )
 
     scored = reason in {None, REASON_CONTENT_NOT_APPLIED}
     if not scored:
@@ -470,10 +576,13 @@ def generalist_review_record_issues(
             or backend is not None
             or model is not None
         ):
-            problems.append(
-                "generalist_review carries a verdict for a review that has none"
+            issues.append(
+                ValidationIssue(
+                    "generalist_review carries a verdict for a review that has none",
+                    check=CHECK_REVIEW_RECORD_VERDICT,
+                )
             )
-        return problems
+        return issues
 
     if (
         not isinstance(passed, bool)
@@ -485,28 +594,54 @@ def generalist_review_record_issues(
         or not _is_sha256(reviewed["test_content_sha256"])
         or not (content_complete is None or isinstance(content_complete, bool))
     ):
-        return problems + ["generalist_review scored verdict is malformed"]
+        return issues + [
+            ValidationIssue(
+                "generalist_review scored verdict is malformed",
+                check=CHECK_REVIEW_RECORD_SHAPE,
+            )
+        ]
     if passed and float(score) < PASS_SCORE_THRESHOLD:
-        problems.append("generalist_review verdict passes below the pass threshold")
+        issues.append(
+            ValidationIssue(
+                "generalist_review verdict passes below the pass threshold",
+                check=CHECK_REVIEW_RECORD_VERDICT,
+            )
+        )
     if status == STATUS_PASSED and not passed:
-        problems.append("generalist_review status passed contradicts its verdict")
+        issues.append(
+            ValidationIssue(
+                "generalist_review status passed contradicts its verdict",
+                check=CHECK_REVIEW_RECORD_VERDICT,
+            )
+        )
     if status == STATUS_FAILED and passed:
-        problems.append("generalist_review status failed contradicts its verdict")
+        issues.append(
+            ValidationIssue(
+                "generalist_review status failed contradicts its verdict",
+                check=CHECK_REVIEW_RECORD_VERDICT,
+            )
+        )
     if status == STATUS_UNAVAILABLE:
         if any(applied_block[field] is not None for field in _DIGEST_FIELDS):
-            problems.append(
-                "generalist_review says the reviewed content was not applied, "
-                "but names an applied file"
+            issues.append(
+                ValidationIssue(
+                    "generalist_review says the reviewed content was not applied, "
+                    "but names an applied file",
+                    check=CHECK_REVIEW_RECORD_BINDING,
+                )
             )
-        return problems
+        return issues
     manifest_digests = {digest for digest in applied_sha256s if _is_sha256(digest)}
     if (
         applied_block["rulespec_content_sha256"] != reviewed["rulespec_content_sha256"]
         or applied_block["test_content_sha256"] != reviewed["test_content_sha256"]
     ):
-        problems.append(
-            "generalist_review verdict is on content that differs from the "
-            "applied content"
+        issues.append(
+            ValidationIssue(
+                "generalist_review verdict is on content that differs from the "
+                "applied content",
+                check=CHECK_REVIEW_RECORD_BINDING,
+            )
         )
     if applied_block["rulespec_sha256"] not in manifest_digests or not (
         applied_block["test_sha256"] in manifest_digests
@@ -515,10 +650,13 @@ def generalist_review_record_issues(
             and applied_block["test_content_sha256"] == _ABSENT_TEST_CONTENT_SHA256
         )
     ):
-        problems.append(
-            "generalist_review verdict is not bound to the applied file digests"
+        issues.append(
+            ValidationIssue(
+                "generalist_review verdict is not bound to the applied file digests",
+                check=CHECK_REVIEW_RECORD_BINDING,
+            )
         )
-    return problems
+    return issues
 
 
 def require_review_setting(

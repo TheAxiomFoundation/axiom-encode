@@ -29223,7 +29223,7 @@ def _applied_manifest_exact_schema_issues(
     if GENERALIST_REVIEW_FIELD in payload and contract == "model":
         applied_entries = payload.get("applied_files")
         issues.extend(
-            f"{manifest_label} {issue}"
+            ValidationIssue(f"{manifest_label} {issue}", check=issue.check)
             for issue in generalist_review_record_issues(
                 payload[GENERALIST_REVIEW_FIELD],
                 [
