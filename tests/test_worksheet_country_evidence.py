@@ -154,7 +154,9 @@ def test_actual_source_three_boundary_cases_and_exact_projection():
 
 @pytest.mark.parametrize("first", [False, True])
 @pytest.mark.parametrize("vector", [{"existing_child": 150}, [150, 150]])
-def test_unrelated_table_case_does_not_supply_or_disable_country_evidence(first, vector):
+def test_unrelated_table_case_does_not_supply_or_disable_country_evidence(
+    first, vector
+):
     payload, cases = fixture()
     baseline = certify(payload, cases)
     unrelated = {
