@@ -332,6 +332,122 @@ def test_wrong_clamped_branch_without_a_live_case_keeps_its_demand(
     assert any("`max(0, unmet_need)`" in issue for issue in after)
 
 
+@pytest.mark.parametrize(
+    ("formula", "income", "expected", "clamp_reached", "input_read"),
+    [
+        (
+            "if household_eligible and max(0, unmet_need) > 10: 1\nelse: 0",
+            900,
+            0,
+            False,
+            False,
+        ),
+        (
+            "if household_eligible and max(0, unmet_need) > 10: 1\nelse: 0",
+            100,
+            0,
+            True,
+            True,
+        ),
+        (
+            "if not household_eligible or max(0, unmet_need) > 10: 0\nelse: 1",
+            900,
+            0,
+            False,
+            False,
+        ),
+        (
+            "if not household_eligible or max(0, unmet_need) > 10: 0\nelse: 1",
+            100,
+            1,
+            True,
+            True,
+        ),
+        (
+            "if unmet_need < 0 or max(0, unmet_need) > 10: 0\nelse: 1",
+            100,
+            0,
+            False,
+            True,
+        ),
+        (
+            "if countable_income < 100.00000000000000000001 or max(0, unmet_need) > 10: 0\n"
+            "else: 1",
+            100,
+            0,
+            False,
+            False,
+        ),
+        (
+            "if household_eligible and max(0, unmet_need) > 10: 1\nelse: unmet_need + 1",
+            900,
+            0,
+            False,
+            True,
+        ),
+    ],
+)
+def test_clamp_credit_follows_actual_short_circuit_execution(
+    real_engine,
+    tmp_path,
+    monkeypatch,
+    formula,
+    income,
+    expected,
+    clamp_reached,
+    input_read,
+):
+    root = tmp_path.resolve() / "rulespec-us" / "us"
+    module = root / "statutes/7/9999.yaml"
+    module.parent.mkdir(parents=True)
+    payload = yaml.safe_load(MODULE)
+    payload["rules"][-1]["versions"][0]["formula"] = formula
+    module.write_text(yaml.safe_dump(payload, sort_keys=False))
+    case = {
+        "name": "negative shortfall",
+        "period": "2026-01",
+        "input": {
+            f"{TARGET}#input.countable_income": income,
+            f"{TARGET}#input.unmet_need": -1,
+        },
+        "output": {
+            f"{TARGET}#household_eligible": "holds" if income < 500 else "not_holds",
+            f"{TARGET}#countable_shortfall": expected,
+        },
+    }
+    pipeline = _pipeline(root, real_engine.root, monkeypatch)
+    compiled_path = tmp_path / "compiled.json"
+    compiled_result, compiled = pipeline._compile_rulespec_to_artifact(
+        module, compiled_path
+    )
+    assert compiled_result.returncode == 0, compiled_result.stderr
+
+    def execute(proposed):
+        return pipeline._rulespec_case_engine_outputs(
+            rules_file=module,
+            compiled_path=compiled_path,
+            compiled_payload=compiled,
+            case=proposed,
+            output_keys=tuple(case["output"]),
+        )
+
+    assert execute(case) == case["output"]
+    absent = {
+        **case,
+        "input": {
+            key: value
+            for key, value in case["input"].items()
+            if key != f"{TARGET}#input.unmet_need"
+        },
+    }
+    assert execute(absent) == (None if input_read else case["output"])
+    missing = any(
+        "`max(0, unmet_need)` in `countable_shortfall`" in issue
+        for issue in _tests_issues(pipeline, module, [case])
+    )
+    assert missing is not clamp_reached
+
+
 def test_unasserted_output_is_left_for_the_model(real_engine, tmp_path, monkeypatch):
     """V5: an output encoded as the opposite of the source is never asserted
     on the model's behalf."""

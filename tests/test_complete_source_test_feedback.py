@@ -6,12 +6,15 @@ from __future__ import annotations
 import functools
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode import cli as cli_module
 from axiom_encode.checks import ValidationIssue, retype
 from axiom_encode.harness.source_completeness import (
     MISSING_BOUNDARY_DETAIL_MARKER,
     CompanionTestObligation,
+    _expression_reaches_direct_clamp,
     analyze_complete_source_unit,
 )
 from axiom_encode.harness.validator_pipeline import (
@@ -431,6 +434,131 @@ def test_clamp_evidence_must_be_on_the_owner_path(countable_income, eligible, cr
         for issue in result.issues
     )
     assert clamp_missing is not credited
+
+
+@pytest.mark.parametrize(
+    ("formula", "income", "expected", "reached"),
+    [
+        (
+            "if household_eligible and max(0, unmet_need) > 10: 1\nelse: 0",
+            900,
+            0,
+            False,
+        ),
+        ("if household_eligible and max(0, unmet_need) > 10: 1\nelse: 0", 100, 0, True),
+        (
+            "if not household_eligible or max(0, unmet_need) > 10: 0\nelse: 1",
+            900,
+            0,
+            False,
+        ),
+        (
+            "if not household_eligible or max(0, unmet_need) > 10: 0\nelse: 1",
+            100,
+            1,
+            True,
+        ),
+        # RuleSpec refuses chained comparisons; neither path can earn credit.
+        ("if 0 > 1 > max(0, unmet_need): 1\nelse: 0", 100, 0, False),
+        ("if 0 < 1 < max(0, unmet_need): 1\nelse: 0", 100, 0, False),
+        # Reading this input elsewhere does not execute the max call.
+        ("if unmet_need < 0 or max(0, unmet_need) > 10: 0\nelse: 1", 100, 0, False),
+        (
+            "if countable_income < 100.00000000000000000001 or max(0, unmet_need) > 10: 0\n"
+            "else: 1",
+            100,
+            0,
+            False,
+        ),
+        (
+            "if household_eligible and max(0, unmet_need) > 10: 1\nelse: unmet_need + 1",
+            900,
+            0,
+            False,
+        ),
+        ("if opaque_status and max(0, unmet_need) > 10: 1\nelse: 0", 100, 0, False),
+    ],
+)
+def test_clamp_call_itself_must_be_reached(formula, income, expected, reached):
+    content = HEADER.replace("__FORMULA__", "countable_income < income_limit").replace(
+        "  - name: member_age\n",
+        "  - name: unmet_need\n    entity: Household\n    dtype: Money\n"
+        "    period: Month\n  - name: member_age\n",
+    ) + GUARDED_CLAMP_RULES.replace(
+        "if household_eligible: max(0, unmet_need)\n          else: 0",
+        formula.replace("\n", "\n          "),
+    )
+    case = _case(
+        "negative need",
+        {
+            "household_eligible": "holds" if income < 500 else "not_holds",
+            "unmet_need_considered": expected,
+        },
+        countable_income=income,
+        unmet_need=-1,
+    )
+    result = _analyze(content, [*ELIGIBILITY_CASES, case])
+    missing = any(
+        "`max(0, unmet_need)` in `unmet_need_considered`" in issue
+        for issue in result.issues
+    )
+    assert missing is not reached
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "opaque(max(0, unmet_need))",
+        "unknown + max(0, unmet_need)",
+        "unknown and max(0, unmet_need) > 0",
+        "max(0, unmet_need) if unknown else 0",
+        "0 > 1 > max(0, unmet_need)",
+        "0 < 1 < max(0, unmet_need)",
+        "not valid RuleSpec syntax!",
+    ],
+)
+def test_opaque_or_unresolved_clamp_expressions_fail_closed(text):
+    assert not _expression_reaches_direct_clamp(
+        text, input_name="unmet_need", environment={"unmet_need": -1}
+    )
+
+
+_CLAMP_EXPRESSIONS = st.recursive(
+    st.sampled_from(
+        [
+            "gate",
+            "other",
+            "unmet_need < 0",
+            "max(0, unmet_need) > 0",
+        ]
+    ),
+    lambda children: st.one_of(
+        st.tuples(children, children).map(lambda pair: f"({pair[0]}) and ({pair[1]})"),
+        st.tuples(children, children).map(lambda pair: f"({pair[0]}) or ({pair[1]})"),
+        children.map(lambda child: f"not ({child})"),
+    ),
+    max_leaves=12,
+)
+
+
+@settings(max_examples=100, deadline=None, derandomize=True)
+@given(_CLAMP_EXPRESSIONS, st.booleans(), st.booleans(), st.integers(-100, -1))
+def test_clamp_reachability_matches_executed_boolean_expressions(
+    expression, gate, other, unmet_need
+):
+    calls = []
+
+    def observed_max(zero, value):
+        calls.append((zero, value))
+        return max(zero, value)
+
+    environment = {"gate": gate, "other": other, "unmet_need": unmet_need}
+    # Closed generated expressions only; observe actual operator evaluation
+    # independently of the AST walker, including nested short circuits.
+    eval(expression, {"__builtins__": {}}, {**environment, "max": observed_max})
+    assert _expression_reaches_direct_clamp(
+        expression, input_name="unmet_need", environment=environment
+    ) is bool(calls)
 
 
 RANKING_SOURCE = """\

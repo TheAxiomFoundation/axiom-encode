@@ -21752,6 +21752,52 @@ def _selected_formula_structural_source_branches(
     )
 
 
+def _expression_reaches_direct_clamp(
+    text: str,
+    *,
+    input_name: str,
+    environment: dict[str, Any],
+) -> bool:
+    """Find a reached clamp call, honoring expression short-circuiting."""
+
+    expression = _parse_formula_expression(text)
+    if (
+        expression is None
+        or _evaluate_rulespec_expression(expression, environment)
+        is _UNRESOLVED_CONDITION_VALUE
+    ):
+        return False
+
+    def visit(node: ast.AST) -> bool:
+        if isinstance(node, ast.BoolOp):
+            for item in node.values:
+                if visit(item):
+                    return True
+                value = _evaluate_rulespec_expression(item, environment)
+                if value is _UNRESOLVED_CONDITION_VALUE:
+                    return False
+                if isinstance(node.op, ast.And) and not bool(value):
+                    return False
+                if isinstance(node.op, ast.Or) and bool(value):
+                    return False
+            return False
+        if isinstance(node, ast.Compare):
+            # RuleSpec accepts one comparison per expression. Do not infer
+            # execution from Python-only chained-comparison syntax.
+            return len(node.ops) == 1 and (
+                visit(node.left) or visit(node.comparators[0])
+            )
+        if isinstance(node, ast.Call):
+            match = _DIRECT_LOCAL_INPUT_NONNEGATIVE_CLAMP.fullmatch(
+                _formula_expression_source(node)
+            )
+            if match is not None and match.group("input") == input_name:
+                return True
+        return any(visit(child) for child in ast.iter_child_nodes(node))
+
+    return visit(expression)
+
+
 def _case_execution_may_reach_direct_clamp(
     rule: dict[str, Any],
     case: dict[str, Any],
@@ -21787,14 +21833,24 @@ def _case_execution_may_reach_direct_clamp(
         )
         if execution is None:
             continue
+        execution_environment = _case_formula_identifier_environment(
+            case,
+            formula_environment=formula_environment,
+            dependency_environment=environment,
+        )
+        if execution_environment is None:
+            return False
         texts = (
             execution.leaf,
             *(selector for step in execution.trace for selector in step.selectors),
         )
         return any(
-            match.group("input") == input_name
+            _expression_reaches_direct_clamp(
+                text,
+                input_name=input_name,
+                environment=execution_environment,
+            )
             for text in texts
-            for match in _DIRECT_LOCAL_INPUT_NONNEGATIVE_CLAMP.finditer(text)
         )
     return False
 
