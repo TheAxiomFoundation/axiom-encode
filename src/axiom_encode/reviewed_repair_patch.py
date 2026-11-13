@@ -64,6 +64,26 @@ class ReviewedPatchRegistration:
 
 REVIEWED_REPAIR_PATCHES = MappingProxyType(
     {
+        "ca-schedule2-2025-full60-seed43376780727": ReviewedPatchRegistration(
+            commit="0ffaf1799c4754247b2f44a1ab5d6a0f8a5da1dc",
+            members=(
+                (
+                    "c708ed808b766ed85689771ae0efb0da272d8544",
+                    "f67186b7a3b48f7d76b21c446eff0eb73cafc596f4b6e50645cd9d2243b7fdd7",
+                    5356,
+                ),
+                (
+                    "6ff92eccddd5995479262911bc60c91389a92198",
+                    "ed8df5a3c7a8370f1f9840f057991117fdfe76780fa5ab524f152400175d2fa4",
+                    44872,
+                ),
+                (
+                    "d8c44e0a95d0850783300a8ec79a64f417cbdc32",
+                    "0ef5c2e190ecdc9769dfdb37f8a632a01409ec918f81dd0793d060f24fa30f2a",
+                    180615,
+                ),
+            ),
+        ),
         "issue233-ca-schedule-m-2025-43445779735": ReviewedPatchRegistration(
             commit="3b962ac0a5e845b25bbee1708c5a6489f08b85d4",
             members=(
