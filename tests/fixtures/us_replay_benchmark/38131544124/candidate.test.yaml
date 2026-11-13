@@ -1,0 +1,282 @@
+- name: Joint return is ineligible when either spouse is claimed as a dependent (the
+    claimable spouse is the head)
+  period:
+    period_kind: tax_year
+    start: '2021-01-01'
+    end: '2021-12-31'
+  input:
+    us-va:statutes/58.1/58/1-339/8#input.family_virginia_adjusted_gross_income: 0
+    us-va:statutes/58.1/58/1-339/8#input.poverty_guideline_amount_for_household_size: 17420
+    us-va:statutes/58.1/58/1-339/8#input.separate_married_returns_claim_this_credit_on_only_one_return: true
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_claimable_as_dependent_elsewhere: true
+    us-va:statutes/58.1/58/1-339/8#input.spouse_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_claimed_as_dependent_on_another_return: true
+    us-va:statutes/58.1/58/1-339/8#input.spouse_claimed_as_dependent_on_another_return: false
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_dependent_claimant_filing_exception: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_dependent_claimant_filing_exception: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_is_present: true
+    us-va:statutes/58.1/58/1-339/8#input.counted_individual_spouse_and_dependent_count: 2
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_8_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_15_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_16_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.additional_personal_exemption_for_blind_or_aged_taxpayers_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.deduction_under_section_58_1_322_03_subdivision_5_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_1_credit: true
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_2_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_3_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_liability: 500
+    us-va:statutes/58.1/58/1-339/8#input.eligible_for_federal_credit_pursuant_to_section_32: false
+    us-va:statutes/58.1/58/1-339/8#input.federal_section_32_credit_claimed: 0
+    us-va:statutes/58.1/58/1-339/8#input.nonresident_or_person_to_which_section_58_1_303_applies: false
+    us-va:statutes/58.1/58/1-339/8#input.taxable_year_is_before_refundable_credit_window_ends: false
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_return_claimed_refundable_credit: false
+  output:
+    us-va:statutes/58.1/58/1-339/8#low_income_nonrefundable_credit: 0
+- name: Joint return is ineligible when either spouse is claimed as a dependent (the
+    claimable spouse is the spouse)
+  period:
+    period_kind: tax_year
+    start: '2021-01-01'
+    end: '2021-12-31'
+  input:
+    us-va:statutes/58.1/58/1-339/8#input.family_virginia_adjusted_gross_income: 0
+    us-va:statutes/58.1/58/1-339/8#input.poverty_guideline_amount_for_household_size: 17420
+    us-va:statutes/58.1/58/1-339/8#input.separate_married_returns_claim_this_credit_on_only_one_return: true
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_claimable_as_dependent_elsewhere: true
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_claimed_as_dependent_on_another_return: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_claimed_as_dependent_on_another_return: true
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_dependent_claimant_filing_exception: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_dependent_claimant_filing_exception: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_is_present: true
+    us-va:statutes/58.1/58/1-339/8#input.counted_individual_spouse_and_dependent_count: 2
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_8_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_15_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_16_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.additional_personal_exemption_for_blind_or_aged_taxpayers_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.deduction_under_section_58_1_322_03_subdivision_5_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_1_credit: true
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_2_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_3_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_liability: 500
+    us-va:statutes/58.1/58/1-339/8#input.eligible_for_federal_credit_pursuant_to_section_32: false
+    us-va:statutes/58.1/58/1-339/8#input.federal_section_32_credit_claimed: 0
+    us-va:statutes/58.1/58/1-339/8#input.nonresident_or_person_to_which_section_58_1_303_applies: false
+    us-va:statutes/58.1/58/1-339/8#input.taxable_year_is_before_refundable_credit_window_ends: false
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_return_claimed_refundable_credit: false
+  output:
+    us-va:statutes/58.1/58/1-339/8#low_income_nonrefundable_credit: 0
+- name: Low-income joint control and federal nonrefundable cap
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-va:statutes/58.1/58/1-339/8#input.family_virginia_adjusted_gross_income: 0
+    us-va:statutes/58.1/58/1-339/8#input.poverty_guideline_amount_for_household_size: 17420
+    us-va:statutes/58.1/58/1-339/8#input.separate_married_returns_claim_this_credit_on_only_one_return: true
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_claimed_as_dependent_on_another_return: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_claimed_as_dependent_on_another_return: false
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_dependent_claimant_filing_exception: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_dependent_claimant_filing_exception: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_is_present: true
+    us-va:statutes/58.1/58/1-339/8#input.counted_individual_spouse_and_dependent_count: 2
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_8_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_15_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_16_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.additional_personal_exemption_for_blind_or_aged_taxpayers_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.deduction_under_section_58_1_322_03_subdivision_5_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_1_credit: true
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_2_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_3_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_liability: 500
+    us-va:statutes/58.1/58/1-339/8#input.eligible_for_federal_credit_pursuant_to_section_32: true
+    us-va:statutes/58.1/58/1-339/8#input.federal_section_32_credit_claimed: 2000
+    us-va:statutes/58.1/58/1-339/8#input.nonresident_or_person_to_which_section_58_1_303_applies: false
+    us-va:statutes/58.1/58/1-339/8#input.taxable_year_is_before_refundable_credit_window_ends: false
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_return_claimed_refundable_credit: false
+  output:
+    us-va:statutes/58.1/58/1-339/8#low_income_nonrefundable_credit: 500
+- name: Refundable earned-income credit in 2025
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    us-va:statutes/58.1/58/1-339/8#input.family_virginia_adjusted_gross_income: 0
+    us-va:statutes/58.1/58/1-339/8#input.poverty_guideline_amount_for_household_size: 17420
+    us-va:statutes/58.1/58/1-339/8#input.separate_married_returns_claim_this_credit_on_only_one_return: true
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_claimed_as_dependent_on_another_return: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_claimed_as_dependent_on_another_return: false
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_dependent_claimant_filing_exception: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_dependent_claimant_filing_exception: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_is_present: true
+    us-va:statutes/58.1/58/1-339/8#input.counted_individual_spouse_and_dependent_count: 2
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_8_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_15_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_16_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.additional_personal_exemption_for_blind_or_aged_taxpayers_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.deduction_under_section_58_1_322_03_subdivision_5_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_1_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_2_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_3_credit: true
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_liability: 100
+    us-va:statutes/58.1/58/1-339/8#input.eligible_for_federal_credit_pursuant_to_section_32: true
+    us-va:statutes/58.1/58/1-339/8#input.federal_section_32_credit_claimed: 2000
+    us-va:statutes/58.1/58/1-339/8#input.nonresident_or_person_to_which_section_58_1_303_applies: false
+    us-va:statutes/58.1/58/1-339/8#input.taxable_year_is_before_refundable_credit_window_ends: false
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_return_claimed_refundable_credit: true
+  output:
+    us-va:statutes/58.1/58/1-339/8#earned_income_refundable_credit: 400
+- name: auto_positive_disqualifying_subtraction_or_deduction_claimed
+  period:
+    period_kind: tax_year
+    start: '2000-01-01'
+    end: '2000-12-31'
+  input:
+    us-va:statutes/58.1/58/1-339/8#input.additional_personal_exemption_for_blind_or_aged_taxpayers_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.deduction_under_section_58_1_322_03_subdivision_5_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_15_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_16_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_8_claimed: true
+  output:
+    us-va:statutes/58.1/58/1-339/8#disqualifying_subtraction_or_deduction_claimed: holds
+- name: auto_zero_earned_income_nonrefundable_credit
+  period:
+    period_kind: tax_year
+    start: '2006-01-01'
+    end: '2006-12-31'
+  input:
+    us-va:statutes/58.1/58/1-339/8#input.additional_personal_exemption_for_blind_or_aged_taxpayers_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.counted_individual_spouse_and_dependent_count: 0
+    us-va:statutes/58.1/58/1-339/8#input.deduction_under_section_58_1_322_03_subdivision_5_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.eligible_for_federal_credit_pursuant_to_section_32: false
+    us-va:statutes/58.1/58/1-339/8#input.family_virginia_adjusted_gross_income: 0
+    us-va:statutes/58.1/58/1-339/8#input.federal_section_32_credit_claimed: 0
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_1_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_2_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_3_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.poverty_guideline_amount_for_household_size: 0
+    us-va:statutes/58.1/58/1-339/8#input.separate_married_returns_claim_this_credit_on_only_one_return: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_15_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_16_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_8_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.taxable_year_is_before_refundable_credit_window_ends: false
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_liability: 0
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_return_claimed_refundable_credit: false
+  output:
+    us-va:statutes/58.1/58/1-339/8#earned_income_nonrefundable_credit: 0
+- name: auto_zero_earned_income_refundable_credit
+  period:
+    period_kind: tax_year
+    start: '2022-01-01'
+    end: '2022-12-31'
+  input:
+    us-va:statutes/58.1/58/1-339/8#input.additional_personal_exemption_for_blind_or_aged_taxpayers_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.counted_individual_spouse_and_dependent_count: 0
+    us-va:statutes/58.1/58/1-339/8#input.deduction_under_section_58_1_322_03_subdivision_5_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.eligible_for_federal_credit_pursuant_to_section_32: false
+    us-va:statutes/58.1/58/1-339/8#input.family_virginia_adjusted_gross_income: 0
+    us-va:statutes/58.1/58/1-339/8#input.federal_section_32_credit_claimed: 0
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_1_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_2_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_3_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.poverty_guideline_amount_for_household_size: 0
+    us-va:statutes/58.1/58/1-339/8#input.separate_married_returns_claim_this_credit_on_only_one_return: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_15_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_16_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_8_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.taxable_year_is_before_refundable_credit_window_ends: false
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_liability: 0
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_return_claimed_refundable_credit: false
+  output:
+    us-va:statutes/58.1/58/1-339/8#earned_income_refundable_credit: 0
+- name: auto_positive_earned_income_refundable_credit_allowed
+  period:
+    period_kind: tax_year
+    start: '2022-01-01'
+    end: '2022-12-31'
+  input:
+    us-va:statutes/58.1/58/1-339/8#input.additional_personal_exemption_for_blind_or_aged_taxpayers_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.counted_individual_spouse_and_dependent_count: 0
+    us-va:statutes/58.1/58/1-339/8#input.deduction_under_section_58_1_322_03_subdivision_5_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.eligible_for_federal_credit_pursuant_to_section_32: false
+    us-va:statutes/58.1/58/1-339/8#input.family_virginia_adjusted_gross_income: 0
+    us-va:statutes/58.1/58/1-339/8#input.federal_section_32_credit_claimed: 0
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_1_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_2_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_3_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.poverty_guideline_amount_for_household_size: 0
+    us-va:statutes/58.1/58/1-339/8#input.separate_married_returns_claim_this_credit_on_only_one_return: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_15_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_16_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_8_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.taxable_year_is_before_refundable_credit_window_ends: false
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_liability: 0
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_return_claimed_refundable_credit: false
+  output:
+    us-va:statutes/58.1/58/1-339/8#earned_income_refundable_credit_allowed: holds
+- name: auto_output_low_income_credit_allowed
+  period:
+    period_kind: tax_year
+    start: '2000-01-01'
+    end: '2000-12-31'
+  input:
+    us-va:statutes/58.1/58/1-339/8#input.additional_personal_exemption_for_blind_or_aged_taxpayers_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.counted_individual_spouse_and_dependent_count: 1
+    us-va:statutes/58.1/58/1-339/8#input.deduction_under_section_58_1_322_03_subdivision_5_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.eligible_for_federal_credit_pursuant_to_section_32: false
+    us-va:statutes/58.1/58/1-339/8#input.family_virginia_adjusted_gross_income: 0
+    us-va:statutes/58.1/58/1-339/8#input.federal_section_32_credit_claimed: 0
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_1_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_2_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_3_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.poverty_guideline_amount_for_household_size: 1
+    us-va:statutes/58.1/58/1-339/8#input.separate_married_returns_claim_this_credit_on_only_one_return: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_15_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_16_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_8_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.taxable_year_is_before_refundable_credit_window_ends: false
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_liability: 0
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_return_claimed_refundable_credit: false
+  output:
+    us-va:statutes/58.1/58/1-339/8#low_income_credit_allowed: not_holds
+- name: auto_output_earned_income_nonrefundable_credit_allowed
+  period:
+    period_kind: tax_year
+    start: '2006-01-01'
+    end: '2006-12-31'
+  input:
+    us-va:statutes/58.1/58/1-339/8#input.additional_personal_exemption_for_blind_or_aged_taxpayers_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.counted_individual_spouse_and_dependent_count: 1
+    us-va:statutes/58.1/58/1-339/8#input.deduction_under_section_58_1_322_03_subdivision_5_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.eligible_for_federal_credit_pursuant_to_section_32: false
+    us-va:statutes/58.1/58/1-339/8#input.family_virginia_adjusted_gross_income: 0
+    us-va:statutes/58.1/58/1-339/8#input.federal_section_32_credit_claimed: 0
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_1_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_2_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.household_claims_subdivision_3_credit: false
+    us-va:statutes/58.1/58/1-339/8#input.poverty_guideline_amount_for_household_size: 1
+    us-va:statutes/58.1/58/1-339/8#input.separate_married_returns_claim_this_credit_on_only_one_return: false
+    us-va:statutes/58.1/58/1-339/8#input.spouse_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_15_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_16_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.subtraction_under_section_58_1_322_02_subdivision_8_claimed: false
+    us-va:statutes/58.1/58/1-339/8#input.taxable_year_is_before_refundable_credit_window_ends: false
+    us-va:statutes/58.1/58/1-339/8#input.taxpayer_claimable_as_dependent_elsewhere: false
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_liability: 0
+    us-va:statutes/58.1/58/1-339/8#input.virginia_income_tax_return_claimed_refundable_credit: false
+  output:
+    us-va:statutes/58.1/58/1-339/8#earned_income_nonrefundable_credit_allowed: not_holds
