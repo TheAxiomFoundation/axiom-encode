@@ -7561,8 +7561,17 @@ def _numeric_recall_repair_context(
     budget = _NUMERIC_RECALL_CONTEXT_MAX_CHARS
     if first_value is not None:
         start, end = locations[first_value]
+        # The context rides on the issue for the smallest missing value, which
+        # can be a locator or unlocated; say so when the example differs.
+        headline = missing_values[0]
+        shown = (
+            f"{first_value:g}"
+            if first_value == headline
+            else f"another missing value, {first_value:g} ({headline:g} is "
+            "shown below with the others)"
+        )
         first = (
-            f" First source location of {first_value:g}: character (code point) "
+            f" First source location of {shown}: character (code point) "
             f"offsets {start}:{end} in source.txt, {branch_label(start)}: "
             f"`{_numeric_recall_excerpt(source_text, start, end)}`."
         )
@@ -7576,16 +7585,23 @@ def _numeric_recall_repair_context(
             )
         return "".join(parts)
 
-    operative_count = len(missing_values) - len(locator_values)
-    header = (
-        f" All {len(missing_values)} values of this source without a named "
-        "scalar, grouped by source branch, with character (code point) offsets "
-        f"in source.txt. Represent each of the {operative_count} listed first "
-        "in this attempt with a named scalar whose proof excerpt is copied "
-        "verbatim from `source.txt`, or precisely defer the branch that states "
-        "it. Displayed text is only a bounded locator."
-    )
-    budget -= len(header)
+    def header_text(operative_count: int) -> str:
+        represent = (
+            f" Represent each of the {operative_count} listed first in this "
+            "attempt with a named scalar whose proof excerpt is copied verbatim "
+            "from `source.txt`, or precisely defer the branch that states it."
+            if operative_count
+            else ""
+        )
+        return (
+            f" All {len(missing_values)} values of this source without a named "
+            "scalar, grouped by source branch, with character (code point) "
+            f"offsets in source.txt.{represent} Displayed text is only a bounded "
+            "locator."
+        )
+
+    # Reserve the longest header; the count is known only after rendering.
+    budget -= len(header_text(len(missing_values)))
     body: list[str] = []
     listed: set[float] = set()
 
@@ -7630,6 +7646,7 @@ def _numeric_recall_repair_context(
         return groups
 
     body.extend(render(split(False)))
+    header = header_text(len(listed))
     body.extend(
         render(
             split(True),
