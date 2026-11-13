@@ -7,7 +7,7 @@ corpus checkout. The `replay benchmark` CI job runs it as a required check.
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 50 committed
+(the `[complete-source-unit:*]` rules of the CI validator) over 51 committed
 fixtures in `tests/fixtures/us_replay_benchmark/`. Hosted fixtures are real candidates from `targeted-reencode-failure` artifacts
 of signed runs:
 
@@ -48,20 +48,28 @@ JSON record, with explicit origin hashes; it does not reconstruct historical
 engine companion bytes. Offline replay retains six findings for each fixture
 because it supplies no captured execution evidence. Separate Schedule M real-engine tests
 check the supported and unsupported engine profiles.
+The section 219(g) fixture retains a public RuleSpec candidate and its six
+companion cases from `rulespec-us` at `a7c6d805`, plus the decoded body of the
+public corpus row at `bcf433c5`.
+`tests/fixtures/proof-parenthetical-219g/provenance.json` records the public Git
+origins and body-export method. The separate
+`tests/test_public_retained_proof_fixture.py` checks the joint-return proof
+excerpt while retaining an unrelated ellipsis refusal. Completeness replay
+does not measure that proof check.
 
 The replay passes the same inputs as `ValidatorPipeline._complete_source_unit_issues`:
 the citation's numeric profile, the companion test cases, imported symbol
 contents, resolved deferral providers and same-act aliases from the source
 metadata. `--no-context` leaves out the last three.
 
-The set has 42 distinct citations: federal statutes, CFR regulations, IRS and
+The set has 43 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, one Canadian CRA guide
 (three runs), three Canadian CRA forms and one Revenu Québec schedule (local
 diagnostics), and one Israeli statute. It has one control (an Arizona candidate
 that passed validation and then failed a provenance guard). The current snapshot
-has 12 clean fixtures and 38 refused fixtures with 3,303 findings. It preserves
-all 48 earlier fixture rows; each of the two new schedule diagnostics retains
-six findings. Read clean counts and per-fixture changes, not only the total.
+has 12 clean fixtures and 39 refused fixtures with 3,336 findings. It preserves
+all 50 `8733aa0e` main-baseline entries exactly; the section 219(g) diagnostic
+retains 33 findings. Read clean counts and per-fixture changes, not only the total.
 
 ## Public fixtures and the private held-out set
 
@@ -151,10 +159,12 @@ Every PR that fixes a validator false positive:
 
 ## Fidelity
 
-Each fixture was replayed with the encoder source of its own run. Almost all
-reproduce the recorded completeness findings exactly or within two findings,
-with no replay errors. Three 7 CFR 273.7 runs stopped before the completeness
-check in production; the replay finds 653 to 695 findings each.
+The author earlier reported replaying the hosted fixtures with each run's
+encoder source. That report describes almost all hosted replays reproducing
+the recorded completeness findings exactly or within two findings, with no
+replay errors. Three reported 7 CFR 273.7 runs stopped before the completeness
+check in production; those offline replays found 653 to 695 findings each.
+Local diagnostics record fresh offline findings and producer metadata separately.
 
 ## Limits
 
