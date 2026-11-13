@@ -34030,7 +34030,7 @@ def _rule_has_shall_not_apply_exception_atom(rule: dict[Any, Any]) -> bool:
             continue
         excerpt = str(source.get("excerpt") or "")
         if re.search(
-            r"\b(?:shall|does)\s+not\s+(?:be\s+)?appl(?:y|icable)\b",
+            r"\b(?:shall|does|do)\s+not\s+(?:be\s+)?appl(?:y|icable)\b",
             excerpt,
             flags=re.IGNORECASE,
         ):
