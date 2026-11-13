@@ -58,10 +58,24 @@ FINDING_NOT_BEFORE_STATED_DATE = "not_before_source_stated_date"
 
 _JUDGMENT_VALUES = ("holds", "not_holds", "undetermined")
 _BOOLEAN_DTYPES = {"boolean", "bool"}
-_NUMBER_DTYPES = {"money", "integer", "count", "rate", "decimal", "int", "float"}
+_NUMBER_DTYPES = {
+    "money",
+    "integer",
+    "count",
+    "rate",
+    "decimal",
+    "number",
+    "int",
+    "float",
+}
 _TEXT_DTYPES = {"string", "text", "str"}
 # Declaration words are a closed vocabulary or a strict shape. Anything else
 # in such a field is dropped, never copied: the field is module-controlled.
+# The words are the ones rulespec-us main uses (scan of 4,886 modules at
+# 8081f0cc, 2026-11-13): dtype Judgment, Money, Rate, Count, Integer, Boolean,
+# Text, Decimal, Bool, String, Number, Float, Date and one `Enum[Name]`;
+# period Day, Month, Year, Week, Hour; unit USD, years, calendar_year, months,
+# day, year, calendar_day, month. An unknown word stays a reported drop.
 _KIND_WORDS = {
     "derived",
     "parameter",
@@ -70,23 +84,37 @@ _KIND_WORDS = {
     "derived_relation",
 }
 _DTYPE_WORDS = _BOOLEAN_DTYPES | _NUMBER_DTYPES | _TEXT_DTYPES | {"judgment", "date"}
-_PERIOD_WORDS = {"year", "month", "week", "day", "quarter"}
+_PERIOD_WORDS = {"year", "month", "week", "day", "hour", "quarter"}
 _UNIT_WORDS = {
+    "year",
     "years",
+    "month",
     "months",
+    "week",
     "weeks",
+    "day",
     "days",
+    "hour",
     "hours",
     "calendar_year",
+    "calendar_day",
     "percent",
     "persons",
 }
+_ENUM_DTYPE_RE = re.compile(r"Enum\[[A-Z][A-Za-z0-9]{0,63}\]")
 _CURRENCY_RE = re.compile(r"[A-Z]{3}")
 _ENTITY_RE = re.compile(r"[A-Z][A-Za-z0-9]{0,63}")
 _MONTH_RE = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
 _ISO_DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 _NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_CITATION_RE = re.compile(r"[a-z0-9][a-z0-9-]*(/[A-Za-z0-9][A-Za-z0-9._()-]*)+")
+# The resolver's hierarchy-segment alphabet: letters, digits, `.`, `:`, `-`,
+# en dash, and the space. Real citations use all of them
+# (`us-la/statute/47:294`, `us-ak/regulation/aac/title-7/chapter-45/7 AAC
+# 45.280`). A segment may hold at most three words, so a sentence is refused.
+_CITATION_WORD = r"[A-Za-z0-9][A-Za-z0-9.:\u2013-]*"
+_CITATION_RE = re.compile(
+    rf"[a-z0-9][a-z0-9-]*(/{_CITATION_WORD}(?: {_CITATION_WORD}){{0,2}})+"
+)
 _NO_FORMULA_VERSION_RE = re.compile(r"has no formula version at")
 _ENUMERATION_KEYS = ("values", "allowed_values", "enum")
 _CASE_KEYS = {"name", "period", "inputs", "expected", "source_sentence"}
@@ -202,7 +230,8 @@ def _type_word(value: Any, field_name: str) -> str | None:
     if field_name == "kind":
         return word if word in _KIND_WORDS else None
     if field_name == "dtype":
-        return word if word.lower() in _DTYPE_WORDS else None
+        known = word.lower() in _DTYPE_WORDS or _ENUM_DTYPE_RE.fullmatch(word)
+        return word if known else None
     if field_name == "period":
         return word if word.lower() in _PERIOD_WORDS else None
     if field_name == "unit":
@@ -734,12 +763,32 @@ def find_interface_leaks(
 # Verbatim quotes
 # ---------------------------------------------------------------------------
 
-_ITEM_MARKER_RE = re.compile(
-    r"(?:[●•◦▪‣*\-–—]"
-    r"|\(?[0-9A-Za-z]{1,4}[.)]"
-    r"|(?:NOTE|Note|EXAMPLE|Example|EXCEPTION|Exception)[:.]?)\s+"
+_LIST_MARKER_RE = re.compile(
+    r"(?:[\u25cf\u2022\u25e6\u25aa\u2023*\-\u2013\u2014]|\(?[0-9A-Za-z]{1,4}[.)])\s+"
 )
-_SENTENCE_END_RE = re.compile(r"[.?!;][\"'”’)\]]*(?=\s)")
+_LABEL_MARKER_RE = re.compile(
+    r"(?:NOTE|Note|EXAMPLE|Example|EXCEPTION|Exception)[:.]?\s+"
+)
+_SENTENCE_END_RE = re.compile(r"[.?!][\"'\u201d\u2019)\]]*(?=\s)")
+# A period after one of these does not end a sentence.
+_ABBREVIATIONS = frozenset(
+    """
+    u.s.c. c.f.r. u.s. pub. l. no. nos. e.g. i.e. et seq. sec. secs. stat. art.
+    arts. ch. pt. subpt. para. paras. cl. v. vs. cf. al. fed. reg. rev. proc.
+    rul. inc. co. corp. dept. st. mr. mrs. ms. dr. jan. feb. mar. apr. jun.
+    jul. aug. sep. sept. oct. nov. dec. approx. est. ed. vol. p. pp.
+    """.split()
+)
+_DOTTED_INITIALS_RE = re.compile(r"(?:[A-Za-z]\.)+")
+
+
+def _is_abbreviation(word: str) -> bool:
+    word = word.lstrip("([\"'\u201c\u2018")
+    return (
+        word.lower() in _ABBREVIATIONS
+        or _DOTTED_INITIALS_RE.fullmatch(word) is not None
+        or word.startswith("\u00a7")
+    )
 
 
 @dataclass(frozen=True)
@@ -747,6 +796,7 @@ class QuoteMatch:
     found: bool
     at_boundaries: bool = False
     covers_full_item: bool = False
+    lacks_chapeau: bool = False
 
 
 class SourceQuotes:
@@ -759,11 +809,21 @@ class SourceQuotes:
     - start: the start of an item, the text after an item's marker (a bullet,
       an enumerator such as ``(a)`` or ``1.``, a label such as ``NOTE``), or
       the text after a sentence end;
-    - end: the end of an item, or a sentence end inside it (``.``, ``?``,
-      ``!`` or ``;``, with closing quotes or brackets, before whitespace).
+    - end: the end of an item, or a sentence end inside it: ``.``, ``?`` or
+      ``!``, with closing quotes or brackets, before whitespace. A semicolon
+      is not an end ("The deduction is allowed; except that ..."), and a
+      period after an abbreviation is not an end (``U.S.C.``, ``C.F.R.``,
+      ``Pub. L. No.``, ``e.g.``, ``i.e.``, ``et seq.``, ``Sec.``, a single
+      letter or dotted initials, a section sign).
 
     A quote may span several items. A quote that starts or stops inside a
     sentence is refused: it can drop the condition that the sentence states.
+
+    A list item (bullet or enumerator) that follows an item ending in ``:``
+    depends on that item, its chapeau ("... when all of the following
+    occur:"). A quote that starts in such a list item leaves the chapeau
+    out. It is accepted, and marked ``lacks_chapeau`` so the report can
+    count it.
     """
 
     def __init__(self, source_text: str) -> None:
@@ -772,21 +832,35 @@ class SourceQuotes:
         self.ends: set[int] = set()
         self.item_starts: set[int] = set()
         self.item_ends: set[int] = set()
+        # (start, end) of each list item that hangs under a chapeau.
+        self.dependent_items: list[tuple[int, int]] = []
         position = 0
+        under_chapeau = False
         for line in source_text.splitlines():
             item = _collapse(line)
             if not item:
                 continue
             if pieces:
                 position += 1
-            marker = _ITEM_MARKER_RE.match(item)
+            list_marker = _LIST_MARKER_RE.match(item)
+            marker = list_marker or _LABEL_MARKER_RE.match(item)
             for start in {position, position + (marker.end() if marker else 0)}:
                 self.starts.add(start)
                 self.item_starts.add(start)
             for sentence_end in _SENTENCE_END_RE.finditer(item):
+                word = item[: sentence_end.start() + 1].rsplit(None, 1)[-1]
+                if item[sentence_end.start()] == "." and _is_abbreviation(word):
+                    continue
                 self.ends.add(position + sentence_end.end())
                 self.starts.add(position + sentence_end.end() + 1)
-            position += len(item)
+            end = position + len(item)
+            if list_marker and under_chapeau:
+                self.dependent_items.append((position, end))
+            elif not list_marker:
+                under_chapeau = False
+            if item.endswith((":", ":\u2014", "\u2014")):
+                under_chapeau = True
+            position = end
             self.ends.add(position)
             self.item_ends.add(position)
             pieces.append(item)
@@ -804,6 +878,7 @@ class SourceQuotes:
                 True,
                 index in self.starts and end in self.ends,
                 index in self.item_starts and end in self.item_ends,
+                any(start <= index < stop for start, stop in self.dependent_items),
             )
             if (match.at_boundaries, match.covers_full_item) >= (
                 best.at_boundaries,
@@ -858,6 +933,7 @@ class BlindCase:
     expected: dict[str, Any]
     source_sentence: str
     quote_covers_full_item: bool = True
+    quote_lacks_chapeau: bool = False
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -904,7 +980,7 @@ def _value_issue(value: Any, dtype: str | None, enumeration: Sequence[str]) -> s
             if isinstance(value, (int, float)) and not isinstance(value, bool)
             else f"{dtype} value must be a JSON number"
         )
-    if kind in _TEXT_DTYPES or enumeration:
+    if kind in _TEXT_DTYPES or kind.startswith("enum[") or enumeration:
         if not isinstance(value, str):
             return f"{dtype or 'enumeration'} value must be a string"
         if enumeration and value not in enumeration:
@@ -968,7 +1044,92 @@ def _validate_case(
         expected=dict(expected),
         source_sentence=raw["source_sentence"],
         quote_covers_full_item=match.covers_full_item,
+        quote_lacks_chapeau=match.lacks_chapeau,
     )
+
+
+_MONTH_NUMBERS = {
+    name: number
+    for number, names in enumerate(
+        (
+            ("january", "jan"),
+            ("february", "feb"),
+            ("march", "mar"),
+            ("april", "apr"),
+            ("may",),
+            ("june", "jun"),
+            ("july", "jul"),
+            ("august", "aug"),
+            ("september", "sep", "sept"),
+            ("october", "oct"),
+            ("november", "nov"),
+            ("december", "dec"),
+        ),
+        1,
+    )
+    for name in names
+}
+_MONTH_NAME = "(" + "|".join(sorted(_MONTH_NUMBERS, key=len, reverse=True)) + r")\.?"
+_DATE_PHRASES = (
+    # March 1, 2027 / March 2027 / March of 2027
+    (
+        re.compile(
+            rf"\b{_MONTH_NAME},? (?:of )?(?:\d{{1,2}}(?:st|nd|rd|th)?,? )?(\d{{4}})\b",
+            re.I,
+        ),
+        "name_year",
+    ),
+    # 1 March 2027 / 1st day of March, 2027
+    (
+        re.compile(
+            rf"\b\d{{1,2}}(?:st|nd|rd|th)? (?:day of )?{_MONTH_NAME},? (\d{{4}})\b",
+            re.I,
+        ),
+        "name_year",
+    ),
+    (re.compile(r"(?<![\d-])(\d{4})-(\d{2})-\d{2}(?![\d-])"), "year_month"),
+    (re.compile(r"(?<![\d/])(\d{1,2})/\d{1,2}/(\d{4})(?![\d/])"), "month_year"),
+)
+# A date right after one of these belongs to a citation, a document date or
+# a fiscal-year label. It is not the date from which the provision applies.
+_NOT_A_COMMENCEMENT_CONTEXT_RE = re.compile(
+    r"(?:Pub\.\s?L\.|Public Law|P\.L\.|Stat\.|Fed\.\s?Reg\.|\bFR\b|U\.S\.C\.|\bUSC\b"
+    r"|C\.F\.R\.|\bCFR\b|\u00a7|Rev\.\s?Proc\.|Rev\.\s?Rul\.|\bNo\.|\bFY\b|\bFFY\b"
+    r"|fiscal year|dated|issued|published|revised|amended)[^.;:]{0,40}$",
+    re.I,
+)
+
+
+def _stated_date_issue(month: str, sentence: str) -> str:
+    """Why ``sentence`` does not state ``month`` as a date, or ``""``.
+
+    The sentence must carry a full date or a month-year phrase in that month
+    ("March 1, 2027", "1 March 2027", "March 2027", "2027-03-01",
+    "3/1/2027"). A bare year, a fiscal-year label ("FY 2026") or a date that
+    is part of a citation ("Pub. L. 119-21, July 4, 2025") is not a stated
+    effective date.
+    """
+    text = _collapse(sentence)
+    wanted = (int(month[:4]), int(month[5:]))
+    other_month = False
+    for pattern, shape in _DATE_PHRASES:
+        for match in pattern.finditer(text):
+            if shape == "name_year":
+                found = (int(match.group(2)), _MONTH_NUMBERS[match.group(1).lower()])
+            elif shape == "year_month":
+                found = (int(match.group(1)), int(match.group(2)))
+            else:
+                found = (int(match.group(2)), int(match.group(1)))
+            if _NOT_A_COMMENCEMENT_CONTEXT_RE.search(text[: match.start()]):
+                continue
+            if found == wanted:
+                return ""
+            other_month = True
+    if other_month:
+        return "the quoted sentence states a date, but not in that month"
+    if month[:4] in text:
+        return "year mentioned, not a stated date"
+    return "the quoted sentence states no date"
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -1070,8 +1231,8 @@ def parse_blind_response(
             issue = "month must be YYYY-MM"
         else:
             issue, _ = _quote_issue(stated["source_sentence"], source)
-            if not issue and stated["month"][:4] not in stated["source_sentence"]:
-                issue = "the quoted sentence does not contain the year of the month"
+            if not issue:
+                issue = _stated_date_issue(stated["month"], stated["source_sentence"])
         if issue:
             notes.append(f"stated_commencement ignored: {issue}")
         else:
@@ -1618,8 +1779,10 @@ def run_blind_test_author(
     counts["rejected"] = len(parsed.rejected)
     counts["authored"] = len(parsed.cases) + len(parsed.rejected)
     partial = sum(1 for case in parsed.cases if not case.quote_covers_full_item)
+    no_chapeau = sum(1 for case in parsed.cases if case.quote_lacks_chapeau)
     return {
         "schema": REPORT_SCHEMA,
+        "blindness": blindness_label(prepared.interface_leaks),
         "shadow": True,
         "gates": "nothing",
         "module": module,
@@ -1644,6 +1807,7 @@ def run_blind_test_author(
             "accepted_cases": len(parsed.cases),
             "quote_shorter_than_its_source_item": partial,
             "share": round(partial / len(parsed.cases), 4) if parsed.cases else None,
+            "list_item_without_its_chapeau": no_chapeau,
         },
         "cases": [
             {
@@ -1664,11 +1828,21 @@ def run_blind_test_author(
     }
 
 
+def blindness_label(interface_leaks: Sequence[Any]) -> str:
+    """The headline word for a run: blind, or how far it is not."""
+    count = len(interface_leaks)
+    if not count:
+        return "blind (the guard found no leak)"
+    return f"NOT FULLY BLIND ({count} leak{'s' if count != 1 else ''} allowed)"
+
+
 def render_text_summary(report: Mapping[str, Any]) -> str:
     """A short human summary of one report."""
     counts = report["counts"]
+    leaks = report.get("interface_leaks") or []
+    title = f"Test author, {blindness_label(leaks)}" if leaks else "Blind test author"
     lines = [
-        f"Blind test author (shadow, gates nothing): {report['module']}",
+        f"{title} (shadow, gates nothing): {report['module']}",
         f"  second model: {report['backend']['name']} / {report['backend']['model']}",
         "  cases: "
         f"{counts[STATUS_AGREE]} agree, {counts[STATUS_DISAGREE]} disagree, "
@@ -1698,6 +1872,12 @@ def render_text_summary(report: Mapping[str, Any]) -> str:
             f"  quotes: {quotes['quote_shorter_than_its_source_item']} of "
             f"{quotes['accepted_cases']} accepted cases quote less than the full "
             "source item they sit in"
+        )
+    if quotes.get("list_item_without_its_chapeau"):
+        lines.append(
+            f"  quotes: {quotes['list_item_without_its_chapeau']} of "
+            f"{quotes['accepted_cases']} accepted cases quote a list item without "
+            "its chapeau (the sentence ending in ':' that governs the list)"
         )
     probes = report.get("period_probes") or {}
     floor = probes.get("assumed_evidence_floor") or {}

@@ -41,7 +41,9 @@ For one module:
    `period`, `unit`, plus enumeration names (never for a parameter).
    `kind`, `dtype` and `period` are closed vocabularies; `unit` is a
    three-letter currency code or one of a few unit words; `entity` is one
-   CamelCase word. Any other value in such a field is dropped, and the report
+   CamelCase word. The word lists come from a scan of rulespec-us main
+   (4,886 modules, 2026-11-13), and include `Number`, `Hour`,
+   `day` / `year` / `month` / `calendar_day` and the shape `Enum[Name]`. Any other value in such a field is dropped, and the report
    lists the field under `interface_dropped_fields`. Some modules use boolean
    facts without declaring them; for those, the names (only) come from the
    compiled program. A candidate that does not compile stops the tool before
@@ -64,8 +66,14 @@ For one module:
      `interface_leaks`, and the summary repeats them.
 
    The citation path must be an exact canonical corpus citation path
-   (`corpus_resolver.require_canonical_corpus_citation_path`); free text is
-   refused. The corpus as-of date must be `YYYY-MM-DD`.
+   (`corpus_resolver.require_canonical_corpus_citation_path`) in the
+   resolver's segment alphabet (letters, digits, `.`, `:`, `-`, en dash, and
+   at most three words in a segment, as in `us-la/statute/47:294` and
+   `.../7 AAC 45.280`); a sentence is refused.
+
+   When leaks were allowed, the run is not fully blind and says so: the
+   report's top-level `blindness` and the first line of the summary read
+   `NOT FULLY BLIND (n leaks allowed)`. The corpus as-of date must be `YYYY-MM-DD`.
 4. **Second model.** The backend is an interface with two implementations:
    `FakeBlindAuthorBackend` (tests) and `ClaudeCliBlindAuthorBackend`, which
    runs `claude --print` on the caller's claude.ai subscription login. It
@@ -94,16 +102,22 @@ For one module:
      non-empty source line: a paragraph or a list item), the text after the
      item's marker (a bullet, an enumerator such as `(a)` or `1.`, a label
      such as `NOTE`), or the text after a sentence end. An end boundary is
-     the end of an item, or a sentence end inside it (`.`, `?`, `!` or `;`,
-     before whitespace). A quote may span several items. A quote that starts
-     or stops inside a sentence is refused, because it can drop the condition
-     that the sentence states.
+     the end of an item, or a sentence end inside it (`.`, `?` or `!`
+     before whitespace). A semicolon is not an end ("The deduction is
+     allowed; except that ..."). A period after an abbreviation is not an end
+     (`U.S.C.`, `C.F.R.`, `Pub. L. No.`, `e.g.`, `i.e.`, `et seq.`, `Sec.`,
+     a single letter or dotted initials, a section sign). A quote may span
+     several items. A quote that starts or stops inside a sentence is
+     refused, because it can drop the condition that the sentence states.
 
-   The report gives, under `quote_stats`, the share of accepted cases whose
-   quote is shorter than the full source item it sits in (one sentence of a
-   longer paragraph). The boundary rule is lenient at abbreviations ("U.S.C.
-   2014" counts as a sentence end), so read that share as a lower bound on
-   partial quotes.
+   The report gives two counts under `quote_stats`, and the summary repeats
+   them when they are not zero:
+   - accepted cases whose quote is shorter than the full source item it sits
+     in (one sentence of a longer paragraph);
+   - accepted cases that quote a list item without its chapeau. A list item
+     that follows an item ending in `:` depends on it ("... when all of the
+     following occur:"). Such a quote is whole, so the first count does not
+     see it; it still leaves out the governing sentence.
 6. **Run.** Each case runs as a one-case companion test through
    `ValidatorPipeline._run_rulespec_test_cases` on the real rules engine, the
    runner used for `.test.yaml`. Per case the result is:
@@ -129,7 +143,11 @@ For one module:
      depends on the decision in #2212.
    - `source_stated_date`. The second model may give `stated_commencement`:
      a month and the whole verbatim sentence of the source that states the
-     date (the sentence must pass the quote rule and contain the year). A hit
+     date. The sentence must pass the quote rule and carry a full date or a
+     month-year phrase in that month ("March 1, 2027", "March 2027",
+     "2027-03-01"). A bare year, a fiscal-year label ("FY 2026") or a date
+     in a citation is reported as "year mentioned, not a stated date" and
+     raises no finding. A hit
      is `before_source_stated_date`. It rests on the model's reading of that
      sentence, which the report quotes.
 8. **Report.** `report.json` (schema `axiom-encode/blind-test-author-report/v1`:
@@ -382,5 +400,7 @@ that execute rules use the real rules engine):
 Not verified, because no model call has been made: that the `claude` CLI
 returns the typed JSON reliably; how often real answers are rejected (the
 quote boundary rule may reject honest quotes) or not runnable; how often real
-modules trip the interface-leak check; whether a real second model catches
+modules trip the interface-leak check (an offline scan by the round-2
+reviewer of 4,056 rulespec-us main modules gave 121 leak stops and 17
+vocabulary violations, 3.4%, before the round-2 vocabulary additions); whether a real second model catches
 any stored defect; the false-disagreement rate; the runtimes above.

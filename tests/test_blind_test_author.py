@@ -505,7 +505,14 @@ def test_values_and_dates_inside_names_are_reported_as_named_leaks():
     assert ("formula_number", "1500", name) in leaks
     assert ("effective_date", "2026-08-01", name) in leaks
     assert ("formula_number", "1500", "threshold_1500") in leaks
-    assert "[interface leak, allowed by the caller]" in bta.render_text_summary(report)
+    summary = bta.render_text_summary(report)
+    assert "[interface leak, allowed by the caller]" in summary
+    count = len(report["interface_leaks"])
+    assert count >= 3
+    assert report["blindness"] == f"NOT FULLY BLIND ({count} leaks allowed)"
+    assert summary.startswith(f"Test author, NOT FULLY BLIND ({count} leaks allowed)")
+    assert "Blind test author" not in summary
+    assert bta.blindness_label([{"kind": "x"}]) == "NOT FULLY BLIND (1 leak allowed)"
     assert report["interface_dropped_fields"]
 
 
@@ -555,6 +562,10 @@ def test_identifier_digits_in_a_formula_and_single_digits_are_not_values():
         "us-xx/manual/x\neffective 2026-08-01",
         "us-xx/not-a-document-class/x",
         "US-XX/manual/x/",
+        # `statutes` is not a corpus document class; the real path is `statute`.
+        "us-la/statutes/47:294",
+        "us-xx/manual/x limit is fifteen hundred",
+        "us-xx/manual/limit_1500",
     ],
 )
 def test_a_free_text_citation_path_is_refused(citation):
@@ -658,13 +669,15 @@ NOTE One-time deposits are not an allowable expense.
         ("The first numbered item applies to elderly households.", True, True),
         ("A bulleted item about shelter costs, which has two parts.", True, True),
         # whole sentences or list members inside an item
-        ("A household is eligible when income is below the limit;", True, False),
-        ('See the "exceptions."', True, False),
+        # a semicolon is not an end: the clause after it can change the rule
+        ("A household is eligible when income is below the limit;", False, False),
         (
-            "In general. A household is eligible when income is below the limit;",
+            "A household is eligible when income is below the limit; and the "
+            "household applies in person.",
             True,
             False,
         ),
+        ('See the "exceptions."', True, False),
         # several items in a row
         (
             "One-time deposits are not an allowable expense. 1. The first "
@@ -747,6 +760,7 @@ def test_cut_quotes_are_rejected_and_partial_item_quotes_are_counted():
         "accepted_cases": 2,
         "quote_shorter_than_its_source_item": 1,
         "share": 0.5,
+        "list_item_without_its_chapeau": 0,
     }
     assert "1 of 2 accepted cases quote less" in bta.render_text_summary(report)
 
@@ -814,6 +828,237 @@ def test_one_enclosing_fence_and_duplicates_and_the_case_limit():
         "more than 3 cases; not run",
         "more than 3 cases; not run",
     ]
+
+
+ABBREVIATION_SOURCE = """\
+The deduction is allowed; except that it is reduced for boarders.
+Payments made under 7 U.S.C. 2014 are excluded from income.
+Payments under Pub. L. No. 119-21 count as income. See 7 C.F.R. 273.9 et seq. for details.
+The fee applies, e.g. to wiring, i.e. to work the provider does. Sec. 5 governs deposits.
+Judge A. B. Smith decided the case. The rule follows.
+"""
+
+
+@pytest.mark.parametrize(
+    ("quote", "at_boundaries"),
+    [
+        ("The deduction is allowed;", False),
+        ("The deduction is allowed; except that it is reduced for boarders.", True),
+        ("Payments made under 7 U.S.C.", False),
+        ("Payments made under 7 U.S.C. 2014 are excluded from income.", True),
+        ("Payments under Pub. L. No.", False),
+        ("Payments under Pub. L.", False),
+        ("Payments under Pub. L. No. 119-21 count as income.", True),
+        ("See 7 C.F.R.", False),
+        ("See 7 C.F.R. 273.9 et seq.", False),
+        ("See 7 C.F.R. 273.9 et seq. for details.", True),
+        ("The fee applies, e.g.", False),
+        ("The fee applies, e.g. to wiring, i.e.", False),
+        ("The fee applies, e.g. to wiring, i.e. to work the provider does.", True),
+        ("Sec. 5 governs deposits.", True),
+        ("5 governs deposits.", False),
+        ("Judge A. B. Smith decided the case.", True),
+        ("B. Smith decided the case.", False),
+        ("The rule follows.", True),
+    ],
+)
+def test_a_semicolon_or_an_abbreviation_does_not_end_a_sentence(quote, at_boundaries):
+    match = bta.SourceQuotes(ABBREVIATION_SOURCE).locate(quote)
+    assert match.found and match.at_boundaries is at_boundaries
+
+
+def test_a_list_item_quoted_without_its_chapeau_is_counted():
+    quotes = bta.SourceQuotes(SOURCE)
+    item = "The utility provider performs the installation."
+    assert quotes.locate(item).lacks_chapeau is True
+    assert quotes.locate(item).covers_full_item is True
+    assert quotes.locate(ALLOWABLE_SENTENCE).lacks_chapeau is False
+    with_chapeau = (
+        f"{ALLOWABLE_SENTENCE} \u25cf The utility installation fee is for an "
+        "initial installation of a utility."
+    )
+    assert quotes.locate(with_chapeau).at_boundaries is True
+    assert quotes.locate(with_chapeau).lacks_chapeau is False
+    # The list ends at the next item that is not a list item.
+    assert quotes.locate(DEPOSIT_SENTENCE).lacks_chapeau is False
+
+    report = bta.run_blind_test_author(
+        rulespec_payload=yaml.safe_load(MODULE_TEXT),
+        module=MODULE,
+        source_text=SOURCE,
+        backend=bta.FakeBlindAuthorBackend(_answer(CORRECT_CASES)),
+        runner=_StubRunner(),
+        compiled_payload={
+            "program": {
+                "derived": [{"expr": [{"kind": "input", "name": n} for n in INPUTS]}]
+            }
+        },
+    )
+    assert [case["quote_lacks_chapeau"] for case in report["cases"]] == [
+        False,
+        True,
+        True,
+        False,
+    ]
+    assert report["quote_stats"] == {
+        "accepted_cases": 4,
+        "quote_shorter_than_its_source_item": 0,
+        "share": 0.0,
+        "list_item_without_its_chapeau": 2,
+    }
+    assert (
+        "2 of 4 accepted cases quote a list item without its chapeau"
+        in bta.render_text_summary(report)
+    )
+    assert report["blindness"] == "blind (the guard found no leak)"
+    assert bta.render_text_summary(report).startswith("Blind test author (shadow")
+
+
+def test_words_that_rulespec_us_main_uses_are_declaration_words():
+    # From a read-only scan of rulespec-us main (4,886 modules, 2026-11-13).
+    used = {
+        "dtype": [
+            "Judgment",
+            "Money",
+            "Rate",
+            "Count",
+            "Integer",
+            "Boolean",
+            "Text",
+            "Decimal",
+            "Bool",
+            "String",
+            "Number",
+            "Float",
+            "Date",
+            "Enum[HcaGrantPaymentTier]",
+        ],
+        "period": ["Day", "Month", "Year", "Week", "Hour"],
+        "unit": [
+            "USD",
+            "years",
+            "calendar_year",
+            "months",
+            "day",
+            "year",
+            "calendar_day",
+            "month",
+        ],
+        "kind": [
+            "derived",
+            "parameter",
+            "source_relation",
+            "data_relation",
+            "derived_relation",
+        ],
+    }
+    for field_name, words in used.items():
+        for word in words:
+            assert bta._type_word(word, field_name) == word
+    for field_name, word in (
+        ("dtype", "Enum[a, b]"),
+        ("dtype", "Enum[limit_1500]"),
+        ("dtype", "Numberish"),
+        ("period", "Fortnight"),
+        ("unit", "per_1500_usd"),
+    ):
+        assert bta._type_word(word, field_name) is None
+    interface = bta.extract_rule_interface(
+        {
+            "inputs": [
+                {"name": "hours", "dtype": "Number", "period": "Hour", "unit": "day"},
+                {"name": "tier", "dtype": "Enum[HcaGrantPaymentTier]"},
+                {"name": "odd", "dtype": "Numberish"},
+            ],
+            "rules": [{"name": "out", "kind": "derived", "dtype": "Judgment"}],
+        },
+        module="us-xx:x",
+    )
+    assert interface.dropped == ("inputs.odd.dtype",)
+    hours, tier, _ = interface.inputs
+    assert (hours.dtype, hours.period, hours.unit) == ("Number", "Hour", "day")
+    # A known word is type-checked; before, a dropped word let any scalar pass.
+    assert "JSON number" in bta._value_issue("many", hours.dtype, ())
+    assert bta._value_issue(7.5, hours.dtype, ()) == ""
+    assert "must be a string" in bta._value_issue(3, tier.dtype, ())
+    assert bta._value_issue("tier_one", tier.dtype, ()) == ""
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "us-la/statute/47:294",
+        "us-la/statute/47:297.14",
+        "us-ak/regulation/aac/title-7/chapter-45/7 AAC 45.280",
+        "us/regulation/7/273/9",
+        "us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-13",
+        "us/guidance/irs/rev-proc-2025-32/page-15",
+    ],
+)
+def test_real_canonical_citation_paths_are_accepted(citation):
+    payload, interface, _ = _planted_prompt()
+    prompt = bta.build_blind_prompt(
+        source_text=PLANTED_SOURCE, interface=interface, citation_path=citation
+    )
+    assert prompt.citation_line == f"Source citation path: {citation}\n"
+
+
+@pytest.mark.parametrize(
+    ("month", "sentence", "issue"),
+    [
+        ("2027-03", "This section applies on or after March 1, 2027.", ""),
+        ("2027-03", "This section takes effect in March 2027.", ""),
+        ("2027-03", "This section takes effect on the 1st day of March, 2027.", ""),
+        ("2027-03", "This section takes effect on 1 Mar. 2027.", ""),
+        ("2027-03", "This section takes effect on 2027-03-01.", ""),
+        ("2027-03", "This section takes effect on 3/1/2027.", ""),
+        ("2026-10", "Allotments for FY 2026 are in the table below.", "year mentioned"),
+        (
+            "2026-10",
+            "For fiscal year 2026 the standard deduction is $209.",
+            "year mentioned",
+        ),
+        ("2026-10", "See 7 U.S.C. 2014(e) (2026) for the deduction.", "year mentioned"),
+        (
+            "2025-07",
+            "As amended by Pub. L. 119-21, July 4, 2025, the deduction is limited.",
+            "year mentioned",
+        ),
+        (
+            "2025-10",
+            "See the notice dated October 3, 2025 for the rule.",
+            "year mentioned",
+        ),
+        (
+            "2027-04",
+            "This section applies on or after March 1, 2027.",
+            "not in that month",
+        ),
+        ("2027-03", "The provider performs the installation.", "states no date"),
+    ],
+)
+def test_a_stated_date_is_a_date_phrase_not_a_year_or_a_citation(
+    month, sentence, issue
+):
+    result = bta._stated_date_issue(month, sentence)
+    assert (result == "") if not issue else (issue in result)
+
+
+def test_a_fiscal_year_label_raises_no_period_finding():
+    label = "Allotments for FY 2026 are in the table below."
+    report, runner = _probe_report(
+        "2025-10",
+        as_of=None,
+        stated={"month": "2026-10", "source_sentence": label},
+        source=SOURCE + f"\n{label}\n",
+    )
+    stated = report["period_probes"]["source_stated_date"]
+    assert stated["finding"] == "not_probed" and stated["stated_month"] is None
+    assert report["notes"] == [
+        "stated_commencement ignored: year mentioned, not a stated date"
+    ]
+    assert "year mentioned, not a stated date" in bta.render_text_summary(report)
+    assert runner.periods == ["2026-08"]
 
 
 def test_the_same_case_under_two_names_counts_once():
@@ -898,7 +1143,7 @@ DATED_SENTENCE = "This section applies to expenses billed on or after March 1, 2
         ({"month": "2027-03", "source_sentence": DATED_SENTENCE}, "2027-03", None),
         (None, None, None),
         # A sentence that is real but states no such year proves nothing.
-        ({"month": "2027-03", "source_sentence": DEPOSIT_SENTENCE}, None, "year"),
+        ({"month": "2027-03", "source_sentence": DEPOSIT_SENTENCE}, None, "no date"),
         (
             {"month": "2027-03", "source_sentence": "Effective March 2027."},
             None,
