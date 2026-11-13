@@ -583,3 +583,39 @@ def test_sheet_enclosing_context_reaches_full_analyzer(tmp_path, newline, contex
     else:
         assert bind(d) is None
         assert issues
+
+
+def test_raw_numeric_expected_strings_preserve_form_observation(tmp_path):
+    from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+
+    d = data()
+    for case in d["cases"]:
+        case["output"] = {k: str(v) for k, v in case["output"].items()}
+    binding = bind(d)
+    assert binding is not None
+    captured = evidence(tmp_path, d)
+    assert observed_form_frame(binding, captured, d["content"], d["cases"])
+    pipeline = ValidatorPipeline(
+        tmp_path / "rulespec-ca",
+        tmp_path / "engine",
+        local_corpus_release=None,
+        enable_oracles=False,
+        require_complete_source_unit=True,
+    )
+    args = dict(
+        validation_source_texts={CITATION: d["source"]},
+        proof_source_texts={CITATION: d["source"]},
+        execution_evidence=captured,
+    )
+    assert (
+        pipeline._complete_source_unit_issues(
+            d["content"], test_cases=d["cases"], **args
+        )
+        == []
+    )
+    changed = copy.deepcopy(d["cases"])
+    for case in changed:
+        case["name"] += "-unobserved"
+    assert pipeline._complete_source_unit_issues(
+        d["content"], test_cases=changed, **args
+    )

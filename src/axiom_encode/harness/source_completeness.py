@@ -6571,6 +6571,7 @@ def _analyze_rulespec_payload(
         for rule in payload.get("rules", [])
         if isinstance(rule, dict) and str(rule.get("name") or "").strip()
     }
+    execution_test_cases = test_cases
     test_cases = _typed_numeric_expected_cases(test_cases, named_rules)
     test_cases = _typed_date_cases(test_cases, payload)
     deferred_clauses: list[SourceStructureBranch] = []
@@ -6962,6 +6963,7 @@ def _analyze_rulespec_payload(
         companion_issues.extend(
             _companion_test_issues(
                 principal_rules,
+                execution_test_cases=execution_test_cases,
                 execution_evidence=execution_evidence,
                 referral_context=referral_context,
                 floor_imported_exports=imported_export_bindings,
@@ -7029,7 +7031,10 @@ def _analyze_rulespec_payload(
             for issue in companion_issues
         )
         and observed_form_frame(
-            printed_operations.ordered_binding, execution_evidence, content, test_cases
+            printed_operations.ordered_binding,
+            execution_evidence,
+            content,
+            execution_test_cases,
         )
     ):
         # Header ownership is numeric only, after ordinary row witnesses and
@@ -22998,6 +23003,7 @@ def _companion_test_issues(
     partnership_content: str | None = None,
     printed_operations: _PrintedOperationContext | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    execution_test_cases: Sequence[object] | None = None,
     floor_imported_exports: Sequence[ResolvedImportedExport] = (),
     floor_source_context: Mapping[str, str | None] | None = None,
     local_floor_source_context: Mapping[str, str | None] | None = None,
@@ -23435,7 +23441,7 @@ def _companion_test_issues(
                     printed_operations.ordered_binding,
                     execution_evidence,
                     partnership_content,
-                    cases,
+                    execution_test_cases,
                     missing_exception_branches,
                     source_text=source_text,
                     corpus_citation_path=corpus_citation_path,

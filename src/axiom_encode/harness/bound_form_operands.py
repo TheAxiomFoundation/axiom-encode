@@ -30,7 +30,16 @@ from .bound_form_obligations import (
 )
 from .imported_export_evidence import _atoms, _named, _payload
 
-_LABEL = r"[A-Za-z][A-Za-z ,'-]*"
+# Closed display-label grammar: inert descriptive words, then one closed head
+# noun. Any other caption prose is unparsed and may be operative ("then
+# halved", "whichever is greater"), so the row gets no certificate.
+_LABEL_WORD = (
+    r"(?:physical|activity|home|renovation|children's|sports|arts|seniors'|and"
+    r"|alberta|british|columbia|manitoba|new|brunswick|newfoundland|labrador"
+    r"|nova|scotia|ontario|prince|edward|island|quebec|saskatchewan|northwest"
+    r"|territories|nunavut|yukon)"
+)
+_LABEL = rf"(?i:(?:{_LABEL_WORD} )*(?:expenses|tax credit|credits|credit))"
 _FORBIDDEN = re.compile(r"\b(?:if|unless|except|provided|otherwise|when)\b", re.I)
 _OPERATIVE_LABEL = re.compile(
     r"\b(?:plus|minus|less|subtract|add|multiply|divide|maximum|minimum|reduced|increased|after|before|including|excluding|deduct|reduce|increase|times)\b|\bnet of\b",
@@ -56,7 +65,9 @@ _ENTERED = re.compile(
     r"(?:Total amount paid from all receipts included in the table above Total eligible expenses = \^"
     r"|Amount of assistance received or receivable included in the amount on line [1-9]\d* \^"
     r"|Amount from line [1-9]\d* being claimed by other eligible individuals \^"
-    r"|Enter the [A-Za-z ]+ amount from line [1-9]\d* of your Form [A-Z][A-Z0-9]*\. \^)"
+    r"|Enter the (?i:(?:"
+    + _LABEL_WORD
+    + r" )*tax credit) amount from line [1-9]\d* of your Form [A-Z][A-Z0-9]*\. \^)"
 )
 
 
