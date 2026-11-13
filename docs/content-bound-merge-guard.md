@@ -415,32 +415,55 @@ shape has no run attempt; adding `run_attempt` would let the guard bind one
 main. It has no environment variable, flag or repository setting, so a
 RuleSpec PR or workflow cannot turn it.
 
-- **Off (today):** a manifest labelled v6 is "not an encoder apply manifest"
-  for every reader, as before the change.
-- **On:** two readers admit the v6 label, and only for the promotion contract
-  (the promotion tool, no `backend` key): the top-level verified loader
-  (`_load_verified_applied_encoding_manifest_payload`) and the immutable-base
-  claim reader (`_guard_base_manifest_claims`). They then require a valid
-  signature, the exact v6 field set, the exact `attestation_scope` shape, and
-  `candidate.head_sha == candidate_rulespec_ref`. Producer, validation
-  execution, source and waiver checks are those of the v5 promotion contract.
-- **Never, also when on:** a v6 manifest nested in a retirement, migration or
-  replacement receipt, or read as historical evidence.
-- A verifier works offline. It does not compare the named PR, author or
-  dispatcher with GitHub; the merge guard does (§3 steps 4 and 6).
-- `owner_review_state` returns `none` for v6 and `before-signing` for the
-  earlier lane, so a caller can distinguish validation from approval (D1).
+Which reader does what, with the switch off and on:
+
+| Reader | Off (today) | On |
+|---|---|---|
+| `_load_verified_applied_encoding_manifest_payload`, and so its callers (19 call sites in `cli.py`, and others in reviewed repair, run-log export, telemetry sync, the regeneration judge and notary administration): validation coverage (`guard-generated`), promotion, retire, path and metadata migration, import inventory, legacy replacement, reviewed repair; with and without `historical_verification` | refuses | admits an exact signed v6 |
+| `_guard_base_manifest_claims` (a manifest on the immutable base) | refuses | admits an exact signed v6, as obligations only |
+| Readers of a nested manifest (`_retired_model_manifest_issues`, `_migrated_model_manifest_issues`, `_legacy_replacement_manifest_issues`) and `_historical_manifest_refresh_inputs` | refuse | refuse |
+| `supabase_sync.run_from_apply_manifest`, `prepare_signed_backfill.py`, the canonical-refresh selection in `targeted-signed-reencode.yml`, `_canonical_replacement_baseline` | refuse or ignore (v5 only) | refuse or ignore (v5 only) |
+
+"Exact signed v6" means: the promotion tool and no `backend` key; a valid
+signature over the whole payload; the exact v6 field set; the exact
+`attestation_scope` shape; `candidate.head_sha == candidate_rulespec_ref`; and
+`candidate.repository` equal to the repository of the manifest's attested
+`source_attestation.rulespec_root`. Producer, validation-execution, source and
+waiver checks are those of the v5 promotion contract.
+
+- **Historical verification admits v6 when the switch is on, by design.** A
+  landed v6 manifest becomes history that every later change must verify
+  (`historical_verification=True` reads the manifests of unchanged files). If
+  that reader refused v6, the first v6 landing would turn later validation
+  red. It admits v6 on the same terms as a v5 promotion manifest, and no
+  wider.
+- **The repository rule is shared.** `is_promotion_repository`
+  (`TheAxiomFoundation/rulespec-<country>`) is the one definition for the
+  reader and the evaluator. The reader binds the scope's repository to the
+  manifest's attested RuleSpec root, which the loader compares with the
+  checkout. It cannot compare the named PR, author or dispatcher with GitHub;
+  the merge guard does (§3 steps 4 and 6, case 19).
 - **Boundary:** only a manifest labelled v6 takes these paths. A change that
   carries no manifest (workflows, pins, ledgers, tooling, ProgramSpec) reaches
   no reader of this change, with the switch on or off.
 
-Not read as v6 yet: `_canonical_replacement_baseline` (preservation context
-for a later re-encode of the module), `prepare_signed_backfill.py`, the
-canonical-refresh selection in `targeted-signed-reencode.yml`, and
-`supabase_sync.py` telemetry. They treat a v6 manifest as absent or foreign.
-They matter only after a v6 module is on `main`, and belong to change 5. The
-unreceipted-retirement scan has no v6 field class, so it scans every string of
-a v6 manifest, which is the conservative reading.
+**Precondition for turning the switch on (change 2b).** With the switch on,
+`validate / validate` treats an exact signed v6 manifest like a reviewed v5
+one: it proves validation and nothing about review. `owner_review_state`
+(`none` for v6, `before-signing` for the earlier lane) exists for callers to
+tell the two apart (D1), and it has no production caller yet. So the reader's
+safety with the switch on rests on two facts outside the reader: no writer
+emits v6, and the guard check is required before one does. Change 2b may
+merge while no v6 writer exists. The writer (change 5) must not be enabled
+before the guard check is required (activation checklist, step 4). This was
+chosen over wiring `owner_review_state` into `validate` now: a v6 refusal in
+`validate` would have to be removed again at activation, and the guard, not
+`validate`, is the control the maintainers decided on (D2).
+
+Not read as v6 yet (last row of the table): they treat a v6 manifest as
+absent or foreign. They matter only after a v6 module is on `main`, and
+belong to change 5. The unreceipted-retirement scan has no v6 field class, so
+it scans every string of a v6 manifest, which is the conservative reading.
 
 Still to do in later changes: turn the switch on (change 2b); the promotion
 writer emits v6. A verifier pinned before change 2b rejects v6, so no v6
@@ -582,6 +605,13 @@ can do them.
 
 Steps 4 and 7 are separate reviewed changes, and step 4 comes first. That
 satisfies D2d.
+
+What fixes the order. D2d ("deployed and enforced before the pre-sign approval
+is removed") forces the guard App (step 1), the runner and the v6 reader pin
+(step 2) and the required check (step 4) before activation (step 7). The
+canary (step 5) is the maintainers' sequence decision. The shadow period and
+the live cases (steps 2 and 3) are this document's own choice, not a
+requirement of D2d.
 
 ## 9. Threat model
 

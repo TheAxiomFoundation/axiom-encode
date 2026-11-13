@@ -29083,9 +29083,11 @@ def _applied_manifest_exact_schema_issues(
     """Reject every field outside the model or retirement v5 contract.
 
     A v6 label is refused here unless the caller reads a top-level manifest
-    (``admit_v6``) and the v6 reader admits it. Nested and historical readers
-    never pass ``admit_v6``, so a v6 manifest cannot stand in for a model
-    manifest inside a retirement, migration or replacement receipt.
+    (``admit_v6``) and the v6 reader admits it. Only the verified loader and
+    the immutable-base claim reader pass it. The readers of a manifest nested
+    in a retirement, migration or replacement receipt and the historical
+    refresh reader do not, so a v6 manifest cannot stand in for a model
+    manifest there.
     """
 
     backend = payload.get("backend")

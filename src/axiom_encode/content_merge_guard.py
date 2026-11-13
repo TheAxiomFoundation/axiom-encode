@@ -39,6 +39,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Callable
 
+from axiom_encode.applied_manifest_v6 import is_promotion_repository
 from axiom_encode.prepare_signed_backfill import (
     RULESPEC_ATOMIC_ROOTS,
     citation_rulespec_path,
@@ -882,7 +883,7 @@ def _evaluate(name, number, read, evidence) -> Verdict:
         raise _Refusal(R_MIXED_SCHEMAS, "v6 and earlier manifests in one PR")
     if len(parsed) != 1:
         raise _Refusal(R_MULTIPLE_V6, "exactly one v6 manifest is allowed per PR")
-    if match.group(2) is not None:
+    if not is_promotion_repository(repository):
         raise _Refusal(
             R_UNSUPPORTED_REPOSITORY,
             "the promotion lane publishes only to rulespec-<country>",

@@ -68,7 +68,18 @@ ATTESTATION_DISPATCHER_FIELDS: Final = frozenset({"id", "login"})
 
 _SHA = re.compile(r"[0-9a-f]{40}")
 _LOGIN = re.compile(r"[A-Za-z0-9-]{1,39}")
-_REPOSITORY = re.compile(r"TheAxiomFoundation/rulespec-[a-z]{2}")
+# The promotion lane publishes only to a country repository. This is the one
+# definition; the merge guard uses it too (``is_promotion_repository``).
+PROMOTION_REPOSITORY: Final = re.compile(r"TheAxiomFoundation/rulespec-[a-z]{2}")
+
+
+def is_promotion_repository(full_name: object) -> bool:
+    """Whether ``owner/name`` is a repository the promotion lane publishes to."""
+
+    return (
+        isinstance(full_name, str)
+        and PROMOTION_REPOSITORY.fullmatch(full_name) is not None
+    )
 
 
 def is_v6_labelled(payload: object) -> bool:
@@ -120,8 +131,10 @@ def attestation_scope_issues(
 
     A verifier works offline: it cannot confirm that the named pull request,
     author or dispatcher exist. It requires the exact shape and the internal
-    binding (``candidate.head_sha`` is ``candidate_rulespec_ref``); the merge
-    guard compares the values with live GitHub state.
+    bindings (``candidate.head_sha`` is ``candidate_rulespec_ref``;
+    ``candidate.repository`` is the repository of the manifest's attested
+    RuleSpec root); the merge guard compares the values with live GitHub
+    state.
     """
 
     def refuse(detail: str) -> list[str]:
@@ -143,8 +156,7 @@ def attestation_scope_issues(
     if (
         not isinstance(candidate, dict)
         or set(candidate) != ATTESTATION_CANDIDATE_FIELDS
-        or not isinstance(candidate["repository"], str)
-        or _REPOSITORY.fullmatch(candidate["repository"]) is None
+        or not is_promotion_repository(candidate["repository"])
         or not _strict_positive_int(candidate["pull_request"])
         or not _strict_positive_int(candidate["author_id"])
         or any(
@@ -164,6 +176,18 @@ def attestation_scope_issues(
         return refuse("dispatcher")
     if candidate["head_sha"] != payload.get(CANDIDATE_REF_FIELD):
         return refuse("candidate head is not candidate_rulespec_ref")
+    # ``source_attestation.rulespec_root`` is ``<repository>/<jurisdiction>``;
+    # the verified loader compares it with the checkout. So a scope cannot
+    # name ``rulespec-uk`` in a manifest for ``rulespec-us``.
+    attestation = payload.get("source_attestation")
+    rulespec_root = (
+        attestation.get("rulespec_root") if isinstance(attestation, dict) else None
+    )
+    if (
+        not isinstance(rulespec_root, str)
+        or candidate["repository"].rpartition("/")[2] != rulespec_root.partition("/")[0]
+    ):
+        return refuse("candidate repository is not the manifest's RuleSpec repository")
     return []
 
 

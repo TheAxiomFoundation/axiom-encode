@@ -7,6 +7,7 @@ enrolment, failed reads) are tested in tests/test_content_merge_guard.py.
 
 from __future__ import annotations
 
+import ast
 import copy
 import json
 
@@ -15,7 +16,7 @@ import pytest
 from axiom_encode import applied_manifest_v6 as v6
 from axiom_encode import cli
 from axiom_encode import content_merge_guard as guard
-from tests.test_cli import TEST_APPLY_SIGNING_BROKER
+from tests.test_cli import TEST_APPLY_SIGNING_BROKER, TEST_VALIDATION_WAIVER_SHA256
 from tests.test_encoder_manifest_ancestry import (  # noqa: F401 (fixtures)
     _expected,
     _load,
@@ -192,6 +193,12 @@ def _mutations():
         "candidate-pr-float": scope(("candidate", "pull_request"), 2044.0),
         "candidate-other-org": scope(("candidate", "repository"), "evil/rulespec-us"),
         "candidate-short-name": scope(("candidate", "repository"), "rulespec-us"),
+        "candidate-other-country": scope(
+            ("candidate", "repository"), "TheAxiomFoundation/rulespec-uk"
+        ),
+        "candidate-subdivision": scope(
+            ("candidate", "repository"), "TheAxiomFoundation/rulespec-us-tn"
+        ),
         "candidate-head-short": scope(("candidate", "head_sha"), "d" * 39),
         "candidate-head-other": scope(("candidate", "head_sha"), "e" * 40),
         "candidate-base-upper": scope(("candidate", "base_sha"), "A" * 40),
@@ -498,3 +505,209 @@ def test_a_scope_the_reader_admits_is_one_the_merge_guard_parses(promotion):
         author_id=110687043,
     )
     assert parsed.dispatcher_id == 110687043
+
+
+# --- review round 1 ------------------------------------------------------------
+
+
+def _base_claims(repo, payload):
+    return cli._guard_base_manifest_claims(
+        json.dumps(payload).encode(),
+        repo_path=repo,
+        manifest_path=MANIFEST,
+        historical_head_ref="HEAD",
+        retrospective=False,
+        roots=("statutes",),
+        signing_broker=TEST_APPLY_SIGNING_BROKER,
+    )
+
+
+BASE = f"{MANIFEST} at the immutable base"
+
+
+def test_enabled_base_reader_admits_exact_v6_as_obligations(enabled, promotion):
+    repo, v5, _expected_identity = promotion
+    claims, issues = _base_claims(repo, _sign(_to_v6(v5)))
+    assert issues == []
+    assert claims == {"us/statutes/26/1.yaml"}
+    # The same claims as the v5 promotion manifest: obligations, no more.
+    assert _base_claims(repo, _sign(copy.deepcopy(v5))) == (claims, [])
+
+
+def _wrong_scope(payload):
+    payload["attestation_scope"]["owner_review"] = "approved"
+
+
+def _head_mismatch(payload):
+    payload["attestation_scope"]["candidate"]["head_sha"] = "e" * 40
+
+
+@pytest.mark.parametrize(
+    ("mutate", "sign", "expected"),
+    [
+        (_wrong_scope, True, "attestation scope is invalid: owner_review"),
+        (_head_mismatch, True, "candidate head is not candidate_rulespec_ref"),
+        (lambda p: None, False, "is missing an encoder apply manifest signature"),
+        (lambda p: p.pop("attestation_scope"), True, "v6 schema"),
+        (lambda p: p.update(backend="codex"), True, "is not an encoder apply manifest"),
+    ],
+    ids=["bad-scope", "head-mismatch", "unsigned", "no-scope", "model-backend"],
+)
+def test_enabled_base_reader_refuses(enabled, promotion, mutate, sign, expected):
+    repo, v5, _expected_identity = promotion
+    payload = _to_v6(v5)
+    mutate(payload)
+    _claims, issues = _base_claims(repo, _sign(payload) if sign else payload)
+    assert any(issue.startswith(BASE) and expected in issue for issue in issues), issues
+
+
+def test_enabled_base_reader_refuses_an_edit_after_signing(enabled, promotion):
+    repo, v5, _expected_identity = promotion
+    payload = _sign(_to_v6(v5))
+    payload["attestation_scope"]["dispatcher"]["id"] = 6076111
+    _claims, issues = _base_claims(repo, payload)
+    assert any("signature" in issue for issue in issues), issues
+
+
+@pytest.mark.parametrize("switch", [False, True])
+def test_historical_verification_follows_the_switch(monkeypatch, promotion, switch):
+    """A landed v6 manifest becomes history that later changes must verify.
+
+    So historical verification admits an exact signed v6 on the terms of the
+    v5 promotion contract when the reader is on, and refuses it when off.
+    """
+    monkeypatch.setattr(v6, "V6_READER_ENABLED", switch)
+    repo, v5, expected = promotion
+    path = repo / MANIFEST
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = _sign(_to_v6(v5))
+    path.write_text(json.dumps(payload) + "\n")
+    verified, _root, _digest, issues = (
+        cli._load_verified_applied_encoding_manifest_payload(
+            repo,
+            MANIFEST,
+            historical_verification=True,
+            signing_broker=TEST_APPLY_SIGNING_BROKER,
+            expected_waiver_set_sha256=TEST_VALIDATION_WAIVER_SHA256,
+            expected_encoder_identity=expected,
+        )
+    )
+    if switch:
+        assert issues == [] and verified == payload
+    else:
+        assert verified is None and issues == [NOT_A_MANIFEST]
+
+
+def test_exactly_two_readers_pass_admit_v6():
+    tree = ast.parse(cli.Path(cli.__file__).read_text())
+    passing = set()
+    calls = 0
+    for function in ast.walk(tree):
+        if not isinstance(function, ast.FunctionDef):
+            continue
+        for node in ast.walk(function):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_applied_manifest_exact_schema_issues"
+            ):
+                calls += 1
+                for keyword in node.keywords:
+                    if keyword.arg == "admit_v6":
+                        assert isinstance(keyword.value, ast.Constant)
+                        assert keyword.value.value is True
+                        passing.add(function.name)
+    assert passing == {
+        "_load_verified_applied_encoding_manifest_payload",
+        "_guard_base_manifest_claims",
+    }
+    # The others: the historical refresh reader and the nested receipt readers.
+    assert calls >= 6
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "src/axiom_encode/supabase_sync.py",
+        "src/axiom_encode/prepare_signed_backfill.py",
+        "src/axiom_encode/reviewed_repair_patch.py",
+        ".github/workflows/targeted-signed-reencode.yml",
+    ],
+)
+def test_v5_only_readers_do_not_know_v6(path):
+    source = (cli.Path(cli.__file__).parents[2] / path).read_text()
+    assert "applied-rulespec/v6" not in source
+    assert "applied_manifest_v6" not in source
+
+
+def test_enabled_telemetry_and_replacement_baseline_refuse_v6(enabled, promotion):
+    from axiom_encode import supabase_sync
+
+    repo, v5, _expected_identity = promotion
+    payload = _sign(_to_v6(v5))
+    with pytest.raises(ValueError, match="not canonical"):
+        supabase_sync.run_from_apply_manifest(repo / MANIFEST, payload)
+    path = repo / MANIFEST
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload) + "\n")
+    rule = repo / "us/statutes/26/1.yaml"
+    assert (
+        cli._canonical_replacement_baseline(
+            repo / "us", rule, rule.with_name("1.test.yaml"), source_unit=None
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "admitted"),
+    [
+        ("TheAxiomFoundation/rulespec-us", True),
+        ("TheAxiomFoundation/rulespec-uk", True),
+        ("TheAxiomFoundation/rulespec-us-tn", False),
+        ("TheAxiomFoundation/rulespec-usa", False),
+        ("TheAxiomFoundation/rulespec-US", False),
+        ("TheAxiomFoundation/axiom-encode", False),
+        ("evil/rulespec-us", False),
+        ("rulespec-us", False),
+        ("TheAxiomFoundation/rulespec-us\n", False),
+        (None, False),
+    ],
+)
+def test_reader_and_merge_guard_share_one_repository_rule(name, admitted):
+    assert guard.is_promotion_repository is v6.is_promotion_repository
+    assert v6.is_promotion_repository(name) is admitted
+    # Both directions: what the reader admits in a scope, the evaluator
+    # accepts as a v6 repository, and nothing else.
+    short = name.rpartition("/")[2] if isinstance(name, str) else name
+    evaluator_accepts = (
+        isinstance(name, str)
+        and name == f"{guard.ORGANISATION}/{short}"
+        and guard._REPOSITORY.fullmatch(short) is not None
+        and guard.is_promotion_repository(f"{guard.ORGANISATION}/{short}")
+    )
+    assert evaluator_accepts is admitted
+
+
+def test_owner_review_state_has_no_production_caller_yet():
+    """Recorded limit: with the switch on, ``validate`` treats v6 like v5.
+
+    The design names this as a precondition for change 2b. When a caller is
+    wired, update the doc and this test together.
+    """
+    package = cli.Path(cli.__file__).parent
+    users = [
+        path.name
+        for path in package.rglob("*.py")
+        if "owner_review_state" in path.read_text()
+    ]
+    assert users == ["applied_manifest_v6.py"]
+
+
+def test_off_the_exact_schema_check_refuses_v6_on_its_own(promotion):
+    # Defence in depth: this check does not rely on its caller's entry test.
+    payload = _sign(_to_v6(promotion[1]))
+    for admit in (True, False):
+        assert cli._applied_manifest_exact_schema_issues(
+            payload, manifest_label=MANIFEST, admit_v6=admit
+        ) == [NOT_A_MANIFEST]
