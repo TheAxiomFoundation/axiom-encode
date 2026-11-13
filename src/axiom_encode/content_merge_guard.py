@@ -679,9 +679,11 @@ def _earlier_lane_refusal(
     at the position of one module of a base jurisdiction. Each changed module
     file is listed, with the sha256 of its head bytes, by the manifest at its
     own canonical position (a companion ``.test.yaml`` belongs to its
-    primary). A removed file needs the listing only.
+    primary). A removed file needs the listing only. Each manifest lists at
+    least one changed module file, so an empty or unrelated listing has no lane.
     """
     owners = {}
+    used = set()
     for manifest_path in manifests:
         module = _manifest_module(manifest_path)
         if module is None or not _is_module_path(module, jurisdictions):
@@ -708,12 +710,18 @@ def _earlier_lane_refusal(
                     path
                 ):
                     listed = True
+                    used.add(manifest_path)
         if not listed:
             return (
                 R_CONTENT_NOT_COVERED,
                 "module file is not listed with its digest by its own manifest: "
                 + path,
             )
+    for manifest_path in sorted(set(manifests) - used):
+        return (
+            R_CONTENT_NOT_COVERED,
+            "manifest lists no changed module file: " + manifest_path,
+        )
     return None
 
 

@@ -124,6 +124,8 @@ reason code and evidence.
        at its own canonical position (a `.test.yaml` belongs to its primary),
        with the sha256 of its head bytes; a removed file needs the listing
        only. Otherwise `fail`;
+     - every changed manifest lists at least one changed module file, so an
+       empty listing, or a manifest-only change, has no lane: `fail`;
      - `validate / validate` is green on `H` from this PR's own `pull_request`
        run, with the binding of step 7. Otherwise `fail`;
      - the PR and `main` did not move during the evaluation.
@@ -255,7 +257,8 @@ attempt of the run signed it.
 
 ### Census: the last 50 merged `rulespec-us` PRs under this classifier
 
-Read-only, 2026-11-12: the 50 most recently merged PRs to `main` among the 100
+Read-only, 2026-11-12, repeated after rulespec-us#2045 merged (before that
+the counts were 1 and 49): the 50 most recently merged PRs to `main` among the 100
 most recently updated closed PRs, classified with the round-3 rules (reduced
 allowlist, digest and position binding). The census reads file lists, the
 changed manifests and the module bytes at the merge commit, and takes the
@@ -265,11 +268,11 @@ taken as regular and green. `pass` is impossible because no v6 manifest exists.
 | Verdict | PRs |
 |---|---|
 | `not_applicable` (`no_guarded_content`, allowlist) | 0 |
-| `not_applicable` (`earlier_lane_v5`) | 1 (#2154, a merge train of 5 signed manifests; all 5 satisfy the digest and position rules) |
-| `fail` (`no_lane_for_guarded_change`) | 49 |
+| `not_applicable` (`earlier_lane_v5`) | 2 (#2045 and #2154, a merge train of 5 signed manifests; all 5 satisfy the digest and position rules) |
+| `fail` (`no_lane_for_guarded_change`) | 48 |
 | `fail`, other reasons | 0 |
 
-The 49 are: toolchain and corpus pins and staged waiver fingerprints in
+The 48 are: toolchain and corpus pins and staged waiver fingerprints in
 `.axiom/toolchain.toml` or `.axiom/workflow-toolchain.toml` (about 21), ledger
 and register changes (`known-*.yaml`, `oracle-coverage-pending.yaml`), workflow
 changes under `.github/`, ProgramSpec changes under `programs/`, tests and
@@ -559,7 +562,7 @@ signed approval (option c in §3) or a separate approver account.
 
 | # | Question | Recommendation |
 |---|---|---|
-| 0 | **First decision.** Which lane do infrastructure changes (`.github/**`, `.axiom/` pins and configuration, ledgers, tooling, `.gitattributes`, `CLAUDE.md`, `.claude/`) and ProgramSpec changes get? Today none: `fail`. 49 of the last 50 merged PRs are in this class | Decide before the check is required. One option is the same enrolled-owner, content-bound approval as the v6 lane, without a manifest |
+| 0 | **First decision.** Which lane do infrastructure changes (`.github/**`, `.axiom/` pins and configuration, ledgers, tooling, `.gitattributes`, `CLAUDE.md`, `.claude/`) and ProgramSpec changes get? Today none: `fail`. 48 of the last 50 merged PRs are in this class (49 before #2045 merged) | Decide before the check is required. One option is the same enrolled-owner, content-bound approval as the v6 lane, without a manifest |
 | 0b | A module under a jurisdiction that the base lacks has no lane, also with a v5 manifest. How is a new jurisdiction added? | Through the lane of question 0 |
 | 1 | App-published check or an organisation required-workflow ruleset? | The App. Switch only if the ruleset documentation confirms the capability |
 | 2 | Is a polling sweep (about 5 minutes) acceptable as the trigger? | Yes for the pilot |
@@ -584,7 +587,8 @@ A read-only live run, `merge-guard --repository rulespec-us --pr 2045`, returned
 green. It is a v5 promotion PR: one root-layout manifest and two module files.
 The run exercised the real check-run listing and the real `pull_request` run
 binding. The green head carried exactly one check run named
-`validate / validate`.
+`validate / validate`. After #2045 merged, the same command returns `fail` /
+`pr_identity`: the evaluator judges open PRs only.
 
 Verified against live data on 2026-11-12 (rulespec-us#2045 and its signing run):
 the fields of an Actions run (`event`, `path`, `head_sha`, `head_branch`,

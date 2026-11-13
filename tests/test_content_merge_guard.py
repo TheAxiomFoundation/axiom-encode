@@ -635,8 +635,26 @@ def test_v5_lane_admits_any_root_name_and_depth_under_a_jurisdiction(primary):
     expect(world, guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
 
 
-def test_v5_lane_manifest_only_change():
-    expect(plain({M: v5_manifest()}), guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
+@pytest.mark.parametrize("listing", [(), (P, T)])
+def test_r4_v5_manifest_that_lists_no_changed_module_file_fails(listing):
+    # An empty listing, or a listing of modules the PR does not change.
+    base = {P: PRIMARY, T: COMPANION} if listing else {}
+    world = plain({M: v5_manifest(*listing)}, base_extra=base)
+    fails(world, guard.R_CONTENT_NOT_COVERED)
+
+
+def test_r4_every_changed_manifest_must_list_a_changed_module_file():
+    idle = M.replace("block-7", "existing").replace("des/faa5/medical/", "")
+    assert idle == guard.MANIFEST_PREFIX + "us-az/policies/existing.json"
+    world = plain(V5_UNIT | {idle: v5_manifest()})
+    fails(world, guard.R_CONTENT_NOT_COVERED)
+
+
+def test_r4_modified_module_needs_the_digest_of_its_new_bytes():
+    older = {P: b"older\n", T: COMPANION, M: v5_manifest(P, T, generated_at="1")}
+    stale = v5_manifest(P, T, content={P: b"older\n"})
+    world = plain({P: PRIMARY, M: stale}, base_extra=older)
+    fails(world, guard.R_CONTENT_NOT_COVERED)
 
 
 @pytest.mark.parametrize(
@@ -836,7 +854,11 @@ def test_v5_lane_with_uncovered_content_fails(manifest):
 
 
 def test_jurisdiction_local_manifest_does_not_cover_another_jurisdiction():
-    manifest = v5_manifest(LOCAL_P, LOCAL_T)  # read as us-ca/us-ca/...
+    # Repository-relative paths with the right digests: in this layout they
+    # read as us-ca/us-ca/..., so they cover nothing.
+    manifest = v5_manifest(
+        LOCAL_P, LOCAL_T, content={LOCAL_P: PRIMARY, LOCAL_T: COMPANION}
+    )
     world = plain({LOCAL_P: PRIMARY, LOCAL_T: COMPANION, LOCAL_M: manifest})
     fails(world, guard.R_CONTENT_NOT_COVERED)
 
