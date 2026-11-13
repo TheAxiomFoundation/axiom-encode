@@ -345,6 +345,29 @@ def test_nonoperative_framing_leaf_deferral_is_precise(
             "42 CFR 457.800(a) is a non-operative statutory-basis statement and "
             "supplies no operative rule.",
         ),
+        (
+            "(a) Severability. If any provision of this part is held invalid, "
+            "the provision is severable, but no household may participate "
+            "after 12 months.",
+            ("a",),
+            "42 CFR 457.800(a) is a non-operative severability statement and "
+            "supplies no operative rule.",
+        ),
+        (
+            "(a) Severability. If any provision of this part is held invalid, "
+            "the provision is severable, and the State's agency shall refund "
+            "the fee.",
+            ("a",),
+            "42 CFR 457.800(a) is a non-operative severability statement and "
+            "supplies no operative rule.",
+        ),
+        (
+            "(a) Purpose. The purpose of this section is to require States to "
+            "verify income, effective with the first certification.",
+            ("a",),
+            "42 CFR 457.800(a) is a non-operative purpose statement and supplies "
+            "no operative rule.",
+        ),
         # A framing heading with operative children is not a leaf.
         (
             "(a) Scope. This subpart sets forth the following requirements:\n\n"

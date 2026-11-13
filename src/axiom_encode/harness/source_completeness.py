@@ -15443,10 +15443,14 @@ _NONOPERATIVE_REASON_ASSERTION = re.compile(
 
 
 _NONOPERATIVE_EFFECTIVE_DATE = re.compile(
-    r"\beffective\s+(?:on\s+|as\s+of\s+|for\s+|beginning\s+|after\s+|until\s+)?"
+    r"\beffective\s+(?:"
+    r"(?:on\s+|as\s+of\s+|for\s+|beginning\s+|after\s+|until\s+)?"
     r"(?:(?:January|February|March|April|May|June|July|August|September|"
     r"October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)"
-    r"\b|\d|the\s+(?:first|date|day)\b)",
+    r"\b|\d|the\s+(?:first|date|day)\b)|"
+    r"(?:with|upon)\s+\w|"
+    r"for\s+(?:\w+\s+){0,2}(?:fiscal|taxable|calendar|plan|benefit)\s+(?:years?|periods?)\b"
+    r")",
     flags=re.IGNORECASE,
 )
 _NONOPERATIVE_EXCLUSION = re.compile(
@@ -15458,8 +15462,9 @@ _NONOPERATIVE_EXCLUSION = re.compile(
     flags=re.IGNORECASE,
 )
 _NONOPERATIVE_COORDINATED_MODAL = re.compile(
-    r"(?:,\s*|\s)(?:and|but)\s+(?:the|a|an|each|any|every|all|this|that|such)\s+"
-    r"(?:[\w-]+\s+){0,5}?(?:must|shall|may|will)\s+"
+    r"(?:,\s*|\s)(?:and|but)\s+"
+    r"(?:(?:the|a|an|each|any|every|all|no|this|that|such)\s+)?"
+    r"(?:[\w'\u2019-]+\s+){0,5}?(?:must|shall|may|will)\s+"
     r"(?!(?:not\s+)?(?:be|continue|remain|survive|stand)\b)(?!not\s+affect\b)"
     r"[a-z]",
     flags=re.IGNORECASE,
