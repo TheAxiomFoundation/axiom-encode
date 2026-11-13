@@ -19898,131 +19898,193 @@ def _shared_membership_list_body(body: str) -> str:
     )
 
 
-# The chapeau of a bulleted list of alternatives. The grammar is closed and
-# comes from real manual text. The whole chapeau line must match one shape:
+def _is_pure_physical_alternative_condition(body: str) -> bool:
+    """Recognize a closed OR-list, never a conjunctive or qualified list.
+
+    This gate counts simultaneous facts, not alternative triggers. Decline
+    any shared prerequisite, nested condition, or unbulleted continuation;
+    their existing conservative gate analysis must remain in force.
+    """
+
+    header, separator, tail = body.strip().partition(":")
+    if not separator or not re.fullmatch(
+        r"one\s+or\s+more\s+of\s+the\s+following\s+occurs\s+regarding\s+"
+        r"the\s+child\s+support\s+payment",
+        header,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    lines = [line.strip() for line in tail.splitlines() if line.strip()]
+    if len(lines) < 2 or any(not re.match(r"^[●•]\s+\S", line) for line in lines):
+        return False
+    return not any(
+        re.search(
+            r"\b(?:and|nor|but|if|when|unless|provided|except|only)\b|[;:]",
+            line,
+            flags=re.IGNORECASE,
+        )
+        for line in lines
+    )
+
+
+def _exact_words(sentence: str) -> str:
+    """Return a pattern for these exact words with any spacing between them."""
+
+    return r"\s+".join(re.escape(word) for word in sentence.split())
+
+
+# The chapeau of a bulleted list of alternatives is an allowlist. The whole
+# chapeau line must be one of these forms; any other line keeps every gate.
 #
-# - "... when one or more of the following apply:", "... only when any of the
-#   following applies:", "... when either situation occurs:". After the
-#   quantifier only a short predicate may come before the final colon, or
-#   that predicate and "regarding the child support payment" (one real unit).
-# - "Any of the following <things> are considered <class> when used ...:". The
-#   line starts with the quantifier, so the bullets are its subject list. The
-#   tail must not point at a second list.
+#   <main clause> (when|if) (any|one or more) of the following
+#       (apply|applies|occur|occurs|is true|are true|is met|are met):
+#   <main clause> (when|if) either situation occurs:
+#   Any of the following utility expenses are considered heating sources when
+#       used to provide heat for the home:
 #
-# "all of the following" is not in the grammar: its bullets stay conjunctive
-# gates. A line that holds a universal, a negation or a conjunction is not an
-# alternative chapeau either, whatever else it says.
+# Nothing may stand between the cue and the quantifier, and nothing after the
+# verb. <main clause> is also closed, because a negative or exceptive main
+# clause ("No expense is allowable when any ...", "... except when any ...")
+# makes the list a conjunction. Each entry is the sentence of a real unit.
+_ALTERNATIVE_CHAPEAU_MAIN_CLAUSES = (
+    # us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-14
+    "When the budgetary unit participates in the Lifeline Assistance Program, "
+    "a telephone expense is allowable",
+    # us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+    "The budgetary unit is entitled to a utility allowance based on utility "
+    "expenses verified",
+)
 _ALTERNATIVE_BULLET_CHAPEAU = re.compile(
     r"(?:"
-    r"[^.:\n]*\b(?:one\s+or\s+more|any)\s+of\s+the\s+following\s+"
+    + "|".join(_exact_words(clause) for clause in _ALTERNATIVE_CHAPEAU_MAIN_CLAUSES)
+    + r")\s+(?:when|if)\s+"
+    r"(?:(?:any|one\s+or\s+more)\s+of\s+the\s+following\s+"
     r"(?:apply|applies|occur|occurs|is\s+true|are\s+true|is\s+met|are\s+met)"
-    r"(?:\s+regarding\s+the\s+child\s+support\s+payment)?"
-    r"|[^.:\n]*\beither\s+situation\s+occurs"
-    r"|any\s+of\s+the\s+following\s+"
-    r"(?:(?!following\b|below\b|these\b|those\b|conditions?\b|requirements?\b"
-    r"|criteri(?:a|on)\b)[^.:\n])*"
-    r"):",
+    r"|either\s+situation\s+occurs):"
+    # us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-3
+    r"|(?P<heating_sources>"
+    + _exact_words(
+        "Any of the following utility expenses are considered heating sources "
+        "when used to provide heat for the home:"
+    )
+    + r")"
+)
+# The condition must end with the list. When text follows the list, it must be
+# known not to continue the condition. This is an allowlist too: the whole
+# rest of the unit after the heating-sources list, word for word.
+_TEXT_AFTER_ALTERNATIVE_LIST = re.compile(
+    # us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-3
+    _exact_words(
+        "Any of the following are considered cooling sources:\n"
+        "● Central air conditioners\n"
+        "● Evaporative coolers\n"
+        "● Room air conditioners\n"
+        "The cost for any of the following supplemental sources of heating or cooling do not qualify for the SUA:\n"
+        "● Electric blankets\n"
+        "● Fans\n"
+        "● Heat lamps\n"
+        "● Water for evaporative coolers\n"
+        "● Heating or cooling equipment maintenance\n"
+        "● Chimney maintenance\n"
+        "● Equipment for cutting wood (i.e. chainsaws, chainsaw maintenance, axe)\n"
+    )
+)
+# One alternative: one physical line, plain words, an optional final period.
+_ALTERNATIVE_BULLET_LINE = re.compile(
+    r"(?P<lead>[ \t]*[●•]) +[A-Za-z][A-Za-z0-9 ,'-]*[A-Za-z0-9]\.?"
+)
+_ALTERNATIVE_BULLET_REFUSAL = re.compile(
+    r"\b(?:and|nor|but|both|all|each|every|also|plus|together|while|if|when"
+    r"|only|unless|except|provided|must|required|requires?|so\s+long\s+as"
+    r"|as\s+long\s+as|as\s+well\s+as|in\s+addition)\b",
     flags=re.IGNORECASE,
 )
-_ALTERNATIVE_CHAPEAU_REFUSAL = re.compile(
-    r"\b(?:all|both|each|every|not|no|none|neither|nor|never|and|but|unless"
-    r"|except|without)\b|n't\b",
-    flags=re.IGNORECASE,
+# A real alternative that holds its own conjunction. It is not dropped: it
+# stays in the condition, so its conjunction is still counted.
+_ALTERNATIVE_BULLET_WITH_OWN_CONJUNCTION = re.compile(
+    # us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+    r"[●•] +"
+    + _exact_words(
+        "More than one budgetary unit lives in the same residence and shares "
+        "utility expenses."
+    )
 )
-# Words that can make a bullet, or the paragraph after a list, add simultaneous
-# facts to the condition.
-_ALTERNATIVE_LIST_CONJUNCTION = re.compile(
-    r"\b(?:and|nor|both|all|each|every|also|must|as\s+well\s+as"
-    r"|in\s+addition|additionally)\b",
-    flags=re.IGNORECASE,
+_SOURCE_TYPOGRAPHY = str.maketrans(
+    {
+        "‘": "'",
+        "’": "'",
+        **dict.fromkeys("        ", " "),
+        **dict.fromkeys("    　", " "),
+    }
 )
-_SOURCE_BULLET_ITEM = re.compile(r"\s*[●•]\s+\S")
 
 
 def _without_alternative_bullets_or_later_paragraphs(
     text: str, body: str, body_start: int
 ) -> str:
-    """Drop the bullets that are alternatives, never a conjunct.
+    """Drop the bullets of an allowlisted list of alternatives.
 
-    This gate counts simultaneous facts, not alternative triggers. A bullet
-    directly under an alternative chapeau is one alternative. Everything else
-    keeps its conservative analysis; when a shape is not certain, the body
-    comes back unchanged.
+    This gate counts simultaneous facts, not alternative triggers. The body
+    comes back unchanged unless every one of these holds:
 
-    - The chapeau is the line that holds the condition cue, and the first
-      bullet run follows it directly. ``body_start`` locates that line in
-      ``text``; a search for the bullet text could select another list.
-    - Only the contiguous bullet run under the chapeau is dropped. The run ends
-      at the first non-bullet line.
-    - A wrapped bullet is read with its continuation lines. A bullet that holds
-      ``and`` or ``nor`` stays, so a conjunction inside one alternative is
-      still counted.
-    - Nothing is dropped when the list can hold more than alternatives: a
-      bullet ends with a colon (a nested chapeau), ends with ``and`` or
-      ``nor``, or holds another conjunction word; or text follows the run that
-      is not a new sentence paragraph.
-    - A new sentence paragraph after the run (blank line before it, capital
-      first letter, final period or colon, no conjunction word) is a new
-      proposition. The condition ends before it.
+    - ``body`` is the untouched rest of ``text`` after the cue at
+      ``body_start``; no earlier step cut or rewrote it.
+    - The chapeau is the physical line that holds the cue. It starts the text
+      or follows a blank line, and matches ``_ALTERNATIVE_BULLET_CHAPEAU``.
+    - Only blank lines separate the chapeau from the bullet run. Every line of
+      the run is one bullet with the same glyph and indentation, of plain
+      words (so no colon, semicolon or other list marker), with no word of
+      ``_ALTERNATIVE_BULLET_REFUSAL``. There are at least two bullets and no
+      continuation line. A bullet of
+      ``_ALTERNATIVE_BULLET_WITH_OWN_CONJUNCTION`` is the one exception: it
+      stays in the body with its conjunction.
+    - The condition ends with the run: the text ends there, or a blank line
+      and exactly the text of ``_TEXT_AFTER_ALTERNATIVE_LIST`` follow the
+      heating-sources list.
+
+    Curly apostrophes and non-breaking or typographic spaces are read as plain
+    ones. Any other character outside the forms above refuses the match.
     """
 
-    lines = body.split("\n")
-    first_bullet = next(
-        (index for index, line in enumerate(lines) if _SOURCE_BULLET_ITEM.match(line)),
-        None,
-    )
-    if first_bullet is None or any(line.strip() for line in lines[1:first_bullet]):
+    if text[body_start:] != body:
         return body
-    if not text.startswith("\n".join(lines[: first_bullet + 1]), body_start):
+    plain_text = text.translate(_SOURCE_TYPOGRAPHY)
+    line_start = plain_text.rfind("\n", 0, body_start) + 1
+    if line_start and plain_text[:line_start].strip(" \t\r")[-2:] != "\n\n":
         return body
-    chapeau = (
-        text[text.rfind("\n", 0, body_start) + 1 : body_start] + lines[0]
-    ).strip()
-    if (
-        _SOURCE_BULLET_ITEM.match(chapeau)
-        or _ALTERNATIVE_BULLET_CHAPEAU.fullmatch(chapeau) is None
-        or _ALTERNATIVE_CHAPEAU_REFUSAL.search(chapeau)
+    lines = plain_text[line_start:].split("\n")
+    chapeau = _ALTERNATIVE_BULLET_CHAPEAU.fullmatch(lines[0].strip())
+    if chapeau is None:
+        return body
+    index = 1
+    kept = [0]
+    leads = set()
+    bullets = 0
+    while index < len(lines):
+        line = lines[index].rstrip(" \t\r")
+        if line:
+            bullet = _ALTERNATIVE_BULLET_LINE.fullmatch(line)
+            if bullet is None:
+                break
+            if _ALTERNATIVE_BULLET_WITH_OWN_CONJUNCTION.fullmatch(line.strip()):
+                kept.append(index)
+            elif _ALTERNATIVE_BULLET_REFUSAL.search(line):
+                return body
+            leads.add(bullet["lead"])
+            bullets += 1
+        index += 1
+    if bullets < 2 or len(leads) != 1:
+        return body
+    if index < len(lines) and (
+        lines[index - 1].strip()
+        or chapeau["heating_sources"] is None
+        or _TEXT_AFTER_ALTERNATIVE_LIST.fullmatch("\n".join(lines[index:]).strip())
+        is None
     ):
         return body
-
-    kept = lines[:first_bullet]
-    index = first_bullet
-    while index < len(lines):
-        if not lines[index].strip():
-            kept.append(lines[index])
-            index += 1
-            continue
-        if not _SOURCE_BULLET_ITEM.match(lines[index]):
-            break
-        end = index + 1
-        # A wrapped bullet continues on the next line without a capital.
-        while (
-            end < len(lines)
-            and lines[end].strip()
-            and not _SOURCE_BULLET_ITEM.match(lines[end])
-            and not lines[end].strip()[0].isupper()
-        ):
-            end += 1
-        bullet = " ".join(line.strip() for line in lines[index:end])
-        if bullet.endswith(":") or re.search(
-            r"\b(?:and|nor)\W*$", bullet, flags=re.IGNORECASE
-        ):
-            return body
-        if re.search(r"\b(?:and|nor)\b", bullet, flags=re.IGNORECASE):
-            kept.extend(lines[index:end])
-        elif _ALTERNATIVE_LIST_CONJUNCTION.search(bullet):
-            return body
-        index = end
-    if index < len(lines):
-        stripped = lines[index].strip()
-        if not (
-            not lines[index - 1].strip()
-            and stripped[0].isupper()
-            and stripped[-1] in ".:"
-            and not _ALTERNATIVE_LIST_CONJUNCTION.search(stripped)
-        ):
-            return body
-    return "\n".join(kept)
+    body_lines = text[line_start:].split("\n")
+    body_lines[0] = body.split("\n", 1)[0]
+    return "\n".join(body_lines[line] for line in kept)
 
 
 _SOURCE_ANY_REASON_PREFIX = "source_any_reason:"
@@ -20223,6 +20285,8 @@ def _source_conjunctive_fact_gates(
         and re.match(r"\s*all\s+of\s+the\s+following\s+apply:", body, re.IGNORECASE)
         else None
     )
+    if _is_pure_physical_alternative_condition(body):
+        return ()
     if conditional.group("cue").strip().casefold() != "unless":
         trailing_exception = re.search(
             r"\b(?:unless|except(?:\s+(?:if|when))?)\b",

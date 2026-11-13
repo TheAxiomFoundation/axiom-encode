@@ -7,6 +7,7 @@ The fixtures are real rejected candidates of three Arizona utility units; see
 from __future__ import annotations
 
 import functools
+import re
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from axiom_encode.harness import validator_pipeline as vp
 from axiom_encode.harness.source_completeness import (
     CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED,
     _source_conjunctive_fact_gates,
+    _without_alternative_bullets_or_later_paragraphs,
     analyze_complete_source_unit,
 )
 
@@ -35,16 +37,7 @@ SHARED = (
     "utility expenses.\n\n"
     "● One budgetary unit shares a housing unit with others who do not receive NA."
 )
-HEATING = (
-    "Any of the following utility expenses are considered heating sources when "
-    "used to provide heat for the home:\n\n"
-    "● Electricity\n\n● Gas or propane\n\n● Coal, wood, or oil\n\n"
-    "Any of the following are considered cooling sources:\n\n"
-    "● Central air conditioners\n\n● Evaporative coolers\n\n"
-    "● Room air conditioners\n\n"
-    "The cost for any of the following supplemental sources of heating or cooling "
-    "do not qualify for the SUA:\n"
-)
+HEATING = (FIXTURES / "block-3-07b0428f" / "source.txt").read_text()
 WOOD = (
     "The budgetary unit is eligible for SUA when all of the following occur:\n\n"
     "● The wood, which is purchased or billed separate from or itemized with rent "
@@ -209,284 +202,355 @@ def test_conjunctions_near_an_alternative_list_are_still_gates(clause):
     assert len(_source_conjunctive_fact_gates(clause)) >= 2
 
 
-def test_a_condition_ends_at_the_next_sentence_paragraph():
-    first_list = HEATING.split("Any of the following are considered cooling")[0]
-    assert _source_conjunctive_fact_gates(first_list) == ()
-    assert _source_conjunctive_fact_gates(HEATING) == ()
-    assert _source_conjunctive_fact_gates(LIFELINE + "\n\n" + NEXT_SENTENCE) == ()
-
-
-ANY_OF = "The unit is eligible when any of the following apply:"
-ONE_OR_MORE = "The unit is eligible when one or more of the following apply:"
-ALL_OF = "The unit is eligible when all of the following apply:"
+LIFELINE_CHAPEAU, SHARED_CHAPEAU, HEATING_CHAPEAU = (
+    clause.split("\n\n")[0] for clause in (LIFELINE, SHARED, HEATING)
+)
+HEATING_REST = HEATING[HEATING.index("Any of the following are considered cooling") :]
 EMPLOYED = "● The parent is employed"
 DISABLED = "● The child is disabled"
 EXEMPT = "● The household is exempt"
 ELDERLY = "● The household is elderly"
-NEXT_SENTENCE = "A utility allowance is allowed regardless of the percentage paid."
 
 
 def _list(*paragraphs: str) -> str:
     return "\n\n".join(paragraphs)
 
 
-def test_the_closed_alternative_shapes_drop_their_bullets():
-    assert _source_conjunctive_fact_gates(_list(ANY_OF, EMPLOYED, DISABLED)) == ()
-    assert _source_conjunctive_fact_gates(_list(ONE_OR_MORE, EMPLOYED, DISABLED)) == ()
-    # The grammar ignores letter case.
-    assert (
-        _source_conjunctive_fact_gates(
-            _list(ANY_OF.replace("any of the", "ANY Of The"), EMPLOYED, DISABLED)
-        )
-        == ()
+def _body_is_unchanged(clause: str) -> bool:
+    """Run the helper as `_source_conjunctive_fact_gates` does, on the first cue."""
+
+    cue = re.search(r"\b(?:if|when|provided\s+that|unless)\b", clause, re.IGNORECASE)
+    assert cue is not None
+    body = clause[cue.end() :]
+    return (
+        _without_alternative_bullets_or_later_paragraphs(clause, body, cue.end())
+        == body
     )
-    # A wrapped bullet without a conjunction is still one alternative.
-    assert (
-        _source_conjunctive_fact_gates(
-            _list(ANY_OF, "● The parent is\nemployed full time", DISABLED)
-        )
-        == ()
-    )
+
+
+def _swap(chapeau: str, old: str, new: str) -> str:
+    assert old in chapeau
+    return chapeau.replace(old, new)
 
 
 @pytest.mark.parametrize(
     "clause",
     [
-        # P1-a: a nested chapeau bullet starts a conjunctive sublist.
+        _list(LIFELINE_CHAPEAU, EMPLOYED, DISABLED),
+        _list(SHARED_CHAPEAU, EXEMPT, ELDERLY),
+        "\n".join([LIFELINE_CHAPEAU, EMPLOYED, DISABLED]),
+        # The closed forms after the cue.
         _list(
-            ANY_OF,
-            EXEMPT,
-            "● The household meets all of the following:",
+            _swap(
+                LIFELINE_CHAPEAU,
+                "when one or more of the following apply",
+                "if any of the following are met",
+            ),
             EMPLOYED,
             DISABLED,
         ),
         _list(
-            LIFELINE.split("\n\n")[0],
-            EXEMPT,
-            "● The household meets these requirements:",
-            EMPLOYED,
-            DISABLED,
-        ),
-        # P1-a: a second, conjunctive list follows the alternatives.
-        _list(
-            ONE_OR_MORE,
+            _swap(
+                SHARED_CHAPEAU, "either situation occurs", "any of the following occur"
+            ),
             EXEMPT,
             ELDERLY,
-            "and all of the following apply:",
-            EMPLOYED,
+        ),
+        # Typographic spaces are plain spaces.
+        _list(
+            _swap(LIFELINE_CHAPEAU, "is allowable", "is allowable"),
+            EMPLOYED.replace("● ", "● "),
             DISABLED,
         ),
-        "\n".join(
-            [
-                ONE_OR_MORE,
-                EXEMPT,
-                ELDERLY,
-                "All of the following must also apply:",
-                EMPLOYED,
-                DISABLED,
-            ]
-        ),
-        # A bullet that ends with a conjunction makes the list conjunctive.
-        _list(ANY_OF, EMPLOYED + "; and", DISABLED),
-        _list(ANY_OF, EMPLOYED + " as well as the child is disabled", EXEMPT),
-        _list(ANY_OF, "● Both the parent is employed, the child is disabled", EXEMPT),
+        # A preceding paragraph does not change the chapeau.
+        _list("The child is disabled.", LIFELINE_CHAPEAU, EMPLOYED, DISABLED),
     ],
 )
-def test_one_alternative_chapeau_governs_only_its_own_bullet_run(clause):
-    assert len(_source_conjunctive_fact_gates(clause)) >= 2
+def test_the_allowlisted_alternative_lists_drop_their_bullets(clause):
+    assert len(_source_conjunctive_fact_gates(clause)) < 2
+
+
+def test_the_heating_list_needs_the_exact_rest_of_its_unit():
+    assert _source_conjunctive_fact_gates(HEATING) == ()
+    assert _source_conjunctive_fact_gates(HEATING + "\n") == ()
+    first_list = HEATING[: -len(HEATING_REST)].rstrip()
+    assert _source_conjunctive_fact_gates(first_list) == ()
+    for changed in (
+        # Other text after the list may continue the condition.
+        _list(first_list, "In addition, all of the following must occur:")
+        + "\n\n"
+        + _list(EMPLOYED, DISABLED),
+        HEATING
+        + "\n\n"
+        + _list("All of the following must occur:", EMPLOYED, DISABLED),
+        HEATING.replace("● Fans", "● Fans and heat lamps"),
+        # No blank line before the rest.
+        first_list + "\n" + HEATING_REST,
+    ):
+        assert len(_source_conjunctive_fact_gates(changed)) >= 2, changed
 
 
 @pytest.mark.parametrize(
     "chapeau",
     [
-        # P1-b: the quantifier does not govern the list of conditions.
-        "The unit is eligible when any of the following persons meets all of "
-        "the following requirements:",
-        "The unit is eligible when it receives any of the following benefits "
-        "and meets these requirements:",
-        "The unit is eligible when it does not meet any of the following:",
-        "The unit is eligible when it is not the case that any of the following apply:",
-        "The unit is eligible when the requirements for any of the following "
-        "programs are all met:",
-        "The unit is eligible when any of the following persons meets the "
-        "requirements below:",
-        "Any of the following expenses are deductible when both conditions are met:",
-        "Any of the following expenses are deductible when the following "
-        "conditions are met:",
-        "Any of the following expenses are deductible when these facts are true:",
-        "The unit isn't eligible when any of the following apply:",
-        "The unit is eligible when one or more of the following occurs "
-        "regarding the parent or the child:",
-        "The unit is eligible when none of the following apply:",
-        "The unit is eligible when each of the following is true:",
-        "The unit is eligible when either of the following apply:",
-        "The unit is eligible when at least two of the following apply:",
-        # The quantifier must be in the last sentence of the line.
-        "Any of the following documents are proof. The unit is eligible when "
-        "the parent qualifies:",
-        "The parent qualifies when employed. The unit is eligible when any of "
-        "the following apply:",
-        # The quantifier shape must be the whole line.
-        "The unit is eligible. Any of the following expenses are deductible "
-        "when the parent qualifies:",
-        # The chapeau must end with a colon.
-        "The unit is eligible when any of the following apply.",
-        "The unit is eligible when any of the following apply",
+        # Reviewer shapes: a main clause outside the allowlist.
+        "The unit is eligible when any of the following apply:",
+        "The unit is eligible when one or more of the following apply:",
+        "The unit is eligible when either situation occurs:",
+        "The unit is eligible when the worker cannot verify that any of the "
+        "following apply:",
+        "The unit is eligible when it isn’t shown that any of the following apply:",
+        "The unit is eligible when the unit fails to show that any of the "
+        "following are true:",
+        "The unit is eligible when the worker cannot confirm either situation occurs:",
+        "Any of the following costs are deductible when:",
+        "Any of the following fuels qualifies when it meets the two tests listed:",
+        "Any of the following utility expenses are considered heating sources "
+        "when the unit:",
+        # Text between the cue and the quantifier, or after the verb.
+        _swap(
+            LIFELINE_CHAPEAU,
+            "when one or more",
+            "when the worker cannot verify that one or more",
+        ),
+        _swap(
+            SHARED_CHAPEAU,
+            "when either",
+            "when the worker cannot rule out that either",
+        ),
+        _swap(LIFELINE_CHAPEAU, "apply:", "apply to each member:"),
+        _swap(LIFELINE_CHAPEAU, "apply:", "apply"),
+        LIFELINE_CHAPEAU + " Both facts below are needed.",
+        _swap(LIFELINE_CHAPEAU, "apply:", "apply."),
+        _swap(HEATING_CHAPEAU, "for the home:", "for the home when:"),
+        # Another quantifier or cue.
+        _swap(LIFELINE_CHAPEAU, "one or more of", "all of"),
+        _swap(LIFELINE_CHAPEAU, "one or more of", "any one of"),
+        _swap(LIFELINE_CHAPEAU, "one or more of", "at least two of"),
+        _swap(SHARED_CHAPEAU, "either situation occurs", "both situations occur"),
+        # A main clause that is not the real one, word for word.
+        _swap(LIFELINE_CHAPEAU, "is allowable", "is not allowable"),
+        _swap(LIFELINE_CHAPEAU, "is allowable", "isn’t allowable"),
+        _swap(LIFELINE_CHAPEAU, "a telephone expense", "no telephone expense"),
+        _swap(LIFELINE_CHAPEAU, "allowable", "allow​able"),
+        LIFELINE_CHAPEAU.upper(),
+        "The child is disabled. " + LIFELINE_CHAPEAU,
+        # The chapeau is one physical line.
+        _swap(LIFELINE_CHAPEAU, "following apply", "following\napply"),
+        _swap(LIFELINE_CHAPEAU, "a telephone", "a\ntelephone"),
     ],
 )
-def test_a_chapeau_outside_the_closed_grammar_keeps_its_bullets(chapeau):
-    assert len(_source_conjunctive_fact_gates(_list(chapeau, EMPLOYED, DISABLED))) >= 2
-
-
-@pytest.mark.parametrize(
-    "clause",
-    [
-        # Only the line that holds the cue, directly above the list, counts.
-        "The unit is eligible when all of the following apply.\n"
-        "Any of the following documents may be used as proof:\n\n"
-        + _list(EMPLOYED, DISABLED),
-        _list(ALL_OF, "Any of the following apply:", EMPLOYED, DISABLED),
-        _list(ANY_OF, "The facts below are required:", EMPLOYED, DISABLED),
-        _list(
-            "Any of the following are proof:",
-            "● Wages",
-            "The unit is eligible when the following occur:",
-            EMPLOYED,
-            DISABLED,
-        ),
-        # A bullet is never a chapeau.
-        _list(
-            "Any of the following apply:",
-            "● Heat, when the parent is employed",
-            DISABLED,
-            "● The household is poor",
-        ),
-        # P2-d: the same bullet text under another chapeau, before or after.
-        _list("Any of the following are proof:", EMPLOYED, ALL_OF, EMPLOYED, DISABLED),
-        _list(ALL_OF, EMPLOYED, DISABLED, "Any of the following apply:", EMPLOYED),
-    ],
-)
-def test_the_chapeau_is_the_cue_line_directly_above_the_list(clause):
+def test_a_chapeau_outside_the_allowlist_keeps_its_bullets(chapeau):
+    clause = _list(chapeau, EMPLOYED, DISABLED)
     assert len(_source_conjunctive_fact_gates(clause)) >= 2
 
 
 @pytest.mark.parametrize(
     "clause",
     [
-        # P1-c: the paragraph after the list continues the condition.
+        # A line wrap can hide a negation on the line before.
+        "A unit qualifies that does not show\n"
+        + _list(HEATING_CHAPEAU, EMPLOYED, DISABLED),
+        "It is false that\n"
+        + _list(LIFELINE_CHAPEAU[0].lower() + LIFELINE_CHAPEAU[1:], EMPLOYED, DISABLED),
+        "The child is disabled.\n" + _list(LIFELINE_CHAPEAU, EMPLOYED, DISABLED),
+        # Only blank lines may stand between the chapeau and the list.
+        _list(LIFELINE_CHAPEAU, "The facts below are required:", EMPLOYED, DISABLED),
+        # The condition cue is on another line than the chapeau.
         _list(
-            ONE_OR_MORE,
+            "The unit is eligible when all of the following apply.",
+            HEATING_CHAPEAU,
+            EMPLOYED,
+            DISABLED,
+        ),
+    ],
+)
+def test_the_chapeau_is_the_cue_line_after_a_blank_line(clause):
+    assert len(_source_conjunctive_fact_gates(clause)) >= 2
+
+
+@pytest.mark.parametrize(
+    "items",
+    [
+        # A conjunction or a requirement word in a bullet.
+        [EMPLOYED + " and the child is disabled", EXEMPT],
+        [EXEMPT + ";", EMPLOYED + "; and", DISABLED + "."],
+        [EMPLOYED, "● and the child is disabled"],
+        [EMPLOYED + " & the child is disabled", EXEMPT],
+        [EMPLOYED + " together with the child is disabled", EXEMPT],
+        [EMPLOYED + " so long as the child is disabled", EXEMPT],
+        [EMPLOYED + " provided the child is disabled", EXEMPT],
+        ["● The parent must be employed", EXEMPT],
+        ["● The parent is required to be employed", EXEMPT],
+        [EMPLOYED + " (the child is disabled)", EXEMPT],
+        [EMPLOYED + ";", DISABLED + ";"],
+        ["● Employment: the parent is employed", EXEMPT],
+        # A nested chapeau.
+        [EXEMPT, "● The household meets the following:", EMPLOYED, DISABLED],
+        [
+            EXEMPT,
+            "● The household meets the tests below",
+            "  " + EMPLOYED,
+            "  " + DISABLED,
+        ],
+        # Another glyph or list marker.
+        [EMPLOYED, DISABLED.replace("●", "•")],
+        [EXEMPT, ELDERLY, "1. The parent is employed", "2. The child is disabled"],
+        # One bullet is not a list.
+        [EMPLOYED, "The child is disabled."],
+        # Text after the list.
+        [EMPLOYED, DISABLED, "so long as the household is billed for the expense"],
+        [EMPLOYED, DISABLED, "The household is required to be billed for the expense."],
+        [EMPLOYED, DISABLED, "The household has to be billed for the expense."],
+        [
             EXEMPT,
             ELDERLY,
-            "In addition, all of the following must apply:",
+            "The following requirements apply as well:",
+            EMPLOYED,
+            DISABLED,
+        ],
+        [
+            EXEMPT,
+            ELDERLY,
+            "Furthermore, the following conditions apply:",
+            EMPLOYED,
+            DISABLED,
+        ],
+        [EXEMPT, ELDERLY, "when all of the following apply:", EMPLOYED, DISABLED],
+        [EMPLOYED, DISABLED, "unless the household is billed and the child is absent"],
+    ],
+)
+def test_a_list_outside_the_allowlist_keeps_every_gate(items):
+    assert len(_source_conjunctive_fact_gates(_list(LIFELINE_CHAPEAU, *items))) >= 2
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        # Single-newline text: a continuation line is never joined to a bullet.
+        [
+            EXEMPT,
+            "● The household meets these tests",
+            "o The parent is employed",
+            "o The child is disabled",
+        ],
+        [
+            EXEMPT,
+            "● The household meets these tests:",
+            "o The parent is employed",
+            "o The child is disabled",
+        ],
+        [
+            EXEMPT,
+            "● The participant is a student who",
+            "- is enrolled half time",
+            "- is employed 20 hours",
+        ],
+        [
+            EXEMPT,
+            "● The household meets these tests",
+            "(a) the parent is employed",
+            "(b) the child is disabled",
+        ],
+        [
+            EXEMPT,
+            "● The household meets the following:",
+            "the parent is employed",
+            "the child is disabled",
+        ],
+        [EMPLOYED, DISABLED, "so long as the household is billed for the expense"],
+        [EXEMPT, ELDERLY, "All of the following must also apply:", EMPLOYED, DISABLED],
+        [EMPLOYED + "\twhile the child is disabled", EXEMPT],
+        ["● The parent is employed", "while the child is disabled", EXEMPT],
+    ],
+)
+def test_a_continuation_line_keeps_every_gate(lines):
+    clause = "\n".join([LIFELINE_CHAPEAU, *lines])
+    assert len(_source_conjunctive_fact_gates(clause)) >= 2
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        # These have fewer than two gates on main too, so the count cannot
+        # show the refusal; the body must come back unchanged.
+        _list(
+            _swap(LIFELINE_CHAPEAU, "allowable when", "allowable unless"),
             EMPLOYED,
             DISABLED,
         ),
         _list(
-            ANY_OF,
-            EXEMPT,
-            "The parent must be employed and the child must be disabled.",
-        ),
-        _list(ANY_OF, EMPLOYED, DISABLED, "The household also is poor."),
-        # P1-c: no cut under a chapeau that is not an alternative chapeau.
-        _list(ALL_OF.replace("apply", "occur"), EMPLOYED, "The child is disabled."),
-        _list(
-            ALL_OF.replace("apply", "occur"),
+            _swap(LIFELINE_CHAPEAU, "allowable when", "allowable except when"),
             EMPLOYED,
-            EXEMPT,
-            "The child is disabled and the household is poor.",
+            DISABLED,
         ),
+        _list(LIFELINE_CHAPEAU, EMPLOYED, DISABLED, HEATING_REST),
         _list(
-            "The unit is eligible when the parent is employed:",
-            "● Wages",
-            "The child is disabled and the household is poor.",
+            HEATING[: -len(HEATING_REST)].rstrip(),
+            "The home is required to be heated.",
         ),
-        # The cut needs a blank line, a capital and a final period or colon.
-        _list(ANY_OF, EMPLOYED, DISABLED + "\n" + NEXT_SENTENCE),
-        _list(ANY_OF, EMPLOYED, DISABLED, NEXT_SENTENCE[0].lower() + NEXT_SENTENCE[1:]),
-        _list(ANY_OF, EMPLOYED, DISABLED, NEXT_SENTENCE.rstrip(".")),
+        _list(HEATING_CHAPEAU, "● Electricity"),
+        _list(HEATING_CHAPEAU, "● Electricity", "  ● Gas or propane"),
+        _list(HEATING_CHAPEAU, "● Electricity", "• Gas or propane"),
+        _list(HEATING_CHAPEAU, "● Electricity", "● Gas, when used for heat"),
     ],
 )
-def test_text_after_the_list_keeps_the_conservative_reading(clause):
-    assert len(_source_conjunctive_fact_gates(clause)) >= 2
+def test_a_refused_shape_leaves_the_body_unchanged(clause):
+    assert _body_is_unchanged(clause)
 
 
-def test_a_wrapped_bullet_keeps_its_conjunction():
-    wrapped = _list(
-        ANY_OF, "● The parent is employed\nand the child is disabled", EXEMPT
+def test_the_real_bullet_with_its_own_conjunction_stays_in_the_body():
+    first, second = SHARED.split("\n\n")[1:]
+    assert " and " in first
+    body = _without_alternative_bullets_or_later_paragraphs(SHARED, SHARED, 0)
+    assert body == SHARED_CHAPEAU + "\n" + first
+    # The same bullet does not open the list to other conjunctions.
+    nested = _list(SHARED_CHAPEAU, first, "● The household meets the following:")
+    assert _without_alternative_bullets_or_later_paragraphs(nested, nested, 0) == (
+        nested
     )
-    joined = wrapped.replace("employed\nand", "employed and")
-    assert len(_source_conjunctive_fact_gates(joined)) >= 2
-    assert _source_conjunctive_fact_gates(wrapped) == _source_conjunctive_fact_gates(
-        joined
+    other = _list(SHARED_CHAPEAU, first.replace("shares", "splits"), second)
+    assert _without_alternative_bullets_or_later_paragraphs(other, other, 0) == other
+
+
+def test_the_body_must_be_the_untouched_rest_of_the_text():
+    clause = _list(LIFELINE_CHAPEAU, EMPLOYED, DISABLED)
+    start = clause.index(" the budgetary unit")
+    body = clause[start:]
+    assert (
+        _without_alternative_bullets_or_later_paragraphs(clause, body, start)
+        == (body.split("\n")[0])
     )
+    # An earlier step cut the body: the text goes on, so nothing is dropped.
+    longer = clause + "\n\nunless the parent is absent and the child is absent"
+    assert _without_alternative_bullets_or_later_paragraphs(longer, body, start) == (
+        body
+    )
+    # An earlier step rewrote a later line of the body.
+    rewritten = body.replace(DISABLED, DISABLED + " and the parent is absent")
+    assert rewritten != body
+    assert (
+        _without_alternative_bullets_or_later_paragraphs(clause, rewritten, start)
+        == rewritten
+    )
+    # The body does not start at the cue position.
+    assert (
+        _without_alternative_bullets_or_later_paragraphs(clause, body, start + 1)
+        == body
+    )
+    assert len(_source_conjunctive_fact_gates(longer)) >= 2
 
 
 WOOD_BULLETS = WOOD.split("\n\n")[1:]
 WOOD_LEAD = "The budgetary unit is eligible for SUA when "
+UNIT_EXEMPT = "● The budgetary unit is exempt"
+UNIT_ELDERLY = "● The budgetary unit is elderly"
 
 
-@pytest.mark.parametrize(
-    ("lead", "body", "prefix"),
-    [
-        (
-            "any of the following occur:",
-            [
-                "● The budgetary unit is exempt",
-                "● The budgetary unit meets all of the following:",
-                *WOOD_BULLETS,
-            ],
-            "",
-        ),
-        (
-            "any of the following fuels meets all of the following requirements:",
-            WOOD_BULLETS,
-            "",
-        ),
-        (
-            "one or more of the following occur:",
-            [
-                "● The budgetary unit is exempt",
-                "● The budgetary unit is elderly",
-                "In addition, all of the following must occur:",
-                *WOOD_BULLETS,
-            ],
-            "",
-        ),
-        (
-            "one or more of the following occur:",
-            [
-                "● The budgetary unit is exempt",
-                "● The budgetary unit is elderly",
-                "and all of the following occur:",
-                *WOOD_BULLETS,
-            ],
-            "",
-        ),
-        (
-            "all of the following occur:",
-            WOOD_BULLETS[::-1],
-            "Any of the following are heating facts:\n\n" + WOOD_BULLETS[1] + "\n\n",
-        ),
-        (
-            "all of the following occur:",
-            [WOOD_BULLETS[0], WOOD_BULLETS[1][2:]],
-            "",
-        ),
-        ("it does not meet any of the following:", WOOD_BULLETS, ""),
-        (
-            "it uses any of the following fuels and both conditions below are met:",
-            WOOD_BULLETS,
-            "",
-        ),
-    ],
-)
-def test_a_merged_conjunctive_list_near_alternative_words_still_fails(
-    lead, body, prefix
-):
+def _merged_wood_issues(source_head: str, excerpt: str):
     folder = FIXTURES / "control-block-16-858a1c04"
     source = (folder / "source.txt").read_text()
-    assert source.startswith(WOOD)
+    assert source.startswith(WOOD) and excerpt in source_head
     payload = yaml.safe_load((folder / "candidate.yaml").read_text())
     template = payload["inputs"][0]
     payload["inputs"].append(
@@ -499,42 +563,109 @@ def test_a_merged_conjunctive_list_near_alternative_words_still_fails(
     )
     rule = payload["rules"][0]
     rule["versions"][0]["formula"] = "wood_sua_conditions_met"
-    rule["metadata"]["proof"]["atoms"][0]["source"]["excerpt"] = WOOD_LEAD + lead
-
-    issues = _collapsed(
+    rule["metadata"]["proof"]["atoms"][0]["source"]["excerpt"] = excerpt
+    return _collapsed(
         "control-block-16-858a1c04",
         16,
         yaml.safe_dump(payload, sort_keys=False),
-        source=prefix + _list(WOOD_LEAD + lead, *body) + source[len(WOOD) :],
+        source=source_head + source[len(WOOD) :],
     )
 
+
+@pytest.mark.parametrize(
+    ("lead", "body"),
+    [
+        ("all of the following occur:", _list("", *WOOD_BULLETS)),
+        # Without the real main clause even a plain alternative list is kept.
+        ("one or more of the following occur:", _list("", *WOOD_BULLETS)),
+        (
+            "the worker cannot verify that any of the following occur:",
+            _list("", *WOOD_BULLETS),
+        ),
+        (
+            "it isn’t verified that any of the following occur:",
+            _list("", *WOOD_BULLETS),
+        ),
+        (
+            "the worker cannot rule out that either situation occurs:",
+            _list("", *WOOD_BULLETS),
+        ),
+        (
+            "any of the following occur:",
+            "\n"
+            + "\n".join(
+                [
+                    UNIT_EXEMPT,
+                    "● The budgetary unit meets the following:",
+                    *(bullet.replace("●", "o") for bullet in WOOD_BULLETS),
+                ]
+            ),
+        ),
+        (
+            "any of the following occur:",
+            _list(
+                "",
+                UNIT_EXEMPT,
+                "● The budgetary unit meets the tests below",
+                *("  " + bullet for bullet in WOOD_BULLETS),
+            ),
+        ),
+        (
+            "one or more of the following occur:",
+            _list(
+                "",
+                UNIT_EXEMPT,
+                UNIT_ELDERLY,
+                "The budgetary unit is required to meet the following conditions:",
+                *WOOD_BULLETS,
+            ),
+        ),
+        (
+            "one or more of the following occur:",
+            _list(
+                "",
+                UNIT_EXEMPT,
+                UNIT_ELDERLY,
+                "The following requirements apply as well:",
+                *WOOD_BULLETS,
+            ),
+        ),
+        (
+            "one or more of the following occur:",
+            _list(
+                "",
+                UNIT_EXEMPT,
+                WOOD_BULLETS[0],
+                "The wood is required to be used to produce heat.",
+            ),
+        ),
+    ],
+)
+def test_a_merged_conjunctive_list_near_alternative_words_still_fails(lead, body):
+    assert len(_merged_wood_issues(WOOD_LEAD + lead + body, WOOD_LEAD + lead)) == 1
+
+
+@pytest.mark.parametrize(
+    ("chapeau", "excerpt"),
+    [
+        (
+            "Any of the following wood costs qualify the budgetary unit for SUA when:",
+            None,
+        ),
+        (
+            "Any of the following budgetary units is eligible for SUA when it "
+            "meets the two tests listed:",
+            None,
+        ),
+        (
+            "A budgetary unit is eligible for SUA that does not show\n"
+            "any of the following when the application is filed:",
+            "any of the following when the application is filed:",
+        ),
+    ],
+)
+def test_a_merged_condition_list_under_a_subject_quantifier_still_fails(
+    chapeau, excerpt
+):
+    issues = _merged_wood_issues(_list(chapeau, *WOOD_BULLETS), excerpt or chapeau)
     assert len(issues) == 1
-
-
-def test_merged_facts_under_a_true_alternative_list_pass():
-    folder = FIXTURES / "control-block-16-858a1c04"
-    source = (folder / "source.txt").read_text()
-    payload = yaml.safe_load((folder / "candidate.yaml").read_text())
-    template = payload["inputs"][0]
-    payload["inputs"].append(
-        {
-            "name": "wood_sua_conditions_met",
-            "entity": template["entity"],
-            "dtype": "Boolean",
-            "period": template["period"],
-        }
-    )
-    lead = WOOD_LEAD + "one or more of the following occur:"
-    rule = payload["rules"][0]
-    rule["versions"][0]["formula"] = "wood_sua_conditions_met"
-    rule["metadata"]["proof"]["atoms"][0]["source"]["excerpt"] = lead
-
-    assert (
-        _collapsed(
-            "control-block-16-858a1c04",
-            16,
-            yaml.safe_dump(payload, sort_keys=False),
-            source=_list(lead, *WOOD_BULLETS) + source[len(WOOD) :],
-        )
-        == []
-    )
