@@ -297,6 +297,12 @@ def _repair_lane_for_atomic_source(
                 "preserve_repair_companion": True,
             }:
                 raise ValueError("repair artifact v7 preservation mode is not bound")
+            # Generated/rejected companions do not establish the originating
+            # preservation floor. Consumed hashes alone cannot recover its bytes.
+            raise ValueError(
+                "prior v7 repair replay cannot authenticate the originating "
+                "companion; select the originating failed run"
+            )
     has_atomic = "atomic_source_input" in metadata
     has_legacy_source = "source_bundle_input" in metadata
     has_legacy_refresh = "canonical_refresh_bundle_input" in metadata

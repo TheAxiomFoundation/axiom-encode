@@ -150,8 +150,19 @@ def test_preservation_descriptor_is_closed(changes):
     "field", ["DEPENDENT_CITATION", "QUEUE_ID", "REPLACE_LEGACY_RULESPEC_PATH"]
 )
 def test_preservation_refuses_other_lanes(field):
-    with pytest.raises(ValueError):
-        resolve_atomic_repair_mode(descriptor(), {"REPAIR_RUN_ID": "123", field: "x"})
+    dispatch = {
+        "REPAIR_RUN_ID": "123",
+        "CITATION": "ca/policy/cra/t1-2025/t1-income-net-taxable-income/step-3",
+    }
+    assert resolve_atomic_repair_mode(descriptor(), dispatch) == {
+        "mode": "full_artifact",
+        "tests_only": False,
+        "preserve_repair_companion": True,
+    }
+    with pytest.raises(
+        ValueError, match="^v7 supports only an ordinary single-target repair$"
+    ):
+        resolve_atomic_repair_mode(descriptor(), {**dispatch, field: "x"})
 
 
 @pytest.mark.parametrize("selected", ["", "false", "1"])
@@ -264,10 +275,10 @@ def test_v7_authenticates_old_source_transaction_without_relabeling():
             descriptor(), "123", "full_artifact", "false", "true"
         ),
     }
-    assert _repair_lane_for_atomic_source(metadata, descriptor()) == (
-        "target",
-        ["target"],
-    )
+    with pytest.raises(
+        ValueError, match="cannot authenticate the originating companion"
+    ):
+        _repair_lane_for_atomic_source(metadata, descriptor())
 
 
 def test_final_receipt_hashes_crlf_bytes_without_normalization(retained, tmp_path):
