@@ -67,21 +67,15 @@ ATTESTATION_ORIGIN = "local-candidate"
 PROMOTION_TOOL = "axiom-encode promote-reviewed-candidate"
 MANIFEST_DIR = ".axiom/encoding-manifests"
 MANIFEST_PREFIX = MANIFEST_DIR + "/"
-# Locations a RuleSpec repository does not validate. A delta inside them is
-# not judged. This list is encoder policy: a RuleSpec pull request cannot
-# change it. Every other path is guarded.
+# The only paths whose change the guard does not judge. They are not read by
+# validation, by Git when it checks out module bytes, or by the agent sessions
+# that author, dispatch and approve. This list is encoder policy: a RuleSpec
+# pull request cannot change it. Every other path is guarded, including
+# ``.gitattributes`` (it changes checked-out bytes and review diffs) and
+# ``CLAUDE.md`` and ``.claude/`` (they steer agent sessions).
 UNGUARDED_ROOT_FILES = frozenset(
-    {
-        ".gitattributes",
-        ".gitignore",
-        "CLAUDE.md",
-        "LICENSE",
-        "LICENSE-CODE",
-        "NOTICE",
-        "README.md",
-    }
+    {".gitignore", "LICENSE", "LICENSE-CODE", "NOTICE", "README.md"}
 )
-UNGUARDED_DIRECTORIES = (".claude/",)
 # Earlier apply-manifest schemas. Their lanes keep their own controls (the
 # approval is checked before signing); this guard does not judge them.
 EARLIER_MANIFEST_SCHEMAS = frozenset({"axiom-encode/applied-rulespec/v5"})
@@ -624,37 +618,103 @@ def _manifest_area(path: str) -> str | None:
 
 
 def _is_unguarded(path: str) -> bool:
-    """Whether a path is on the allowlist of unvalidated locations."""
-    return path in UNGUARDED_ROOT_FILES or path.startswith(UNGUARDED_DIRECTORIES)
+    """Whether a path, matched whole, is on the allowlist."""
+    return path in UNGUARDED_ROOT_FILES
 
 
-def _is_module_path(path: str) -> bool:
+def _has_module_shape(path: str) -> bool:
+    parts = path.split("/")
+    return (
+        path.endswith(".yaml")
+        and not any(part.startswith(".") for part in parts)
+        and (
+            (parts[0] in RULESPEC_ATOMIC_ROOTS and len(parts) >= 2)
+            or (len(parts) >= 3 and _JURISDICTION.fullmatch(parts[0]) is not None)
+        )
+    )
+
+
+def _base_jurisdictions(base_leaves: dict[str, dict]) -> frozenset[str]:
+    """Top-level directories that hold RuleSpec modules on the base."""
+    return frozenset(
+        path.split("/")[0]
+        for path in base_leaves
+        if _has_module_shape(path) and path.split("/")[0] not in RULESPEC_ATOMIC_ROOTS
+    )
+
+
+def _is_module_path(path: str, jurisdictions: frozenset[str]) -> bool:
     """A RuleSpec module file of an earlier lane, by path alone.
 
-    ``<jurisdiction>/<root>/.../<name>.yaml`` in a country repository, or
-    ``<atomic root>/.../<name>.yaml`` at the root of a jurisdiction
-    repository. Nothing under ``.axiom``, ``.github``, ``programs`` or the
-    other top-level directories is a module file.
+    ``<jurisdiction>/<root>/.../<name>.yaml`` under a jurisdiction that
+    already holds modules on the base, or ``<atomic root>/.../<name>.yaml``
+    at the root of a jurisdiction repository. Nothing under ``.axiom``,
+    ``.github``, ``programs`` or another top-level directory is a module
+    file, and a new jurisdiction has no lane.
     """
-    parts = path.split("/")
-    if not path.endswith(".yaml") or any(part.startswith(".") for part in parts):
-        return False
-    if parts[0] in RULESPEC_ATOMIC_ROOTS:
-        return len(parts) >= 2
-    return len(parts) >= 3 and _JURISDICTION.fullmatch(parts[0]) is not None
+    head = path.split("/")[0]
+    return _has_module_shape(path) and (
+        head in RULESPEC_ATOMIC_ROOTS or head in jurisdictions
+    )
 
 
-def _applied_paths(manifest_path: str, payload: dict) -> set[str]:
-    """Repository paths a manifest lists; its paths are relative to its root."""
-    applied = payload.get("applied_files")
-    if not isinstance(applied, list):
-        return set()
+def _manifest_module(manifest_path: str) -> str | None:
+    """The primary module a manifest position stands for, in either layout."""
     prefix = _manifest_area(manifest_path)
-    return {
-        prefix + item["path"]
-        for item in applied
-        if isinstance(item, dict) and isinstance(item.get("path"), str)
-    }
+    if prefix in (None, "leaf") or not manifest_path.endswith(".json"):
+        return None
+    relative = manifest_path[len(prefix) + len(MANIFEST_PREFIX) :]
+    return prefix + relative.removesuffix(".json") + ".yaml"
+
+
+def _earlier_lane_refusal(
+    delta: dict[str, str],
+    jurisdictions: frozenset[str],
+    manifests: dict[str, dict],
+    sha256_at_head: Callable[[str], str],
+) -> tuple[str, str] | None:
+    """Why an earlier-schema lane does not claim the whole delta, or None.
+
+    The lane holds only module files and their manifests. Each manifest sits
+    at the position of one module of a base jurisdiction. Each changed module
+    file is listed, with the sha256 of its head bytes, by the manifest at its
+    own canonical position (a companion ``.test.yaml`` belongs to its
+    primary). A removed file needs the listing only.
+    """
+    owners = {}
+    for manifest_path in manifests:
+        module = _manifest_module(manifest_path)
+        if module is None or not _is_module_path(module, jurisdictions):
+            return R_NO_LANE, "manifest is not at a module position: " + manifest_path
+        owners.setdefault(module, []).append(manifest_path)
+    for path in sorted(set(delta) - set(manifests)):
+        if not _is_module_path(path, jurisdictions):
+            return R_NO_LANE, "not a RuleSpec module file or manifest: " + path
+        primary = (
+            path.removesuffix(".test.yaml") + ".yaml"
+            if path.endswith(".test.yaml")
+            else path
+        )
+        listed = False
+        for manifest_path in owners.get(primary, ()):
+            applied = manifests[manifest_path].get("applied_files")
+            prefix = _manifest_area(manifest_path)
+            for item in applied if isinstance(applied, list) else ():
+                if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+                    continue
+                if prefix + item["path"] != path:
+                    continue
+                if delta[path] == "removed" or item.get("sha256") == sha256_at_head(
+                    path
+                ):
+                    listed = True
+        if not listed:
+            return (
+                R_CONTENT_NOT_COVERED,
+                "module file is not listed with its digest by its own manifest: "
+                + path,
+            )
+    return None
 
 
 def evaluate(
@@ -741,7 +801,6 @@ def _evaluate(name, number, read, evidence) -> Verdict:
             evidence,
         )
     manifests = [path for path in guarded if _manifest_area(path) not in (None, "leaf")]
-    others = [path for path in guarded if path not in manifests]
     if not manifests:
         raise _Refusal(R_NO_LANE, "guarded paths change with no apply manifest")
     if any(delta[path] == "removed" for path in manifests):
@@ -766,21 +825,16 @@ def _evaluate(name, number, read, evidence) -> Verdict:
         # the workflow files or the toolchain pin, and the required check
         # must be green from this pull request's own run. That run verifies
         # the manifests' signatures; this guard does not.
-        if len(delta) != len(guarded) or not all(
-            _is_module_path(path) for path in others
-        ):
-            raise _Refusal(
-                R_NO_LANE,
-                "an earlier lane holds only RuleSpec module files and manifests",
-            )
-        covered = set().union(
-            *(_applied_paths(path, payload) for path, (_raw, payload) in parsed.items())
+        refusal = _earlier_lane_refusal(
+            delta,
+            _base_jurisdictions(base_leaves),
+            {path: payload for path, (_raw, payload) in parsed.items()},
+            lambda path: hashlib.sha256(
+                _blob(read, root, head_leaves[path]["sha"])
+            ).hexdigest(),
         )
-        if not set(others) <= covered:
-            raise _Refusal(
-                R_CONTENT_NOT_COVERED,
-                "RuleSpec module files change outside the changed manifests",
-            )
+        if refusal is not None:
+            raise _Refusal(*refusal)
         with _refuse_as(R_CI):
             _require_green_ci(read, root, head, number)
         with _refuse_as(R_CHANGED):

@@ -42,7 +42,16 @@ SIGNING_RUN = f"{guard.ENCODER_ROOT}/actions/runs/{RUN_ID}"
 ENCODER_MAIN = guard.ENCODER_ROOT + "/git/ref/heads/main"
 CHECKS = "/check-runs?check_name=validate%20%2F%20validate&filter=latest&per_page=100"
 PAGE = "?per_page=100&page=1"
-BASE_FILES = {"README.md": b"readme\n"}
+# ``main`` already holds modules under these jurisdictions.
+BASE_FILES = {
+    "README.md": b"readme\n",
+    "us/policies/existing.yaml": b"existing\n",
+    "us-az/policies/existing.yaml": b"existing\n",
+    "us-ca/regulations/existing.yaml": b"existing\n",
+    "us-mo/manual/existing.yaml": b"existing\n",
+    "programs/us/snap.yaml": b"existing\n",
+    "tests/fixtures/case.yaml": b"existing\n",
+}
 
 
 def oid(label):
@@ -104,10 +113,23 @@ def manifest_bytes(
     return json.dumps(payload, sort_keys=True).encode()
 
 
-def v5_manifest(*paths, **fields):
+def v5_manifest(*paths, content=None, **fields):
+    """A v5-labelled manifest listing ``paths`` with the digest of their bytes."""
+    known = {
+        P: PRIMARY,
+        T: COMPANION,
+        "regulations/mpp/63-503/433.yaml": PRIMARY,
+        "regulations/mpp/63-503/433.test.yaml": COMPANION,
+    } | (content or {})
     payload = {
         "schema_version": V5,
-        "applied_files": [{"path": path, "sha256": "0" * 64} for path in paths],
+        "applied_files": [
+            {
+                "path": path,
+                "sha256": hashlib.sha256(known.get(path, b"x\n")).hexdigest(),
+            }
+            for path in paths
+        ],
     }
     return json.dumps(payload | fields, sort_keys=True).encode()
 
@@ -401,10 +423,7 @@ def test_docs_only_pr_is_not_applicable():
             "NOTICE": b"changed\n",
             "LICENSE": b"changed\n",
             "LICENSE-CODE": b"changed\n",
-            "CLAUDE.md": b"changed\n",
             ".gitignore": b"changed\n",
-            ".gitattributes": b"changed\n",
-            ".claude/settings.json": b"{}\n",
         }
     )
     world.api[PR]["draft"] = True
@@ -474,6 +493,20 @@ def test_removed_allowlisted_file_is_not_applicable():
         "newtop/x.txt",
         "NEWFILE.md",
         "readme.md",  # the allowlist is exact, also in case
+        # R3-1: Git attributes change checked-out bytes and review diffs.
+        ".gitattributes",
+        "us-az/.gitattributes",
+        # R3-2: files that steer the agent sessions.
+        "CLAUDE.md",
+        ".claude/settings.json",
+        ".claude/commands/approve.md",
+        # The allowlist matches the whole path, not the basename.
+        "sub/README.md",
+        "us-az/CLAUDE.md",
+        "us-az/README.md",
+        "docs/LICENSE",
+        "us-az/policies/NOTICE",
+        ".github/.gitignore",
         ".claude",
         ".clauded/x",
     ],
@@ -595,7 +628,7 @@ def test_v5_lane_modifying_a_module():
 def test_v5_lane_admits_any_root_name_and_depth_under_a_jurisdiction(primary):
     world = plain(
         {
-            primary: PRIMARY,
+            primary: b"x\n",
             guard.MANIFEST_PREFIX + primary[:-5] + ".json": v5_manifest(primary),
         }
     )
@@ -686,30 +719,93 @@ def test_r2_1_iii_hand_edit_with_a_doctored_v5_manifest_rests_on_ci():
     # An unsigned v5 manifest cannot be told from a signed one here. The
     # required check verifies the signature, so the verdict follows CI.
     older = {P: b"older\n", T: COMPANION, M: v5_manifest(P, T, generated_at="1")}
-    doctored = {P: b"hand edit\n", M: v5_manifest(P, T)}
-    world = plain(doctored, base_extra=older)
+    edit = b"hand edit\n"
+    world = plain({P: edit, M: v5_manifest(P, T, content={P: edit})}, base_extra=older)
     world.ci(H, conclusion="failure")
     fails(world, guard.R_CI)
 
 
-def test_r2_1_iv_v5_manifest_that_lists_deletions_rests_on_ci():
-    other = "us-az/policies/des/other.yaml"
-    deleting = json.dumps(
-        {
-            "schema_version": V5,
-            "applied_files": [
-                {"path": P, "deleted": True},
-                {"path": other, "deleted": True},
-            ],
-        }
-    ).encode()
+def deleting_manifest(*paths):
+    items = [{"path": path, "deleted": True} for path in paths]
+    return json.dumps({"schema_version": V5, "applied_files": items}).encode()
+
+
+def test_r2_1_iv_v5_manifest_that_lists_its_own_deletion_rests_on_ci():
     world = plain(
-        {M: deleting}, base_extra={P: PRIMARY, other: b"other\n"}, removed=[P, other]
+        {M: deleting_manifest(P, T)},
+        base_extra={P: PRIMARY, T: COMPANION},
+        removed=[P, T],
     )
     world.ci(H, conclusion="failure")
     fails(world, guard.R_CI)
     world.ci(H)
     expect(world, guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
+
+
+def test_r2_1_iv_v5_manifest_cannot_delete_another_module():
+    other = "us-az/policies/des/other.yaml"
+    world = plain(
+        {M: deleting_manifest(P, other)},
+        base_extra={P: PRIMARY, other: b"other\n"},
+        removed=[P, other],
+    )
+    fails(world, guard.R_CONTENT_NOT_COVERED)
+
+
+# Round 3 hardening of the earlier lane: digest, position, base jurisdiction.
+
+
+def test_r3_v5_manifest_must_list_the_digest_of_the_head_bytes():
+    wrong = v5_manifest(P, T, content={P: b"other bytes\n"})
+    fails(plain({P: PRIMARY, T: COMPANION, M: wrong}), guard.R_CONTENT_NOT_COVERED)
+    missing = json.dumps(
+        {"schema_version": V5, "applied_files": [{"path": P}, {"path": T}]}
+    )
+    world = plain({P: PRIMARY, T: COMPANION, M: missing.encode()})
+    fails(world, guard.R_CONTENT_NOT_COVERED)
+
+
+def test_r3_modules_covered_by_an_unrelated_manifest_position():
+    unit = {P: PRIMARY, T: COMPANION}
+    elsewhere = guard.MANIFEST_PREFIX + "us-az/policies/unrelated.json"
+    fails(plain(unit | {elsewhere: v5_manifest(P, T)}), guard.R_CONTENT_NOT_COVERED)
+    foreign = guard.MANIFEST_PREFIX + "zz/unrelated.json"
+    fails(plain(unit | {foreign: v5_manifest(P, T)}), guard.R_NO_LANE)
+
+
+def test_r3_companion_belongs_to_the_manifest_of_its_primary():
+    own = M.replace(".json", ".test.json")
+    world = plain({P: PRIMARY, T: COMPANION, M: v5_manifest(P), own: v5_manifest(T)})
+    fails(world, guard.R_CONTENT_NOT_COVERED)
+
+
+@pytest.mark.parametrize(
+    "primary", ["zz/a/b.yaml", "ci/workflows/x.yaml", "us-zz/policies/x.yaml"]
+)
+def test_r3_module_under_a_jurisdiction_that_main_lacks_has_no_lane(primary):
+    manifest = guard.MANIFEST_PREFIX + primary[:-5] + ".json"
+    fails(plain({primary: b"x\n", manifest: v5_manifest(primary)}), guard.R_NO_LANE)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tools/.axiom/encoding-manifests/x.json",
+        "programs/.axiom/encoding-manifests/us/snap.json",
+        ".axiom/encoding-manifests/x.json",
+        ".axiom/encoding-manifests/us-az/policies/x.txt",
+        ".axiom/encoding-manifests/us-az/x.json",
+        "us-zz/.axiom/encoding-manifests/policies/x.json",
+    ],
+)
+def test_r3_v5_manifest_alone_at_a_position_of_no_module_has_no_lane(path):
+    fails(plain({path: v5_manifest()}), guard.R_NO_LANE)
+
+
+def test_r3_jurisdictions_come_from_the_base_not_from_the_head():
+    assert guard._base_jurisdictions(
+        {path: {} for path in [*BASE_FILES, "policies/root.yaml", ".x/a/b.yaml"]}
+    ) == {"us", "us-az", "us-ca", "us-mo"}
 
 
 @pytest.mark.parametrize(
