@@ -1056,6 +1056,8 @@ def _complete_source_obligations(module, complete_source_module, outline):
         r"provision|sentence) [^\]]*)\])"
     )
     payload = dataclasses.asdict(result)
+    # Companion-case synthesis hints are not findings and postdate the baseline.
+    payload.pop("companion_test_obligations", None)
     # The pinned baseline predates this optional branch metadata. Fill only
     # absent defaults so actual metadata values remain part of the comparison.
     for branch in payload["branches"]:

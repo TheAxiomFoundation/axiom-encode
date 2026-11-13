@@ -82,9 +82,9 @@ The set has 45 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, eight Canadian citations
 and one Israeli statute. Its 54 fixtures include one Arizona control that passed
 validation and then failed a provenance guard. The current snapshot has 12 clean
-fixtures and 42 refused fixtures with 3,364 findings. It preserves every snapshot
-row from both integration parents unchanged. The child-credit and retirement-transfer
-diagnostics retain six and 19 findings; the section 219(g) diagnostic retains 33.
+fixtures and 42 refused fixtures with 3,275 findings. The child-credit and
+retirement-transfer diagnostics retain six and 19 findings; the section 219(g)
+diagnostic retains 30.
 Read clean counts and per-fixture changes, not only the total.
 
 ## Public fixtures and the private held-out set

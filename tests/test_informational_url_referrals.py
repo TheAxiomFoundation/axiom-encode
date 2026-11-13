@@ -88,7 +88,7 @@ def test_numeric_table_and_referral_digits_are_not_masked():
         assert number in recall
 
 
-def test_actual_analyzer_removes_only_two_url_findings(monkeypatch):
+def test_analyzer_removes_url_blocker_after_feedback_folding(monkeypatch):
     content = (FIXTURE / "diagnostic.yaml").read_text()
     body = (FIXTURE / "source.txt").read_text()
     cases = yaml.safe_load((FIXTURE / "diagnostic.test.yaml").read_text())
@@ -115,12 +115,15 @@ def test_actual_analyzer_removes_only_two_url_findings(monkeypatch):
         old.setattr(source, "_is_informational_url_referral", lambda _: False)
         before = analyze()
     removed = [issue for issue in before if issue not in after]
-    assert len(before) == 8
+    # The formula-output finding already owns this unencoded branch, so its
+    # duplicate companion-test finding is folded away. URL recognition removes
+    # that one blocker and preserves every finding for operative source text.
+    assert len(before) == 7
     assert len(after) == 6
-    assert len(removed) == 2
+    assert len(removed) == 1
     assert all(REFERRAL in issue for issue in removed)
     assert any("[complete-source-unit:formula-output]" in issue for issue in removed)
-    assert any("[complete-source-unit:tests]" in issue for issue in removed)
+    assert not any(REFERRAL in issue for issue in after)
     assert after == [issue for issue in before if issue not in removed]
     assert any("numeric value 2025 has no named scalar" in issue for issue in after)
     # The form recognizer owns layout counts; this older fixture intentionally

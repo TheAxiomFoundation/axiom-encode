@@ -283,6 +283,11 @@ class ValidationIssue(str):
     expected: str | None
     found: str | None
     evidence: str | None
+    # Companion-test demands that this finding absorbed because they repeat
+    # it on the same unencoded branch. They stay out of the message (the
+    # feedback names the demand once) but still count as residual work when
+    # retry candidates are ranked. Not part of the fingerprint or document.
+    absorbed_obligations: int
 
     def __new__(
         cls,
@@ -293,6 +298,7 @@ class ValidationIssue(str):
         expected: Any = None,
         found: Any = None,
         evidence: Any = None,
+        absorbed_obligations: int = 0,
     ) -> "ValidationIssue":
         issue = super().__new__(cls, message)
         issue.check = check.id if isinstance(check, Check) else str(check)
@@ -300,6 +306,7 @@ class ValidationIssue(str):
         issue.expected = _short(expected)
         issue.found = _short(found)
         issue.evidence = _short(evidence)
+        issue.absorbed_obligations = max(0, int(absorbed_obligations))
         return issue
 
     def __reduce__(self):  # keep the typed fields across pickling
@@ -312,6 +319,7 @@ class ValidationIssue(str):
                 self.expected,
                 self.found,
                 self.evidence,
+                self.absorbed_obligations,
             ),
         )
 
@@ -336,7 +344,9 @@ class ValidationIssue(str):
         )
 
 
-def _rebuild_issue(message, check, subject, expected, found, evidence):
+def _rebuild_issue(
+    message, check, subject, expected, found, evidence, absorbed_obligations=0
+):
     return ValidationIssue(
         message,
         check=check,
@@ -344,6 +354,7 @@ def _rebuild_issue(message, check, subject, expected, found, evidence):
         expected=expected,
         found=found,
         evidence=evidence,
+        absorbed_obligations=absorbed_obligations,
     )
 
 
@@ -361,6 +372,7 @@ def retype(original: Any, text: str) -> str:
             expected=original.expected,
             found=original.found,
             evidence=original.evidence,
+            absorbed_obligations=original.absorbed_obligations,
         )
     return text
 
@@ -380,6 +392,7 @@ def map_issue_text(issue: Any, transform) -> Any:
         expected=apply(issue.expected),
         found=apply(issue.found),
         evidence=apply(issue.evidence),
+        absorbed_obligations=issue.absorbed_obligations,
     )
 
 

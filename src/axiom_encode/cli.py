@@ -311,6 +311,7 @@ from .harness.same_case_execution import (
     capture_execution_git_origin,
 )
 from .harness.source_completeness import (
+    MISSING_BOUNDARY_DETAIL_MARKER,
     _deferred_coverage,
     _rulespec_target_base,
     recognize_source_structure,
@@ -35064,7 +35065,9 @@ def _validation_residual_obligation_count(issues: Sequence[str]) -> int:
             "[complete-source-unit:tests] Companion tests do not exercise "
             "every source-stated boundary input; missing:" in issue
         ):
-            missing = issue.split("missing:", 1)[1].strip().rstrip(".")
+            missing = issue.split("missing:", 1)[1]
+            missing = missing.split(MISSING_BOUNDARY_DETAIL_MARKER, 1)[0]
+            missing = missing.strip().rstrip(".")
             obligation_count = max(
                 1,
                 len([item for item in missing.split(",") if item.strip()]),
@@ -35094,8 +35097,17 @@ def _validation_residual_obligation_count(issues: Sequence[str]) -> int:
                 1,
                 len(re.findall(r"`[^`]+`\s+versions\[", issue)),
             )
-        total += obligation_count
+        # Companion demands that a structure or formula-output finding
+        # absorbed are not repeated in its message, but they are still
+        # residual work: a less encoded candidate must not outrank a more
+        # complete one only because its feedback is de-duplicated.
+        total += obligation_count + _absorbed_obligation_count(issue)
     return total
+
+
+def _absorbed_obligation_count(issue: str) -> int:
+    count = getattr(issue, "absorbed_obligations", 0)
+    return count if isinstance(count, int) and not isinstance(count, bool) else 0
 
 
 def _full_validation_issue_list(*issue_groups: object) -> tuple[str, ...]:
