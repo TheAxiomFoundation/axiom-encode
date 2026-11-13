@@ -1,3 +1,8 @@
+## 0.2.2365
+
+- Add failure classes and a pre-encode gate that stops empty and repealed targets before a model call (#1997)
+- Count only listed values in numeric-recall retry feedback (#2209)
+
 ## 0.2.2364
 
 - Bind complete form source evidence to verified execution (#2139)

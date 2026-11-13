@@ -24228,10 +24228,59 @@ def _mask_person_resource_type_description(text: str) -> str:
     return "".join(characters)
 
 
+_TABLE_INSTRUCTION_SPACE = r"(?:[ \t]|\r?\n(?![ \t]*\r?\n))+"
+_FAMILY_EXPENSE_TABLE_INSTRUCTION = re.compile(
+    r"(?:\A|(?<=\n\n)|(?<=\r\n\r\n))"
+    + _TABLE_INSTRUCTION_SPACE.join(
+        (
+            "If",
+            "applicable,",
+            "complete",
+            "the",
+            "following",
+            "table",
+            "and",
+            "include",
+            "all",
+            "of",
+            "your",
+            r"(?P<modifier>family)'s",
+            "eligible",
+            "physical",
+            "activity",
+            r"expenses\.",
+        )
+    )
+    + r"(?=[ \t]*(?:\Z|\r?\n[ \t]*\r?\n))",
+    flags=re.IGNORECASE,
+)
+
+
+def _mask_family_expense_table_instruction(text: str) -> str:
+    """Distinguish the expenses' family from an eligibility test's subject.
+
+    Only a complete unqualified instruction paragraph is recognized. This
+    removes a false scope inference; it does not assign a Person actor or
+    establish applicability, eligibility, or compliance with the instruction.
+    """
+    characters = list(text)
+    for match in _FAMILY_EXPENSE_TABLE_INSTRUCTION.finditer(text):
+        # Blank lines do not sever a colon-led instruction or its qualification.
+        if text[: match.start()].rstrip().endswith(":") or re.match(
+            r"(?:unless|except|provided|subject\s+to|but|however)\b",
+            text[match.end() :].lstrip(),
+            flags=re.IGNORECASE,
+        ):
+            continue
+        start, end = match.span("modifier")
+        characters[start:end] = " " * (end - start)
+    return "".join(characters)
+
+
 def _classify_source_scope(text: str) -> str | None:
     """Return a clear source scope, or None when the text is mixed/vague."""
     classification_text = _mask_person_resource_type_description(
-        _mask_household_filing_statuses(text)
+        _mask_family_expense_table_instruction(_mask_household_filing_statuses(text))
     )
     person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(classification_text) is not None
     unit_scoped = (
@@ -24248,7 +24297,7 @@ def _classify_source_scope(text: str) -> str | None:
 def _classify_source_unit_entity(text: str) -> str | None:
     """Return a clear unit entity from source text, or None when generic/mixed."""
     classification_text = _mask_person_resource_type_description(
-        _mask_household_filing_statuses(text)
+        _mask_family_expense_table_instruction(_mask_household_filing_statuses(text))
     )
     if _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(classification_text):
         return "taxunit"
@@ -40063,7 +40112,10 @@ class ValidatorPipeline:
         if strict_layout_checks:
             issues.extend(find_rule_source_metadata_issues(content))
 
-        test_path = self._rulespec_test_path(rules_file)
+        # Compile and execute one captured closure. Reading the original
+        # companion here could execute a transient edit that is reverted
+        # before the capture's freshness check.
+        test_path = execution_pipeline._rulespec_test_path(execution_file)
         if test_path.exists():
             try:
                 payload = _safe_load_unique_keys(test_path.read_text())

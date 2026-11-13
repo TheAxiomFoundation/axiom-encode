@@ -118,18 +118,22 @@ def test_analyzer_removes_url_blocker_after_feedback_folding(monkeypatch):
     # The formula-output finding already owns this unencoded branch, so its
     # duplicate companion-test finding is folded away. URL recognition removes
     # that one blocker and preserves every finding for operative source text.
-    assert len(before) == 6
-    assert len(after) == 5
+    assert len(before) == 7
+    assert len(after) == 6
     assert len(removed) == 1
     assert all(REFERRAL in issue for issue in removed)
     assert any("[complete-source-unit:formula-output]" in issue for issue in removed)
     assert not any(REFERRAL in issue for issue in after)
     assert after == [issue for issue in before if issue not in removed]
-    for number in (5, 14, 2025):
-        assert any(
+    assert any("numeric value 2025 has no named scalar" in issue for issue in after)
+    # The form recognizer owns layout counts; this older fixture intentionally
+    # lacks entered-row bindings, so each arithmetic row must still be refused.
+    for number in (5, 14):
+        assert not any(
             f"numeric value {number} has no named scalar" in issue for issue in after
         )
-    assert any("characters 803:1765" in issue for issue in after)
+    for locator in ("1251:1299", "1375:1448", "1481:1569", "1693:1803"):
+        assert any(f"characters {locator}" in issue for issue in after)
     assert any(
         "Source-stated exceptions or applicability conditions" in issue
         for issue in after
