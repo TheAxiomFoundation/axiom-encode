@@ -2,17 +2,17 @@
  "schema": "axiom-encode/us-replay-snapshot/v2",
  "context": "workspace",
  "totals": {
-  "cases": 47,
+  "cases": 49,
   "clean": 12,
-  "issues": 3285,
+  "issues": 3297,
   "rules": {
    "complete-source-unit:declaration-collision": 2,
    "complete-source-unit:deferral": 172,
    "complete-source-unit:formula-output": 763,
-   "complete-source-unit:numeric-recall": 319,
-   "complete-source-unit:source-explicit-conditions": 6,
+   "complete-source-unit:numeric-recall": 321,
+   "complete-source-unit:source-explicit-conditions": 7,
    "complete-source-unit:structure": 1847,
-   "complete-source-unit:tests": 176
+   "complete-source-unit:tests": 185
   }
  },
  "allowed_regressions": {},
@@ -3808,6 +3808,43 @@
    "rules": {},
    "error": null,
    "findings": []
+  },
+  "local-nb-schedule-20261113": {
+   "citation": "ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit",
+   "control": false,
+   "issues": 6,
+   "rules": {
+    "complete-source-unit:numeric-recall": 1,
+    "complete-source-unit:source-explicit-conditions": 1,
+    "complete-source-unit:tests": 4
+   },
+   "error": null,
+   "findings": [
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 2025 has no named scalar representation. `module.summary` is not consulted. First source location of 2025: character (code point) offsets 21:25 in source.txt, ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit [source unit]: `CRA Schedule NB(S12) 2025 New Brunswick Seniors' Home Renovation Tax Credit`. The displayed text is only a bounded locator; copy any proof excerpt verbatim from `source.txt`.",
+    "[complete-source-unit:source-explicit-conditions] Derived formula version(s) delegate multiple conjunctive factual gates stated in their exact authoritative source clause to too few terminal local inputs or canonical imports: `medical_separation_claim_permission_applies` versions[0] (`has_spouse_or_common_law_partner_at_reference_date`, `medical_separation_reference_date`, `occupied_separate_principal_residences_at_reference_date`, `principal_residence_separation_was_for_medical_reasons` for 3 source gates); `spouse_residence_address_reporting_required` versions[0] (`has_spouse_or_common_law_partner_at_reference_date`, `medical_separation_claim_permission_applies`, `medical_separation_reference_date`, `occupied_separate_principal_residences_at_reference_date`, `principal_residence_separation_was_for_medical_reasons` for 3 source gates). Encode the source-stated facts as distinct local inputs or canonical imports, declare every local fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`), combine them in a source-proved derived Judgment, and test each gate. Reserve aggregate boundary statuses for source-atomic or externally determined conditions.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 10 at ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit [source unit]. Exact source computation (characters 1072:1121): `Line 3: Line 1 minus line 2 (maximum $10,000) = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 12 at ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit [source unit]. Exact source computation (characters 1225:1296): `Line 5 and line 60360: Line 3 minus line 4 Home renovation expenses = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 14 at ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit [source unit]. Exact source computation (characters 1327:1484): `Line 7: Line 5 multiplied by the percentage from line 6 Enter this amount on line 47900 of your return. New Brunswick seniors' home renovation tax credit = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit [source unit] [change]: `Involuntary separation Line 60890: If, on December 31, 2025, you and your spouse or common-law partner occupied separate principal residences f ... cal reasons, you can both claim the seniors' home renovation tax credit.`; ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit [source unit] [change]: `If yes, tick this box. ^ If not, enter the address of the residence they relate to: ^ See the privacy notice on your return.`. The evaluator recognized 22 directional formula-toggle witnesses from 8 distinct case pairs, but these do not cover every listed source condition. Check affected rule/path, source-selector relevance, active orientation, required effect, and distinct-condition witness allocation before adding cases. Recognized test pairs alone do not establish source coverage."
+   ]
+  },
+  "local-nl479-form-20261113": {
+   "citation": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+   "control": false,
+   "issues": 6,
+   "rules": {
+    "complete-source-unit:numeric-recall": 1,
+    "complete-source-unit:tests": 5
+   },
+   "error": null,
+   "findings": [
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 2025 has no named scalar representation. `module.summary` is not consulted. First source location of 2025: character (code point) offsets 38:42 in source.txt, ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit]: `2025`. The displayed text is only a bounded locator; copy any proof excerpt verbatim from `source.txt`.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 12 at ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit]. Exact source computation (characters 1251:1299): `Line 3: Line 1 minus line 2 (maximum $2,000) = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 14 at ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit]. Exact source computation (characters 1375:1448): `Line 5 and line 62000: Line 3 minus line 4 Physical activity expenses = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 16 at ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit]. Exact source computation (characters 1481:1569): `Line 7: Line 5 multiplied by the percentage from line 6 Physical activity tax credit = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 19 at ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit]. Exact source computation (characters 1693:1803): `Line 9: Line 7 plus line 8 Enter this amount online 47900of your return. Newfoundland and Labrador credits = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit] [change]: `If the total of this credit is more than the amount of taxes you have to pay, you may get a refund for the difference.`; ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit] [change]: `Physical activity tax credit If applicable, complete the following table and include all of your family's eligible physical activity expenses.`; ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit] [change]: `If you need more space, attach an additional sheet of paper.`."
+   ]
   },
   "local-schedule2-floor-20261113": {
    "citation": "ca/policy/cra/t1-2025/federal-spouse-transfer-amounts",
