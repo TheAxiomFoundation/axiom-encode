@@ -1,0 +1,32 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "origin": "local-diagnostic",
+  "run_id": "local-t1170-source-20261113",
+  "citation": "ca/policy/cra/t1-2025/capital-gains-on-gifts",
+  "module_path": "ca/policies/cra/t1-2025/capital-gains-on-gifts.yaml",
+  "policy_prefix": "ca",
+  "split": "visible",
+  "recorded_verdict": "rejected",
+  "encoder_commit": "fb376ce573872568b0a843a0d02f99bca798498b",
+  "encoder_tree": "ebca52a843b9eb790598985ea82f727efaa74cef",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --out /tmp/replay.json",
+  "input_origins": {
+    "candidate.yaml": "tests/fixtures/t1170-source-diagnostic/candidate.yaml",
+    "candidate.test.yaml": "tests/fixtures/t1170-source-diagnostic/candidate.test.yaml",
+    "source.txt": "tests/fixtures/t1170-authenticated-body.txt"
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "recorded_rules": [
+    "complete-source-unit:numeric-recall",
+    "complete-source-unit:source-explicit-conditions",
+    "complete-source-unit:t1170-evidence"
+  ],
+  "files": {
+    "candidate.yaml": "d926e237251dc060f5fbdbe6e0ada33acc06307690db7e60141e21dd826a80e5",
+    "candidate.test.yaml": "8e21ef551854953864207e3a0f79c9ccb9482f0f6315a6ff4809a9984de9a21b",
+    "source.txt": "26bca8d19acdc5f045f1d8317cf8e7a504b07c3496cfffcec34a82232f72b8b0",
+    "issues.json": "8feab0c66b9bf7c2109dfe3578eccde4c94c2783897abb8c7ebdde3865c4e637"
+  }
+}

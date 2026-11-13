@@ -1,0 +1,1 @@
+Exact public Schedule N materialized diagnostic inputs retained for replay provenance. These are unsigned diagnostic bytes, not a native generation or admitted publication. The complete source is ../schedule-n-authenticated-body.txt.

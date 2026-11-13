@@ -703,22 +703,21 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
         companion = pipe._rulespec_test_path(rules_file)
         if pipe.rulespec_dependency_roots or not companion.is_file():
             return None
-        from .scoped_execution import eligible_adapters
-
-        owners = eligible_adapters(pipe, content) if not imports else ()
-        if not imports and len(owners) != 1:
-            # No single scoped owner: only main's same-page floor binding can
-            # make an import-free file eligible.
-            if imports != [] or owners:
-                return None
+        if imports == []:
             from .actual_floor_evidence import bind_same_page_floors
+            from .scoped_execution import eligible_adapters
 
-            sources = pipe._proof_source_texts_for_rulespec_content(
-                content, source_texts=pipe._source_texts_for_rulespec_content(content)
-            )
-            if not bind_same_page_floors(content, sources):
+            owners = eligible_adapters(pipe, content)
+            if len(owners) > 1:
                 return None
-        elif imports:
+            if not owners:
+                sources = pipe._proof_source_texts_for_rulespec_content(
+                    content,
+                    source_texts=pipe._source_texts_for_rulespec_content(content),
+                )
+                if not bind_same_page_floors(content, sources):
+                    return None
+        else:
             exports = pipe._complete_source_unit_import_bindings(rules_file)
             derived = set()
             for export in exports:
@@ -853,26 +852,22 @@ def _materialize_snapshot(
         from .scoped_execution import eligible_adapters
 
         owners = eligible_adapters(pipe, rules_file.read_text())
-        if not owners:
+        if len(owners) > 1:
+            return None
+        if owners:
+            module, prefix = owners[0]
+            if not module.activate(pipe, capture):
+                return None
+            setattr(capture, prefix + "_owned", True)
+        else:
             from .actual_floor_evidence import bind_same_page_floors
 
-            # A same-page floor file has no scoped owner; it stays eligible
-            # through its own binding, as on main.
             content = rules_file.read_text()
-            sources = (
-                pipe._proof_source_texts_for_rulespec_content(
-                    content,
-                    source_texts=pipe._source_texts_for_rulespec_content(content),
-                )
-                or {}
+            sources = pipe._proof_source_texts_for_rulespec_content(
+                content, source_texts=pipe._source_texts_for_rulespec_content(content)
             )
-            return capture if bind_same_page_floors(content, sources) else None
-        if len(owners) != 1:
-            return None
-        module, prefix = owners[0]
-        if not module.activate(pipe, capture):
-            return None
-        setattr(capture, prefix + "_owned", True)
+            if not bind_same_page_floors(content, sources):
+                return None
     return capture
 
 
