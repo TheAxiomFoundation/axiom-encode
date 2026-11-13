@@ -23,6 +23,7 @@
 /src/axiom_encode/cli.py @PavelMakarchuk @MaxGhenis
 /scripts/prepare_reviewed_pr_promotion.py @PavelMakarchuk @MaxGhenis
 /tests/test_reviewed_pr_admission.py @PavelMakarchuk @MaxGhenis
+/tests/test_candidate_pr_admission.py @PavelMakarchuk @MaxGhenis
 /tests/test_content_merge_guard.py @PavelMakarchuk @MaxGhenis
 /tests/test_applied_manifest_v6.py @PavelMakarchuk @MaxGhenis
 /tests/test_prepare_reviewed_pr_promotion.py @PavelMakarchuk @MaxGhenis

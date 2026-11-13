@@ -10,6 +10,10 @@ off: `V6_READER_ENABLED` is `False`, so every verifier still refuses a v6
 manifest. Every promotion still uses the order in
 `docs/reviewed-pr-promotion.md`. Tracking issue: #2172.
 
+The writer and the admission without approval (change 5 of §8) are present
+and switched off by three locks on encoder main (§5, "Encoder"). No lock is
+open, so no v6 manifest can be written.
+
 The binding requirements are the "Maintainer decisions (2026-11-12)" in
 `docs/reviewed-pr-promotion-order-proposal.md`. The design below is a proposal
 for how to meet them. Platform claims that were not confirmed are marked
@@ -468,16 +472,80 @@ writer emits v6. A verifier pinned before change 2b rejects v6, so no v6
 manifest can pass `validate / validate` until `rulespec-us` bumps its encoder
 pin. That is a built-in ordering gate.
 
-### Encoder (behind a switch that the activation change flips)
+### Encoder (change 5, present and switched off)
+
+The unreviewed-candidate lane is in `reviewed_pr_admission.py` (admission) and
+`applied_manifest_v6.as_v6_candidate_payload` (the one v6 writer, called from
+one place in `cmd_promote_reviewed_candidate`).
+
+**Three locks, all constants or live reads on encoder main.** None has an
+environment variable, CLI flag, dispatch input or repository setting.
+
+| # | Lock | State today | Opened by |
+|---|---|---|---|
+| 1 | `reviewed_pr_admission.V6_WRITER_ENABLED` | `False` | Change 6, a reviewed one-line change |
+| 2 | `reviewed_pr_admission.GUARD_APP_ID` | `None` | A reviewed change that records the guard App's numeric App ID, after checklist step 1 |
+| 3 | `require_guard_enforced`: a live read of the public branch record `GET /repos/<repo>/branches/main` | refuses: `main` requires only `validate / validate` | Checklist step 4 (a maintainer makes `content-bound-merge-guard` a required check with the App's `app_id`) |
+
+- Lock 3 passes only when the record shows `protected: true`,
+  `protection.enabled: true`, `enforcement_level: "everyone"` (administrators
+  included) and exactly one required check with context
+  `content-bound-merge-guard` and `app_id == GUARD_APP_ID`. App 15368 (GitHub
+  Actions) can never be the guard's publisher. A check named only in the
+  legacy `contexts` list, the shadow check name, a read error, a rate limit
+  and an unknown shape all refuse. A required check that comes from a
+  repository ruleset is not in this record and does not count.
+- The read is anonymous, so the signing runtime still holds no repository
+  credential. Verified on 2026-11-13: the record is public and carries
+  `checks[].app_id`.
+  To see what lock 3 sees:
+  `curl -s https://api.github.com/repos/TheAxiomFoundation/rulespec-us/branches/main | jq '{protected, checks: .protection.required_status_checks}'`.
+- Lock 3 runs at the preflight, at the root provisioner's admission, before
+  validation, immediately before signing and before publication (every call
+  of `verify_reviewed_pr` and `revalidate_admission`).
+- **Operator precondition (not checkable in code).** Lock 3 proves the
+  requirement up to the signature. A repository administrator can remove a
+  required check afterwards; that adversary is out of scope (§9). Do not open
+  lock 1 before checklist step 4 is done and confirmed.
+- With the switch on, the lane also needs `V6_READER_ENABLED`: a v6 manifest
+  that no verifier admits cannot be written.
+
+**With lock 1 off, nothing changes.** `verify_reviewed_pr` and
+`revalidate_admission` make the same reads and return the same results and
+errors as before the lane existed, and the promotion writes v5.
+
+**With all locks open** (tests only):
 
 - Admission keeps every scope check of `verify_reviewed_pr` and drops the
-  requirement for an approval.
-- `triggering_actor.id` must be enrolled (D3), and the numeric id is recorded.
-  Today only the login is bound.
-- The admission schema, `revalidate_admission`, the runtime attestation key and
-  `cmd_promote_reviewed_candidate` change so that an auditor cannot mistake a
-  scope-checked candidate for a reviewed one.
-- The preflight step moves to a job that runs before the gated `encode` job.
+  requirement for an approval. An effective `CHANGES_REQUESTED` from any
+  account still refuses, as today.
+- `triggering_actor` must be enrolled by numeric id, with the enrolled login
+  and `type == "User"` (D3). The id is recorded.
+- The admission record has another schema,
+  `axiom-encode/live-candidate-pr-admission/v1`, no `approvals` key, and
+  `owner_review: "none"`, so an auditor cannot mistake a scope-checked
+  candidate for a reviewed one. `revalidate_admission` checks it against live
+  state, including lock 3.
+- `cmd_promote_reviewed_candidate` writes `applied-rulespec/v6` for such a
+  record: `candidate_rulespec_ref` and the `attestation_scope` of this
+  section. The writer builds the scope from the reader's field sets and runs
+  the reader's own scope check on the result before signing.
+- A reviewed admission record (the earlier schema) still produces a v5
+  manifest. With the switch on, `verify_reviewed_pr` issues candidate records
+  only.
+
+**Not in change 5; each is needed before or with change 6.**
+
+- The hosted workflow's evidence step in `targeted-signed-reencode.yml` reads
+  `reviewed_rulespec_ref`. It refuses a v6 manifest after signing and before
+  publication. That workflow file is unchanged, so a v6 promotion cannot
+  publish through it yet. This is a fourth, accidental stop.
+- The runtime attestation key stays `reviewed_pr_admission`; the record's
+  schema tells the lanes apart. A new key needs a change to the root
+  provisioner.
+- The preflight step still runs inside the gated `encode` job.
+- The v5-only readers of the reader table above still do not read v6.
+- `attestation_scope` has no `run_attempt` (open question 14).
 
 ## 6. Merge queue and `notary-guard` (not implemented)
 
@@ -578,7 +646,8 @@ Implementation comes strictly before activation.
 | 2b | axiom-encode | Set `V6_READER_ENABLED = True`. May ride with change 3. Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request. | set it back; no v6 exists |
 | 3 | axiom-encode | Workflow that runs the guard from `main` and publishes its check, with a dry-run mode | disable the workflow |
 | 4 | rulespec-us | Pin the encoder that verifies v6 | revert the pin |
-| 5 | axiom-encode | Emit v6 and admit without approval, behind a default-off switch | revert |
+| 5 | axiom-encode | Emit v6 and admit without approval, behind a default-off switch. Built with three locks: `V6_WRITER_ENABLED = False`, `GUARD_APP_ID = None`, and a live read that the guard check is required (§5, "Encoder") | revert |
+| 5b | axiom-encode | Record the guard App's numeric App ID in `GUARD_APP_ID`; teach the hosted workflow's evidence step `candidate_rulespec_ref`. After checklist step 1 | set it back to `None` |
 | 6 | axiom-encode | **Activation**: turn the switch on; update `docs/reviewed-pr-promotion.md` | flip the switch back; the required check stays |
 
 ### Activation checklist
@@ -596,8 +665,12 @@ can do them.
    checks on `rulespec-us` main, only after question 0 of §10 is decided: under
    the current classifier most maintenance PRs get `fail`.
 5. Run the current-order canary (rulespec-us#2045) to completion.
-6. Merge change 5 with the switch off.
-7. Merge change 6. The first promotion in the new order is the pilot.
+6. Merge change 5 with the switch off, then change 5b.
+7. Confirm that `main` requires `content-bound-merge-guard` from the guard
+   App for administrators too (the command is in §5: read the public branch
+   record). Then merge change 6. The admission refuses while that read does
+   not show the requirement. The first promotion in the new order is the
+   pilot.
 8. **M**, optional hardening: enforce code-owner review for `/.github/` (§9).
 9. **M**, before the merge queue (rulespec-us#2160): confirm the guard reports
    on group SHAs in a test repository.

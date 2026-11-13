@@ -2058,9 +2058,12 @@ def test_nothing_in_the_encoder_calls_the_guard():
     ]
     # applied_manifest_v6.py names the merge requirement a v6 manifest must
     # carry (a string constant). It does not import or call the guard.
+    # reviewed_pr_admission.py names the guard's check (a string constant)
+    # for the switched-off requirement that the check is a required check.
     assert sorted(callers) == [
         "src/axiom_encode/applied_manifest_v6.py",
         "src/axiom_encode/cli.py",
+        "src/axiom_encode/reviewed_pr_admission.py",
     ]
     # By import, not by text: only the lazy import of the CLI command.
     importers = set()

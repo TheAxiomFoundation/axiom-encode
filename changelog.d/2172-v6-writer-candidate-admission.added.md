@@ -1,0 +1,1 @@
+Add a switched-off lane that admits a RuleSpec candidate without the owner approval before signing and writes an `applied-rulespec/v6` manifest; it stays unusable until a switch on encoder main is turned, the guard App is recorded, and the merge guard is a required check of the RuleSpec repository.

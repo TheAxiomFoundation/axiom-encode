@@ -453,6 +453,9 @@ def test_v6_hooks_are_reached_only_through_the_label():
         "is_v6_labelled",
         "CANDIDATE_REF_FIELD",
         "contract_issues",
+        # Change 5: the writer, behind the candidate lane (switched off).
+        "require_candidate_writer",
+        "as_v6_candidate_payload",
     }
     assert "V6_READER_ENABLED" not in source
     assert "applied-rulespec/v6" not in source.replace(
@@ -460,11 +463,27 @@ def test_v6_hooks_are_reached_only_through_the_label():
     )
 
 
-def test_no_writer_emits_v6():
+def test_the_only_v6_writer_is_switched_off():
+    """Change 5 added one writer. It is off; cli.py still never names v6."""
+
+    from axiom_encode import reviewed_pr_admission
+
     source = cli.Path(cli.__file__).read_text()
     assert '"schema_version": _manifest_v6' not in source
     assert "MANIFEST_SCHEMA_V6" not in source
     assert cli.APPLIED_ENCODING_MANIFEST_SCHEMA == "axiom-encode/applied-rulespec/v5"
+    assert reviewed_pr_admission.V6_WRITER_ENABLED is False
+    assert reviewed_pr_admission.GUARD_APP_ID is None
+    with pytest.raises(ValueError, match="writer is switched off"):
+        v6.as_v6_candidate_payload(
+            {},
+            v5_ref_field="reviewed_rulespec_ref",
+            repository="TheAxiomFoundation/rulespec-us",
+            pull_request=1,
+            base_sha="a" * 40,
+            author_id=1,
+            dispatcher={"id": 1, "login": "x"},
+        )
 
 
 # --- one contract with the evaluator ------------------------------------------
