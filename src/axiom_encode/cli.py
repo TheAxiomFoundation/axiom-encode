@@ -202,7 +202,9 @@ from .generalist_review_record import (
     GENERALIST_REVIEW_FIELD,
     AppliedPair,
     GeneralistReviewState,
+    ReviewRequirementRefused,
     applied_pair,
+    apply_stamp_dump,
     build_generalist_review_record,
     generalist_review_record_issues,
     review_requirement_refusal,
@@ -34646,6 +34648,36 @@ def _encode_generalist_review_state(
     )
 
 
+def _mark_logged_iteration_review_blocked(
+    run: EncodingRun | None,
+    *,
+    db_path: Path,
+    message: str,
+) -> None:
+    """Record the final try of an already logged run as failed.
+
+    A run is logged before the apply step, when its last try still counts as
+    a success. A required review that then blocks the apply makes that try a
+    failure. A run that is not logged yet takes its verdict from
+    ``_encode_iteration_verdict``. Telemetry only: a failure here is reported
+    and never changes the encode's result.
+    """
+
+    if run is None or not run.iterations:
+        return
+    try:
+        final = dataclass_replace(
+            run.iterations[-1],
+            success=False,
+            errors=[IterationError(error_type="validation", message=message)],
+        )
+        iterations = [*run.iterations[:-1], final]
+        EncodingDB(db_path).update_run_iterations(run.id, iterations)
+        run.iterations = iterations
+    except Exception as exc:  # noqa: BLE001 - telemetry must never fail an encode
+        print(f"  run_log_review_block=failed:{type(exc).__name__}")
+
+
 def _review_applied_pairs(rulespec_files: Sequence[Path]) -> list[AppliedPair]:
     """Digest each RuleSpec file with its companion test, as they are now.
 
@@ -42428,6 +42460,9 @@ def _run_encode_attempt(
                     outcome["apply_error"] = review_refusal
                     outcome["final_success"] = False
                     print(f"  apply=blocked_review:{review_refusal}")
+                    _mark_logged_iteration_review_blocked(
+                        logged_run, db_path=db_path, message=review_refusal
+                    )
                 elif can_apply:
                     mark_encode_phase(PHASE_APPLY_WRITE)
                     try:
@@ -42442,6 +42477,16 @@ def _run_encode_attempt(
                             supplemental_files=supplemental_files,
                             signing_broker=apply_signing_broker,
                             allow_shrink=(getattr(args, "allow_shrink", False) is True),
+                        )
+                    except ReviewRequirementRefused as exc:
+                        # The writer's own check of the required review, on
+                        # the files it was about to sign.
+                        outcome["status"] = "apply_blocked_review"
+                        outcome["apply_error"] = str(exc)
+                        outcome["final_success"] = False
+                        print(f"  apply=blocked_review:{exc}")
+                        _mark_logged_iteration_review_blocked(
+                            logged_run, db_path=db_path, message=str(exc)
                         )
                     except (RuntimeError, ValueError) as exc:
                         outcome["status"] = "apply_blocked_manifest"
@@ -61383,10 +61428,8 @@ def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> 
         "requested_corpus_citation_path"
     ]
     source_verification["source_sha256"] = attestation["source_sha256"]
-    output_file.write_text(
-        safe_dump_yaml(payload, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    # The review record binds a verdict across this exact dump (#2146).
+    output_file.write_text(apply_stamp_dump(payload), encoding="utf-8")
 
 
 def _supplemental_source_attestation_issues(
@@ -65578,7 +65621,7 @@ def _write_applied_encoding_manifest(
         if review_state.required:
             refusal = review_requirement_refusal(review_record)
             if refusal is not None:
-                raise RuntimeError(refusal)
+                raise ReviewRequirementRefused(refusal)
         # The protected base is read from the real checkout: a staged copy
         # has no Git objects, so it can never show that the target opted in.
         if _target_admits_generalist_review_record(

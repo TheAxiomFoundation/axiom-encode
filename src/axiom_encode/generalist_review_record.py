@@ -33,10 +33,17 @@ once: it stamps ``module.source_verification`` with the resolver's attested
 corpus path and source hash and dumps the YAML again. That rewrite changes
 every byte digest and no rule. The content digest is the SHA-256 of the YAML
 node tree (each scalar with its resolved type and its exact text), with those
-two stamped keys left out. It survives the stamp, key order, quoting style
-and comments, and it changes with any other edit, including one that only a
-YAML 1.1 reader treats as equal (``yes`` and ``true``, ``010`` and ``8``).
-The record also names the byte digests on both sides.
+two stamped keys left out. Key order, quoting style and comments do not
+change it; any other edit does, including one that only a YAML 1.1 reader
+treats as equal (``yes`` and ``true``, ``010`` and ``8``). A document with a
+repeated key, an alias or a merge key has no content digest.
+
+The dump also respells some scalars (``0.10`` becomes ``0.1``, ``1_000``
+becomes ``1000``, ``yes`` becomes ``true``). So an applied file is bound to
+the review when its content digest equals the digest of the reviewed file,
+or the digest of the reviewed file after the same dump call that apply makes
+(:func:`apply_stamp_dump`). Nothing looser is accepted. The record also names
+the byte digests on both sides.
 
 The record holds only enumerated words, numbers and digests. Reviewer prose
 (issues, reasoning) never enters it, so model output cannot place a string of
@@ -55,6 +62,7 @@ from typing import Any, Iterable, Mapping
 import yaml
 
 from axiom_encode.checks import ValidationIssue, declare_check
+from axiom_encode.yaml_serialization import safe_dump_yaml
 
 GENERALIST_REVIEW_FIELD = "generalist_review"
 GENERALIST_REVIEW_SCHEMA = "axiom-encode/generalist-review/v1"
@@ -176,6 +184,10 @@ _DIGEST_FIELDS = (
     "test_content_sha256",
 )
 _PAIR_FIELDS = frozenset(_DIGEST_FIELDS)
+# The reviewed RuleSpec after the dump that apply performs on it.
+_DUMPED_FIELD = "rulespec_dumped_content_sha256"
+_REVIEWED_FIELDS = _PAIR_FIELDS | {_DUMPED_FIELD}
+_MERGE_TAG = "tag:yaml.org,2002:merge"
 _FILE_FIELDS = frozenset({"sha256", "reviewed", "complete"})
 # The two keys `encode --apply` stamps into module.source_verification.
 _SOURCE_STAMP_KEYS = ("corpus_citation_path", "source_sha256")
@@ -201,13 +213,18 @@ def _mapping_item(node: yaml.Node | None, key: str) -> yaml.Node | None:
 
 
 def _canonical_node(
-    node: yaml.Node | None, *, drop: Mapping[int, frozenset[str]]
+    node: yaml.Node | None,
+    *,
+    drop: Mapping[int, frozenset[str]],
+    seen: set[int],
 ) -> object:
     """Return a JSON value that differs whenever the YAML node differs.
 
     A scalar keeps its resolved type tag and its exact text, so ``'1'`` and
     ``1`` differ, and so do ``yes`` and ``true``. ``drop`` names, per mapping
-    node, the keys to leave out.
+    node, the keys to leave out. A collection reached twice (an alias), a
+    merge key and a repeated key raise ``ValueError``: a reader may resolve
+    them in more than one way, so the document has no digest.
     """
 
     if node is None:
@@ -219,23 +236,33 @@ def _canonical_node(
         elif node.tag == _BOOL_TAG:
             value = value.lower()  # `True` is dumped as `true`; `yes` stays `yes`
         return ["scalar", node.tag, value]
+    if id(node) in seen:
+        raise ValueError("YAML alias")
+    seen.add(id(node))
     if isinstance(node, yaml.SequenceNode):
-        return ["sequence", [_canonical_node(item, drop=drop) for item in node.value]]
+        return [
+            "sequence",
+            [_canonical_node(item, drop=drop, seen=seen) for item in node.value],
+        ]
     if isinstance(node, yaml.MappingNode):
         dropped = drop.get(id(node), frozenset())
-        return [
-            "mapping",
-            sorted(
-                [
-                    json.dumps(_canonical_node(key_node, drop=drop), sort_keys=True),
-                    _canonical_node(value_node, drop=drop),
-                ]
-                for key_node, value_node in node.value
-                if not (
-                    isinstance(key_node, yaml.ScalarNode) and key_node.value in dropped
-                )
-            ),
-        ]
+        items = []
+        keys = set()
+        for key_node, value_node in node.value:
+            if key_node.tag == _MERGE_TAG:
+                raise ValueError("YAML merge key")
+            key = json.dumps(
+                _canonical_node(key_node, drop=drop, seen=seen), sort_keys=True
+            )
+            if key in keys:
+                raise ValueError("repeated YAML key")
+            keys.add(key)
+            # A left-out value is still walked, so an alias of it is refused.
+            item = _canonical_node(value_node, drop=drop, seen=seen)
+            if isinstance(key_node, yaml.ScalarNode) and key_node.value in dropped:
+                continue
+            items.append([key, item])
+        return ["mapping", sorted(items)]
     raise TypeError(f"unsupported YAML node {type(node).__name__}")
 
 
@@ -273,7 +300,7 @@ def review_content_sha256(raw: bytes | None, *, rulespec: bool) -> str | None:
         elif module is not None and _is_empty(module):
             drop[id(root)] = frozenset({"module"})
     try:
-        canonical_value = _canonical_node(root, drop=drop)
+        canonical_value = _canonical_node(root, drop=drop, seen=set())
         if _is_empty(root) or canonical_value == ["mapping", []]:
             canonical_value = None
         canonical = json.dumps(
@@ -289,6 +316,33 @@ def review_content_sha256(raw: bytes | None, *, rulespec: bool) -> str | None:
 
 
 _ABSENT_TEST_CONTENT_SHA256 = review_content_sha256(None, rulespec=False)
+
+
+def apply_stamp_dump(payload: object) -> str:
+    """Dump a RuleSpec document the way ``encode --apply`` rewrites it.
+
+    The apply stamp calls this, and the review binding calls it on the
+    reviewed bytes, so both use one dump.
+    """
+
+    return safe_dump_yaml(payload, sort_keys=False, allow_unicode=True)
+
+
+def dumped_review_content_sha256(raw: bytes) -> str | None:
+    """Digest a reviewed RuleSpec as apply would rewrite it, or None.
+
+    Apply loads the candidate with ``yaml.safe_load`` and dumps it with
+    :func:`apply_stamp_dump`; it rewrites nothing that is not a mapping.
+    """
+
+    try:
+        payload = yaml.safe_load(raw.decode("utf-8"))
+        if not isinstance(payload, dict):
+            return None
+        dumped = apply_stamp_dump(payload).encode("utf-8")
+    except (UnicodeError, yaml.YAMLError, RecursionError, ValueError, TypeError):
+        return None
+    return review_content_sha256(dumped, rulespec=True)
 
 
 @dataclass(frozen=True)
@@ -321,6 +375,7 @@ def review_evidence_digests(rulespec: bytes, test: bytes | None) -> dict[str, ob
         "reviewed_rulespec_content_sha256": pair.rulespec_content_sha256,
         "reviewed_test_sha256": pair.test_sha256,
         "reviewed_test_content_sha256": pair.test_content_sha256,
+        "reviewed_" + _DUMPED_FIELD: dumped_review_content_sha256(rulespec),
     }
 
 
@@ -411,7 +466,7 @@ def _unscored_record(
         },
         "verdict": {"passed": None, "score": None, "issue_count": 0},
         "prompt_sha256": None,
-        "reviewed": dict.fromkeys(_DIGEST_FIELDS),
+        "reviewed": dict.fromkeys((*_DIGEST_FIELDS, _DUMPED_FIELD)),
         "applied": dict.fromkeys(_DIGEST_FIELDS),
         "files": files,
     }
@@ -471,7 +526,15 @@ def build_generalist_review_record(
         or not _is_sha256(state.prompt_sha256)
         or not isinstance(evidence, Mapping)
         or not _is_sha256(evidence.get("reviewed_rulespec_sha256"))
-        or not _is_sha256(evidence.get("reviewed_rulespec_content_sha256"))
+        # The file as reviewed, or as apply rewrites it, must have a digest.
+        or not (
+            _is_sha256(evidence.get("reviewed_rulespec_content_sha256"))
+            or _is_sha256(evidence.get("reviewed_" + _DUMPED_FIELD))
+        )
+        or not (
+            evidence.get("reviewed_rulespec_content_sha256") is None
+            or _is_sha256(evidence.get("reviewed_rulespec_content_sha256"))
+        )
         or not (
             evidence.get("reviewed_test_sha256") is None
             or _is_sha256(evidence.get("reviewed_test_sha256"))
@@ -486,13 +549,24 @@ def build_generalist_review_record(
             files=unreviewed,
         )
 
-    reviewed = {field: evidence.get(f"reviewed_{field}") for field in _DIGEST_FIELDS}
+    reviewed = {
+        field: evidence.get(f"reviewed_{field}")
+        for field in (*_DIGEST_FIELDS, _DUMPED_FIELD)
+    }
+    if not _is_sha256(reviewed[_DUMPED_FIELD]):
+        reviewed[_DUMPED_FIELD] = None
+    # The applied RuleSpec is the reviewed one, or the reviewed one after the
+    # dump that apply performs. Nothing else counts.
+    reviewed_rulespec_contents = {
+        reviewed["rulespec_content_sha256"],
+        reviewed[_DUMPED_FIELD],
+    } - {None}
     bound_pair = next(
         (
             pair
             for pair in pairs
             if _is_sha256(pair.rulespec_sha256)
-            and pair.rulespec_content_sha256 == reviewed["rulespec_content_sha256"]
+            and pair.rulespec_content_sha256 in reviewed_rulespec_contents
             and pair.test_content_sha256 == reviewed["test_content_sha256"]
             and (pair.test_sha256 is None or _is_sha256(pair.test_sha256))
         ),
@@ -598,7 +672,7 @@ def generalist_review_record_issues(
         or not isinstance(verdict, dict)
         or frozenset(verdict) != _VERDICT_FIELDS
         or not isinstance(reviewed, dict)
-        or frozenset(reviewed) != _PAIR_FIELDS
+        or frozenset(reviewed) != _REVIEWED_FIELDS
         or not isinstance(applied_block, dict)
         or frozenset(applied_block) != _PAIR_FIELDS
         or not isinstance(files, list)
@@ -627,7 +701,10 @@ def generalist_review_record_issues(
     model = reviewer["model"]
     if (
         reviewer["name"] != GENERALIST_REVIEWER_NAME
-        or not (backend is None or backend in _REVIEWER_BACKENDS)
+        or not (
+            backend is None
+            or (isinstance(backend, str) and backend in _REVIEWER_BACKENDS)
+        )
         or not (
             model is None
             or (
@@ -648,6 +725,11 @@ def generalist_review_record_issues(
     elif issue_count < 0:
         found += [shape("generalist_review issue_count is negative")]
     reviewed_files = {entry["sha256"] for entry in files if entry["reviewed"]}
+    if not all(
+        value is None or _is_sha256(value)
+        for value in (*reviewed.values(), *applied_block.values())
+    ):
+        return found + [shape("generalist_review has a malformed digest")]
 
     scored = status in _BOUND_STATUSES or reason == REASON_CONTENT_NOT_APPLIED
     if not scored:
@@ -656,7 +738,7 @@ def generalist_review_record_issues(
             or score is not None
             or issue_count != 0
             or prompt_sha256 is not None
-            or any(reviewed[field] is not None for field in _DIGEST_FIELDS)
+            or any(value is not None for value in reviewed.values())
             or any(applied_block[field] is not None for field in _DIGEST_FIELDS)
             or reviewed_files
             or backend is not None
@@ -674,7 +756,10 @@ def generalist_review_record_issues(
         or _finite_score(score) is None
         or not _is_sha256(prompt_sha256)
         or not _is_sha256(reviewed["rulespec_sha256"])
-        or not _is_sha256(reviewed["rulespec_content_sha256"])
+        or not (
+            _is_sha256(reviewed["rulespec_content_sha256"])
+            or _is_sha256(reviewed[_DUMPED_FIELD])
+        )
         or not (reviewed["test_sha256"] is None or _is_sha256(reviewed["test_sha256"]))
         or not _is_sha256(reviewed["test_content_sha256"])
     ):
@@ -705,7 +790,8 @@ def generalist_review_record_issues(
         return found
 
     if (
-        applied_block["rulespec_content_sha256"] != reviewed["rulespec_content_sha256"]
+        applied_block["rulespec_content_sha256"]
+        not in {reviewed["rulespec_content_sha256"], reviewed[_DUMPED_FIELD]} - {None}
         or applied_block["test_content_sha256"] != reviewed["test_content_sha256"]
     ):
         found += [
@@ -752,6 +838,13 @@ def generalist_review_record_issues(
     return found
 
 
+_REFUSAL_PREFIX = "A passed generalist review"
+
+
+class ReviewRequirementRefused(RuntimeError):
+    """A required generalist review did not pass; nothing may be applied."""
+
+
 def review_requirement_refusal(record: Mapping[str, object]) -> str | None:
     """Return why a required review blocks this encode, or None when it passed."""
 
@@ -760,8 +853,8 @@ def review_requirement_refusal(record: Mapping[str, object]) -> str | None:
     status = record.get("status")
     reason = record.get("reason")
     detail = f"status {status}" + (f" ({reason})" if reason else "")
-    return (
-        "A passed generalist review of every applied file is required "
+    return _REFUSAL_PREFIX + (
+        " of every applied file is required "
         f"(--require-review) and this encode has none: {detail}. "
         "Nothing was applied."
     )

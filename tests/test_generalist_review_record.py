@@ -27,8 +27,11 @@ from axiom_encode.generalist_review_record import (
     GENERALIST_REVIEW_SCHEMA,
     AppliedPair,
     GeneralistReviewState,
+    ReviewRequirementRefused,
     applied_pair,
+    apply_stamp_dump,
     build_generalist_review_record,
+    dumped_review_content_sha256,
     generalist_review_record_issues,
     review_content_sha256,
     review_evidence_digests,
@@ -84,6 +87,20 @@ DIGEST_FIELDS = (
 
 def _digests(pair):
     return {field: getattr(pair, field) for field in DIGEST_FIELDS}
+
+
+def _reviewed(pair, rulespec=None):
+    """Expected `reviewed`: the pair's digests plus the dumped RuleSpec digest."""
+
+    return {
+        **_digests(pair),
+        "rulespec_dumped_content_sha256": dumped_review_content_sha256(
+            RULE_BYTES if rulespec is None else rulespec
+        ),
+    }
+
+
+UNSCORED_REVIEWED = dict.fromkeys((*DIGEST_FIELDS, "rulespec_dumped_content_sha256"))
 
 
 def _files(*entries):
@@ -358,7 +375,7 @@ def test_passed_record_carries_identity_verdict_and_digests():
         },
         "verdict": {"passed": True, "score": 8.5, "issue_count": 2},
         "prompt_sha256": PROMPT_SHA,
-        "reviewed": _digests(PAIR),
+        "reviewed": _reviewed(PAIR),
         "applied": _digests(PAIR),
         "files": _files(
             (PAIR.rulespec_sha256, True, True), (PAIR.test_sha256, True, True)
@@ -402,7 +419,7 @@ def test_reviewer_that_could_not_start_is_unavailable():
     assert record["reason"] == "reviewer_error"
     assert record["verdict"] == {"passed": None, "score": None, "issue_count": 0}
     assert record["prompt_sha256"] is None
-    assert record["reviewed"] == dict.fromkeys(DIGEST_FIELDS)
+    assert record["reviewed"] == UNSCORED_REVIEWED
     assert record["files"] == _files(
         (PAIR.rulespec_sha256, False, False), (PAIR.test_sha256, False, False)
     )
@@ -463,7 +480,12 @@ def test_placeholder_pass_without_a_reviewer_call_is_skipped_not_passed():
         {"evidence": {}},
         {"evidence": _evidence(reviewed_rulespec_sha256=None)},
         {"evidence": _evidence(reviewed_rulespec_sha256="zz")},
-        {"evidence": _evidence(reviewed_rulespec_content_sha256=None)},
+        {
+            "evidence": _evidence(
+                reviewed_rulespec_content_sha256=None,
+                reviewed_rulespec_dumped_content_sha256=None,
+            )
+        },
         {"evidence": _evidence(reviewed_rulespec_content_sha256="zz")},
         {"evidence": _evidence(reviewed_test_sha256="zz")},
         {"evidence": _evidence(reviewed_test_content_sha256=None)},
@@ -775,8 +797,9 @@ def _tampered(record, path, value):
         (("verdict", "issue_count"), 1.5),
         (("prompt_sha256",), None),
         (("reviewed", "rulespec_sha256"), None),
-        (("reviewed", "rulespec_content_sha256"), OTHER_SHA),
-        (("reviewed", "rulespec_content_sha256"), None),
+        (("reviewed", "rulespec_content_sha256"), "zz"),
+        (("reviewed", "rulespec_dumped_content_sha256"), "zz"),
+        (("reviewed", "rulespec_dumped_content_sha256"), []),
         (("reviewed", "test_sha256"), "zz"),
         (("reviewed", "test_content_sha256"), OTHER_SHA),
         (("files",), []),
@@ -852,7 +875,7 @@ def test_reader_refuses_a_pass_whose_digests_are_not_in_the_manifest():
 
 @pytest.mark.parametrize(
     "field",
-    ["rulespec_sha256", "rulespec_content_sha256", "test_content_sha256"],
+    ["rulespec_sha256", "test_content_sha256"],
 )
 def test_reader_refuses_a_not_applied_record_without_its_reviewed_digests(field):
     not_applied = _build(applied=[])
@@ -1038,6 +1061,7 @@ def test_scored_review_records_the_digests_of_the_bytes_it_read(tmp_path, monkey
         "reviewed_test_content_sha256": review_content_sha256(
             test.read_bytes(), rulespec=False
         ),
+        "reviewed_rulespec_dumped_content_sha256": PAIR.rulespec_content_sha256,
         "rulespec_complete": True,
         "test_complete": True,
         # The mocked runner started no CLI, so the identity stays unknown.
@@ -1752,7 +1776,7 @@ def test_reader_refuses_the_record_with_both_waiver_fields(tmp_path):
     [
         (("status",), "failed"),
         (("verdict", "score"), 2.0),
-        (("reviewed", "rulespec_content_sha256"), OTHER_SHA),
+        (("applied", "rulespec_content_sha256"), OTHER_SHA),
         (("applied", "rulespec_sha256"), OTHER_SHA),
         (("applied", "test_content_sha256"), OTHER_SHA),
         (("required",), "no"),
@@ -1901,3 +1925,273 @@ def test_blocked_review_is_a_failed_iteration_in_the_run_log():
         True,
         None,
     )
+
+
+# --- binding across the dump that apply performs -------------------------
+
+
+def _as_apply_rewrites(raw: bytes) -> bytes:
+    """What `_stamp_generated_source_attestation_for_apply` writes for `raw`."""
+
+    payload = yaml.safe_load(raw.decode())
+    module = payload.setdefault("module", {})
+    verification = module.setdefault("source_verification", {})
+    verification["corpus_citation_path"] = "us/statute/26/24"
+    verification["source_sha256"] = "5" * 64
+    return apply_stamp_dump(payload).encode()
+
+
+def _rule(value: str) -> bytes:
+    return (
+        "format: rulespec/v1\nrules:\n  - name: rate\n    value: " + value + "\n"
+    ).encode()
+
+
+MERGE_RULE = b"""format: rulespec/v1
+base: &base
+  dtype: Money
+  unit: USD
+rules:
+  - name: amount
+    <<: *base
+    value: 5
+"""
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["0.10", "1500.00", ".5", "1_000", "+5", "yes", "0x10", "1.0e+3", "010", "1:00"],
+)
+def test_review_stays_bound_when_the_dump_respells_a_scalar(value):
+    reviewed = _rule(value)
+    applied = _as_apply_rewrites(reviewed)
+    # The dump changes the text of this scalar, so the plain digests differ.
+    assert review_content_sha256(applied, rulespec=True) != (
+        review_content_sha256(reviewed, rulespec=True)
+    )
+
+    record = build_generalist_review_record(
+        _state(evidence=_evidence(rulespec=reviewed), required=True),
+        [applied_pair(applied, TEST_BYTES)],
+    )
+
+    assert record["status"] == "passed"
+    assert record["reviewed"] == _reviewed(
+        applied_pair(reviewed, TEST_BYTES), rulespec=reviewed
+    )
+    assert (
+        record["applied"]["rulespec_content_sha256"]
+        == (record["reviewed"]["rulespec_dumped_content_sha256"])
+    )
+    assert _issues(record) == []
+
+
+def test_review_stays_bound_when_the_dump_resolves_a_merge_key():
+    applied = _as_apply_rewrites(MERGE_RULE)
+    assert review_content_sha256(MERGE_RULE, rulespec=True) is None
+
+    record = build_generalist_review_record(
+        _state(evidence=_evidence(rulespec=MERGE_RULE)),
+        [applied_pair(applied, TEST_BYTES)],
+    )
+
+    # safe_dump writes the shared mapping as an anchor and alias again, so the
+    # applied file has no content digest either: never bound.
+    if review_content_sha256(applied, rulespec=True) is None:
+        assert record["status"] == "unavailable"
+    else:
+        assert record["status"] == "passed"
+        assert record["reviewed"]["rulespec_content_sha256"] is None
+        assert _issues(record) == []
+
+
+@pytest.mark.parametrize(
+    ("reviewed", "applied"),
+    [
+        ("0.10", "0.2"),
+        ("0.10", "0.11"),
+        ("1500.00", "1500.01"),
+        ("1_000", "10000"),
+        ("+5", "-5"),
+        ("yes", "false"),
+        # The dump never produces these spellings from these values.
+        ("true", "yes"),
+        ("8", "010"),
+        ("60", "1:00"),
+        ("0.1", "0.10"),
+        ("1000", "1_000"),
+    ],
+)
+def test_a_changed_value_is_still_not_bound(reviewed, applied):
+    for applied_bytes in (_rule(applied), _as_apply_rewrites(_rule(applied))):
+        if dumped_review_content_sha256(_rule(reviewed)) == review_content_sha256(
+            applied_bytes, rulespec=True
+        ):
+            # The same value after the dump (for example 0.1 and 0.10).
+            assert yaml.safe_load(_rule(reviewed)) == yaml.safe_load(_rule(applied))
+            continue
+        record = build_generalist_review_record(
+            _state(evidence=_evidence(rulespec=_rule(reviewed))),
+            [applied_pair(applied_bytes, TEST_BYTES)],
+        )
+        assert record["status"] == "unavailable"
+        assert record["reason"] == "reviewed_content_not_applied"
+
+
+def test_spelling_that_apply_did_not_produce_is_not_bound():
+    # Reviewed `true`; an applied file that says `yes` did not come from the
+    # dump of the reviewed file.
+    for reviewed, applied in (("true", "yes"), ("8", "010"), ("60", "1:00")):
+        record = build_generalist_review_record(
+            _state(evidence=_evidence(rulespec=_rule(reviewed))),
+            [applied_pair(_rule(applied), TEST_BYTES)],
+        )
+        assert record["status"] == "unavailable", (reviewed, applied)
+
+
+def test_apply_dump_keeps_key_order_and_unicode():
+    # The settings the apply stamp has always used.
+    assert apply_stamp_dump({"b": 1, "a": "é", "c": [0.1]}) == (
+        "b: 1\na: é\nc:\n- 0.1\n"
+    )
+
+
+def test_dumped_digest_is_none_when_apply_would_not_rewrite():
+    assert dumped_review_content_sha256(b"- a list\n") is None
+    assert dumped_review_content_sha256(b"a: [unclosed\n") is None
+    assert dumped_review_content_sha256(b"\xff\xfe") is None
+    assert dumped_review_content_sha256(RULE_BYTES) == PAIR.rulespec_content_sha256
+
+
+def test_apply_stamp_writes_with_the_dump_the_binding_uses(tmp_path):
+    output_file = tmp_path / "rule.yaml"
+    output_file.write_bytes(_rule("0.10"))
+    attestation = {
+        "requested_corpus_citation_path": "us/statute/26/24",
+        "resolved_corpus_citation_path": "us/statute/26/24",
+        "source_sha256": "5" * 64,
+    }
+    with (
+        patch(
+            "axiom_encode.cli._generated_result_source_attestation",
+            return_value=attestation,
+        ),
+        patch("axiom_encode.cli._source_attestation_structure_issues", return_value=[]),
+    ):
+        cli._stamp_generated_source_attestation_for_apply(
+            SimpleNamespace(backend="openai"), output_file
+        )
+
+    assert output_file.read_bytes() == _as_apply_rewrites(_rule("0.10"))
+    assert review_content_sha256(output_file.read_bytes(), rulespec=True) == (
+        dumped_review_content_sha256(_rule("0.10"))
+    )
+
+
+# --- documents the digest refuses ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"a: 1\na: 2\n",
+        b"a: 2\na: 1\n",
+        b"module:\n  source_verification: {note: x}\n  source_verification: {}\n",
+        b"base: &b {x: 1}\ncopy: *b\n",
+        b"module:\n  source_verification: &s {source_sha256: x}\nother: *s\n",
+        MERGE_RULE,
+        b"a:\n  <<: {x: 1}\n  y: 2\n",
+        b"a: &a [1]\nb: [*a, *a]\n",
+    ],
+)
+def test_repeated_keys_aliases_and_merge_keys_have_no_content_digest(raw):
+    assert review_content_sha256(raw, rulespec=True) is None
+    assert review_content_sha256(raw, rulespec=False) is None
+
+
+def test_scalar_anchors_are_plain_values():
+    assert review_content_sha256(b"a: &x 1\nb: 2\n", rulespec=False) == (
+        review_content_sha256(b"a: 1\nb: 2\n", rulespec=False)
+    )
+
+
+def test_deep_alias_tree_is_refused_quickly():
+    import time
+
+    lines = ["l0: &l0 [x, x]"]
+    for level in range(1, 40):
+        lines.append(f"l{level}: &l{level} [*l{level - 1}, *l{level - 1}]")
+    raw = ("\n".join(lines) + "\n").encode()
+
+    started = time.monotonic()
+    assert review_content_sha256(raw, rulespec=True) is None
+    assert time.monotonic() - started < 2.0
+
+
+# --- the reader never raises ---------------------------------------------
+
+
+def _leaf_paths(value, prefix=()):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield from _leaf_paths(item, (*prefix, key))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from _leaf_paths(item, (*prefix, index))
+        yield prefix
+    else:
+        yield prefix
+    if prefix and isinstance(value, dict):
+        yield prefix
+
+
+@pytest.mark.parametrize("junk", [{}, [], {"a": 1}, [1], 1.5, "x", None, True, 0])
+def test_reader_returns_issues_and_never_raises_on_any_wrong_type(junk):
+    records = [
+        _build(),
+        _build(applied=[]),
+        _build(skipped_by_flag=True),
+        _build(applied=[PAIR, applied_pair(REPAIRED_RULE_BYTES, None)]),
+    ]
+    for record in records:
+        for path in set(_leaf_paths(record)):
+            changed = _tampered(record, path, junk)
+            findings = generalist_review_record_issues(changed, APPLIED_SHA256S)
+            assert all(isinstance(finding, str) for finding in findings)
+            assert all(
+                finding.check.startswith("manifest:generalist-review/")
+                for finding in findings
+            )
+    # The cases the second review found.
+    passed = _build()
+    assert _issues(_tampered(passed, ("reviewer", "backend"), {}))
+    assert _issues(_tampered(passed, ("applied", "rulespec_sha256"), []))
+
+
+def test_manifest_reader_returns_a_typed_issue_for_a_wrong_typed_record(tmp_path):
+    payload, _ = _write_manifest(tmp_path, per_file=True, review_state=_bound_state())
+    baseline = _schema_issues(payload)
+    for path, junk in (
+        (("reviewer", "backend"), {}),
+        (("applied", "rulespec_sha256"), []),
+        (("files",), {}),
+        (("verdict",), []),
+    ):
+        changed = copy.deepcopy(payload)
+        changed[GENERALIST_REVIEW_FIELD] = _tampered(
+            payload[GENERALIST_REVIEW_FIELD], path, junk
+        )
+        added = [issue for issue in _schema_issues(changed) if issue not in baseline]
+        assert added and all(
+            issue.check.startswith("manifest:generalist-review/") for issue in added
+        )
+
+
+def test_writer_refusal_has_its_own_exception_type(tmp_path):
+    with pytest.raises(ReviewRequirementRefused):
+        _write_manifest(
+            tmp_path,
+            per_file=True,
+            review_state=_bound_state(required=True, metrics_pass=False, score=2.0),
+        )
+    assert issubclass(ReviewRequirementRefused, RuntimeError)

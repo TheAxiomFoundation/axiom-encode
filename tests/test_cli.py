@@ -23475,6 +23475,7 @@ rules: []
         skip_reviewers=False,
         change_after_review=None,
         supplemental_files=None,
+        apply_side_effect=None,
     ):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
@@ -23548,6 +23549,7 @@ rules: []
             patch(
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
+                side_effect=apply_side_effect,
             ) as mock_apply,
             patch.dict(
                 os.environ,
@@ -23564,6 +23566,7 @@ rules: []
             code=exc_info.value.code,
             apply=mock_apply,
             outcome=run.outcome,
+            iterations=run.iterations,
             output=capsys.readouterr().out,
             result=result,
         )
@@ -23790,6 +23793,68 @@ rules: []
         assert run.outcome["status"] == "apply_blocked_review"
         assert run.outcome["generalist_review"]["status"] == "partial"
         assert run.outcome["generalist_review"]["reason"] == "review_saw_truncated_file"
+
+    def test_review_gate_blocked_review_is_a_failed_iteration_in_the_run_log(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_FAILED, require_flag=True
+        )
+
+        assert run.outcome["status"] == "apply_blocked_review"
+        assert run.iterations[-1].success is False
+        assert [error.message for error in run.iterations[-1].errors] == [
+            run.outcome["apply_error"]
+        ]
+
+    def test_review_gate_applied_run_keeps_a_successful_iteration(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_PASSED, require_flag=True
+        )
+
+        assert run.outcome["status"] == "apply_applied"
+        assert run.iterations[-1].success is True
+
+    def test_review_gate_writer_refusal_is_a_blocked_review_not_a_manifest_block(
+        self, tmp_path, capsys
+    ):
+        # The manifest writer checks the requirement again on the files it
+        # signs; its refusal is the same failure as the earlier check.
+        from axiom_encode.generalist_review_record import ReviewRequirementRefused
+
+        refusal = "A passed generalist review of every applied file is required"
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            require_flag=True,
+            apply_side_effect=ReviewRequirementRefused(refusal),
+        )
+
+        assert run.code == 1
+        run.apply.assert_called_once()
+        assert run.outcome["status"] == "apply_blocked_review"
+        assert run.outcome["apply_error"] == refusal
+        assert run.outcome["final_success"] is False
+        assert "apply=blocked_review:" in run.output
+        assert run.iterations[-1].success is False
+        assert [error.message for error in run.iterations[-1].errors] == [refusal]
+
+    def test_review_gate_other_writer_refusals_stay_manifest_blocks(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            apply_side_effect=RuntimeError("Cannot sign: something else"),
+        )
+
+        assert run.code == 1
+        assert run.outcome["status"] == "apply_blocked_manifest"
+        assert run.iterations[-1].success is True
 
     def test_encode_apply_auto_repairs_nonnegative_taxable_income_floor(
         self, capsys, tmp_path
