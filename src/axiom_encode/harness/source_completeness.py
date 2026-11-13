@@ -15679,18 +15679,29 @@ def _is_marker_only_container(
 ) -> bool:
     """Ignore a parent wrapper only when it has no operative chapeau text."""
 
-    direct_child_starts = [
-        candidate.start
+    direct_children = [
+        candidate
         for candidate in branches
         if len(candidate.path) == len(branch.path) + 1
         and candidate.path[: len(branch.path)] == branch.path
         and branch.start <= candidate.start < branch.end
     ]
-    if not direct_child_starts:
+    if not direct_children:
         return False
-    chapeau = source_text[branch.start : min(direct_child_starts)]
+    first_child = min(direct_children, key=lambda candidate: candidate.start)
+    chapeau = source_text[branch.start : first_child.start]
     if branch.kind == "guidance-subsection" and chapeau.strip() == branch.label:
         return True
+    if (
+        branch.kind == "paragraph"
+        and re.fullmatch(r"\([0-9]+\)", branch.label)
+        and first_child.label == "(A)"
+    ):
+        heading = _HEADED_FIRST_ALPHA_OUTLINE_MARKER.match(
+            source_text, branch.start + len(branch.label)
+        )
+        if heading is not None and heading.start("marker") == first_child.start:
+            return True
     return re.search(r"\w", _strip_source_clause_marker(chapeau)) is None
 
 
