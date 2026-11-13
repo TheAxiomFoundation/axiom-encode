@@ -111,9 +111,11 @@ reason code and evidence.
      `schema_version` that is neither v6 nor v5: `fail`.
    - **Earlier lane (v5).** Every changed manifest is labelled v5, and:
      - every other delta path is a RuleSpec module file,
-       `<jurisdiction>/<root>/.../<name>.yaml` (or `<atomic root>/...yaml` at
-       the root), with no hidden path segment, under a jurisdiction that
-       already holds modules on the **base** tree. So the delta has no path
+       `<jurisdiction>/<atomic root>/.../<name>.yaml` (or
+       `<atomic root>/...yaml` at the root), with no hidden path segment, under
+       a jurisdiction that already holds modules on the **base** tree. The
+       encoder recognizes `legislation`, `policies`, `regulations` and
+       `statutes` as atomic roots. So the delta has no path
        under `.github/`, no other `.axiom/` file, no ledger, no ProgramSpec, no
        allowlisted file and no new jurisdiction. Otherwise `fail`
        (`no_lane_for_guarded_change`);
@@ -128,7 +130,8 @@ reason code and evidence.
        empty listing, or a manifest-only change, has no lane: `fail`;
      - `validate / validate` is green on `H` from this PR's own `pull_request`
        run, with the binding of step 7. Otherwise `fail`;
-     - the PR and `main` did not move during the evaluation.
+     - the PR and `main` did not move during the evaluation, and a final read
+       confirms the same green check identities and observed run attempts.
 
      Then `not_applicable` (`earlier_lane_v5`). **What this verdict rests on:**
      the guard does not verify the v5 signature and cannot tell a signed
@@ -210,12 +213,17 @@ reason code and evidence.
      app 15368. Its Actions run must have event `pull_request`, path
      `.github/workflows/repository-checks.yml`, `head_sha == H`, this repository
      as repository and head repository, and this PR with head `H` in its
-     `pull_requests`. Step 4 proves `.github/**` at `H` equals the base, so a
+     `pull_requests`. The Actions run must finish with status `completed` and
+     conclusion `success`. Step 4 proves `.github/**` at `H` equals the base, so a
      `pull_request` run of `H` used the protected workflow definitions. That
      holds only for a `pull_request` run: a `workflow_dispatch` run can use
      another ref's definitions, so it is refused.
-8. **Re-read.** Read the PR, the `main` tip and the reviews again. If anything
-   changed, `fail`, and the next evaluation decides.
+8. **Re-read.** The evaluator reads the PR, the `main` tip and the reviews again
+   and refuses if they moved. It then rechecks the signing run and required CI
+   against the first reads. It requires the same signing actors, commit,
+   observed attempt, check identities and CI run attempts. If the signing run
+   or CI workflow stops succeeding, or a required check stops passing, it also
+   refuses.
 
 Pass evidence: PR number, head, base, the sha256 of `P`, `T` and `M`, the review
 id, the reviewer id, the dispatcher id, the run id and the candidate commit.
@@ -225,6 +233,8 @@ it does, the binding of `M` to the signing service rests on current-head CI
 (which verifies the signature) plus the run and candidate checks of steps 4 and
 6. The manifest does not record a run attempt, so the guard cannot tell which
 attempt of the run signed it.
+The evaluator compares the attempt number that GitHub reports on its two
+reads. The manifest still omits the signing attempt.
 
 ### Known limits
 
@@ -244,6 +254,8 @@ attempt of the run signed it.
   gives `dispatcher_mismatch` permanently. The remedy is a new signing run.
 - An approver who clicks "Update branch" becomes a commit author and can no
   longer approve.
+- A run or review can change after its last read. GitHub supplies no transaction
+  across these endpoints; the next sweep catches the change.
 - A write collaborator can block the remaining approver by pushing a commit
   authored as that approver, or an unattributed commit. The remedy is to drop
   the commit, which needs a new signing run.
@@ -481,7 +493,7 @@ Added by security review round 2:
 | 38 | v5-labelled PR with CI absent, red, or from another run | fail | yes |
 | 39 | Hand edit or deletions under a doctored v5 manifest | follows CI: fail when red | yes |
 | 40 | Content under `manual`, `programs/`, an unknown root, depth 3 or another case; `.axiom` pins and configuration; ledgers; `.github/**`; tooling; a new top-level entry | fail (no lane) | yes |
-| 41 | A symlink, submodule or executable anywhere in the delta | fail | yes |
+| 41 | An added or modified symlink, submodule or executable anywhere in the delta | fail | yes |
 | 42 | A PR commit with no GitHub author or committer | fail | yes |
 
 Added by security review round 3:
@@ -492,6 +504,8 @@ Added by security review round 3:
 | 44 | `CLAUDE.md` or `.claude/` change that steers agent sessions | fail (no lane) | yes |
 | 45 | v5 modules "covered" by an unrelated manifest position, a wrong digest, a manifest under a non-jurisdiction, or a new jurisdiction | fail | yes |
 | 46 | Allowlisted basename at another path (`sub/README.md`) | fail (no lane) | yes |
+| 47 | Signing actors, status or attempt change before the verdict, or required CI changes on either lane | fail | yes |
+| 48 | v5 manifest claims a non-atomic nested root under an existing jurisdiction, in either manifest layout | fail (no lane) | yes |
 
 Cases 15-18 must also run live in the shadow period (§8).
 

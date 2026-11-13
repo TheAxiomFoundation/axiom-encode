@@ -48,7 +48,7 @@ BASE_FILES = {
     "us/policies/existing.yaml": b"existing\n",
     "us-az/policies/existing.yaml": b"existing\n",
     "us-ca/regulations/existing.yaml": b"existing\n",
-    "us-mo/manual/existing.yaml": b"existing\n",
+    "us-mo/policies/existing.yaml": b"existing\n",
     "programs/us/snap.yaml": b"existing\n",
     "tests/fixtures/case.yaml": b"existing\n",
 }
@@ -235,6 +235,7 @@ class World:
             "total_count": 1,
             "check_runs": [
                 {
+                    "id": 1,
                     "name": "validate / validate",
                     "app": {"id": 15368},
                     "head_sha": head,
@@ -253,6 +254,9 @@ class World:
             "event": "pull_request",
             "path": ".github/workflows/repository-checks.yml",
             "head_sha": head,
+            "run_attempt": 1,
+            "status": "completed",
+            "conclusion": "success",
             "repository": {"full_name": REPO},
             "head_repository": {"full_name": REPO},
             "pull_requests": [{"number": 42, "head": {"sha": head}}],
@@ -295,6 +299,7 @@ def build(
         "path": ".github/workflows/targeted-signed-reencode.yml",
         "head_branch": "main",
         "head_sha": ENCODER_COMMIT,
+        "run_attempt": 1,
         "status": "completed",
         "conclusion": "success",
         "repository": {"full_name": "TheAxiomFoundation/axiom-encode"},
@@ -623,9 +628,13 @@ def test_v5_lane_modifying_a_module():
 
 @pytest.mark.parametrize(
     "primary",
-    ["us-mo/manual/dss/snap/block-1.yaml", "us/ca/policies/x.yaml", "policies/x.yaml"],
+    [
+        "us-mo/policies/dss/snap/block-1.yaml",
+        "us/policies/ca/x.yaml",
+        "policies/x.yaml",
+    ],
 )
-def test_v5_lane_admits_any_root_name_and_depth_under_a_jurisdiction(primary):
+def test_v5_lane_admits_atomic_roots_at_either_layout_and_any_depth(primary):
     world = plain(
         {
             primary: b"x\n",
@@ -633,6 +642,42 @@ def test_v5_lane_admits_any_root_name_and_depth_under_a_jurisdiction(primary):
         }
     )
     expect(world, guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
+
+
+@pytest.mark.parametrize("root", sorted(guard.RULESPEC_ATOMIC_ROOTS))
+@pytest.mark.parametrize(
+    "local", [False, True], ids=["root-manifest", "local-manifest"]
+)
+def test_v5_lane_admits_each_atomic_root_with_both_manifest_layouts(root, local):
+    primary = f"us-az/{root}/nonexistent-review-fixture.yaml"
+    listed = primary.split("/", 1)[1] if local else primary
+    manifest = (
+        ("us-az/" if local else "") + guard.MANIFEST_PREFIX + listed[:-5] + ".json"
+    )
+    world = plain({primary: b"x\n", manifest: v5_manifest(listed)})
+    expect(world, guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
+
+
+@pytest.mark.parametrize("root", ["tools", "manual", "programs", "Policies", "newroot"])
+@pytest.mark.parametrize(
+    "local", [False, True], ids=["root-manifest", "local-manifest"]
+)
+@pytest.mark.parametrize("suffix", [".yaml", ".test.yaml"])
+def test_v5_lane_refuses_non_atomic_nested_roots_even_with_own_manifest(
+    root, local, suffix
+):
+    path = f"us-az/{root}/nonexistent-review-fixture{suffix}"
+    listed = path.split("/", 1)[1] if local else path
+    primary = (
+        listed.removesuffix(".test.yaml") + ".yaml"
+        if suffix == ".test.yaml"
+        else listed
+    )
+    manifest = (
+        ("us-az/" if local else "") + guard.MANIFEST_PREFIX + primary[:-5] + ".json"
+    )
+    world = plain({path: b"x\n", manifest: v5_manifest(listed)})
+    fails(world, guard.R_NO_LANE)
 
 
 @pytest.mark.parametrize("listing", [(), (P, T)])
@@ -1575,6 +1620,27 @@ def test_case_22_truncated_check_listing():
     fails(world, guard.R_CI)
 
 
+@pytest.mark.parametrize("lane", ["v5", "v6"])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("status", "queued"),
+        ("status", "in_progress"),
+        ("status", None),
+        ("conclusion", "failure"),
+        ("conclusion", "cancelled"),
+        ("conclusion", "skipped"),
+        ("conclusion", None),
+    ],
+)
+def test_required_ci_workflow_must_finish_successfully_even_if_check_is_green(
+    lane, field, value
+):
+    world = build() if lane == "v6" else plain(V5_UNIT)
+    world.api[f"{ROOT}/actions/runs/{CI_RUN}"][field] = value
+    fails(world, guard.R_CI)
+
+
 # --- case 17: every read fails closed ---------------------------------------
 
 
@@ -1767,6 +1833,96 @@ def test_case_18_converted_to_draft_between_the_two_reads():
     world = build()
     second_read(world, PR, world.api[PR] | {"draft": True})
     fails(world, guard.R_CHANGED)
+
+
+def mutate_during_pr_recheck(world, mutation):
+    original = world.api[PR]
+
+    def recheck():
+        if world.calls.count(PR) == 2:
+            mutation()
+        return original
+
+    world.api[PR] = recheck
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("status", "queued"),
+        ("status", "in_progress"),
+        ("conclusion", "failure"),
+        ("triggering_actor", {"id": MAX[0], "login": MAX[1]}),
+        ("actor", {"id": MAX[0], "login": MAX[1]}),
+        ("head_sha", ENCODER_TIP),
+        ("run_attempt", 2),
+    ],
+)
+def test_case_18_signing_run_moves_during_final_pr_recheck(field, value):
+    world = build()
+    world.api[SIGNING_RUN]["run_attempt"] = 1
+    mutate_during_pr_recheck(
+        world, lambda: world.api[SIGNING_RUN].update({field: value})
+    )
+    fails(world, guard.R_CHANGED)
+    assert world.calls.count(SIGNING_RUN) == 2
+
+
+@pytest.mark.parametrize("lane", ["v5", "v6"])
+@pytest.mark.parametrize(
+    "target,field,value",
+    [
+        ("check", "id", 2),
+        ("check", "status", "queued"),
+        ("check", "conclusion", "failure"),
+        (
+            "check",
+            "details_url",
+            f"https://github.com/{REPO}/actions/runs/{CI_RUN}/job/2",
+        ),
+        ("workflow", "run_attempt", 2),
+        ("workflow", "event", "workflow_dispatch"),
+        ("workflow", "status", "queued"),
+        ("workflow", "status", "in_progress"),
+        ("workflow", "conclusion", "failure"),
+        ("workflow", "conclusion", "cancelled"),
+    ],
+)
+def test_case_18_required_ci_moves_during_final_pr_recheck(lane, target, field, value):
+    world = build() if lane == "v6" else plain(V5_UNIT)
+    checks = world.api[f"{ROOT}/commits/{H}{CHECKS}"]["check_runs"]
+    checks[0]["id"] = 1
+    workflow = world.api[f"{ROOT}/actions/runs/{CI_RUN}"]
+    workflow["run_attempt"] = 1
+    record = checks[0] if target == "check" else workflow
+    mutate_during_pr_recheck(world, lambda: record.update({field: value}))
+    fails(world, guard.R_CHANGED)
+
+
+def test_stable_native_run_and_check_identities_keep_the_approval():
+    world = build()
+    world.api[SIGNING_RUN]["run_attempt"] = 1
+    world.api[f"{ROOT}/actions/runs/{CI_RUN}"]["run_attempt"] = 1
+    world.api[f"{ROOT}/commits/{H}{CHECKS}"]["check_runs"][0]["id"] = 1
+    expect(world, guard.PASS, guard.R_PASS)
+
+
+@pytest.mark.parametrize("value", [None, True, 0, "1"])
+def test_present_signing_run_attempt_requires_a_numeric_identity(value):
+    world = build()
+    world.api[SIGNING_RUN]["run_attempt"] = value
+    fails(world, guard.R_RUN)
+
+
+@pytest.mark.parametrize("value", [None, True, 0, "1"])
+@pytest.mark.parametrize("target", ["check", "workflow"])
+def test_present_ci_identity_requires_a_numeric_identity(target, value):
+    world = build()
+    if target == "check":
+        world.api[f"{ROOT}/commits/{H}{CHECKS}"]["check_runs"][0]["id"] = value
+    else:
+        world.api[f"{ROOT}/actions/runs/{CI_RUN}"]["run_attempt"] = value
+    fails(world, guard.R_CI)
 
 
 # --- PR identity (step 1) ---------------------------------------------------

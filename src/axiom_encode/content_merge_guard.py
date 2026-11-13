@@ -7,8 +7,8 @@ emitted by any writer. See ``docs/content-bound-merge-guard.md``.
 The guard stands aside (``not_applicable``) in two cases only:
 
 * ``no_guarded_content``: every path of the complete tree delta is on a short
-  allowlist of unvalidated locations, and every changed leaf is a regular
-  file. Everything else is guarded: jurisdiction directories, ``programs/``,
+  allowlist of unvalidated locations, and every added or modified leaf is a
+  regular file. Everything else is guarded: jurisdiction directories, ``programs/``,
   ``.axiom/``, ``.github/``, root ledgers, tooling and any new top-level entry.
 * ``earlier_lane_v5``: the delta holds only RuleSpec module files and apply
   manifests, every changed manifest carries an earlier schema label, every
@@ -502,8 +502,10 @@ def _is_ancestor(
     )
 
 
-def _signing_run(read: Callable[[str], object], run_id: str) -> tuple[int, int, str]:
-    """The actor ids of a successful signing dispatch from encoder ``main``."""
+def _signing_run(
+    read: Callable[[str], object], run_id: str
+) -> tuple[int, int, str, str, int | None]:
+    """Snapshot a successful encoder-main dispatch and its observed attempt."""
     run = _object(read(f"{ENCODER_ROOT}/actions/runs/{run_id}"), "signing run")
     actor = _object(run.get("actor"), "run actor")
     trigger = _object(run.get("triggering_actor"), "triggering actor")
@@ -521,6 +523,7 @@ def _signing_run(read: Callable[[str], object], run_id: str) -> tuple[int, int, 
         or run.get("conclusion") != "success"
         or not _strict_int(actor.get("id"))
         or not _strict_int(trigger.get("id"))
+        or ("run_attempt" in run and not _strict_int(run["run_attempt"]))
     ):
         raise AdmissionError(
             "manifest run is not a successful central main signing dispatch"
@@ -529,12 +532,18 @@ def _signing_run(read: Callable[[str], object], run_id: str) -> tuple[int, int, 
     # commit must be on the encoder's protected ``main`` history.
     if not _is_ancestor(read, ENCODER_ROOT, commit, _main_tip(read, ENCODER_ROOT)):
         raise AdmissionError("signing run commit is not on encoder main")
-    return actor["id"], trigger["id"], trigger.get("login")
+    return (
+        actor["id"],
+        trigger["id"],
+        trigger.get("login"),
+        commit,
+        run.get("run_attempt"),
+    )
 
 
 def _require_green_ci(
     read: Callable[[str], object], root: str, head: str, number: int
-) -> None:
+) -> frozenset[tuple[int | None, str, int | None]]:
     name = urllib.parse.quote(REQUIRED_CHECK_NAME, safe="")
     listing = _object(
         read(
@@ -555,6 +564,7 @@ def _require_green_ci(
         re.escape(f"https://github.com/{repository}/actions/runs/")
         + r"([1-9][0-9]{0,19})/job/[1-9][0-9]{0,19}"
     )
+    identities = set()
     for run in runs:
         run = _object(run, "check run")
         match = pattern.fullmatch(str(run.get("details_url", "")))
@@ -565,6 +575,7 @@ def _require_green_ci(
             or run.get("status") != "completed"
             or run.get("conclusion") != "success"
             or match is None
+            or ("id" in run and not _strict_int(run["id"]))
         ):
             raise AdmissionError("required check is not green on the current head")
         workflow = _object(
@@ -576,12 +587,15 @@ def _require_green_ci(
             or workflow.get("event") != "pull_request"
             or workflow.get("path") != REQUIRED_CHECK_WORKFLOW_PATH
             or workflow.get("head_sha") != head
+            or workflow.get("status") != "completed"
+            or workflow.get("conclusion") != "success"
             or _object(workflow.get("repository"), "run repository").get("full_name")
             != repository
             or _object(workflow.get("head_repository"), "run head repository").get(
                 "full_name"
             )
             != repository
+            or ("run_attempt" in workflow and not _strict_int(workflow["run_attempt"]))
             or not isinstance(pulls, list)
             or not any(
                 isinstance(pull, dict)
@@ -593,6 +607,8 @@ def _require_green_ci(
             raise AdmissionError(
                 "required check did not come from this PR's pull_request run"
             )
+        identities.add((run.get("id"), run["details_url"], workflow.get("run_attempt")))
+    return frozenset(identities)
 
 
 def _manifest_area(path: str) -> str | None:
@@ -629,7 +645,11 @@ def _has_module_shape(path: str) -> bool:
         and not any(part.startswith(".") for part in parts)
         and (
             (parts[0] in RULESPEC_ATOMIC_ROOTS and len(parts) >= 2)
-            or (len(parts) >= 3 and _JURISDICTION.fullmatch(parts[0]) is not None)
+            or (
+                len(parts) >= 3
+                and _JURISDICTION.fullmatch(parts[0]) is not None
+                and parts[1] in RULESPEC_ATOMIC_ROOTS
+            )
         )
     )
 
@@ -844,11 +864,13 @@ def _evaluate(name, number, read, evidence) -> Verdict:
         if refusal is not None:
             raise _Refusal(*refusal)
         with _refuse_as(R_CI):
-            _require_green_ci(read, root, head, number)
+            ci_state = _require_green_ci(read, root, head, number)
         with _refuse_as(R_CHANGED):
             after = _object(read(pr_path), "PR recheck")
             if _pr_identity(after, target) != identity or _main_tip(read, root) != base:
                 raise AdmissionError("PR or main changed during evaluation")
+            if _require_green_ci(read, root, head, number) != ci_state:
+                raise AdmissionError("required CI changed during evaluation")
         return Verdict(
             NOT_APPLICABLE,
             R_EARLIER_LANE,
@@ -972,7 +994,8 @@ def _evaluate(name, number, read, evidence) -> Verdict:
 
     # 6 (first half). The signing run and the dispatcher it authenticates.
     with _refuse_as(R_RUN):
-        run_actor_id, trigger_id, trigger_login = _signing_run(read, manifest.run_id)
+        signing_run = _signing_run(read, manifest.run_id)
+        run_actor_id, trigger_id, trigger_login = signing_run[:3]
     if (
         trigger_id != manifest.dispatcher_id
         or trigger_login != manifest.dispatcher_login
@@ -1063,7 +1086,7 @@ def _evaluate(name, number, read, evidence) -> Verdict:
 
     # 7. Current-head CI from this PR's pull_request run.
     with _refuse_as(R_CI):
-        _require_green_ci(read, root, head, number)
+        ci_state = _require_green_ci(read, root, head, number)
 
     # 8. Re-read the mutable state; any movement refuses this evaluation.
     with _refuse_as(R_CHANGED):
@@ -1075,6 +1098,10 @@ def _evaluate(name, number, read, evidence) -> Verdict:
             or _pages(read, pr_path + "/reviews") != reviews
         ):
             raise AdmissionError("PR, main or reviews changed during evaluation")
+        if _signing_run(read, manifest.run_id) != signing_run:
+            raise AdmissionError("signing run changed during evaluation")
+        if _require_green_ci(read, root, head, number) != ci_state:
+            raise AdmissionError("required CI changed during evaluation")
     return Verdict(PASS, R_PASS, "", evidence)
 
 
