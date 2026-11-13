@@ -65616,6 +65616,78 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     )
 
 
+def _verified_registered_repair_overlay_origin(
+    result,
+    *,
+    policy_content_root: Path,
+    relative_output: Path,
+    output_file: Path,
+    output_test: Path,
+    generated_root: Path,
+    local_corpus_release: LocalCorpusRelease,
+    expected_engine_binding: dict[str, str] | None,
+):
+    """Bind only reconstructed registered repairs to their genuine base checkout."""
+    from .reviewed_repair_patch import (
+        MAX_MEMBER_BYTES,
+        ReviewedRepairResult,
+        sha256,
+        verify_predecessor,
+        verify_repair_binding,
+    )
+
+    if type(result) is not ReviewedRepairResult:
+        return None
+    package, postimage = verify_repair_binding(result.review_binding)
+    declared = package.manifest
+    if (
+        declared["rulespec_path"]
+        != (Path(policy_content_root.name) / relative_output).as_posix()
+        or result.citation != declared["citation"]
+        or expected_engine_binding is None
+        or expected_engine_binding["ref"] != declared["engine_ref"]
+    ):
+        raise ValueError("Registered repair overlay target or engine differs")
+    actual = tuple(
+        read_bounded_regular_file(
+            generated_root,
+            path,
+            label="registered repair overlay",
+            max_bytes=MAX_MEMBER_BYTES,
+        )
+        for path in (output_file, output_test)
+    )
+    if actual != postimage:
+        raise ValueError("Registered repair overlay differs from exact postimage")
+    source = resolve_corpus_source_unit(declared["citation"], local_corpus_release)
+    source_binding = {
+        "corpus_ref": subprocess.check_output(
+            ["git", "-C", str(local_corpus_release.root), "rev-parse", "HEAD"],
+            text=True,
+        ).strip(),
+        "release_name": local_corpus_release.name,
+        "release_sha256": local_corpus_release.content_sha256,
+        "requested_citation": source.requested,
+        "resolved_citation": source.citation_path,
+        "body_sha256": sha256(source.body.encode()),
+    }
+    expected_attestation = {
+        **source.source_attestation,
+        "generation_input_sha256": source_binding["body_sha256"],
+        "rulespec_root": f"{policy_content_root.parent.name}/{policy_content_root.name}",
+    }
+    if (
+        source_binding != declared["source"]
+        or result.source_attestation != expected_attestation
+    ):
+        raise ValueError("Registered repair overlay source binding differs")
+    verify_predecessor(policy_content_root.parent, package)
+    origin = capture_execution_git_origin(policy_content_root)
+    if origin is None:
+        raise ValueError("Registered repair overlay lacks a genuine checkout origin")
+    return origin
+
+
 def _generated_artifact_guard_issue(
     output_file: Path,
     output_test: Path,
@@ -65904,6 +65976,24 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
             and not rulespec_dependency_roots
             else None
         )
+        registered_execution_origin = None
+        if (
+            require_complete_source_unit
+            and replacement_overlay_scope
+            and legacy_replacement is None
+            and not rulespec_dependency_roots
+            and retired_source_admission is None
+        ):
+            registered_execution_origin = _verified_registered_repair_overlay_origin(
+                result,
+                policy_content_root=policy_content_root,
+                relative_output=relative_output,
+                output_file=output_file,
+                output_test=output_test,
+                generated_root=generated_root,
+                local_corpus_release=local_corpus_release,
+                expected_engine_binding=expected_engine_binding,
+            )
         overlay_repo_name = policy_checkout_path.name
         staged_dependency_roots = _stage_apply_overlay_dependency_roots(
             overlay_parent=overlay_parent,
@@ -66027,10 +66117,14 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
             policy_repo_path=overlay_content_root,
             execution_overlay_origin=(
                 bind_execution_overlay_origin(
-                    execution_git_origin, overlay_content_root
+                    registered_execution_origin or execution_git_origin,
+                    overlay_content_root,
                 )
                 if legacy_replacement is None
-                and not replacement_overlay_scope
+                and (
+                    not replacement_overlay_scope
+                    or registered_execution_origin is not None
+                )
                 and not staged_dependency_roots
                 else None
             ),
