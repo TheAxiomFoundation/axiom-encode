@@ -1,0 +1,19 @@
+{
+  "id": "local-az-utility-block-3-07b0428f",
+  "run_id": "local-az-utility-block-3-07b0428f",
+  "citation": "us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-3",
+  "module": "us-az/policies/des/faa5/na-utility-expenses-and-allowances/block-3.yaml",
+  "imports_resolved": 0,
+  "imports_unresolved": [],
+  "deferral_providers_resolved": [],
+  "deferral_providers_unresolved": [],
+  "split": "visible",
+  "control": false,
+  "issues": [
+    "[complete-source-unit:source-explicit-conditions] Derived formula version(s) delegate multiple conjunctive factual gates stated in their exact authoritative source clause to too few terminal local inputs or canonical imports: `component_is_cooling_source` versions[0] (`component_type` for 2 source gates); `component_is_heating_source` versions[0] (`component_type`, `component_used_to_provide_heat_for_home` for 2 source gates); `supplemental_component_disallowed_for_sua` versions[0] (`component_type` for 2 source gates). Encode the source-stated facts as distinct local inputs or canonical imports, declare every local fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`), combine them in a source-proved derived Judgment, and test each gate. Reserve aggregate boundary statuses for source-atomic or externally determined conditions."
+  ],
+  "rules": {
+    "complete-source-unit:source-explicit-conditions": 1
+  },
+  "error": null
+}

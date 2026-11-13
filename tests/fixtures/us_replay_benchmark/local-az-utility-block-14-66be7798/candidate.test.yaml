@@ -1,0 +1,323 @@
+- name: basic_landline_separately_billed
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: holds
+- name: nonbasic_component_without_lifeline
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: not_holds
+- name: component_is_neither_landline_nor_cell_phone
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: not_holds
+- name: no_obligation_or_participant_responsibility
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: not_holds
+- name: lifeline_full_discount_without_extra_airtime
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: not_holds
+- name: cell_phone_basic_service_itemized_with_rent
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: holds
+- name: cell_phone_fact_required_when_not_landline
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: not_holds
+- name: responsible_participant_bill_names_another_person
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: holds
+- name: participant_not_responsible_for_another_persons_bill
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: not_holds
+- name: lifeline_partial_discount_without_purchased_airtime
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: holds
+- name: lifeline_discount_pays_component_in_full
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: not_holds
+- name: basic_service_without_lifeline_participation
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: holds
+- name: extra_airtime_purchased_after_free_minutes_exhausted
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: true
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: holds
+- name: extra_airtime_not_purchased
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: true
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: not_holds
+- name: free_minutes_not_exhausted_before_purchase
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: false
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: not_holds
+- name: extra_airtime_without_lifeline_participation
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: true
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: not_holds
+- name: lifeline_airtime_still_requires_obligation_or_responsibility
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: true
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: not_holds
+- name: lifeline_condition_does_not_qualify_nontelephone_component
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: false
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: true
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: not_holds
+- name: both_lifeline_alternatives_may_hold
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_basic_service_fee: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_landline_expense: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_cell_phone_expense: true
+    ? us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_obligated_to_pay_any_portion_of_component
+    : true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.participant_responsible_for_component_charges: false
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.budgetary_unit_participates_in_lifeline: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.lifeline_discount_does_not_pay_component_in_full: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.component_is_purchased_extra_airtime: true
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#input.free_minutes_exhausted_before_component_purchase: true
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#telephone_basic_service_component: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#lifeline_component_expense_condition: holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/block-14#snap_telephone_expense_component_allowable: holds

@@ -16,6 +16,7 @@ base's two gates.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -79,6 +80,26 @@ def opaque_issues(source: str, module=sc) -> list[str]:
     )
 
 
+def without_clause_detail(issues: list[str]) -> list[str]:
+    """Drop what the finding now adds to base's words: the quoted source clause
+    with its facts, and the sentence that says what to change."""
+
+    return [
+        re.sub(
+            r' \[source clause ".*?(?:fact \d+|is not met)\](?=[;.])',
+            "",
+            issue,
+            flags=re.DOTALL,
+        ).replace(
+            " For each fact that a bracket names without an input, declare one "
+            "input or canonical import whose name uses that fact's source words, "
+            "and use it on every formula path that the quoted clause governs.",
+            "",
+        )
+        for issue in issues
+    ]
+
+
 @pytest.fixture(scope="module")
 def receipts():
     sys.path.insert(0, str(SCRIPT_DIR))
@@ -91,7 +112,27 @@ def receipts():
 
 @pytest.fixture(scope="module")
 def base(receipts):
-    return receipts.load_base_completeness()
+    """The pinned base module, read from git history.
+
+    A shallow checkout (the draft quick-test job fetches two commits) does not
+    hold the pinned commit. There the comparisons with base are skipped; the
+    full suite, the merge queue and main check out the whole history and run
+    them. In a complete checkout a missing commit is still an error.
+    """
+
+    try:
+        return receipts.load_base_completeness()
+    except subprocess.CalledProcessError:
+        shallow = subprocess.run(
+            ["git", "rev-parse", "--is-shallow-repository"],
+            cwd=receipts.ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        if shallow != "true":
+            raise
+        pytest.skip(f"shallow checkout: base commit {receipts.BASE_REF} is not present")
 
 
 def test_fixture_is_the_quoted_clause_6a():
@@ -202,7 +243,7 @@ def test_other_shapes_keep_base_gates(base, source):
     assert sc._source_conjunctive_fact_gates(
         source
     ) == base._source_conjunctive_fact_gates(source)
-    assert opaque_issues(source) == opaque_issues(source, base)
+    assert without_clause_detail(opaque_issues(source)) == opaque_issues(source, base)
 
 
 STATUS_STOPWORDS = (

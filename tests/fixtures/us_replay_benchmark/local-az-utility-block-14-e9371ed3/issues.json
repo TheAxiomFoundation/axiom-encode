@@ -1,0 +1,19 @@
+{
+  "id": "local-az-utility-block-14-e9371ed3",
+  "run_id": "local-az-utility-block-14-e9371ed3",
+  "citation": "us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-14",
+  "module": "us-az/policies/des/faa5/na-utility-expenses-and-allowances/block-14.yaml",
+  "imports_resolved": 0,
+  "imports_unresolved": [],
+  "deferral_providers_resolved": [],
+  "deferral_providers_unresolved": [],
+  "split": "visible",
+  "control": false,
+  "issues": [
+    "[complete-source-unit:source-explicit-conditions] Derived formula version(s) delegate multiple conjunctive factual gates stated in their exact authoritative source clause to too few terminal local inputs or canonical imports: `snap_telephone_expense_component_allowable` versions[0] (`budgetary_unit_obligated_to_pay_any_portion_of_component`, `budgetary_unit_participates_in_lifeline`, `component_is_basic_landline_or_cell_phone_service_fee`, `component_is_telephone_expense` for 2 source gates). Encode the source-stated facts as distinct local inputs or canonical imports, declare every local fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`), combine them in a source-proved derived Judgment, and test each gate. Reserve aggregate boundary statuses for source-atomic or externally determined conditions."
+  ],
+  "rules": {
+    "complete-source-unit:source-explicit-conditions": 1
+  },
+  "error": null
+}

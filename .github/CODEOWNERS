@@ -57,3 +57,8 @@
 /src/axiom_encode/rulespec_admission_registry.py @PavelMakarchuk @MaxGhenis
 /.github/workflows/validation-effect.yml @PavelMakarchuk @MaxGhenis
 /scripts/check_validation_effect.py @PavelMakarchuk @MaxGhenis
+# Reviewed alternative-list readings: each entry loosens the gates-collapsed
+# check for one source unit (docs/reviewed-alternative-lists.md).
+/src/axiom_encode/harness/data/reviewed_alternative_lists.jsonl @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/harness/reviewed_alternative_lists.py @PavelMakarchuk @MaxGhenis
+/tests/test_reviewed_alternative_lists.py @PavelMakarchuk @MaxGhenis
