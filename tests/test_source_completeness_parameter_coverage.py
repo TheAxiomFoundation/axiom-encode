@@ -74,7 +74,8 @@ def _parameter(name: str, source: str, value: str) -> str:
 
 
 def _labels(structure: set[str], label: str) -> bool:
-    return any(item.rstrip("]").endswith(label) for item in structure)
+    # Branch labels end with the last marker, e.g. "paragraph (c)(3)(vi)]".
+    return any(item.endswith(f"({label})]") for item in structure)
 
 
 def test_parameter_holding_an_exemption_age_does_not_cover_the_exemption():
