@@ -671,7 +671,10 @@ def _evaluate(country, number, read, evidence) -> Verdict:
         raise _Refusal(
             R_DISPATCHER_MISMATCH, "manifest dispatcher is not the run's actor"
         )
-    if TRUSTED_SIGNING_REVIEWERS.get(manifest.dispatcher_id) != trigger_login:
+    if (
+        manifest.dispatcher_id not in TRUSTED_SIGNING_REVIEWERS
+        or TRUSTED_SIGNING_REVIEWERS[manifest.dispatcher_id] != trigger_login
+    ):
         raise _Refusal(R_DISPATCHER_NOT_ENROLLED, "dispatcher is not enrolled")
     dispatchers = {manifest.dispatcher_id, run_actor_id, trigger_id}
 
@@ -708,7 +711,8 @@ def _evaluate(country, number, read, evidence) -> Verdict:
             continue
         reviewer = review["user"]
         if (
-            TRUSTED_SIGNING_REVIEWERS.get(reviewer_id) != reviewer.get("login")
+            reviewer_id not in TRUSTED_SIGNING_REVIEWERS
+            or reviewer.get("login") != TRUSTED_SIGNING_REVIEWERS[reviewer_id]
             or reviewer.get("type") != "User"
         ):
             reason = R_NOT_ENROLLED

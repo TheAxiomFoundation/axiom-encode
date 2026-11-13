@@ -420,6 +420,8 @@ def test_case_08_write_collaborator_who_is_not_enrolled():
         ((424242, "MaxGhenis"), {}),  # recycled login, another account
         ((MAX[0], "renamed-account"), {}),  # enrolled id, another login
         (MAX, {"type": "Bot"}),
+        ((424242, None), {}),  # no login must not equal "not enrolled"
+        (MAX, {"type": None}),
     ],
 )
 def test_case_09_enrolment_is_id_login_and_account_type(user, extra):
