@@ -1047,14 +1047,30 @@ def test_required_check_is_the_gate_over_all_shards():
     # Nothing here may let the gate pass after a failure either.
     assert gate.keys() == {"name", "if", "needs", "runs-on", "steps"}
     assert gate["if"] == "always()"
-    # real-engine too, so a passing gate means real-engine passed in its run.
-    assert gate["needs"] == ["test", "real-engine"]
+    # real-engine and locked-builds too, so a passing gate means both passed in
+    # its run. locked-builds (scripts/check_locked_builds.py) is one result for
+    # both of its Python legs.
+    assert gate["needs"] == ["test", "real-engine", "locked-builds"]
+    locked_builds = CI["jobs"]["locked-builds"]
+    assert _rendered_names("locked-builds", locked_builds) == {
+        "locked builds (3.13)",
+        "locked builds (3.14)",
+    }
+    # Its result means only what the gate reads if a failure cannot pass and the
+    # job's last act is the check.
+    assert "continue-on-error" not in locked_builds
+    assert all("continue-on-error" not in step for step in locked_builds["steps"])
+    assert locked_builds["steps"][-1] == {
+        "name": "Build every locked source against the locked build backends",
+        "run": ".venv/bin/python scripts/check_locked_builds.py",
+    }
     checkout, check = gate["steps"]
     assert checkout.keys() == {"uses"}
     assert check.keys() == {"name", "env", "run"}
     assert check["env"] == {
         "SHARDS_RESULT": "${{ needs.test.result }}",
         "REAL_ENGINE_RESULT": "${{ needs.real-engine.result }}",
+        "LOCKED_BUILDS_RESULT": "${{ needs.locked-builds.result }}",
         "DRAFT_PULL_REQUEST": f"${{{{ {_DRAFT_RUN} }}}}",
         **{
             f"SHARD_{shard}": f"${{{{ needs.test.outputs.shard_{shard} }}}}"
@@ -1065,12 +1081,14 @@ def test_required_check_is_the_gate_over_all_shards():
     # DRAFT_PULL_REQUEST only adds a message: the gate fails either way.
     assert " ".join(check["run"].replace("\\\n", " ").split()) == (
         'if [ "$SHARDS_RESULT" != "success" ] || '
-        '[ "$REAL_ENGINE_RESULT" != "success" ]; then '
+        '[ "$REAL_ENGINE_RESULT" != "success" ] || '
+        '[ "$LOCKED_BUILDS_RESULT" != "success" ]; then '
         'if [ "$DRAFT_PULL_REQUEST" = "true" ]; then '
         f'echo "::error::{_DRAFT_MESSAGE}" '
         "fi "
-        "echo \"error: the test shards finished as '$SHARDS_RESULT' "
-        "and real-engine as '$REAL_ENGINE_RESULT'\" >&2 "
+        "echo \"error: the test shards finished as '$SHARDS_RESULT', "
+        "real-engine as '$REAL_ENGINE_RESULT' and the locked builds as "
+        "'$LOCKED_BUILDS_RESULT'\" >&2 "
         "exit 1 fi "
         f"python3 -I tests/ci_shards.py check {arguments}"
     )
@@ -1079,9 +1097,10 @@ def test_required_check_is_the_gate_over_all_shards():
 def test_concurrency_groups_sit_on_the_jobs_that_do_the_work():
     # The gate runs even in a cancelled run, so a workflow-level group would keep
     # a pull request's new run waiting until the old gate got a runner. Each job
-    # that does the work keys its own group instead, and each test shard keys one
-    # per matrix leg, so the legs of one run never cancel each other. On any event
-    # but a pull request, the key ends in the run's own id: nothing cancels it.
+    # that does the work keys its own group instead, and each test shard and
+    # locked-builds leg keys one per matrix leg, so the legs of one run never
+    # cancel each other. On any event but a pull request, the key ends in the
+    # run's own id: nothing cancels it.
     suffix = (
         "${{ github.event_name == 'pull_request' && format('pr-{0}', "
         "github.event.pull_request.number) || format('run-{0}', github.run_id) }}"
@@ -1104,6 +1123,7 @@ def test_concurrency_groups_sit_on_the_jobs_that_do_the_work():
         for key, group in {
             "test": f"test-{legs}",
             "real-engine": "real-engine",
+            "locked-builds": "locked-builds-${{ matrix.python-version }}",
             "quick-tests": "quick-tests",
             "lint": "lint",
             "replay-benchmark": "replay-benchmark",
@@ -1182,7 +1202,12 @@ def test_pull_requests_run_on_ready_for_review_and_any_branch_can_dispatch():
 
 def test_drafts_run_lint_and_quick_tests_and_everything_else_runs_in_full():
     jobs = CI["jobs"]
-    assert jobs["test"]["if"] == jobs["real-engine"]["if"] == _FULL_RUN
+    assert (
+        jobs["test"]["if"]
+        == jobs["real-engine"]["if"]
+        == jobs["locked-builds"]["if"]
+        == _FULL_RUN
+    )
     assert jobs["quick-tests"]["if"] == _DRAFT_RUN
     assert "if" not in jobs["lint"]
     assert "if" not in jobs["replay-benchmark"]
@@ -1192,6 +1217,7 @@ def test_drafts_run_lint_and_quick_tests_and_everything_else_runs_in_full():
         "test",
         "test-gate",
         "real-engine",
+        "locked-builds",
         "quick-tests",
         "lint",
         "replay-benchmark",
@@ -1199,14 +1225,16 @@ def test_drafts_run_lint_and_quick_tests_and_everything_else_runs_in_full():
 
     runs = {
         event: {
-            "shards and real-engine": bool(_evaluate(_FULL_RUN, context)),
+            "shards, real-engine and locked builds": bool(
+                _evaluate(_FULL_RUN, context)
+            ),
             "quick tests": bool(_evaluate(_DRAFT_RUN, context)),
             "gate says draft": _evaluate(_DRAFT_RUN, context) is True,
         }
         for event, context in _EVENTS.items()
     }
     full = {
-        "shards and real-engine": True,
+        "shards, real-engine and locked builds": True,
         "quick tests": False,
         "gate says draft": False,
     }
@@ -1215,7 +1243,7 @@ def test_drafts_run_lint_and_quick_tests_and_everything_else_runs_in_full():
         "workflow_dispatch": full,
         "merge queue": full,
         "draft pull request": {
-            "shards and real-engine": False,
+            "shards, real-engine and locked builds": False,
             "quick tests": True,
             "gate says draft": True,
         },
@@ -1228,11 +1256,18 @@ def _gate_script() -> str:
     return check["run"]
 
 
-def _run_gate(shards_result, real_engine_result, draft, reports=("",) * 8):
+def _run_gate(
+    shards_result,
+    real_engine_result,
+    draft,
+    reports=("",) * 8,
+    locked_builds_result="success",
+):
     environment = {
         "PATH": os.environ["PATH"],
         "SHARDS_RESULT": shards_result,
         "REAL_ENGINE_RESULT": real_engine_result,
+        "LOCKED_BUILDS_RESULT": locked_builds_result,
         "DRAFT_PULL_REQUEST": draft,
         **{f"SHARD_{shard}": report for shard, report in enumerate(reports, 1)},
     }
@@ -1246,38 +1281,63 @@ def _run_gate(shards_result, real_engine_result, draft, reports=("",) * 8):
     )
 
 
-@pytest.mark.parametrize(
-    "shards_result,real_engine_result,draft,says_draft",
-    [
-        # A draft's skipped jobs fail the gate, with the draft message.
-        ("skipped", "skipped", "true", True),
-        ("skipped", "skipped", "false", False),
-        ("failure", "success", "false", False),
-        ("cancelled", "cancelled", "false", False),
-        # Shards that passed do not carry a failed or skipped real-engine.
-        ("success", "failure", "false", False),
-        ("success", "skipped", "false", False),
-        ("success", "cancelled", "false", False),
-        # Even successful jobs without shard reports fail it.
-        ("success", "success", "true", False),
-    ],
-)
-def test_gate_fails_unless_every_job_passed_and_reported(
-    shards_result, real_engine_result, draft, says_draft
-):
-    result = _run_gate(shards_result, real_engine_result, draft)
-
-    assert result.returncode == 1
-    assert (f"::error::{_DRAFT_MESSAGE}" in result.stdout) is says_draft
-
-
-def test_gate_passes_when_every_job_passed_and_the_reports_agree():
+def _agreeing_reports() -> list[str]:
     tests = _tests(
         {"tests/test_a.py::test_x": (3, ""), "tests/test_b.py::test_y": (9, "")}
     )
-    reports = [ci_shards.select(tests, shard, 8, {})[1] for shard in range(1, 9)]
+    return [ci_shards.select(tests, shard, 8, {})[1] for shard in range(1, 9)]
 
-    result = _run_gate("success", "success", "false", reports)
+
+@pytest.mark.parametrize(
+    "shards_result,real_engine_result,locked_builds_result,draft,says_draft",
+    [
+        # A draft's skipped jobs fail the gate, with the draft message.
+        ("skipped", "skipped", "skipped", "true", True),
+        ("skipped", "skipped", "skipped", "false", False),
+        ("failure", "success", "success", "false", False),
+        ("cancelled", "cancelled", "cancelled", "false", False),
+        # Shards that passed do not carry a failed or skipped real-engine.
+        ("success", "failure", "success", "false", False),
+        ("success", "skipped", "success", "false", False),
+        ("success", "cancelled", "success", "false", False),
+        # Nor a failed, cancelled, skipped or missing locked-builds result.
+        ("success", "success", "failure", "false", False),
+        ("success", "success", "cancelled", "false", False),
+        ("success", "success", "skipped", "false", False),
+        ("success", "success", "", "false", False),
+        # Even successful jobs without shard reports fail it.
+        ("success", "success", "success", "true", False),
+    ],
+)
+def test_gate_fails_unless_every_job_passed_and_reported(
+    shards_result, real_engine_result, locked_builds_result, draft, says_draft
+):
+    # Agreeing reports, so only the job results can fail the gate, except in
+    # the last case, which has none.
+    reports = (
+        ("",) * 8
+        if (shards_result, real_engine_result, locked_builds_result) == ("success",) * 3
+        else _agreeing_reports()
+    )
+
+    result = _run_gate(
+        shards_result,
+        real_engine_result,
+        draft,
+        reports,
+        locked_builds_result=locked_builds_result,
+    )
+
+    assert result.returncode == 1
+    assert (f"::error::{_DRAFT_MESSAGE}" in result.stdout) is says_draft
+    if (shards_result, real_engine_result, locked_builds_result) != ("success",) * 3:
+        assert f"the locked builds as '{locked_builds_result}'" in result.stderr, (
+            result.stderr
+        )
+
+
+def test_gate_passes_when_every_job_passed_and_the_reports_agree():
+    result = _run_gate("success", "success", "false", _agreeing_reports())
 
     assert result.returncode == 0, result.stderr
 

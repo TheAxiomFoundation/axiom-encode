@@ -40,6 +40,8 @@ from axiom_encode.checks import (
 from axiom_encode.codex_cli import (
     DEFAULT_CODEX_REASONING_EFFORT,
     codex_auth_error,
+    codex_auth_secrets,
+    redact_codex_auth_secrets,
     resolve_codex_cli,
     validate_codex_reasoning_effort,
     with_codex_model_availability_hint,
@@ -840,28 +842,51 @@ def _prune_unused_imports(content: str) -> tuple[str, list[str]]:
     imports_indent = 0
     removed: list[str] = []
 
+    # Per `imports:` block: its header line index, how many items it lost,
+    # and whether any other content (a kept item or a nested key) remains.
+    import_headers: list[int] = []
+    import_removals: list[int] = []
+    import_retained: list[bool] = []
+
     for line in content.splitlines(keepends=True):
         imports_match = re.match(r"^(\s*)imports:\s*$", line)
         if imports_match:
             in_imports = True
             imports_indent = len(imports_match.group(1))
+            import_headers.append(len(repaired_lines))
+            import_removals.append(0)
+            import_retained.append(False)
             repaired_lines.append(line)
             continue
 
         if in_imports:
             stripped = line.strip()
-            if stripped:
+            # A comment line neither ends the block nor counts as content.
+            if stripped and not stripped.startswith("#"):
                 indent = len(line) - len(line.lstrip())
                 item_match = re.match(r"^\s*-\s+(.+?)\s*$", line)
                 if item_match and indent >= imports_indent:
                     item = _strip_yaml_scalar_quotes(item_match.group(1).strip())
                     if item in unused:
                         removed.append(item)
+                        import_removals[-1] += 1
                         continue
+                    import_retained[-1] = True
                 elif indent <= imports_indent:
                     in_imports = False
+                else:
+                    import_retained[-1] = True
 
         repaired_lines.append(line)
+
+    # Pruning every item of a block must drop its header too: a bare
+    # `imports:` loads as null, which the rules engine rejects ("expected a
+    # sequence"). A block that lost nothing, or keeps any content, stays.
+    for header_index, removal_count, retained in reversed(
+        list(zip(import_headers, import_removals, import_retained, strict=True))
+    ):
+        if removal_count and not retained:
+            del repaired_lines[header_index]
 
     return "".join(repaired_lines), removed
 
@@ -17042,6 +17067,9 @@ def _run_codex_prompt_eval(
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,
     ):
         codex_home = _prepare_codex_eval_home(Path(codex_home_dir))
+        # auth.json is readable from the read-only sandbox. Record its
+        # credential strings now and after the run, and keep none of them.
+        auth_secrets = codex_auth_secrets(codex_home)
         codex_env = scrub_attestation_signing_keys()
         codex_env["CODEX_HOME"] = str(codex_home)
         stdout_path = Path(stdout_file.name)
@@ -17097,8 +17125,10 @@ def _run_codex_prompt_eval(
                     process.kill()
                     process.wait()
 
-    stdout_text = stdout_path.read_text()
-    stderr_text = stderr_path.read_text()
+        auth_secrets |= codex_auth_secrets(codex_home)
+
+    stdout_text = redact_codex_auth_secrets(stdout_path.read_text(), auth_secrets)
+    stderr_text = redact_codex_auth_secrets(stderr_path.read_text(), auth_secrets)
     stdout_path.unlink(missing_ok=True)
     stderr_path.unlink(missing_ok=True)
     duration_ms = int((time.time() - start) * 1000)
@@ -17165,7 +17195,15 @@ def _run_codex_prompt_eval(
 
     final_text = "\n".join(assistant_messages).strip()
     if last_message_file.exists():
-        file_text = last_message_file.read_text().strip()
+        # The raw file holds the child's unredacted text inside the workspace
+        # under --output, which failure diagnostics upload. Nothing reads it
+        # after this point, so remove it whether or not the read succeeds.
+        try:
+            file_text = redact_codex_auth_secrets(
+                last_message_file.read_text(), auth_secrets
+            ).strip()
+        finally:
+            last_message_file.unlink(missing_ok=True)
         if file_text:
             final_text = file_text
 

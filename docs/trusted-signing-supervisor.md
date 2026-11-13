@@ -357,6 +357,47 @@ The launcher is the process manager the deployment model calls for. It:
 The supervisor performs its own forbidden-private-key-environment rejection and
 per-child scrub, so the launcher is a wiring layer, not a second trust boundary.
 
+For subscription-backed generation, `run` also accepts the supervisor's
+`--trusted-codex-cli-config`, `--codex-subscription-auth`, and
+`--codex-auth-outbox` flags before the `--` separator. Supply all three together.
+Before it reads the signing key, the launcher rejects a partial configuration,
+an ambient `CODEX_HOME` (which the supervisor would also refuse), and a
+non-empty `OPENAI_API_KEY` or `CODEX_API_KEY`, which would otherwise reach the
+supervised encoder beside the subscription home. It forwards the paths
+unchanged and never opens them: the supervisor owns credential-file
+validation, isolation, and refresh, so a path the supervisor rejects is
+refused only after the key has been delivered to the signer. The signer's
+minimal environment and CI context requirements still apply. Omitting all three
+subscription flags preserves the existing supervisor arguments.
+
+Codex children can read the `auth.json` in their home despite the read-only
+sandbox. The encoder therefore reads that file's credential strings before and
+after each Codex generation and review run. It replaces them, verbatim and
+JSON-escaped, in the child's stdout and stderr, in the extracted reviewer text,
+and in the generation last-message file, which it reads once and then deletes
+from the workspace. The redaction matches whole strings only: it stops a
+token from being copied out by accident, not a deliberate leak. A child that
+encodes a token (for example as base64) or prints it in pieces gets it past
+the redaction, so treat Codex output as sensitive wherever it is kept.
+
+Generation runs Codex in a temporary home whose `auth.json` symlinks or copies
+the encoder's own. A token refresh that writes through the symlink updates the
+encoder's file. A refresh that replaces the file, or any refresh of a copy,
+stays in the temporary home and is discarded with it, so the encoder's file
+keeps the older token. Under the supervisor, the encoder's file is the
+`auth.json` in the supervisor's scratch home, and at teardown the supervisor
+copies that file to the `--codex-auth-outbox` path whether or not the child
+succeeded. The outbox then receives the older token, which the provider may
+already have rotated out. The reviewer runs in the supervisor's home directly.
+
+A supervisor runs the encoder package that was provisioned into its root-owned
+runtime. The reviewer's `CODEX_HOME` and the output redaction above therefore
+reach a long-lived supervisor only when it is re-provisioned with an encoder
+that contains them; a supervisor provisioned from an older encoder runs its
+reviewer without the supervisor's `CODEX_HOME`. The central signed re-encode
+workflow provisions at its own commit on every run, so it needs no extra step.
+The launcher checks ship in the apply-signer binary, which is rebuilt separately.
+
 ### ChatGPT subscription generation
 
 The tier-1 provisioner can additionally install the repository-pinned Codex CLI:

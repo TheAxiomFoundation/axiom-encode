@@ -29,7 +29,10 @@ def test_workflow_preflight_uses_locked_runtime_before_identity_checks():
     assert setup < preflight < identities < names.index("Build Axiom rules engine")
     assert steps[setup]["working-directory"] == "axiom-encode"
     assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in steps[setup]["run"]
-    assert "uv sync --locked --python 3.13 --extra api --no-dev" in steps[setup]["run"]
+    assert (
+        "uv sync --no-config --locked --python 3.13 --extra api --no-dev"
+        in steps[setup]["run"]
+    )
     assert (
         "axiom-encode/.venv/bin/python "
         "axiom-encode/scripts/prepare_reviewed_pr_promotion.py prepare"

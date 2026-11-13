@@ -2249,8 +2249,11 @@ def test_drift_workflow_isolates_model_and_github_credentials_by_job():
     assert engine_checkout["with"]["ref"] == (
         "363c6a6c56f7ad130996b63f7a09cfd4c3d9b021"
     )
-    assert all(
-        "uv sync --locked --python 3.13 --extra api" in step["run"]
+    # The staging step also passes --no-config (tests/test_verification_site_packages_lock.py).
+    assert install_steps and all(
+        re.search(
+            r"uv sync (--no-config )?--locked --python 3\.13 --extra api", step["run"]
+        )
         for step in install_steps
     )
     assert all(

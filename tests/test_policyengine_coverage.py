@@ -1200,7 +1200,7 @@ surfaces:
     assert report["active_pending_surfaces"] == 0
 
 
-def test_policyengine_program_surface_report_accepts_populace_validation_metadata(
+def test_policyengine_program_surface_report_accepts_microcosm_validation_metadata(
     tmp_path,
 ):
     manifest = tmp_path / "program_surfaces.yaml"
@@ -1255,7 +1255,7 @@ surfaces:
     assert "tax-populace-compare" in item["populace_validation_command"]
 
 
-def test_policyengine_program_surface_rejects_incomplete_validated_populace_metadata(
+def test_policyengine_program_surface_rejects_incomplete_validated_microcosm_metadata(
     tmp_path,
 ):
     manifest = tmp_path / "program_surfaces.yaml"
@@ -1327,7 +1327,7 @@ surfaces:
       matches: 160858
       mismatches: 0
     priority: P1
-    rationale: Validated against Populace Medicaid eligibility.
+    rationale: Validated against Microcosm Medicaid eligibility.
   - country: us
     program_id: medicare
     program_name: Medicare
@@ -3159,7 +3159,7 @@ def test_policyengine_program_surface_marks_kansas_tanf_known_not_comparable():
     assert "countable income" in kansas_tanf["rationale"]
 
 
-def test_policyengine_program_surface_marks_minnesota_mfip_wired_and_populace_validated():
+def test_policyengine_program_surface_marks_minnesota_mfip_wired_and_microcosm_validated():
     report = build_policyengine_program_surface_report(program="tanf")
 
     items_by_variable = {item["variable"]: item for item in report["items"]}

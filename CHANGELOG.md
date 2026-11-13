@@ -1,3 +1,7 @@
+## 0.2.2366
+
+- Bind Canadian form and Schedule M obligations to observed execution (#2083)
+
 ## 0.2.2365
 
 - Add failure classes and a pre-encode gate that stops empty and repealed targets before a model call (#1997)

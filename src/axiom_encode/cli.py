@@ -116,6 +116,7 @@ from axiom_encode.yaml_serialization import (
     safe_dump_yaml,
 )
 
+from . import validation_waiver_partition as _waiver_partition
 from . import validation_waivers as _validation_waivers
 from . import version_provenance as _version_provenance
 from .checks import (
@@ -295,6 +296,7 @@ from .harness.proof_validator import (
     _rule_source_subsection_scope,
     _source_contains_proof_evidence,
     _source_numeric_parent_alpha_range_blocks,
+    align_proof_excerpt,
     emit_money_atom_ratchet,
     evaluate_money_atoms,
     find_interpretation_yaml_issues,
@@ -698,6 +700,10 @@ _REVIEWED_CANDIDATE_MANIFEST_FIELDS = frozenset(
         "signature",
     }
 )
+_REVIEWED_REPAIR_MANIFEST_FIELDS = (
+    _REVIEWED_CANDIDATE_MANIFEST_FIELDS - {"reviewed_rulespec_ref"}
+) | {"reviewed_repair"}
+APPLIED_ENCODING_REVIEWED_REPAIR_TOOL = "axiom-encode apply-reviewed-repair"
 # Per-file waiver bindings (#2092): the same model and reviewed-candidate
 # contracts, with the repository waiver-set digest replaced by the waiver
 # identity of each covered file. Admission accepts both shapes.
@@ -850,6 +856,7 @@ _APPLIED_MANIFEST_SCHEMA_VARIANTS = {
         _REVIEWED_CANDIDATE_MANIFEST_FIELDS,
         _REVIEWED_CANDIDATE_PER_FILE_WAIVER_MANIFEST_FIELDS,
     ),
+    "reviewed repair": (_REVIEWED_REPAIR_MANIFEST_FIELDS,),
     "retirement": (_RETIRE_APPLY_MANIFEST_FIELDS,),
     "unreceipted retirement": (_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS,),
     "path migration": (_PATH_MIGRATION_APPLY_MANIFEST_FIELDS,),
@@ -918,6 +925,17 @@ _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES = {
         | {
             "citation",
             "reviewed_rulespec_ref",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+        },
+    ),
+    _REVIEWED_REPAIR_MANIFEST_FIELDS: (
+        frozenset({"run_id"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "citation",
+            "reviewed_repair",
             "applied_files",
             "source_attestation",
             "validation_execution",
@@ -2183,6 +2201,64 @@ def main():
     )
     _add_rulespec_dependency_root_argument(validation_waivers_audit_parser)
 
+    validation_waivers_costs_parser = validation_waivers_subparsers.add_parser(
+        "audit-costs",
+        help=(
+            "Build the waiver audit cost table from an audit run's timing lines "
+            f"(commit it at {_waiver_partition.COST_TABLE_PATH})"
+        ),
+    )
+    validation_waivers_costs_parser.add_argument(
+        "--log",
+        dest="logs",
+        action="append",
+        required=True,
+        help=(
+            "Log with 'validation-waivers audit: <path> <seconds>s' lines, such as "
+            "`gh run view <run> --log` output; repeatable, '-' reads stdin. Pass "
+            "every shard's log: a shard left out leaves its modules at the "
+            "table's median cost"
+        ),
+    )
+    validation_waivers_costs_parser.add_argument(
+        "--jobs-json",
+        type=Path,
+        help=(
+            "The same run's GitHub Actions jobs listing (gh api --paginate "
+            "[--slurp] repos/<owner>/<repo>/actions/runs/<run>/jobs); records "
+            "each shard's non-audit time as its partition baseline"
+        ),
+    )
+    validation_waivers_costs_parser.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help=(
+            "Audit workers per shard in that run; converts a shard's non-audit "
+            "time to module time (default 4)"
+        ),
+    )
+    validation_waivers_costs_parser.add_argument(
+        "--audit-step",
+        default=_waiver_partition.DEFAULT_AUDIT_STEP_NAME,
+        help="Name of the workflow step that runs the audit",
+    )
+    validation_waivers_costs_parser.add_argument(
+        "--source",
+        help="Provenance recorded in the table, such as the run's URL",
+    )
+    validation_waivers_costs_parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="Where to write the table",
+    )
+    validation_waivers_costs_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output a JSON summary",
+    )
+
     validation_waivers_paths_parser = validation_waivers_subparsers.add_parser(
         "active-paths",
         help="Print repository-relative paths with active validation waivers",
@@ -2493,7 +2569,7 @@ def main():
         action="store_true",
         help=(
             "Exit non-zero when an included active wired PolicyEngine program "
-            "surface lacks validated Populace comparison metadata"
+            "surface lacks validated Microcosm comparison metadata"
         ),
     )
     oracle_coverage_parser.add_argument(
@@ -2680,51 +2756,51 @@ def main():
         "--json", action="store_true", help="Output as JSON"
     )
 
-    snap_populace_compare_parser = subparsers.add_parser(
+    snap_microcosm_compare_parser = subparsers.add_parser(
         "snap-populace-compare",
-        help="Compare SNAP RuleSpec output against PolicyEngine over Populace",
+        help="Compare SNAP RuleSpec output against PolicyEngine over Microcosm",
     )
-    configure_snap_populace_compare_parser(snap_populace_compare_parser)
+    configure_snap_populace_compare_parser(snap_microcosm_compare_parser)
 
-    tax_populace_compare_parser = subparsers.add_parser(
+    tax_microcosm_compare_parser = subparsers.add_parser(
         "tax-populace-compare",
-        help="Compare federal tax RuleSpec output against PolicyEngine over Populace",
+        help="Compare federal tax RuleSpec output against PolicyEngine over Microcosm",
     )
-    configure_tax_populace_compare_parser(tax_populace_compare_parser)
+    configure_tax_populace_compare_parser(tax_microcosm_compare_parser)
 
-    medicaid_populace_compare_parser = subparsers.add_parser(
+    medicaid_microcosm_compare_parser = subparsers.add_parser(
         "medicaid-populace-compare",
-        help="Compare Medicaid RuleSpec eligibility against PolicyEngine over Populace",
+        help="Compare Medicaid RuleSpec eligibility against PolicyEngine over Microcosm",
     )
-    configure_medicaid_populace_compare_parser(medicaid_populace_compare_parser)
+    configure_medicaid_populace_compare_parser(medicaid_microcosm_compare_parser)
 
-    us_populace_compare_parser = subparsers.add_parser(
+    us_microcosm_compare_parser = subparsers.add_parser(
         "us-populace-compare",
-        help="Compare direct-variable US RuleSpec output against PolicyEngine over Populace",
+        help="Compare direct-variable US RuleSpec output against PolicyEngine over Microcosm",
     )
-    configure_us_populace_compare_parser(us_populace_compare_parser)
+    configure_us_populace_compare_parser(us_microcosm_compare_parser)
 
-    uk_populace_compare_parser = subparsers.add_parser(
+    uk_microcosm_compare_parser = subparsers.add_parser(
         "uk-populace-compare",
-        help="Compare UK RuleSpec output against PolicyEngine over Populace",
+        help="Compare UK RuleSpec output against PolicyEngine over Microcosm",
     )
-    configure_uk_populace_compare_parser(uk_populace_compare_parser)
+    configure_uk_populace_compare_parser(uk_microcosm_compare_parser)
 
-    uk_populace_coverage_parser = subparsers.add_parser(
+    uk_microcosm_coverage_parser = subparsers.add_parser(
         "uk-populace-coverage",
-        help="Report PE-UK Populace computed-variable coverage and backlog",
+        help="Report PE-UK Microcosm computed-variable coverage and backlog",
     )
-    configure_uk_populace_coverage_parser(uk_populace_coverage_parser)
+    configure_uk_populace_coverage_parser(uk_microcosm_coverage_parser)
 
-    uk_populace_hbai_coverage_parser = subparsers.add_parser(
+    uk_microcosm_hbai_coverage_parser = subparsers.add_parser(
         "uk-populace-hbai-coverage",
         help="Report HBAI net-income policy-component coverage",
     )
-    configure_uk_populace_hbai_coverage_parser(uk_populace_hbai_coverage_parser)
+    configure_uk_populace_hbai_coverage_parser(uk_microcosm_hbai_coverage_parser)
 
     snap_readiness_parser = subparsers.add_parser(
         "snap-readiness",
-        help="Report SNAP corpus, RuleSpec, and Populace oracle readiness by state repo",
+        help="Report SNAP corpus, RuleSpec, and Microcosm oracle readiness by state repo",
     )
     snap_readiness_parser.add_argument(
         "--root",
@@ -2790,6 +2866,20 @@ def main():
             help="Verify enrolled lineage; exit 78 requires the legacy generated guard",
         )
     )
+
+    merge_guard_parser = subparsers.add_parser(
+        "merge-guard",
+        help=(
+            "Evaluate one RuleSpec pull request against the content-bound "
+            "merge guard (inactive; prints a verdict, writes nothing)"
+        ),
+    )
+    merge_guard_parser.add_argument(
+        "--repository",
+        required=True,
+        help="RuleSpec repository short name, for example rulespec-us",
+    )
+    merge_guard_parser.add_argument("--pr", required=True, type=int)
 
     admission_registry_parser = subparsers.add_parser(
         "admission-registry",
@@ -2938,6 +3028,25 @@ def main():
         default=None,
         help="Optional protected workflow run identifier recorded in the manifest",
     )
+
+    reviewed_repair_parser = subparsers.add_parser(
+        "apply-reviewed-repair",
+        help="Validate and sign an exact code-reviewed repair package without a model",
+    )
+    for option in (
+        "repo",
+        "patch-checkout",
+        "corpus-path",
+        "seed-rulespec",
+        "seed-tests",
+        "seed-archive",
+    ):
+        reviewed_repair_parser.add_argument("--" + option, type=Path, required=True)
+    reviewed_repair_parser.add_argument(
+        "--axiom-rules-engine-path", dest="axiom_rules_path", type=Path, required=True
+    )
+    for option in ("patch-id", "source-bundle-json", "run-id"):
+        reviewed_repair_parser.add_argument("--" + option, required=True)
 
     promote_reviewed_candidate_parser = subparsers.add_parser(
         "promote-reviewed-candidate",
@@ -4348,6 +4457,10 @@ def main():
         from axiom_encode.notary.merge_guard import command as notary_guard_command
 
         raise SystemExit(notary_guard_command(args))
+    elif args.command == "merge-guard":
+        from axiom_encode.content_merge_guard import command as merge_guard_command
+
+        raise SystemExit(merge_guard_command(args))
     elif args.command == "migrate-retired-source-metadata":
         cmd_migrate_retired_source_metadata(args)
     elif args.command == "guard-generated":
@@ -4360,6 +4473,10 @@ def main():
         cmd_stage_signed_backfill(args)
     elif args.command == "refresh-applied-manifest":
         cmd_refresh_applied_manifest(args)
+    elif args.command == "apply-reviewed-repair":
+        from .reviewed_repair_patch import apply_reviewed_repair
+
+        apply_reviewed_repair(args)
     elif args.command == "promote-reviewed-candidate":
         cmd_promote_reviewed_candidate(args)
     elif args.command == "signed-import-inventory":
@@ -4827,24 +4944,37 @@ def _validation_waiver_path_replacements(
 
 
 @contextlib.contextmanager
-def _validation_waiver_module_timing(relative: str, *, enabled: bool) -> Iterator[None]:
+def _validation_waiver_module_timing(
+    relative: str,
+    *,
+    enabled: bool,
+    progress: _waiver_partition.WaiverAuditProgress | None = None,
+) -> Iterator[None]:
     """Log the initial audit's validation/companion/fingerprint time, off stdout.
 
     Batch setup and isolated discrepancy rechecks are excluded. Rechecks and
     public fingerprint commands do not opt in, so an audited module has one
     timing line even when its outcome needs to be confirmed in isolation.
+    A ``progress`` tracker, which only the parent's serial executor passes,
+    also records the module's start and end for heartbeats.
     """
-    if not enabled:
-        yield
-        return
-    started = time.perf_counter()
+    if progress is not None:
+        progress.start(relative)
     try:
-        yield
+        if not enabled:
+            yield
+            return
+        started = time.perf_counter()
+        try:
+            yield
+        finally:
+            elapsed = time.perf_counter() - started
+            # One write per line avoids interleaving partial lines from workers.
+            sys.stderr.write(f"validation-waivers audit: {relative} {elapsed:.3f}s\n")
+            sys.stderr.flush()
     finally:
-        elapsed = time.perf_counter() - started
-        # One write per line avoids interleaving partial lines from workers.
-        sys.stderr.write(f"validation-waivers audit: {relative} {elapsed:.3f}s\n")
-        sys.stderr.flush()
+        if progress is not None:
+            progress.finish(relative)
 
 
 def _fingerprint_validation_waiver_modules(
@@ -4857,6 +4987,7 @@ def _fingerprint_validation_waiver_modules(
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
     log_timings: bool = False,
+    progress: _waiver_partition.WaiverAuditProgress | None = None,
 ) -> list[dict[str, Any]]:
     """Execute validation and companions against one canonical checkout root.
 
@@ -4891,6 +5022,7 @@ def _fingerprint_validation_waiver_modules(
             rulespec_dependency_roots=rulespec_dependency_roots,
             corpus_release=corpus_release,
             log_timings=log_timings,
+            progress=progress,
         )
 
 
@@ -4904,6 +5036,7 @@ def _fingerprint_validation_waiver_modules_impl(
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
     log_timings: bool = False,
+    progress: _waiver_partition.WaiverAuditProgress | None = None,
 ) -> list[dict[str, Any]]:
     """Fingerprint every module; each validate opens its own resolution scope."""
 
@@ -4974,7 +5107,9 @@ def _fingerprint_validation_waiver_modules_impl(
             pipelines=list(pipelines.values()),
         )
         for relative, (module, content_root) in sorted(resolved_modules.items()):
-            with _validation_waiver_module_timing(relative, enabled=log_timings):
+            with _validation_waiver_module_timing(
+                relative, enabled=log_timings, progress=progress
+            ):
                 pipeline = pipelines[content_root]
                 env = engine_envs[content_root]
                 rulespec_roots = compile_roots[content_root]
@@ -5103,6 +5238,19 @@ def _fingerprint_waiver_task(*args: Any) -> _WaiverAuditTaskResult:
     return _WaiverAuditTaskResult(rows, output.getvalue())
 
 
+def _wait_for_waiver_tasks(
+    futures: Sequence[concurrent.futures.Future], timeout: float
+) -> set[concurrent.futures.Future]:
+    """Return the in-flight tasks that finish within ``timeout`` seconds.
+
+    An empty set means the wait timed out and a heartbeat is due.
+    """
+    done, _pending = concurrent.futures.wait(
+        futures, timeout=timeout, return_when=concurrent.futures.FIRST_COMPLETED
+    )
+    return done
+
+
 def _fingerprint_validation_waiver_modules_parallel(
     modules: list[Path],
     *,
@@ -5111,36 +5259,55 @@ def _fingerprint_validation_waiver_modules_parallel(
     axiom_rules_path: Path,
     axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
+    costs: _waiver_partition.WaiverAuditCosts | None = None,
 ) -> list[dict[str, Any]]:
     """Fingerprint waiver modules across worker processes.
 
-    Submit one module per task to the executor's shared queue, so the next
-    idle worker takes the next unstarted module. With two or more workers,
-    every task runs the serial executor with fresh pipelines, temporary
-    directory, and compile cache, so a task is the standalone execution,
-    independent of worker assignment or neighbors, with process-specific
-    paths canonicalized out of its outcome. With one worker, a single serial
-    call shares that setup across the batch, as before. Either way validate
-    opens a fresh resolution scope per module. A worker failure fails the
-    whole audit. For per-module failures after batch setup, the error is the
-    one the interleaved split would have raised, whatever the completion
-    order; input the old split's per-slice preflight rejected first (a path
-    outside a canonical checkout, say) can surface a different error, which
-    still rejects the audit. Results are re-sorted so output order matches
-    the serial code path exactly.
+    Keep one module per task in flight on every worker, and hand the next
+    unstarted module to the first worker that frees up. Modules start longest
+    first by ``costs`` (path order without a table), which shortens the
+    shard's makespan without changing what any module computes. With two or
+    more workers, every task runs the serial executor with fresh pipelines,
+    temporary directory, and compile cache, so a task is the standalone
+    execution, independent of worker assignment, start order or neighbors,
+    with process-specific paths canonicalized out of its outcome. With one
+    worker, a single serial call shares that setup across the batch, as
+    before. Either way validate opens a fresh resolution scope per module.
+
+    The parent prints a start line for each module it hands to a worker (a
+    not-started line for one a broken pool refuses) and, every
+    ``_waiver_partition.HEARTBEAT_SECONDS``, a heartbeat naming each running
+    module and its elapsed time, so a long module never leaves the log silent.
+
+    A worker failure fails the whole audit. For per-module failures after
+    batch setup, the error is the one the interleaved split would have
+    raised, whatever the start or completion order; input the old split's
+    per-slice preflight rejected first (a path outside a canonical checkout,
+    say) can surface a different error, which still rejects the audit.
+    Results are re-sorted so output order matches the serial code path
+    exactly.
     """
     ordered = sorted(str(module) for module in modules)
     workers = _waiver_audit_worker_count(len(ordered))
     if workers <= 1:
-        return _fingerprint_validation_waiver_modules(
-            [Path(module) for module in ordered],
-            root=root,
-            corpus_path=corpus_path,
-            axiom_rules_path=axiom_rules_path,
-            axiom_compose_path=axiom_compose_path,
-            rulespec_dependency_roots=rulespec_dependency_roots,
-            log_timings=True,
+        _waiver_partition.write_audit_line(
+            f"validation-waivers audit plan: {len(ordered)} module(s) on 1 "
+            "worker, in path order"
         )
+        progress = _waiver_partition.WaiverAuditProgress(len(ordered))
+        with _waiver_partition.heartbeat_thread(
+            progress, interval=_waiver_partition.HEARTBEAT_SECONDS
+        ):
+            return _fingerprint_validation_waiver_modules(
+                [Path(module) for module in ordered],
+                root=root,
+                corpus_path=corpus_path,
+                axiom_rules_path=axiom_rules_path,
+                axiom_compose_path=axiom_compose_path,
+                rulespec_dependency_roots=rulespec_dependency_roots,
+                log_timings=True,
+                progress=progress,
+            )
 
     corpus_release = load_rulespec_local_corpus_release(
         Path(root).resolve(), corpus_path
@@ -5152,44 +5319,96 @@ def _fingerprint_validation_waiver_modules_parallel(
         corpus_release.public_key,
     )
     dependency_roots = tuple(str(path) for path in rulespec_dependency_roots)
+    index_of_path = {path: index for index, path in enumerate(ordered)}
+    start_order = _waiver_partition.audit_order(ordered, costs)
+    if costs is None:
+        order_text = "in path order"
+    else:
+        estimate = sum(costs.cost(path) for path in ordered) / 1000
+        order_text = (
+            f"longest estimated cost first ({estimate:.0f}s of module time, "
+            f"cost table sha256:{costs.sha256[:12]})"
+        )
+    _waiver_partition.write_audit_line(
+        f"validation-waivers audit plan: {len(ordered)} module(s) on {workers} "
+        f"worker(s), {order_text}"
+    )
+    progress = _waiver_partition.WaiverAuditProgress(len(ordered))
+
+    def failure_rank(path: str) -> tuple[int, int]:
+        # The interleaved split this replaced raised the first failing module
+        # of the lowest failing slice (slice index % workers, position
+        # index // workers). Rank failures the same way so the reported error
+        # never depends on start or completion order.
+        index = index_of_path[path]
+        return (index % workers, index // workers)
 
     results: list[dict[str, Any]] = []
     failures: list[tuple[tuple[int, int], Exception]] = []
     with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
-        futures = [
-            pool.submit(
-                _fingerprint_waiver_task,
-                [module],
-                str(root),
-                str(corpus_path),
-                str(axiom_rules_path),
-                dependency_roots,
-                release_identity,
-                str(axiom_compose_path) if axiom_compose_path else None,
-            )
-            for module in ordered
-        ]
-        index_of = {future: index for index, future in enumerate(futures)}
-        for future in concurrent.futures.as_completed(futures):
-            # The interleaved split this replaces raised the first failing
-            # module of the lowest failing slice (slice index % workers,
-            # position index // workers). Rank failures the same way so the
-            # reported error never depends on which worker finished first.
-            index = index_of[future]
-            rank = (index % workers, index // workers)
-            try:
-                task = future.result()
-            except Exception as error:
-                failures.append((rank, error))
-                continue
-            sys.stderr.write(task.stderr)
-            sys.stderr.flush()
-            if task.error is not None:
-                failures.append((rank, task.error))
-            results.extend(task.rows)
+        unstarted = iter(start_order)
+        in_flight: dict[concurrent.futures.Future, str] = {}
 
-    # The pool waits for submitted work even on failure. Drain every receipt
-    # first so completed modules' captured diagnostics are never discarded.
+        def start_next() -> bool:
+            path = next(unstarted, None)
+            if path is None:
+                return False
+            try:
+                future = pool.submit(
+                    _fingerprint_waiver_task,
+                    [path],
+                    str(root),
+                    str(corpus_path),
+                    str(axiom_rules_path),
+                    dependency_roots,
+                    release_identity,
+                    str(axiom_compose_path) if axiom_compose_path else None,
+                )
+            except Exception as error:
+                # A broken pool refuses new work. Record the refusal for this
+                # module, as a failed future would, and keep going so every
+                # remaining module is accounted for. The module never ran, so
+                # it gets a refusal line instead of a start line.
+                _waiver_partition.write_audit_line(
+                    f"{_waiver_partition.AUDIT_LINE_PREFIX} not started: {path}: "
+                    f"{type(error).__name__}: {error}"
+                )
+                failures.append((failure_rank(path), error))
+                return True
+            # The parent collects results only in this loop, after this
+            # returns, so the start line always precedes the module's finish.
+            progress.start(path)
+            in_flight[future] = path
+            return True
+
+        next_heartbeat = time.monotonic() + _waiver_partition.HEARTBEAT_SECONDS
+        while True:
+            while len(in_flight) < workers and start_next():
+                pass
+            if not in_flight:
+                break
+            done = _wait_for_waiver_tasks(
+                list(in_flight), max(0.0, next_heartbeat - time.monotonic())
+            )
+            if not done or time.monotonic() >= next_heartbeat:
+                progress.heartbeat()
+                next_heartbeat = time.monotonic() + _waiver_partition.HEARTBEAT_SECONDS
+            for future in sorted(done, key=lambda item: index_of_path[in_flight[item]]):
+                path = in_flight.pop(future)
+                progress.finish(path)
+                try:
+                    task = future.result()
+                except Exception as error:
+                    failures.append((failure_rank(path), error))
+                    continue
+                sys.stderr.write(task.stderr)
+                sys.stderr.flush()
+                if task.error is not None:
+                    failures.append((failure_rank(path), task.error))
+                results.extend(task.rows)
+
+    # Every module runs even after a failure. Drain every receipt first so
+    # completed modules' captured diagnostics are never discarded.
     if failures:
         raise min(failures, key=lambda failure: failure[0])[1]
 
@@ -5312,13 +5531,99 @@ def _cmd_validation_waivers_active_paths(args) -> int:
     return 0
 
 
+def _cmd_validation_waivers_audit_costs(args) -> int:
+    """Write the cost table that balances and orders later partitioned audits."""
+    observations: dict[str, list[int]] = {}
+    all_plans: list[_waiver_partition.AuditPlan] = []
+    for log in args.logs:
+        if log == "-":
+            lines = sys.stdin.read().splitlines()
+        else:
+            with open(log, encoding="utf-8", errors="replace") as handle:
+                lines = handle.read().splitlines()
+        found = _waiver_partition.timing_observations(lines)
+        timed = sum(len(values) for values in found.values())
+        plans = _waiver_partition.audit_plans(lines)
+        all_plans.extend(plans)
+        planned = sum(plan.execute for plan in plans) if plans else None
+        name = "stdin" if log == "-" else log
+        # A table that lacks a shard's modules still builds, and those modules
+        # take its median cost, so say when a log does not account for its
+        # shard. The plan line tells a shard that owns no modules apart from a
+        # failed download, which has neither plan nor timing lines.
+        if planned is None and not timed:
+            print(
+                f"warning: {name} has no 'validation-waivers audit: <path> "
+                "<seconds>s' lines and no audit plan line; if its shard audited "
+                "modules, they are missing from the table and will take its "
+                "median cost",
+                file=sys.stderr,
+            )
+        elif planned is not None and timed != planned:
+            print(
+                f"warning: {name} has {timed} timing line(s), but its audit plan "
+                f"says {planned} module(s) execute; modules missing from the "
+                "table will take its median cost",
+                file=sys.stderr,
+            )
+        for path, values in found.items():
+            observations.setdefault(path, []).extend(values)
+    baselines = None
+    if args.jobs_json is not None:
+        baselines = _waiver_partition.partition_baselines_from_jobs(
+            _waiver_partition.load_jobs_listing(
+                Path(args.jobs_json).read_text(encoding="utf-8")
+            ),
+            workers=args.workers,
+            audit_step=args.audit_step,
+        )
+    # A log left out entirely leaves no trace in the others, except that the
+    # run's plan lines say how many shards it had.
+    for gap in _waiver_partition.plan_coverage_gaps(all_plans, baselines or ()):
+        print(
+            f"warning: {gap}; modules of missing shards will take the table's "
+            "median cost",
+            file=sys.stderr,
+        )
+    rendered = _waiver_partition.render_waiver_audit_costs(
+        observations, baselines=baselines, source=args.source
+    )
+    output = Path(args.output)
+    temporary = output.with_name(f".{output.name}.tmp")
+    temporary.write_bytes(rendered)
+    temporary.replace(output)
+    summary = {
+        "success": True,
+        "output": str(output),
+        "modules": len(observations),
+        "partition_baselines": len(baselines or {}),
+        "sha256": hashlib.sha256(rendered).hexdigest(),
+    }
+    if args.json:
+        print(json.dumps(summary, indent=2))
+    else:
+        print(
+            f"Wrote {output}: {summary['modules']} module cost(s), "
+            f"{summary['partition_baselines']} partition baseline(s), "
+            f"sha256 {summary['sha256']}"
+        )
+    return 0
+
+
 def _validation_waiver_audit_partition(
     classified: Sequence[tuple[str, str]],
     *,
     partition_key: str,
     partition_keys_json: str,
+    costs: _waiver_partition.WaiverAuditCosts | None = None,
 ) -> tuple[list[tuple[str, str]], int, int]:
-    """Select one deterministic, exhaustive partition of waiver paths."""
+    """Select one deterministic, exhaustive partition of waiver paths.
+
+    Every key's audit job computes the same owners from the same complete
+    ledger, keys and cost table, so each path is audited exactly once. Without
+    a cost table the owners are the legacy round-robin over the sorted ledger;
+    with one they balance measured module time (`validation_waiver_partition`).
+    """
     try:
         raw_partition_keys = json.loads(partition_keys_json)
     except json.JSONDecodeError as exc:
@@ -5339,11 +5644,13 @@ def _validation_waiver_audit_partition(
             "--partition-key must occur exactly once in --partition-keys-json"
         )
     partition_index = partition_keys.index(partition_key)
-    selected = [
-        item
-        for index, item in enumerate(classified)
-        if index % len(partition_keys) == partition_index
-    ]
+    mismatch = _waiver_partition.baseline_key_mismatch(partition_keys, costs)
+    if mismatch is not None:
+        _waiver_partition.write_audit_line(mismatch)
+    owners = _waiver_partition.assign_waiver_owners(
+        [path for path, _kind in classified], partition_keys, costs
+    )
+    selected = [item for item in classified if owners[item[0]] == partition_key]
     return selected, partition_index, len(partition_keys)
 
 
@@ -5469,13 +5776,18 @@ def _cmd_validation_waivers_audit(args) -> int:
         raise ValueError(
             "--partition-key and --partition-keys-json must be provided together"
         )
+    # The table only places and orders work; no fingerprint or verdict reads it.
+    costs = _waiver_partition.load_waiver_audit_costs(root)
     partition: dict[str, Any] | None = None
+    owned_count = len(all_classified)
     if partition_key is not None:
         owned, partition_index, partition_count = _validation_waiver_audit_partition(
             all_classified,
             partition_key=partition_key,
             partition_keys_json=partition_keys_json,
+            costs=costs,
         )
+        owned_count = len(owned)
         classified = {path: kind for path, kind in owned if path in classified}
         partition = {
             "key": partition_key,
@@ -5483,6 +5795,9 @@ def _cmd_validation_waivers_audit(args) -> int:
             "count": partition_count,
             "total_paths": len(all_classified),
         }
+        if costs is not None:
+            # Without a table the report keeps its legacy bytes.
+            partition["cost_table_sha256"] = costs.sha256
         if requested_scope == "incremental":
             args._validation_waiver_audit_selection.update(
                 selected=len(classified),
@@ -5503,6 +5818,19 @@ def _cmd_validation_waivers_audit(args) -> int:
         else:
             missing_required.add(path)
 
+    if partition is None:
+        owner_text = f"audit owns all {owned_count} waiver path(s)"
+    else:
+        assignment = "round-robin" if costs is None else "cost-balanced"
+        owner_text = (
+            f"partition {partition_key} ({partition['index'] + 1} of "
+            f"{partition['count']}, {assignment}) owns {owned_count} of "
+            f"{len(all_classified)} waiver path(s)"
+        )
+    _waiver_partition.write_audit_line(
+        f"validation-waivers audit plan: {owner_text}; {len(classified)} "
+        f"selected, {len(executable_paths)} to execute"
+    )
     executed = (
         _fingerprint_validation_waiver_modules_parallel(
             executable_paths,
@@ -5513,6 +5841,7 @@ def _cmd_validation_waivers_audit(args) -> int:
                 getattr(args, "axiom_compose_path", None)
             ),
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+            costs=costs,
         )
         if executable_paths
         else []
@@ -5557,16 +5886,23 @@ def _cmd_validation_waivers_audit(args) -> int:
     )
     systemic_discrepancy = len(discrepant) > recheck_budget
     if discrepant and not systemic_discrepancy:
-        rechecked = _fingerprint_validation_waiver_modules(
-            [Path(path) for path in discrepant],
-            root=root,
-            corpus_path=args.corpus_path,
-            axiom_rules_path=args.axiom_rules_path,
-            axiom_compose_path=_resolve_optional_axiom_compose_path(
-                getattr(args, "axiom_compose_path", None)
-            ),
-            rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+        recheck_progress = _waiver_partition.WaiverAuditProgress(
+            len(discrepant), prefix=_waiver_partition.RECHECK_LINE_PREFIX
         )
+        with _waiver_partition.heartbeat_thread(
+            recheck_progress, interval=_waiver_partition.HEARTBEAT_SECONDS
+        ):
+            rechecked = _fingerprint_validation_waiver_modules(
+                [Path(path) for path in discrepant],
+                root=root,
+                corpus_path=args.corpus_path,
+                axiom_rules_path=args.axiom_rules_path,
+                axiom_compose_path=_resolve_optional_axiom_compose_path(
+                    getattr(args, "axiom_compose_path", None)
+                ),
+                rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+                progress=recheck_progress,
+            )
         for result in rechecked:
             result["isolated_recheck"] = True
             executed_by_path[result["path"]] = result
@@ -5712,6 +6048,8 @@ def cmd_validation_waivers(args) -> None:
             exit_code = _cmd_validation_waivers_audit(args)
         elif command == "active-paths":
             exit_code = _cmd_validation_waivers_active_paths(args)
+        elif command == "audit-costs":
+            exit_code = _cmd_validation_waivers_audit_costs(args)
         else:
             raise ValueError(f"unknown validation-waivers command: {command}")
     except Exception as error:
@@ -7896,7 +8234,7 @@ def cmd_oracle_coverage(args):
     fail_on_pending_program_surfaces = (
         getattr(args, "fail_on_pending_program_surfaces", False) is True
     )
-    fail_on_unvalidated_populace_surfaces = (
+    fail_on_unvalidated_microcosm_surfaces = (
         getattr(args, "fail_on_unvalidated_populace_surfaces", False) is True
     )
     fail_on_incomplete_comparable = (
@@ -7932,7 +8270,7 @@ def cmd_oracle_coverage(args):
     pending_program_surfaces = int(
         (report.get("program_surfaces") or {}).get("active_pending_surfaces", 0)
     )
-    unvalidated_populace_surfaces = int(
+    unvalidated_microcosm_surfaces = int(
         (report.get("program_surfaces") or {}).get("unvalidated_populace_surfaces", 0)
     )
     # "Nothing to gate": the classifier found no executable outputs at --root. A
@@ -7970,9 +8308,9 @@ def cmd_oracle_coverage(args):
             and pending_program_surfaces
         )
         or (
-            fail_on_unvalidated_populace_surfaces
+            fail_on_unvalidated_microcosm_surfaces
             and include_program_surfaces
-            and unvalidated_populace_surfaces
+            and unvalidated_microcosm_surfaces
         )
     )
     if fail_on_empty and no_gateable_content:
@@ -8015,7 +8353,7 @@ def cmd_oracle_coverage(args):
             f"status={_format_counter(surfaces['status_counts'])} "
             f"pending={surfaces['pending_surfaces']} "
             f"active_pending={surfaces.get('active_pending_surfaces', 0)} "
-            f"unvalidated_populace={surfaces.get('unvalidated_populace_surfaces', 0)}"
+            f"unvalidated_microcosm={surfaces.get('unvalidated_populace_surfaces', 0)}"
         )
         print(
             "PolicyEngine surface priorities: "
@@ -8023,7 +8361,7 @@ def cmd_oracle_coverage(args):
         )
         if surfaces.get("populace_validation_counts"):
             print(
-                "PolicyEngine Populace validation: "
+                "PolicyEngine Microcosm validation: "
                 f"{_format_counter(surfaces['populace_validation_counts'])}"
             )
         policybench = surfaces.get("policybench")
@@ -8116,16 +8454,16 @@ def cmd_oracle_coverage(args):
         if len(pending_surface_items) > args.limit:
             print(f"  - ... {len(pending_surface_items) - args.limit} more")
 
-    unvalidated_populace_items = (report.get("program_surfaces") or {}).get(
+    unvalidated_microcosm_items = (report.get("program_surfaces") or {}).get(
         "unvalidated_populace_items"
     ) or []
-    if unvalidated_populace_items:
+    if unvalidated_microcosm_items:
         print()
         print(
-            "Active wired PolicyEngine program surfaces without Populace "
+            "Active wired PolicyEngine program surfaces without Microcosm "
             f"validation (first {args.limit}):"
         )
-        for item in unvalidated_populace_items[: args.limit]:
+        for item in unvalidated_microcosm_items[: args.limit]:
             state = f" [{item['state']}]" if item.get("state") else ""
             weight = item.get("policybench_household_weight")
             weight_prefix = (
@@ -8136,8 +8474,8 @@ def cmd_oracle_coverage(args):
                 f"{item.get('populace_validation_status') or 'not_configured'} "
                 f"({item['program_id']})"
             )
-        if len(unvalidated_populace_items) > args.limit:
-            print(f"  - ... {len(unvalidated_populace_items) - args.limit} more")
+        if len(unvalidated_microcosm_items) > args.limit:
+            print(f"  - ... {len(unvalidated_microcosm_items) - args.limit} more")
 
     sys.exit(1 if should_fail else 0)
 
@@ -8453,7 +8791,7 @@ def cmd_classify(args):
 
 
 def cmd_snap_readiness(args):
-    """Report SNAP corpus, RuleSpec, and Populace oracle readiness."""
+    """Report SNAP corpus, RuleSpec, and Microcosm oracle readiness."""
     root = args.root.resolve()
     corpus_root = args.corpus_path.resolve()
     report = build_snap_readiness_report(root, corpus_root=corpus_root)
@@ -8479,7 +8817,7 @@ def cmd_snap_readiness(args):
             f"files={item['rulespec_files']} "
             f"outputs={item['executable_outputs']} "
             f"tests={item['companion_test_files']} "
-            f"populace_config={str(item['policyengine_populace_configured']).lower()} "
+            f"microcosm_config={str(item['policyengine_populace_configured']).lower()} "
             f"program_module={str(item['program_module_exists']).lower()}"
             f"{blocker_suffix}"
         )
@@ -15986,28 +16324,51 @@ def _prune_unused_imports(content: str) -> tuple[str, list[str]]:
     imports_indent = 0
     removed: list[str] = []
 
+    # Per `imports:` block: its header line index, how many items it lost,
+    # and whether any other content (a kept item or a nested key) remains.
+    import_headers: list[int] = []
+    import_removals: list[int] = []
+    import_retained: list[bool] = []
+
     for line in content.splitlines(keepends=True):
         imports_match = re.match(r"^(\s*)imports:\s*$", line)
         if imports_match:
             in_imports = True
             imports_indent = len(imports_match.group(1))
+            import_headers.append(len(repaired_lines))
+            import_removals.append(0)
+            import_retained.append(False)
             repaired_lines.append(line)
             continue
 
         if in_imports:
             stripped = line.strip()
-            if stripped:
+            # A comment line neither ends the block nor counts as content.
+            if stripped and not stripped.startswith("#"):
                 indent = len(line) - len(line.lstrip())
                 item_match = re.match(r"^\s*-\s+(.+?)\s*$", line)
                 if item_match and indent >= imports_indent:
                     item = _strip_yaml_scalar_quotes(item_match.group(1).strip())
                     if item in unused:
                         removed.append(item)
+                        import_removals[-1] += 1
                         continue
+                    import_retained[-1] = True
                 elif indent <= imports_indent:
                     in_imports = False
+                else:
+                    import_retained[-1] = True
 
         repaired_lines.append(line)
+
+    # Pruning every item of a block must drop its header too: a bare
+    # `imports:` loads as null, which the rules engine rejects ("expected a
+    # sequence"). A block that lost nothing, or keeps any content, stays.
+    for header_index, removal_count, retained in reversed(
+        list(zip(import_headers, import_removals, import_retained, strict=True))
+    ):
+        if removal_count and not retained:
+            del repaired_lines[header_index]
 
     return "".join(repaired_lines), removed
 
@@ -25730,6 +26091,7 @@ def _guard_base_manifest_claims(
             APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
             APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
             APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+            APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
         }
     ):
         return set(), [f"{label} has no allowlisted tool/backend contract"]
@@ -27525,6 +27887,7 @@ def _applied_manifest_counts_as_generated(payload: dict, *, depth: int = 0) -> b
         APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
         APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
         APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+        APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
     }
 
 
@@ -27651,7 +28014,12 @@ def _applied_manifest_source_attestation_issues(
 
     reviewed_candidate = (
         backend == ""
-        and payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+        and isinstance(tool, str)
+        and tool
+        in {
+            APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+            APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
+        }
     )
     generated_backend = (
         backend in APPLIED_ENCODING_GENERATED_BACKENDS or reviewed_candidate
@@ -28431,6 +28799,20 @@ def _applied_manifest_tool_execution_issues(
                 f"{manifest_label} model backend must not claim deterministic execution"
             )
         return issues
+    if backend is None and tool == APPLIED_ENCODING_REVIEWED_REPAIR_TOOL:
+        from .reviewed_repair_patch import CHECK_REPAIR_BINDING, verify_repair_binding
+
+        try:
+            verify_repair_binding(payload.get("reviewed_repair"))
+        except (ValueError, TypeError, RecursionError) as exc:
+            issues.append(
+                ValidationIssue(
+                    f"{manifest_label} reviewed repair reconstruction refused: {exc}",
+                    check=CHECK_REPAIR_BINDING,
+                )
+            )
+        check_producer("reviewed repair")
+        return issues
     if backend is None and tool == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL:
         reviewed_ref = payload.get("reviewed_rulespec_ref")
         if (
@@ -28683,6 +29065,10 @@ def _applied_manifest_exact_schema_issues(
         expected_fields = _MODEL_APPLY_MANIFEST_FIELDS
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
         contract = "model"
+    elif backend is None and tool == APPLIED_ENCODING_REVIEWED_REPAIR_TOOL:
+        expected_fields = _REVIEWED_REPAIR_MANIFEST_FIELDS
+        expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
+        contract = "reviewed repair"
     elif backend is None and tool == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL:
         expected_fields = _REVIEWED_CANDIDATE_MANIFEST_FIELDS
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
@@ -32411,7 +32797,14 @@ def _load_verified_applied_encoding_manifest_payload(
     if (
         isinstance(backend, str)
         and backend in APPLIED_ENCODING_ENCODER_BACKENDS
-        or payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+        or (
+            isinstance(payload.get("tool"), str)
+            and payload["tool"]
+            in {
+                APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+                APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
+            }
+        )
     ) and expected_encoder_identity is not None:
         issues.extend(
             _model_apply_validation_execution_issues(
@@ -32421,6 +32814,27 @@ def _load_verified_applied_encoding_manifest_payload(
                 expected_encoder_identity=expected_encoder_identity,
             )
         )
+    if payload.get("tool") == APPLIED_ENCODING_REVIEWED_REPAIR_TOOL:
+        from .reviewed_repair_patch import (
+            CHECK_REPAIR_LINEAGE,
+            verify_manifest_reconstruction,
+        )
+
+        try:
+            verify_manifest_reconstruction(payload, repo_path, manifest_label)
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            subprocess.CalledProcessError,
+            RecursionError,
+        ) as exc:
+            issues.append(
+                ValidationIssue(
+                    f"{manifest_label} reviewed repair lineage refused: {exc}",
+                    check=CHECK_REPAIR_LINEAGE,
+                )
+            )
     if VALIDATION_WAIVER_BINDINGS_FIELD in payload:
         issues.extend(
             _applied_manifest_file_waiver_binding_issues(
@@ -48731,7 +49145,14 @@ def _try_repair_generated_nonexact_proof_excerpts(
                     excerpt=excerpt,
                 )
             else:
-                exact_excerpt = _closest_exact_source_excerpt(
+                # The printed text the excerpt quotes (typography, an added
+                # end mark); then the nearest exact span.
+                # An excerpt the matcher already accepts gets no alignment and
+                # keeps the existing closest-exact repair.
+                aligned = align_proof_excerpt(source_text=source_text, excerpt=excerpt)
+                if aligned == excerpt.strip():
+                    aligned = None
+                exact_excerpt = aligned or _closest_exact_source_excerpt(
                     source_text=source_text,
                     excerpt=excerpt,
                     numeric_profile=numeric_profile,
@@ -60621,6 +61042,34 @@ def _generated_rulespec_yaml_nonparser_issue(
 def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> None:
     """Mechanically bind model output to the resolver's full stored source body."""
 
+    from .reviewed_repair_patch import ReviewedRepairResult, verify_repair_binding
+
+    if isinstance(result, ReviewedRepairResult):
+        package, postimage = verify_repair_binding(result.review_binding)
+        if output_file.read_bytes() != postimage[0]:
+            raise RuntimeError(
+                "Reviewed repair RuleSpec differs from registered postimage"
+            )
+        payload = _safe_load_unique_keys(output_file.read_text())
+        module = payload.get("module") if isinstance(payload, dict) else None
+        verification = (
+            module.get("source_verification") if isinstance(module, dict) else None
+        )
+        attestation = _generated_result_source_attestation(result)
+        if (
+            attestation is None
+            or not isinstance(verification, dict)
+            or result.citation != package.manifest["citation"]
+        ):
+            raise RuntimeError("Reviewed repair lacks bound source identity")
+        issues = _source_attestation_structure_issues(attestation)
+        issues.extend(_source_attestation_binding_issues(attestation, verification))
+        if issues:
+            raise RuntimeError(
+                "Reviewed repair source binding failed: " + "; ".join(issues)
+            )
+        return
+
     backend = str(getattr(result, "backend", "") or "").strip().lower()
     if backend not in APPLIED_ENCODING_ENCODER_BACKENDS:
         return
@@ -60861,6 +61310,35 @@ def _canonical_apply_relative_path(raw_path: Path) -> Path:
 
 def _apply_result_metadata(result) -> dict[str, object]:
     """Return the exact result-owned fields admitted by overlay validation."""
+
+    from .reviewed_repair_patch import TOOL, ReviewedRepairResult, verify_repair_binding
+
+    if isinstance(result, ReviewedRepairResult):
+        package, _postimage = verify_repair_binding(result.review_binding)
+        if (
+            result.tool != TOOL
+            or result.runner != "reviewed-repair"
+            or result.backend is not None
+            or result.model is not None
+            or result.generation_prompt_sha256 is not None
+            or result.trace_file is not None
+            or result.citation != package.manifest["citation"]
+        ):
+            raise RuntimeError(
+                "Reviewed repair result has invalid non-model provenance"
+            )
+        return {
+            "tool": TOOL,
+            "citation": result.citation,
+            "runner": result.runner,
+            "backend": None,
+            "model": None,
+            "generation_prompt_sha256": None,
+            "codex_cli_version": None,
+            "codex_cli_sha256": None,
+            "source_attestation": copy.deepcopy(result.source_attestation),
+            "reviewed_repair": copy.deepcopy(result.review_binding),
+        }
 
     tool = getattr(result, "tool", None)
     if not isinstance(tool, str) or not tool.strip():
@@ -65277,12 +65755,20 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
     # changes modules the stamp returns early on (other backends, non-mapping
     # payloads, reviewed-candidate promotions) and the companion tests, which
     # the stamp never writes.
-    if vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None:
+    from .reviewed_repair_patch import ReviewedRepairResult
+
+    if (
+        not isinstance(result, ReviewedRepairResult)
+        and vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None
+    ):
         _rewrite_generated_yaml_without_non_ascii_escapes(
             output_file,
             contained_in=generated_root,
         )
-    if vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is not True:
+    if (
+        not isinstance(result, ReviewedRepairResult)
+        and vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is not True
+    ):
         _rewrite_generated_yaml_without_non_ascii_escapes(
             output_test,
             contained_in=generated_root,

@@ -67,6 +67,7 @@ CHECK_MODULES: tuple[str, ...] = (
     "axiom_encode.harness.proof_validator",
     "axiom_encode.harness.validator_pipeline",
     "axiom_encode.infra_checks",
+    "axiom_encode.reviewed_repair_patch",
     "axiom_encode.validation_waivers",
 )
 
