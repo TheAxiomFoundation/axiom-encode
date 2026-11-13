@@ -116,6 +116,7 @@ from axiom_encode.yaml_serialization import (
     safe_dump_yaml,
 )
 
+from . import validation_waiver_partition as _waiver_partition
 from . import validation_waivers as _validation_waivers
 from . import version_provenance as _version_provenance
 from .checks import (
@@ -2198,6 +2199,64 @@ def main():
         help="Exact axiom-compose executable for composition modules (no discovery)",
     )
     _add_rulespec_dependency_root_argument(validation_waivers_audit_parser)
+
+    validation_waivers_costs_parser = validation_waivers_subparsers.add_parser(
+        "audit-costs",
+        help=(
+            "Build the waiver audit cost table from an audit run's timing lines "
+            f"(commit it at {_waiver_partition.COST_TABLE_PATH})"
+        ),
+    )
+    validation_waivers_costs_parser.add_argument(
+        "--log",
+        dest="logs",
+        action="append",
+        required=True,
+        help=(
+            "Log with 'validation-waivers audit: <path> <seconds>s' lines, such as "
+            "`gh run view <run> --log` output; repeatable, '-' reads stdin. Pass "
+            "every shard's log: a shard left out leaves its modules at the "
+            "table's median cost"
+        ),
+    )
+    validation_waivers_costs_parser.add_argument(
+        "--jobs-json",
+        type=Path,
+        help=(
+            "The same run's GitHub Actions jobs listing (gh api --paginate "
+            "[--slurp] repos/<owner>/<repo>/actions/runs/<run>/jobs); records "
+            "each shard's non-audit time as its partition baseline"
+        ),
+    )
+    validation_waivers_costs_parser.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help=(
+            "Audit workers per shard in that run; converts a shard's non-audit "
+            "time to module time (default 4)"
+        ),
+    )
+    validation_waivers_costs_parser.add_argument(
+        "--audit-step",
+        default=_waiver_partition.DEFAULT_AUDIT_STEP_NAME,
+        help="Name of the workflow step that runs the audit",
+    )
+    validation_waivers_costs_parser.add_argument(
+        "--source",
+        help="Provenance recorded in the table, such as the run's URL",
+    )
+    validation_waivers_costs_parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="Where to write the table",
+    )
+    validation_waivers_costs_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output a JSON summary",
+    )
 
     validation_waivers_paths_parser = validation_waivers_subparsers.add_parser(
         "active-paths",
@@ -4884,24 +4943,37 @@ def _validation_waiver_path_replacements(
 
 
 @contextlib.contextmanager
-def _validation_waiver_module_timing(relative: str, *, enabled: bool) -> Iterator[None]:
+def _validation_waiver_module_timing(
+    relative: str,
+    *,
+    enabled: bool,
+    progress: _waiver_partition.WaiverAuditProgress | None = None,
+) -> Iterator[None]:
     """Log the initial audit's validation/companion/fingerprint time, off stdout.
 
     Batch setup and isolated discrepancy rechecks are excluded. Rechecks and
     public fingerprint commands do not opt in, so an audited module has one
     timing line even when its outcome needs to be confirmed in isolation.
+    A ``progress`` tracker, which only the parent's serial executor passes,
+    also records the module's start and end for heartbeats.
     """
-    if not enabled:
-        yield
-        return
-    started = time.perf_counter()
+    if progress is not None:
+        progress.start(relative)
     try:
-        yield
+        if not enabled:
+            yield
+            return
+        started = time.perf_counter()
+        try:
+            yield
+        finally:
+            elapsed = time.perf_counter() - started
+            # One write per line avoids interleaving partial lines from workers.
+            sys.stderr.write(f"validation-waivers audit: {relative} {elapsed:.3f}s\n")
+            sys.stderr.flush()
     finally:
-        elapsed = time.perf_counter() - started
-        # One write per line avoids interleaving partial lines from workers.
-        sys.stderr.write(f"validation-waivers audit: {relative} {elapsed:.3f}s\n")
-        sys.stderr.flush()
+        if progress is not None:
+            progress.finish(relative)
 
 
 def _fingerprint_validation_waiver_modules(
@@ -4914,6 +4986,7 @@ def _fingerprint_validation_waiver_modules(
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
     log_timings: bool = False,
+    progress: _waiver_partition.WaiverAuditProgress | None = None,
 ) -> list[dict[str, Any]]:
     """Execute validation and companions against one canonical checkout root.
 
@@ -4948,6 +5021,7 @@ def _fingerprint_validation_waiver_modules(
             rulespec_dependency_roots=rulespec_dependency_roots,
             corpus_release=corpus_release,
             log_timings=log_timings,
+            progress=progress,
         )
 
 
@@ -4961,6 +5035,7 @@ def _fingerprint_validation_waiver_modules_impl(
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
     log_timings: bool = False,
+    progress: _waiver_partition.WaiverAuditProgress | None = None,
 ) -> list[dict[str, Any]]:
     """Fingerprint every module; each validate opens its own resolution scope."""
 
@@ -5031,7 +5106,9 @@ def _fingerprint_validation_waiver_modules_impl(
             pipelines=list(pipelines.values()),
         )
         for relative, (module, content_root) in sorted(resolved_modules.items()):
-            with _validation_waiver_module_timing(relative, enabled=log_timings):
+            with _validation_waiver_module_timing(
+                relative, enabled=log_timings, progress=progress
+            ):
                 pipeline = pipelines[content_root]
                 env = engine_envs[content_root]
                 rulespec_roots = compile_roots[content_root]
@@ -5160,6 +5237,19 @@ def _fingerprint_waiver_task(*args: Any) -> _WaiverAuditTaskResult:
     return _WaiverAuditTaskResult(rows, output.getvalue())
 
 
+def _wait_for_waiver_tasks(
+    futures: Sequence[concurrent.futures.Future], timeout: float
+) -> set[concurrent.futures.Future]:
+    """Return the in-flight tasks that finish within ``timeout`` seconds.
+
+    An empty set means the wait timed out and a heartbeat is due.
+    """
+    done, _pending = concurrent.futures.wait(
+        futures, timeout=timeout, return_when=concurrent.futures.FIRST_COMPLETED
+    )
+    return done
+
+
 def _fingerprint_validation_waiver_modules_parallel(
     modules: list[Path],
     *,
@@ -5168,36 +5258,55 @@ def _fingerprint_validation_waiver_modules_parallel(
     axiom_rules_path: Path,
     axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
+    costs: _waiver_partition.WaiverAuditCosts | None = None,
 ) -> list[dict[str, Any]]:
     """Fingerprint waiver modules across worker processes.
 
-    Submit one module per task to the executor's shared queue, so the next
-    idle worker takes the next unstarted module. With two or more workers,
-    every task runs the serial executor with fresh pipelines, temporary
-    directory, and compile cache, so a task is the standalone execution,
-    independent of worker assignment or neighbors, with process-specific
-    paths canonicalized out of its outcome. With one worker, a single serial
-    call shares that setup across the batch, as before. Either way validate
-    opens a fresh resolution scope per module. A worker failure fails the
-    whole audit. For per-module failures after batch setup, the error is the
-    one the interleaved split would have raised, whatever the completion
-    order; input the old split's per-slice preflight rejected first (a path
-    outside a canonical checkout, say) can surface a different error, which
-    still rejects the audit. Results are re-sorted so output order matches
-    the serial code path exactly.
+    Keep one module per task in flight on every worker, and hand the next
+    unstarted module to the first worker that frees up. Modules start longest
+    first by ``costs`` (path order without a table), which shortens the
+    shard's makespan without changing what any module computes. With two or
+    more workers, every task runs the serial executor with fresh pipelines,
+    temporary directory, and compile cache, so a task is the standalone
+    execution, independent of worker assignment, start order or neighbors,
+    with process-specific paths canonicalized out of its outcome. With one
+    worker, a single serial call shares that setup across the batch, as
+    before. Either way validate opens a fresh resolution scope per module.
+
+    The parent prints a start line for each module it hands to a worker (a
+    not-started line for one a broken pool refuses) and, every
+    ``_waiver_partition.HEARTBEAT_SECONDS``, a heartbeat naming each running
+    module and its elapsed time, so a long module never leaves the log silent.
+
+    A worker failure fails the whole audit. For per-module failures after
+    batch setup, the error is the one the interleaved split would have
+    raised, whatever the start or completion order; input the old split's
+    per-slice preflight rejected first (a path outside a canonical checkout,
+    say) can surface a different error, which still rejects the audit.
+    Results are re-sorted so output order matches the serial code path
+    exactly.
     """
     ordered = sorted(str(module) for module in modules)
     workers = _waiver_audit_worker_count(len(ordered))
     if workers <= 1:
-        return _fingerprint_validation_waiver_modules(
-            [Path(module) for module in ordered],
-            root=root,
-            corpus_path=corpus_path,
-            axiom_rules_path=axiom_rules_path,
-            axiom_compose_path=axiom_compose_path,
-            rulespec_dependency_roots=rulespec_dependency_roots,
-            log_timings=True,
+        _waiver_partition.write_audit_line(
+            f"validation-waivers audit plan: {len(ordered)} module(s) on 1 "
+            "worker, in path order"
         )
+        progress = _waiver_partition.WaiverAuditProgress(len(ordered))
+        with _waiver_partition.heartbeat_thread(
+            progress, interval=_waiver_partition.HEARTBEAT_SECONDS
+        ):
+            return _fingerprint_validation_waiver_modules(
+                [Path(module) for module in ordered],
+                root=root,
+                corpus_path=corpus_path,
+                axiom_rules_path=axiom_rules_path,
+                axiom_compose_path=axiom_compose_path,
+                rulespec_dependency_roots=rulespec_dependency_roots,
+                log_timings=True,
+                progress=progress,
+            )
 
     corpus_release = load_rulespec_local_corpus_release(
         Path(root).resolve(), corpus_path
@@ -5209,44 +5318,96 @@ def _fingerprint_validation_waiver_modules_parallel(
         corpus_release.public_key,
     )
     dependency_roots = tuple(str(path) for path in rulespec_dependency_roots)
+    index_of_path = {path: index for index, path in enumerate(ordered)}
+    start_order = _waiver_partition.audit_order(ordered, costs)
+    if costs is None:
+        order_text = "in path order"
+    else:
+        estimate = sum(costs.cost(path) for path in ordered) / 1000
+        order_text = (
+            f"longest estimated cost first ({estimate:.0f}s of module time, "
+            f"cost table sha256:{costs.sha256[:12]})"
+        )
+    _waiver_partition.write_audit_line(
+        f"validation-waivers audit plan: {len(ordered)} module(s) on {workers} "
+        f"worker(s), {order_text}"
+    )
+    progress = _waiver_partition.WaiverAuditProgress(len(ordered))
+
+    def failure_rank(path: str) -> tuple[int, int]:
+        # The interleaved split this replaced raised the first failing module
+        # of the lowest failing slice (slice index % workers, position
+        # index // workers). Rank failures the same way so the reported error
+        # never depends on start or completion order.
+        index = index_of_path[path]
+        return (index % workers, index // workers)
 
     results: list[dict[str, Any]] = []
     failures: list[tuple[tuple[int, int], Exception]] = []
     with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
-        futures = [
-            pool.submit(
-                _fingerprint_waiver_task,
-                [module],
-                str(root),
-                str(corpus_path),
-                str(axiom_rules_path),
-                dependency_roots,
-                release_identity,
-                str(axiom_compose_path) if axiom_compose_path else None,
-            )
-            for module in ordered
-        ]
-        index_of = {future: index for index, future in enumerate(futures)}
-        for future in concurrent.futures.as_completed(futures):
-            # The interleaved split this replaces raised the first failing
-            # module of the lowest failing slice (slice index % workers,
-            # position index // workers). Rank failures the same way so the
-            # reported error never depends on which worker finished first.
-            index = index_of[future]
-            rank = (index % workers, index // workers)
-            try:
-                task = future.result()
-            except Exception as error:
-                failures.append((rank, error))
-                continue
-            sys.stderr.write(task.stderr)
-            sys.stderr.flush()
-            if task.error is not None:
-                failures.append((rank, task.error))
-            results.extend(task.rows)
+        unstarted = iter(start_order)
+        in_flight: dict[concurrent.futures.Future, str] = {}
 
-    # The pool waits for submitted work even on failure. Drain every receipt
-    # first so completed modules' captured diagnostics are never discarded.
+        def start_next() -> bool:
+            path = next(unstarted, None)
+            if path is None:
+                return False
+            try:
+                future = pool.submit(
+                    _fingerprint_waiver_task,
+                    [path],
+                    str(root),
+                    str(corpus_path),
+                    str(axiom_rules_path),
+                    dependency_roots,
+                    release_identity,
+                    str(axiom_compose_path) if axiom_compose_path else None,
+                )
+            except Exception as error:
+                # A broken pool refuses new work. Record the refusal for this
+                # module, as a failed future would, and keep going so every
+                # remaining module is accounted for. The module never ran, so
+                # it gets a refusal line instead of a start line.
+                _waiver_partition.write_audit_line(
+                    f"{_waiver_partition.AUDIT_LINE_PREFIX} not started: {path}: "
+                    f"{type(error).__name__}: {error}"
+                )
+                failures.append((failure_rank(path), error))
+                return True
+            # The parent collects results only in this loop, after this
+            # returns, so the start line always precedes the module's finish.
+            progress.start(path)
+            in_flight[future] = path
+            return True
+
+        next_heartbeat = time.monotonic() + _waiver_partition.HEARTBEAT_SECONDS
+        while True:
+            while len(in_flight) < workers and start_next():
+                pass
+            if not in_flight:
+                break
+            done = _wait_for_waiver_tasks(
+                list(in_flight), max(0.0, next_heartbeat - time.monotonic())
+            )
+            if not done or time.monotonic() >= next_heartbeat:
+                progress.heartbeat()
+                next_heartbeat = time.monotonic() + _waiver_partition.HEARTBEAT_SECONDS
+            for future in sorted(done, key=lambda item: index_of_path[in_flight[item]]):
+                path = in_flight.pop(future)
+                progress.finish(path)
+                try:
+                    task = future.result()
+                except Exception as error:
+                    failures.append((failure_rank(path), error))
+                    continue
+                sys.stderr.write(task.stderr)
+                sys.stderr.flush()
+                if task.error is not None:
+                    failures.append((failure_rank(path), task.error))
+                results.extend(task.rows)
+
+    # Every module runs even after a failure. Drain every receipt first so
+    # completed modules' captured diagnostics are never discarded.
     if failures:
         raise min(failures, key=lambda failure: failure[0])[1]
 
@@ -5369,13 +5530,99 @@ def _cmd_validation_waivers_active_paths(args) -> int:
     return 0
 
 
+def _cmd_validation_waivers_audit_costs(args) -> int:
+    """Write the cost table that balances and orders later partitioned audits."""
+    observations: dict[str, list[int]] = {}
+    all_plans: list[_waiver_partition.AuditPlan] = []
+    for log in args.logs:
+        if log == "-":
+            lines = sys.stdin.read().splitlines()
+        else:
+            with open(log, encoding="utf-8", errors="replace") as handle:
+                lines = handle.read().splitlines()
+        found = _waiver_partition.timing_observations(lines)
+        timed = sum(len(values) for values in found.values())
+        plans = _waiver_partition.audit_plans(lines)
+        all_plans.extend(plans)
+        planned = sum(plan.execute for plan in plans) if plans else None
+        name = "stdin" if log == "-" else log
+        # A table that lacks a shard's modules still builds, and those modules
+        # take its median cost, so say when a log does not account for its
+        # shard. The plan line tells a shard that owns no modules apart from a
+        # failed download, which has neither plan nor timing lines.
+        if planned is None and not timed:
+            print(
+                f"warning: {name} has no 'validation-waivers audit: <path> "
+                "<seconds>s' lines and no audit plan line; if its shard audited "
+                "modules, they are missing from the table and will take its "
+                "median cost",
+                file=sys.stderr,
+            )
+        elif planned is not None and timed != planned:
+            print(
+                f"warning: {name} has {timed} timing line(s), but its audit plan "
+                f"says {planned} module(s) execute; modules missing from the "
+                "table will take its median cost",
+                file=sys.stderr,
+            )
+        for path, values in found.items():
+            observations.setdefault(path, []).extend(values)
+    baselines = None
+    if args.jobs_json is not None:
+        baselines = _waiver_partition.partition_baselines_from_jobs(
+            _waiver_partition.load_jobs_listing(
+                Path(args.jobs_json).read_text(encoding="utf-8")
+            ),
+            workers=args.workers,
+            audit_step=args.audit_step,
+        )
+    # A log left out entirely leaves no trace in the others, except that the
+    # run's plan lines say how many shards it had.
+    for gap in _waiver_partition.plan_coverage_gaps(all_plans, baselines or ()):
+        print(
+            f"warning: {gap}; modules of missing shards will take the table's "
+            "median cost",
+            file=sys.stderr,
+        )
+    rendered = _waiver_partition.render_waiver_audit_costs(
+        observations, baselines=baselines, source=args.source
+    )
+    output = Path(args.output)
+    temporary = output.with_name(f".{output.name}.tmp")
+    temporary.write_bytes(rendered)
+    temporary.replace(output)
+    summary = {
+        "success": True,
+        "output": str(output),
+        "modules": len(observations),
+        "partition_baselines": len(baselines or {}),
+        "sha256": hashlib.sha256(rendered).hexdigest(),
+    }
+    if args.json:
+        print(json.dumps(summary, indent=2))
+    else:
+        print(
+            f"Wrote {output}: {summary['modules']} module cost(s), "
+            f"{summary['partition_baselines']} partition baseline(s), "
+            f"sha256 {summary['sha256']}"
+        )
+    return 0
+
+
 def _validation_waiver_audit_partition(
     classified: Sequence[tuple[str, str]],
     *,
     partition_key: str,
     partition_keys_json: str,
+    costs: _waiver_partition.WaiverAuditCosts | None = None,
 ) -> tuple[list[tuple[str, str]], int, int]:
-    """Select one deterministic, exhaustive partition of waiver paths."""
+    """Select one deterministic, exhaustive partition of waiver paths.
+
+    Every key's audit job computes the same owners from the same complete
+    ledger, keys and cost table, so each path is audited exactly once. Without
+    a cost table the owners are the legacy round-robin over the sorted ledger;
+    with one they balance measured module time (`validation_waiver_partition`).
+    """
     try:
         raw_partition_keys = json.loads(partition_keys_json)
     except json.JSONDecodeError as exc:
@@ -5396,11 +5643,13 @@ def _validation_waiver_audit_partition(
             "--partition-key must occur exactly once in --partition-keys-json"
         )
     partition_index = partition_keys.index(partition_key)
-    selected = [
-        item
-        for index, item in enumerate(classified)
-        if index % len(partition_keys) == partition_index
-    ]
+    mismatch = _waiver_partition.baseline_key_mismatch(partition_keys, costs)
+    if mismatch is not None:
+        _waiver_partition.write_audit_line(mismatch)
+    owners = _waiver_partition.assign_waiver_owners(
+        [path for path, _kind in classified], partition_keys, costs
+    )
+    selected = [item for item in classified if owners[item[0]] == partition_key]
     return selected, partition_index, len(partition_keys)
 
 
@@ -5526,13 +5775,18 @@ def _cmd_validation_waivers_audit(args) -> int:
         raise ValueError(
             "--partition-key and --partition-keys-json must be provided together"
         )
+    # The table only places and orders work; no fingerprint or verdict reads it.
+    costs = _waiver_partition.load_waiver_audit_costs(root)
     partition: dict[str, Any] | None = None
+    owned_count = len(all_classified)
     if partition_key is not None:
         owned, partition_index, partition_count = _validation_waiver_audit_partition(
             all_classified,
             partition_key=partition_key,
             partition_keys_json=partition_keys_json,
+            costs=costs,
         )
+        owned_count = len(owned)
         classified = {path: kind for path, kind in owned if path in classified}
         partition = {
             "key": partition_key,
@@ -5540,6 +5794,9 @@ def _cmd_validation_waivers_audit(args) -> int:
             "count": partition_count,
             "total_paths": len(all_classified),
         }
+        if costs is not None:
+            # Without a table the report keeps its legacy bytes.
+            partition["cost_table_sha256"] = costs.sha256
         if requested_scope == "incremental":
             args._validation_waiver_audit_selection.update(
                 selected=len(classified),
@@ -5560,6 +5817,19 @@ def _cmd_validation_waivers_audit(args) -> int:
         else:
             missing_required.add(path)
 
+    if partition is None:
+        owner_text = f"audit owns all {owned_count} waiver path(s)"
+    else:
+        assignment = "round-robin" if costs is None else "cost-balanced"
+        owner_text = (
+            f"partition {partition_key} ({partition['index'] + 1} of "
+            f"{partition['count']}, {assignment}) owns {owned_count} of "
+            f"{len(all_classified)} waiver path(s)"
+        )
+    _waiver_partition.write_audit_line(
+        f"validation-waivers audit plan: {owner_text}; {len(classified)} "
+        f"selected, {len(executable_paths)} to execute"
+    )
     executed = (
         _fingerprint_validation_waiver_modules_parallel(
             executable_paths,
@@ -5570,6 +5840,7 @@ def _cmd_validation_waivers_audit(args) -> int:
                 getattr(args, "axiom_compose_path", None)
             ),
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+            costs=costs,
         )
         if executable_paths
         else []
@@ -5614,16 +5885,23 @@ def _cmd_validation_waivers_audit(args) -> int:
     )
     systemic_discrepancy = len(discrepant) > recheck_budget
     if discrepant and not systemic_discrepancy:
-        rechecked = _fingerprint_validation_waiver_modules(
-            [Path(path) for path in discrepant],
-            root=root,
-            corpus_path=args.corpus_path,
-            axiom_rules_path=args.axiom_rules_path,
-            axiom_compose_path=_resolve_optional_axiom_compose_path(
-                getattr(args, "axiom_compose_path", None)
-            ),
-            rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+        recheck_progress = _waiver_partition.WaiverAuditProgress(
+            len(discrepant), prefix=_waiver_partition.RECHECK_LINE_PREFIX
         )
+        with _waiver_partition.heartbeat_thread(
+            recheck_progress, interval=_waiver_partition.HEARTBEAT_SECONDS
+        ):
+            rechecked = _fingerprint_validation_waiver_modules(
+                [Path(path) for path in discrepant],
+                root=root,
+                corpus_path=args.corpus_path,
+                axiom_rules_path=args.axiom_rules_path,
+                axiom_compose_path=_resolve_optional_axiom_compose_path(
+                    getattr(args, "axiom_compose_path", None)
+                ),
+                rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+                progress=recheck_progress,
+            )
         for result in rechecked:
             result["isolated_recheck"] = True
             executed_by_path[result["path"]] = result
@@ -5769,6 +6047,8 @@ def cmd_validation_waivers(args) -> None:
             exit_code = _cmd_validation_waivers_audit(args)
         elif command == "active-paths":
             exit_code = _cmd_validation_waivers_active_paths(args)
+        elif command == "audit-costs":
+            exit_code = _cmd_validation_waivers_audit_costs(args)
         else:
             raise ValueError(f"unknown validation-waivers command: {command}")
     except Exception as error:
