@@ -1,3 +1,7 @@
+## 0.2.2371
+
+- Register reviewed T2036 full-artifact repair (#2241)
+
 ## 0.2.2370
 
 - fix: scope T2036 country evidence to its asserted cases (#2232)
