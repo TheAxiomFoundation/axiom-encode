@@ -710,7 +710,6 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
         companion = pipe._rulespec_test_path(rules_file)
         if pipe.rulespec_dependency_roots or not companion.is_file():
             return None
-        local_form = False
         if imports == []:
             from .bound_form_operands import bind_local_form_snapshot
 
@@ -747,22 +746,25 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
                     is not None
                 )
             if not local_form:
+                from .actual_floor_evidence import bind_same_page_floors
+
+                local_form = bind_same_page_floors(content, sources)
+            if not local_form:
                 return None
-        exports = pipe._complete_source_unit_import_bindings(rules_file)
-        derived = set()
-        for export in exports:
-            provider = _payload(export.content.encode())
-            if any(
-                isinstance(r, dict)
-                and r.get("name") == export.export_name
-                and r.get("kind") == "derived"
-                for r in provider.get("rules", [])
-            ):
-                derived.add(export.export_name)
-        if not local_form and (
-            not derived or not _has_consumer(pipe, content, payload, derived)
-        ):
-            return None
+        else:
+            exports = pipe._complete_source_unit_import_bindings(rules_file)
+            derived = set()
+            for export in exports:
+                provider = _payload(export.content.encode())
+                if any(
+                    isinstance(r, dict)
+                    and r.get("name") == export.export_name
+                    and r.get("kind") == "derived"
+                    for r in provider.get("rules", [])
+                ):
+                    derived.add(export.export_name)
+            if not derived or not _has_consumer(pipe, content, payload, derived):
+                return None
         pending = [rules_file]
         files: dict[Path, ClosureFile] = {}
         while pending:
@@ -913,9 +915,13 @@ def _materialize_snapshot(
                 return None
             capture._child_credit_seed = seed
         elif not bind_local_form_snapshot(content, sources, capture.root_relative):
+            from .actual_floor_evidence import bind_same_page_floors
+
             # An eligible local graph cannot fall back to an unbound same-entity
-            # capture if its resolver selection changed during cloning.
-            return None
+            # capture if its resolver selection changed during cloning. A
+            # same-page floor file is eligible through its own binding.
+            if not bind_same_page_floors(content, sources):
+                return None
     return capture
 
 
