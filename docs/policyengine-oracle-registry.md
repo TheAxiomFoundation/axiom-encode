@@ -240,7 +240,7 @@ axiom-encode oracle-coverage \
 ```
 
 For PolicyEngine program-surface parity, a legal-ID mapping is not enough. Active
-surfaces that the report classifies as `wired` still require a Populace-backed
+surfaces that the report classifies as `wired` still require a Microcosm-backed
 comparison before they can be treated as PE-parity-complete. The program-surface
 manifest can record this under `populace_validation`:
 
@@ -252,12 +252,12 @@ populace_validation:
   last_run: '2026-06-30'
 ```
 
-`validated` entries must cite a Populace comparison command, dataset, and run
+`validated` entries must cite a Microcosm comparison command, dataset, and run
 date. Use `pending_validator`, `blocked`, or `not_applicable` only with a
 concrete rationale. CI jobs that want to forbid unvalidated wired program
 surfaces can use:
 
-Populace comparison commands load a local engine-native H5 artifact first when
+Microcosm comparison commands load a local engine-native H5 artifact first when
 one is available, including cached `policyengine/populace-*` snapshots. Set
 `AXIOM_POPULACE_US_2024_H5`, `AXIOM_POPULACE_US_H5`, `AXIOM_POPULACE_H5`,
 `AXIOM_POPULACE_DATASET`, or `AXIOM_POPULACE_DATA_PATH` to pin validation to a
