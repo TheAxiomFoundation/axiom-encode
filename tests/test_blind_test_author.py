@@ -331,6 +331,22 @@ def test_guard_stops_a_leaking_prompt_before_any_model_call(monkeypatch):
     assert backend.prompts == []
 
 
+def _planted_prompt():
+    payload = yaml.safe_load(PLANTED_MODULE)
+    interface = bta.extract_rule_interface(payload, module="us-xx:x")
+    prompt = bta.build_blind_prompt(source_text=PLANTED_SOURCE, interface=interface)
+    return payload, interface, prompt
+
+
+def _with_interface_text(prompt, extra):
+    return bta.BlindPrompt(
+        instructions=prompt.instructions,
+        citation_line=prompt.citation_line,
+        interface_block=prompt.interface_block + extra + "\n",
+        source_text=prompt.source_text,
+    )
+
+
 @pytest.mark.parametrize(
     "leak",
     [
@@ -340,36 +356,228 @@ def test_guard_stops_a_leaking_prompt_before_any_model_call(monkeypatch):
     ],
 )
 def test_guard_finds_formula_lines_and_module_prose(leak):
-    payload = yaml.safe_load(PLANTED_MODULE)
-    prompt = bta.build_blind_prompt(
-        source_text=PLANTED_SOURCE,
-        interface=bta.extract_rule_interface(payload, module="us-xx:x"),
-    )
+    payload, interface, prompt = _planted_prompt()
     assert bta.find_blindness_violations(prompt, rulespec_payload=payload) == []
-    leaking = bta.BlindPrompt(
-        instructions=prompt.instructions,
-        interface_block=prompt.interface_block + leak + "\n",
-        source_text=prompt.source_text,
+    assert bta.find_interface_leaks(prompt, rulespec_payload=payload) == []
+    assert bta.find_blindness_violations(
+        _with_interface_text(prompt, leak), rulespec_payload=payload
     )
-    assert bta.find_blindness_violations(leaking, rulespec_payload=payload)
 
 
-def test_guard_finds_dates_and_existing_test_names():
-    payload = yaml.safe_load(PLANTED_MODULE)
+def test_guard_finds_existing_test_names_but_not_interface_names():
+    payload, interface, prompt = _planted_prompt()
+    leaking = _with_interface_text(prompt, f'"x": "{PLANTED["test_name"]}"')
+    violations = bta.find_blindness_violations(
+        leaking,
+        rulespec_payload=payload,
+        companion_cases=PLANTED_TESTS,
+        interface=interface,
+    )
+    assert violations and PLANTED["test_name"] in violations[0]
+    # A test named after the output it asserts shows nothing new.
+    named_after_output = [{**PLANTED_TESTS[0], "name": "household_is_eligible"}]
+    assert (
+        bta.find_blindness_violations(
+            prompt,
+            rulespec_payload=payload,
+            companion_cases=named_after_output,
+            interface=interface,
+        )
+        == []
+    )
+    report = bta.run_blind_test_author(
+        rulespec_payload=payload,
+        module="us-xx:x",
+        source_text=PLANTED_SOURCE,
+        backend=bta.FakeBlindAuthorBackend(_answer([])),
+        runner=_StubRunner(),
+        companion_cases=named_after_output,
+    )
+    assert report["counts"]["authored"] == 0
+
+
+# The reviewer's doctored shape: values and dates spelled inside names, a
+# unit, an enumeration member and the citation path.
+DOCTORED_MODULE = """
+format: rulespec/v1
+inputs:
+  - name: limit_is_1500_usd_and_rule_starts_2026_08_01
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD_1500_per_month
+  - name: tier
+    entity: Household free text holds iff fee_ok
+    dtype: String limit 1500
+    period: Month effective 2026-08-01
+    values: [threshold_1500, other]
+rules:
+  - name: fee_ok
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-08-01'
+        formula: limit_is_1500_usd_and_rule_starts_2026_08_01 <= 1500
+"""
+
+
+def test_free_text_in_a_declaration_field_is_dropped_not_copied():
+    interface = bta.extract_rule_interface(
+        yaml.safe_load(DOCTORED_MODULE), module="us-xx:x"
+    )
+    money, tier = interface.inputs
+    assert (money.unit, money.dtype, money.entity) == (None, "Money", "Household")
+    assert (tier.entity, tier.dtype, tier.period) == (None, None, None)
+    assert interface.dropped == (
+        "inputs.limit_is_1500_usd_and_rule_starts_2026_08_01.unit",
+        "inputs.tier.dtype",
+        "inputs.tier.entity",
+        "inputs.tier.period",
+    )
+    rendered = json.dumps(interface.to_json())
+    for free_text in ("per_month", "iff", "effective", "limit 1500"):
+        assert free_text not in rendered
+
+
+@pytest.mark.parametrize(
+    ("field_name", "accepted", "refused"),
+    [
+        ("dtype", ["Money", "Boolean", "Judgment"], ["Money 1500", "Enum[a,b]", "x"]),
+        ("period", ["Month", "Year"], ["Month_from_2026_08", "2026-08", "Monthly"]),
+        ("unit", ["USD", "CAD", "years"], ["USD_1500_per_month", "usd 5", "1500"]),
+        ("entity", ["Household", "T2036CalculationUnit"], ["tax_unit_1500", "A b"]),
+        ("kind", ["derived", "parameter"], ["derived 1500", "formula"]),
+    ],
+)
+def test_declaration_words_are_a_closed_vocabulary(field_name, accepted, refused):
+    for word in accepted:
+        assert bta._type_word(word, field_name) == word
+    for word in (*refused, 1500, None, ["USD"]):
+        assert bta._type_word(word, field_name) is None
+
+
+def test_parameter_values_are_never_read_as_an_enumeration():
+    interface = bta.extract_rule_interface(
+        {
+            "rules": [
+                {"name": "tiers", "kind": "parameter", "values": ["tier_1500", "b"]},
+                {"name": "status", "kind": "derived", "values": ["open", "closed"]},
+            ]
+        },
+        module="us-xx:x",
+    )
+    assert interface.output("tiers").enumeration == ()
+    assert interface.output("status").enumeration == ("open", "closed")
+    assert "tier_1500" not in json.dumps(interface.to_json())
+
+
+def test_values_and_dates_inside_names_are_reported_as_named_leaks():
+    payload = yaml.safe_load(DOCTORED_MODULE)
+    backend = bta.FakeBlindAuthorBackend(_answer([]))
+    kwargs = dict(
+        rulespec_payload=payload,
+        module="us-xx:x",
+        source_text=PLANTED_SOURCE,
+        backend=backend,
+        runner=_StubRunner(),
+    )
+    with pytest.raises(bta.InterfaceLeak) as refused:
+        bta.run_blind_test_author(**kwargs)
+    assert backend.prompts == []
+    for expected in (
+        "formula_number 1500",
+        "effective_date 2026-08-01",
+        "threshold_1500",
+    ):
+        assert expected in str(refused.value)
+    assert "--allow-interface-leaks" in str(refused.value)
+
+    report = bta.run_blind_test_author(**kwargs, allow_interface_leaks=True)
+    assert len(backend.prompts) == 1
+    assert report["interface_leaks_allowed"] is True
+    leaks = {
+        (leak["kind"], leak["value"], leak["carrier"])
+        for leak in report["interface_leaks"]
+    }
+    name = "limit_is_1500_usd_and_rule_starts_2026_08_01"
+    assert ("formula_number", "1500", name) in leaks
+    assert ("effective_date", "2026-08-01", name) in leaks
+    assert ("formula_number", "1500", "threshold_1500") in leaks
+    assert "[interface leak, allowed by the caller]" in bta.render_text_summary(report)
+    assert report["interface_dropped_fields"]
+
+
+def test_a_number_in_the_module_or_citation_path_is_a_named_leak_too():
+    payload = {
+        "rules": [
+            {
+                "name": "allowance",
+                "kind": "parameter",
+                "versions": [{"effective_from": "2026-08-01", "formula": "273"}],
+            }
+        ]
+    }
+    interface = bta.extract_rule_interface(payload, module="us:policies/x/block-273")
     prompt = bta.build_blind_prompt(
         source_text=PLANTED_SOURCE,
-        interface=bta.extract_rule_interface(payload, module="us-xx:x"),
+        interface=interface,
+        citation_path="us/regulation/7/273/9",
     )
-    for token in (PLANTED["effective_from"], PLANTED["test_name"]):
-        leaking = bta.BlindPrompt(
-            instructions=prompt.instructions,
-            interface_block=prompt.interface_block + f'"x": "{token}"\n',
-            source_text=prompt.source_text,
+    leaks = bta.find_interface_leaks(prompt, rulespec_payload=payload)
+    assert {(leak["where"], leak["carrier"]) for leak in leaks} == {
+        ("citation_path", "us/regulation/7/273/9"),
+        ("interface", "us:policies/x/block-273"),
+    }
+
+
+def test_identifier_digits_in_a_formula_and_single_digits_are_not_values():
+    payload = {
+        "rules": [
+            {
+                "name": "line_32600",
+                "kind": "derived",
+                "versions": [{"formula": "line_32600_base * 2 + other_7"}],
+            }
+        ]
+    }
+    interface = bta.extract_rule_interface(payload, module="us:policies/x/block-2")
+    prompt = bta.build_blind_prompt(source_text=PLANTED_SOURCE, interface=interface)
+    assert bta.find_interface_leaks(prompt, rulespec_payload=payload) == []
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "us-xx/manual/x NOTE holds iff fee_ok unless deposit; limit 1500",
+        "holds iff fee_ok",
+        "us-xx/manual/x\neffective 2026-08-01",
+        "us-xx/not-a-document-class/x",
+        "US-XX/manual/x/",
+    ],
+)
+def test_a_free_text_citation_path_is_refused(citation):
+    payload, interface, _ = _planted_prompt()
+    with pytest.raises(bta.BlindnessViolation, match="citation path"):
+        bta.build_blind_prompt(
+            source_text=PLANTED_SOURCE, interface=interface, citation_path=citation
         )
-        violations = bta.find_blindness_violations(
-            leaking, rulespec_payload=payload, companion_cases=PLANTED_TESTS
+
+
+def test_no_model_call_when_the_candidate_does_not_compile():
+    backend = bta.FakeBlindAuthorBackend(_answer(CORRECT_CASES))
+    runner = _StubRunner()
+    runner.compile_error = "compile failed: synthetic"
+    with pytest.raises(bta.BlindTestAuthorError, match="does not compile"):
+        bta.run_blind_test_author(
+            rulespec_payload=yaml.safe_load(MODULE_TEXT),
+            module=MODULE,
+            source_text=SOURCE,
+            backend=backend,
+            runner=runner,
         )
-        assert violations and token in violations[0]
+    assert backend.prompts == [] and runner.cases == []
 
 
 # ---------------------------------------------------------------------------
@@ -422,12 +630,125 @@ def test_case_with_a_sentence_not_in_the_source_is_rejected_and_reported():
 
 def test_verbatim_means_exact_characters_with_only_whitespace_folded():
     assert bta.sentence_in_source(
-        "all of the following occur:\n\n● The utility installation fee", SOURCE
+        "all of the following occur:\n\n\u25cf The utility installation fee", SOURCE
     )
     assert not bta.sentence_in_source(DEPOSIT_SENTENCE.lower(), SOURCE)
     assert not bta.sentence_in_source(
         "One-time deposits are an allowable NA Utility Expense.", SOURCE
     )
+
+
+BOUNDARY_SOURCE = """\
+(a) In general. A household is eligible when income is below the limit; and
+the household applies in person. See the "exceptions." Then stop!
+
+NOTE One-time deposits are not an allowable expense.
+
+1. The first numbered item applies to elderly households.
+\u25cf A bulleted item about shelter costs, which has two parts.
+"""
+
+
+@pytest.mark.parametrize(
+    ("quote", "at_boundaries", "full_item"),
+    [
+        # whole items, with and without their marker
+        ("NOTE One-time deposits are not an allowable expense.", True, True),
+        ("One-time deposits are not an allowable expense.", True, True),
+        ("The first numbered item applies to elderly households.", True, True),
+        ("A bulleted item about shelter costs, which has two parts.", True, True),
+        # whole sentences or list members inside an item
+        ("A household is eligible when income is below the limit;", True, False),
+        ('See the "exceptions."', True, False),
+        (
+            "In general. A household is eligible when income is below the limit;",
+            True,
+            False,
+        ),
+        # several items in a row
+        (
+            "One-time deposits are not an allowable expense. 1. The first "
+            "numbered item applies to elderly households.",
+            True,
+            True,
+        ),
+        # cut inside a sentence: mid-word, conditions dropped, across items
+        ("time deposits are not an allowable expense.", False, False),
+        ("A household is eligible when income", False, False),
+        ("One-time deposits are not an allowable", False, False),
+        ("household is eligible when income is below the limit;", False, False),
+        ("allowable expense. 1. The first numbered item applies", False, False),
+        ("item about shelter costs, which has two parts.", False, False),
+        ("A bulleted item about shelter costs,", False, False),
+    ],
+)
+def test_a_quote_must_start_and_end_at_a_sentence_or_item_boundary(
+    quote, at_boundaries, full_item
+):
+    match = bta.SourceQuotes(BOUNDARY_SOURCE).locate(quote)
+    assert match.found
+    assert (match.at_boundaries, match.covers_full_item) == (at_boundaries, full_item)
+
+
+def test_cut_quotes_are_rejected_and_partial_item_quotes_are_counted():
+    source = SOURCE + "\nThe fee is allowable once. A second fee is never allowable.\n"
+    cut = [
+        _case(
+            "mid_word",
+            "not_holds",
+            "time deposits are not an allowable NA Utility Expense.",
+        ),
+        _case(
+            "conditions_cut_off",
+            "holds",
+            "The initial utility installation fee is an allowable NA Utility Expense",
+        ),
+        _case(
+            "across_bullets",
+            "holds",
+            "initial installation of a utility. \u25cf The utility provider performs",
+            **{INPUTS[1]: False},
+        ),
+    ]
+    partial = _case(
+        "one_sentence_of_an_item",
+        "not_holds",
+        "A second fee is never allowable.",
+        **{INPUTS[0]: False},
+    )
+    report = bta.run_blind_test_author(
+        rulespec_payload={
+            "rules": [{"name": OUTPUT, "kind": "derived", "dtype": "Judgment"}]
+        },
+        module=MODULE,
+        source_text=source,
+        backend=bta.FakeBlindAuthorBackend(_answer([*cut, CORRECT_CASES[0], partial])),
+        runner=_StubRunner(),
+        compiled_payload={
+            "program": {
+                "derived": [{"expr": [{"kind": "input", "name": n} for n in INPUTS]}]
+            }
+        },
+    )
+    assert [item["name"] for item in report["rejected_cases"]] == [
+        "mid_word",
+        "conditions_cut_off",
+        "across_bullets",
+    ]
+    assert {item["reason"] for item in report["rejected_cases"]} == {
+        "source_sentence does not start and end at a sentence or list-item "
+        "boundary of the source text"
+    }
+    assert [(c["name"], c["quote_covers_full_item"]) for c in report["cases"]] == [
+        ("all_conditions_met", True),
+        ("one_sentence_of_an_item", False),
+    ]
+    assert report["quote_stats"] == {
+        "accepted_cases": 2,
+        "quote_shorter_than_its_source_item": 1,
+        "share": 0.5,
+    }
+    assert "1 of 2 accepted cases quote less" in bta.render_text_summary(report)
 
 
 @pytest.mark.parametrize(
@@ -464,6 +785,9 @@ def test_malformed_cases_are_rejected(mutate, reason):
         _answer(CORRECT_CASES) + "\nThe deposit case is the important one.",
         json.dumps(CORRECT_CASES),
         _answer(CORRECT_CASES, commentary="the rule looks right"),
+        '{"cases": [], "stated_commencement": NaN}',
+        '{"cases": [{"name": "a", "period": "2026-08", "inputs": {"x": Infinity}}]}',
+        '{"cases": [{"name": "a", "period": "2026-08", "inputs": {"x": -Infinity}}]}',
         '{"cases": [], "cases": []}',
         "",
     ],
@@ -492,48 +816,335 @@ def test_one_enclosing_fence_and_duplicates_and_the_case_limit():
     ]
 
 
-def test_earliest_period_needs_a_verbatim_basis():
-    def parsed(basis, as_of=None):
-        return bta.parse_blind_response(
-            _answer(
-                [], earliest_supported_period="2026-08", earliest_period_basis=basis
-            ),
-            interface=_interface(),
-            source_text=SOURCE,
-            source_as_of=as_of,
+def test_the_same_case_under_two_names_counts_once():
+    again = {**CORRECT_CASES[0], "name": "all_conditions_met_again"}
+    reordered = {
+        **CORRECT_CASES[1],
+        "name": "reordered_inputs",
+        "inputs": dict(reversed(CORRECT_CASES[1]["inputs"].items())),
+        "source_sentence": ALLOWABLE_SENTENCE,
+    }
+    other_period = {**CORRECT_CASES[0], "name": "next_month", "period": "2026-09"}
+    parsed = bta.parse_blind_response(
+        _answer([*CORRECT_CASES[:2], again, reordered, other_period]),
+        interface=_interface(),
+        source_text=SOURCE,
+    )
+    assert [case.name for case in parsed.cases] == [
+        "all_conditions_met",
+        "not_an_initial_installation",
+        "next_month",
+    ]
+    assert [(item.name, item.reason) for item in parsed.rejected] == [
+        (
+            "all_conditions_met_again",
+            "same inputs, period and expected outputs as `all_conditions_met`",
+        ),
+        (
+            "reordered_inputs",
+            "same inputs, period and expected outputs as `not_an_initial_installation`",
+        ),
+    ]
+
+
+def test_non_finite_numbers_are_rejected():
+    interface = bta.RuleInterface(
+        module=MODULE,
+        inputs=(bta.InterfaceInput("income", "Money"), bta.InterfaceInput("untyped")),
+        outputs=(bta.InterfaceOutput("benefit", "derived", "Money"),),
+    )
+
+    def answer(inputs, expected):
+        return (
+            '{"cases": [{"name": "a", "period": "2026-08", "inputs": %s, '
+            '"expected": %s, "source_sentence": %s}]}'
+            % (inputs, expected, json.dumps(DEPOSIT_SENTENCE))
         )
 
-    assert parsed(DEPOSIT_SENTENCE).earliest_supported_period == "2026-08"
-    assert parsed("source_as_of", "2026-07-17").earliest_supported_period == "2026-08"
-    assert parsed("source_as_of").earliest_supported_period is None
-    assert parsed("Effective August 2026.").earliest_supported_period is None
-    assert parsed("Effective August 2026.").notes
+    for inputs, expected in (
+        ('{"income": 1e999}', '{"benefit": 1}'),
+        ('{"untyped": -1e999}', '{"benefit": 1}'),
+        ('{"income": 1}', '{"benefit": 1e999}'),
+    ):
+        parsed = bta.parse_blind_response(
+            answer(inputs, expected), interface=interface, source_text=SOURCE
+        )
+        assert parsed.cases == ()
+        assert "number must be finite" in parsed.rejected[0].reason
+    for constant in ("NaN", "Infinity", "-Infinity"):
+        parsed = bta.parse_blind_response(
+            answer('{"income": %s}' % constant, '{"benefit": 1}'),
+            interface=interface,
+            source_text=SOURCE,
+        )
+        assert parsed.cases == () and "not a JSON number" in parsed.response_error
+    ok = bta.parse_blind_response(
+        answer('{"income": 1500.5}', '{"benefit": 0}'),
+        interface=interface,
+        source_text=SOURCE,
+    )
+    assert len(ok.cases) == 1
 
 
-def test_only_comparison_mismatches_count_as_disagreement():
+DATED_SOURCE = (
+    SOURCE + "\nThis section applies to expenses billed on or after March 1, 2027.\n"
+)
+DATED_SENTENCE = "This section applies to expenses billed on or after March 1, 2027."
+
+
+@pytest.mark.parametrize(
+    ("stated", "month", "note"),
+    [
+        ({"month": "2027-03", "source_sentence": DATED_SENTENCE}, "2027-03", None),
+        (None, None, None),
+        # A sentence that is real but states no such year proves nothing.
+        ({"month": "2027-03", "source_sentence": DEPOSIT_SENTENCE}, None, "year"),
+        (
+            {"month": "2027-03", "source_sentence": "Effective March 2027."},
+            None,
+            "verbatim",
+        ),
+        (
+            {
+                "month": "2027-03",
+                "source_sentence": "applies to expenses billed on or after March 1, 2027.",
+            },
+            None,
+            "boundary",
+        ),
+        ({"month": "March 2027", "source_sentence": DATED_SENTENCE}, None, "YYYY-MM"),
+        # The model may not name the as-of floor: that month is computed in code.
+        ({"month": "2027-01", "basis": "source_as_of"}, None, "keys must be"),
+        ("2027-03", None, "keys must be"),
+    ],
+)
+def test_a_stated_commencement_needs_the_verbatim_sentence_with_its_year(
+    stated, month, note
+):
+    parsed = bta.parse_blind_response(
+        _answer([], stated_commencement=stated),
+        interface=_interface(),
+        source_text=DATED_SOURCE,
+    )
+    assert parsed.response_error is None
+    assert parsed.stated_commencement_month == month
+    assert (parsed.stated_commencement_sentence is not None) == (month is not None)
+    if note:
+        assert note in parsed.notes[0]
+    else:
+        assert parsed.notes == ()
+
+
+def test_the_old_model_chosen_floor_keys_are_refused():
+    parsed = bta.parse_blind_response(
+        _answer(
+            [],
+            earliest_supported_period="2027-01",
+            earliest_period_basis="source_as_of",
+        ),
+        interface=_interface(),
+        source_text=SOURCE,
+    )
+    assert "unexpected top-level key" in parsed.response_error
+
+
+@pytest.mark.parametrize(
+    ("as_of", "floor"),
+    [
+        ("2026-07-17", "2026-08"),
+        ("2026-07-01", "2026-07"),
+        ("2026-07-31", "2026-08"),
+        ("2026-12-02", "2027-01"),
+        ("2024-01-31", "2024-02"),
+    ],
+)
+def test_the_assumed_evidence_floor_is_computed_in_code(as_of, floor):
+    assert bta.assumed_evidence_floor(as_of) == floor
+
+
+class _DatedRunner:
+    """A candidate that computes from ``starts`` on. No engine."""
+
+    def __init__(self, starts):
+        self.starts = starts
+        self.periods = []
+
+    def run(self, case):
+        self.periods.append(case.period)
+        if case.period < self.starts:
+            return bta.classify_outcome(
+                [
+                    f"Test case `{case.name}` execution failed: derived `o` has no formula version at {case.period}-01"
+                ],
+                [],
+            )
+        return bta.classify_outcome([], [{"output": "o", "mismatch": None}])
+
+
+def _probe_report(
+    starts, *, as_of="2026-07-17", stated=None, cases=CORRECT_CASES[:1], source=SOURCE
+):
+    runner = _DatedRunner(starts)
+    report = bta.run_blind_test_author(
+        rulespec_payload=yaml.safe_load(MODULE_TEXT),
+        module=MODULE,
+        source_text=source,
+        backend=bta.FakeBlindAuthorBackend(_answer(cases, stated_commencement=stated)),
+        runner=runner,
+        compiled_payload={
+            "program": {
+                "derived": [{"expr": [{"kind": "input", "name": n} for n in INPUTS]}]
+            }
+        },
+        source_as_of=as_of,
+    )
+    return report, runner
+
+
+def test_floor_probe_is_marked_as_an_assumption_and_names_the_open_issue():
+    report, runner = _probe_report("2025-10")
+    floor = report["period_probes"]["assumed_evidence_floor"]
+    assert floor["finding"] == "before_assumed_evidence_floor"
+    assert floor["assumption"] is True
+    assert floor["reference"] == "TheAxiomFoundation/axiom-encode#2212"
+    assert (floor["floor_month"], floor["probe_period"]) == ("2026-08", "2026-07")
+    assert (
+        "depends on the decision in TheAxiomFoundation/axiom-encode#2212"
+        in floor["meaning"]
+    )
+    assert runner.periods == ["2026-08", "2026-07"]
+    summary = bta.render_text_summary(report)
+    assert (
+        "ASSUMPTION, not a defect finding; see TheAxiomFoundation/axiom-encode#2212"
+        in summary
+    )
+    assert "is not decided" in summary
+    assert report["period_probes"]["source_stated_date"]["finding"] == "not_probed"
+
+
+def test_floor_probe_is_quiet_for_a_rule_that_starts_at_the_floor():
+    report, _ = _probe_report("2026-08")
+    floor = report["period_probes"]["assumed_evidence_floor"]
+    assert floor["finding"] == "not_before_assumed_evidence_floor"
+    assert floor["assumption"] is True
+    assert "[period" not in bta.render_text_summary(report)
+
+
+def test_the_model_cannot_move_the_floor():
+    # Round-1 finding: an answer naming 2027-01 made an unchanged rule "start
+    # too early". The floor now comes from the as-of date only.
+    dated = {"month": "2027-03", "source_sentence": DATED_SENTENCE}
+    report, runner = _probe_report("2026-08", stated=dated, source=DATED_SOURCE)
+    probes = report["period_probes"]
+    assert (
+        probes["assumed_evidence_floor"]["finding"]
+        == "not_before_assumed_evidence_floor"
+    )
+    assert probes["assumed_evidence_floor"]["floor_month"] == "2026-08"
+    # The stated date is its own probe, with its sentence, and not an assumption.
+    stated = probes["source_stated_date"]
+    assert stated["finding"] == "before_source_stated_date"
+    assert stated["assumption"] is False
+    assert (stated["stated_month"], stated["probe_period"]) == ("2027-03", "2027-02")
+    assert stated["source_sentence"] == DATED_SENTENCE
+    summary = bta.render_text_summary(report)
+    assert "[period, second model's reading]" in summary and DATED_SENTENCE in summary
+    assert "ASSUMPTION" not in summary
+
+
+def test_probes_do_not_run_without_a_reference_month_or_a_runnable_case():
+    report, runner = _probe_report("2026-08", as_of=None)
+    probes = report["period_probes"]
+    assert probes["assumed_evidence_floor"]["finding"] == "not_probed"
+    assert probes["source_stated_date"]["finding"] == "not_probed"
+    assert runner.periods == ["2026-08"]
+    early = _case("too_early", "holds", ALLOWABLE_SENTENCE, period="2026-01")
+    report, _ = _probe_report("2026-08", cases=[early])
+    assert report["period_probes"]["assumed_evidence_floor"]["finding"] == "not_probed"
+
+
+def test_the_prompt_does_not_state_a_start_date_rule():
+    interface = _interface()
+    prompt = bta.build_blind_prompt(
+        source_text=SOURCE, interface=interface, source_as_of="2026-07-17"
+    )
+    assert "captured on 2026-07-17" in prompt.text
+    for rule_like in ("first full", "earliest", "source_as_of", "floor"):
+        assert rule_like not in prompt.controlled
+    with pytest.raises(bta.BlindTestAuthorError, match="YYYY-MM-DD"):
+        bta.build_blind_prompt(
+            source_text=SOURCE,
+            interface=interface,
+            source_as_of="July 2026; limit 1500",
+        )
+
+
+def test_a_mismatch_is_a_disagreement_even_beside_another_issue():
     mismatch = "Test case `a` output `o` expected not_holds, got holds."
+    binding = "Test case `a` input `x` does not resolve to an input slot."
     compared = [{"output": "o", "mismatch": mismatch}]
     assert bta.classify_outcome([], [{"output": "o", "mismatch": None}]).status == (
         bta.STATUS_AGREE
     )
     assert bta.classify_outcome([mismatch], compared).status == bta.STATUS_DISAGREE
-    assert bta.classify_outcome([f"{mismatch} (row #1)"], compared).status == (
-        bta.STATUS_DISAGREE
-    )
-    binding = bta.classify_outcome(
-        [mismatch, "Test case `a` input `x` does not resolve to an input slot."],
-        compared,
-    )
-    assert binding.status == bta.STATUS_NOT_RUNNABLE
-    assert binding.not_runnable_kind == "execution_or_binding"
+    row = bta.classify_outcome([f"{mismatch} (row #1)"], compared)
+    assert (row.status, row.other_issues) == (bta.STATUS_DISAGREE, ())
+    both = bta.classify_outcome([mismatch, binding], compared)
+    assert both.status == bta.STATUS_DISAGREE
+    assert both.issues == (mismatch,) and both.other_issues == (binding,)
+    only_binding = bta.classify_outcome([binding], [{"output": "o", "mismatch": None}])
+    assert only_binding.status == bta.STATUS_NOT_RUNNABLE
+    assert only_binding.not_runnable_kind == "execution_or_binding"
     undated = bta.classify_outcome(
         [
-            "Test case `a` execution failed: derived `o` has no formula version at 2026-01-01"
+            "Test case `a` execution failed: derived `o` has no formula version "
+            "at 2026-01-01"
         ],
         [],
     )
     assert undated.not_runnable_kind == "no_formula_version_at_period"
     assert bta.classify_outcome([], []).status == bta.STATUS_NOT_RUNNABLE
+
+    report = bta.run_blind_test_author(
+        rulespec_payload=yaml.safe_load(MODULE_TEXT),
+        module=MODULE,
+        source_text=SOURCE,
+        backend=bta.FakeBlindAuthorBackend(_answer(CORRECT_CASES[:1])),
+        runner=_StubRunner(both),
+        compiled_payload={
+            "program": {
+                "derived": [{"expr": [{"kind": "input", "name": n} for n in INPUTS]}]
+            }
+        },
+    )
+    assert report["counts"]["disagree"] == 1
+    assert report["cases"][0]["other_issues"] == [binding]
+    assert f"also: {binding}" in bta.render_text_summary(report)
+
+
+def test_real_defect_listing_reads_the_parent_commit_from_each_case():
+    corpus = Path(__file__).parents[1] / "benchmarks" / "verifier" / "real_defects_v0"
+    index = json.loads((corpus / "index.json").read_text())
+    # The round-1 plan read this key from the index, where it does not exist.
+    assert all("parent_commit" not in case for case in index["cases"])
+    rows = bta.real_defect_cases(corpus)
+    assert len(rows) == 106
+    for row in rows:
+        assert row["id"].startswith("us-")
+        assert len(row["fix_commit"]) == len(row["parent_commit"]) == 40
+        assert row["fix_commit"] != row["parent_commit"]
+        assert row["module_path"].endswith(".yaml")
+        assert Path(row["provision"]).is_file()
+    assert len(bta.real_defect_cases(corpus, judgeable_only=False)) == 158
+
+
+def test_script_lists_the_defect_cases_without_other_arguments(capsys):
+    corpus = Path(__file__).parents[1] / "benchmarks" / "verifier" / "real_defects_v0"
+    assert cli.main(["--list-defect-cases", str(corpus)]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 106 and all(len(line.split("\t")) == 5 for line in lines)
+    assert cli.main([]) == 2
+    assert "missing --rules-file" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------
@@ -544,7 +1155,9 @@ def test_only_comparison_mismatches_count_as_disagreement():
 @pytest.fixture
 def claude_launcher(monkeypatch):
     calls = []
-    state = SimpleNamespace(calls=calls, output='{"cases": []}', returncode=0)
+    state = SimpleNamespace(
+        calls=calls, stdout='{"cases": []}', stderr="", returncode=0, cwd_listing=None
+    )
     monkeypatch.setattr(
         validator_pipeline, "_protected_reviewer_context_active", lambda: False
     )
@@ -565,15 +1178,22 @@ def claude_launcher(monkeypatch):
 
     def fake_run(cmd, **kwargs):
         calls.append((cmd, kwargs))
-        return SimpleNamespace(output=state.output, returncode=state.returncode)
+        state.cwd_listing = sorted(Path(kwargs["cwd"]).iterdir())
+        return SimpleNamespace(
+            stdout=state.stdout, stderr=state.stderr, returncode=state.returncode
+        )
 
+    def forbidden(*args, **kwargs):
+        raise AssertionError("the shared launcher joins stderr to stdout")
+
+    monkeypatch.setattr(bta.subprocess, "run", fake_run)
     monkeypatch.setattr(
-        validator_pipeline, "_run_subprocess_with_idle_timeout", fake_run
+        validator_pipeline, "_run_subprocess_with_idle_timeout", forbidden
     )
     return state
 
 
-def test_cli_backend_reuses_the_reviewer_launcher_and_subscription_login(
+def test_cli_backend_reuses_the_reviewer_launch_rules_and_subscription_login(
     claude_launcher,
 ):
     backend = bta.ClaudeCliBlindAuthorBackend(model="opus", timeout=77)
@@ -586,8 +1206,47 @@ def test_cli_backend_reuses_the_reviewer_launcher_and_subscription_login(
     for flag in ("--print", "--safe-mode", "--no-session-persistence"):
         assert flag in cmd
     assert kwargs["env"] == {"HOME": "/synthetic/home"}
-    assert kwargs["env_is_final"] is True
     assert kwargs["timeout"] == 77
+    assert kwargs["stdin"] == subprocess.DEVNULL
+
+
+def test_cli_backend_runs_the_model_in_a_fresh_empty_directory(
+    claude_launcher, tmp_path, monkeypatch
+):
+    (tmp_path / "candidate.yaml").write_text("formula: secret")
+    monkeypatch.chdir(tmp_path)
+    backend = bta.ClaudeCliBlindAuthorBackend()
+    backend.complete("first")
+    backend.complete("second")
+    first, second = (Path(kwargs["cwd"]) for _, kwargs in claude_launcher.calls)
+    assert claude_launcher.cwd_listing == []
+    assert first != second
+    for cwd in (first, second):
+        assert cwd.resolve() != tmp_path.resolve()
+        assert tmp_path.resolve() not in cwd.resolve().parents
+        assert not cwd.exists()
+
+
+def test_cli_backend_parses_stdout_only_and_keeps_stderr_for_the_log(claude_launcher):
+    claude_launcher.stdout = _answer(CORRECT_CASES[:1])
+    claude_launcher.stderr = "warning: synthetic CLI notice\n"
+    backend = bta.ClaudeCliBlindAuthorBackend()
+    report = bta.run_blind_test_author(
+        rulespec_payload=yaml.safe_load(MODULE_TEXT),
+        module=MODULE,
+        source_text=SOURCE,
+        backend=backend,
+        runner=_StubRunner(),
+        compiled_payload={
+            "program": {
+                "derived": [{"expr": [{"kind": "input", "name": n} for n in INPUTS]}]
+            }
+        },
+    )
+    assert report["response_error"] is None
+    assert report["counts"]["agree"] == 1
+    assert report["backend"]["stderr"] == "warning: synthetic CLI notice\n"
+    assert "synthetic CLI notice" not in report["raw_response"]
 
 
 def test_cli_backend_never_falls_back_to_another_model_family(
@@ -601,10 +1260,19 @@ def test_cli_backend_never_falls_back_to_another_model_family(
     assert claude_launcher.calls == []
 
 
-def test_cli_backend_reports_a_failed_run(claude_launcher):
+def test_cli_backend_reports_a_failed_run_and_a_timeout(claude_launcher, monkeypatch):
     claude_launcher.returncode = 1
-    claude_launcher.output = "synthetic failure"
-    with pytest.raises(bta.BlindAuthorBackendError, match="exited 1"):
+    claude_launcher.stderr = "synthetic failure"
+    with pytest.raises(
+        bta.BlindAuthorBackendError, match="exited 1: synthetic failure"
+    ):
+        bta.ClaudeCliBlindAuthorBackend().complete("synthetic prompt")
+
+    def timeout(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+    monkeypatch.setattr(bta.subprocess, "run", timeout)
+    with pytest.raises(bta.BlindAuthorBackendError, match="claude CLI failed"):
         bta.ClaudeCliBlindAuthorBackend().complete("synthetic prompt")
 
 
@@ -615,6 +1283,38 @@ def test_cli_backend_refuses_protected_contexts(claude_launcher, monkeypatch):
     with pytest.raises(bta.BlindAuthorBackendError, match="shadow tool"):
         bta.ClaudeCliBlindAuthorBackend().complete("synthetic prompt")
     assert claude_launcher.calls == []
+
+
+def test_script_stops_before_the_model_when_the_candidate_does_not_compile(
+    tmp_path, capsys
+):
+    policy_root = tmp_path / "rulespec-us" / "us-az"
+    module = policy_root / MODULE_RELATIVE
+    module.parent.mkdir(parents=True)
+    module.write_text(MODULE_TEXT)
+    answer = tmp_path / "answer.json"
+    answer.write_text(_answer(CORRECT_CASES))
+    base = [
+        "--rules-file",
+        str(module),
+        "--policy-repo-path",
+        str(policy_root),
+        # Nothing here can compile: there is no engine at this path.
+        "--axiom-rules-engine-path",
+        str(tmp_path / "no-engine-here"),
+        "--source-text-file",
+        str(FIXTURES / "installation-fee.source.txt"),
+        "--backend",
+        "fake",
+        "--fake-response-file",
+        str(answer),
+        "--out-dir",
+        str(tmp_path / "out"),
+    ]
+    for extra in ([], ["--print-prompt"]):
+        assert cli.main([*base, *extra]) == 2
+        assert "does not compile; no model call was made" in capsys.readouterr().err
+    assert not (tmp_path / "out").exists()
 
 
 def test_script_refuses_provider_credentials(tmp_path, monkeypatch, capsys):
@@ -795,29 +1495,81 @@ def test_a_case_outside_the_formula_versions_is_not_runnable_not_a_disagreement(
 @pytest.mark.parametrize(
     ("effective_from", "finding"),
     [
-        ("2026-08-01", "consistent"),
-        # The withheld block-16 shape: a start date the source does not support.
-        ("2025-10-01", "candidate_applies_before_blind_earliest_period"),
+        ("2026-08-01", "not_before_assumed_evidence_floor"),
+        # The withheld block-16 shape: a start before the ASSUMED floor.
+        ("2025-10-01", "before_assumed_evidence_floor"),
     ],
 )
-def test_period_probe_sees_a_rule_that_starts_before_the_source_supports(
-    tmp_path, real_engine, effective_from, finding
-):
+def test_floor_probe_on_the_real_engine(tmp_path, real_engine, effective_from, finding):
     module_text = MODULE_TEXT.replace("'2026-08-01'", f"'{effective_from}'")
     report, _ = _report(
         tmp_path,
         real_engine,
-        _answer(
-            CORRECT_CASES[:1],
-            earliest_supported_period="2026-08",
-            earliest_period_basis="source_as_of",
-        ),
+        _answer(CORRECT_CASES[:1]),
         module_text,
         source_as_of="2026-07-17",
     )
     assert report["cases"][0]["status"] == bta.STATUS_AGREE
-    assert report["period_probe"]["probe_period"] == "2026-07"
-    assert report["period_probe"]["finding"] == finding
+    floor = report["period_probes"]["assumed_evidence_floor"]
+    assert (floor["floor_month"], floor["probe_period"]) == ("2026-08", "2026-07")
+    assert floor["finding"] == finding
+    assert floor["assumption"] is True
+
+
+def test_script_refuses_then_reports_the_doctored_shape(tmp_path, real_engine, capsys):
+    doctored = (
+        MODULE_TEXT.replace(
+            "    versions:",
+            "    values: [threshold_1500, other]\n    versions:",
+        ).replace(
+            "and not component_is_one_time_deposit",
+            "and not component_is_one_time_deposit\n"
+            "          and limit_is_1500_usd_and_rule_starts_2026_08_01 <= 1500",
+        )
+        + """inputs:
+  - name: limit_is_1500_usd_and_rule_starts_2026_08_01
+    entity: UtilityExpenseComponent
+    dtype: Money
+    period: Month
+    unit: USD_1500_per_month
+"""
+    )
+    _, module = _checkout(tmp_path, doctored)
+    out = tmp_path / "out"
+    base = [
+        "--rules-file",
+        str(module),
+        "--axiom-rules-engine-path",
+        str(real_engine.root),
+        "--source-text-file",
+        str(FIXTURES / "installation-fee.source.txt"),
+        "--out-dir",
+        str(out),
+        "--print-prompt",
+    ]
+    assert cli.main(base) == 2
+    refusal = capsys.readouterr().err
+    for expected in (
+        "formula_number 1500",
+        "effective_date 2026-08-01",
+        "limit_is_1500_usd_and_rule_starts_2026_08_01",
+        "threshold_1500",
+        "--allow-interface-leaks",
+    ):
+        assert expected in refusal
+    assert not out.exists()
+
+    free_text = "us-az/manual/x NOTE holds iff fee_ok unless deposit; limit 1500"
+    assert cli.main([*base, "--citation", free_text, "--allow-interface-leaks"]) == 2
+    assert "citation path" in capsys.readouterr().err
+    assert not out.exists()
+
+    assert cli.main([*base, "--allow-interface-leaks"]) == 0
+    captured = capsys.readouterr()
+    assert "interface leak (allowed)" in captured.err
+    assert "declaration dropped" in captured.out
+    prompt = (out / "prompt.txt").read_text()
+    assert "USD_1500_per_month" not in prompt and "<= 1500" not in prompt
 
 
 def test_script_writes_the_report_and_exits_zero_on_disagreement(

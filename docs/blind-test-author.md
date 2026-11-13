@@ -18,8 +18,9 @@ Three cases from 2026-11-12:
 
 - A candidate for
   `us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-16` passed
-  every machine check with a start date (`2025-10-01`) that the source, a
-  snapshot of 2026-07-17, does not support.
+  every machine check with a start date (`2025-10-01`) that its own source
+  does not state; the date was copied from a neighbouring module
+  (axiom-encode#2212).
 - Candidate rulespec-us#2057 passed and conflicts with 7 CFR 273.9(d)(3).
 - On rulespec-us#2046 and #2047 a human reviewer asked for a July boundary
   case that the encoder's own tests did not have.
@@ -36,51 +37,107 @@ For one module:
    the text directly when no corpus checkout is at hand.
 2. **Interface.** `extract_rule_interface` copies an allow-list from the
    RuleSpec YAML: for each `inputs` entry and each `derived` or `parameter`
-   rule, the name and the single-word declarations `kind`, `dtype`, `entity`,
-   `period`, `unit`, plus enumeration names. Some modules use boolean facts
-   without declaring them; for those, the names (only) come from the compiled
-   program.
-3. **Blindness guard.** Before any model call, `find_blindness_violations`
-   checks the part of the prompt that is not corpus text against the module:
-   every formula (whole and by line), every number in a formula, every
-   parameter value, every `effective_from` / `effective_to`, the module's
-   prose (summary, source labels, proof metadata) and the names of the
-   existing test cases. One hit and the tool stops with an error.
+   rule, the name and the declaration words `kind`, `dtype`, `entity`,
+   `period`, `unit`, plus enumeration names (never for a parameter).
+   `kind`, `dtype` and `period` are closed vocabularies; `unit` is a
+   three-letter currency code or one of a few unit words; `entity` is one
+   CamelCase word. Any other value in such a field is dropped, and the report
+   lists the field under `interface_dropped_fields`. Some modules use boolean
+   facts without declaring them; for those, the names (only) come from the
+   compiled program. A candidate that does not compile stops the tool before
+   any model call.
+3. **Blindness guard.** Before any model call, two checks run on the part of
+   the prompt that is not corpus text:
+   - `find_blindness_violations`: every formula (whole and by line), the
+     module's prose (summary, source labels, proof metadata) and the names of
+     the existing test cases (unless a test is named like an interface name).
+     One hit stops the tool.
+   - `find_interface_leaks`: every number of two or more digits (or with a
+     decimal part) that a formula or a declaration uses, and every effective
+     date, searched inside names, enumeration members, the module path and
+     the citation path, with `_` and other separators split. A name such as
+     `limit_is_1500_usd` or `starts_2026_08_01` is a hit. So is a harmless
+     coincidence such as `fy_2026_...` or `block-13` beside a formula that
+     uses 13. The tool cannot tell these apart, so it does not pass or fail
+     them in silence: it stops, names each hit, and continues only with
+     `--allow-interface-leaks`. The report then records every hit under
+     `interface_leaks`, and the summary repeats them.
+
+   The citation path must be an exact canonical corpus citation path
+   (`corpus_resolver.require_canonical_corpus_citation_path`); free text is
+   refused. The corpus as-of date must be `YYYY-MM-DD`.
 4. **Second model.** The backend is an interface with two implementations:
    `FakeBlindAuthorBackend` (tests) and `ClaudeCliBlindAuthorBackend`, which
    runs `claude --print` on the caller's claude.ai subscription login. It
-   reuses the local reviewer's launcher from
+   reuses the local reviewer's launch rules from
    `harness/validator_pipeline.py`: the same executable resolution, the same
    explicit-allowlist environment (no ambient API key or token), the same
-   tool-less flags. It never falls back to the Codex CLI, because generation
-   uses a GPT model and the second author should be another family. The
-   script refuses to call a model when a provider key is in the environment.
+   tool-less flags. Three differences are deliberate. It never falls back to
+   the Codex CLI, because generation uses a GPT model and the second author
+   should be another family. The child runs in a fresh, empty temporary
+   directory, so the CLI's own context (working directory, git status) cannot
+   describe the candidate. Only stdout is parsed; stderr goes to the report
+   (`backend.stderr`), because the shared launcher joins the two and one CLI
+   warning would make the answer unparseable. The script refuses to call a
+   model when a provider key is in the environment.
 5. **Typed answer.** The answer must be one JSON object: cases with `name`,
    `period` (`YYYY-MM`), `inputs`, `expected` and `source_sentence`. No prose
-   is parsed. A case is rejected, and reported, when its keys or value types
-   are wrong, when it names an input or output that is not in the interface,
-   or when its `source_sentence` is not in the source text character for
-   character (only runs of whitespace are folded).
+   is parsed. A case is rejected, and reported, when:
+   - its keys or value types are wrong, or a number is not finite;
+   - it names an input or output that is not in the interface;
+   - it has the same inputs, period and expected outputs as an earlier case
+     (the same case under two names counts once);
+   - its `source_sentence` is not in the source text character for character
+     (only runs of whitespace are folded);
+   - its `source_sentence` is cut. The quote must start and end at a
+     boundary of the source. A start boundary is the start of an item (a
+     non-empty source line: a paragraph or a list item), the text after the
+     item's marker (a bullet, an enumerator such as `(a)` or `1.`, a label
+     such as `NOTE`), or the text after a sentence end. An end boundary is
+     the end of an item, or a sentence end inside it (`.`, `?`, `!` or `;`,
+     before whitespace). A quote may span several items. A quote that starts
+     or stops inside a sentence is refused, because it can drop the condition
+     that the sentence states.
+
+   The report gives, under `quote_stats`, the share of accepted cases whose
+   quote is shorter than the full source item it sits in (one sentence of a
+   longer paragraph). The boundary rule is lenient at abbreviations ("U.S.C.
+   2014" counts as a sentence end), so read that share as a lower bound on
+   partial quotes.
 6. **Run.** Each case runs as a one-case companion test through
    `ValidatorPipeline._run_rulespec_test_cases` on the real rules engine, the
    runner used for `.test.yaml`. Per case the result is:
    - `agree`: the candidate returns the expected outputs.
-   - `disagree`: the case ran, and an output differs.
-   - `not_runnable`: the case did not run (binding, a missing fact, or
-     `no_formula_version_at_period`). This is never counted as a disagreement.
-7. **Period probe.** An output case cannot see a rule that starts too early.
-   The answer therefore also carries `earliest_supported_period` with its
-   basis: a verbatim sentence, or `source_as_of`, which means the first full
-   month after the corpus as-of date. That fallback follows the comment in the
-   landed block-13 module; it is an assumption of this tool, not a decided
-   rule. The tool runs one case again one month earlier. If the candidate
-   still computes, the report says
-   `candidate_applies_before_blind_earliest_period`.
+   - `disagree`: an output was compared and differs. Other issues of the
+     same case are listed beside it (`other_issues`); they do not hide it.
+   - `not_runnable`: no output mismatch, and the case did not run (binding,
+     a missing fact, or `no_formula_version_at_period`). This is never
+     counted as a disagreement.
+7. **Period probes.** An output case cannot see a rule that starts too early.
+   The tool therefore runs one case that ran again, one month before each of
+   two reference months, and reports whether the candidate still computes.
+   - `assumed_evidence_floor`. The reference month is the first full calendar
+     month that starts on or after the corpus as-of date. The tool computes
+     it; the model is not asked and cannot move it. A hit is
+     `before_assumed_evidence_floor`. **This is an assumption, not a rule.**
+     What the start date of a unit that states no date should be is an open
+     maintainer decision, [axiom-encode#2212](https://github.com/TheAxiomFoundation/axiom-encode/issues/2212).
+     By this convention several hundred modules on rulespec-us main start
+     "early" (441 to 962 in the measurement of that issue). The report marks
+     the probe `"assumption": true` with the issue reference, and the summary
+     line says "ASSUMPTION, not a defect finding". Whether a hit is a defect
+     depends on the decision in #2212.
+   - `source_stated_date`. The second model may give `stated_commencement`:
+     a month and the whole verbatim sentence of the source that states the
+     date (the sentence must pass the quote rule and contain the year). A hit
+     is `before_source_stated_date`. It rests on the model's reading of that
+     sentence, which the report quotes.
 8. **Report.** `report.json` (schema `axiom-encode/blind-test-author-report/v1`:
-   interface, prompt digest, every case with its sentence, status, issues and
-   compared values, rejected cases, the period probe, the raw answer) and
+   interface, dropped fields, interface leaks, prompt digest, every case with
+   its sentence, status, issues and compared values, rejected cases, quote
+   statistics, the period probes, the raw answer, the CLI's stderr) and
    `summary.txt`. The exit status is 0 whatever the cases say; 2 means the
-   tool could not run.
+   tool could not run or refused to.
 
 `--print-prompt` writes the exact prompt and stops before any model call.
 `--replay-report` runs the stored answer of an earlier report against another
@@ -106,8 +163,14 @@ candidate without a model call.
 - **One month periods, flat facts.** Version 1 has no relation inputs, no
   row-ordered outputs and no year periods. Modules that need them give
   `not_runnable` cases.
-- **Verbatim is not relevant.** The citation check proves that the sentence
-  exists, not that it supports the case.
+- **Verbatim is not relevant.** The citation check proves that a whole
+  sentence or item exists, not that it supports the case.
+- **Names can still carry meaning.** The leak check finds numbers and dates
+  that the formulas use. It does not find a value written in words
+  (`fifteen_hundred`), a one-digit number, or a number the formulas do not
+  use. With `--allow-interface-leaks` the leak reaches the model; the report
+  says so, and a result from such a run is weaker evidence of independence.
+- **The floor probe measures an assumption.** See step 7 and #2212.
 - **One sample.** The model is not deterministic. One run is one draw.
 
 ## Measurement plan
@@ -143,9 +206,16 @@ blind() {  # blind <label> <rulespec-us checkout> <module path> [more options]
       --rules-file "$checkout/$module" \
       --axiom-rules-engine-path "$ENGINE" \
       --corpus-path "$CORPUS" --corpus-release-public-key "$KEY" \
-      --out-dir "$R/results/$label" "$@"
+      --out-dir "$R/results/$label" "$@" </dev/null
 }
 ```
+
+If a run stops with "a name or path in the prompt carries a formula value or
+a date", read the named hits. For a coincidence (`block-10` and a formula
+that uses 10) or a leak you accept, run the same command again with
+`--allow-interface-leaks` appended; the report records the hits. If a run
+stops with "does not compile", the candidate needs another engine build; no
+model call was made.
 
 Check the prompt of one module first; this makes no model call:
 
@@ -193,7 +263,9 @@ for path in sorted(pathlib.Path(sys.argv[1]).glob("*/report.json")):
     r = json.loads(path.read_text()); c = r["counts"]
     print(f"{path.parent.name:14} agree={c['agree']} disagree={c['disagree']} "
           f"not_runnable={c['not_runnable']} rejected={c['rejected']} "
-          f"period={r['period_probe']['finding']} error={r['response_error']}")
+          f"floor_probe(ASSUMPTION #2212)={r['period_probes']['assumed_evidence_floor']['finding']} "
+          f"stated_date_probe={r['period_probes']['source_stated_date']['finding']} "
+          f"leaks={len(r['interface_leaks'])} error={r['response_error']}")
 PY
 ```
 
@@ -204,9 +276,14 @@ is `$G/_eval_workspaces/codex-gpt-6.1-sol/us-az-manual-des-faa5-na-utility-expen
 
 Questions for part (a), answered by reading each `summary.txt`:
 
-- Withheld block-16: is `period_probe.finding` equal to
-  `candidate_applies_before_blind_earliest_period`? That is the "caught the
-  unsupported date" result. Compare with `pr-2201`, the later block-16.
+- Withheld block-16: what do the two period probes say? A
+  `before_assumed_evidence_floor` here means only that the probe flags a
+  start before the ASSUMED floor (2026-08, from the as-of date 2026-07-17);
+  whether that is a defect depends on the decision in #2212. It is not
+  "caught the unsupported date". A `before_source_stated_date` would be a
+  claim by the second model, to check against its quoted sentence; block 16
+  states no date, so `not_probed` is the expected value. Compare with
+  `pr-2201`, the later block-16.
 - #2046 and #2047: does the blind author write the July boundary case the
   human reviewer asked for, and does the candidate agree?
 - block-13 (landed): every `disagree` is read by a person and labelled
@@ -231,16 +308,12 @@ cases; the engine build that compiles a historical commit may differ from
 `$ENGINE`, and that is not verified yet.
 
 ```bash
-uv run python - <<'PY' > "$R/defect-cases.tsv"
-import json
-index = json.load(open("benchmarks/verifier/real_defects_v0/index.json"))
-for case in index["cases"]:
-    if case["jurisdiction"] == "us" and case["judgeable_from_provision"]:
-        print(case["id"], case["commit"], case["parent_commit"], case["module_path"], sep="\t")
-PY
+# id, fix commit, parent commit, module path, provision file (106 rows).
+# The parent commit is in each cases/<id>/case.json, not in index.json.
+uv run python scripts/blind_test_author.py \
+  --list-defect-cases benchmarks/verifier/real_defects_v0 > "$R/defect-cases.tsv"
 
-head -10 "$R/defect-cases.tsv" | while IFS=$'\t' read -r id fix parent module; do
-  src=benchmarks/verifier/real_defects_v0/cases/$id/provision.txt
+head -10 "$R/defect-cases.tsv" | while IFS=$'\t' read -r id fix parent module src; do
   for side in post:$fix pre:$parent; do
     mkdir -p "$R/checkouts/defects/$id/${side%%:*}"
     git -C "$R/checkouts/main/rulespec-us" worktree add -q --detach \
@@ -250,15 +323,20 @@ head -10 "$R/defect-cases.tsv" | while IFS=$'\t' read -r id fix parent module; d
     uv run python scripts/blind_test_author.py \
       --rules-file "$R/checkouts/defects/$id/post/rulespec-us/$module" \
       --axiom-rules-engine-path "$ENGINE" --source-text-file "$src" \
-      --out-dir "$R/results-defects/$id/post"
+      --out-dir "$R/results-defects/$id/post" </dev/null
   env -i HOME="$HOME" USER="$USER" TMPDIR="${TMPDIR:-/tmp}" PATH="$PATH" \
     uv run python scripts/blind_test_author.py \
       --rules-file "$R/checkouts/defects/$id/pre/rulespec-us/$module" \
       --axiom-rules-engine-path "$ENGINE" --source-text-file "$src" \
       --replay-report "$R/results-defects/$id/post/report.json" \
-      --out-dir "$R/results-defects/$id/pre"
+      --out-dir "$R/results-defects/$id/pre" </dev/null
 done
 ```
+
+The listing is tested against the stored index (`tests/test_blind_test_author.py`).
+The worktree and run steps are not tested: they need the rulespec-us history
+and, for the first run of each pair, a model call. A pair whose module does
+not compile on `$ENGINE` stops with exit 2 and makes no model call.
 
 Expected runtime: one model call per case (the replay makes none), so about
 20 to 40 minutes for the pilot and 3 to 6 hours for all 106 US cases.
@@ -284,14 +362,25 @@ count those separately.
 
 ## What is verified, and what is not
 
-Verified with the fake model and the real rules engine (`tests/test_blind_test_author.py`):
-no formula, value, date, prose or existing test reaches the prompt; a
-sentence that is not in the source is rejected; correct blind cases agree
-with a correct rule; a planted negated condition is caught; a start date
-before the supported period is flagged by the period probe; the CLI backend
-builds the reviewer's command and environment (subprocess replaced).
+Verified with the fake model (`tests/test_blind_test_author.py`; the cases
+that execute rules use the real rules engine):
+
+- no formula, value, date, prose or existing test reaches the prompt; free
+  text in a declaration field is dropped; a free-text citation path is
+  refused; a value or date inside a name is refused, or reported when the
+  caller allows it;
+- a quote that is not in the source, or is cut inside a sentence, is
+  rejected; a repeated case and a non-finite number are rejected;
+- correct blind cases agree with a correct rule; a planted negated condition
+  is caught; a mismatch beside another issue is a disagreement;
+- the floor probe uses the month computed from the as-of date only, and is
+  marked as an assumption;
+- the CLI backend builds the reviewer's command and environment, runs in an
+  empty directory and parses stdout only (subprocess replaced);
+- the tool stops before a model call when the candidate does not compile.
 
 Not verified, because no model call has been made: that the `claude` CLI
-returns the typed JSON reliably; how often real answers are rejected or not
-runnable; whether a real second model catches the block-16 date or any
-stored defect; the false-disagreement rate; the runtimes above.
+returns the typed JSON reliably; how often real answers are rejected (the
+quote boundary rule may reject honest quotes) or not runnable; how often real
+modules trip the interface-leak check; whether a real second model catches
+any stored defect; the false-disagreement rate; the runtimes above.

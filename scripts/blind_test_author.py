@@ -17,7 +17,10 @@ Example (local claude.ai subscription login, no API key):
 
 The second model sees the corpus source text and the module's declared
 interface only. ``--print-prompt`` writes the exact prompt and stops before
-any model call.
+any model call. The tool stops, with exit 2 and no model call, when the
+candidate does not compile, when the prompt would carry module text, or when
+a name or path carries a formula number or an effective date
+(``--allow-interface-leaks`` continues and records the leak in the report).
 """
 
 from __future__ import annotations
@@ -48,14 +51,14 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--rules-file", type=Path, required=True)
+    parser.add_argument("--rules-file", type=Path)
     parser.add_argument(
         "--policy-repo-path",
         type=Path,
         help="Jurisdiction root, e.g. <rulespec-us>/us-az. Default: derived "
         "from --rules-file.",
     )
-    parser.add_argument("--axiom-rules-engine-path", type=Path, required=True)
+    parser.add_argument("--axiom-rules-engine-path", type=Path)
     parser.add_argument("--axiom-rules-engine-ref")
     parser.add_argument(
         "--citation",
@@ -99,7 +102,22 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--period-hint", help="YYYY-MM")
     parser.add_argument("--max-cases", type=int, default=bta.DEFAULT_MAX_CASES)
-    parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument("--out-dir", type=Path)
+    parser.add_argument(
+        "--allow-interface-leaks",
+        action="store_true",
+        help="Proceed when a name or path in the prompt carries a formula "
+        "number or an effective date. The report records each leak. Read the "
+        "refusal first; use this for a coincidence or an accepted leak.",
+    )
+    parser.add_argument(
+        "--list-defect-cases",
+        type=Path,
+        metavar="DIR",
+        help="Print id, fix commit, parent commit, module path and provision "
+        "file of the judgeable US cases of benchmarks/verifier/real_defects_v0 "
+        "(tab-separated) and stop.",
+    )
     parser.add_argument(
         "--print-prompt",
         action="store_true",
@@ -179,6 +197,28 @@ def _backend(args: argparse.Namespace) -> bta.BlindAuthorBackend:
 
 
 def _run(args: argparse.Namespace) -> int:
+    if args.list_defect_cases is not None:
+        for row in bta.real_defect_cases(args.list_defect_cases):
+            print(
+                row["id"],
+                row["fix_commit"],
+                row["parent_commit"],
+                row["module_path"],
+                row["provision"],
+                sep="\t",
+            )
+        return 0
+    missing = [
+        flag
+        for flag, value in (
+            ("--rules-file", args.rules_file),
+            ("--axiom-rules-engine-path", args.axiom_rules_engine_path),
+            ("--out-dir", args.out_dir),
+        )
+        if value is None
+    ]
+    if missing:
+        raise bta.BlindTestAuthorError(f"missing {', '.join(missing)}")
     out_dir = args.out_dir.expanduser()
     rules_file = args.rules_file.expanduser().resolve()
     policy_repo_path = _policy_repo_path(rules_file, args.policy_repo_path)
@@ -214,7 +254,6 @@ def _run(args: argparse.Namespace) -> int:
             "raw_response"
         ]
     backend = _backend(args)
-    out_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="blind-test-author-") as work_dir:
         runner = bta.EngineCaseRunner(
             rules_file=rules_file,
@@ -224,44 +263,41 @@ def _run(args: argparse.Namespace) -> int:
             axiom_rules_engine_ref=args.axiom_rules_engine_ref,
         )
         if runner.compile_error:
-            print(f"warning: {runner.compile_error}", file=sys.stderr)
+            # The interface of a module that does not compile is not known,
+            # and its cases could not run: stop before any model call.
+            raise bta.BlindTestAuthorError(
+                "the candidate does not compile; no model call was made: "
+                f"{runner.compile_error}"
+            )
         common = dict(
+            rulespec_payload=rulespec_payload,
+            module=runner.module,
+            source_text=source_text,
+            compiled_payload=runner.compiled_payload,
+            companion_cases=companion_cases,
             citation_path=citation,
             source_as_of=source_as_of,
             period_hint=args.period_hint,
             max_cases=args.max_cases,
+            allow_interface_leaks=args.allow_interface_leaks,
         )
         if args.print_prompt:
-            interface = bta.extract_rule_interface(
-                rulespec_payload,
-                module=runner.module,
-                compiled_payload=runner.compiled_payload,
-            )
-            prompt = bta.build_blind_prompt(
-                source_text=source_text, interface=interface, **common
-            )
-            violations = bta.find_blindness_violations(
-                prompt,
-                rulespec_payload=rulespec_payload,
-                companion_cases=companion_cases,
-                citation_path=citation,
-            )
-            if violations:
-                raise bta.BlindnessViolation("; ".join(violations))
-            (out_dir / "prompt.txt").write_text(prompt.text, encoding="utf-8")
+            prepared = bta.prepare_blind_prompt(**common)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "prompt.txt").write_text(prepared.prompt.text, encoding="utf-8")
+            for leak in prepared.interface_leaks:
+                print(f"interface leak (allowed): {leak}", file=sys.stderr)
+            for dropped in prepared.interface.dropped:
+                print(f"declaration dropped, not a declaration word: {dropped}")
             print(f"prompt written: {out_dir / 'prompt.txt'} (no model call)")
             return 0
         report = bta.run_blind_test_author(
-            rulespec_payload=rulespec_payload,
-            module=runner.module,
-            source_text=source_text,
             backend=backend,
             runner=runner,
-            compiled_payload=runner.compiled_payload,
-            companion_cases=companion_cases,
             authored_response=authored_response,
             **common,
         )
+        out_dir.mkdir(parents=True, exist_ok=True)
     report["rules_file"] = str(rules_file)
     summary = bta.render_text_summary(report)
     (out_dir / "report.json").write_text(
