@@ -205,7 +205,6 @@ from .generalist_review_record import (
     applied_pair,
     build_generalist_review_record,
     generalist_review_record_issues,
-    require_review_setting,
     review_requirement_refusal,
 )
 from .harness.amendment_timing import amendment_timing_issues
@@ -731,15 +730,21 @@ _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS = (
 _REVIEWED_CANDIDATE_PER_FILE_WAIVER_MANIFEST_FIELDS = (
     _REVIEWED_CANDIDATE_MANIFEST_FIELDS - _PER_FILE_WAIVER_FIELD_SWAP[0]
 ) | _PER_FILE_WAIVER_FIELD_SWAP[1]
-# Generalist review record (#2146): the per-file model contracts plus the
-# record of the encode's one model review. A verifier older than #2146
+# Generalist review record (#2146): the model contracts, in either waiver
+# shape, plus the record of the encode's one model review. A verifier older than #2146
 # rejects the field, so the writer emits it only for a target whose protected
 # base verifies with the main encoder and holds it at no earlier commit.
 # Admission accepts the shapes with and without it.
-_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS = (
+_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS = _MODEL_APPLY_MANIFEST_FIELDS | {
+    GENERALIST_REVIEW_FIELD
+}
+_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS = (
+    _MODEL_CODEX_APPLY_MANIFEST_FIELDS | {GENERALIST_REVIEW_FIELD}
+)
+_MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS = (
     _MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS | {GENERALIST_REVIEW_FIELD}
 )
-_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS = (
+_MODEL_CODEX_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS = (
     _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS | {GENERALIST_REVIEW_FIELD}
 )
 _RETIRE_APPLY_MANIFEST_FIELDS = frozenset(
@@ -868,12 +873,14 @@ _APPLIED_MANIFEST_SCHEMA_VARIANTS = {
         _MODEL_APPLY_MANIFEST_FIELDS,
         _MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
         _MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
+        _MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS,
     ),
     "codex model": (
         _MODEL_APPLY_MANIFEST_FIELDS,
         _MODEL_CODEX_APPLY_MANIFEST_FIELDS,
         _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
         _MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
+        _MODEL_CODEX_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS,
     ),
     "reviewed candidate promotion": (
         _REVIEWED_CANDIDATE_MANIFEST_FIELDS,
@@ -1039,13 +1046,18 @@ for _old_fields, _per_file_fields in (
     )
 del _old_fields, _per_file_fields
 for _per_file_fields, _review_fields in (
+    (_MODEL_APPLY_MANIFEST_FIELDS, _MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS),
+    (
+        _MODEL_CODEX_APPLY_MANIFEST_FIELDS,
+        _MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
+    ),
     (
         _MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
-        _MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
+        _MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS,
     ),
     (
         _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
-        _MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
+        _MODEL_CODEX_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS,
     ),
 ):
     # The record holds digests and enumerated words only; it scans like the rest.
@@ -3749,10 +3761,13 @@ def main():
         action="store_true",
         help=(
             "With --apply, refuse to apply unless the generalist reviewer ran, "
-            "its result was read, it passed, and it reviewed the exact bytes "
-            "being applied. A reviewer that cannot start, an unreadable result "
-            "or a failed review ends the encode unsuccessfully with nothing "
-            "applied. Also set by AXIOM_ENCODE_REQUIRE_REVIEW=1. Off by default."
+            "its result was read, it passed, and its prompt showed it the whole "
+            "content of every file being applied (the source stamp that apply "
+            "writes afterwards does not count as a change). A reviewer that "
+            "cannot start, an unreadable or failed review, a file changed or "
+            "added after the review, or a file longer than the review prompt "
+            "shows ends the encode unsuccessfully with nothing applied. This "
+            "flag is the only switch. Off by default."
         ),
     )
     encode_parser.add_argument(
@@ -28507,8 +28522,9 @@ def _target_admits_generalist_review_record(policy_repo_path: Path) -> bool:
     when the target's protected base verifies with the main encoder, which is
     never older than the encoder that writes, and sets no
     ``encoder_verifier_hold``: a hold verifies with one exact earlier commit,
-    which may predate the field. The value comes from the same protected Git
-    objects as the waiver shape; a malformed value refuses to sign.
+    which may predate the field. The value comes from protected Git objects,
+    so ``policy_repo_path`` must be inside the real checkout, not a staged
+    copy of it; a malformed value refuses to sign.
     """
 
     if not _target_uses_per_file_waiver_bindings(policy_repo_path):
@@ -34588,19 +34604,19 @@ def cmd_encode(args):
 def _encode_requires_review(args) -> bool:
     """Return whether this encode refuses to apply without a passed review.
 
-    Refuses contradictory or unreadable settings before any model call.
+    ``--require-review`` is the only switch. An environment variable would
+    not reach the encode in the signed lanes: the signing supervisor builds
+    the child environment from empty. Refuses contradictory settings before
+    any model call.
     """
 
-    flag = getattr(args, "require_review", False) is True
-    apply_requested = getattr(args, "apply", False) is True
-    if flag and not apply_requested:
+    required = getattr(args, "require_review", False) is True
+    if required and getattr(args, "apply", False) is not True:
         raise ValueError("encode --require-review requires --apply")
-    required = require_review_setting(flag, os.environ) and apply_requested
     if required and getattr(args, "skip_reviewers", False) is True:
         raise ValueError(
             "encode cannot both require the generalist review "
-            "(--require-review or AXIOM_ENCODE_REQUIRE_REVIEW=1) and skip it "
-            "(--skip-reviewers)"
+            "(--require-review) and skip it (--skip-reviewers)"
         )
     return required
 
@@ -42372,11 +42388,24 @@ def _run_encode_attempt(
                     # The manifest writer rebuilds this against the digests it
                     # signs and enforces the requirement again; this check
                     # refuses before any signing or installation starts.
+                    candidate_pairs = _review_applied_pairs(
+                        [Path(str(getattr(result, "output_file", "") or ""))]
+                    )
                     review_record = build_generalist_review_record(
                         review_state,
-                        _review_applied_pairs(
-                            [Path(str(getattr(result, "output_file", "") or ""))]
-                        ),
+                        candidate_pairs,
+                        # Overlay validation can add repaired dependents; the
+                        # reviewer never read them.
+                        [
+                            digest
+                            for pair in candidate_pairs
+                            for digest in (pair.rulespec_sha256, pair.test_sha256)
+                            if digest is not None
+                        ]
+                        + [
+                            hashlib.sha256(content.encode("utf-8")).hexdigest()
+                            for content in dict(supplemental_files or {}).values()
+                        ],
                     )
                     setattr(result, _GENERALIST_REVIEW_STATE_ATTR, review_state)
                     outcome["generalist_review"] = review_record
@@ -62974,6 +63003,9 @@ def _stage_signed_apply_manifest(
                 )
             ),
             allow_shrink=allow_shrink,
+            # The staged checkout holds no Git objects; the record gate reads
+            # the protected base of the real one.
+            review_record_gate_root=content_root,
         )
         manifest_relative = staged_manifest.relative_to(staged_checkout)
         return manifest_relative, staged_manifest.read_bytes()
@@ -65397,6 +65429,7 @@ def _write_applied_encoding_manifest(
     run_id: str | None = None,
     existing_manifest_path: Path | None = None,
     allow_shrink: bool = False,
+    review_record_gate_root: Path | None = None,
 ) -> Path:
     """Record that live RuleSpec files were installed by the encoder."""
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
@@ -65540,12 +65573,17 @@ def _write_applied_encoding_manifest(
         review_record = build_generalist_review_record(
             review_state,
             _review_applied_pairs(unique_applied_files),
+            [str(item["sha256"]) for item in payload["applied_files"]],
         )
         if review_state.required:
             refusal = review_requirement_refusal(review_record)
             if refusal is not None:
                 raise RuntimeError(refusal)
-        if per_file_shape and _target_admits_generalist_review_record(policy_repo_path):
+        # The protected base is read from the real checkout: a staged copy
+        # has no Git objects, so it can never show that the target opted in.
+        if _target_admits_generalist_review_record(
+            review_record_gate_root or policy_repo_path
+        ):
             payload[GENERALIST_REVIEW_FIELD] = review_record
     if per_file_shape:
         payload[VALIDATION_WAIVER_BINDINGS_FIELD] = (
@@ -71218,7 +71256,12 @@ def _encode_iteration_verdict(
     status = outcome.get("status")
     if status in {"apply_applied", "apply_blocked_manifest"}:
         return True, None
-    if status in {"apply_blocked_generation", "apply_blocked_validation"}:
+    if status in {
+        "apply_blocked_generation",
+        "apply_blocked_validation",
+        # A required review that did not pass: the candidate was not applied.
+        "apply_blocked_review",
+    }:
         return False, _encode_outcome_issue(result, outcome)
     success = bool(getattr(result, "success", False))
     return success, None if success else _encode_outcome_issue(result, outcome)

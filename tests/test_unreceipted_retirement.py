@@ -1642,6 +1642,8 @@ _SCAN_SCHEMA_NAMES = (
     "_REVIEWED_CANDIDATE_PER_FILE_WAIVER_MANIFEST_FIELDS",
     "_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
     "_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+    "_MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
+    "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
 )
 # Independent audited sets: adding a field requires an explicit classification.
 _EXPECTED_COMMON_SCANNED = frozenset(
@@ -1771,16 +1773,22 @@ for _set_name, _per_file_name in (
         (_EXPECTED_MANIFEST_CLASSES[_set_name][1] - {"validation_waiver_set_sha256"})
         | {"validation_waiver_bindings"},
     )
-# Generalist review record variants (#2146): the per-file model shapes plus the
-# record, which is scanned. It holds digests and enumerated words only.
+# Generalist review record variants (#2146): the model shapes, in either waiver
+# shape, plus the record, which is scanned. It holds digests and enumerated
+# words only.
 for _per_file_name, _review_name in (
+    ("_MODEL_APPLY_MANIFEST_FIELDS", "_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS"),
+    (
+        "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
+        "_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+    ),
     (
         "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
-        "_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+        "_MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
     ),
     (
         "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
-        "_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+        "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
     ),
 ):
     _EXPECTED_MANIFEST_CLASSES[_review_name] = (
@@ -1979,6 +1987,7 @@ def test_manifest_scan_recognition_matches_direct_schema_admission(schema_name):
                     "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
                     "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
                     "_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+                    "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
                 }
                 and backend != "codex"
             )
@@ -1988,7 +1997,7 @@ def test_manifest_scan_recognition_matches_direct_schema_admission(schema_name):
                 schema_name
                 in {
                     "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
-                    "_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+                    "_MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
                 }
                 and backend == "codex"
             )

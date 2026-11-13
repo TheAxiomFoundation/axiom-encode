@@ -42311,9 +42311,10 @@ Output ONLY valid JSON:
         # The prompt quotes a bounded prefix of each file; record whether the
         # reviewer was shown the whole of what the digests above name.
         rulespec_limit = 6000 if prompt_template is not None else 3000
-        review_evidence["content_complete"] = len(
-            rulespec_content
-        ) <= rulespec_limit and (test_content is None or len(test_content) <= 3000)
+        review_evidence["rulespec_complete"] = len(rulespec_content) <= rulespec_limit
+        review_evidence["test_complete"] = (
+            test_content is None or len(test_content) <= 3000
+        )
         _note_reviewer_cli_started(None, None)
 
         try:

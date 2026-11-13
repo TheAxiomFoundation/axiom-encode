@@ -25,13 +25,11 @@ from axiom_encode.cli import (
 from axiom_encode.generalist_review_record import (
     GENERALIST_REVIEW_FIELD,
     GENERALIST_REVIEW_SCHEMA,
-    REQUIRE_REVIEW_ENV,
     AppliedPair,
     GeneralistReviewState,
     applied_pair,
     build_generalist_review_record,
     generalist_review_record_issues,
-    require_review_setting,
     review_content_sha256,
     review_evidence_digests,
     review_requirement_refusal,
@@ -88,10 +86,23 @@ def _digests(pair):
     return {field: getattr(pair, field) for field in DIGEST_FIELDS}
 
 
+def _files(*entries):
+    """Expected `files`: (sha256, reviewed, complete) triples, sorted."""
+
+    return sorted(
+        (
+            {"sha256": sha256, "reviewed": reviewed, "complete": complete}
+            for sha256, reviewed, complete in entries
+        ),
+        key=lambda entry: entry["sha256"],
+    )
+
+
 def _evidence(rulespec=RULE_BYTES, test=TEST_BYTES, **overrides):
     evidence = {
         **review_evidence_digests(rulespec, test),
-        "content_complete": True,
+        "rulespec_complete": True,
+        "test_complete": True,
         "reviewer_backend": "codex",
         "reviewer_model": "gpt-test",
     }
@@ -111,16 +122,23 @@ def _state(**overrides):
     return GeneralistReviewState(**values)
 
 
-def _build(applied=None, **overrides):
+def _build(applied=None, applied_sha256s=None, **overrides):
     return build_generalist_review_record(
-        _state(**overrides), APPLIED if applied is None else applied
+        _state(**overrides), APPLIED if applied is None else applied, applied_sha256s
     )
 
 
 def _issues(record, applied_sha256s=None):
-    return generalist_review_record_issues(
-        record, APPLIED_SHA256S if applied_sha256s is None else applied_sha256s
-    )
+    """The reader's findings; by default the manifest lists the record's files."""
+
+    if applied_sha256s is None:
+        files = record.get("files") if isinstance(record, dict) else None
+        applied_sha256s = (
+            [entry.get("sha256") for entry in files if isinstance(entry, dict)]
+            if isinstance(files, list)
+            else APPLIED_SHA256S
+        )
+    return generalist_review_record_issues(record, applied_sha256s)
 
 
 # --- the content digest --------------------------------------------------
@@ -174,6 +192,100 @@ def test_formatting_and_comments_do_not_change_the_content_digest():
     )
 
 
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        (b"a: yes\n", b"a: true\n"),
+        (b"a: 010\n", b"a: 8\n"),
+        (b"a: 1:00\n", b"a: 60\n"),
+        (b"a: on\n", b"a: true\n"),
+        (b"a: 1_000\n", b"a: 1000\n"),
+        (b"a: 0x10\n", b"a: 16\n"),
+        (b"a: '1'\n", b"a: 1\n"),
+        (b"a: 'true'\n", b"a: true\n"),
+        (b"a: ''\n", b"a:\n"),
+    ],
+)
+def test_values_that_only_yaml_1_1_reads_as_equal_have_different_digests(left, right):
+    # PyYAML loads each pair to the same value; the engine reads YAML 1.2.
+    for rulespec in (True, False):
+        assert review_content_sha256(left, rulespec=rulespec) != (
+            review_content_sha256(right, rulespec=rulespec)
+        )
+
+
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        (b"a:\n", b"a: null\n"),
+        (b"a: ~\n", b"a: null\n"),
+        (b"a: True\n", b"a: true\n"),
+        (b"a: 'x'\n", b'a: "x"\n'),
+        (b"a: x\n", b"a: 'x'\n"),
+        (b"a: |-\n  x\n  y\n", b'a: "x\\ny"\n'),
+        (b"{a: 1, b: [1, 2]}\n", b"b:\n- 1\n- 2\na: 1\n"),
+    ],
+)
+def test_spellings_of_one_value_have_one_digest(left, right):
+    assert review_content_sha256(left, rulespec=True) == (
+        review_content_sha256(right, rulespec=True)
+    )
+
+
+def test_content_digest_survives_the_dump_that_apply_performs():
+    from axiom_encode.yaml_serialization import safe_dump_yaml
+
+    original = b"""# header comment
+format: rulespec/v1
+module:
+  summary: "A credit: $1,000 per child"
+rules:
+  - name: credit
+    kind: derived
+    dtype: Money
+    period: Year
+    indexed: false
+    cap:
+    rate: 0.5
+    versions:
+      - effective_from: '2018-01-01'
+        formula: |-
+          if is_child: 1000
+          else: 0
+      - effective_from: '2026-01-01'
+        formula: max(0, base - 2)
+"""
+    document = yaml.safe_load(original)
+    document["module"]["source_verification"] = {
+        "corpus_citation_path": "us/statute/26/24",
+        "source_sha256": "5" * 64,
+    }
+    # The exact call `_stamp_generated_source_attestation_for_apply` makes.
+    dumped = safe_dump_yaml(document, sort_keys=False, allow_unicode=True).encode()
+
+    assert dumped != original
+    assert review_content_sha256(dumped, rulespec=True) == (
+        review_content_sha256(original, rulespec=True)
+    )
+
+
+def test_only_the_two_stamped_keys_are_left_out():
+    def module(**verification):
+        return yaml.safe_dump(
+            {"module": {"source_verification": verification}, "rules": []}
+        ).encode()
+
+    base = review_content_sha256(module(note="kept"), rulespec=True)
+    assert base == review_content_sha256(
+        module(note="kept", corpus_citation_path="x", source_sha256="y"),
+        rulespec=True,
+    )
+    for extra in ({"values": {"a": 1}}, {"source_sha256s": "y"}, {"note": "other"}):
+        assert base != review_content_sha256(
+            module(**{"note": "kept", **extra}), rulespec=True
+        )
+
+
 def test_stamp_keys_are_neutral_only_in_a_rulespec_module():
     stamp_only = b"module:\n  source_verification:\n    source_sha256: abc\n"
 
@@ -203,7 +315,7 @@ def test_absent_and_empty_companion_tests_have_one_content_digest():
 
 @pytest.mark.parametrize(
     "raw",
-    [b"\xff\xfe", b"a: [unclosed\n", b"a: !!python/object:os.system x\n"],
+    [b"\xff\xfe", b"a: [unclosed\n", b"a: b: c\n", b"a: *missing\n"],
 )
 def test_unreadable_yaml_has_no_content_digest(raw):
     assert review_content_sha256(raw, rulespec=True) is None
@@ -246,8 +358,11 @@ def test_passed_record_carries_identity_verdict_and_digests():
         },
         "verdict": {"passed": True, "score": 8.5, "issue_count": 2},
         "prompt_sha256": PROMPT_SHA,
-        "reviewed": {**_digests(PAIR), "content_complete": True},
+        "reviewed": _digests(PAIR),
         "applied": _digests(PAIR),
+        "files": _files(
+            (PAIR.rulespec_sha256, True, True), (PAIR.test_sha256, True, True)
+        ),
     }
     assert _issues(record) == []
 
@@ -263,7 +378,7 @@ def test_review_before_the_source_stamp_covers_the_stamped_file():
     assert _issues(record, [STAMPED_PAIR.rulespec_sha256, PAIR.test_sha256]) == []
     # The manifest must list the applied bytes, not the reviewed bytes.
     assert _issues(record, APPLIED_SHA256S) == [
-        "generalist_review verdict is not bound to the applied file digests"
+        "generalist_review does not list exactly the applied file digests"
     ]
 
 
@@ -287,10 +402,10 @@ def test_reviewer_that_could_not_start_is_unavailable():
     assert record["reason"] == "reviewer_error"
     assert record["verdict"] == {"passed": None, "score": None, "issue_count": 0}
     assert record["prompt_sha256"] is None
-    assert record["reviewed"] == {
-        **dict.fromkeys(DIGEST_FIELDS),
-        "content_complete": None,
-    }
+    assert record["reviewed"] == dict.fromkeys(DIGEST_FIELDS)
+    assert record["files"] == _files(
+        (PAIR.rulespec_sha256, False, False), (PAIR.test_sha256, False, False)
+    )
     assert record["applied"] == dict.fromkeys(DIGEST_FIELDS)
     assert _issues(record) == []
 
@@ -408,13 +523,173 @@ def test_verdict_never_binds_to_a_pair_without_valid_byte_digests():
         assert record["applied"] == dict.fromkeys(DIGEST_FIELDS)
 
 
-def test_verdict_binds_to_the_matching_file_among_several():
+def test_pass_on_one_file_is_partial_when_another_file_is_applied():
+    # A dependent that overlay validation repaired is applied unreviewed.
     other = applied_pair(REPAIRED_RULE_BYTES, None)
 
-    record = _build(applied=[other, STAMPED_PAIR])
+    for applied in ([other, STAMPED_PAIR], [STAMPED_PAIR, other]):
+        record = _build(applied=applied, required=True)
+        assert record["status"] == "partial"
+        assert record["reason"] == "unreviewed_applied_files"
+        assert record["applied"] == _digests(STAMPED_PAIR)
+        assert record["files"] == _files(
+            (other.rulespec_sha256, False, False),
+            (STAMPED_PAIR.rulespec_sha256, True, True),
+            (STAMPED_PAIR.test_sha256, True, True),
+        )
+        assert review_requirement_refusal(record) is not None
+        assert _issues(_tampered(record, ("required",), False)) == []
 
-    assert record["status"] == "passed"
-    assert record["applied"] == _digests(STAMPED_PAIR)
+
+def test_pass_is_partial_when_an_applied_file_is_in_no_pair():
+    # For example a companion test whose RuleSpec is not applied with it.
+    record = _build(applied_sha256s=[*APPLIED_SHA256S, OTHER_SHA])
+
+    assert record["status"] == "partial"
+    assert record["reason"] == "unreviewed_applied_files"
+    assert {"sha256": OTHER_SHA, "reviewed": False, "complete": False} in record[
+        "files"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("evidence", "truncated"),
+    [
+        ({"rulespec_complete": False}, "rulespec_sha256"),
+        ({"test_complete": False}, "test_sha256"),
+        ({"rulespec_complete": None}, "rulespec_sha256"),
+        ({"rulespec_complete": "yes"}, "rulespec_sha256"),
+        ({"test_complete": 1}, "test_sha256"),
+    ],
+)
+def test_pass_on_a_truncated_file_is_partial(evidence, truncated):
+    record = _build(evidence=_evidence(**evidence), required=True)
+
+    assert record["status"] == "partial"
+    assert record["reason"] == "review_saw_truncated_file"
+    assert [entry["sha256"] for entry in record["files"] if not entry["complete"]] == [
+        getattr(PAIR, truncated)
+    ]
+    assert all(entry["reviewed"] for entry in record["files"])
+    assert review_requirement_refusal(record) is not None
+
+
+def test_unreviewed_file_takes_precedence_over_truncation():
+    record = _build(
+        applied=[PAIR, applied_pair(REPAIRED_RULE_BYTES, None)],
+        evidence=_evidence(rulespec_complete=False),
+    )
+
+    assert (record["status"], record["reason"]) == (
+        "partial",
+        "unreviewed_applied_files",
+    )
+
+
+def test_failed_review_stays_failed_whatever_else_is_applied():
+    record = _build(
+        applied=[PAIR, applied_pair(REPAIRED_RULE_BYTES, None)],
+        evidence=_evidence(rulespec_complete=False),
+        metrics_pass=False,
+        score=2.0,
+    )
+
+    assert record["status"] == "failed"
+    assert _issues(record) == []
+
+
+def test_pass_with_nothing_applied_is_never_passed():
+    assert _build(applied=[], applied_sha256s=[])["status"] == "unavailable"
+    assert _build(applied_sha256s=[])["status"] == "partial"
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("status",), "passed"),
+        (("reason",), "review_saw_truncated_file"),
+        (("files", 0, "reviewed"), True),
+    ],
+)
+def test_reader_refuses_a_partial_record_dressed_up(path, value):
+    partial = _build(applied=[PAIR, applied_pair(REPAIRED_RULE_BYTES, None)])
+    assert partial["status"] == "partial"
+    assert _issues(partial) == []
+    index = next(i for i, entry in enumerate(partial["files"]) if not entry["reviewed"])
+    path = tuple(index if part == 0 else part for part in path)
+    changed = _tampered(partial, path, value)
+    if path == ("status",):
+        changed["reason"] = None
+
+    assert _issues(changed)
+
+
+def test_reader_refuses_a_pass_that_marks_an_unread_file_reviewed():
+    other = applied_pair(REPAIRED_RULE_BYTES, None)
+    partial = _build(applied=[PAIR, other])
+    forged = copy.deepcopy(partial)
+    forged["status"], forged["reason"] = "passed", None
+    for entry in forged["files"]:
+        entry["reviewed"] = entry["complete"] = True
+
+    # Every file now reads as reviewed in full, but the record names one pair.
+    assert _issues(forged) == [
+        "generalist_review verdict is not bound to the applied file digests"
+    ]
+
+
+def test_reader_refuses_a_partial_or_passed_status_on_a_failing_verdict():
+    for record in (_build(), _build(evidence=_evidence(test_complete=False))):
+        failing = _tampered(
+            _tampered(record, ("verdict", "passed"), False), ("verdict", "score"), 2.0
+        )
+        assert any("contradicts its verdict" in issue for issue in _issues(failing))
+
+
+@pytest.mark.parametrize(
+    "unscored",
+    [
+        {"metrics_pass": False, "score": None, "evidence": None},
+        {"skipped_by_flag": True},
+        {"applied": []},
+    ],
+)
+def test_reader_refuses_a_file_marked_reviewed_or_complete_without_a_bound_verdict(
+    unscored,
+):
+    record = build_generalist_review_record(
+        _state(**{k: v for k, v in unscored.items() if k != "applied"}),
+        unscored.get("applied", APPLIED),
+        APPLIED_SHA256S,
+    )
+    assert record["status"] in {"unavailable", "skipped"}
+    assert _issues(record) == []
+
+    assert _issues(_tampered(record, ("files", 0, "reviewed"), True))
+    assert _issues(_tampered(record, ("files", 0, "complete"), True)) == [
+        "generalist_review marks an unreviewed file complete"
+    ]
+
+
+def test_reader_refuses_unsorted_or_repeated_files():
+    passed = _build()
+    reversed_files = _tampered(passed, ("files",), passed["files"][::-1])
+    repeated = _tampered(passed, ("files",), [*passed["files"], passed["files"][0]])
+
+    for changed in (reversed_files, repeated):
+        assert _issues(changed, APPLIED_SHA256S) == [
+            "generalist_review files are not sorted and unique"
+        ]
+
+
+def test_reader_refuses_a_passed_record_with_a_truncated_file():
+    truncated = _build(evidence=_evidence(test_complete=False))
+    assert truncated["status"] == "partial"
+
+    forged = _tampered(_tampered(truncated, ("status",), "passed"), ("reason",), None)
+    assert _issues(forged) == [
+        "generalist_review status passed, but an applied file was not reviewed in full"
+    ]
 
 
 def test_review_without_a_companion_test_covers_an_absent_or_empty_one():
@@ -504,7 +779,11 @@ def _tampered(record, path, value):
         (("reviewed", "rulespec_content_sha256"), None),
         (("reviewed", "test_sha256"), "zz"),
         (("reviewed", "test_content_sha256"), OTHER_SHA),
-        (("reviewed", "content_complete"), "yes"),
+        (("files",), []),
+        (("files", 0, "reviewed"), False),
+        (("files", 0, "complete"), False),
+        (("files", 0, "complete"), "yes"),
+        (("files", 0, "sha256"), OTHER_SHA),
         (("applied", "rulespec_sha256"), OTHER_SHA),
         (("applied", "rulespec_sha256"), None),
         (("applied", "rulespec_content_sha256"), OTHER_SHA),
@@ -551,22 +830,23 @@ def test_reader_refuses_a_forged_pass_on_content_that_was_not_applied():
     # Naming the applied file does not help: its content digest differs.
     repaired = applied_pair(REPAIRED_RULE_BYTES, TEST_BYTES)
     forged["applied"] = _digests(repaired)
-    assert _issues(forged, [repaired.rulespec_sha256, repaired.test_sha256]) == [
+    assert (
         "generalist_review verdict is on content that differs from the applied content"
-    ]
+        in _issues(forged, [repaired.rulespec_sha256, repaired.test_sha256])
+    )
 
 
 def test_reader_refuses_a_pass_whose_digests_are_not_in_the_manifest():
     passed = _build()
 
     assert _issues(passed, [OTHER_SHA]) == [
-        "generalist_review verdict is not bound to the applied file digests"
+        "generalist_review does not list exactly the applied file digests"
     ]
     assert _issues(passed, [PAIR.rulespec_sha256]) == [
-        "generalist_review verdict is not bound to the applied file digests"
+        "generalist_review does not list exactly the applied file digests"
     ]
     assert _issues(passed, [PAIR.test_sha256]) == [
-        "generalist_review verdict is not bound to the applied file digests"
+        "generalist_review does not list exactly the applied file digests"
     ]
 
 
@@ -633,30 +913,6 @@ def test_reader_refuses_an_extra_or_missing_field():
 # --- the setting ---------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("flag", "environ", "expected"),
-    [
-        (False, {}, False),
-        (True, {}, True),
-        (False, {REQUIRE_REVIEW_ENV: ""}, False),
-        (False, {REQUIRE_REVIEW_ENV: "0"}, False),
-        (False, {REQUIRE_REVIEW_ENV: "1"}, True),
-        (True, {REQUIRE_REVIEW_ENV: "0"}, True),
-        (True, {REQUIRE_REVIEW_ENV: "1"}, True),
-        ("yes", {}, False),
-        (None, {}, False),
-    ],
-)
-def test_require_review_setting(flag, environ, expected):
-    assert require_review_setting(flag, environ) is expected
-
-
-@pytest.mark.parametrize("raw", ["true", "yes", "on", " 1", "2", "false"])
-def test_unreadable_require_review_variable_refuses(raw):
-    with pytest.raises(ValueError, match=REQUIRE_REVIEW_ENV):
-        require_review_setting(False, {REQUIRE_REVIEW_ENV: raw})
-
-
 def test_requirement_refuses_every_status_but_passed():
     assert review_requirement_refusal(_build()) is None
     for record in (
@@ -666,6 +922,8 @@ def test_requirement_refuses_every_status_but_passed():
         _build(metrics_pass=True, score=None, prompt_sha256=None, evidence=None),
         _build(applied=[]),
         _build(applied=[applied_pair(REPAIRED_RULE_BYTES, TEST_BYTES)]),
+        _build(evidence=_evidence(rulespec_complete=False)),
+        _build(applied=[PAIR, applied_pair(REPAIRED_RULE_BYTES, None)]),
         {},
         {"status": "PASSED"},
     ):
@@ -780,7 +1038,8 @@ def test_scored_review_records_the_digests_of_the_bytes_it_read(tmp_path, monkey
         "reviewed_test_content_sha256": review_content_sha256(
             test.read_bytes(), rulespec=False
         ),
-        "content_complete": True,
+        "rulespec_complete": True,
+        "test_complete": True,
         # The mocked runner started no CLI, so the identity stays unknown.
         "reviewer_backend": None,
         "reviewer_model": None,
@@ -847,7 +1106,35 @@ def test_review_of_a_truncated_candidate_says_so(tmp_path, monkeypatch):
 
     result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
 
-    assert result.details["review_evidence"]["content_complete"] is False
+    assert result.details["review_evidence"]["rulespec_complete"] is False
+    assert result.details["review_evidence"]["test_complete"] is True
+    record = _record_for(result, rule)
+    assert record["status"] == "partial"
+    assert record["reason"] == "review_saw_truncated_file"
+    assert review_requirement_refusal(record) is not None
+
+
+def test_review_of_a_truncated_companion_test_says_so(tmp_path, monkeypatch):
+    rule = _candidate(
+        tmp_path,
+        rule_text=RULE_BYTES.decode(),
+        test_text="".join(f"- name: case_{i}\n" for i in range(400)),
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "run_claude_code",
+        lambda *_a, **_k: ('{"score": 9.0, "passed": true}', 0),
+    )
+
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+
+    assert result.details["review_evidence"]["rulespec_complete"] is True
+    assert result.details["review_evidence"]["test_complete"] is False
+    record = _record_for(result, rule)
+    assert (record["status"], record["reason"]) == (
+        "partial",
+        "review_saw_truncated_file",
+    )
 
 
 @pytest.mark.parametrize(
@@ -1040,9 +1327,10 @@ def _write_manifest(
     per_file,
     review_state,
     companion=True,
-    admits_record=None,
+    admits_record=True,
     program_bytes=b"program: us-sc/snap\nperiod: 2026-01\n",
     test_bytes=b"[]\n",
+    orphan_test=False,
 ):
     checkout = tmp_path / "rulespec-us"
     (checkout / "us").mkdir(parents=True)
@@ -1055,6 +1343,11 @@ def _write_manifest(
         test_file = program.with_name("fy-2026.test.yaml")
         test_file.write_bytes(test_bytes)
         applied.append(test_file)
+    if orphan_test:
+        # A companion test applied without its RuleSpec is in no pair.
+        orphan = program.with_name("other.test.yaml")
+        orphan.write_bytes(b"- name: orphan\n")
+        applied.append(orphan)
     output_root = tmp_path / "out"
     generated = output_root / "openai-test" / relative_output
     generated.parent.mkdir(parents=True)
@@ -1101,7 +1394,7 @@ def _write_manifest(
         ),
         patch(
             "axiom_encode.cli._target_admits_generalist_review_record",
-            return_value=per_file if admits_record is None else admits_record,
+            return_value=admits_record,
         ),
         patch(
             "axiom_encode.cli._build_applied_manifest_file_waiver_bindings",
@@ -1197,6 +1490,31 @@ def test_manifest_records_each_review_status_under_the_signature(
         )
 
 
+def test_manifest_pass_is_partial_when_an_applied_file_was_not_reviewed(tmp_path):
+    payload, applied = _write_manifest(
+        tmp_path, per_file=True, orphan_test=True, review_state=_bound_state()
+    )
+
+    record = payload[GENERALIST_REVIEW_FIELD]
+    assert (record["status"], record["reason"]) == (
+        "partial",
+        "unreviewed_applied_files",
+    )
+    assert {"sha256": _sha(applied[2]), "reviewed": False, "complete": False} in (
+        record["files"]
+    )
+    assert [entry["sha256"] for entry in record["files"]] == sorted(
+        item["sha256"] for item in payload["applied_files"]
+    )
+    with pytest.raises(RuntimeError, match="unreviewed_applied_files"):
+        _write_manifest(
+            tmp_path / "required",
+            per_file=True,
+            orphan_test=True,
+            review_state=_bound_state(required=True),
+        )
+
+
 def test_manifest_binds_a_review_made_before_the_source_stamp(tmp_path):
     # The real order: the reviewer reads the candidate, apply stamps it.
     payload, applied = _write_manifest(
@@ -1249,39 +1567,51 @@ def test_manifest_verdict_on_content_that_is_not_applied_is_unavailable(
     assert record["applied"] == dict.fromkeys(DIGEST_FIELDS)
 
 
-def test_manifest_for_a_pinned_verifier_target_keeps_todays_exact_shape(tmp_path):
+@pytest.mark.parametrize(
+    ("per_file", "fields"),
+    [
+        (False, "_MODEL_APPLY_MANIFEST_FIELDS"),
+        (True, "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS"),
+    ],
+)
+def test_manifest_for_a_pinned_or_held_verifier_keeps_todays_exact_shape(
+    tmp_path, per_file, fields
+):
     payload, _applied = _write_manifest(
-        tmp_path, per_file=False, review_state=_bound_state()
+        tmp_path, per_file=per_file, admits_record=False, review_state=_bound_state()
     )
 
     assert GENERALIST_REVIEW_FIELD not in payload
-    assert frozenset(payload) == cli._MODEL_APPLY_MANIFEST_FIELDS
+    assert frozenset(payload) == getattr(cli, fields)
 
 
-def test_manifest_for_a_held_main_verifier_keeps_the_per_file_shape(tmp_path):
+@pytest.mark.parametrize(
+    ("per_file", "fields"),
+    [
+        (False, "_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS"),
+        (True, "_MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS"),
+    ],
+)
+def test_manifest_carries_the_record_on_either_waiver_shape(tmp_path, per_file, fields):
+    # The record gate is separate from the waiver shape (#2097).
     payload, _applied = _write_manifest(
-        tmp_path, per_file=True, admits_record=False, review_state=_bound_state()
+        tmp_path, per_file=per_file, admits_record=True, review_state=_bound_state()
     )
 
-    assert GENERALIST_REVIEW_FIELD not in payload
-    assert frozenset(payload) == cli._MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS
-
-
-def test_manifest_never_carries_the_record_on_the_set_digest_shape(tmp_path):
-    # Even if the record gate said yes, no admitted shape pairs the record
-    # with the repository waiver-set digest.
-    payload, _applied = _write_manifest(
-        tmp_path, per_file=False, admits_record=True, review_state=_bound_state()
-    )
-
-    assert GENERALIST_REVIEW_FIELD not in payload
+    assert frozenset(payload) == getattr(cli, fields)
+    assert not [issue for issue in _schema_issues(payload) if "exact" in issue]
+    assert not [
+        issue for issue in _schema_issues(payload) if "generalist_review" in issue
+    ]
 
 
 @pytest.mark.parametrize("admits_record", [False, True])
 def test_required_review_is_enforced_whether_or_not_the_record_is_written(
     tmp_path, admits_record
 ):
-    with pytest.raises(RuntimeError, match="passed generalist review is required"):
+    with pytest.raises(
+        RuntimeError, match="passed generalist review of every applied file is required"
+    ):
         _write_manifest(
             tmp_path,
             per_file=True,
@@ -1315,7 +1645,9 @@ def test_manifest_without_review_state_is_unchanged(tmp_path):
 def test_writer_refuses_to_sign_a_required_review_that_did_not_pass(
     tmp_path, overrides, per_file
 ):
-    with pytest.raises(RuntimeError, match="passed generalist review is required"):
+    with pytest.raises(
+        RuntimeError, match="passed generalist review of every applied file is required"
+    ):
         _write_manifest(
             tmp_path,
             per_file=per_file,
@@ -1385,17 +1717,19 @@ def test_reader_admits_the_record_and_still_admits_manifests_without_it(tmp_path
 
 def test_reader_variants_only_gained_the_record_shapes():
     variants = cli._APPLIED_MANIFEST_SCHEMA_VARIANTS
+    record = {GENERALIST_REVIEW_FIELD}
     assert variants["model"] == (
         cli._MODEL_APPLY_MANIFEST_FIELDS,
         cli._MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
-        cli._MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS | {GENERALIST_REVIEW_FIELD},
+        cli._MODEL_APPLY_MANIFEST_FIELDS | record,
+        cli._MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS | record,
     )
     assert variants["codex model"] == (
         cli._MODEL_APPLY_MANIFEST_FIELDS,
         cli._MODEL_CODEX_APPLY_MANIFEST_FIELDS,
         cli._MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
-        cli._MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS
-        | {GENERALIST_REVIEW_FIELD},
+        cli._MODEL_CODEX_APPLY_MANIFEST_FIELDS | record,
+        cli._MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS | record,
     )
     # No other contract admits the field.
     for contract, shapes in variants.items():
@@ -1403,13 +1737,13 @@ def test_reader_variants_only_gained_the_record_shapes():
             assert all(GENERALIST_REVIEW_FIELD not in shape for shape in shapes)
 
 
-def test_reader_refuses_the_record_on_the_set_digest_shape(tmp_path):
-    set_digest, _ = _write_manifest(tmp_path, per_file=False, review_state=None)
-    set_digest[GENERALIST_REVIEW_FIELD] = _build()
+def test_reader_refuses_the_record_with_both_waiver_fields(tmp_path):
+    payload, _ = _write_manifest(tmp_path, per_file=False, review_state=_bound_state())
+    payload["validation_waiver_bindings"] = {"schema": "test", "files": []}
 
     assert any(
         "does not match the exact model v5 schema" in issue
-        for issue in _schema_issues(set_digest)
+        for issue in _schema_issues(payload)
     )
 
 
@@ -1471,23 +1805,34 @@ def test_reader_refuses_a_pass_bound_to_a_file_the_manifest_does_not_apply(tmp_p
     payload["applied_files"][0]["sha256"] = OTHER_SHA
 
     added = [issue for issue in _schema_issues(payload) if issue not in baseline]
-    assert any("not bound to the applied file digests" in issue for issue in added)
+    assert any(
+        "does not list exactly the applied file digests" in issue for issue in added
+    )
 
 
 def test_unreceipted_retirement_scan_knows_the_record_shapes():
     classes = cli._UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES
     for old, new in (
+        ("_MODEL_APPLY_MANIFEST_FIELDS", "_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS"),
         (
-            cli._MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
-            cli._MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
+            "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
+            "_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
         ),
         (
-            cli._MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
-            cli._MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
+            "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+            "_MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
+        ),
+        (
+            "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+            "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
         ),
     ):
-        assert classes[new][0] == classes[old][0]
-        assert classes[new][1] == classes[old][1] | {GENERALIST_REVIEW_FIELD}
+        old_classes, new_classes = (
+            classes[getattr(cli, old)],
+            classes[getattr(cli, new)],
+        )
+        assert new_classes[0] == old_classes[0]
+        assert new_classes[1] == old_classes[1] | {GENERALIST_REVIEW_FIELD}
 
 
 # --- encode settings (the --apply runs are in tests/test_cli.py) --------
@@ -1502,8 +1847,7 @@ class TestEncodeRequireReviewSettings:
             skip_reviewers=values.get("skip_reviewers", False),
         )
 
-    def test_flag_without_apply_is_refused_before_any_work(self, monkeypatch):
-        monkeypatch.delenv(REQUIRE_REVIEW_ENV, raising=False)
+    def test_flag_without_apply_is_refused_before_any_work(self):
         with (
             patch("axiom_encode.cli._local_verification_encode_roots") as later,
             pytest.raises(ValueError, match="--require-review requires --apply"),
@@ -1511,43 +1855,49 @@ class TestEncodeRequireReviewSettings:
             cmd_encode(self._args(apply=False, require_review=True))
         later.assert_not_called()
 
-    @pytest.mark.parametrize("by_env", [False, True])
-    def test_require_and_skip_together_are_refused(self, monkeypatch, by_env):
-        if by_env:
-            monkeypatch.setenv(REQUIRE_REVIEW_ENV, "1")
-        else:
-            monkeypatch.delenv(REQUIRE_REVIEW_ENV, raising=False)
+    def test_require_and_skip_together_are_refused(self):
         with (
             patch("axiom_encode.cli._local_verification_encode_roots") as later,
             pytest.raises(ValueError, match="cannot both require"),
         ):
-            cmd_encode(self._args(require_review=not by_env, skip_reviewers=True))
+            cmd_encode(self._args(require_review=True, skip_reviewers=True))
         later.assert_not_called()
 
-    def test_unreadable_variable_is_refused(self, monkeypatch):
-        monkeypatch.setenv(REQUIRE_REVIEW_ENV, "true")
-        with (
-            patch("axiom_encode.cli._local_verification_encode_roots") as later,
-            pytest.raises(ValueError, match=REQUIRE_REVIEW_ENV),
-        ):
-            cmd_encode(self._args())
-        later.assert_not_called()
-
-    def test_variable_without_apply_requires_nothing(self, monkeypatch):
-        monkeypatch.setenv(REQUIRE_REVIEW_ENV, "1")
-        assert cli._encode_requires_review(self._args(apply=False)) is False
-        # ...and does not collide with --skip-reviewers on a run that applies
-        # nothing.
-        assert (
-            cli._encode_requires_review(self._args(apply=False, skip_reviewers=True))
-            is False
-        )
-
-    def test_default_is_off(self, monkeypatch):
-        monkeypatch.delenv(REQUIRE_REVIEW_ENV, raising=False)
+    def test_flag_is_the_only_switch(self, monkeypatch):
+        # The signing supervisor builds the child environment from empty, so
+        # an environment switch would be dropped in the signed lanes.
+        monkeypatch.setenv("AXIOM_ENCODE_REQUIRE_REVIEW", "1")
         assert cli._encode_requires_review(self._args()) is False
         assert cli._encode_requires_review(self._args(require_review=True)) is True
+        assert not hasattr(record_module, "REQUIRE_REVIEW_ENV")
+
+    def test_default_is_off_and_only_true_turns_it_on(self):
+        assert cli._encode_requires_review(self._args()) is False
+        for value in ("yes", 1, None):
+            assert (
+                cli._encode_requires_review(self._args(require_review=value)) is False
+            )
 
 
-def test_module_states_only_four_statuses():
-    assert record_module.STATUSES == {"passed", "failed", "unavailable", "skipped"}
+def test_module_states_only_five_statuses():
+    assert record_module.STATUSES == {
+        "passed",
+        "partial",
+        "failed",
+        "unavailable",
+        "skipped",
+    }
+
+
+def test_blocked_review_is_a_failed_iteration_in_the_run_log():
+    refusal = review_requirement_refusal(_build(metrics_pass=False, score=2.0))
+    result = SimpleNamespace(success=True, error=None)
+
+    assert cli._encode_iteration_verdict(
+        result, {"status": "apply_blocked_review", "apply_error": refusal}
+    ) == (False, refusal)
+    # The statuses around it keep their meaning.
+    assert cli._encode_iteration_verdict(result, {"status": "apply_applied"}) == (
+        True,
+        None,
+    )

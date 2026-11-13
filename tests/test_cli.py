@@ -23472,9 +23472,9 @@ rules: []
         *,
         review,
         require_flag=False,
-        environ=None,
         skip_reviewers=False,
         change_after_review=None,
+        supplemental_files=None,
     ):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
@@ -23516,7 +23516,8 @@ rules: []
                     **review_evidence_digests(
                         output_file.read_bytes(), test_file.read_bytes()
                     ),
-                    "content_complete": True,
+                    "rulespec_complete": review.get("rulespec_complete", True),
+                    "test_complete": True,
                     "reviewer_backend": "codex",
                     "reviewer_model": "gpt-test",
                 },
@@ -23538,7 +23539,7 @@ rules: []
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
             patch(
                 "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
-                return_value=(True, [], {}),
+                return_value=(True, [], dict(supplemental_files or {})),
             ),
             patch(
                 "axiom_encode.cli._enforce_canonical_concept_registry",
@@ -23552,7 +23553,6 @@ rules: []
                 os.environ,
                 {
                     APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64,
-                    **(environ or {}),
                 },
                 clear=True,
             ),
@@ -23642,15 +23642,11 @@ rules: []
         assert run.outcome["generalist_review"]["status"] == "skipped"
         assert run.outcome["generalist_review"]["reason"] == "skip_reviewers_flag"
 
-    @pytest.mark.parametrize(
-        "setting",
-        [{"require_flag": True}, {"environ": {"AXIOM_ENCODE_REQUIRE_REVIEW": "1"}}],
-    )
     def test_review_gate_required_and_reviewer_unavailable_does_not_apply(
-        self, tmp_path, capsys, setting
+        self, tmp_path, capsys
     ):
         run = self._run_review_gate(
-            tmp_path, capsys, review=self._REVIEW_UNAVAILABLE, **setting
+            tmp_path, capsys, review=self._REVIEW_UNAVAILABLE, require_flag=True
         )
 
         assert run.code == 1
@@ -23742,16 +23738,58 @@ rules: []
         assert "generalist_review_record=passed required=yes" in run.output
         assert vars(run.result)["_axiom_generalist_review_state"].required is True
 
-    def test_review_gate_variable_set_to_zero_does_not_require(self, tmp_path, capsys):
-        run = self._run_review_gate(
-            tmp_path,
-            capsys,
-            review=self._REVIEW_UNAVAILABLE,
-            environ={"AXIOM_ENCODE_REQUIRE_REVIEW": "0"},
-        )
+    def test_review_gate_environment_variable_is_not_a_switch(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        # The signing supervisor drops the environment; only the flag counts.
+        monkeypatch.setenv("AXIOM_ENCODE_REQUIRE_REVIEW", "1")
+        run = self._run_review_gate(tmp_path, capsys, review=self._REVIEW_UNAVAILABLE)
 
         assert run.code == 0
         run.apply.assert_called_once()
+        assert run.outcome["generalist_review"]["required"] is False
+
+    def test_review_gate_required_pass_does_not_cover_an_unreviewed_dependent(
+        self, tmp_path, capsys
+    ):
+        # Overlay validation repaired a dependent; the reviewer never read it.
+        dependent = "format: rulespec/v1\nrules: [dependent]\n"
+        for require_flag, code in ((True, 1), (False, 0)):
+            (tmp_path / str(require_flag)).mkdir()
+            run = self._run_review_gate(
+                tmp_path / str(require_flag),
+                capsys,
+                review=self._REVIEW_PASSED,
+                require_flag=require_flag,
+                supplemental_files={Path("statutes/26/64.yaml"): dependent},
+            )
+
+            assert run.code == code
+            record = run.outcome["generalist_review"]
+            assert record["status"] == "partial"
+            assert record["reason"] == "unreviewed_applied_files"
+            assert {
+                "sha256": hashlib.sha256(dependent.encode()).hexdigest(),
+                "reviewed": False,
+                "complete": False,
+            } in record["files"]
+            assert run.apply.called is (not require_flag)
+
+    def test_review_gate_required_pass_does_not_cover_a_truncated_review(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review={**self._REVIEW_PASSED, "rulespec_complete": False},
+            require_flag=True,
+        )
+
+        assert run.code == 1
+        run.apply.assert_not_called()
+        assert run.outcome["status"] == "apply_blocked_review"
+        assert run.outcome["generalist_review"]["status"] == "partial"
+        assert run.outcome["generalist_review"]["reason"] == "review_saw_truncated_file"
 
     def test_encode_apply_auto_repairs_nonnegative_taxable_income_floor(
         self, capsys, tmp_path
