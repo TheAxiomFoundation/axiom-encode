@@ -391,6 +391,8 @@ PR opened by a bot account, with commits attributed to that bot, passes with
 one enrolled approval also when that owner wrote the change. This is the
 residual risk of §9 in another form.
 
+**Limit for stacked PRs.** The binding compares against a merge base, and the merge base of the approved commit is computed when the guard evaluates, not when the review was given. If an ancestor commit `X` of the approved commit `C` lands on `main` later through a merge commit, the merge base moves to `X`. The reviewer saw `old → T`; the head now does `X → T`; the bytes that land are the approved ones, and the verdict is `pass`. The approver did not see the step `old → X` as part of this PR; it landed through its own PR and that PR's lane.
+
 **Executable files.** The leaf rule of step 3 stays: an added or modified leaf
 that is not a regular `100644` blob fails in every class. `rulespec-us` holds
 three executable tools (`bulk/compute_matrix.py`, `bulk/roots_for.py`,

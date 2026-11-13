@@ -815,3 +815,56 @@ def test_malformed_module_path_inside_a_v5_unit_is_judged_by_the_v5_lane(enabled
     }
     on = plain(files).evaluate()
     assert (on.verdict, on.reason) == (guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
+
+
+# --- review round 4 ------------------------------------------------------------
+
+
+def test_on_an_approved_modification_of_a_file_main_deleted_voids_the_approval(
+    enabled,
+):
+    # Approved as a change of the workflow; main has since deleted it, so the
+    # head now adds it. The base side is absent, not equal.
+    world = _main_moved_under_the_approval(
+        {WORKFLOW: b"old\n"}, {WORKFLOW: b"x\n"}, {WORKFLOW: None}, {WORKFLOW: b"x\n"}
+    )
+    fails(world, guard.R_NOT_CONTENT_BOUND)
+
+
+def test_on_one_unbound_path_among_bound_ones_voids_the_approval(enabled):
+    # Every path of the delta must be bound, not any one of them.
+    world = _main_moved_under_the_approval(
+        {WORKFLOW: b"old\n"},
+        {WORKFLOW: b"x\n", PIN: b"x\n"},
+        {WORKFLOW: b"stricter\n"},
+        {WORKFLOW: b"x\n", PIN: b"x\n"},
+    )
+    fails(world, guard.R_NOT_CONTENT_BOUND)
+    world = _moved({PIN: b"x\n", LEDGER: b"x\n"}, {PIN: b"x\n", LEDGER: b"y\n"})
+    fails(world, guard.R_NOT_CONTENT_BOUND)
+
+
+@pytest.mark.parametrize("entry", [EXECUTABLE, LINK])
+def test_on_the_binding_compares_the_file_mode(enabled, entry):
+    # Approved while the file was not a regular blob; same object id at the
+    # head as a regular file. The approval is for another mode.
+    same_bytes = {"type": "blob", "mode": "100644", "sha": entry["sha"]}
+    world = World()
+    world.tree(B, BASE_FILES)
+    world.tree(H, BASE_FILES | {PIN: entry})
+    world.tree(H2, BASE_FILES | {PIN: same_bytes})
+    world.publish(H2, B, [commit(H), commit(H2, PAVEL, WEB_FLOW)])
+    world.ancestry(B, H, B)
+    world.reviews([review(11, MAX, H)])
+    fails(world, guard.R_NOT_CONTENT_BOUND)
+    # And on the base side: the approved change replaced an executable; the
+    # head replaces a regular file with the same object id.
+    world = World()
+    world.tree(B, BASE_FILES | {PIN: entry})
+    world.tree(H, BASE_FILES | {PIN: b"x\n"})
+    world.tree(B2, BASE_FILES | {PIN: same_bytes})
+    world.tree(H2, BASE_FILES | {PIN: b"x\n"})
+    world.publish(H2, B2, [commit(H), commit(H2, PAVEL, WEB_FLOW)])
+    world.ancestry(B2, H, B)
+    world.reviews([review(11, MAX, H)])
+    fails(world, guard.R_NOT_CONTENT_BOUND)
