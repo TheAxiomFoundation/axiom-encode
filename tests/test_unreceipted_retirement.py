@@ -1773,8 +1773,7 @@ for _model_name in (
     }
     _EXPECTED_MANIFEST_CLASSES[_preserved_name] = (
         _EXPECTED_MANIFEST_CLASSES[_model_name][0],
-        _EXPECTED_MANIFEST_CLASSES[_model_name][1]
-        | {"repair_companion_preservation"},
+        _EXPECTED_MANIFEST_CLASSES[_model_name][1] | {"repair_companion_preservation"},
     )
     _SCAN_SCHEMA_NAMES += (_preserved_name,)
 _SCAN_PATH = "us/policies/council/second.yaml"
