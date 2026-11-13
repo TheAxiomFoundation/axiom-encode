@@ -81,7 +81,20 @@ def test_actual_secondary_numeric_pass_preserves_raw_locator_evidence(
         return result
 
     monkeypatch.setattr(s, "_companion_test_issues", wrapped)
-    assert numeric_issues() == before
+    after = numeric_issues()
+    # Covering the first year occurrence must relocate its repair context to
+    # the next uncovered occurrence, without changing any other evidence.
+    old_location = (
+        "2025 at 241:245: `... if you had any investment income or investment "
+        "expenses for 2025.`"
+    )
+    new_location = (
+        "2025 at 495:499: `Even if you are not claiming a capital gains deduction "
+        "in 2025, you should still complete this form if you had any investment`"
+    )
+    assert sum(old_location in issue for issue in before) == 1
+    assert sum(new_location in issue for issue in after) == 1
+    assert after == {issue.replace(old_location, new_location) for issue in before}
     assert calls == [mask]
     assert any("value 30000 " in x for x in before)
     assert not any("value 68130 " in x for x in before)

@@ -125,6 +125,15 @@ broker markers only. Ambient Python/loader paths, Git configuration, proxies,
 cloud/GitHub credentials are not forwarded. The exact Axiom Supabase and
 OpenTelemetry variables documented by the CLI are parent-only allowlist values;
 the subprocess scrub removes them before model/reviewer execution.
+`AXIOM_ENCODE_WAIVER_AUDIT_WORKERS` is separately validated and forwarded
+unchanged when present: one or two ASCII decimal digits with a value from 0
+through 32 (leading zero allowed). Zero means one worker; the audit also bounds
+workers by its module count. An absent value retains Python's CPU-based default.
+Malformed values are rejected before broker or child startup. Every supervised
+command receives the validated value, including `encode --apply` and Python
+help probes; only `validation-waivers audit` reads it, to control process
+fan-out. The subprocess scrub also excludes this setting from model/reviewer
+execution.
 Every required subprocess tool must therefore be installed at a protected
 absolute location in that runtime; ambient system or user tool lookup is not a
 deployment input.
@@ -394,8 +403,17 @@ unset CODEX_HOME
 
 The explicit flags select GPT-6.1 Sol for both generation and escalation;
 omit them to use the encoder defaults (`gpt-6-luna`, escalating to `gpt-6-sol`).
-The provisioner pins Codex CLI 0.159.0 and verifies both the archive digest and
-the extracted executable digest. Model availability depends on the signed-in
+The provisioner pins Codex CLI 0.159.0 and verifies the archive digest and both
+extracted executable digests (`codex` and its sibling `codex-code-mode-host`).
+The protected `trusted-codex-cli/v2` configuration binds both paths and hashes.
+Before copying subscription authentication or starting a model, the supervisor
+requires both regular, executable, protected files and verifies their hashes.
+Legacy v1 configurations require a new reviewed provisioning run into a fresh
+protected prefix; copying an unverified helper into an existing runtime or
+disabling Code Mode is not a migration. The adapter also rejects reported
+runtime startup failures rather than accepting subsequent candidate text.
+This repair does not establish the semantic correctness of prior candidates.
+Model availability depends on the signed-in
 account and CLI; availability hints are emitted only for actual account rejections.
 
 The supervisor creates an euid-owned per-run `0700` home in the operating
