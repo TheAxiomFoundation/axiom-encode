@@ -7,9 +7,9 @@ corpus checkout. The `replay benchmark` CI job runs it as a required check.
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 45 committed
-fixtures in `tests/fixtures/us_replay_benchmark/`. Each fixture is a real
-candidate from a `targeted-reencode-failure` artifact of a signed run:
+(the `[complete-source-unit:*]` rules of the CI validator) over 47 committed
+fixtures in `tests/fixtures/us_replay_benchmark/`. Hosted fixtures are real candidates from `targeted-reencode-failure` artifacts
+of signed runs:
 
 - `candidate.yaml` and `candidate.test.yaml`: the final candidate and its
   companion tests. For a rejected candidate, their hashes match the bundle
@@ -28,14 +28,27 @@ candidate from a `targeted-reencode-failure` artifact of a signed run:
   candidate that production validation accepted) and `split` (`visible`, the
   default, or `held_out`; only a private fixture set uses `held_out`).
 
+Local diagnostic failures may also be committed with explicit
+`origin: local-diagnostic` provenance. They retain exact public source,
+candidate, companion and actual rejected replay findings, a producer commit
+and tree, the reproducible replay command, and byte-identical repository input
+origins. They cannot claim a hosted run URL, signed source attestation or native
+bundle inventory. The same file hashes, public-only restrictions and snapshot
+gates apply. Local fixtures are rejected examples, never production controls.
+The Schedule 2 floor fixture uses this route; its offline findings remain
+unresolved because replay has no live execution evidence. Its separate
+real-engine test verifies the targeted floor witnesses. The NL479 fixture retains
+an earlier primary-document diagnostic; it is separate from the full parent-form
+engine replay and does not inherit that replay’s execution evidence.
+
 The replay passes the same inputs as `ValidatorPipeline._complete_source_unit_issues`:
 the citation's numeric profile, the companion test cases, imported symbol
 contents, resolved deferral providers and same-act aliases from the source
 metadata. `--no-context` leaves out the last three.
 
-The set has 37 distinct citations: federal statutes, CFR regulations, IRS and
+The set has 39 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, one Canadian CRA guide
-(three runs) and one Israeli statute. It has one control (an Arizona candidate
+(three runs), two Canadian CRA forms (local diagnostics), and one Israeli statute. It has one control (an Arizona candidate
 that passed validation and then failed a provenance guard). At 0.2.2349, 12
 fixtures replay clean and 33 have 3,313 findings; four 7 CFR 273.7 candidates
 hold 2,671 of them. Read clean counts and per-fixture changes, not only the

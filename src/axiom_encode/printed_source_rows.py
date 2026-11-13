@@ -57,6 +57,17 @@ _OTHER_DESCRIPTOR = re.compile(
 
 
 @dataclass(frozen=True)
+class SamePageFloor:
+    """Printed operand order and raw spans only; never execution evidence."""
+
+    target: int
+    left: int
+    right: int
+    operation_span: tuple[int, int]
+    operand_spans: tuple[tuple[tuple[int, int], ...], tuple[tuple[int, int], ...]]
+
+
+@dataclass(frozen=True)
 class PrintedRowStructure:
     boundaries: tuple[int, ...]
     atomic_spans: tuple[tuple[int, int], ...]
@@ -67,6 +78,7 @@ class PrintedRowStructure:
     arithmetic_referral_spans: tuple[tuple[int, int], ...] = ()
     numeric_locator_spans: tuple[tuple[int, int], ...] = ()
     nonoperative_header_spans: tuple[tuple[int, int], ...] = ()
+    same_page_floors: tuple[SamePageFloor, ...] = ()
 
 
 # Exact detached Schedule 2 transcription. Every record includes its literal
@@ -236,6 +248,27 @@ def _detached_schedule2_rows(text: str) -> PrintedRowStructure | None:
         locators.append((position, position + len(token)))
     if len(locators) != len(set(locators)):
         return None
+    # Keep physical record spans separate: detached cells must not absorb the
+    # intervening operative text. This describes source syntax, not a proof.
+    local_roles = {
+        6: ("row6_cell", "row6_add"),
+        7: ("row7",),
+        11: ("row11_add",),
+        12: ("row12",),
+    }
+    floors = tuple(
+        SamePageFloor(
+            target=target,
+            left=left,
+            right=right,
+            operation_span=records[f"row{target}"][:2],
+            operand_spans=tuple(
+                tuple(records[role][:2] for role in local_roles[row])
+                for row in (left, right)
+            ),
+        )
+        for target, left, right in ((12, 7, 11), (13, 6, 12))
+    )
     return PrintedRowStructure(
         boundaries=tuple(sorted(boundaries)),
         atomic_spans=atomic,
@@ -245,6 +278,7 @@ def _detached_schedule2_rows(text: str) -> PrintedRowStructure | None:
         ownership_spans=ownership,
         numeric_locator_spans=tuple(sorted(locators)),
         nonoperative_header_spans=(records["header"][:2],),
+        same_page_floors=floors,
     )
 
 

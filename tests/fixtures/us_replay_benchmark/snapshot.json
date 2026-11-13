@@ -2,17 +2,17 @@
  "schema": "axiom-encode/us-replay-snapshot/v2",
  "context": "workspace",
  "totals": {
-  "cases": 45,
+  "cases": 47,
   "clean": 12,
-  "issues": 3272,
+  "issues": 3280,
   "rules": {
    "complete-source-unit:declaration-collision": 2,
    "complete-source-unit:deferral": 172,
    "complete-source-unit:formula-output": 763,
-   "complete-source-unit:numeric-recall": 315,
+   "complete-source-unit:numeric-recall": 317,
    "complete-source-unit:source-explicit-conditions": 6,
    "complete-source-unit:structure": 1847,
-   "complete-source-unit:tests": 167
+   "complete-source-unit:tests": 173
   }
  },
  "allowed_regressions": {},
@@ -3808,6 +3808,38 @@
    "rules": {},
    "error": null,
    "findings": []
+  },
+  "local-nl479-form-20261113": {
+   "citation": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+   "control": false,
+   "issues": 6,
+   "rules": {
+    "complete-source-unit:numeric-recall": 1,
+    "complete-source-unit:tests": 5
+   },
+   "error": null,
+   "findings": [
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 2025 has no named scalar representation. `module.summary` is not consulted. First source location of 2025: character (code point) offsets 38:42 in source.txt, ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit]: `2025`. The displayed text is only a bounded locator; copy any proof excerpt verbatim from `source.txt`.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 12 at ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit]. Exact source computation (characters 1251:1299): `Line 3: Line 1 minus line 2 (maximum $2,000) = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 14 at ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit]. Exact source computation (characters 1375:1448): `Line 5 and line 62000: Line 3 minus line 4 Physical activity expenses = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 16 at ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit]. Exact source computation (characters 1481:1569): `Line 7: Line 5 multiplied by the percentage from line 6 Physical activity tax credit = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 19 at ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit]. Exact source computation (characters 1693:1803): `Line 9: Line 7 plus line 8 Enter this amount online 47900of your return. Newfoundland and Labrador credits = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit] [change]: `If the total of this credit is more than the amount of taxes you have to pay, you may get a refund for the difference.`; ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit] [change]: `Physical activity tax credit If applicable, complete the following table and include all of your family's eligible physical activity expenses.`; ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit] [change]: `If you need more space, attach an additional sheet of paper.`."
+   ]
+  },
+  "local-schedule2-floor-20261113": {
+   "citation": "ca/policy/cra/t1-2025/federal-spouse-transfer-amounts",
+   "control": false,
+   "issues": 2,
+   "rules": {
+    "complete-source-unit:numeric-recall": 1,
+    "complete-source-unit:tests": 1
+   },
+   "error": null,
+   "findings": [
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 18 has no named scalar representation. `module.summary` is not consulted. First source location of 18: character (code point) offsets 1372:1374 in source.txt, ca/policy/cra/t1-2025/federal-spouse-transfer-amounts [source unit]: `Canada caregiver amount for infirm children under 18 years of age:`. The displayed text is only a bounded locator; copy any proof excerpt verbatim from `source.txt`.",
+    "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts [source unit] [change]: `You may be able to claim all or part of certain amounts that your spouse or common-law partner qualifies for if they do not need to use them to reduce their federal tax to zero.`; ca/policy/cra/t1-2025/federal-spouse-transfer-amounts [source unit] [change]: `Age amount (if your spouse or common-law partner was born in 1960 or earlier): Enter the amount from line 30100 of their return. 35200 1`; ca/policy/cra/t1-2025/federal-spouse-transfer-amounts [source unit] [change]: `Spouse's or common-law partner's adjusted taxable income: Line 7 minus line 11 (if negative, enter \"0\") – 12`; ca/policy/cra/t1-2025/federal-spouse-transfer-amounts [source unit] [change]: `Line 6 minus line 12 (if negative, enter \"0\") Enter this amount on line 32600 of your return. = 13`; ca/policy/cra/t1-2025/federal-spouse-transfer-amounts [source unit] [change]: `Spouse's or common-law partner's taxable income: Enter the amount from line 26000 of their return on line 7 if it is $57,375 or less. If it is ... the following calculation: amount from line 76 of their return ÷ 14.5% =`; ca/policy/cra/t1-2025/federal-spouse-transfer-amounts(1) [Absatz 1] [enable]: `Before assessing your return, the Canada Revenue Agency (CRA) will review your claim to see if your spouse or common-law partner is eligible for the disability tax credit.`; ca/policy/cra/t1-2025/federal-spouse-transfer-amounts(1) [Absatz 1] [change]: `if the CRA asks you to.`. The evaluator recognized 47 directional formula-toggle witnesses from 15 distinct case pairs, but these do not cover every listed source condition. Check affected rule/path, source-selector relevance, active orientation, required effect, and distinct-condition witness allocation before adding cases. Recognized test pairs alone do not establish source coverage."
+   ]
   }
  }
 }
