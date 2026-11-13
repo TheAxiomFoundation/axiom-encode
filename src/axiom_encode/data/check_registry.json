@@ -457,6 +457,18 @@
       "why": "Encoding reads source text only from authenticated corpus exports. Nothing was encoded yet, so the encoder output is not at fault."
     },
     {
+      "category": "infra:encode-producer-guidance-routing",
+      "cause": "infra",
+      "fix": "Use the supported v1 descriptor for the sole primary target, and remove dependent or unsupported-version guidance routing before dispatch.",
+      "gate": "workflow",
+      "id": "infra:encode-producer-guidance-routing",
+      "requires": "The supported v1 producer guidance descriptor is used only for the exact primary target lane.",
+      "severity": "important",
+      "site": ".github/workflows/targeted-signed-reencode.yml:Encode, review, validate, and apply",
+      "title": "Producer guidance is outside the supported primary generation route",
+      "why": "The workflow refuses a dispatch whose inputs it cannot bind to one exact, authenticated transaction. Nothing was encoded, so the encoder output is not at fault and a retry with the same inputs fails the same way."
+    },
+    {
       "category": "infra:enforce-failed-attempt-budget",
       "cause": "infra",
       "fix": "Fix the cause of the earlier failures first. A maintainer can raise `ATTEMPT_BUDGET_BY_CITATION_JSON` or set `ATTEMPT_BUDGET_OVERRIDE` for a reviewed retry.",
@@ -865,6 +877,18 @@
       "why": "The step reads the dispatch inputs before the model runs and refuses a request that it cannot bind to one exact transaction. Nothing was encoded, so the encoder output is not at fault."
     },
     {
+      "category": "infra:validate-producer-guidance-transport-mode",
+      "cause": "infra",
+      "fix": "Correct the guidance descriptor or conflicting dispatch inputs as the step's message specifies; keep the existing routing restrictions.",
+      "gate": "workflow",
+      "id": "infra:validate-producer-guidance-transport-mode",
+      "requires": "A producer guidance reference names this workflow producer and an ordinary single full-source primary target, without conflicting lanes.",
+      "severity": "important",
+      "site": ".github/workflows/targeted-signed-reencode.yml:Validate producer guidance transport mode",
+      "title": "The producer guidance transport request is invalid",
+      "why": "The step reads the dispatch inputs before the model runs and refuses a request that it cannot bind to one exact transaction. Nothing was encoded, so the encoder output is not at fault."
+    },
+    {
       "category": "infra:verify-existing-signed-import-integrity",
       "cause": "infra",
       "fix": "Read the inventory in the step's log; restore or re-encode the import that it names.",
@@ -985,6 +1009,30 @@
       "why": "A valid signature alone does not prove the repair came from the authorized seed and patch."
     },
     {
+      "category": "producer-guidance:manifest-binding",
+      "cause": "encoder_output",
+      "fix": "Inspect the cited manifest and guidance context; regenerate against the reviewed immutable producer and authenticated source after correcting the mismatch.",
+      "gate": "guard-generated",
+      "id": "producer-guidance:manifest-binding",
+      "requires": "The verified manifest and context bind the exact immutable guidance descriptor.",
+      "severity": "important",
+      "site": "axiom_encode/cli.py:_load_applied_encoding_manifest_entries",
+      "title": "Verified manifest guidance must match the protected source and producer",
+      "why": "A valid signature alone does not establish that the candidate used the requested guidance and source."
+    },
+    {
+      "category": "producer-guidance:primary-manifest",
+      "cause": "encoder_output",
+      "fix": "Inspect the changed manifests and the exact primary citation; correct the transaction rather than reusing an unrelated record.",
+      "gate": "guard-generated",
+      "id": "producer-guidance:primary-manifest",
+      "requires": "The ordinary changed-file guard produces exactly one verified guidance record.",
+      "severity": "important",
+      "site": "axiom_encode/cli.py:cmd_guard_generated",
+      "title": "Guidance must bind exactly one verified primary manifest",
+      "why": "Missing or duplicate primary records cannot bind the reviewed guidance to one signed transaction."
+    },
+    {
       "category": "proof:source-evidence",
       "cause": "encoder_output",
       "fix": "Copy a short contiguous excerpt verbatim from the cited provision (no ellipsis, paraphrase or joined fragments), or cite the provision that holds the text.",
@@ -1057,6 +1105,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "2d24a58c18a52093f02d154d169b283ed00447786dbcdf8fdf1ea90b96be89dc",
+  "registry_sha256": "300e166c3469651b3ba6d78c117c21f4661342a1770c5b9e183b6114fae29ea4",
   "schema": "axiom-encode/check-registry/v1"
 }

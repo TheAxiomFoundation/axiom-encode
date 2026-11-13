@@ -1,0 +1,22 @@
+{
+  "scope": "Local regression evidence, not hosted CI, approval, signature or publication",
+  "integration_base": "1c8db159190e60884121d1b7c9d6bd17a7119ce0",
+  "reviewed_parent": "3f995c20f3b2f614c2d61401b571f04f39beb2bd",
+  "logs": {
+    "issue233-guidance-quote-tests-final.log": "026999044b0eba085b4fe0114b979c3112f51e8503cacade1340a59896d4b031",
+    "issue233-guidance-correction-broad.log": "62fa6d451eeca7375db7d7dac0a1c0f6bec22e012da1c86bc06e6031c0fe7bca",
+    "issue233-guidance-diagnostic-safety.log": "6a10498ce95455afe92e2f96e41718cc63868cf75f042d55c3aac9166c8e54f8",
+    "issue233-guidance-diagnostic-path-correction.log": "943dcb0fe11e6c68f703ffdb49788552a4955bfd7f17f05b3c6ed37ff57fdb82"
+  },
+  "counts_overlap": true,
+  "final_path_correction": "19 whole-shell packaging cases supersede the earlier16case diagnostic subset of220tests; no claim of a rerun of the whole220 after that narrow correction",
+  "guidance_blob": {
+    "path": "review-guidance/ca/t936-2025-full-unit.json",
+    "sha256": "f83d2b94793d46d9c5d106f7393dca79e5b19c1cf1aa63de766340ee26e4c070",
+    "bytes": 251691,
+    "characters": 251689,
+    "cases": 85,
+    "assertions": 177
+  },
+  "historical_compatibility": "Earlier2971pass18skip1socketfailure with separate unchanged socket-test pass is historical and not current fullsuite clearance."
+}

@@ -1,0 +1,1 @@
+Add primary-only review guidance from an immutable blob in the exact executing encoder commit, bound to the authenticated citation and source digest. Preserve inline findings and existing source, signing and publication requirements; independently bind artifact bytes to the successful protected verifier result.

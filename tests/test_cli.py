@@ -14523,6 +14523,12 @@ class TestCmdEncode:
         args.mode = overrides.get("mode", "repo-augmented")
         args.allow_context = overrides.get("allow_context", [])
         args.review_findings = overrides.get("review_findings", [])
+        args.producer_review_guidance_ref = overrides.get(
+            "producer_review_guidance_ref", None
+        )
+        args.producer_review_guidance_checkout = overrides.get(
+            "producer_review_guidance_checkout", None
+        )
         args.review_contract_json = overrides.get("review_contract_json", None)
         args.repair_candidate_root = overrides.get("repair_candidate_root", None)
         args.repair_candidate_path = overrides.get("repair_candidate_path", None)
@@ -29652,10 +29658,15 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    @pytest.mark.parametrize("transport", ["inline", "reference"])
     def test_encode_apply_converges_nonexact_proof_excerpt_repairs(
-        self, capsys, tmp_path
+        self, capsys, tmp_path, transport
     ):
-        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args = self._make_args(
+            tmp_path,
+            backend="openai" if transport == "reference" else "codex",
+            sync=False,
+        )
         args.apply = True
         result = self._make_eval_result(False)
         result.error = "Generated RuleSpec failed CI validation"
@@ -29675,7 +29686,26 @@ rules:
         ).hexdigest()
         findings_path = tmp_path / "review-findings.md"
         findings_path.write_text(findings_content)
-        args.review_findings = [findings_path]
+        args.review_findings = [findings_path] if transport == "inline" else []
+        if transport == "reference":
+            args.producer_review_guidance_ref = "{}"
+            args.producer_review_guidance_checkout = tmp_path
+            args.require_complete_source_unit = True
+            args.legacy_dependent_rulespec_path = []
+            args.legacy_exact_dependent_rulespec_path = []
+            args.legacy_retained_successor_rulespec_path = []
+        from axiom_encode.producer_review_guidance import ProducerReviewGuidance
+
+        guidance = ProducerReviewGuidance(
+            "a" * 40,
+            "review-guidance/example.json",
+            "b" * 64,
+            100,
+            args.citation,
+            "c" * 64,
+            findings_content.encode(),
+            hashlib.sha256(findings_content.encode()).hexdigest(),
+        )
         output_file = (
             tmp_path / "out" / "codex-test-model" / "policies" / "benefit.yaml"
         )
@@ -29727,6 +29757,10 @@ rules:
         applied_file = args.policy_repo_path / "us/policies/benefit.yaml"
 
         with (
+            patch(
+                "axiom_encode.cli._resolve_encode_producer_review_guidance",
+                return_value=guidance,
+            ),
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
             patch(
                 "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
