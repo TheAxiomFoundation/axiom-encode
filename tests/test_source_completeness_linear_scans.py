@@ -1141,7 +1141,9 @@ def _reason_helpers(reason: str) -> list[object]:
                 sc._reason_dependency_occurrence_is_contextual(
                     reason, match, current_usc_title=title
                 )
-                for title in (None, "7", "42", "47", "47A", "47a")
+                # Main lower-cases titles: "47\u017f".lower() keeps the long s,
+                # where casefold() would read it as "47s".
+                for title in (None, "7", "42", "47", "47A", "47a", "47\u017f")
             ),
         )
         for match in _reason_matches(reason)
@@ -1280,6 +1282,37 @@ _OCCURRENCE_KEY_REASONS = (
         "7 U.S.C. 2015 is missing. section 2015 is quoted only for context; "
         "section 5 of this title is missing.",
         id="this-title-anchored",
+    ),
+    # Only an untitled section joins the current title's group.
+    pytest.param(
+        "42 U.S.C. 2015 of this title is quoted only for context. 7 U.S.C. 2015 "
+        "is missing.",
+        id="this-title-titled",
+    ),
+    pytest.param(
+        "7 U.S.C. 2015-1 is missing; section 2015\u20131 of this title is quoted "
+        "only for context.",
+        id="this-title-section-dash",
+    ),
+    pytest.param(
+        "7 U.S.C. 2015\u20131 is missing; section 2015-1 of this title is quoted "
+        "only for context.",
+        id="this-title-cited-dash",
+    ),
+    # Main compares sections case-sensitively, unlike titles.
+    pytest.param(
+        "7 U.S.C. 2015A is quoted only for context. 7 U.S.C. 2015a is missing.",
+        id="section-case",
+    ),
+    pytest.param(
+        "R.S. 47s:297 is missing. section 297 of this title is quoted only for "
+        "context.",
+        id="this-title-long-s",
+    ),
+    pytest.param(
+        "7 U.S.C. 2015(e) is missing; section 2015(d) of this title is quoted "
+        "only for context.",
+        id="this-title-fragments",
     ),
 )
 
@@ -1830,6 +1863,10 @@ def test_clause_spans_match_main(text):
 # ``$`` also matches before a final newline, so the period can sit one before.
 @example("12.\n")
 @example("R.S.\n47:297")
+# "of this title" in any case, after any whitespace, and only as a whole word.
+@example(" Of This Title")
+@example("\u00a0of this title")
+@example(" of this titles")
 def test_windowed_matches_equal_sliced_matches(text):
     for end in range(len(text) + 1):
         assert sc._number_ends_before(text, end) == bool(
@@ -3070,6 +3107,11 @@ def test_growth_bound_fails_only_when_every_reading_exceeds_it(monkeypatch):
 
     def family(n: int):
         return lambda: None
+
+    # A first reading under the bound passes at once: a second would be next()
+    # on an empty script.
+    script([1.0, 2.0])
+    _assert_near_linear(family, (1, 2), budget=1.0)
 
     script([1.0, 4.0], [1.0, 4.0], [1.0, 2.0])
     _assert_near_linear(family, (1, 2), budget=1.0)
