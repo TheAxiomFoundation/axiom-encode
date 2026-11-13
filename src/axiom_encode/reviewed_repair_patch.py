@@ -11,8 +11,11 @@ import base64
 import binascii
 import hashlib
 import json
+import os
 import re
+import selectors
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -395,6 +398,93 @@ def _registration(patch_id: object) -> ReviewedPatchRegistration:
     return registration
 
 
+# Bound the whole immutable listing, including unrelated paths, before selecting
+# registered members. The protected wrapper permits this exact query shape.
+MAX_TREE_BYTES = 16 * 1024 * 1024
+MAX_TREE_ENTRIES = 100_000
+GIT_READ_TIMEOUT = 30
+
+
+def _bounded_git_read(checkout: Path, *args: str, limit: int) -> bytes:
+    command = ["git", "-C", str(checkout), *args]
+    deadline = time.monotonic() + GIT_READ_TIMEOUT
+    with subprocess.Popen(command, stdout=subprocess.PIPE) as process:
+        assert process.stdout is not None
+        try:
+            data = bytearray()
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdout, selectors.EVENT_READ)
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or not selector.select(remaining):
+                        raise ValueError("reviewed repair Git read timed out")
+                    chunk = os.read(
+                        process.stdout.fileno(), min(65536, limit + 1 - len(data))
+                    )
+                    if not chunk:
+                        break
+                    data.extend(chunk)
+                    if len(data) > limit:
+                        raise ValueError("reviewed repair Git read exceeds bound")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ValueError("reviewed repair Git read timed out")
+            if process.wait(timeout=remaining):
+                raise subprocess.CalledProcessError(process.returncode, command)
+            return bytes(data)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+
+
+def _immutable_tree(
+    checkout: Path, commit: str
+) -> dict[str, tuple[str, str, str, int | None]]:
+    _digest(commit, _COMMIT)
+    raw = _bounded_git_read(
+        checkout,
+        "ls-tree",
+        "-r",
+        "-l",
+        "-z",
+        "--full-tree",
+        commit,
+        limit=MAX_TREE_BYTES,
+    )
+    if raw and not raw.endswith(b"\0"):
+        raise ValueError("reviewed repair Git tree is truncated")
+    records = raw.split(b"\0")[:-1]
+    if len(records) > MAX_TREE_ENTRIES:
+        raise ValueError("reviewed repair Git tree exceeds entry bound")
+    entries = {}
+    for record in records:
+        header, path = record.split(b"\t", 1)
+        mode, kind, blob, size_text = header.decode("ascii").split()
+        _digest(blob, _COMMIT)
+        name = path.decode("utf-8")
+        if not name or name in entries:
+            raise ValueError("reviewed repair Git tree has duplicate or empty path")
+        if size_text == "-" and kind != "blob":
+            size = None
+        elif size_text.isascii() and size_text.isdecimal():
+            size = int(size_text)
+        else:
+            raise ValueError("reviewed repair Git tree has invalid size")
+        entries[name] = (mode, kind, blob, size)
+    return entries
+
+
+def _immutable_blob(checkout: Path, blob: str, size: int) -> bytes:
+    _digest(blob, _COMMIT)
+    if type(size) is not int or not 0 <= size <= MAX_MEMBER_BYTES:
+        raise ValueError("reviewed repair Git blob exceeds size bound")
+    raw = _bounded_git_read(checkout, "cat-file", "blob", blob, limit=size)
+    if len(raw) != size:
+        raise ValueError("reviewed repair Git blob size mismatch")
+    return raw
+
+
 def load_registered_patch(checkout: Path, patch_id: str) -> ReviewedRepairPackage:
     """Read only registry-pinned official Git blobs; no caller path/hash authority."""
     registration = _registration(patch_id)
@@ -407,13 +497,11 @@ def load_registered_patch(checkout: Path, patch_id: str) -> ReviewedRepairPackag
     ):
         raise ValueError("reviewed patch checkout must have official origin")
     prefix = f"reviewed-repair-patches/{patch_id}"
-    tree = git("ls-tree", "-r", "-z", registration.commit, "--", prefix)
-    entries = {}
-    for record in tree.split(b"\0"):
-        if record:
-            header, path = record.split(b"\t", 1)
-            mode, kind, blob = header.decode().split()
-            entries[path.decode()] = (mode, kind, blob)
+    entries = {
+        path: entry
+        for path, entry in _immutable_tree(checkout, registration.commit).items()
+        if path == prefix or path.startswith(prefix + "/")
+    }
     if set(entries) != {f"{prefix}/{name}" for name in MEMBERS}:
         raise ValueError("reviewed patch package has missing or extra files")
     result = []
@@ -426,11 +514,11 @@ def load_registered_patch(checkout: Path, patch_id: str) -> ReviewedRepairPackag
         total += size
         if total > MAX_PACKAGE_BYTES:
             raise ValueError("reviewed patch package exceeds total bound")
-        if entries[f"{prefix}/{name}"] != ("100644", "blob", blob):
+        if entries[f"{prefix}/{name}"][:3] != ("100644", "blob", blob):
             raise ValueError("reviewed patch member mode or Git blob mismatch")
-        if int(git("cat-file", "-s", blob)) != size:
+        if entries[f"{prefix}/{name}"][3] != size:
             raise ValueError("reviewed patch Git blob size mismatch")
-        raw = git("cat-file", "blob", blob)
+        raw = _immutable_blob(checkout, blob, size)
         if len(raw) != size or sha256(raw) != digest:
             raise ValueError("reviewed patch bytes do not match registry")
         result.append(raw)
@@ -563,31 +651,31 @@ def verify_predecessor(
 
     if git("rev-parse", "HEAD").decode().strip() != base:
         raise ValueError("reviewed repair checkout is not exact reviewed base")
-    if git("status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"):
+    if git(
+        "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching"
+    ):
         raise ValueError("reviewed repair requires a strictly clean base")
     if not _official_origin(
         git("remote", "get-url", "origin").decode().strip(),
         f"rulespec-{_target_country(target.as_posix())}",
     ):
         raise ValueError("reviewed repair base origin invalid")
+    entries = _immutable_tree(checkout, base)
     snapshot = {}
     for path, digest in (
         (target, previous["rulespec_sha256"]),
         (target.with_suffix(".test.yaml"), previous["tests_sha256"]),
         (Path(previous["path"]), previous["sha256"]),
     ):
-        entry = git("ls-tree", base, "--", path.as_posix()).decode().strip()
-        if not entry:
+        entry = entries.get(path.as_posix())
+        if entry is None:
             raise ValueError("reviewed predecessor file absent from exact base")
-        header, name = entry.split("\t", 1)
-        mode, kind, blob = header.split()
-        if mode != "100644" or kind != "blob" or name != path.as_posix():
+        mode, kind, blob, size = entry
+        if mode != "100644" or kind != "blob":
             raise ValueError("reviewed predecessor must be tracked regular bytes")
         if path == Path(previous["path"]) and blob != previous["blob"]:
             raise ValueError("reviewed predecessor Git blob differs")
-        if int(git("cat-file", "-s", blob)) > MAX_MEMBER_BYTES:
-            raise ValueError("reviewed predecessor exceeds size bound")
-        raw = git("cat-file", "blob", blob)
+        raw = _immutable_blob(checkout, blob, size)
         live = read_bounded_regular_file(
             checkout,
             checkout / path,
@@ -602,7 +690,16 @@ def verify_predecessor(
     if old.get("schema_version") != previous["schema"]:
         raise ValueError("reviewed predecessor schema differs")
     if previous["canonical_manifest"] == "absent":
-        if git("ls-tree", base, "--", canonical.as_posix()):
+        if _bounded_git_read(
+            checkout,
+            "ls-tree",
+            "-z",
+            "--full-tree",
+            base,
+            "--",
+            canonical.as_posix(),
+            limit=MAX_TREE_BYTES,
+        ):
             raise ValueError("canonical manifest unexpectedly present at base")
         path = checkout / canonical
         if path.exists() or path.is_symlink():
@@ -793,24 +890,22 @@ def verify_manifest_reconstruction(
         raise ValueError(
             "reviewed repair base is not an ancestor of current tree"
         ) from exc
+    entries = _immutable_tree(checkout, base)
     predecessor = declared["predecessor"]
     for path, expected_hash in (
         (target, predecessor["rulespec_sha256"]),
         (companion, predecessor["tests_sha256"]),
         (predecessor["path"], predecessor["sha256"]),
     ):
-        tree = git("ls-tree", "-z", base, "--", path).split(b"\0")
-        if len(tree) != 2 or not tree[0]:
+        entry = entries.get(path)
+        if entry is None:
             raise ValueError("reviewed repair base member absent")
-        header, actual_path = tree[0].split(b"\t", 1)
-        mode, kind, blob = header.decode().split()
-        if mode != "100644" or kind != "blob" or actual_path.decode() != path:
+        mode, kind, blob, size = entry
+        if mode != "100644" or kind != "blob":
             raise ValueError(
                 "reviewed repair base member is not canonical regular bytes"
             )
-        if int(git("cat-file", "-s", blob)) > MAX_MEMBER_BYTES:
-            raise ValueError("reviewed repair base member exceeds bound")
-        raw = git("cat-file", "blob", blob)
+        raw = _immutable_blob(checkout, blob, size)
         if sha256(raw) != expected_hash:
             raise ValueError("reviewed repair base member differs from registration")
         if path == predecessor["path"]:
@@ -831,8 +926,15 @@ def verify_manifest_reconstruction(
                 )
                 if current != raw:
                     raise ValueError("reviewed historical predecessor changed")
-    if predecessor["canonical_manifest"] == "absent" and git(
-        "ls-tree", base, "--", canonical
+    if predecessor["canonical_manifest"] == "absent" and _bounded_git_read(
+        checkout,
+        "ls-tree",
+        "-z",
+        "--full-tree",
+        base,
+        "--",
+        canonical,
+        limit=MAX_TREE_BYTES,
     ):
         raise ValueError("reviewed repair canonical manifest was not absent at base")
 
