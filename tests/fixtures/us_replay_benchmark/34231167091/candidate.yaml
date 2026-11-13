@@ -1,0 +1,477 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+    source_sha256: 806907224a37eecb7fb5fa3f8279fcd7bd29de7bd3fc9c3111953d2cb6701566
+  summary: '“Maximum Monthly Allotment” for household sizes 1 through 8 and each
+
+    additional member, effective October 1, 2025 through September 30, 2026.'
+rules:
+- name: contiguous_states_and_dc_count
+  kind: parameter
+  dtype: Count
+  source: Maximum Allotments Table 1 column heading
+  metadata:
+    private: true
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: 48 States & District of Columbia
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '48'
+- name: maximum_allotment_first_household_size
+  kind: parameter
+  dtype: Count
+  source: Maximum Allotments Table 1 household-size row
+  metadata:
+    private: true
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: Household Size 1
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '1'
+- name: maximum_allotment_second_household_size
+  kind: parameter
+  dtype: Count
+  source: Maximum Allotments Table 1 household-size row
+  metadata:
+    private: true
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: Household Size 2
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '2'
+- name: maximum_allotment_third_household_size
+  kind: parameter
+  dtype: Count
+  source: Maximum Allotments Table 1 household-size row
+  metadata:
+    private: true
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: Household Size 3
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '3'
+- name: maximum_allotment_fourth_household_size
+  kind: parameter
+  dtype: Count
+  source: Maximum Allotments Table 1 household-size row
+  metadata:
+    private: true
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: Household Size 4
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '4'
+- name: maximum_allotment_fifth_household_size
+  kind: parameter
+  dtype: Count
+  source: Maximum Allotments Table 1 household-size row
+  metadata:
+    private: true
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: Household Size 5
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '5'
+- name: maximum_allotment_sixth_household_size
+  kind: parameter
+  dtype: Count
+  source: Maximum Allotments Table 1 household-size row
+  metadata:
+    private: true
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: Household Size 6
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '6'
+- name: maximum_allotment_seventh_household_size
+  kind: parameter
+  dtype: Count
+  source: Maximum Allotments Table 1 household-size row
+  metadata:
+    private: true
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: Household Size 7
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '7'
+- name: maximum_allotment_eighth_household_size
+  kind: parameter
+  dtype: Count
+  source: Maximum Allotments Table 1 household-size row
+  metadata:
+    private: true
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: Household Size 8
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '8'
+- name: snap_member_eligible
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: Federal SNAP member eligibility composition bridge
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:regulations/7-cfr/273/4#snap_member_citizenship_or_alien_status_eligible
+          output: snap_member_citizenship_or_alien_status_eligible
+          hash: sha256:c404469290002f5e2e5d5dc92686b36f994d924da97d9c31c118979ef5c5c3da
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:regulations/7-cfr/273/5#snap_member_student_eligible
+          output: snap_member_student_eligible
+          hash: sha256:043588b5078169a574dabe70a15ff300517b4472687b3d1dda71bcefc9faa1f1
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:regulations/7-cfr/273/6#snap_member_ssn_requirement_eligible
+          output: snap_member_ssn_requirement_eligible
+          hash: sha256:ff1fb6a001e8289d3f26b6711501443bce6453375c731aba71cec97310c5011d
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: Supplemental Nutrition Assistance Program (SNAP)
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 'snap_member_citizenship_or_alien_status_eligible
+
+      and snap_member_ssn_requirement_eligible
+
+      and snap_member_work_requirement_eligible
+
+      and snap_member_student_eligible'
+- name: member_of_household
+  kind: data_relation
+  data_relation:
+    predicate: member_of_household
+    arity: 2
+    arguments:
+    - Person
+    - Household
+- name: snap_state_plan_member_of_household_count
+  kind: derived
+  entity: Household
+  dtype: Integer
+  period: Month
+  source: Federal SNAP state-plan composition membership support
+  metadata:
+    private: true
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: Household Size
+  versions:
+  - effective_from: '2025-10-01'
+    formula: len(member_of_household)
+- name: snap_countable_earned_income
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  source: Federal SNAP state-plan composition income support
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: monthly maximum allotment
+  versions:
+  - effective_from: '2025-10-01'
+    formula: max(0, snap_gross_monthly_earned_income)
+- name: snap_countable_unearned_income
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  source: Federal SNAP state-plan composition income support
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: monthly maximum allotment
+  versions:
+  - effective_from: '2025-10-01'
+    formula: max(0, snap_total_monthly_unearned_income)
+- name: snap_gross_monthly_income
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  source: Federal SNAP state-plan composition income support
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: monthly maximum allotment
+  versions:
+  - effective_from: '2025-10-01'
+    formula: max(0, snap_countable_earned_income + snap_countable_unearned_income)
+- name: snap_monthly_household_income
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  source: Federal SNAP state-plan composition income support
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: monthly maximum allotment
+  versions:
+  - effective_from: '2025-10-01'
+    formula: max(0, snap_countable_earned_income + snap_countable_unearned_income)
+- name: snap_residency_eligible
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Federal SNAP eligibility composition bridge
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:regulations/7-cfr/273/3#snap_household_residency_eligible
+          output: snap_household_residency_eligible
+          hash: sha256:d368a84e2cc8b3ce3862899cfb9e912dfaaf9bbf7e46b100f723959ccd6d4ff4
+  versions:
+  - effective_from: '2025-10-01'
+    formula: snap_household_residency_eligible
+- name: snap_household_member_eligible
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Federal SNAP household-member eligibility composition bridge
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: Household Size
+  versions:
+  - effective_from: '2025-10-01'
+    formula: count_where(member_of_household, snap_member_eligible) > 0
+- name: snap_household_residency_and_citizenship_eligible
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Federal SNAP household eligibility composition bridge
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: Household Size
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 'snap_residency_eligible
+
+      and snap_household_member_eligible'
+- name: snap_ssn_eligible
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Federal SNAP Social Security number eligibility composition bridge
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: Household Size
+  versions:
+  - effective_from: '2025-10-01'
+    formula: count_where(member_of_household, snap_member_ssn_requirement_eligible)
+      > 0
+- name: snap_work_requirement_eligible
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Federal SNAP work-requirement eligibility composition bridge
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: Household Size
+  versions:
+  - effective_from: '2025-10-01'
+    formula: count_where(member_of_household, snap_member_general_work_requirement_eligible)
+      > 0
+- name: snap_student_eligible
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Federal SNAP student eligibility composition bridge
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+          excerpt: Household Size
+  versions:
+  - effective_from: '2025-10-01'
+    formula: count_where(member_of_household, snap_member_student_eligible) > 0
+- name: snap_initial_month_issued_allotment
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  source: Federal SNAP initial-month allotment composition bridge
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:regulations/7-cfr/273/10#snap_initial_month_minimum_issuance
+          output: snap_initial_month_minimum_issuance
+          hash: sha256:f9b9f00101218d1d335aa9fff400f0578ae2dc314334693bae7e0dde51202dff
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 'if snap_initial_month_prorated_allotment < snap_initial_month_minimum_issuance:
+      0 else: snap_initial_month_prorated_allotment'
+- name: snap_benefit
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  source: Federal SNAP benefit composition bridge
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:regulations/7-cfr/273/10#snap_monthly_allotment
+          output: snap_monthly_allotment
+          hash: sha256:f9b9f00101218d1d335aa9fff400f0578ae2dc314334693bae7e0dde51202dff
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 'if snap_eligible: (if household_initial_month: snap_initial_month_issued_allotment
+      else: snap_monthly_allotment) else: 0'
+imports:
+- us:regulations/7-cfr/273/3#snap_household_residency_eligible
+- us:regulations/7-cfr/273/4#snap_member_citizenship_or_alien_status_eligible
+- us:regulations/7-cfr/273/5#snap_member_student_eligible
+- us:regulations/7-cfr/273/6#snap_member_ssn_requirement_eligible
+- us:regulations/7-cfr/273/10#snap_initial_month_minimum_issuance
+- us:regulations/7-cfr/273/10#snap_monthly_allotment
+- us:regulations/7-cfr/273/7#snap_member_general_work_requirement_eligible
+inputs:
+- name: snap_member_work_requirement_eligible
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: snap_gross_monthly_earned_income
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+- name: snap_total_monthly_unearned_income
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+- name: snap_eligible
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: household_initial_month
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: snap_initial_month_prorated_allotment
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD

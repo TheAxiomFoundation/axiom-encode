@@ -7,6 +7,8 @@ Only the locator digits are blanked; captions, amounts and operators survive.
 
 import re
 
+from axiom_encode.printed_source_rows import recognize_printed_rows
+
 _BOX_REFERRAL = (
     r"\bbox(?:es)?[ \t]+(?P<labels>\d{1,3}"
     r"(?:(?:,[ \t]+(?:(?:and|or)[ \t]+)?|[ \t]+(?:and|or)[ \t]+)\d{1,3})*)"
@@ -52,6 +54,10 @@ def form_numeric_locator_spans(text: str) -> tuple[tuple[int, int], ...]:
 
     def unquoted(start: int, end: int) -> bool:
         return not any(a < end and start < b for a, b in quoted)
+
+    detached = recognize_printed_rows(text, allow_detached=True)
+    if detached is not None and detached.numeric_locator_spans:
+        return detached.numeric_locator_spans
 
     spans = []
     for match in _SLIP_BOX.finditer(text):
