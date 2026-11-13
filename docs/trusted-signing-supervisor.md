@@ -391,9 +391,12 @@ succeeded. The outbox then receives the older token, which the provider may
 already have rotated out. The reviewer runs in the supervisor's home directly.
 
 A supervisor runs the encoder package that was provisioned into its root-owned
-runtime, so these changes reach it only after it is re-provisioned with an
-encoder that contains them. Until then, its reviewer still runs without the
-supervisor's `CODEX_HOME`.
+runtime. The reviewer's `CODEX_HOME` and the output redaction above therefore
+reach a long-lived supervisor only when it is re-provisioned with an encoder
+that contains them; a supervisor provisioned from an older encoder runs its
+reviewer without the supervisor's `CODEX_HOME`. The central signed re-encode
+workflow provisions at its own commit on every run, so it needs no extra step.
+The launcher checks ship in the apply-signer binary, which is rebuilt separately.
 
 ### ChatGPT subscription generation
 
