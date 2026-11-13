@@ -15442,6 +15442,30 @@ _NONOPERATIVE_REASON_ASSERTION = re.compile(
 )
 
 
+_NONOPERATIVE_EFFECTIVE_DATE = re.compile(
+    r"\beffective\s+(?:on\s+|as\s+of\s+|for\s+|beginning\s+|after\s+|until\s+)?"
+    r"(?:(?:January|February|March|April|May|June|July|August|September|"
+    r"October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)"
+    r"\b|\d|the\s+(?:first|date|day)\b)",
+    flags=re.IGNORECASE,
+)
+_NONOPERATIVE_EXCLUSION = re.compile(
+    r"\b(?:is|are)\s+not\s+(?:counted|income|a\s+resource|resources|included|"
+    r"considered)\b|"
+    r"\b(?:shall|must|may)\s+not\s+be\s+(?:counted|included|considered)\b|"
+    r"\b(?:does|do)\s+not\s+count\b|"
+    r"\bexclu(?:de|des|ded|ding|sion)\b|\bdisregard(?:s|ed|ing)?\b",
+    flags=re.IGNORECASE,
+)
+_NONOPERATIVE_COORDINATED_MODAL = re.compile(
+    r"(?:,\s*|\s)(?:and|but)\s+(?:the|a|an|each|any|every|all|this|that|such)\s+"
+    r"(?:[\w-]+\s+){0,5}?(?:must|shall|may|will)\s+"
+    r"(?!(?:not\s+)?(?:be|continue|remain|survive|stand)\b)(?!not\s+affect\b)"
+    r"[a-z]",
+    flags=re.IGNORECASE,
+)
+
+
 def _source_branch_nonoperative_framing(source_scope_text: str) -> str | None:
     """Return the framing class of a non-operative source branch, if any.
 
@@ -15497,6 +15521,18 @@ def _source_branch_nonoperative_framing(source_scope_text: str) -> str | None:
     if _SPELLED_AMOUNT.search(text) or _regulation_text_states_consequence(text):
         return None
     if source_states_explicit_computation(source_scope_text):
+        return None
+    # An effective date or an exclusion is operative under every framing.
+    if _NONOPERATIVE_EFFECTIVE_DATE.search(text) or _NONOPERATIVE_EXCLUSION.search(
+        text
+    ):
+        return None
+    # A coordinated clause with its own actor and modal is operative under
+    # every framing, including severability and short titles
+    # (`..., and the State agency shall refund each applicant the fee`).
+    # Severability's own verbs (`shall not be affected`, `shall continue in
+    # effect`) are not such a clause.
+    if _NONOPERATIVE_COORDINATED_MODAL.search(text):
         return None
     # The framing opening must be the whole sentence: a modal after it adds
     # an operative clause (`This section sets forth ..., and the State agency

@@ -215,6 +215,17 @@ def _covered(citation: str, source: str, output_path: str, reason: str, **extra)
                 citation="us-mo/statute/143.999(1)", kind="short-title"
             ),
         ),
+        (
+            "us-mo/statute/143.998",
+            "(1) Severability. If any provision of this section is held invalid, "
+            "the provision is severable, and the remainder shall continue in "
+            "effect.\n(2) The credit is $10.",
+            "us-mo:statutes/143/998",
+            ("1",),
+            NONOPERATIVE_REASON.format(
+                citation="us-mo/statute/143.998(1)", kind="severability"
+            ),
+        ),
     ],
 )
 def test_nonoperative_framing_leaf_deferral_is_precise(
@@ -301,6 +312,37 @@ def test_nonoperative_framing_leaf_deferral_is_precise(
             "under age 19.",
             ("a",),
             "42 CFR 457.800(a) is a non-operative definitions statement and "
+            "supplies no operative rule.",
+        ),
+        # A coordinated operative clause after a severability or short-title
+        # framing, and an effective date or exclusion under any framing.
+        (
+            "(a) Short title. This part may be cited as the Child Health Rule, "
+            "and each household shall receive a supplemental allotment.",
+            ("a",),
+            "42 CFR 457.800(a) is a non-operative short-title statement and "
+            "supplies no operative rule.",
+        ),
+        (
+            "(a) Severability. If any provision of this part is held invalid, "
+            "the remainder is severable, and the State agency shall refund each "
+            "applicant the fee.",
+            ("a",),
+            "42 CFR 457.800(a) is a non-operative severability statement and "
+            "supplies no operative rule.",
+        ),
+        (
+            "(a) Purpose. The purpose of this section is to require States to "
+            "verify income before certification, effective October 1, 2024.",
+            ("a",),
+            "42 CFR 457.800(a) is a non-operative purpose statement and supplies "
+            "no operative rule.",
+        ),
+        (
+            "(a) Basis. This section implements section 2110 of the Act, under "
+            "which student income is not income for this program.",
+            ("a",),
+            "42 CFR 457.800(a) is a non-operative statutory-basis statement and "
             "supplies no operative rule.",
         ),
         # A framing heading with operative children is not a leaf.
