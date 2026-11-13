@@ -206,7 +206,10 @@ from .source_completeness import (
     manual_outcome_exception_advice,
     source_states_stated_conversion_result,
 )
-from .start_date_evidence import start_date_evidence_from_metadata
+from .start_date_evidence import (
+    StartDateEvidence,
+    start_date_evidence_from_metadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37176,11 +37179,8 @@ class ValidatorPipeline:
             authenticated_same_act_aliases=(
                 _authenticated_same_act_aliases_from_metadata(self.source_metadata)
             ),
-            start_date_evidence=start_date_evidence_from_metadata(
-                self.source_metadata,
-                amendment_context=bool(
-                    self.amendment_documents or self.amendment_source_texts
-                ),
+            start_date_evidence=self._complete_source_start_date_evidence(
+                corpus_citation_path
             ),
         )
         # Reported beside the CI result for the admission score; a result that
@@ -37196,6 +37196,45 @@ class ValidatorPipeline:
         if all(type(value) is int for value in recall.values()):
             self._complete_source_unit_recall = recall
         return list(completeness.issues)
+
+    def _complete_source_start_date_evidence(
+        self, corpus_citation_path: str
+    ) -> StartDateEvidence | None:
+        """Corpus dates for the date-silent start-date check, or ``None``.
+
+        An encode supplies the resolver attestation in ``source_metadata``.
+        ``validate`` supplies none; the dates then come from the unit's row in
+        the bound corpus release. With neither a metadata object nor a bound
+        release the caller gave no corpus date channel, and the check does not
+        run. Metadata that is supplied but has no readable dates, and a
+        citation the bound release does not resolve, still reach the check as
+        evidence with problems, which supports nothing.
+        """
+
+        amendment_context = bool(
+            self.amendment_documents or self.amendment_source_texts
+        )
+        if self.source_metadata is not None:
+            return start_date_evidence_from_metadata(
+                self.source_metadata, amendment_context=amendment_context
+            )
+        if not isinstance(self.local_corpus_release, LocalCorpusRelease):
+            return None
+        try:
+            attestation = resolve_local_corpus_source(
+                corpus_citation_path, self.local_corpus_release
+            ).to_attestation()
+        except (CorpusResolutionError, OSError, TypeError, ValueError):
+            return StartDateEvidence(
+                None,
+                None,
+                ("the bound corpus release does not resolve the citation",),
+                amendment_context,
+            )
+        return start_date_evidence_from_metadata(
+            {"source_attestation": attestation},
+            amendment_context=amendment_context,
+        )
 
     def _complete_source_unit_deferred_outputs(
         self,

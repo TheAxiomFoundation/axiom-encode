@@ -16,22 +16,31 @@ corpus holds this text from here; earlier coverage is unproven"), not a
 claimed legal commencement date.
 
 The check is the narrow form of that rule, to keep false refusals low. It
-looks only at a unit that is all of: a corpus ``manual`` document, date-silent,
-without imports and without amendment context. There it refuses a start date
-that is earlier than ``source_as_of`` and is not the scaffold, not the
-``expression_date`` and not printed in a proof excerpt. A start on or after
-``source_as_of`` is not examined. ``effective_to``, ``values`` keys and
-companion test periods are not examined.
+looks only at a unit that is all of: a corpus ``manual`` document, date-silent
+and without amendment context. There every start date must be one of the
+supported dates above: the scaffold, the ``expression_date``, ``source_as_of``,
+the evidence floor, or a date printed in an excerpt of a proof atom
+(``rules[].metadata.proof.atoms[].source.excerpt``). Any other start is
+refused, also one that lies after the snapshot.
+
+Imports: a start that equals a version start of an export the module imports
+is not examined (whether such a date is support is an open decision of #2212).
+A module with an import whose provider this module was not given is not
+examined at all, because that comparison cannot be made.
+
+``effective_to``, ``values`` keys and companion test periods are not examined.
 """
 
 from __future__ import annotations
 
 import calendar
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
+
+import yaml
 
 from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check
 
@@ -60,6 +69,30 @@ class StartDateEvidence:
     @property
     def evidence_floor(self) -> date | None:
         return None if self.source_as_of is None else evidence_floor(self.source_as_of)
+
+    @property
+    def supported_corpus_dates(self) -> frozenset[date]:
+        """The scaffold and every date the corpus metadata itself supports."""
+
+        dates = {SCAFFOLD_START, self.expression_date, self.source_as_of}
+        dates.add(self.evidence_floor)
+        return frozenset(item for item in dates if item is not None)
+
+    @property
+    def preferred_start(self) -> date:
+        """The start to prefer when nothing prints a date.
+
+        The evidence floor, or the ``expression_date`` when that is later: the
+        corpus then says that the text is not in force before it. Without a
+        snapshot, the ``expression_date``; without either, the scaffold.
+        """
+
+        floor = self.evidence_floor
+        if floor is None:
+            return self.expression_date or SCAFFOLD_START
+        if self.expression_date is not None and self.expression_date > floor:
+            return self.expression_date
+        return floor
 
 
 def evidence_floor(source_as_of: date) -> date:
@@ -244,26 +277,27 @@ CHECK_START_UNSUPPORTED = declare_check(
     "complete-source-unit:effective-date/start-unsupported",
     title="Start date of a date-silent unit has no support in its own evidence",
     requires=(
-        "In a manual source unit that prints no date and has no imports, every "
-        f"`{_START_FIELD}` is the `0001-01-01` scaffold, or is not earlier "
-        "than the corpus `source_as_of`, or equals the corpus "
-        "`expression_date`, or is printed in a proof excerpt of the module."
+        f"In a manual source unit that prints no date, every `{_START_FIELD}` "
+        "is the `0001-01-01` scaffold, the corpus `expression_date` or "
+        "`source_as_of`, the evidence floor (the first day of the first full "
+        "calendar month on or after `source_as_of`), or a date printed in a "
+        "proof-atom excerpt of the module."
     ),
     why=(
         "A start date that nothing in the unit supports was copied from a "
         "neighbouring module or guessed. The rule then claims to apply from a "
-        "date for which the corpus holds no text of this unit, and compile, "
-        "the other completeness checks and the companion tests all pass on it."
+        "date for which the corpus holds no evidence about this unit, and "
+        "compile, the other completeness checks and the companion tests all "
+        "pass on it."
     ),
     fix=(
         f"Change `{_START_FIELD}` (and the companion test periods that depend "
         "on it) to a date the unit's own evidence supports: a date printed in "
-        "`./source.txt` or in a proof excerpt you cite, the corpus "
-        "`expression_date` or `source_as_of`, the evidence floor (the first "
-        "day of the first full calendar month on or after `source_as_of`), or "
-        "the `0001-01-01` scaffold. Do not copy the start date of a precedent "
-        "or an imported module. The evidence floor is an evidence-coverage "
-        "floor, not a claimed legal commencement date."
+        "`./source.txt` or in a proof-atom excerpt you cite, the corpus "
+        "`expression_date` or `source_as_of`, the evidence floor, or the "
+        "`0001-01-01` scaffold. Do not copy the start date of a neighbouring "
+        "module. The evidence floor is an evidence-coverage floor, not a "
+        "claimed legal commencement date."
     ),
     cause="encoder_output",
     gate="ci",
@@ -271,39 +305,43 @@ CHECK_START_UNSUPPORTED = declare_check(
 )
 
 
-def citation_document_class(corpus_citation_path: str) -> str | None:
+def citation_document_class(corpus_citation_path: str | None) -> str | None:
     """The corpus document class: the second segment of a citation path."""
 
-    parts = corpus_citation_path.strip().split("/")
+    parts = (corpus_citation_path or "").strip().split("/")
     return parts[1] if len(parts) > 2 and parts[0] and parts[1] else None
 
 
-def _walk(node: object) -> Iterator[Mapping[str, Any]]:
-    if isinstance(node, Mapping):
-        yield node
-        for value in node.values():
-            yield from _walk(value)
-    elif isinstance(node, (list, tuple)):
-        for item in node:
-            yield from _walk(item)
+def is_manual_citation(corpus_citation_path: str | None) -> bool:
+    """The scope of the start-date rule, for the prompt and for the check."""
+
+    return citation_document_class(corpus_citation_path) == MANUAL_DOCUMENT_CLASS
 
 
-def module_has_imports(payload: Mapping[str, Any]) -> bool:
-    """A top-level ``imports`` entry, or an ``import`` key anywhere in a rule."""
-
-    if payload.get("imports"):
-        return True
-    return any("import" in node for node in _walk(payload.get("rules")))
+def _mappings(node: object) -> Iterator[Mapping[str, Any]]:
+    for item in node if isinstance(node, list) else ():
+        if isinstance(item, Mapping):
+            yield item
 
 
 def proof_excerpts(payload: Mapping[str, Any]) -> tuple[str, ...]:
-    """Every ``excerpt`` string of the module's rules."""
+    """Each ``rules[].metadata.proof.atoms[].source.excerpt`` string.
 
-    return tuple(
-        node["excerpt"]
-        for node in _walk(payload.get("rules"))
-        if isinstance(node.get("excerpt"), str)
-    )
+    An ``excerpt`` key anywhere else is not a proof excerpt: the proof
+    validator authenticates only these against the corpus.
+    """
+
+    excerpts: list[str] = []
+    for rule in _mappings(payload.get("rules")):
+        metadata = rule.get("metadata")
+        proof = metadata.get("proof") if isinstance(metadata, Mapping) else None
+        atoms = proof.get("atoms") if isinstance(proof, Mapping) else None
+        for atom in _mappings(atoms):
+            source = atom.get("source")
+            excerpt = source.get("excerpt") if isinstance(source, Mapping) else None
+            if isinstance(excerpt, str):
+                excerpts.append(excerpt)
+    return tuple(excerpts)
 
 
 def _version_start(version: Mapping[str, Any]) -> date | None:
@@ -318,22 +356,58 @@ def _version_starts(
 ) -> Iterator[tuple[str, int, date]]:
     """``(rule name, version index, start)`` for every readable version start."""
 
-    rules = payload.get("rules")
-    for rule in rules if isinstance(rules, list) else ():
-        if not isinstance(rule, Mapping):
-            continue
-        versions = rule.get("versions")
-        for index, version in enumerate(versions if isinstance(versions, list) else ()):
-            if not isinstance(version, Mapping):
-                continue
+    for rule in _mappings(payload.get("rules")):
+        for index, version in enumerate(_mappings(rule.get("versions"))):
             start = _version_start(version)
             if start is not None:
                 yield str(rule.get("name") or "").strip(), index, start
 
 
+def imported_export_starts(
+    payload: Mapping[str, Any],
+    imported_symbol_contents: Sequence[tuple[str, str]],
+) -> frozenset[date] | None:
+    """Version starts of the exports the module imports, or ``None``.
+
+    ``None`` means that the comparison cannot be made: an ``imports`` entry is
+    malformed, or the provider of an imported symbol was not supplied or does
+    not declare exactly one rule of that name. No imports gives an empty set.
+    """
+
+    imports = payload.get("imports")
+    if imports is None or imports == []:
+        return frozenset()
+    if not isinstance(imports, list):
+        return None
+    providers: dict[str, list[str]] = {}
+    for symbol, content in imported_symbol_contents:
+        providers.setdefault(symbol, []).append(content)
+    starts: set[date] = set()
+    for item in imports:
+        if not isinstance(item, str) or "#" not in item:
+            return None
+        symbol = item.rsplit("#", 1)[1].strip()
+        contents = providers.get(symbol)
+        if not contents:
+            return None
+        for content in contents:
+            try:
+                provider = yaml.safe_load(content)
+            except (yaml.YAMLError, TypeError, ValueError):
+                return None
+            rules = provider.get("rules") if isinstance(provider, Mapping) else None
+            exports = [rule for rule in _mappings(rules) if rule.get("name") == symbol]
+            if len(exports) != 1:
+                return None
+            starts.update(
+                start for _name, _index, start in _version_starts({"rules": exports})
+            )
+    return frozenset(starts)
+
+
 def _permitted_dates_text(evidence: StartDateEvidence) -> str:
     parts = [
-        "a date printed in the unit text or in a proof excerpt you cite",
+        "a date printed in the unit text or in a proof-atom excerpt you cite",
     ]
     if evidence.expression_date is not None:
         parts.append(f"the corpus `expression_date` `{evidence.expression_date}`")
@@ -354,30 +428,33 @@ def date_silent_start_issues(
     *,
     corpus_citation_path: str,
     evidence: StartDateEvidence,
+    imported_symbol_contents: Sequence[tuple[str, str]] = (),
 ) -> list[ValidationIssue]:
     """Refuse an unsupported start date of a date-silent manual unit.
 
     Out of scope (no issue): a unit that is not a corpus ``manual`` document,
-    prints any date, has imports, or has amendment context. In scope, one
-    issue per distinct refused date. When ``source_as_of`` is missing or
-    unreadable, "not earlier than the snapshot" cannot be shown, so a start
-    that no other evidence supports is refused: missing metadata never counts
+    prints any date, has amendment context, or has an import whose provider
+    is not in ``imported_symbol_contents``. In scope, one issue per distinct
+    refused date. When ``source_as_of`` is missing or unreadable there is no
+    snapshot date and no evidence floor, so only the scaffold, a readable
+    ``expression_date`` or a printed date pass: missing metadata never counts
     as support.
     """
 
     if (
-        citation_document_class(corpus_citation_path) != MANUAL_DOCUMENT_CLASS
+        not is_manual_citation(corpus_citation_path)
         or evidence.amendment_context
-        or module_has_imports(payload)
         or text_prints_any_date(source_text)
     ):
         return []
+    imported_starts = imported_export_starts(payload, imported_symbol_contents)
+    if imported_starts is None:
+        return []
+    supported = evidence.supported_corpus_dates | imported_starts
     excerpts = proof_excerpts(payload)
     refused: dict[date, list[tuple[str, int]]] = {}
     for rule_name, index, start in _version_starts(payload):
-        if start == SCAFFOLD_START or start == evidence.expression_date:
-            continue
-        if evidence.source_as_of is not None and start >= evidence.source_as_of:
+        if start in supported:
             continue
         if any(text_prints_date(excerpt, start) for excerpt in excerpts):
             continue
@@ -390,17 +467,18 @@ def date_silent_start_issues(
         more = f" and {len(sites) - 5} more" if len(sites) > 5 else ""
         if evidence.source_as_of is not None:
             reason = (
-                f"it is earlier than the corpus snapshot `{evidence.source_as_of}` "
-                "(`source_as_of`), it is not the corpus `expression_date`, and "
-                "no proof excerpt prints it"
+                "it is not the evidence floor "
+                f"`{evidence.evidence_floor}`, the corpus `source_as_of` "
+                f"`{evidence.source_as_of}` or the corpus `expression_date`, "
+                "and no proof-atom excerpt prints it"
             )
         else:
             reason = (
                 "the corpus `source_as_of` is unavailable ("
                 + "; ".join(evidence.problems or ("source_as_of is missing",))
-                + "), so the start cannot be shown to be on or after the "
-                "snapshot, it is not the corpus `expression_date`, and no "
-                "proof excerpt prints it"
+                + "), so there is no snapshot date and no evidence floor to "
+                "equal, it is not the corpus `expression_date`, and no "
+                "proof-atom excerpt prints it"
             )
         issues.append(
             ValidationIssue(
@@ -408,7 +486,7 @@ def date_silent_start_issues(
                 f"`{_START_FIELD}` is `{start.isoformat()}` in {len(sites)} "
                 f"version(s) (rules {named}{more}), but the source unit prints "
                 f"no date and nothing in its own evidence supports that start: "
-                f"{reason}. A date copied from a precedent or an import is not "
+                f"{reason}. A date copied from a neighbouring module is not "
                 f"support. Permitted start dates: {permitted}.",
                 check=CHECK_START_UNSUPPORTED,
                 subject=IssueSubject(

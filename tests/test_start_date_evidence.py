@@ -24,6 +24,7 @@ from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness import start_date_evidence as sde
 from axiom_encode.harness import validator_pipeline as vp
 from axiom_encode.harness.eval_prompt_surface import (
+    render_date_silent_scaffold_guidance,
     render_date_silent_start_guidance,
 )
 from axiom_encode.harness.start_date_evidence import (
@@ -178,9 +179,11 @@ def test_block_16_attempt_1_copied_precedent_date_is_refused():
     # retry can fix it.
     for needle in (
         "`rules[].versions[].effective_from` is `2025-10-01`",
-        "earlier than the corpus snapshot `2026-07-17` (`source_as_of`)",
-        "A date copied from a precedent or an import is not support",
-        "a date printed in the unit text or in a proof excerpt you cite",
+        "it is not the evidence floor `2026-08-01`, the corpus `source_as_of` "
+        "`2026-07-17` or the corpus `expression_date`",
+        "no proof-atom excerpt prints it",
+        "A date copied from a neighbouring module is not support",
+        "a date printed in the unit text or in a proof-atom excerpt you cite",
         "the corpus `expression_date` `2026-07-17`",
         "the corpus `source_as_of` `2026-07-17`",
         "the evidence floor `2026-08-01`",
@@ -188,6 +191,8 @@ def test_block_16_attempt_1_copied_precedent_date_is_refused():
         "the `0001-01-01` scaffold",
     ):
         assert needle in issue, needle
+    # The retry text names no way out of the check's scope.
+    assert "import" not in issue.lower()
 
 
 def test_block_16_attempt_2_evidence_floor_passes():
@@ -198,18 +203,31 @@ def test_block_16_attempt_2_evidence_floor_passes():
     ("start", "refused"),
     [
         ("2026-07-16", True),  # one day before the snapshot
-        ("2026-07-17", False),  # the snapshot day
-        ("2026-07-18", False),
+        ("2026-07-17", False),  # the snapshot day itself
+        ("2026-07-18", True),  # after the snapshot, but not the floor
         ("2026-07-01", True),  # the month of the snapshot is not covered
-        ("2026-08-01", False),
-        ("2027-01-01", False),  # after the snapshot is not examined
+        ("2026-07-31", True),
+        ("2026-08-01", False),  # the evidence floor
+        ("2026-08-02", True),
+        ("2026-09-01", True),  # a later month start is not the floor
+        ("2027-01-01", True),
+        ("2099-01-01", True),  # an arbitrary later date is not support
         ("0001-01-02", True),  # only the exact scaffold date is the scaffold
     ],
 )
-def test_start_is_compared_with_the_snapshot_day(start, refused):
+def test_start_must_equal_a_supported_date(start, refused):
     # An expression_date apart from the snapshot, so it supports none of these.
     evidence = StartDateEvidence(SNAPSHOT, date(2020, 1, 1))
     assert bool(issues(module(start), evidence=evidence)) is refused
+
+
+def test_floor_of_a_snapshot_on_the_first_is_that_day_only():
+    evidence = StartDateEvidence(date(2026, 12, 1), None)
+    assert issues(module("2026-12-01"), evidence=evidence) == []
+    assert len(issues(module("2027-01-01"), evidence=evidence)) == 1
+    december = StartDateEvidence(date(2026, 12, 17), None)
+    assert issues(module("2027-01-01"), evidence=december) == []
+    assert len(issues(module("2026-12-01"), evidence=december)) == 1
 
 
 @pytest.mark.parametrize("scaffold", ["0001-01-01", date(1, 1, 1)])
@@ -268,15 +286,107 @@ def test_date_printed_in_the_unit_text_takes_the_unit_out_of_the_rule():
 # --------------------------------------------------------------------------
 
 
-def test_unit_with_imports_is_out_of_the_narrow_rule():
-    imports = ["us-az:policies/des/faa6/utility-allowance-current-amount#amount"]
-    assert issues(module("2025-10-01", imports=imports)) == []
+IMPORT = "us-az:policies/des/faa6/utility-allowance-current-amount#amount"
+
+
+def provider(*starts: str, name: str = "amount") -> str:
+    return yaml.safe_dump(
+        {
+            "format": "rulespec/v1",
+            "rules": [
+                {
+                    "name": name,
+                    "kind": "parameter",
+                    "versions": [
+                        {"effective_from": start, "formula": "1"} for start in starts
+                    ],
+                },
+                {
+                    "name": "other",
+                    "kind": "parameter",
+                    "versions": [{"effective_from": "2023-01-01", "formula": "2"}],
+                },
+            ],
+        }
+    )
+
+
+def import_issues(start: str, contents, imports=(IMPORT,)) -> list[ValidationIssue]:
+    return date_silent_start_issues(
+        module(start, imports=list(imports)),
+        SOURCE,
+        corpus_citation_path=CITATION,
+        evidence=EVIDENCE,
+        imported_symbol_contents=contents,
+    )
+
+
+def test_start_of_an_imported_export_is_not_examined():
+    contents = [("amount", provider("2024-10-01", "2025-10-01"))]
+    assert import_issues("2025-10-01", contents) == []
+    assert import_issues("2024-10-01", contents) == []
+    assert import_issues("2026-08-01", contents) == []
+
+
+def test_an_import_does_not_take_other_dates_out_of_the_check():
+    contents = [("amount", provider("2024-10-01"))]
+    # Not a start of the imported export: not of the module, and not of
+    # another rule of the provider.
+    assert len(import_issues("2025-10-01", contents)) == 1
+    assert len(import_issues("2023-01-01", contents)) == 1
+    found = import_issues("2025-10-01", contents)[0]
+    assert "import" not in found.lower()
+
+
+@pytest.mark.parametrize(
+    ("contents", "imports"),
+    [
+        ([], (IMPORT,)),  # provider not supplied
+        ([("another", provider("2025-10-01"))], (IMPORT,)),
+        ([("amount", "rules: [")], (IMPORT,)),  # unreadable provider
+        ([("amount", provider("2024-10-01", name="renamed"))], (IMPORT,)),
+        ([("amount", provider("2024-10-01"))], (IMPORT, "no-symbol")),
+        ([("amount", provider("2024-10-01"))], (IMPORT, 7)),
+    ],
+)
+def test_module_with_an_unverifiable_import_is_not_examined(contents, imports):
+    assert import_issues("2025-10-01", contents, imports) == []
+
+
+def test_import_shapes():
+    assert sde.imported_export_starts(module("2025-10-01"), ()) == frozenset()
+    assert sde.imported_export_starts(module(imports=[]), ()) == frozenset()
+    assert sde.imported_export_starts(module(imports="x#y"), ()) is None
+    assert sde.imported_export_starts(
+        module(imports=[IMPORT]), [("amount", provider("2024-10-01"))]
+    ) == frozenset({date(2024, 10, 1)})
+    # An empty list is no import; an `import` proof atom alone is no import.
     assert len(issues(module("2025-10-01", imports=[]))) == 1
     with_import_atom = module("2025-10-01")
     with_import_atom["rules"][0]["metadata"] = {
-        "proof": {"atoms": [{"kind": "import", "import": imports[0]}]}
+        "proof": {"atoms": [{"kind": "import", "import": IMPORT}]}
     }
-    assert issues(with_import_atom) == []
+    assert len(issues(with_import_atom)) == 1
+
+
+def test_only_proof_atom_excerpts_count():
+    for metadata_block in (
+        {"note": {"excerpt": "Effective 10/01/2025"}},
+        {"proof": {"excerpt": "Effective 10/01/2025"}},
+        {"proof": {"atoms": [{"excerpt": "Effective 10/01/2025"}]}},
+        {"proof": {"atoms": [{"source": "Effective 10/01/2025"}]}},
+        {"proof": {"atoms": [{"source": {"note": "Effective 10/01/2025"}}]}},
+    ):
+        payload = module("2025-10-01")
+        payload["rules"][0]["metadata"] = metadata_block
+        assert len(issues(payload)) == 1, metadata_block
+    payload = module("2025-10-01")
+    payload["excerpt"] = "Effective 10/01/2025"
+    payload["rules"][0]["summary"] = {"excerpt": "Effective 10/01/2025"}
+    assert len(issues(payload)) == 1
+    assert sde.proof_excerpts(module("2025-10-01", excerpt="Effective 10/01/2025")) == (
+        "Effective 10/01/2025",
+    )
 
 
 @pytest.mark.parametrize(
@@ -368,7 +478,8 @@ def test_missing_or_unreadable_snapshot_refuses_an_unsupported_start(
         assert len(found) == 1, start
         assert "the corpus `source_as_of` is unavailable" in found[0]
         assert problem in found[0]
-        assert "evidence floor" not in found[0]
+        assert "the evidence floor `" not in found[0]
+        assert "no evidence floor to equal" in found[0]
     assert issues(module("0001-01-01"), evidence=evidence) == []
     assert (
         issues(module("2025-10-01", excerpt="Effective 10/01/2025."), evidence=evidence)
@@ -387,6 +498,23 @@ def test_unreadable_expression_date_supports_nothing():
     )
     assert len(issues(module("2025-10-01"), evidence=evidence)) == 1
     assert issues(module("2026-08-01"), evidence=evidence) == []
+
+
+def test_preferred_start():
+    def preferred(source_as_of, expression_date):
+        return StartDateEvidence(source_as_of, expression_date).preferred_start
+
+    assert preferred(SNAPSHOT, SNAPSHOT) == date(2026, 8, 1)
+    assert preferred(SNAPSHOT, None) == date(2026, 8, 1)
+    assert preferred(SNAPSHOT, date(2025, 10, 1)) == date(2026, 8, 1)
+    assert preferred(SNAPSHOT, date(2026, 8, 1)) == date(2026, 8, 1)
+    # IRS notice 2025-67 page 4 and the SNAP FY2026 COLA memo: the expression
+    # date is after the floor, so the floor would start the rule too early.
+    assert preferred(date(2025, 11, 13), date(2026, 1, 1)) == date(2026, 1, 1)
+    assert preferred(date(2025, 8, 14), date(2025, 10, 1)) == date(2025, 10, 1)
+    assert preferred(SNAPSHOT, date(2026, 8, 2)) == date(2026, 8, 2)
+    assert preferred(None, date(2025, 10, 1)) == date(2025, 10, 1)
+    assert preferred(None, None) == date(1, 1, 1)
 
 
 def test_readable_metadata_has_no_problem_and_reads_both_copies():
@@ -487,7 +615,8 @@ def test_check_is_declared_and_registered():
     assert "axiom_encode.harness.start_date_evidence" in checks.CHECK_MODULES
     feedback = "\n".join(checks.issue_fix_feedback(issues(module("2025-10-01"))))
     assert f"[{CHECK_ID}]" in feedback
-    assert "Do not copy the start date of a precedent" in feedback
+    assert "Do not copy the start date of a neighbouring module" in feedback
+    assert "import" not in feedback.lower()
     assert "found 2025-10-01" in feedback
 
 
@@ -549,12 +678,78 @@ def test_pipeline_refuses_attempt_1_and_passes_attempt_2():
     assert _pipeline_start_issues(pipeline, module("2026-08-01")) == []
 
 
-def test_pipeline_without_corpus_metadata_refuses_instead_of_passing():
-    pipeline = _pipeline(require_complete_source_unit=True)
+def test_pipeline_with_metadata_that_has_no_attestation_refuses():
+    pipeline = _pipeline(require_complete_source_unit=True, source_metadata={})
     found = _pipeline_start_issues(pipeline, module("2025-10-01"))
     assert len(found) == 1
     assert "source_attestation is missing" in found[0]
+    # Without a readable snapshot even the real floor has no support.
+    assert len(_pipeline_start_issues(pipeline, module("2026-08-01"))) == 1
     assert _pipeline_start_issues(pipeline, module("0001-01-01")) == []
+
+
+def test_pipeline_without_any_corpus_date_channel_does_not_run_the_check():
+    # No metadata object and no bound corpus release: the caller gave nothing
+    # to read dates from, as distinct from metadata without readable dates.
+    pipeline = _pipeline(require_complete_source_unit=True)
+    assert pipeline._complete_source_start_date_evidence(CITATION) is None
+    assert _pipeline_start_issues(pipeline, module("2025-10-01")) == []
+
+
+def _validate_pipeline(tmp_path: Path, **row) -> vp.ValidatorPipeline:
+    """The pipeline `validate --require-complete-source-unit` builds.
+
+    `cmd_validate` passes the bound corpus release and no `source_metadata`.
+    """
+    from tests.test_evals import _write_test_corpus_release
+
+    release = _write_test_corpus_release(
+        tmp_path,
+        [
+            {
+                "citation_path": CITATION,
+                "body": SOURCE,
+                "source_as_of": "2026-07-17",
+                "expression_date": "2026-07-17",
+                **row,
+            }
+        ],
+    )
+    return vp.ValidatorPipeline(
+        Path("/tmp/rulespec-us/us-az"),
+        Path("/tmp/unused"),
+        enable_oracles=False,
+        local_corpus_release=release,
+        require_complete_source_unit=True,
+    )
+
+
+def test_validate_reads_the_row_dates_from_the_bound_corpus_release(tmp_path):
+    pipeline = _validate_pipeline(tmp_path)
+    assert pipeline.source_metadata is None
+    assert pipeline._complete_source_start_date_evidence(CITATION) == EVIDENCE
+    assert _pipeline_start_issues(pipeline, module("2026-08-01")) == []
+    found = _pipeline_start_issues(pipeline, module("2025-10-01"))
+    assert len(found) == 1
+    assert "the evidence floor `2026-08-01`" in found[0]
+    assert "is unavailable" not in found[0]
+
+
+def test_validate_with_an_unreadable_row_date_refuses(tmp_path):
+    pipeline = _validate_pipeline(tmp_path, source_as_of="17 July 2026")
+    found = _pipeline_start_issues(pipeline, module("2026-08-01"))
+    assert len(found) == 1
+    assert "source_attestation.source_as_of is not a YYYY-MM-DD date" in found[0]
+    assert _pipeline_start_issues(pipeline, module("2026-07-17")) == []  # expression
+
+
+def test_validate_with_a_citation_the_release_does_not_resolve_refuses(tmp_path):
+    pipeline = _validate_pipeline(tmp_path)
+    other = CITATION.replace("block-16", "block-99")
+    evidence = pipeline._complete_source_start_date_evidence(other)
+    assert evidence == StartDateEvidence(
+        None, None, ("the bound corpus release does not resolve the citation",)
+    )
 
 
 def test_pipeline_runs_no_start_date_check_outside_complete_source_mode():
@@ -616,63 +811,128 @@ def test_replay_passes_the_fixture_snapshot_dates():
 # --------------------------------------------------------------------------
 
 
-def test_prompt_guidance_states_the_rule_with_the_computed_floor():
-    text = render_date_silent_start_guidance(
-        source_as_of=SNAPSHOT,
-        expression_date=SNAPSHOT,
-        evidence_floor=evidence_floor(SNAPSHOT),
+def _guidance(source_as_of, expression_date) -> str:
+    evidence = StartDateEvidence(source_as_of, expression_date)
+    return render_date_silent_start_guidance(
+        source_as_of=evidence.source_as_of,
+        expression_date=evidence.expression_date,
+        evidence_floor=evidence.evidence_floor,
+        preferred_start=evidence.preferred_start,
     )
+
+
+def test_prompt_guidance_states_the_rule_with_the_computed_floor():
+    text = _guidance(SNAPSHOT, SNAPSHOT)
     for needle in (
         "when `./source.txt` prints no effective date for a rule",
-        "1. a date printed in `./source.txt`, or printed in a proof excerpt",
+        "1. a date printed in `./source.txt`, or printed in a proof-atom excerpt",
         "2. the evidence floor `2026-08-01`: the first day of the first full "
         "calendar month that starts on or after the corpus `source_as_of` "
         "(`2026-07-17`)",
         "3. the corpus `expression_date` (`2026-07-17`) or `source_as_of` "
         "(`2026-07-17`) itself",
         "4. the neutral scaffold `0001-01-01`",
-        "Without one, prefer the evidence floor `2026-08-01`.",
-        "A date copied from a precedent module, a sibling module or an import "
-        "is not support",
+        "Without one, use the evidence floor `2026-08-01`.",
+        "A date copied from a precedent module or a sibling module is not support",
         "The evidence floor is an evidence-coverage floor, not a claimed legal "
         "commencement date",
         "Put every companion test period on or after the start date you choose.",
     ):
         assert needle in text, needle
     assert "Prefer the earliest scaffold date" not in text
+    assert "import" not in text.lower()
+
+
+def test_prompt_guidance_prefers_an_expression_date_after_the_floor():
+    text = _guidance(date(2025, 11, 13), date(2026, 1, 1))
+    assert "2. the evidence floor `2025-12-01`" in text
+    assert (
+        "Without one, use the corpus `expression_date` `2026-01-01`: it is "
+        "later than the evidence floor"
+    ) in text
+    assert "use the evidence floor" not in text
+    earlier = _guidance(SNAPSHOT, date(2025, 10, 1))
+    assert "Without one, use the evidence floor `2026-08-01`." in earlier
+    assert "use the corpus `expression_date`" not in earlier
 
 
 def test_prompt_guidance_without_a_snapshot_names_no_floor():
-    text = render_date_silent_start_guidance(
-        source_as_of=None, expression_date=None, evidence_floor=None
-    )
+    text = _guidance(None, None)
     assert "1. a date printed in `./source.txt`" in text
     assert "2. the neutral scaffold `0001-01-01`" in text
     assert "there is no evidence floor" in text
+    assert "use the neutral scaffold `0001-01-01`." in text
     assert "the evidence floor `" not in text
     assert "the corpus `" not in text
-    only_expression = render_date_silent_start_guidance(
-        source_as_of=None, expression_date=date(2025, 10, 1), evidence_floor=None
-    )
+    only_expression = _guidance(None, date(2025, 10, 1))
     assert "2. the corpus `expression_date` (`2025-10-01`) itself" in only_expression
     assert "3. the neutral scaffold `0001-01-01`" in only_expression
+    assert "use the corpus `expression_date` `2025-10-01`." in only_expression
+
+
+def test_scaffold_fallback_for_a_manual_names_no_precedent_date():
+    default = render_date_silent_scaffold_guidance()
+    manual = render_date_silent_scaffold_guidance(precedent_dates=False)
+    assert "no copied precedent file provides a scaffold date" in default
+    assert "precedent" not in manual
+    assert (
+        "is silent on effective dates, and no supplied corpus metadata or "
+        "amendment/commencement context supplies a date, you may use "
+        "`effective_from: '0001-01-01'`"
+    ) in manual
+    assert default.splitlines()[2:] == manual.splitlines()[2:]
 
 
 def test_citation_document_class_is_the_second_path_segment():
     assert sde.SCAFFOLD_START == date(1, 1, 1)
-    assert sde.MANUAL_DOCUMENT_CLASS == "manual"
     assert sde.citation_document_class(CITATION) == "manual"
     assert sde.citation_document_class("us-az/manual") is None
+    assert sde.citation_document_class(None) is None
+    assert sde.is_manual_citation(CITATION)
+    assert not sde.is_manual_citation("us/statute/7/2014/a")
+    assert not sde.is_manual_citation("26 USC 24(a)")
+    assert not sde.is_manual_citation(None)
 
 
-def _eval_prompt(tmp_path: Path, source_metadata: dict | None) -> str:
+STATUTE = "us/statute/7/2014/a"
+START_RULE = "Start date of a date-silent unit"
+MAIN_PRECEDENT_LINE = (
+    "Prefer the earliest scaffold date that is relevant to the copied precedent "
+    "when `./source.txt` lacks its own effective date."
+)
+MANUAL_PRECEDENT_LINE = (
+    "A date copied from a precedent or a sibling module is not evidence of "
+    "this source unit's own start date"
+)
+
+
+def _attestation(citation: str, source_as_of: str, expression_date: str) -> dict:
+    return {
+        "source_attestation": {
+            "requested_corpus_citation_path": citation,
+            "source_as_of": source_as_of,
+            "expression_date": expression_date,
+            "row": {"source_as_of": source_as_of, "expression_date": expression_date},
+        }
+    }
+
+
+def _eval_prompt(
+    tmp_path: Path,
+    citation: str,
+    source_metadata: dict | None,
+    *,
+    precedent: bool = False,
+    amendment: bool = False,
+) -> str:
     from axiom_encode.harness import evals
     from axiom_encode.repo_routing import monorepo_checkout_name
 
-    content_root = tmp_path / monorepo_checkout_name("us-az") / "us-az"
+    jurisdiction = citation.split("/")[0]
+    content_root = tmp_path / monorepo_checkout_name(jurisdiction) / jurisdiction
     content_root.mkdir(parents=True)
     workspace = evals.prepare_eval_workspace(
-        citation=CITATION,
+        citation=citation,
         runner=evals.parse_runner_spec("codex:gpt-5.4"),
         output_root=tmp_path / "out",
         source_text=SOURCE,
@@ -681,29 +941,117 @@ def _eval_prompt(tmp_path: Path, source_metadata: dict | None) -> str:
         source_metadata_payload=source_metadata,
         extra_context_paths=[],
     )
+    context_files = []
+    if precedent:
+        copied = workspace.root / "precedent.yaml"
+        copied.write_text("versions:\n  - effective_from: '2025-10-01'\n")
+        context_files.append(
+            evals.EvalContextFile(
+                source_path=str(copied),
+                workspace_path=copied.name,
+                import_path=f"{jurisdiction}:policies/precedent",
+                kind="implementation_precedent",
+            )
+        )
+    if amendment:
+        workspace = dataclasses.replace(
+            workspace,
+            amendment_documents=(
+                evals.CorpusAmendmentDocument(
+                    citation_path=f"{jurisdiction}/statute/amending-act",
+                    title="Amending act",
+                    expression_date="2026-03-01",
+                    metadata={},
+                    body="The allowance is amended.",
+                ),
+            ),
+        )
     return evals._build_eval_prompt(
-        CITATION,
+        citation,
         "cold",
         workspace,
-        [],
-        target_file_name="block-16.yaml",
+        context_files,
+        target_file_name="target.yaml",
         include_tests=True,
         runner_backend="codex",
     )
 
 
-def test_eval_prompt_names_the_block_16_floor_from_the_attestation(tmp_path):
-    prompt = _eval_prompt(tmp_path, metadata())
-    assert "Start date of a date-silent unit" in prompt
-    assert "the evidence floor `2026-08-01`" in prompt
+def test_eval_prompt_for_a_manual_names_the_block_16_floor(tmp_path):
+    prompt = _eval_prompt(
+        tmp_path, CITATION, _attestation(CITATION, "2026-07-17", "2026-07-17")
+    )
+    assert START_RULE in prompt
+    assert "Without one, use the evidence floor `2026-08-01`." in prompt
     assert "(`2026-07-17`)" in prompt
     assert "not a claimed legal commencement date" in prompt
-    assert "Prefer the earliest scaffold date" not in prompt
-
-
-def test_eval_prompt_without_corpus_or_copied_dates_keeps_the_scaffold_fallback(
-    tmp_path,
-):
-    prompt = _eval_prompt(tmp_path, None)
-    assert "Start date of a date-silent unit" not in prompt
+    assert "no copied precedent file provides a scaffold date" not in prompt
     assert "harness-only fallback" in prompt
+
+
+def test_eval_prompt_for_a_manual_with_expression_after_the_floor(tmp_path):
+    prompt = _eval_prompt(
+        tmp_path, CITATION, _attestation(CITATION, "2025-08-14", "2025-10-01")
+    )
+    assert "the evidence floor `2025-09-01`" in prompt
+    assert "Without one, use the corpus `expression_date` `2025-10-01`" in prompt
+    assert "use the evidence floor" not in prompt
+
+
+def test_eval_prompt_for_a_manual_with_a_precedent_does_not_offer_its_date(tmp_path):
+    prompt = _eval_prompt(
+        tmp_path,
+        CITATION,
+        _attestation(CITATION, "2026-07-17", "2026-07-17"),
+        precedent=True,
+    )
+    assert "`2025-10-01`" in prompt  # the copied date is still listed
+    assert MANUAL_PRECEDENT_LINE in prompt
+    assert MAIN_PRECEDENT_LINE not in prompt
+    assert START_RULE in prompt
+    # The scaffold fallback renders for a manual also beside copied dates.
+    assert "harness-only fallback" in prompt
+    assert "no copied precedent file provides a scaffold date" not in prompt
+
+
+def test_eval_prompt_for_a_manual_without_corpus_dates_has_no_floor(tmp_path):
+    prompt = _eval_prompt(tmp_path, CITATION, None)
+    assert START_RULE in prompt
+    assert "there is no evidence floor" in prompt
+    assert "the evidence floor `" not in prompt
+
+
+@pytest.mark.parametrize("precedent", [False, True])
+def test_eval_prompt_for_a_statute_has_no_start_date_block(tmp_path, precedent):
+    # us/statute/7/2014/a: date-silent, snapshot 2026-06-26. A floor of
+    # 2026-07-01 would contradict the 2022-01 and 2024-01 oracle periods.
+    prompt = _eval_prompt(
+        tmp_path,
+        STATUTE,
+        _attestation(STATUTE, "2026-06-26", "2026-06-26"),
+        precedent=precedent,
+    )
+    assert START_RULE not in prompt
+    assert "evidence floor" not in prompt
+    assert "2026-07-01" not in prompt
+    assert MANUAL_PRECEDENT_LINE not in prompt
+    assert (MAIN_PRECEDENT_LINE in prompt) is precedent
+    # Main's fallback text, with its precedent clause, when no date is copied.
+    assert (
+        "and no copied precedent file provides a scaffold date" in prompt
+    ) is not precedent
+
+
+def test_eval_prompt_with_amendment_documents_has_no_start_date_block(tmp_path):
+    metadata = _attestation(CITATION, "2026-07-17", "2026-07-17")
+    with_amendment = _eval_prompt(
+        tmp_path / "a", CITATION, metadata, amendment=True, precedent=True
+    )
+    assert START_RULE not in with_amendment
+    assert "evidence floor" not in with_amendment
+    assert "harness-only fallback" not in with_amendment
+    # With amendment context the manual prompt is main's prompt.
+    assert MAIN_PRECEDENT_LINE in with_amendment
+    assert MANUAL_PRECEDENT_LINE not in with_amendment
+    without = _eval_prompt(tmp_path / "b", CITATION, metadata)
+    assert START_RULE in without

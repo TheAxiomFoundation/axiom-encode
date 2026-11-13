@@ -223,46 +223,60 @@ reclassified, and generated candidates are not manually rewritten to fit it.
 
 `complete-source-unit:effective-date/start-unsupported`
 ([`harness/start_date_evidence.py`](../src/axiom_encode/harness/start_date_evidence.py),
-issue #2212) covers a source unit that prints no date. The rule, which the
-encoder prompt states with the dates computed in code:
+issue #2212) covers a corpus `manual` unit that prints no date. The encoder
+prompt states the same rule for the same units, with the dates computed in
+code; every other document class keeps its earlier prompt text.
 
 - An `effective_from` is supported when it is printed in the unit text or in a
-  proof excerpt, equals the corpus `expression_date` or `source_as_of`, equals
-  the evidence floor, or is the `0001-01-01` scaffold.
+  proof-atom excerpt, equals the corpus `expression_date` or `source_as_of`,
+  equals the evidence floor, or is the `0001-01-01` scaffold.
 - The evidence floor is the first day of the first full calendar month that
   starts on or after `source_as_of` (2026-07-17 gives 2026-08-01; 2026-07-01
   gives 2026-07-01). It is an evidence-coverage floor, not a claimed legal
   commencement date: the corpus holds the text from that date, and earlier
   coverage is unproven.
-- A date copied from a precedent module or an import is not support.
-
-The check enforces only the narrow form, to keep false refusals low:
+- A date copied from a neighbouring module is not support.
+- The prompt prefers a printed date, then the evidence floor, or the
+  `expression_date` when that is later than the floor.
 
 | Condition | Effect |
 | --- | --- |
 | The citation's document class (second path segment) is not `manual` | not examined |
 | The unit text prints any date, month-year, fiscal year or bare year | not examined |
-| The module has a top-level `imports` entry or an `import` proof atom | not examined |
 | The run binds amendment or commencement documents | not examined |
-| `effective_from` is on or after `source_as_of` | passes |
-| `effective_from` is `0001-01-01`, or equals `expression_date`, or is printed in a proof excerpt of the module | passes |
-| Any other `effective_from` | refused, one issue per distinct date |
+| The module imports a symbol whose provider module the validator was not given, or whose provider does not declare exactly one rule of that name | not examined |
+| `effective_from` is `0001-01-01`, `expression_date`, `source_as_of` or the evidence floor | passes |
+| `effective_from` is printed in a `rules[].metadata.proof.atoms[].source.excerpt` of the module | passes |
+| `effective_from` equals a version start of an export the module imports | passes |
+| Any other `effective_from`, also one after the snapshot | refused, one issue per distinct date |
 
-`effective_to`, `values` keys and companion test periods are not examined.
+`effective_to`, `values` keys and companion test periods are not examined. The
+import row leaves decision 2 of #2212 open (whether an imported date is
+support); the issue message and the check's `fix` text do not mention it.
 
 Missing metadata never counts as support. When the resolver attestation has no
 `source_as_of`, or the value is not a `YYYY-MM-DD` date, or its two copies
-differ, a start date that is not the scaffold, the `expression_date` or a date
-printed in a proof excerpt is refused, and the message names the unreadable
+differ, there is no snapshot date and no floor: only the scaffold, a readable
+`expression_date` or a printed date pass, and the message names the unreadable
 field. This follows the sibling evidence readers (same-act aliases, referral
 sources), which grant nothing without authenticated metadata.
 
+Where the dates come from:
+
+- An encode passes the resolver attestation as `source_metadata`.
+- `axiom-encode validate --require-complete-source-unit` passes no
+  `source_metadata`; the pipeline then reads the unit's row from the bound
+  corpus release. A citation that release does not resolve counts as
+  unreadable metadata.
+- A pipeline with neither `source_metadata` nor a bound corpus release has no
+  corpus date channel, and the check does not run.
+
 The check runs where the other complete-source checks run: in
 `--require-complete-source-unit` mode (the targeted re-encode workflow and
-reviewed-candidate promotion). `axiom-encode validate` and the
-waiver audit in the RuleSpec repositories do not set that mode, so modules that
-are already on a RuleSpec `main` are not examined. The replay benchmark passes
-each fixture's attestation dates and no amendment context.
+reviewed-candidate promotion). `axiom-encode validate` and the waiver audit in
+the RuleSpec repositories do not set that mode, so modules that are already on
+a RuleSpec `main` are not examined. The replay benchmark passes each fixture's
+attestation dates, its resolved import providers and no amendment context.
 
 ## Publish the registry
 

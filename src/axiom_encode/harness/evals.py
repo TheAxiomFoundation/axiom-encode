@@ -166,7 +166,10 @@ from .source_completeness import (
     collect_artifact_numeric_values,
     mask_armenian_amendment_history,
 )
-from .start_date_evidence import start_date_evidence_from_metadata
+from .start_date_evidence import (
+    is_manual_citation,
+    start_date_evidence_from_metadata,
+)
 from .validator_pipeline import (
     ExistingTargetOracleContract,
     NumericOccurrence,
@@ -12050,12 +12053,30 @@ def _build_rulespec_eval_prompt(
             "inline source and any inline context copies in this prompt.\n"
         )
     scaffold_dates = _collect_scaffold_dates(workspace, context_files)
+    # The start-date rule for a date-silent unit (#2212) covers corpus manual
+    # units without amendment context only, the scope of its check. Every
+    # other prompt keeps the earlier text byte for byte.
+    manual_start_date_rule = (
+        is_manual_citation(corpus_citation_path or citation)
+        and not workspace.amendment_documents
+    )
     scaffold_dates_section = ""
     if scaffold_dates:
+        scaffold_dates_note = (
+            "These dates belong to the copied files. A date copied from a "
+            "precedent or a sibling module is not evidence of this source "
+            "unit's own start date: do not write one into `effective_from` "
+            "because a neighbouring module carries it. When `./source.txt` "
+            "prints no effective date, follow the start-date rule for a "
+            "date-silent unit."
+            if manual_start_date_rule
+            else "Prefer the earliest scaffold date that is relevant to the "
+            "copied precedent when `./source.txt` lacks its own effective date."
+        )
         scaffold_dates_section = f"""
 Temporal scaffold dates visible in copied context:
 {", ".join(f"`{item}`" for item in scaffold_dates)}
-These dates belong to the copied files. A date copied from a precedent or an import is not evidence of this source unit's own start date: do not write one into `effective_from` because a neighbouring module carries it. When `./source.txt` prints no effective date, follow the start-date rule for a date-silent unit.
+{scaffold_dates_note}
 """
 
     source_metadata_section = ""
@@ -12610,27 +12631,28 @@ Preferred principal output:
         guidance_parts.append(render_rate_only_source_boundary_guidance())
     if _is_single_amount_table_slice(source_text):
         guidance_parts.append(render_single_amount_row_guidance())
-    if (
-        not re.search(r"\b\d{4}-\d{2}-\d{2}\b", source_text)
-        and not scaffold_dates
-        and not workspace.amendment_documents
-    ):
-        guidance_parts.append(render_date_silent_scaffold_guidance())
-    start_date_evidence = start_date_evidence_from_metadata(workspace.source_metadata)
-    if not workspace.amendment_documents and (
-        scaffold_dates
-        or start_date_evidence.source_as_of is not None
-        or start_date_evidence.expression_date is not None
-    ):
-        # Not rendered when the workspace has neither copied dates nor corpus
-        # dates: the neutral-scaffold fallback above already covers that case.
+    if manual_start_date_rule:
+        if not re.search(r"\b\d{4}-\d{2}-\d{2}\b", source_text):
+            guidance_parts.append(
+                render_date_silent_scaffold_guidance(precedent_dates=False)
+            )
+        start_date_evidence = start_date_evidence_from_metadata(
+            workspace.source_metadata
+        )
         guidance_parts.append(
             render_date_silent_start_guidance(
                 source_as_of=start_date_evidence.source_as_of,
                 expression_date=start_date_evidence.expression_date,
                 evidence_floor=start_date_evidence.evidence_floor,
+                preferred_start=start_date_evidence.preferred_start,
             )
         )
+    elif (
+        not re.search(r"\b\d{4}-\d{2}-\d{2}\b", source_text)
+        and not scaffold_dates
+        and not workspace.amendment_documents
+    ):
+        guidance_parts.append(render_date_silent_scaffold_guidance())
     additional_guidance = "\n".join(
         part.strip() for part in guidance_parts if part.strip()
     )
