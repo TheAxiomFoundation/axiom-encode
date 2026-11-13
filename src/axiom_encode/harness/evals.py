@@ -51,6 +51,7 @@ from axiom_encode.concepts.registry import (
     load_concept_registry,
 )
 from axiom_encode.constants import (
+    OPENAI_AUTHORING_OUTPUT_LIMITS,
     RULESPEC_ATOMIC_MODULE_ROOTS,
     RULESPEC_COMPOSITION_SPEC_ROOT,
     RULESPEC_FILE_SUFFIX,
@@ -16763,7 +16764,9 @@ def _run_codex_prompt_eval(
         str(workspace.root),
         "-s",
         "read-only",
-        prompt,
+        # The prompt goes on stdin ("-"), not argv: a large source text as one
+        # argument fails exec with E2BIG before Codex starts.
+        "-",
     ]
 
     start = time.time()
@@ -16773,6 +16776,11 @@ def _run_codex_prompt_eval(
     timeout_reason = None
     triggering_timeout_seconds: float | None = None
     with (
+        # A seekable file, not a pipe: nothing has to feed the child while the
+        # wait loop below polls it, so a full pipe cannot block the timeouts.
+        tempfile.TemporaryFile(
+            mode="w+", encoding="utf-8", errors="surrogateescape"
+        ) as prompt_stdin,
         tempfile.TemporaryDirectory(prefix="axiom-codex-home-") as codex_home_dir,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stdout_file,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,
@@ -16782,9 +16790,12 @@ def _run_codex_prompt_eval(
         codex_env["CODEX_HOME"] = str(codex_home)
         stdout_path = Path(stdout_file.name)
         stderr_path = Path(stderr_file.name)
+        prompt_stdin.write(prompt)
+        prompt_stdin.flush()
+        prompt_stdin.seek(0)
         process = subprocess.Popen(
             cmd,
-            stdin=subprocess.DEVNULL,
+            stdin=prompt_stdin,
             stdout=stdout_file,
             stderr=stderr_file,
             text=True,
@@ -17243,6 +17254,8 @@ def _extract_openai_response_text(payload: dict) -> str:
 
 
 def _openai_prompt_max_output_tokens(model: str) -> int:
+    if model in OPENAI_AUTHORING_OUTPUT_LIMITS:
+        return OPENAI_AUTHORING_OUTPUT_LIMITS[model]
     if any(
         model == prefix or model.startswith(f"{prefix}-")
         for prefix in _OPENAI_EXTENDED_OUTPUT_MODEL_PREFIXES
@@ -17732,8 +17745,18 @@ def _run_openai_prompt_eval(
         ((usage.get("output_tokens_details") or {}).get("reasoning_tokens", 0) or 0)
     )
 
+    incomplete = payload.get("status") == "incomplete"
+    incomplete_details = payload.get("incomplete_details") or {}
+    incomplete_reason = (
+        incomplete_details.get("reason", "unspecified")
+        if isinstance(incomplete_details, dict)
+        else "unspecified"
+    )
     return EvalPromptResponse(
-        text=_extract_openai_response_text(payload),
+        text="" if incomplete else _extract_openai_response_text(payload),
+        error=(
+            f"OpenAI response incomplete: {incomplete_reason}" if incomplete else None
+        ),
         duration_ms=duration_ms,
         tokens=tokens,
         estimated_cost_usd=estimate_usage_cost_usd(runner.model, tokens),

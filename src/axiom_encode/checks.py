@@ -68,6 +68,7 @@ CHECK_MODULES: tuple[str, ...] = (
     "axiom_encode.harness.validator_pipeline",
     "axiom_encode.infra_checks",
     "axiom_encode.repair_companion",
+    "axiom_encode.validation_waivers",
 )
 
 #: Bounds for persisted issue lists, per try.

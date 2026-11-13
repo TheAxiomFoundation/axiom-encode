@@ -45042,6 +45042,196 @@ class TestGuardGenerated:
         _git(repo, "commit", "-m", "apply encoding and retire waiver")
         return repo, base_ref
 
+    def _verifier_restate_repo(
+        self,
+        tmp_path: Path,
+        *,
+        head_waiver_text: str,
+        base_mode: str | None = None,
+        head_mode: str | None = "main",
+        base_waiver_text: str | None = None,
+    ) -> tuple[Path, str, str, str]:
+        repo = self._canonical_guard_repo(tmp_path)
+        _git(repo, "init")
+        _git(repo, "config", "user.email", "test@example.com")
+        _git(repo, "config", "user.name", "Test User")
+        for relative in ("us/regulations/example.yaml", "us/regulations/other.yaml"):
+            self._source_backed_rule(repo / relative)
+        waiver = repo / "known-validation-gaps.yaml"
+        switch = repo / ".axiom/workflow-toolchain.toml"
+
+        def write(text: str, mode: str | None) -> None:
+            waiver.write_text(text)
+            _write_test_rulespec_toolchain(
+                repo,
+                release_content_sha256=self.corpus_release.content_sha256,
+            )
+            if mode is None:
+                switch.unlink(missing_ok=True)
+            else:
+                switch.write_text(
+                    f'[workflow_toolchain]\nencoder_verifier = "{mode}"\n'
+                )
+
+        write(
+            base_waiver_text
+            or (
+                "validate_failures:\n"
+                + self._waiver_entry_text("us/regulations/example.yaml")
+                + self._waiver_entry_text("us/regulations/other.yaml")
+            ),
+            base_mode,
+        )
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "protected base")
+        base_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        base_sha256 = _sha256_file(waiver)
+        write(head_waiver_text, head_mode)
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "head")
+        return repo, base_ref, base_sha256, _sha256_file(waiver)
+
+    def _verifier_restate_identity(self, repo, base_ref, current, extra=()):
+        return _guard_manifest_waiver_set_identity(
+            repo,
+            base_ref=base_ref,
+            head_ref="HEAD",
+            changed=[
+                "known-validation-gaps.yaml",
+                ".axiom/toolchain.toml",
+                ".axiom/workflow-toolchain.toml",
+                *extra,
+            ],
+            protected=["us/regulations/example.yaml", "us/regulations/other.yaml"],
+            roots=("regulations",),
+            current_waiver_set_sha256=current,
+        )
+
+    def test_guard_accepts_a_verifier_restate_only_with_a_mode_switch(self, tmp_path):
+        # One fingerprint restated, one active-only entry removed.
+        restated = "validate_failures:\n" + self._waiver_entry_text(
+            "us/regulations/example.yaml", fingerprint="2" * 64
+        )
+        repo, base_ref, base_sha256, current = self._verifier_restate_repo(
+            tmp_path / "switch", head_waiver_text=restated
+        )
+        expected, issues = self._verifier_restate_identity(repo, base_ref, current)
+        assert issues == []
+        # Manifests keep the protected-base ledger identity.
+        assert expected == base_sha256 != current
+
+        # The same ledger change without a mode switch stays refused.
+        for name, base_mode, head_mode in (
+            ("pinned", None, "pinned"),
+            ("main", "main", "main"),
+            ("malformed", None, "tip"),
+        ):
+            repo, base_ref, _base, current = self._verifier_restate_repo(
+                tmp_path / name,
+                head_waiver_text=restated,
+                base_mode=base_mode,
+                head_mode=head_mode,
+            )
+            expected, issues = self._verifier_restate_identity(repo, base_ref, current)
+            assert expected == current
+            assert issues and all(
+                issue.startswith("RuleSpec post-apply waiver retirement is invalid")
+                for issue in issues
+            ), (name, issues)
+
+        # A revert to the pinned verifier restates the same way.
+        repo, base_ref, base_sha256, current = self._verifier_restate_repo(
+            tmp_path / "revert",
+            head_waiver_text=restated,
+            base_mode="main",
+            head_mode=None,
+        )
+        assert self._verifier_restate_identity(repo, base_ref, current) == (
+            base_sha256,
+            [],
+        )
+
+    @pytest.mark.parametrize(
+        ("mutation", "expected_issue"),
+        [
+            ("added_entry", "cannot add a waiver entry"),
+            ("later_expiry", "may change only the fingerprint"),
+            ("to_pending", "may change only the fingerprint"),
+            ("rider", "cannot change RuleSpec files"),
+        ],
+    )
+    def test_guard_refuses_a_verifier_restate_that_loosens_the_ledger(
+        self, tmp_path, mutation, expected_issue
+    ):
+        from axiom_encode.checks import ValidationIssue
+
+        example = self._waiver_entry_text(
+            "us/regulations/example.yaml", fingerprint="2" * 64
+        )
+        other = self._waiver_entry_text("us/regulations/other.yaml")
+        extra: tuple[str, ...] = ()
+        if mutation == "added_entry":
+            # The base holds one entry; the head adds a second one.
+            base_text = "validate_failures:\n" + self._waiver_entry_text(
+                "us/regulations/example.yaml"
+            )
+            head_text = "validate_failures:\n" + example + other
+        else:
+            base_text = None
+            head_text = "validate_failures:\n" + example + other
+            if mutation == "later_expiry":
+                later = (date.today() + timedelta(days=90)).isoformat()
+                current_expiry = (date.today() + timedelta(days=30)).isoformat()
+                head_text = (
+                    "validate_failures:\n"
+                    + example.replace(current_expiry, later)
+                    + other
+                )
+            elif mutation == "to_pending":
+                head_text = (
+                    "validate_failures:\n"
+                    + self._waiver_entry_text(
+                        "us/regulations/example.yaml",
+                        state="pending",
+                        fingerprint="2" * 64,
+                    )
+                    + other
+                )
+            else:
+                extra = ("us/regulations/example.yaml",)
+        repo, base_ref, _base, current = self._verifier_restate_repo(
+            tmp_path, head_waiver_text=head_text, base_waiver_text=base_text
+        )
+        expected, issues = self._verifier_restate_identity(
+            repo, base_ref, current, extra
+        )
+        assert expected == current
+        assert issues and all(
+            issue.startswith("RuleSpec verifier restate is invalid: ")
+            for issue in issues
+        )
+        assert any(expected_issue in issue for issue in issues), issues
+        # Prefixing the refusal must retain its declared identity for consumers.
+        assert all(isinstance(issue, ValidationIssue) for issue in issues)
+        expected_check = {
+            "added_entry": "new-entry",
+            "later_expiry": "metadata-changed",
+            "to_pending": "metadata-changed",
+            "rider": "protected-files-changed",
+        }[mutation]
+        assert any(
+            issue.check == f"validation-waivers:verifier-restate/{expected_check}"
+            for issue in issues
+        )
+        if mutation == "rider":
+            rider_issue = next(
+                issue
+                for issue in issues
+                if issue.check.endswith("protected-files-changed")
+            )
+            assert rider_issue.subject.field == "changed_paths"
+            assert rider_issue.found == "us/regulations/example.yaml"
+
     def _retirement_manifest(
         self,
         deleted_paths: list[str],
