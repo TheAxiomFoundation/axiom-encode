@@ -332,6 +332,30 @@ def assign_waiver_owners(
     return {path: ordered_keys[owner_index[path]] for path in ordered_paths}
 
 
+def baseline_key_mismatch(
+    keys: Iterable[str], costs: WaiverAuditCosts | None
+) -> str | None:
+    """Describe matrix keys and table baselines that do not match, if any.
+
+    Planning is unchanged: a key without a baseline starts at 0 and a
+    baseline without a key is unused. The note only makes a stale table
+    visible after the audit matrix changes.
+    """
+    if costs is None or not costs.baseline_milliseconds:
+        return None
+    matrix = set(keys)
+    table = set(costs.baseline_milliseconds)
+    missing = sorted(matrix - table)
+    unused = sorted(table - matrix)
+    if not missing and not unused:
+        return None
+    return (
+        "waiver audit cost table: partition baselines do not match the matrix "
+        f"keys (no baseline, planned from 0 ms: {', '.join(missing) or 'none'}; "
+        f"baseline for a key not in the matrix: {', '.join(unused) or 'none'})"
+    )
+
+
 def partition_loads(
     owners: Mapping[str, str],
     keys: Iterable[str],

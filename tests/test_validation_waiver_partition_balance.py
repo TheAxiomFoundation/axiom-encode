@@ -236,6 +236,32 @@ def test_baselines_keep_long_modules_off_the_busiest_shard():
     assert owners["us-vt/long.yaml"] == "us-ak"
 
 
+def test_baseline_key_mismatch_is_noted_on_stderr_without_changing_owners():
+    paths = ["us/a.yaml", "us/b.yaml", "us/c.yaml"]
+    costs = _costs({"us/a.yaml": 30}, {"us": 100, "us-retired": 5})
+    assert partition.baseline_key_mismatch(["us", "us-ak"], costs) == (
+        "waiver audit cost table: partition baselines do not match the matrix "
+        "keys (no baseline, planned from 0 ms: us-ak; baseline for a key not in "
+        "the matrix: us-retired)"
+    )
+    assert partition.baseline_key_mismatch(["us", "us-retired"], costs) is None
+    assert partition.baseline_key_mismatch(["us"], _costs({"us/a.yaml": 30})) is None
+    assert partition.baseline_key_mismatch(["us"], None) is None
+    stderr = io.StringIO()
+    with redirect_stderr(stderr):
+        selected, _index, _count = cli._validation_waiver_audit_partition(
+            [(path, "rulespec") for path in paths],
+            partition_key="us",
+            partition_keys_json=json.dumps(["us", "us-ak"]),
+            costs=costs,
+        )
+    assert "no baseline, planned from 0 ms: us-ak" in stderr.getvalue()
+    owners = partition.assign_waiver_owners(paths, ["us", "us-ak"], costs)
+    assert [path for path, _kind in selected] == [
+        path for path in paths if owners[path] == "us"
+    ]
+
+
 @pytest.mark.parametrize(
     ("paths", "keys", "message"),
     [

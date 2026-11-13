@@ -5564,6 +5564,9 @@ def _validation_waiver_audit_partition(
             "--partition-key must occur exactly once in --partition-keys-json"
         )
     partition_index = partition_keys.index(partition_key)
+    mismatch = _waiver_partition.baseline_key_mismatch(partition_keys, costs)
+    if mismatch is not None:
+        _waiver_partition.write_audit_line(mismatch)
     owners = _waiver_partition.assign_waiver_owners(
         [path for path, _kind in classified], partition_keys, costs
     )
