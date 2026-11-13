@@ -1,13 +1,13 @@
 # US replay benchmark
 
-The US replay benchmark measures source completeness before and after a
-validator change on real candidates. It needs no model call, network, rules
-engine or corpus checkout. The `replay benchmark` CI job runs it as a required check.
+The US replay benchmark gives every validator PR an offline before/after
+measure on real candidates. It needs no model call, network, rules engine or
+corpus checkout. The `replay benchmark` CI job runs it as a required check.
 
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 48 committed
+(the `[complete-source-unit:*]` rules of the CI validator) over 51 committed
 fixtures in `tests/fixtures/us_replay_benchmark/`. Hosted fixtures are real candidates from `targeted-reencode-failure` artifacts
 of signed runs:
 
@@ -37,9 +37,17 @@ bundle inventory. The same file hashes, public-only restrictions and snapshot
 gates apply. Local fixtures are rejected examples, never production controls.
 The Schedule 2 floor fixture uses this route; its offline findings remain
 unresolved because replay has no live execution evidence. Its separate
-real-engine test verifies the targeted floor witnesses. The T936 printed-row
-fixture preserves an unsigned source-only diagnostic pair; its offline replay
+real-engine test verifies the targeted floor witnesses. The NL479 fixture retains
+an earlier primary-document diagnostic; it is separate from the full parent-form
+engine replay and does not inherit that replay’s execution evidence.
+The T936 printed-row fixture preserves an unsigned source-only diagnostic pair; its offline replay
 does not receive private execution evidence or authenticated resolver context.
+The NB Schedule 12 and Schedule M fixtures retain complete public diagnostic pairs.
+The Schedule M companion exports the verbatim `/cases` value from its public
+JSON record, with explicit origin hashes; it does not reconstruct historical
+engine companion bytes. Offline replay retains six findings for each fixture
+because it supplies no captured execution evidence. Separate Schedule M real-engine tests
+check the supported and unsupported engine profiles.
 The section 219(g) fixture retains a public RuleSpec candidate and its six
 companion cases from `rulespec-us` at `a7c6d805`, plus the decoded body of the
 public corpus row at `bcf433c5`.
@@ -54,13 +62,14 @@ the citation's numeric profile, the companion test cases, imported symbol
 contents, resolved deferral providers and same-act aliases from the source
 metadata. `--no-context` leaves out the last three.
 
-The set has 40 distinct citations: federal statutes, CFR regulations, IRS and
+The set has 43 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, one Canadian CRA guide
-(three runs), two Canadian CRA forms (local diagnostics), and one Israeli statute. It has one control (an Arizona candidate
-that passed validation and then failed a provenance guard). At 0.2.2349, 12
-fixtures replay clean and 33 have 3,313 findings; four 7 CFR 273.7 candidates
-hold 2,671 of them. Read clean counts and per-fixture changes, not only the
-total. The fixtures total about 3.3 MB and `snapshot.json` about 1.3 MB.
+(three runs), three Canadian CRA forms and one Revenu Québec schedule (local
+diagnostics), and one Israeli statute. It has one control (an Arizona candidate
+that passed validation and then failed a provenance guard). The current snapshot
+has 12 clean fixtures and 39 refused fixtures with 3,336 findings. It preserves
+all 50 `8733aa0e` main-baseline entries exactly; the section 219(g) diagnostic
+retains 33 findings. Read clean counts and per-fixture changes, not only the total.
 
 ## Public fixtures and the private held-out set
 
@@ -150,11 +159,12 @@ Every PR that fixes a validator false positive:
 
 ## Fidelity
 
-Earlier author-reported replays used each hosted fixture's original encoder
-source. Almost all reproduced the recorded completeness findings exactly or
-within two findings, with no replay errors. Three 7 CFR 273.7 runs stopped before the completeness
-check in production; the replay finds 653 to 695 findings each. Local diagnostics
-record fresh offline findings and producer metadata separately.
+The author earlier reported replaying the hosted fixtures with each run's
+encoder source. That report describes almost all hosted replays reproducing
+the recorded completeness findings exactly or within two findings, with no
+replay errors. Three reported 7 CFR 273.7 runs stopped before the completeness
+check in production; those offline replays found 653 to 695 findings each.
+Local diagnostics record fresh offline findings and producer metadata separately.
 
 ## Limits
 

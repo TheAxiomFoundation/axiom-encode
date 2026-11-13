@@ -1,0 +1,343 @@
+format: rulespec/v1
+module:
+  summary: CRA Form NL479 2025 calculates the physical activity credit from eligible
+    expenses and adds the completed Form T1129 line 6 amount.
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+    source_sha256: 9e88b12d0ddafe64504fb8b3fdb28d62e5a57bb371fd7c6b50aec19491a8c5a2
+units:
+- name: CAD
+  kind: currency
+  minor_units: 2
+inputs:
+- name: nl479_physical_activity_total_eligible_expenses_line_1
+  dtype: Money
+  unit: CAD
+  entity: Family
+  period: Year
+- name: nl479_physical_activity_assistance_line_2
+  dtype: Money
+  unit: CAD
+  entity: Family
+  period: Year
+- name: nl479_physical_activity_amount_claimed_by_other_individuals_line_4
+  dtype: Money
+  unit: CAD
+  entity: Family
+  period: Year
+- name: nl479_research_and_development_tax_credit_t1129_line_6
+  dtype: Money
+  unit: CAD
+  entity: Family
+  period: Year
+rules:
+- name: nl479_2025_physical_activity_expense_cap
+  kind: parameter
+  dtype: Money
+  source: 'CRA Form NL479 2025: Line 3: Line 1 minus line 2 (maximum $2,000) = ^'
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 2000
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: 'Line 3: Line 1 minus line 2 (maximum $2,000) = ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+- name: nl479_2025_physical_activity_rate
+  kind: parameter
+  dtype: Rate
+  source: 'CRA Form NL479 2025: Line 6: Applicable rate 17.4%'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 0.174
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: 'Line 6: Applicable rate 17.4%'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+- name: nl479_physical_activity_net_expenses_line_3
+  kind: derived
+  dtype: Money
+  source: 'CRA Form NL479 2025: Line 3: Line 1 minus line 2 (maximum $2,000) = ^'
+  unit: CAD
+  entity: Family
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: min(nl479_2025_physical_activity_expense_cap, nl479_entered_total_eligible_expenses_line_1
+      - nl479_entered_assistance_line_2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: 'Line 3: Line 1 minus line 2 (maximum $2,000) = ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+- name: nl479_physical_activity_expenses_line_62000
+  kind: derived
+  dtype: Money
+  source: 'CRA Form NL479 2025: Line 5 and line 62000: Line 3 minus line 4 Physical
+    activity expenses = ^'
+  unit: CAD
+  entity: Family
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: nl479_physical_activity_net_expenses_line_3 - nl479_entered_other_claimed_line_4
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: 'Line 5 and line 62000: Line 3 minus line 4 Physical activity expenses
+            = ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+- name: nl479_physical_activity_tax_credit_line_7
+  kind: derived
+  dtype: Money
+  source: 'CRA Form NL479 2025: Line 7: Line 5 multiplied by the percentage from line
+    6 Physical activity tax
+
+    credit = ^'
+  unit: CAD
+  entity: Family
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: nl479_physical_activity_expenses_line_62000 * nl479_2025_physical_activity_rate
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: 'Line 7: Line 5 multiplied by the percentage from line 6 Physical
+            activity tax
+
+            credit = ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+- name: newfoundland_and_labrador_credits_line_47900
+  kind: derived
+  dtype: Money
+  source: 'CRA Form NL479 2025: Line 9: Line 7 plus line 8 Enter this amount online
+    47900of your return.
+
+    Newfoundland and Labrador credits = ^'
+  unit: CAD
+  entity: Family
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: nl479_physical_activity_tax_credit_line_7 + nl479_entered_research_credit_line_8
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: 'Line 9: Line 7 plus line 8 Enter this amount online 47900of your
+            return.
+
+            Newfoundland and Labrador credits = ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+- name: nl479_entered_total_eligible_expenses_line_1
+  kind: derived
+  dtype: Money
+  source: Entered amount on printed line 1
+  unit: CAD
+  entity: Family
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: nl479_physical_activity_total_eligible_expenses_line_1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: 'Line 1: Total amount paid from all receipts included in the table
+            above Total
+
+            eligible expenses = ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+- name: nl479_entered_assistance_line_2
+  kind: derived
+  dtype: Money
+  source: Entered amount on printed line 2
+  unit: CAD
+  entity: Family
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: nl479_physical_activity_assistance_line_2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: 'Line 2: Amount of assistance received or receivable included in
+            the amount on
+
+            line 1 ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+- name: nl479_entered_other_claimed_line_4
+  kind: derived
+  dtype: Money
+  source: Entered amount on printed line 4
+  unit: CAD
+  entity: Family
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: nl479_physical_activity_amount_claimed_by_other_individuals_line_4
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: 'Line 4: Amount from line 3 being claimed by other eligible individuals
+            ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+- name: nl479_entered_research_credit_line_8
+  kind: derived
+  dtype: Money
+  source: Entered amount on printed line 8
+  unit: CAD
+  entity: Family
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: nl479_research_and_development_tax_credit_t1129_line_6
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: 'Line 8: Enter the tax credit amount from line 6 of your Form T1129.
+            ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document
+          excerpt: '2025'
