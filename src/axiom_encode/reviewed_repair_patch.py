@@ -1,7 +1,7 @@
 """Closed, reviewed patch packages; never a source or signature authority.
 
-The registry is intentionally empty. Adding an entry requires independent review
-of the immutable package and a normal encoder change. Caller hashes do not grant
+Each registry entry requires independent review of the immutable package and a
+normal encoder change. Caller hashes do not grant
 admission. Command integration must bind these bytes to actual validated state.
 """
 
@@ -62,7 +62,50 @@ class ReviewedPatchRegistration:
     members: tuple[tuple[str, str, int], ...]
 
 
-REVIEWED_REPAIR_PATCHES = MappingProxyType({})
+REVIEWED_REPAIR_PATCHES = MappingProxyType(
+    {
+        "ca-schedule2-2025-full60-seed43376780727": ReviewedPatchRegistration(
+            commit="0ffaf1799c4754247b2f44a1ab5d6a0f8a5da1dc",
+            members=(
+                (
+                    "c708ed808b766ed85689771ae0efb0da272d8544",
+                    "f67186b7a3b48f7d76b21c446eff0eb73cafc596f4b6e50645cd9d2243b7fdd7",
+                    5356,
+                ),
+                (
+                    "6ff92eccddd5995479262911bc60c91389a92198",
+                    "ed8df5a3c7a8370f1f9840f057991117fdfe76780fa5ab524f152400175d2fa4",
+                    44872,
+                ),
+                (
+                    "d8c44e0a95d0850783300a8ec79a64f417cbdc32",
+                    "0ef5c2e190ecdc9769dfdb37f8a632a01409ec918f81dd0793d060f24fa30f2a",
+                    180615,
+                ),
+            ),
+        ),
+        "issue233-ca-schedule-m-2025-43445779735": ReviewedPatchRegistration(
+            commit="3b962ac0a5e845b25bbee1708c5a6489f08b85d4",
+            members=(
+                (
+                    "7321e5c59d20a63f37f3ccd5247c0a809c61ecac",
+                    "1aaed89e26657d912d99f5ac0bf4b6d35f3f7d852e7798b302ef9a62995dbd3e",
+                    3145,
+                ),
+                (
+                    "5f9a1307a7d2e15b1a559a32400eddad4d68ed10",
+                    "0ad95b443c29f4bc9b25571ff70ed4410c68f0001f0ab4024ae9ef97517ebeb0",
+                    15593,
+                ),
+                (
+                    "2d6ac88c9a84e9dc809ee278367070b54bdf7afd",
+                    "c8f8bdb50d959f87fb3b77b900885aedfefe402401d631f5cf965f986a409fe2",
+                    25057,
+                ),
+            ),
+        ),
+    }
+)
 
 
 @dataclass(frozen=True)

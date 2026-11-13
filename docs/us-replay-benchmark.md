@@ -7,7 +7,7 @@ corpus checkout. The `replay benchmark` CI job runs it as a required check.
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 57 committed
+(the `[complete-source-unit:*]` rules of the CI validator) over 59 committed
 fixtures in `tests/fixtures/us_replay_benchmark/`. Hosted fixtures are real candidates from `targeted-reencode-failure` artifacts
 of signed runs:
 
@@ -61,21 +61,30 @@ The six Arizona utility fixtures (`local-az-utility-block-*`) record the
 the current analyzer no longer raises them, because each unit has a reviewed
 reading bound to its exact text (`docs/reviewed-alternative-lists.md`).
 
+Five Canadian form fixtures cover NL479, the New Brunswick seniors' home
+renovation schedule, student-loan interest, child credits and retirement-income
+transfers. They copy existing public candidate and source bytes. The
+student-loan companion exports the existing JSON `cases` value without
+changing scalar types; the retirement-transfer companion preserves the
+existing JSON `companion_raw` string as UTF-8 bytes. Their metadata records
+each export's origin, JSON pointer and hashes. Offline replay retains findings
+that require live execution evidence.
+
 The replay passes the same inputs as `ValidatorPipeline._complete_source_unit_issues`:
 the citation's numeric profile, the companion test cases, imported symbol
 contents, resolved deferral providers and same-act aliases from the source
 metadata. `--no-context` leaves out the last three.
 
-The set has 46 distinct citations: federal statutes, CFR regulations, IRS and
-FNS guidance, state statutes, manuals and guidance, one Canadian CRA guide
-(three runs), three Canadian CRA forms and one Revenu Québec schedule (local
-diagnostics), three Arizona utility manual units with bulleted alternative
-lists (six local diagnostics), and one Israeli statute. It has one control (an Arizona candidate
-that passed validation and then failed a provenance guard). The current snapshot
-has 16 clean fixtures and 41 refused fixtures with 3,338 findings. It keeps
-the rule ids and finding counts of all 50 `8733aa0e` main-baseline entries;
-seven of their `source-explicit-conditions` findings are reworded. The section
-219(g) diagnostic retains 33 findings. Read clean counts and per-fixture changes, not only the total.
+The set has 48 distinct citations: federal statutes, CFR regulations, IRS and
+FNS guidance, state statutes, manuals and guidance, eight Canadian citations,
+three Arizona utility manual units with bulleted alternative lists (six local
+diagnostics) and one Israeli statute. Its 59 fixtures include one Arizona control that passed
+validation and then failed a provenance guard. The current snapshot has 16 clean
+fixtures and 43 refused fixtures with 3,363 findings. It keeps the rule ids and
+finding counts of every snapshot row on `main`; nine of their
+`source-explicit-conditions` findings are reworded. The child-credit and retirement-transfer
+diagnostics retain six and 19 findings; the section 219(g) diagnostic retains 33.
+Read clean counts and per-fixture changes, not only the total.
 
 ## Public fixtures and the private held-out set
 

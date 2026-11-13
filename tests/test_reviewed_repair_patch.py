@@ -1,4 +1,4 @@
-"""No real package is admitted: fixture registry entries are test-local only."""
+"""Guard controls use test-local registrations; production packages have separate tests."""
 
 import subprocess
 from types import MappingProxyType
@@ -28,8 +28,7 @@ def test_json_closed(raw):
         patch.strict_json(raw)
 
 
-def test_registry_is_empty_and_caller_cannot_supply_path(tmp_path):
-    assert dict(patch.REVIEWED_REPAIR_PATCHES) == {}
+def test_unregistered_ids_and_caller_paths_cannot_authorize_package(tmp_path):
     for value in ("unknown", "../escape", "/tmp/patch"):
         with pytest.raises(ValueError):
             patch.load_registered_patch(tmp_path, value)
