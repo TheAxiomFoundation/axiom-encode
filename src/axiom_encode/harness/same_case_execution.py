@@ -711,6 +711,7 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
         if pipe.rulespec_dependency_roots or not companion.is_file():
             return None
         if imports == []:
+            from .actual_floor_evidence import bind_same_page_floors
             from .bound_form_operands import bind_local_form_snapshot
 
             sources = (

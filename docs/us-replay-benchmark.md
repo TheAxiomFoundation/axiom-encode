@@ -37,9 +37,17 @@ bundle inventory. The same file hashes, public-only restrictions and snapshot
 gates apply. Local fixtures are rejected examples, never production controls.
 The Schedule 2 floor fixture uses this route; its offline findings remain
 unresolved because replay has no live execution evidence. Its separate
-real-engine test verifies the targeted floor witnesses. The T936 printed-row
-fixture preserves an unsigned source-only diagnostic pair; its offline replay
+real-engine test verifies the targeted floor witnesses. The NL479 fixture retains
+an earlier primary-document diagnostic; it is separate from the full parent-form
+engine replay and does not inherit that replay’s execution evidence.
+The T936 printed-row fixture preserves an unsigned source-only diagnostic pair; its offline replay
 does not receive private execution evidence or authenticated resolver context.
+The NB Schedule 12 and Schedule M fixtures retain complete public diagnostic pairs.
+The Schedule M companion exports the verbatim `/cases` value from its public
+JSON record, with explicit origin hashes; it does not reconstruct historical
+engine companion bytes. Offline replay retains six findings for each fixture
+because it supplies no captured execution evidence. Separate Schedule M real-engine tests
+check the supported and unsupported engine profiles.
 
 Five Canadian form fixtures cover NL479, the New Brunswick seniors' home
 renovation schedule, student-loan interest, child credits and retirement-income
@@ -57,11 +65,11 @@ metadata. `--no-context` leaves out the last three.
 
 The set has 44 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, eight Canadian citations
-and one Israeli statute. It has one control (an Arizona candidate that passed
-validation and then failed a provenance guard). At 0.2.2363, 12 fixtures replay
-clean and 40 have 3,328 findings. Read clean counts and per-fixture changes,
-not only the total. The fixtures total about 4.1 MB and `snapshot.json` about
-1.4 MB.
+and one Israeli statute. Its 52 fixtures include one Arizona control that passed
+validation and then failed a provenance guard. The current snapshot has 12 clean
+fixtures and 40 refused fixtures with 3,328 findings. It preserves all 50 main
+snapshot rows; the child-credit and retirement-transfer diagnostics retain six
+and 19 findings. Read clean counts and per-fixture changes, not only the total.
 
 ## Public fixtures and the private held-out set
 
@@ -151,11 +159,12 @@ Every PR that fixes a validator false positive:
 
 ## Fidelity
 
-Earlier replays used each hosted fixture's recorded encoder source. Almost all
-reproduce the recorded completeness findings exactly or within two findings,
-with no replay errors. Three 7 CFR 273.7 runs stopped before the completeness
-check in production; the replay finds 653 to 695 findings each.
-Local diagnostics record fresh offline findings and their producer metadata.
+The author earlier reported replaying the hosted fixtures with each run's
+encoder source. That report describes almost all hosted replays reproducing
+the recorded completeness findings exactly or within two findings, with no
+replay errors. Three reported 7 CFR 273.7 runs stopped before the completeness
+check in production; those offline replays found 653 to 695 findings each.
+Local diagnostics record fresh offline findings and producer metadata separately.
 
 ## Limits
 

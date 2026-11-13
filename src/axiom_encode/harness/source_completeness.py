@@ -7156,6 +7156,7 @@ def _analyze_rulespec_payload(
         payload, source_text, corpus_citation_path, source_context
     )
     recall_map = _NumericRecallSourceMap(list(range(len(source_text))))
+
     numeric_recall_text = authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path, _source_map=recall_map
     )
@@ -7172,14 +7173,14 @@ def _analyze_rulespec_payload(
         or represented_form_spans
     ):
         recall_map = _NumericRecallSourceMap(list(range(len(source_text))))
+
         unrepresented_recall_text = authoritative_numeric_recall_text(
             _mask_numeric_spans(
                 source_text,
                 represented_annual_spans
                 | represented_measurement_spans
                 | represented_form_spans
-                # Full-source locators must be established before another
-                # offset-preserving mask prevents exact layout recognition.
+                # Establish full-source locators before masking their layout.
                 | set(form_numeric_locator_spans(source_text)),
             ),
             corpus_citation_path=corpus_citation_path,
@@ -7681,8 +7682,17 @@ def _numeric_recall_repair_context(
     budget = _NUMERIC_RECALL_CONTEXT_MAX_CHARS
     if first_value is not None:
         start, end = locations[first_value]
+        # The context rides on the issue for the smallest missing value, which
+        # can be a locator or unlocated; say so when the example differs.
+        headline = missing_values[0]
+        shown = (
+            f"{first_value:g}"
+            if first_value == headline
+            else f"another missing value, {first_value:g} ({headline:g} is "
+            "shown below with the others)"
+        )
         first = (
-            f" First source location of {first_value:g}: character (code point) "
+            f" First source location of {shown}: character (code point) "
             f"offsets {start}:{end} in source.txt, {branch_label(start)}: "
             f"`{_numeric_recall_excerpt(source_text, start, end)}`."
         )
@@ -7696,16 +7706,23 @@ def _numeric_recall_repair_context(
             )
         return "".join(parts)
 
-    operative_count = len(missing_values) - len(locator_values)
-    header = (
-        f" All {len(missing_values)} values of this source without a named "
-        "scalar, grouped by source branch, with character (code point) offsets "
-        f"in source.txt. Represent each of the {operative_count} listed first "
-        "in this attempt with a named scalar whose proof excerpt is copied "
-        "verbatim from `source.txt`, or precisely defer the branch that states "
-        "it. Displayed text is only a bounded locator."
-    )
-    budget -= len(header)
+    def header_text(operative_count: int) -> str:
+        represent = (
+            f" Represent each of the {operative_count} listed first in this "
+            "attempt with a named scalar whose proof excerpt is copied verbatim "
+            "from `source.txt`, or precisely defer the branch that states it."
+            if operative_count
+            else ""
+        )
+        return (
+            f" All {len(missing_values)} values of this source without a named "
+            "scalar, grouped by source branch, with character (code point) "
+            f"offsets in source.txt.{represent} Displayed text is only a bounded "
+            "locator."
+        )
+
+    # Reserve the longest header; the count is known only after rendering.
+    budget -= len(header_text(len(missing_values)))
     body: list[str] = []
     listed: set[float] = set()
 
@@ -7750,6 +7767,7 @@ def _numeric_recall_repair_context(
         return groups
 
     body.extend(render(split(False)))
+    header = header_text(len(listed))
     body.extend(
         render(
             split(True),
@@ -24077,12 +24095,7 @@ def _companion_test_issues(
             if branch not in student_exception_branches
             and branch not in child_exception_branches
             and branch not in retirement_exception_branches
-            and not (
-                reserves_signed_copy_branch(branch, source_text, corpus_citation_path)
-                or reserves_chart_duty(branch, source_text, corpus_citation_path)
-                or reserves_chart_line1(branch, source_text, corpus_citation_path)
-                or reserves_expense_group(branch, source_text, corpus_citation_path)
-            )
+            and branch not in reserved_signed_branches
         )
         missing_exception_branches = _unwitnessed_exception_branches(
             ordinary_exception_branches,

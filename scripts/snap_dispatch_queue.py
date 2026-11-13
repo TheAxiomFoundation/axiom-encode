@@ -74,11 +74,9 @@ SNAP_MARKERS = (
     # the Utah manual that heading is "All Programs".
     re.compile(r"\bAll Programs\b"),
 )
-# Tables of contents are dense with dot leaders ("Introduction....... 12");
-# policy text almost never has them. In the Oregon notebook, contents pages
-# have 24+ leader runs and policy pages 0-2.
-TOC_LEADER = re.compile(r"\.{8,}")
-TOC_MIN_LEADERS = 10
+# Tables of contents are detected by axiom_encode.source_text_signals, which
+# the encoder's pre-encode gate shares. It is imported where it is used: the
+# tick and set-state commands run without the package installed.
 # The only step that opens a PR, and the only place the workflow closes one:
 # when main moved under it, it closes the PR it just opened and fails.
 PR_STEP = "Push lane branch and open draft pull request"
@@ -129,7 +127,9 @@ def _is_snap(text: str) -> bool:
 
 
 def _is_table_of_contents(text: str) -> bool:
-    return len(TOC_LEADER.findall(text)) >= TOC_MIN_LEADERS
+    from axiom_encode.source_text_signals import is_table_of_contents
+
+    return is_table_of_contents(text)
 
 
 def _label(record: dict[str, Any]) -> str:

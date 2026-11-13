@@ -7,9 +7,14 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode.bound_form_structure import recognize_bound_form_structure
-from axiom_encode.harness.bound_form_operands import bind_ordered_form
+from axiom_encode.harness.bound_form_operands import (
+    bind_local_form_snapshot,
+    bind_ordered_form,
+)
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 
 FIXTURE = Path(__file__).parent / "fixtures" / "bound_form_operands"
@@ -434,31 +439,65 @@ def _recaptioned(old, new):
             "Enter the tax credit amount from line 6",
             "Enter the halved tax credit amount from line 6",
         ),
+        (
+            "Physical activity expenses = ^",
+            "or the amount on the previous line, whichever is greater = ^",
+        ),
     ],
-    ids=["then-halved", "then-halve-this-amount", "entered-halved"],
+    ids=["then-halved", "then-halve-this-amount", "entered-halved", "selection"],
 )
-def test_unparsed_operative_caption_prose_gets_no_row_certificate(old, new):
+def test_unparsed_operative_caption_gets_no_binding_or_snapshot(old, new):
     p, source = _recaptioned(old, new)
     assert binding(p, source) is None
+    content = yaml.safe_dump(p, sort_keys=False)
+    assert not bind_local_form_snapshot(content, {CITATION: source}, ROOT)
     baseline = issues()
     result = issues(p, source=source)
     assert not any("formula branch" in item for item in baseline)
     assert any("formula branch" in item for item in result)
 
 
-@pytest.mark.parametrize(
-    "label",
-    [
-        "Physical activity expenses",
-        "Home renovation expenses",
-        "Physical activity tax credit",
-        "Children's sports and arts tax credit",
-        "New Brunswick seniors' home renovation tax credit",
-        "Newfoundland and Labrador credits",
-        "Nova Scotia Credits",
-    ],
-)
-def test_closed_label_grammar_keeps_display_labels(label):
-    from axiom_encode.harness.bound_form_operands import _SUB
+_DISPLAY_LABELS = [
+    "Physical activity expenses",
+    "Home renovation expenses",
+    "Physical activity tax credit",
+    "Children's sports and arts tax credit",
+    "New Brunswick seniors' home renovation tax credit",
+    "Newfoundland and Labrador credits",
+    "Nova Scotia Credits",
+]
 
-    assert _SUB.fullmatch(f"Line 3 minus line 4 {label} = ^")
+
+@pytest.mark.parametrize("label", _DISPLAY_LABELS)
+def test_closed_display_labels_keep_complete_graph_admission(label):
+    if label == "Physical activity expenses":
+        p, source = copy.deepcopy(PAYLOAD), SOURCE
+    else:
+        p, source = _recaptioned("Physical activity expenses = ^", label + " = ^")
+    assert binding(p, source) is not None
+    assert bind_local_form_snapshot(
+        yaml.safe_dump(p, sort_keys=False), {CITATION: source}, ROOT
+    )
+
+
+@given(
+    label=st.sampled_from(_DISPLAY_LABELS),
+    operation=st.sampled_from(
+        [
+            "then halved",
+            "then doubled",
+            "then rounded down",
+            "then rounded up",
+            "or the amount on the previous line, whichever is greater",
+        ]
+    ),
+)
+@settings(max_examples=30, deadline=None)
+def test_unmodelled_operation_cannot_become_a_display_label(label, operation):
+    p, source = _recaptioned(
+        "Physical activity expenses = ^", f"{label} {operation} = ^"
+    )
+    assert binding(p, source) is None
+    assert not bind_local_form_snapshot(
+        yaml.safe_dump(p, sort_keys=False), {CITATION: source}, ROOT
+    )
