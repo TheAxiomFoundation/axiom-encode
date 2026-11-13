@@ -11,8 +11,13 @@ import pytest
 from axiom_encode import reviewed_repair_patch as patch
 from tests.test_provision_supervisor import provisioner
 from tests.test_reviewed_repair_patch import lineage_fixture
+from tests.test_reviewed_repair_patch import registered as registered_fixture
 
-pytest_plugins = ["tests.test_reviewed_repair_patch"]
+
+@pytest.fixture(name="registered")
+def protected_registration(tmp_path, monkeypatch):
+    # Keep this fixture local even when pytest collected the donor module first.
+    return registered_fixture.__wrapped__(tmp_path, monkeypatch)
 
 
 def install_wrapper(tmp_path, monkeypatch):
