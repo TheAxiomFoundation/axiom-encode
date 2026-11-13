@@ -155,6 +155,10 @@ def test_an_entry_does_not_apply_to_a_changed_text(directory, block):
     if entry.lines[-1].physical_end < len(source):
         changes.append(source[:-1] + "!")
     assert len(changes) == (2 if block == 3 else 3)
+    # Leading or trailing whitespace of the unit is not part of the scanned text.
+    for same in (source + "\n", "\n " + source + " \n\n"):
+        assert registry.scanned_source_text(same) == source
+        assert _collapsed(directory, block, source=same) == []
     for changed in changes:
         assert changed != source
         assert (
@@ -253,8 +257,10 @@ BLOCK_FIXTURE = [(block, directory) for directory, block in SIX[::2]]
 CLAUSES = [(LIFELINE, 14), (SHARED, 4), (HEATING, 3)]
 
 
-@pytest.mark.parametrize(("clause", "block"), CLAUSES)
-def test_a_bound_entry_drops_the_alternative_lines(clause, block):
+@pytest.mark.parametrize(
+    ("clause", "block", "gates"), [(LIFELINE, 14, 2), (SHARED, 4, 0), (HEATING, 3, 0)]
+)
+def test_a_bound_entry_makes_the_alternatives_one_gate(clause, block, gates):
     entries, start = _bound(clause, block)
     assert len(entries) == 1
     # Without the registry entry and the offset, every bullet is a gate.
@@ -263,11 +269,94 @@ def test_a_bound_entry_drops_the_alternative_lines(clause, block):
         clause, reviewed_alternative_lists=entries
     )
     assert plain == _source_conjunctive_fact_gates(clause, text_start=start)
+    added: list[bool] = []
     bound = _source_conjunctive_fact_gates(
-        clause, reviewed_alternative_lists=entries, text_start=start
+        clause,
+        reviewed_alternative_lists=entries,
+        text_start=start,
+        alternative_group_added=added,
     )
-    assert len(bound) < 2
-    assert bound != plain or block == 3
+    # A clause with another fact keeps it, next to one gate for the whole
+    # list. A clause whose only fact is the list has fewer than two gates.
+    assert len(bound) == gates
+    assert added == ([True] if gates else [])
+    if gates:
+        assert bound[0] == plain[0]
+        words = bound[-1][1]
+        assert {"discount", "airtime"} <= words
+        assert all(not ({"discount", "airtime"} <= gate[1]) for gate in plain)
+
+
+def _opaque_lifeline(payload: dict) -> None:
+    """Merge the whole Lifeline branch, lead fact and list, into one input."""
+
+    template = payload["inputs"][0]
+    payload["inputs"] = [
+        entry
+        for entry in payload["inputs"]
+        if "lifeline" not in entry["name"]
+        and "airtime" not in entry["name"]
+        and "free_minutes" not in entry["name"]
+    ] + [
+        {
+            "name": "lifeline_telephone_expense_condition_met",
+            "entity": template["entity"],
+            "dtype": "Boolean",
+            "period": template["period"],
+        }
+    ]
+    rule = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "snap_telephone_expense_component_allowable"
+    )
+    rule["versions"][0]["formula"] = (
+        "component_is_telephone_expense and "
+        "budgetary_unit_obligated_to_pay_any_portion_of_component and "
+        "(component_is_basic_landline_or_cell_phone_service_fee or "
+        "lifeline_telephone_expense_condition_met)"
+    )
+
+
+def test_a_candidate_that_merges_a_fact_with_the_reviewed_list_still_fails():
+    directory = "block-14-e9371ed3"
+    payload = yaml.safe_load((FIXTURES / directory / "candidate.yaml").read_text())
+    assert _collapsed(directory, 14, yaml.safe_dump(payload, sort_keys=False)) == []
+    _opaque_lifeline(payload)
+
+    issues = _collapsed(directory, 14, yaml.safe_dump(payload, sort_keys=False))
+
+    assert len(issues) == 1
+    assert "`snap_telephone_expense_component_allowable` versions[0]" in issues[0]
+    assert issues[0].expected == "2 distinct gate inputs"
+
+
+def test_a_candidate_that_merges_only_the_alternatives_passes():
+    directory = "block-14-e9371ed3"
+    payload = yaml.safe_load((FIXTURES / directory / "candidate.yaml").read_text())
+    template = payload["inputs"][0]
+    payload["inputs"].append(
+        {
+            "name": "lifeline_discount_short_or_extra_airtime_purchased",
+            "entity": template["entity"],
+            "dtype": "Boolean",
+            "period": template["period"],
+        }
+    )
+    rule = payload["rules"][0]
+    formula = rule["versions"][0]["formula"]
+    start = formula.index("lifeline_discount_does_not_pay_component_in_full")
+    end = formula.index(
+        "component_is_extra_airtime_purchased_after_exhausting_free_minutes"
+    )
+    end += len("component_is_extra_airtime_purchased_after_exhausting_free_minutes")
+    rule["versions"][0]["formula"] = (
+        formula[:start]
+        + "lifeline_discount_short_or_extra_airtime_purchased"
+        + formula[end:]
+    )
+    # The list is one fact of the condition; the check does not look inside it.
+    assert _collapsed(directory, 14, yaml.safe_dump(payload, sort_keys=False)) == []
 
 
 def _reread(clause: str, block: int, *, body=None, shift=0, start_shift=0, text=None):
@@ -275,22 +364,37 @@ def _reread(clause: str, block: int, *, body=None, shift=0, start_shift=0, text=
     cue = clause.index(" when ") + len(" when") if block != 14 else len("When")
     text = clause if text is None else text
     original = text[cue:] if body is None else body
-    result = _without_reviewed_alternative_lines(
+    result, alternatives = _without_reviewed_alternative_lines(
         text, original, cue + shift, start + start_shift, entries
     )
+    assert bool(alternatives) == (result != original)
     return original, result
 
 
-def test_the_reading_keeps_conjuncts_and_drops_the_rest():
-    chapeau, first, second = SHARED.split("\n\n")
-    original, result = _reread(SHARED, 4)
-    assert result == original.split("\n")[0] + "\n" + first
-    assert " and " in first
-
-    original, result = _reread(HEATING, 3)
-    assert result == original.split("\n")[0]
-    original, result = _reread(LIFELINE, 14)
-    assert result == original.split("\n")[0]
+def test_the_reading_separates_alternatives_conjuncts_and_outside_lines():
+    for clause, block in CLAUSES:
+        original, result = _reread(clause, block)
+        assert result == original.split("\n")[0]
+    # A line read as a conjunct stays in the body.
+    (entry,), start = _bound(SHARED, 4)
+    first, second = entry.lines
+    reread = dataclasses.replace(
+        entry, lines=(dataclasses.replace(first, reading="conjunct"), second)
+    )
+    cue = SHARED.index(" when ") + len(" when")
+    body, alternatives = _without_reviewed_alternative_lines(
+        SHARED, SHARED[cue:], cue, start, (reread,)
+    )
+    assert body == SHARED[cue:].split("\n")[0] + "\n" + first.line
+    assert alternatives == (second.line,)
+    # The lines after the heating list are outside the condition.
+    (entry,), start = _bound(HEATING, 3)
+    cue = HEATING.index(" when ") + len(" when")
+    body, alternatives = _without_reviewed_alternative_lines(
+        HEATING, HEATING[cue:], cue, start, (entry,)
+    )
+    assert alternatives == ("● Electricity", "● Gas or propane", "● Coal, wood, or oil")
+    assert [line.reading for line in entry.lines].count("outside_condition") == 12
 
 
 @pytest.mark.parametrize(("clause", "block"), CLAUSES)

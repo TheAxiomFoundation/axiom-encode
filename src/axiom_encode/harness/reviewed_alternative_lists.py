@@ -10,8 +10,10 @@ offset match. Offsets count Python Unicode characters; hashes cover UTF-8.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
@@ -25,6 +27,23 @@ REGISTRY_PATH = "data/reviewed_alternative_lists.jsonl"
 #   conjunct           stays in the condition and is counted as before
 #   outside_condition  text after the list that is not part of the condition
 READINGS = frozenset({"alternative", "conjunct", "outside_condition"})
+
+# ``reviewer`` is the owner who checked every recorded line against the source
+# text: a GitHub login. Until an owner has done that, it is this marker and
+# ``reviewed_at`` is null. The approving owner replaces both in the pull
+# request that adds the entry, before merge.
+PENDING_REVIEWER = "pending-owner-review"
+_GITHUB_LOGIN = re.compile(r"@[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
+
+
+def scanned_source_text(source_text: str) -> str:
+    """Return the text that the check scans and that the digest covers.
+
+    ``analyze_complete_source_unit`` strips the unit text before any check
+    reads it. Offsets count characters of this stripped text.
+    """
+
+    return source_text.strip()
 
 
 def text_sha256(text: str) -> str:
@@ -105,8 +124,9 @@ class ReviewedAlternativeList:
     chapeau: ReviewedLine
     lines: tuple[ReviewedLine, ...]
     reason: str
+    author: str
     reviewer: str
-    reviewed_at: str
+    reviewed_at: str | None
 
     @classmethod
     def from_mapping(cls, value: Any) -> ReviewedAlternativeList:
@@ -125,6 +145,10 @@ class ReviewedAlternativeList:
             for index, line in enumerate(raw_lines)
         )
         in_list = [line for line in lines if line.reading != "outside_condition"]
+        if any(line.reading == "outside_condition" for line in lines[: len(in_list)]):
+            raise ValueError(
+                "outside_condition lines may only follow the last line of the list"
+            )
         if len(in_list) < 2 or all(line.reading == "conjunct" for line in in_list):
             raise ValueError(
                 "a list of alternatives needs two lines and at least one alternative"
@@ -134,17 +158,27 @@ class ReviewedAlternativeList:
             if line.physical_start <= previous.physical_end:
                 raise ValueError("lines must follow the chapeau in source order")
             previous = line
-        for field in ("reason", "reviewer"):
+        for field in ("reason", "author"):
             _one_line(value[field], field)
-        if not isinstance(value["reviewed_at"], str):
-            raise ValueError("reviewed_at is required")
-        date.fromisoformat(value["reviewed_at"])
+        reviewer, reviewed_at = value["reviewer"], value["reviewed_at"]
+        if reviewer == PENDING_REVIEWER:
+            if reviewed_at is not None:
+                raise ValueError("a pending review has no reviewed_at")
+        elif not isinstance(reviewer, str) or not _GITHUB_LOGIN.fullmatch(reviewer):
+            raise ValueError(
+                f"reviewer must be a GitHub login (@name) or {PENDING_REVIEWER!r}"
+            )
+        elif not isinstance(reviewed_at, str):
+            raise ValueError("reviewed_at is required with a reviewer")
+        else:
+            date.fromisoformat(reviewed_at)
         return cls(
             value["citation_path"],
             value["source_text_sha256"],
             chapeau,
             lines,
             value["reason"],
+            value["author"],
             value["reviewer"],
             value["reviewed_at"],
         )
@@ -211,8 +245,27 @@ def reviewed_alternative_lists_for(
     if entries is None:
         try:
             entries = load_reviewed_alternative_lists()
-        except (OSError, ValueError, TypeError):
+        except Exception:
+            # Fail closed on any load error, a RecursionError from a hostile
+            # line included.
             return ()
     return tuple(
         entry for entry in entries if entry.matches(citation_path, source_text)
     )
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Print the digest and the line offsets that an entry must record."""
+
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument("source", help="file that holds the unit text")
+    args = parser.parse_args(argv)
+    with open(args.source, encoding="utf-8") as handle:
+        text = scanned_source_text(handle.read())
+    print(f"source_text_sha256 {text_sha256(text)}")
+    offset = 0
+    for line in text.split("\n"):
+        if line.strip():
+            print(f"{offset}\t{json.dumps(line, ensure_ascii=False)}")
+        offset += len(line) + 1
+    return 0

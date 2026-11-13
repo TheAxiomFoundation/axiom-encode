@@ -19937,13 +19937,14 @@ def _without_reviewed_alternative_lines(
     body_start: int,
     text_start: int,
     reviewed_lists: Sequence[ReviewedAlternativeList],
-) -> str:
-    """Drop the lines that a registry entry reads as alternatives.
+) -> tuple[str, tuple[str, ...]]:
+    """Separate the lines that a registry entry reads as alternatives.
 
     This gate counts simultaneous facts, not alternative triggers. There is no
     grammar here: ``reviewed_lists`` are the registry entries already bound to
     this citation and this exact source text, and ``text_start`` is the offset
-    of ``text`` in that source text. The body comes back unchanged unless:
+    of ``text`` in that source text. The body comes back unchanged, with no
+    alternative lines, unless:
 
     - ``body`` is the untouched rest of ``text`` after the cue at
       ``body_start``; no earlier step cut or rewrote it;
@@ -19952,11 +19953,13 @@ def _without_reviewed_alternative_lines(
     - the nonblank lines after it, to the end of ``text``, are exactly the
       recorded lines of that entry, each at its recorded offset.
 
-    Then the body keeps the chapeau and the lines read as ``conjunct``.
+    Then the body keeps the chapeau and the lines read as ``conjunct``, and
+    the lines read as ``alternative`` come back separately: together they are
+    one fact of the condition, not one fact each.
     """
 
     if text[body_start:] != body:
-        return body
+        return body, ()
     line_start = text.rfind("\n", 0, body_start) + 1
     lines = text[line_start:].split("\n")
     for reviewed in reviewed_lists:
@@ -19967,6 +19970,7 @@ def _without_reviewed_alternative_lines(
             continue
         expected = iter(reviewed.lines)
         kept = [body.split("\n", 1)[0]]
+        alternatives = []
         offset = text_start + line_start + len(lines[0]) + 1
         for line in lines[1:]:
             if line.strip():
@@ -19976,14 +19980,16 @@ def _without_reviewed_alternative_lines(
                     or recorded.physical_start != offset
                     or recorded.line != line
                 ):
-                    return body
+                    return body, ()
                 if recorded.reading == "conjunct":
                     kept.append(line)
+                elif recorded.reading == "alternative":
+                    alternatives.append(line)
             offset += len(line) + 1
         if next(expected, None) is not None:
-            return body
-        return "\n".join(kept)
-    return body
+            return body, ()
+        return "\n".join(kept), tuple(alternatives)
+    return body, ()
 
 
 _SOURCE_ANY_REASON_PREFIX = "source_any_reason:"
@@ -20138,13 +20144,16 @@ def _source_conjunctive_fact_gates(
     care_source_text: str | None = None,
     reviewed_alternative_lists: Sequence[ReviewedAlternativeList] = (),
     text_start: int | None = None,
+    alternative_group_added: list[bool] | None = None,
 ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
     """Return distinct entity/predicate signatures from one condition.
 
     ``reviewed_alternative_lists`` are registry entries bound to the citation
     and exact source text that ``text`` comes from, and ``text_start`` is the
     offset of ``text`` in that source text. Without both, every bullet under
-    the cue stays a simultaneous fact.
+    the cue stays a simultaneous fact. With both, the lines that an entry reads
+    as alternatives become one gate, the last one, and
+    ``alternative_group_added`` receives ``True``.
     """
 
     actual_condition = _concessive_form_completion_condition(text)
@@ -20229,8 +20238,9 @@ def _source_conjunctive_fact_gates(
     body = _without_flattened_pdf_alternative_list(body)
     body = _without_completed_chart_result_label(body, text)
     body = _without_worksheet_imperative_consequent(body)
+    reviewed_alternatives: tuple[str, ...] = ()
     if reviewed_alternative_lists and text_start is not None:
-        body = _without_reviewed_alternative_lines(
+        body, reviewed_alternatives = _without_reviewed_alternative_lines(
             text,
             body,
             conditional.start("body"),
@@ -20265,7 +20275,23 @@ def _source_conjunctive_fact_gates(
                 for tokens in signatures
             )
     segments = _source_gate_split_conjunctive_conditions(membership_body)
-    if len(segments) < 2:
+    # The reviewed alternatives are one more fact of the condition: any one of
+    # them. They stay one gate, so a candidate that merges another fact of the
+    # clause with the whole list is still refused.
+    alternative_tokens = frozenset().union(
+        *(
+            _source_gate_semantic_tokens(
+                line,
+                care_source_text=text if care_source_text is None else care_source_text,
+            )
+            for line in reviewed_alternatives
+        )
+    )
+    alternative_group = (
+        alternative_tokens & _SOURCE_GATE_ENTITIES,
+        alternative_tokens - _SOURCE_GATE_ENTITIES - _SOURCE_GATE_SUBJECT_PRONOUNS,
+    )
+    if len(segments) + bool(alternative_group[1]) < 2:
         return ()
     gates: list[tuple[frozenset[str], frozenset[str]]] = []
     inherited_entities: frozenset[str] = frozenset()
@@ -20327,7 +20353,13 @@ def _source_conjunctive_fact_gates(
         gates.append((entities, predicates))
     if reason_gates:
         gates.append((frozenset(), reason_gates))
-    return tuple(gates) if len(gates) >= 2 else ()
+    if alternative_group[1]:
+        gates.append(alternative_group)
+    if len(gates) < 2:
+        return ()
+    if alternative_group[1] and alternative_group_added is not None:
+        alternative_group_added.append(True)
+    return tuple(gates)
 
 
 def _source_conjunctive_fact_gate_count(text: str) -> int:
@@ -21903,6 +21935,8 @@ def _opaque_same_source_condition_input_issues(
     reviewed_alternative_lists = reviewed_alternative_lists_for(
         corpus_citation_path, source_text
     )
+    # Clauses whose last gate is the group of reviewed alternatives.
+    alternative_group_clauses: set[tuple[tuple[str, ...], int, int]] = set()
 
     def source_clause_gates(
         clause: _SourceConditionClause,
@@ -21912,6 +21946,7 @@ def _opaque_same_source_condition_input_issues(
             # A reviewed reading needs the clause at a known place in the
             # exact source text; else every bullet stays a gate.
             raw_clause = source_text[clause.start : clause.end]
+            group_added: list[bool] = []
             source_gate_cache[identity] = _source_conjunctive_fact_gates(
                 clause.text,
                 care_source_text=care_source_text,
@@ -21922,8 +21957,48 @@ def _opaque_same_source_condition_input_issues(
                     and raw_clause.strip(" ;,") == clause.text
                     else None
                 ),
+                alternative_group_added=group_added,
             )
+            if group_added:
+                alternative_group_clauses.add(identity)
         return source_gate_cache[identity]
+
+    def reachable_terminal_names(
+        formula: str,
+        *,
+        start: str | None,
+        end: str | None,
+    ) -> frozenset[str] | None:
+        """Return every input or import that the formula reaches, on any path.
+
+        ``None`` means that the formula or a dependency cannot be read.
+        """
+
+        reached: set[str] = set()
+        seen: set[str] = set()
+        pending = [formula]
+        while pending:
+            expression = _parse_formula_expression(pending.pop())
+            if expression is None:
+                return None
+            for node in ast.walk(expression):
+                if not isinstance(node, ast.Name) or node.id in seen:
+                    continue
+                seen.add(node.id)
+                if node.id in declared_inputs or node.id in imported_names:
+                    reached.add(node.id)
+                elif node.id in named_rules:
+                    pending.extend(
+                        dependency_formula
+                        for _index, dependency_formula, version_start, version_end in (
+                            interval_cache.get(node.id, ())
+                        )
+                        if _formula_interval_intersection(
+                            start, end, version_start, version_end
+                        )
+                        is not None
+                    )
+        return frozenset(reached)
 
     def dependency_expansion_is_bounded(
         root_name: str,
@@ -22527,13 +22602,34 @@ def _opaque_same_source_condition_input_issues(
                     if key in schedule_role_sets
                     else not _terminal_names_corroborate_source_gates(
                         choice.names,
-                        gates,
+                        # The group of reviewed alternatives is checked below.
+                        gates[:-1] if key in alternative_group_clauses else gates,
                         terminal_evidence=terminal_evidence,
                         neutral_polarity_imports=frozenset(imported_names),
                     )
                     for key, gates in ordinary_gate_sets
                 )
             ]
+            # The other facts of such a clause are needed on every path, as
+            # before. The group needs its own input next to theirs among all
+            # the inputs that the formula reaches: the path expansion keeps
+            # only minimal decision paths, and a path on which the clause does
+            # not apply (its lead condition is false) names no alternative.
+            if not failing_choices and any(
+                key in alternative_group_clauses for key, _gates in ordinary_gate_sets
+            ):
+                reached = reachable_terminal_names(formula, start=start, end=end)
+                if reached is None or any(
+                    not _terminal_names_corroborate_source_gates(
+                        reached,
+                        gates,
+                        terminal_evidence=terminal_evidence,
+                        neutral_polarity_imports=frozenset(imported_names),
+                    )
+                    for key, gates in ordinary_gate_sets
+                    if key in alternative_group_clauses
+                ):
+                    failing_choices = list(terminal_choices)
             # A negative output implementing ``No ... eligible unless A and B``
             # necessarily reaches separate ``not A`` / ``not B`` alternatives.
             # Require the alternatives collectively to expose every source gate;
