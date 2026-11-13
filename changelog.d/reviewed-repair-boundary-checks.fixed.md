@@ -1,0 +1,1 @@
+Preserve canonical concept validation, official repository identity, normalized archive uniqueness and independently checked seed metadata in registered repairs; route subnational targets through their country checkout without rewriting registered bytes.

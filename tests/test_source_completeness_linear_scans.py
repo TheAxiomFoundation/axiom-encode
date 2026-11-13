@@ -247,8 +247,16 @@ def _old_source_clause_spans(
     # Mask only authenticated structural labels, preserving offsets. The
     # resulting excerpts retain every operative character of the source.
     printed_rows = sc._unconflicted_printed_rows(
-        source_text, branches, corpus_citation_path=corpus_citation_path
+        source_text,
+        branches,
+        corpus_citation_path=corpus_citation_path,
+        allow_detached=True,
+        allow_multipage=True,
     )
+    bound_form = sc._unconflicted_bound_form(
+        source_text, branches, corpus_citation_path
+    )
+    bound_rows = tuple(row.span for row in bound_form.rows) if bound_form else ()
     bare_labels = (
         sc.bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
     )
@@ -266,6 +274,7 @@ def _old_source_clause_spans(
         if not _old_source_clause_boundary_splits_state_code_citation(
             source_text, match
         )
+        and not any(a < match.end() < b for a, b in bound_rows)
         and not (
             match.group() == "."
             and re.search(r"(?<!\w)\d+\.$", source_text[: match.end()])
@@ -336,6 +345,19 @@ def _old_source_clause_spans(
             point
             for point in printed_rows.boundaries
             if not any(a < point < b for a, b in printed_rows.atomic_spans)
+        )
+    if bound_form is not None:
+        # Only rows and the transcriber note gain boundaries; preamble and all
+        # separated prose remain ordinary clauses and condition obligations.
+        split_points.update(
+            point
+            for span in (
+                *bound_rows,
+                bound_form.note_span
+                if isinstance(bound_form, sc.BoundScheduleStructure)
+                else bound_form.table.note_span,
+            )
+            for point in span
         )
     for start, end in zip(sorted(split_points), sorted(split_points)[1:]):
         raw = boundary_text[start:end]

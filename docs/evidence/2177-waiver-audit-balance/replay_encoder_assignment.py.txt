@@ -1,0 +1,107 @@
+"""Replay axiom-encode's own cost-balanced assignment through the leg simulator.
+
+Run with the PR branch's interpreter so `axiom_encode.validation_waiver_partition`
+is the code under review:
+
+    <worktree>/.venv/bin/python scripts/replay_encoder_assignment.py \
+        runs/cost-table-41819980907/validation-waiver-audit-costs.json
+
+The table comes from `axiom-encode validation-waivers audit-costs` over run
+41819980907's 52 leg logs and jobs listing. Each leg is list-scheduled on 4
+workers in the encoder's start order, plus the median per-leg setup overhead,
+plus the leg's observed non-audit job time, the same model `simulate.py` uses.
+"""
+
+import heapq
+import json
+import statistics
+import sys
+from datetime import datetime
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import leg_durations as L  # noqa: E402
+
+from axiom_encode import validation_waiver_partition as P  # noqa: E402
+
+DATA = HERE.parent / "data"
+costs = P.parse_waiver_audit_costs(Path(sys.argv[1]).read_bytes())
+legs = json.load(open(DATA / "module_timings_41819980907.json"))
+keys = sorted(legs)
+paths = sorted(costs.module_milliseconds)
+
+
+def t(s):
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+observed, other = {}, {}
+for job in L.jobs("41819980907"):
+    if not job["name"].startswith("validate / validate ("):
+        continue
+    key = job["name"].split("(")[1].rstrip(")")
+    total = (t(job["completed_at"]) - t(job["started_at"])).total_seconds() / 60
+    ratchet = next(
+        (
+            (t(s["completed_at"]) - t(s["started_at"])).total_seconds() / 60
+            for s in job["steps"]
+            if s["name"] == L.STEP
+        ),
+        0,
+    )
+    observed[key] = ratchet
+    other[key] = total - ratchet
+
+
+def leg_time(mods, order):
+    free = [0.0] * 4
+    for path in order(mods):
+        finish = heapq.heappop(free)
+        heapq.heappush(free, finish + costs.module_milliseconds[path] / 1000)
+    return max(free) if mods else 0.0
+
+
+round_robin_as_run = {key: [p for p, _ in legs[key]] for key in keys}
+overhead = statistics.median(
+    observed[key]
+    - leg_time([p for p in round_robin_as_run[key] if p in costs.module_milliseconds], sorted)
+    / 60
+    for key in keys
+)
+
+
+def evaluate(owners, order, label):
+    by_key = {key: [] for key in keys}
+    for path, key in owners.items():
+        by_key[key].append(path)
+    ratchet = {key: leg_time(by_key[key], order) / 60 + overhead for key in keys}
+    job = {key: other[key] + ratchet[key] for key in keys}
+    worst = max(ratchet, key=ratchet.get)
+    worst_job = max(job, key=job.get)
+    print(
+        f"{label:52s} ratchet max {ratchet[worst]:5.1f} ({worst}) median "
+        f"{statistics.median(ratchet.values()):5.1f} | job max {job[worst_job]:5.1f} ({worst_job})"
+    )
+    return by_key
+
+
+print(f"table sha256 {costs.sha256}; {len(paths)} module costs; overhead {overhead:.1f} min")
+# Differential check against production: without a table, the encoder's
+# assignment must give every path the leg that audited it in this run.
+legacy = P.assign_waiver_owners(paths, keys)
+as_run = {path: key for key in keys for path in round_robin_as_run[key]}
+mismatches = sorted(set(legacy) ^ set(as_run)) + sorted(
+    path for path in set(legacy) & set(as_run) if legacy[path] != as_run[path]
+)
+print(
+    f"no-table ownership vs the run's: {len(as_run)} paths on {len(keys)} legs, "
+    f"{len(mismatches)} mismatches"
+)
+evaluate(legacy, sorted, "round-robin over the table's paths, path order")
+by_key = evaluate(
+    P.assign_waiver_owners(paths, keys, costs),
+    lambda mods: P.audit_order(mods, costs),
+    "encoder assign_waiver_owners + audit_order (table)",
+)
+print("modules per leg: min", min(map(len, by_key.values())), "max", max(map(len, by_key.values())))

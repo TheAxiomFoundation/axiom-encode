@@ -841,9 +841,16 @@ def test_removed_waiver_must_pass_unless_module_was_deleted(tmp_path: Path, caps
             )
         )
 
-    report = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
     assert exit_code == 1
     assert any("still-broken.yaml" in error for error in report["errors"])
+    # The plan line counts what will execute, not what was selected: a deleted
+    # module prints no timing line, so audit-costs must not expect one.
+    assert (
+        "validation-waivers audit plan: audit owns all 2 waiver path(s); "
+        "2 selected, 1 to execute"
+    ) in captured.err.splitlines()
     deleted = next(item for item in report["results"] if item["path"] == "deleted.yaml")
     assert deleted == {
         "path": "deleted.yaml",
@@ -976,3 +983,130 @@ def test_main_registers_validation_waiver_subcommands(tmp_path: Path):
     assert args.corpus_path == corpus
     assert args.axiom_rules_path == tmp_path / "axiom-rules-engine"
     assert args.json is True
+
+
+def _restate_audit(tmp_path: Path, *, observed: str, changed: str, **overrides):
+    root = tmp_path / "rulespec-us"
+    root.mkdir(parents=True)
+    (root / "known-validation-gaps.yaml").write_text("validate_failures: {}\n")
+    for path in ("restated.yaml", "removed.yaml"):
+        (root / path).write_text("format: rulespec/v1\n")
+    base_file = tmp_path / "base.yaml"
+    base_file.write_text("validate_failures: {}\n")
+    changed_file = tmp_path / "changed.txt"
+    changed_file.write_text(changed)
+    from axiom_encode.validation_waivers import (
+        ValidationWaiverSet,
+        WaiverEntry,
+        WaiverMetadata,
+    )
+
+    def real(fingerprint: str) -> WaiverMetadata:
+        return WaiverMetadata(
+            fingerprint=fingerprint,
+            owner="@owner",
+            issue="https://github.com/TheAxiomFoundation/rulespec-us/issues/1",
+            expires="2026-12-21",
+        )
+
+    head = ValidationWaiverSet(
+        {"restated.yaml": WaiverEntry("restated.yaml", active=real("sha256:new"))}
+    )
+    base = ValidationWaiverSet(
+        {
+            "restated.yaml": WaiverEntry("restated.yaml", active=real("sha256:old")),
+            "removed.yaml": WaiverEntry("removed.yaml", active=real("sha256:gone")),
+        }
+    )
+    executed = [
+        {
+            "path": "restated.yaml",
+            "passed": False,
+            "fingerprint": observed,
+            "outcome": {},
+        },
+        {
+            "path": "removed.yaml",
+            "passed": overrides.pop("removed_passes", True),
+            "fingerprint": "sha256:x",
+            "outcome": {},
+        },
+    ]
+    args = _audit_args(root, base_file, changed_file, _bound_corpus(tmp_path, root))
+    for key, value in overrides.items():
+        setattr(args, key, value)
+    with (
+        patch.object(
+            cli._validation_waivers, "load_validation_waivers", side_effect=[head, base]
+        ),
+        patch.object(
+            cli, "_fingerprint_validation_waiver_modules", return_value=executed
+        ),
+    ):
+        return cli._cmd_validation_waivers_audit(args)
+
+
+_RESTATE_CHANGED = (
+    "known-validation-gaps.yaml\n.axiom/toolchain.toml\n"
+    ".axiom/workflow-toolchain.toml\n"
+)
+
+
+def test_verifier_restate_audit_requires_the_observed_fingerprint(tmp_path, capsys):
+    # The real transition check runs: only the flag admits the restate.
+    assert (
+        _restate_audit(
+            tmp_path / "ok",
+            observed="sha256:new",
+            changed=_RESTATE_CHANGED,
+            verifier_restate=True,
+        )
+        == 0
+    ) or pytest.fail(capsys.readouterr().out)
+    capsys.readouterr()
+    assert (
+        _restate_audit(
+            tmp_path / "drift",
+            observed="sha256:other",
+            changed=_RESTATE_CHANGED,
+            verifier_restate=True,
+        )
+        == 1
+    )
+    assert "failure fingerprint drifted" in capsys.readouterr().out
+    assert (
+        _restate_audit(
+            tmp_path / "still-fails",
+            observed="sha256:new",
+            changed=_RESTATE_CHANGED,
+            verifier_restate=True,
+            removed_passes=False,
+        )
+        == 1
+    )
+    assert "removed active waiver still has a failing module" in capsys.readouterr().out
+    assert (
+        _restate_audit(
+            tmp_path / "no-flag", observed="sha256:new", changed=_RESTATE_CHANGED
+        )
+        == 1
+    )
+    assert "must exactly consume" in capsys.readouterr().out
+
+
+def test_verifier_restate_audit_needs_a_mode_change_and_the_full_scope(tmp_path):
+    with pytest.raises(ValueError, match="requires a change of"):
+        _restate_audit(
+            tmp_path / "a",
+            observed="sha256:new",
+            changed="known-validation-gaps.yaml\n.axiom/toolchain.toml\n",
+            verifier_restate=True,
+        )
+    with pytest.raises(ValueError, match="requires --scope full"):
+        _restate_audit(
+            tmp_path / "b",
+            observed="sha256:new",
+            changed=_RESTATE_CHANGED,
+            verifier_restate=True,
+            scope="incremental",
+        )

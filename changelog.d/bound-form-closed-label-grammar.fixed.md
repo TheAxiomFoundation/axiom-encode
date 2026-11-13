@@ -1,0 +1,1 @@
+Refuse ordered form row certificates when a caption label or entered-row description falls outside a closed inert-label grammar, so unparsed operative prose such as "then halved" or "whichever is greater" keeps its arithmetic obligation.

@@ -329,6 +329,7 @@ from axiom_encode.constants import (
 from axiom_encode.corpus_resolver import (
     PROOF_EVIDENCE_SEGMENT_SEPARATOR,
     CorpusResolutionError,
+    InvalidActiveCorpusSourceError,
     LocalCorpusRelease,
     UnsafeCorpusPathError,
     normalize_corpus_identifier,
@@ -1869,6 +1870,7 @@ def _reviewed_candidate_binding(rule: Path, companion: Path, **overrides) -> dic
     return binding
 
 
+@pytest.mark.parametrize("per_file", [True, False])
 @pytest.mark.parametrize(
     "admission",
     [
@@ -1885,7 +1887,7 @@ def _reviewed_candidate_binding(rule: Path, companion: Path, **overrides) -> dic
     ],
 )
 def test_promote_reviewed_candidate_changes_only_manifest(
-    tmp_path, capsys, admission, monkeypatch
+    tmp_path, capsys, admission, per_file, monkeypatch
 ):
     repo, rule, companion, reviewed_ref = _reviewed_candidate_checkout(tmp_path)
     binding = (
@@ -1977,6 +1979,13 @@ def test_promote_reviewed_candidate_changes_only_manifest(
     args.axiom_rules_path.mkdir()
     args.corpus_path.mkdir()
     validation_execution = {"schema": "axiom-encode/apply-validation-execution/v2"}
+    waiver_bindings = {
+        "schema": "axiom-encode/validation-waiver-bindings/v1",
+        "files": [
+            {"path": path, "fingerprint": None, "record_sha256": None}
+            for path in ("us/statutes/7/2015/f.test.yaml", "us/statutes/7/2015/f.yaml")
+        ],
+    }
 
     def validate(result, **_kwargs):
         setattr(
@@ -2043,6 +2052,14 @@ def test_promote_reviewed_candidate_changes_only_manifest(
             return_value="c" * 64,
         ),
         patch(
+            "axiom_encode.cli._target_uses_per_file_waiver_bindings",
+            return_value=per_file,
+        ),
+        patch(
+            "axiom_encode.cli._build_applied_manifest_file_waiver_bindings",
+            return_value=waiver_bindings,
+        ) as bindings_mock,
+        patch(
             "axiom_encode.cli._current_guard_encoder_execution_identity",
             return_value={
                 "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
@@ -2092,6 +2109,15 @@ def test_promote_reviewed_candidate_changes_only_manifest(
             return
         cmd_promote_reviewed_candidate(args)
 
+    if per_file:
+        bindings_mock.assert_called_once()
+        assert bindings_mock.call_args.kwargs["covered_paths"] == {
+            "us/statutes/7/2015/f.yaml",
+            "us/statutes/7/2015/f.test.yaml",
+        }
+    else:
+        bindings_mock.assert_not_called()
+
     overlay_mock.assert_called_once()
     assert live_check.call_count == (2 if admission == "live" else 0)
     assert overlay_mock.call_args.kwargs["amendment_documents"] == (amendment,)
@@ -2104,6 +2130,13 @@ def test_promote_reviewed_candidate_changes_only_manifest(
     assert payload["tool"] == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
     assert payload["reviewed_rulespec_ref"] == reviewed_ref
     assert payload["validation_execution"] == validation_execution
+    if per_file:
+        assert payload["validation_waiver_bindings"] == waiver_bindings
+        assert "validation_waiver_set_sha256" not in payload
+    else:
+        # A pinned target keeps the repository waiver-set digest (#2092).
+        assert payload["validation_waiver_set_sha256"] == "c" * 64
+        assert "validation_waiver_bindings" not in payload
     assert rule.read_bytes() == original_rule
     assert companion.read_bytes() == original_companion
     assert _git(
@@ -4161,7 +4194,7 @@ class TestMain:
         assert "--log-dir" in error
         assert "--repos" in error
 
-    def test_uk_populace_coverage_command_dispatches(self):
+    def test_uk_microcosm_coverage_command_dispatches(self):
         with patch("sys.argv", ["axiom_encode", "uk-populace-coverage"]):
             with patch(
                 "axiom_encode.cli.run_uk_populace_coverage", return_value=0
@@ -7584,7 +7617,7 @@ class TestCmdValidate:
         assert "PolicyEngine program surfaces: 1" in output
         assert "wic: pending_rulespec_encoding" in output
 
-    def test_oracle_coverage_fail_on_unvalidated_populace_surfaces_exits_nonzero(
+    def test_oracle_coverage_fail_on_unvalidated_microcosm_surfaces_exits_nonzero(
         self, capsys, tmp_path
     ):
         checkout = tmp_path / "rulespec-us"
@@ -7639,8 +7672,8 @@ class TestCmdValidate:
 
         assert exc_info.value.code == 1
         output = capsys.readouterr().out
-        assert "unvalidated_populace=1" in output
-        assert "Populace validation: not_configured=1" in output
+        assert "unvalidated_microcosm=1" in output
+        assert "Microcosm validation: not_configured=1" in output
         assert "29.86% is_medicaid_eligible: not_configured" in output
 
     def test_oracle_coverage_fail_on_incomplete_comparable_exits_nonzero(
@@ -14461,9 +14494,12 @@ class TestCmdEncode:
             policy_repo_path,
             corpus_path,
             citation_path=normalize_corpus_identifier(citation),
+            body=overrides.get("corpus_body", "authoritative test source"),
+            metadata=overrides.get("corpus_metadata"),
         )
         args = MagicMock()
         args.citation = citation
+        args.pre_encode_gate = overrides.get("pre_encode_gate", "enforce")
         args.output = overrides.get("output", tmp_path / "out")
         args.model = overrides.get("model", "test-model")
         args.escalation_model = overrides.get(
@@ -14518,6 +14554,286 @@ class TestCmdEncode:
         )
         args.allow_shrink = overrides.get("allow_shrink", False)
         return args
+
+    _GATE_TOC_BODY = "Table of Contents\n" + "\n".join(
+        f"Section {number}{'.' * 40} {number}" for number in range(12)
+    )
+
+    def test_encode_pre_encode_gate_blocks_an_empty_body_before_any_model_call(
+        self, tmp_path, capsys
+    ):
+        args = self._make_args(tmp_path, corpus_body=".")
+
+        with patch("axiom_encode.cli.run_model_eval") as model_call:
+            with patch.dict(os.environ, {}, clear=True):
+                with pytest.raises(SystemExit) as exc_info:
+                    cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        model_call.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.iterations == []
+        assert run.generation_attempt_count == 0
+        assert run.outcome["status"] == "pre_encode_blocked"
+        assert run.outcome["final_success"] is False
+        assert run.outcome["standalone_validation_success"] is None
+        assert run.outcome["pre_encode_gate"]["blocked"] is True
+        assert [
+            (finding["check"], finding["enforce"])
+            for finding in run.outcome["pre_encode_gate"]["findings"]
+        ] == [("no_operative_text", True)]
+        assert run.outcome["failure_class"]["class"] == "corpus"
+        assert run.outcome["failure_class"]["subclass"] == "content"
+        assert run.outcome["failure_class"]["confidence"] == "certain"
+        assert "Pre-encode gate blocked" in run.outcome["primary_error"]
+        events = EncodingDB(args.db).get_session_events(run.session_id)
+        assert "encode_outcome" in [event.event_type for event in events]
+        assert "pre_encode_gate=block check=no_operative_text" in (
+            capsys.readouterr().out
+        )
+
+    def test_encode_pre_encode_gate_only_reports_a_contents_page(self, tmp_path):
+        args = self._make_args(tmp_path, corpus_body=self._GATE_TOC_BODY)
+
+        mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        mock_run.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["pre_encode_gate"]["blocked"] is False
+        assert [
+            (finding["check"], finding["enforce"])
+            for finding in run.outcome["pre_encode_gate"]["findings"]
+        ] == [("toc_page", False)]
+
+    def test_encode_pre_encode_gate_blocks_a_repealed_target(self, tmp_path):
+        args = self._make_args(tmp_path, corpus_metadata={"status": "repealed"})
+
+        with patch("axiom_encode.cli.run_model_eval") as model_call:
+            with patch.dict(os.environ, {}, clear=True):
+                with pytest.raises(SystemExit) as exc_info:
+                    cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        model_call.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "pre_encode_blocked"
+        assert [
+            finding["check"] for finding in run.outcome["pre_encode_gate"]["findings"]
+        ] == ["repealed_target"]
+        assert run.outcome["failure_class"]["class"] == "selection"
+
+    def test_encode_pre_encode_gate_report_mode_never_blocks(self, tmp_path):
+        args = self._make_args(
+            tmp_path,
+            corpus_body=".",
+            pre_encode_gate="report",
+        )
+
+        mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        mock_run.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "standalone_validated"
+        assert run.outcome["pre_encode_gate"]["blocked"] is False
+        assert [
+            (finding["check"], finding["enforce"])
+            for finding in run.outcome["pre_encode_gate"]["findings"]
+        ] == [("no_operative_text", False)]
+        assert run.outcome["failure_class"] is None
+
+    def test_encode_pre_encode_gate_report_mode_keeps_the_repealed_error(
+        self, tmp_path
+    ):
+        args = self._make_args(
+            tmp_path,
+            corpus_metadata={"status": "repealed"},
+            pre_encode_gate="report",
+        )
+
+        with patch("axiom_encode.cli.run_model_eval") as model_call:
+            with patch.dict(os.environ, {}, clear=True):
+                with pytest.raises(InvalidActiveCorpusSourceError, match="repealed"):
+                    cmd_encode(args)
+
+        model_call.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("body", "title"),
+        [
+            ("Applicants must be 18", "Applicants must be 18"),
+            ("Applicants must be 18:", "Applicants must be 18:"),
+            ("The standard deduction is $198", "The standard deduction is $198"),
+            ("Pay $100", "Pay $100"),
+            ("Pay $100.", "Pay $100."),
+            ("Minimum age 18", "Minimum age 18"),
+            ("Section 401(a)(9)(A).", "Section 401(a)(9)(A)."),
+            ("Eligibility Standards\n273.9", "Eligibility Standards"),
+        ],
+    )
+    def test_encode_pre_encode_gate_only_reports_nonempty_copied_labels(
+        self, tmp_path, body, title
+    ):
+        args = self._make_args(
+            tmp_path,
+            citation="7 CFR 273.9",
+            corpus_body=body,
+            corpus_metadata={"title": title},
+        )
+
+        model_call, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        model_call.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "standalone_validated"
+        assert run.outcome["pre_encode_gate"]["blocked"] is False
+        assert [
+            (finding["check"], finding["enforce"])
+            for finding in run.outcome["pre_encode_gate"]["findings"]
+        ] == [("no_operative_text", False)]
+        assert run.outcome["failure_class"] is None
+
+    def test_encode_first_try_reuses_the_gate_resolution(self, tmp_path):
+        import axiom_encode.cli as cli_module
+
+        args = self._make_args(tmp_path)
+        with patch(
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            wraps=cli_module.resolve_corpus_source_unit,
+        ) as resolve:
+            _mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        assert resolve.call_count == 1
+
+    def test_encode_pre_encode_gate_leaves_an_invalid_engine_ref_to_the_try(
+        self, tmp_path
+    ):
+        # The body would block, but the try's engine-ref preflight comes first.
+        args = self._make_args(
+            tmp_path, corpus_body=".", axiom_rules_engine_ref="not-a-sha"
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as model_call,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises(Exception, match="axiom_rules_engine_ref"):
+                cmd_encode(args)
+
+        model_call.assert_not_called()
+        assert EncodingDB(args.db).get_recent_runs(limit=1) == []
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [{"corpus_body": "."}, {"corpus_metadata": {"status": "repealed"}}],
+        ids=["empty", "repealed"],
+    )
+    def test_encode_pre_encode_gate_block_keeps_the_engine_binding_failure(
+        self, tmp_path, overrides
+    ):
+        # A valid SHA whose checkout does not bind: the block must not hide the
+        # engine binding failure behind a corpus or selection failure class.
+        from axiom_encode.engine_binding import EngineBindingError
+
+        args = self._make_args(tmp_path, axiom_rules_engine_ref="a" * 40, **overrides)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as model_call,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises(EngineBindingError, match="engine checkout HEAD"):
+                cmd_encode(args)
+
+        model_call.assert_not_called()
+        assert EncodingDB(args.db).get_recent_runs(limit=1) == []
+
+    def test_encode_pre_encode_gate_block_binds_a_good_engine_once(self, tmp_path):
+        pin = "a" * 40
+        args = self._make_args(tmp_path, corpus_body=".", axiom_rules_engine_ref=pin)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as model_call,
+            patch("axiom_encode.cli._pinned_apply_engine_binding") as bind,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        model_call.assert_not_called()
+        bind.assert_called_once()
+        assert bind.call_args.args[1] == pin
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "pre_encode_blocked"
+        assert run.outcome["failure_class"]["class"] == "corpus"
+
+    def test_encode_pre_encode_gate_defers_to_the_part_heading_refusal(self, tmp_path):
+        """The resolver's #1825 refusal (#2035) fires first; the gate defers.
+
+        The gate records nothing for a target the resolver refuses, so the
+        user sees main's refusal and message, unchanged.
+        """
+        from axiom_encode.corpus_resolver import CorpusDescendantStructureError
+
+        args = self._make_args(tmp_path)
+        refusal = CorpusDescendantStructureError(
+            "Active corpus source 'us/statute/26/1' has heading-only descendant "
+            "'us/statute/26/1/a': a part heading with no body (#1825)"
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as model_call,
+            patch(
+                "axiom_encode.cli.resolve_corpus_source_unit", side_effect=refusal
+            ) as resolve,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises(
+                CorpusDescendantStructureError, match="heading-only descendant"
+            ):
+                cmd_encode(args)
+
+        # Once in the gate, once in the first try, which raises it.
+        assert resolve.call_count == 2
+        model_call.assert_not_called()
+        assert EncodingDB(args.db).get_recent_runs(limit=1) == []
+
+    def test_encode_pre_encode_gate_leaves_preflight_failures_to_the_try(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path)
+        args.axiom_rules_path = tmp_path / "missing-rules-engine"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as model_call,
+            patch("axiom_encode.cli.load_rulespec_local_corpus_release") as load,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises((SystemExit, ValueError, FileNotFoundError)):
+                cmd_encode(args)
+
+        load.assert_not_called()
+        model_call.assert_not_called()
+
+    def test_encode_records_failure_class_on_every_outcome(self, tmp_path):
+        args = self._make_args(tmp_path)
+
+        _mock_run, exit_code = self._run_encode(args, self._make_eval_result(False))
+
+        assert exit_code == 1
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert "pre_encode_gate" not in run.outcome
+        assert run.outcome["failure_class"] == {
+            "schema": "axiom-encode/failure-class/v1",
+            "class": "unknown",
+            "subclass": None,
+            "source": "rule",
+            "confidence": "certain",
+            "evidence": ["status:standalone_failed"],
+        }
 
     def _make_eval_result(self, success=True):
         result = MagicMock()
@@ -15589,6 +15905,105 @@ class TestCmdEncode:
             )
             == expected
         )
+
+    def test_encode_reports_apply_phase_and_retries_restart_from_resolve(
+        self, tmp_path
+    ):
+        from axiom_encode.live_run_telemetry import LiveRunTelemetry
+
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=True,
+        )
+
+        with (
+            patch("axiom_encode.cli.report_phase") as mock_report_phase,
+            patch.object(LiveRunTelemetry, "set_attempt") as mock_set_attempt,
+        ):
+            exit_code, generated, *_ = self._run_validator_escalation_case(
+                args,
+                [(False, ["terra-1"]), (True, [])],
+            )
+
+        assert exit_code == 0
+        assert len(generated) == 2
+        # Each attempt that reaches the apply gate reports it once; the
+        # generate/validate/review boundaries live in the (mocked) harness.
+        assert [call.args for call in mock_report_phase.call_args_list] == [
+            ("apply",),
+            ("apply",),
+        ]
+        mock_set_attempt.assert_called_once()
+        assert mock_set_attempt.call_args.args[0] == 2
+        assert mock_set_attempt.call_args.kwargs["phase"] == "resolve"
+
+    def test_encode_blocked_generation_never_enters_apply_phase(self, tmp_path):
+        args = self._make_args(tmp_path, apply=True, sync=False)
+        result = self._make_eval_result(False)
+
+        with (
+            patch("axiom_encode.cli.report_phase") as mock_report_phase,
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "apply_blocked_generation"
+        mock_report_phase.assert_not_called()
+
+    def test_encode_finish_reports_outcome_status_to_live_run(self, tmp_path):
+        from axiom_encode.live_run_telemetry import LiveRunTelemetry
+
+        args = self._make_args(tmp_path, apply=True, sync=False)
+        result = self._make_eval_result(False)
+
+        with (
+            patch.object(LiveRunTelemetry, "finish") as mock_finish,
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        # The explicit finish is first, so it wins over the exit-derived one.
+        explicit = mock_finish.call_args_list[0]
+        assert explicit.args == ("failed",)
+        assert explicit.kwargs["run_id"] == run.id
+        assert explicit.kwargs["outcome_status"] == "apply_blocked_generation"
+        # No typed validation issue on a blocked generation: no rule is sent.
+        assert explicit.kwargs["error_rule"] is None
+
+    def test_encode_finish_reports_success_without_error_rule(self, tmp_path):
+        from axiom_encode.live_run_telemetry import LiveRunTelemetry
+
+        args = self._make_args(tmp_path, sync=False)
+        result = self._make_eval_result(True)
+
+        with (
+            patch.object(LiveRunTelemetry, "finish") as mock_finish,
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli.first_typed_check_id", return_value="some:check"
+            ) as mock_rule,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        explicit = mock_finish.call_args_list[0]
+        assert explicit.args == ("completed",)
+        assert explicit.kwargs["outcome_status"] == run.outcome["status"]
+        assert explicit.kwargs["error_rule"] is None
+        mock_rule.assert_not_called()
 
     @pytest.mark.parametrize("reasoning_effort", ["low", "high"])
     def test_encode_escalates_after_n_validator_failures(
@@ -18044,6 +18459,81 @@ rules:
             session_id=synced_run.session_id,
             db_path=args.db,
         )
+
+    def test_encode_sync_records_the_github_actions_run(self, tmp_path):
+        args = self._make_args(tmp_path, backend="codex")
+        result = self._make_eval_result(True)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {
+                    "AXIOM_ENCODE_SUPABASE_URL": "https://example.supabase.co",
+                    "AXIOM_ENCODE_SUPABASE_SECRET_KEY": "secret",
+                    # Deliberate opt-in past in-test suppression: the sync
+                    # transports and the live-run client below are mocked.
+                    "AXIOM_ENCODE_TELEMETRY": "on",
+                    "GITHUB_ACTIONS": "true",
+                    "GITHUB_RUN_ID": "12345678901",
+                    "GITHUB_RUN_ATTEMPT": "3",
+                    "GITHUB_SERVER_URL": "https://github.com",
+                    "GITHUB_REPOSITORY": "TheAxiomFoundation/axiom-encode",
+                    "GITHUB_WORKFLOW": "Targeted signed re-encode",
+                },
+                clear=True,
+            ),
+            patch("axiom_encode.supabase_sync.get_supabase_client"),
+            patch(
+                "axiom_encode.supabase_sync.sync_run_to_supabase",
+                return_value=True,
+            ) as mock_sync,
+            patch(
+                "axiom_encode.supabase_sync.sync_agent_sessions_to_supabase",
+                return_value={"total": 1, "synced": 1, "failed": 0},
+            ),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        github_run = mock_sync.call_args.kwargs["github_run"]
+        assert github_run["github_run_id"] == "12345678901"
+        assert github_run["github_run_attempt"] == 3
+        assert github_run["github_run_url"] == (
+            "https://github.com/TheAxiomFoundation/axiom-encode"
+            "/actions/runs/12345678901"
+        )
+
+    def test_encode_sync_outside_actions_records_no_github_run(self, tmp_path):
+        args = self._make_args(tmp_path, backend="codex")
+        result = self._make_eval_result(True)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {
+                    "AXIOM_ENCODE_SUPABASE_URL": "https://example.supabase.co",
+                    "AXIOM_ENCODE_SUPABASE_SECRET_KEY": "secret",
+                    "AXIOM_ENCODE_TELEMETRY": "on",
+                },
+                clear=True,
+            ),
+            patch("axiom_encode.supabase_sync.get_supabase_client"),
+            patch(
+                "axiom_encode.supabase_sync.sync_run_to_supabase",
+                return_value=True,
+            ) as mock_sync,
+            patch(
+                "axiom_encode.supabase_sync.sync_agent_sessions_to_supabase",
+                return_value={"total": 1, "synced": 1, "failed": 0},
+            ),
+        ):
+            with pytest.raises(SystemExit):
+                cmd_encode(args)
+
+        assert mock_sync.call_args.kwargs["github_run"] == {}
 
     def test_apply_generated_encoding_writes_manifest(self, tmp_path):
         output_root = tmp_path / "out"
@@ -22278,7 +22768,10 @@ rules: []
                 Path("programs/us-sc/snap/fy-2026.yaml"),
             )
 
-    def test_write_applied_manifest_places_checkout_root_program_spec(self, tmp_path):
+    @pytest.mark.parametrize("per_file", [False, True])
+    def test_write_applied_manifest_places_checkout_root_program_spec(
+        self, tmp_path, per_file
+    ):
         checkout = tmp_path / "rulespec-us"
         (checkout / "us").mkdir(parents=True)
         relative_output = Path("programs/us-sc/snap/fy-2026.yaml")
@@ -22327,6 +22820,14 @@ rules: []
                 "axiom_encode.cli.verify_rulespec_validation_waiver_set",
                 return_value="b" * 64,
             ),
+            patch(
+                "axiom_encode.cli._target_uses_per_file_waiver_bindings",
+                return_value=per_file,
+            ),
+            patch(
+                "axiom_encode.cli._build_applied_manifest_file_waiver_bindings",
+                return_value={"schema": "test", "files": []},
+            ),
         ):
             manifest = _write_applied_encoding_manifest(
                 result,
@@ -22353,6 +22854,16 @@ rules: []
         assert payload["signature"]["value"]
         assert payload["context_manifest_file"] is None
         assert payload["context_manifest_sha256"] is None
+        # The target's protected verifier mode chooses the waiver shape (#2092).
+        if per_file:
+            assert payload["validation_waiver_bindings"] == {
+                "schema": "test",
+                "files": [],
+            }
+            assert "validation_waiver_set_sha256" not in payload
+        else:
+            assert payload["validation_waiver_set_sha256"] == "b" * 64
+            assert "validation_waiver_bindings" not in payload
 
     def test_resolve_applied_manifest_placement_always_uses_checkout_root(
         self, tmp_path
@@ -44721,6 +45232,196 @@ class TestGuardGenerated:
         _git(repo, "commit", "-m", "apply encoding and retire waiver")
         return repo, base_ref
 
+    def _verifier_restate_repo(
+        self,
+        tmp_path: Path,
+        *,
+        head_waiver_text: str,
+        base_mode: str | None = None,
+        head_mode: str | None = "main",
+        base_waiver_text: str | None = None,
+    ) -> tuple[Path, str, str, str]:
+        repo = self._canonical_guard_repo(tmp_path)
+        _git(repo, "init")
+        _git(repo, "config", "user.email", "test@example.com")
+        _git(repo, "config", "user.name", "Test User")
+        for relative in ("us/regulations/example.yaml", "us/regulations/other.yaml"):
+            self._source_backed_rule(repo / relative)
+        waiver = repo / "known-validation-gaps.yaml"
+        switch = repo / ".axiom/workflow-toolchain.toml"
+
+        def write(text: str, mode: str | None) -> None:
+            waiver.write_text(text)
+            _write_test_rulespec_toolchain(
+                repo,
+                release_content_sha256=self.corpus_release.content_sha256,
+            )
+            if mode is None:
+                switch.unlink(missing_ok=True)
+            else:
+                switch.write_text(
+                    f'[workflow_toolchain]\nencoder_verifier = "{mode}"\n'
+                )
+
+        write(
+            base_waiver_text
+            or (
+                "validate_failures:\n"
+                + self._waiver_entry_text("us/regulations/example.yaml")
+                + self._waiver_entry_text("us/regulations/other.yaml")
+            ),
+            base_mode,
+        )
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "protected base")
+        base_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        base_sha256 = _sha256_file(waiver)
+        write(head_waiver_text, head_mode)
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "head")
+        return repo, base_ref, base_sha256, _sha256_file(waiver)
+
+    def _verifier_restate_identity(self, repo, base_ref, current, extra=()):
+        return _guard_manifest_waiver_set_identity(
+            repo,
+            base_ref=base_ref,
+            head_ref="HEAD",
+            changed=[
+                "known-validation-gaps.yaml",
+                ".axiom/toolchain.toml",
+                ".axiom/workflow-toolchain.toml",
+                *extra,
+            ],
+            protected=["us/regulations/example.yaml", "us/regulations/other.yaml"],
+            roots=("regulations",),
+            current_waiver_set_sha256=current,
+        )
+
+    def test_guard_accepts_a_verifier_restate_only_with_a_mode_switch(self, tmp_path):
+        # One fingerprint restated, one active-only entry removed.
+        restated = "validate_failures:\n" + self._waiver_entry_text(
+            "us/regulations/example.yaml", fingerprint="2" * 64
+        )
+        repo, base_ref, base_sha256, current = self._verifier_restate_repo(
+            tmp_path / "switch", head_waiver_text=restated
+        )
+        expected, issues = self._verifier_restate_identity(repo, base_ref, current)
+        assert issues == []
+        # Manifests keep the protected-base ledger identity.
+        assert expected == base_sha256 != current
+
+        # The same ledger change without a mode switch stays refused.
+        for name, base_mode, head_mode in (
+            ("pinned", None, "pinned"),
+            ("main", "main", "main"),
+            ("malformed", None, "tip"),
+        ):
+            repo, base_ref, _base, current = self._verifier_restate_repo(
+                tmp_path / name,
+                head_waiver_text=restated,
+                base_mode=base_mode,
+                head_mode=head_mode,
+            )
+            expected, issues = self._verifier_restate_identity(repo, base_ref, current)
+            assert expected == current
+            assert issues and all(
+                issue.startswith("RuleSpec post-apply waiver retirement is invalid")
+                for issue in issues
+            ), (name, issues)
+
+        # A revert to the pinned verifier restates the same way.
+        repo, base_ref, base_sha256, current = self._verifier_restate_repo(
+            tmp_path / "revert",
+            head_waiver_text=restated,
+            base_mode="main",
+            head_mode=None,
+        )
+        assert self._verifier_restate_identity(repo, base_ref, current) == (
+            base_sha256,
+            [],
+        )
+
+    @pytest.mark.parametrize(
+        ("mutation", "expected_issue"),
+        [
+            ("added_entry", "cannot add a waiver entry"),
+            ("later_expiry", "may change only the fingerprint"),
+            ("to_pending", "may change only the fingerprint"),
+            ("rider", "cannot change RuleSpec files"),
+        ],
+    )
+    def test_guard_refuses_a_verifier_restate_that_loosens_the_ledger(
+        self, tmp_path, mutation, expected_issue
+    ):
+        from axiom_encode.checks import ValidationIssue
+
+        example = self._waiver_entry_text(
+            "us/regulations/example.yaml", fingerprint="2" * 64
+        )
+        other = self._waiver_entry_text("us/regulations/other.yaml")
+        extra: tuple[str, ...] = ()
+        if mutation == "added_entry":
+            # The base holds one entry; the head adds a second one.
+            base_text = "validate_failures:\n" + self._waiver_entry_text(
+                "us/regulations/example.yaml"
+            )
+            head_text = "validate_failures:\n" + example + other
+        else:
+            base_text = None
+            head_text = "validate_failures:\n" + example + other
+            if mutation == "later_expiry":
+                later = (date.today() + timedelta(days=90)).isoformat()
+                current_expiry = (date.today() + timedelta(days=30)).isoformat()
+                head_text = (
+                    "validate_failures:\n"
+                    + example.replace(current_expiry, later)
+                    + other
+                )
+            elif mutation == "to_pending":
+                head_text = (
+                    "validate_failures:\n"
+                    + self._waiver_entry_text(
+                        "us/regulations/example.yaml",
+                        state="pending",
+                        fingerprint="2" * 64,
+                    )
+                    + other
+                )
+            else:
+                extra = ("us/regulations/example.yaml",)
+        repo, base_ref, _base, current = self._verifier_restate_repo(
+            tmp_path, head_waiver_text=head_text, base_waiver_text=base_text
+        )
+        expected, issues = self._verifier_restate_identity(
+            repo, base_ref, current, extra
+        )
+        assert expected == current
+        assert issues and all(
+            issue.startswith("RuleSpec verifier restate is invalid: ")
+            for issue in issues
+        )
+        assert any(expected_issue in issue for issue in issues), issues
+        # Prefixing the refusal must retain its declared identity for consumers.
+        assert all(isinstance(issue, ValidationIssue) for issue in issues)
+        expected_check = {
+            "added_entry": "new-entry",
+            "later_expiry": "metadata-changed",
+            "to_pending": "metadata-changed",
+            "rider": "protected-files-changed",
+        }[mutation]
+        assert any(
+            issue.check == f"validation-waivers:verifier-restate/{expected_check}"
+            for issue in issues
+        )
+        if mutation == "rider":
+            rider_issue = next(
+                issue
+                for issue in issues
+                if issue.check.endswith("protected-files-changed")
+            )
+            assert rider_issue.subject.field == "changed_paths"
+            assert rider_issue.found == "us/regulations/example.yaml"
+
     def _retirement_manifest(
         self,
         deleted_paths: list[str],
@@ -55296,9 +55997,11 @@ class TestManifestCurrentState:
             },
             "validation_execution": {
                 "policy_root_identity": {
-                    "validation_waiver_set_sha256": payload[
-                        "validation_waiver_set_sha256"
-                    ]
+                    # Per-file manifests keep the validated ledger digest
+                    # as signed provenance in policy_pre_apply (#2092).
+                    "validation_waiver_set_sha256": payload["validation_execution"][
+                        "policy_pre_apply"
+                    ]["validation_waiver_set_sha256"]
                 },
                 "axiom_encode_identity": {
                     "kind": "git",

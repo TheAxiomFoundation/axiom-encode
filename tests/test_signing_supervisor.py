@@ -873,6 +873,16 @@ def _invoke(
     )
 
 
+def _codex_host_config(codex: Path) -> dict[str, str]:
+    host = codex.parent / "codex-code-mode-host"
+    host.write_text("#!/bin/sh\nexit 0\n")
+    host.chmod(0o755)
+    return {
+        "code_mode_host_path": str(host),
+        "code_mode_host_sha256": hashlib.sha256(host.read_bytes()).hexdigest(),
+    }
+
+
 def test_subscription_auth_is_isolated_refreshed_and_wiped(
     signing_supervisor: Path,
     trusted_python_runtime: tuple[Path, Path, Path],
@@ -894,7 +904,8 @@ def test_subscription_auth_is_isolated_refreshed_and_wiped(
     config.write_text(
         json.dumps(
             {
-                "schema": "axiom-encode/trusted-codex-cli/v1",
+                "schema": "axiom-encode/trusted-codex-cli/v2",
+                **_codex_host_config(codex),
                 "version": "test",
                 "sha256": digest,
                 "path": str(codex),
@@ -963,7 +974,8 @@ def test_subscription_tampered_binary_hard_fails_before_child(
     config.write_text(
         json.dumps(
             {
-                "schema": "axiom-encode/trusted-codex-cli/v1",
+                "schema": "axiom-encode/trusted-codex-cli/v2",
+                **_codex_host_config(codex),
                 "version": "test",
                 "sha256": "0" * 64,
                 "path": str(codex),
@@ -996,6 +1008,86 @@ def test_subscription_tampered_binary_hard_fails_before_child(
 
 
 @pytest.mark.parametrize(
+    "fault",
+    [
+        "missing",
+        "digest",
+        "symlink",
+        "not-executable",
+        "writable",
+        "wrong-sibling",
+        "legacy",
+    ],
+)
+def test_subscription_host_fault_fails_before_auth_or_child(
+    signing_supervisor, trusted_python_runtime, tmp_path, fault
+):
+    apply_public, _ = _keypair(b"\xab" * 32)
+    eval_public, _ = _keypair(b"\xcd" * 32)
+    trust_config = _trust_config(tmp_path, apply_public, eval_public)
+    codex = tmp_path / "codex"
+    codex.write_text("#!/bin/sh\nexit 0\n")
+    codex.chmod(0o755)
+    payload = {
+        "schema": "axiom-encode/trusted-codex-cli/v2",
+        "version": "test",
+        "path": str(codex),
+        "sha256": hashlib.sha256(codex.read_bytes()).hexdigest(),
+        **_codex_host_config(codex),
+    }
+    host = Path(payload["code_mode_host_path"])
+    if fault == "missing":
+        host.unlink()
+    elif fault == "digest":
+        payload["code_mode_host_sha256"] = "0" * 64
+    elif fault == "symlink":
+        host.unlink()
+        host.symlink_to(codex)
+    elif fault == "not-executable":
+        host.chmod(0o644)
+    elif fault == "writable":
+        host.chmod(0o777)
+    elif fault == "wrong-sibling":
+        payload["code_mode_host_path"] = str(codex)
+    else:
+        payload["schema"] = "axiom-encode/trusted-codex-cli/v1"
+        del payload["code_mode_host_path"]
+        del payload["code_mode_host_sha256"]
+    config = tmp_path / "codex-cli.json"
+    config.write_text(json.dumps(payload))
+    config.chmod(0o444)
+    launcher = _launcher(
+        tmp_path, trusted_python_runtime, body="raise RuntimeError('must not execute')"
+    )
+    completed = _invoke(
+        signing_supervisor,
+        trusted_python_runtime,
+        launcher,
+        trust_config,
+        [],
+        supervisor_args=(
+            "--codex-subscription-auth",
+            str(tmp_path / "auth-does-not-exist.json"),
+            "--codex-auth-outbox",
+            str(tmp_path / "out.json"),
+            "--trusted-codex-cli-config",
+            str(config),
+        ),
+    )
+    assert completed.returncode == 2
+    expected = (
+        "config has invalid fields"
+        if fault in {"wrong-sibling", "legacy"}
+        else "Code Mode host"
+    )
+    assert expected in completed.stderr
+    assert "could not materialize Codex auth" not in completed.stderr
+    assert "auth-does-not-exist" not in completed.stderr
+    assert not (tmp_path / "out.json").exists()
+    assert "must not execute" not in completed.stderr
+
+
+@pytest.mark.parametrize(
     "outbox_kind",
     ["symlink", "fifo", "socket", "device", "writable-directory"],
 )
@@ -1015,7 +1107,8 @@ def test_subscription_refuses_unsafe_auth_outbox(
     config.write_text(
         json.dumps(
             {
-                "schema": "axiom-encode/trusted-codex-cli/v1",
+                "schema": "axiom-encode/trusted-codex-cli/v2",
+                **_codex_host_config(codex),
                 "version": "test",
                 "sha256": hashlib.sha256(codex.read_bytes()).hexdigest(),
                 "path": str(codex),
@@ -3292,11 +3385,75 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'repo="TheAxiomFoundation/rulespec-${COUNTRY}"' in publish_command
     assert '"$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"' in prepare_branch["run"]
     assert "core.hooksPath=/dev/null" in publish_command
-    assert "fetch --no-tags origin \\\n" in verify_base["run"]
-    assert "refs/remotes/origin/${PR_BASE_BRANCH}" in verify_base["run"]
-    assert '" = "$RULESPEC_REF"' in verify_base["run"]
+    verify_command = verify_base["run"]
+    prepare_command = prepare_branch["run"]
+    assert "fetch --no-tags origin \\\n" in verify_command
+    assert "refs/remotes/origin/${PR_BASE_BRANCH}" in verify_command
+    assert (
+        "merge-base --is-ancestor \\\n"
+        '  "$RULESPEC_REF" "refs/remotes/origin/${PR_BASE_BRANCH}"'
+    ) in verify_command
     assert steps.index(verify_base) < steps.index(prepare_branch)
     assert steps.index(prepare_branch) < steps.index(publish_step)
+    assert (
+        "axiom-encode/scripts/prepare_signed_backfill.py \\\n"
+        "  advance-publication-base \\\n"
+        '  "$RULESPEC_CHECKOUT" "$RULESPEC_REF" "$PR_BASE_BRANCH" \\\n'
+        '  > "$publication_base"'
+    ) in prepare_command
+    assert (
+        'publication_base="$RUNNER_TEMP/targeted-reencode/publication-base.json"'
+        in prepare_command
+    )
+    assert '" = "$published_base"' in prepare_command
+    assert '" = "$published_head"' in prepare_command
+    assert '"$RULESPEC_REF" "$published_base"' in prepare_command
+    assert ".base_advance_paths | length" in prepare_command
+    assert 'base_advance_paths" ' not in prepare_command
+    for output in (
+        "branch",
+        "published_base",
+        "published_head",
+        "base_advance_count",
+        "publication_base_sha256",
+    ):
+        assert f'echo "{output}=${output}"' in prepare_command
+        assert publish_step["env"][
+            output.upper() if output != "branch" else ("PREPARED_BRANCH")
+        ] == (f"${{{{ steps.reviewed_lane_pull_request_branch.outputs.{output} }}}}")
+    assert '" = "$PUBLISHED_HEAD"' in publish_command
+    assert "Base commit: \\`${RULESPEC_REF}\\`" in publish_command
+    assert "Published base commit: \\`${PUBLISHED_BASE}\\`" in publish_command
+    assert (
+        "Base advance paths: ${BASE_ADVANCE_COUNT} (publication-base.json sha256 "
+        "\\`${PUBLICATION_BASE_SHA256}\\`)"
+    ) in publish_command
+    identity_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Verify immutable checkout identities"
+    )
+    for env_name, input_name in (
+        ("REPLACE_LEGACY_RULESPEC_PATH", "replace_legacy_rulespec_path"),
+        (
+            "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+            "legacy_exact_dependent_rulespec_path",
+        ),
+        (
+            "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+            "second_legacy_exact_dependent_rulespec_path",
+        ),
+        (
+            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON",
+            "legacy_retained_successor_rulespec_paths_json",
+        ),
+    ):
+        assert identity_step["env"][env_name] == f"${{{{ inputs.{input_name} }}}}"
+        assert f"${env_name}" in identity_step["run"] or (
+            f"${{{env_name}" in identity_step["run"]
+        )
+    assert "base_args+=(--require-exact-tip)" in identity_step["run"]
+    assert '${base_args[@]+"${base_args[@]}"}' in identity_step["run"]
     assert '"HEAD:refs/heads/${branch}"' in publish_command
     assert publish_command.count('"HEAD:refs/heads/${branch}"') == 1
     assert "gh api --method POST" in publish_command
@@ -3305,7 +3462,12 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "Queue item:" in publish_command
     assert "Queue generation SHA-256:" in publish_command
     assert "Queue manifest SHA-256:" in publish_command
-    assert "'.base.ref == $branch and .base.sha == $sha'" in publish_command
+    assert '--arg sha "$PUBLISHED_BASE"' in publish_command
+    assert '--arg head "$PUBLISHED_HEAD"' in publish_command
+    assert (
+        "'.base.ref == $branch and .base.sha == $sha and .head.sha == $head'"
+        in publish_command
+    )
     assert "pulls/${pr_number}" in publish_command
     assert "-f state=closed" in publish_command
     assert '":refs/heads/${branch}"' in publish_command

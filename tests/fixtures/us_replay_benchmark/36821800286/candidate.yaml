@@ -1,0 +1,30 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-or/manual/odhs/open/page-26
+    source_sha256: c4abf857ffa0d1d59b9904e9df6ca1fc17d8cbce5a6db251e96377627051c0b9
+  summary: OPEN is intended to be the initial resource location for staff looking
+    for policy answers or clarity. Updates to OPEN will be made quarterly. Additional
+    resources and tools are identified for staff. The Oregon Programs Eligibility
+    Notebook should not be saved or downloaded under any circumstances.
+rules:
+- name: open_manual_saving_or_downloading_permitted
+  kind: derived
+  entity: Asset
+  dtype: Judgment
+  period: Month
+  source: Oregon Programs Eligibility Notebook (OPEN), page 26, final sentence
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-or/manual/odhs/open/page-26
+          excerpt: It is important to note that the Oregon Programs Eligibility Notebook
+            should not be saved or downloaded under any circumstances.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'false'

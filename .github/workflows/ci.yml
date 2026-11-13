@@ -109,22 +109,25 @@ jobs:
   # publishes its report only when its pytest run exits 0 having run every
   # test it kept, so a failed, cancelled or never-started shard leaves its
   # report empty. `always()` keeps such a shard from turning this job into a
-  # skipped (and so passing) check. It also needs real-engine to have passed in
-  # the same run. On a draft pull request the shards and real-engine are
-  # skipped, so this check fails; the full run that marking the pull request
-  # ready starts reports this check again for the same commit.
+  # skipped (and so passing) check. It also needs real-engine and both
+  # locked-builds legs to have passed in the same run, so a lock whose `build`
+  # group misses a backend cannot merge. On a draft pull request the shards,
+  # real-engine and locked-builds are skipped, so this check fails; the full run
+  # that marking the pull request ready starts reports this check again for the
+  # same commit.
   test-gate:
     name: test (3.13)
     if: always()
-    needs: [test, real-engine]
+    needs: [test, real-engine, locked-builds]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Check every shard and real-engine passed and the shards ran every selected test
+      - name: Check every shard, real-engine and the locked builds passed and the shards ran every selected test
         env:
           SHARDS_RESULT: ${{ needs.test.result }}
           REAL_ENGINE_RESULT: ${{ needs.real-engine.result }}
+          LOCKED_BUILDS_RESULT: ${{ needs.locked-builds.result }}
           DRAFT_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
           SHARD_1: ${{ needs.test.outputs.shard_1 }}
           SHARD_2: ${{ needs.test.outputs.shard_2 }}
@@ -135,11 +138,12 @@ jobs:
           SHARD_7: ${{ needs.test.outputs.shard_7 }}
           SHARD_8: ${{ needs.test.outputs.shard_8 }}
         run: |
-          if [ "$SHARDS_RESULT" != "success" ] || [ "$REAL_ENGINE_RESULT" != "success" ]; then
+          if [ "$SHARDS_RESULT" != "success" ] || [ "$REAL_ENGINE_RESULT" != "success" ] \
+            || [ "$LOCKED_BUILDS_RESULT" != "success" ]; then
             if [ "$DRAFT_PULL_REQUEST" = "true" ]; then
               echo "::error::draft PR: the full suite runs when the PR is marked ready (or dispatch CI on the branch: gh workflow run CI --ref <branch>)"
             fi
-            echo "error: the test shards finished as '$SHARDS_RESULT' and real-engine as '$REAL_ENGINE_RESULT'" >&2
+            echo "error: the test shards finished as '$SHARDS_RESULT', real-engine as '$REAL_ENGINE_RESULT' and the locked builds as '$LOCKED_BUILDS_RESULT'" >&2
             exit 1
           fi
           python3 -I tests/ci_shards.py check \
@@ -223,6 +227,50 @@ jobs:
           AXIOM_REQUIRE_REAL_ENGINE: "1"
           AXIOM_RULES_ENGINE_ROOT: ${{ runner.temp }}/axiom-rules-engine
         run: .venv/bin/pytest tests/ -m real_engine
+
+  # The verification staging steps build the locked sdists that have no wheel
+  # for the interpreter, the axiom-oracles git dependency and the project with
+  # `uv pip install --build-constraints`, using the hash-pinned export of
+  # uv.lock's `build` group. uv verifies each build dependency that export
+  # lists, but builds one it omits unpinned. This job builds every one of those
+  # sources with `uv build --require-hashes`, which fails on an omitted or
+  # unhashed build dependency. It runs on 3.13, which bulk-encode,
+  # golden-regeneration and targeted-signed-reencode stage with, and on 3.14,
+  # the default of the organization's reusable validate-rulespec.yml, which also
+  # stages this lock and builds pyroaring there (no cp314 wheel). Skipped
+  # exactly when the test shards are; test (3.13) needs both legs to pass.
+  locked-builds:
+    name: locked builds (${{ matrix.python-version }})
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-locked-builds-${{ matrix.python-version }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install locked dependencies
+        run: uv sync --locked --python ${{ matrix.python-version }} --extra dev
+
+      - name: Check the environment is the locked set
+        run: >-
+          .venv/bin/pytest -q -o addopts=''
+          tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set
+
+      - name: Build every locked source against the locked build backends
+        run: .venv/bin/python scripts/check_locked_builds.py
 
   # A draft pull request's quick check: only the test files it changes, outside
   # the real_engine marker. Not a required check; a draft cannot merge, and its
@@ -332,3 +380,69 @@ jobs:
 
       - name: Format check
         run: .venv/bin/ruff format --check src/ tests/
+
+  # The replay benchmark (docs/us-replay-benchmark.md): the complete-source-unit
+  # analyzer replayed offline over tests/fixtures/us_replay_benchmark, real
+  # candidates that production runs produced. No model, network or engine. It
+  # fails on a replay error, on a fixture that the base branch's snapshot pins
+  # clean (or a control) becoming refused or removed without a recorded reason,
+  # and on any finding that differs from the committed snapshot.json, which
+  # `scripts/replay_us_failure_bundles.py snapshot` rewrites as a reviewable
+  # diff. A pull request that touches no trigger path (REPLAY_TRIGGER_PATHS in
+  # the script) and no module the replay loads passes without a replay, so
+  # this job can be a required check;
+  # the merge queue and pushes to main always replay. Drafts run it too.
+  replay-benchmark:
+    name: replay benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: ${{ github.workflow }}-replay-benchmark-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # A pull request's merge commit and its first parent, the base; a
+          # push's commit and its parent.
+          fetch-depth: 2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install locked dependencies
+        run: uv sync --locked --python 3.13 --extra dev
+
+      - name: Check the environment is the locked set
+        run: >-
+          .venv/bin/pytest -q -o addopts=''
+          tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set
+
+      # The merge queue tests main plus the pull requests ahead; its base
+      # snapshot is main's, at the queue's base commit.
+      - name: Fetch the merge queue's base commit
+        if: github.event_name == 'merge_group'
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: git fetch --no-tags --depth=1 origin "$BASE_SHA"
+
+      - name: Replay the fixtures and check them against the snapshot
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          # The base whose snapshot guards clean fixtures. A dispatch on a
+          # branch has no base to guard against: only errors and drift count.
+          args=()
+          case "$EVENT_NAME" in
+            pull_request) args=(--base-ref 'HEAD^1' --changed-since 'HEAD^1') ;;
+            merge_group) args=(--base-ref "$MERGE_GROUP_BASE_SHA") ;;
+            push) args=(--base-ref 'HEAD^1') ;;
+          esac
+          .venv/bin/python -I scripts/replay_us_failure_bundles.py ci \
+            "${args[@]}" --jobs auto --summary "$GITHUB_STEP_SUMMARY"

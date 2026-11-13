@@ -1,0 +1,270 @@
+- name: existing_valid_cap_and_rd
+  entity_id: nl479-claimant
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_total_eligible_expenses_line_1: 3000
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_assistance_line_2: 500
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4: 300
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_research_and_development_tax_credit_t1129_line_6: 100
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_total_eligible_expenses_line_1: 3000
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_assistance_line_2: 500
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_other_claimed_line_4: 300
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_research_credit_line_8: 100
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_net_expenses_line_3: 2000.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_expenses_line_62000: 1700.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_tax_credit_line_7: 295.8
+    ca:policies/cra/t1-2025/nl479-credits#newfoundland_and_labrador_credits_line_47900: 395.8
+- name: source_cap_below
+  entity_id: nl479-claimant
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_total_eligible_expenses_line_1: 2090
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_assistance_line_2: 100
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4: 0
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_research_and_development_tax_credit_t1129_line_6: 0
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_net_expenses_line_3: 1990.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_expenses_line_62000: 1990.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_tax_credit_line_7: 346.26
+    ca:policies/cra/t1-2025/nl479-credits#newfoundland_and_labrador_credits_line_47900: 346.26
+- name: source_cap_equal
+  entity_id: nl479-claimant
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_total_eligible_expenses_line_1: 2100
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_assistance_line_2: 100
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4: 0
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_research_and_development_tax_credit_t1129_line_6: 0
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_net_expenses_line_3: 2000.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_expenses_line_62000: 2000.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_tax_credit_line_7: 348.0
+    ca:policies/cra/t1-2025/nl479-credits#newfoundland_and_labrador_credits_line_47900: 348.0
+- name: source_cap_above
+  entity_id: nl479-claimant
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_total_eligible_expenses_line_1: 2110
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_assistance_line_2: 100
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4: 0
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_research_and_development_tax_credit_t1129_line_6: 0
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_net_expenses_line_3: 2000.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_expenses_line_62000: 2000.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_tax_credit_line_7: 348.0
+    ca:policies/cra/t1-2025/nl479-credits#newfoundland_and_labrador_credits_line_47900: 348.0
+- name: included_other_claims_equal_line3
+  entity_id: nl479-claimant
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_total_eligible_expenses_line_1: 500
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_assistance_line_2: 100
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4: 400
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_research_and_development_tax_credit_t1129_line_6: 0
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_net_expenses_line_3: 400.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_expenses_line_62000: 0.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_tax_credit_line_7: 0.0
+    ca:policies/cra/t1-2025/nl479-credits#newfoundland_and_labrador_credits_line_47900: 0.0
+- name: completed_t1129_passthrough
+  entity_id: nl479-claimant
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_total_eligible_expenses_line_1: 0
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_assistance_line_2: 0
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4: 0
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_research_and_development_tax_credit_t1129_line_6: 125
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_net_expenses_line_3: 0.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_expenses_line_62000: 0.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_tax_credit_line_7: 0.0
+    ca:policies/cra/t1-2025/nl479-credits#newfoundland_and_labrador_credits_line_47900: 125.0
+- name: sheet_requirement_false
+  entity_id: filer-document-case
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.needs_additional_space: false
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#additional_sheet_attachment_required: not_holds
+- name: sheet_requirement_true
+  entity_id: filer-document-case
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.needs_additional_space: true
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#additional_sheet_attachment_required: holds
+- name: table_section_use_false
+  entity_id: table-filer
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.is_claiming_physical_activity_tax_credit: false
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#must_complete_family_physical_activity_expense_table: not_holds
+- name: table_section_use_true
+  entity_id: table-filer
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.is_claiming_physical_activity_tax_credit: true
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#must_complete_family_physical_activity_expense_table: holds
+- name: credit_excess_tax_below
+  entity_id: nl479-claimant
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_total_eligible_expenses_line_1: 3000
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_assistance_line_2: 500
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4: 300
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_research_and_development_tax_credit_t1129_line_6: 100
+    ca:policies/cra/t1-2025/nl479-credits#input.taxes_to_pay_for_nl479_comparison: 300
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_total_eligible_expenses_line_1: 3000
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_assistance_line_2: 500
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_other_claimed_line_4: 300
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_research_credit_line_8: 100
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_net_expenses_line_3: 2000.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_expenses_line_62000: 1700.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_tax_credit_line_7: 295.8
+    ca:policies/cra/t1-2025/nl479-credits#newfoundland_and_labrador_credits_line_47900: 395.8
+    ca:policies/cra/t1-2025/nl479-credits#nl479_credit_excess_over_taxes_to_pay: 95.8
+- name: credit_excess_tax_equal
+  entity_id: nl479-claimant
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_total_eligible_expenses_line_1: 3000
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_assistance_line_2: 500
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4: 300
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_research_and_development_tax_credit_t1129_line_6: 100
+    ca:policies/cra/t1-2025/nl479-credits#input.taxes_to_pay_for_nl479_comparison: 395.8
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_total_eligible_expenses_line_1: 3000
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_assistance_line_2: 500
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_other_claimed_line_4: 300
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_research_credit_line_8: 100
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_net_expenses_line_3: 2000.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_expenses_line_62000: 1700.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_tax_credit_line_7: 295.8
+    ca:policies/cra/t1-2025/nl479-credits#newfoundland_and_labrador_credits_line_47900: 395.8
+    ca:policies/cra/t1-2025/nl479-credits#nl479_credit_excess_over_taxes_to_pay: 0
+- name: credit_excess_tax_above
+  entity_id: nl479-claimant
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_total_eligible_expenses_line_1: 3000
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_assistance_line_2: 500
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4: 300
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_research_and_development_tax_credit_t1129_line_6: 100
+    ca:policies/cra/t1-2025/nl479-credits#input.taxes_to_pay_for_nl479_comparison: 500
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_total_eligible_expenses_line_1: 3000
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_assistance_line_2: 500
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_other_claimed_line_4: 300
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_research_credit_line_8: 100
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_net_expenses_line_3: 2000.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_expenses_line_62000: 1700.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_tax_credit_line_7: 295.8
+    ca:policies/cra/t1-2025/nl479-credits#newfoundland_and_labrador_credits_line_47900: 395.8
+    ca:policies/cra/t1-2025/nl479-credits#nl479_credit_excess_over_taxes_to_pay: 0
+- name: credit_excess_condition_positive_pair
+  entity_id: nl479-claimant
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_total_eligible_expenses_line_1: 3000
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_assistance_line_2: 500
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4: 300
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_research_and_development_tax_credit_t1129_line_6: 100
+    ca:policies/cra/t1-2025/nl479-credits#input.taxes_to_pay_for_nl479_comparison: 300
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_total_eligible_expenses_line_1: 3000
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_assistance_line_2: 500
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_other_claimed_line_4: 300
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_research_credit_line_8: 100
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_net_expenses_line_3: 2000.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_expenses_line_62000: 1700.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_tax_credit_line_7: 295.8
+    ca:policies/cra/t1-2025/nl479-credits#newfoundland_and_labrador_credits_line_47900: 395.8
+    ca:policies/cra/t1-2025/nl479-credits#nl479_credit_excess_over_taxes_to_pay: 95.8
+- name: credit_excess_condition_blocking_pair
+  entity_id: nl479-claimant
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_total_eligible_expenses_line_1: 3000
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_assistance_line_2: 500
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4: 300
+    ca:policies/cra/t1-2025/nl479-credits#input.nl479_research_and_development_tax_credit_t1129_line_6: 100
+    ca:policies/cra/t1-2025/nl479-credits#input.taxes_to_pay_for_nl479_comparison: 500
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_total_eligible_expenses_line_1: 3000
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_assistance_line_2: 500
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_other_claimed_line_4: 300
+    ca:policies/cra/t1-2025/nl479-credits#nl479_entered_research_credit_line_8: 100
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_net_expenses_line_3: 2000.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_expenses_line_62000: 1700.0
+    ca:policies/cra/t1-2025/nl479-credits#nl479_physical_activity_tax_credit_line_7: 295.8
+    ca:policies/cra/t1-2025/nl479-credits#newfoundland_and_labrador_credits_line_47900: 395.8
+    ca:policies/cra/t1-2025/nl479-credits#nl479_credit_excess_over_taxes_to_pay: 0
+- name: physical_activity_table_applicable_pair
+  entity_id: table-filer
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.is_claiming_physical_activity_tax_credit: true
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#must_complete_family_physical_activity_expense_table: holds
+- name: physical_activity_table_inapplicable_pair
+  entity_id: table-filer
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nl479-credits#input.is_claiming_physical_activity_tax_credit: false
+  output:
+    ca:policies/cra/t1-2025/nl479-credits#must_complete_family_physical_activity_expense_table: not_holds
