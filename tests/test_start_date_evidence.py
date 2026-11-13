@@ -394,6 +394,60 @@ def test_verifiable_import_beside_unverifiable_ones_still_adds_its_starts():
     assert import_issues("2025-10-01", two) == []
 
 
+def test_self_import_does_not_support_the_modules_own_start():
+    # The module names itself as the provider of its own rule.
+    payload = module("2025-10-01")
+    own = payload["rules"][0]["name"]
+    payload["imports"] = [f"us-az:policies/des/faa5/x/block-16#{own}"]
+    contents = [(own, yaml.safe_dump(payload))]
+    assert sde.imported_export_starts(payload, contents) == frozenset()
+    found = date_silent_start_issues(
+        payload,
+        SOURCE,
+        corpus_citation_path=CITATION,
+        evidence=EVIDENCE,
+        imported_symbol_contents=contents,
+    )
+    assert len(found) == 1
+    # Also when another file is supplied as the provider of that own name.
+    other = [(own, provider("2025-10-01", name=own))]
+    assert sde.imported_export_starts(payload, other) == frozenset()
+
+
+def test_circular_pair_does_not_support_either_start():
+    # This module imports `amount` from a provider that imports this module's
+    # own rule back.
+    payload = module("2025-10-01", imports=[IMPORT])
+    own = payload["rules"][0]["name"]
+    back = yaml.safe_load(provider("2025-10-01"))
+    back["imports"] = [f"us-az:policies/des/faa5/x/block-16#{own}"]
+    contents = [("amount", yaml.safe_dump(back))]
+    assert sde.imported_export_starts(payload, contents) == frozenset()
+    assert len(import_issues("2025-10-01", contents)) == 1
+    # A provider that imports something else still counts.
+    back["imports"] = ["us:statutes/7/2014#unrelated", "file-level", 7]
+    contents = [("amount", yaml.safe_dump(back))]
+    assert import_issues("2025-10-01", contents) == []
+    back["imports"] = "x#" + own  # not a list: no import
+    assert import_issues("2025-10-01", [("amount", yaml.safe_dump(back))]) == []
+
+
+def test_import_item_symbol_is_the_text_after_the_last_hash():
+    contents = [("amount", provider("2025-10-01"))]
+    for item in (
+        "us-az:policies/a#b#amount",
+        IMPORT + " ",
+        IMPORT.replace("#amount", "# amount"),
+    ):
+        assert import_issues("2025-10-01", contents, (item,)) == [], item
+    # `amount#b` names `b`, not `amount`.
+    assert len(import_issues("2025-10-01", contents, ("x#amount#b",))) == 1
+    # A mapping is not an import list, also with a `#` key or value.
+    for imports in ({"x#amount": 1}, {"a": "x#amount"}, {IMPORT: IMPORT}):
+        payload = module("2025-10-01", imports=imports)
+        assert sde.imported_export_starts(payload, contents) == frozenset()
+
+
 def test_import_shapes():
     assert sde.imported_export_starts(module("2025-10-01"), ()) == frozenset()
     assert sde.imported_export_starts(module(imports=[]), ()) == frozenset()

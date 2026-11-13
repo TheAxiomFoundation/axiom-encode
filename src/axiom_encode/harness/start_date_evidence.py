@@ -7,8 +7,7 @@ the ``complete-source-unit:effective-date/start-unsupported`` check:
     An ``effective_from`` is *supported* when it is printed in the unit text
     or in a proof excerpt, equals the corpus ``expression_date`` or
     ``source_as_of``, equals the evidence floor, or is the ``0001-01-01``
-    scaffold. A date copied from a precedent module or an import is not
-    support.
+    scaffold. A date copied from a neighbouring module is not support.
 
 The *evidence floor* is the first day of the first full calendar month that
 starts on or after ``source_as_of``. It is an evidence-coverage floor ("the
@@ -389,6 +388,16 @@ def _version_starts(
 _SYMBOL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
+def _import_symbols(imports: object) -> set[str]:
+    """The ``#symbol`` names of an ``imports`` list."""
+
+    return {
+        item.rsplit("#", 1)[1].strip()
+        for item in (imports if isinstance(imports, list) else ())
+        if isinstance(item, str) and "#" in item
+    }
+
+
 def imported_export_starts(
     payload: Mapping[str, Any],
     imported_symbol_contents: Sequence[tuple[str, str]],
@@ -402,9 +411,20 @@ def imported_export_starts(
     contributes nothing: a file-level import without ``#symbol``, a provider
     that was not supplied or cannot be read, a provider with no rule or with
     several rules of that name, and an item that is not a string.
+
+    A module cannot support its own start through an import. An item whose
+    symbol the module itself declares (a self-import) contributes nothing, and
+    so does a provider that imports a symbol this module declares (a circular
+    pair). The engine refuses both as an import cycle; this check does not
+    rely on that.
     """
 
     imports = payload.get("imports")
+    own_names = {
+        rule.get("name")
+        for rule in _mappings(payload.get("rules"))
+        if isinstance(rule.get("name"), str)
+    }
     providers: dict[str, list[str]] = {}
     for symbol, content in imported_symbol_contents:
         providers.setdefault(symbol, []).append(content)
@@ -413,15 +433,22 @@ def imported_export_starts(
         if not isinstance(item, str) or "#" not in item:
             continue
         symbol = item.rsplit("#", 1)[1].strip()
-        if not _SYMBOL.fullmatch(symbol):
+        if not _SYMBOL.fullmatch(symbol) or symbol in own_names:
             continue
         for content in providers.get(symbol, ()):
             try:
                 provider = yaml.safe_load(content)
             except (yaml.YAMLError, TypeError, ValueError):
                 continue
-            rules = provider.get("rules") if isinstance(provider, Mapping) else None
-            exports = [rule for rule in _mappings(rules) if rule.get("name") == symbol]
+            if not isinstance(provider, Mapping):
+                continue
+            if _import_symbols(provider.get("imports")) & own_names:
+                continue
+            exports = [
+                rule
+                for rule in _mappings(provider.get("rules"))
+                if rule.get("name") == symbol
+            ]
             if len(exports) != 1:
                 continue
             starts.update(
