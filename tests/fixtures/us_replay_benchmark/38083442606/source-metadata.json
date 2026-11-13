@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2026-05-09",
+    "generation_input_sha256": "66fe019179bda376d429963c0e0468ff6a46fbff131f3d112475dad9a1bb9a27",
+    "provision_file": "data/corpus/provisions/us-nm/statute/2026-07-16-pit-central.jsonl",
+    "provision_file_sha256": "c90ee21859962fabee9f721844dda6fe327dc2fb055fda9fce5a1450094fc8aa",
+    "requested_corpus_citation_path": "us-nm/statute/7-2-39",
+    "resolved_corpus_citation_path": "us-nm/statute/7-2-39",
+    "resolved_text_sha256": "66fe019179bda376d429963c0e0468ff6a46fbff131f3d112475dad9a1bb9a27",
+    "row": {
+      "body_sha256": "66fe019179bda376d429963c0e0468ff6a46fbff131f3d112475dad9a1bb9a27",
+      "citation_path": "us-nm/statute/7-2-39",
+      "document_class": "statute",
+      "expression_date": "2026-05-09",
+      "jurisdiction": "us-nm",
+      "line_number": 428,
+      "provision_file": "data/corpus/provisions/us-nm/statute/2026-07-16-pit-central.jsonl",
+      "provision_file_sha256": "c90ee21859962fabee9f721844dda6fe327dc2fb055fda9fce5a1450094fc8aa",
+      "record_id": "7cb38b82-0847-51ae-86ab-b829045a3316",
+      "source_as_of": "2026-05-09",
+      "source_path": "sources/us-nm/statute/2026-07-16-pit-central/new-mexico-nmonesource-epub/chapter-7/n-4340-en.epub",
+      "version": "2026-07-16-pit-central"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us-nm",
+    "source_as_of": "2026-05-09",
+    "source_sha256": "66fe019179bda376d429963c0e0468ff6a46fbff131f3d112475dad9a1bb9a27"
+  }
+}

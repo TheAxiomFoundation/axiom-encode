@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2026-07-16",
+    "generation_input_sha256": "d6a513119ce60337364a65fd1fa5bf8c316829275be17fa22ced89023a141db3",
+    "provision_file": "data/corpus/provisions/us-mo/statute/2026-07-16-pit-central-us-mo-143.jsonl",
+    "provision_file_sha256": "0063724a49551e64a2e224de645aa02559cfaf06f4392b3b4b738b811031fe84",
+    "requested_corpus_citation_path": "us-mo/statute/143.011",
+    "resolved_corpus_citation_path": "us-mo/statute/143.011",
+    "resolved_text_sha256": "d6a513119ce60337364a65fd1fa5bf8c316829275be17fa22ced89023a141db3",
+    "row": {
+      "body_sha256": "d6a513119ce60337364a65fd1fa5bf8c316829275be17fa22ced89023a141db3",
+      "citation_path": "us-mo/statute/143.011",
+      "document_class": "statute",
+      "expression_date": "2026-07-16",
+      "jurisdiction": "us-mo",
+      "line_number": 5,
+      "provision_file": "data/corpus/provisions/us-mo/statute/2026-07-16-pit-central-us-mo-143.jsonl",
+      "provision_file_sha256": "0063724a49551e64a2e224de645aa02559cfaf06f4392b3b4b738b811031fe84",
+      "record_id": "94ec9511-ea8d-5ba9-8c84-40019ec587aa",
+      "source_as_of": "2026-07-16",
+      "source_path": "sources/us-mo/statute/2026-07-16-pit-central-us-mo-143/missouri-rs-view-chapter-html/chapter-143.html",
+      "version": "2026-07-16-pit-central-us-mo-143"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us-mo",
+    "source_as_of": "2026-07-16",
+    "source_sha256": "d6a513119ce60337364a65fd1fa5bf8c316829275be17fa22ced89023a141db3"
+  }
+}
