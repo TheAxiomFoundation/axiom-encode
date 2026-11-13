@@ -1547,6 +1547,16 @@ _SAME_ACT_SECTION_DEPENDENCY = re.compile(
     r"\bsection\s+(?P<section>\d+[a-z]?)\s+of\s+(?P<act>this|the)\s+act\b",
     flags=re.IGNORECASE,
 )
+# Corpus document classes whose "section N of this act" can name a section of
+# the source's own enactment: statutes (codes and session laws), enacted
+# legislation (acts and bills), and guidance law compilations that reproduce
+# an act. In regulations, policies, manuals
+# and forms, "the Act" is a defined term for a separate, codified enabling
+# statute (42 CFR "section 1927 of the Act" is 42 U.S.C. 1396r-8), so a
+# reason naming it is not a same-act dependency.
+_SAME_ACT_SELF_REFERENCE_DOCUMENT_CLASSES = frozenset(
+    {"statute", "legislation", "guidance"}
+)
 _USC_DEFERRAL_DEPENDENCY = re.compile(
     r"\b(?P<title>\d+)\s+U\.?\s*S\.?\s*C\.?(?:\s*[,;:])?\s*"
     r"(?:(?:§{1,2}|sections?)\s*)?"
@@ -5771,10 +5781,44 @@ def _source_imperative_arithmetic_operations(
     return tuple(operations)
 
 
+def _is_informational_url_referral(source_text: str) -> bool:
+    """Recognize a complete information-only sentence, never mask a URL fragment.
+
+    The closed prose grammar cannot own an arithmetic or conditional suffix.
+    URL punctuation is inert only within this whole referral; numeric recall
+    and the raw source text/offsets remain unchanged.
+    """
+
+    if len(source_text) > 1024:
+        return False
+    domain_label = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+    url = (
+        r"(?:https?://)?"
+        + domain_label
+        + r"(?:\."
+        + domain_label
+        + r")*\.[a-z]{2,63}"
+        + r"(?:/[a-z0-9_~](?:[a-z0-9_~-]*[a-z0-9_~])?)*"
+    )
+    return (
+        re.fullmatch(
+            r"\s*For more information"
+            r"(?: about these credits(?:, including credit eligibility requirements)?)?"
+            r", go to " + url + r"\.\s*",
+            re.sub(r"[ \t\r\n]+", " ", source_text),
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
+
+
 def source_states_explicit_computation(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> bool:
     """Return whether text states a computation rather than only a scalar."""
+
+    if _is_informational_url_referral(source_text):
+        return False
 
     # A parenthesized cross-reference can contain title punctuation that looks
     # arithmetic to the generic expression recognizer (for example
@@ -11287,9 +11331,23 @@ def _reason_names_missing_same_act_dependency(
     path: tuple[str, ...] | None,
     authenticated_same_act_aliases: Sequence[str] = (),
 ) -> bool:
-    """Recognize an exact missing session-law section named by one source branch."""
+    """Recognize an exact missing session-law section named by one source branch.
+
+    The source branch must make itself subject to "section N of this act" (a
+    self-reference, not the defined term "the Act"), and the source must be a
+    statute, enacted legislation, or a guidance law compilation; see
+    `_SAME_ACT_SELF_REFERENCE_DOCUMENT_CLASSES`.
+    """
 
     if not path:
+        return False
+    citation_parts = [
+        part for part in corpus_citation_path.strip("/").split("/") if part
+    ]
+    if (
+        len(citation_parts) < 3
+        or citation_parts[1].lower() not in _SAME_ACT_SELF_REFERENCE_DOCUMENT_CLASSES
+    ):
         return False
     exact_current_branch = _reason_cites_exact_current_statute_branch(
         reason,
@@ -11317,7 +11375,10 @@ def _reason_names_missing_same_act_dependency(
     source_sections = {
         match.group("section").lower()
         for match in _SAME_ACT_SECTION_DEPENDENCY.finditer(source_scope_text)
-        if re.search(
+        # Only the source's self-reference binds; "the Act" is a defined
+        # external statute even inside a statute.
+        if match.group("act").lower() == "this"
+        and re.search(
             r"\b(?:except|unless|subject\s+to)\b",
             source_scope_text[max(0, match.start() - 80) : match.start()],
             flags=re.IGNORECASE,
@@ -19302,8 +19363,37 @@ def _worksheet_monetary_operation_antecedent(body: str) -> str | None:
     return None
 
 
+def _nonfiler_return_instruction_antecedent(body: str) -> str | None:
+    """Separate a closed same-person hypothetical-return instruction.
+
+    The counterfactual ``as if`` belongs to the calculation command, not to
+    another factual condition. Keep every byte of the actual antecedent.
+    """
+
+    actor = r"your\s+(?:spouse(?:\s+or\s+common-law\s+partner)?|common-law\s+partner)"
+    # Additional same-actor predicates stay in the antecedent. A second actor,
+    # punctuation, quotes, or a new sentence makes ownership uncertain.
+    antecedent = (
+        rf"(?P<antecedent>\s*(?:if\s+)?(?P<actor>{actor})\s+is\s+not\s+filing\s+a\s+return"
+        r"(?:\s+and\s+(?:(?:(?P=actor)\s+is|they\s+are)\s+)?"
+        r"(?:not\s+)?(?:disabled|dependent|resident))*)"
+    )
+    consequent = (
+        r",\s*use\s+the\s+amounts\s+they\s+would\s+have\s+entered"
+        r"\s+on\s+their\s+return,\s*schedules,\s*and\s+worksheets"
+        r"\s+as\s+if\s+they\s+were\s+filing\s+a\s+return,"
+        r"\s*and\s+attach\s+their\s+information\s+slips\.?(?:\s*)"
+    )
+    match = re.fullmatch(antecedent + consequent, body, re.IGNORECASE)
+    return match.group("antecedent") if match is not None else None
+
+
 def _without_worksheet_imperative_consequent(body: str) -> str:
     """Separate a bounded worksheet command from its factual antecedent."""
+
+    nonfiler_antecedent = _nonfiler_return_instruction_antecedent(body)
+    if nonfiler_antecedent is not None:
+        return nonfiler_antecedent
 
     monetary_antecedent = _worksheet_monetary_operation_antecedent(body)
     if monetary_antecedent is not None:
