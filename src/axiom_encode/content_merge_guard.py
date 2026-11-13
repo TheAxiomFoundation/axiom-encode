@@ -719,7 +719,14 @@ def _evaluate(country, number, read, evidence) -> Verdict:
         elif reviewer_id in content_authors:
             reason = R_AUTHORED_COMMITS
         elif not _content_bound(
-            read, root, review.get("commit_id"), head, base, commit_shas, unit, head_leaves
+            read,
+            root,
+            review.get("commit_id"),
+            head,
+            base,
+            commit_shas,
+            unit,
+            head_leaves,
         ):
             reason = R_NOT_CONTENT_BOUND
         else:
@@ -803,6 +810,6 @@ def add_arguments(parser) -> None:
 
 def command(args) -> int:
     """Print one verdict as JSON. Exit 0 for pass or not_applicable, else 1."""
-    verdict = evaluate(args.country, args.pr)
+    verdict = evaluate(args.country, args.pr, fetch=github_json)
     print(json.dumps(verdict.as_dict(), indent=2, sort_keys=True))
     return 0 if verdict.verdict in {PASS, NOT_APPLICABLE} else 1
