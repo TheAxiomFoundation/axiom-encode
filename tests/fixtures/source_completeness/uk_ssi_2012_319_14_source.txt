@@ -1,0 +1,30 @@
+A person who is liable to pay council tax under section 75 of the Act (“relevant person”) is entitled to council tax reduction under this regulation in respect of a day if the conditions set out in paragraphs (3) and (3A) are satisfied and—
+each of the conditions set out in paragraphs (4) and (5) is satisfied; or
+the condition set out in paragraph (6) is satisfied.
+A relevant person is not entitled to council tax reduction in respect of any day before the day on which that person's entitlement to council tax reduction commences in accordance with regulation 58 (date on which entitlement begins);
+The conditions referred to in paragraph (1) are that the relevant person—
+is for the day liable to pay council tax in respect of a dwelling in which that person resides as their sole or main residence;
+is not a person to whom regulation 15 (persons not entitled to council tax reduction: absentees), regulation 16 (persons not entitled to council tax reduction: persons treated as not being in Great Britain) or 19 (persons not entitled to council tax reduction: persons subject to immigration control) applies; and
+makes an application for council tax reduction in accordance with Part 9 (applications).
+The condition referred to in paragraph (1) is that the amount of council tax reduction calculated under this regulation is not less than the amount of council tax reduction calculated under regulation 14A.
+The condition referred to in paragraph (1)(a) is that there is an appropriate maximum council tax reduction in the case of the relevant person.
+The condition referred to in paragraph (1)(a) is that—
+the day falls within a week in respect of which—
+the relevant person has no income; or
+the relevant person's income does not exceed the applicable amount; or
+neither paragraph (a)(i) or (ii) applies to the relevant person but amount A exceeds amount B where—
+amount A is the appropriate maximum council tax reduction in the relevant person's case; and
+amount B is 2 6/7 per cent of the difference between the person's income in respect of the week in which the day falls and the applicable amount.
+The condition referred to in paragraph (1)(b) is that—
+no other resident of the dwelling is liable to pay rent to the relevant person in respect of the dwelling; and
+the relevant person is entitled to alternative maximum council tax reduction because of the income or aggregate incomes of one or more residents of the dwelling.
+For the purpose of paragraph (6) a resident of the dwelling other than the relevant person does not include a resident who—
+falls to be disregarded for the purposes of discount in accordance with Schedule 1 to the Act ; or
+is a person described in regulation 57 (residents of a dwelling to whom regulation 14(6) does not apply).
+Subject to paragraph (9) below, where a relevant person is entitled to council tax reduction in respect of a day, the amount to which the person is entitled is—
+if paragraph (5)(a) applies, the amount which is the appropriate maximum council tax reduction in that person's case;
+if paragraph (5)(b) applies, the amount found by deducting amount B from amount A, where “amount A” and “amount B” have the meanings given by that paragraph; and
+if paragraph (6) applies, the amount which is the appropriate alternative maximum council tax reduction in that person's case.
+Where a relevant person is entitled to council tax reduction in respect of a day and paragraphs (5) and (6) apply, the amount to which the person is entitled is whichever is the greater of—
+the amount referred to in paragraph (8)(a) or, as the case may be, paragraph (8)(b); or
+the amount referred to in paragraph (8)(c).

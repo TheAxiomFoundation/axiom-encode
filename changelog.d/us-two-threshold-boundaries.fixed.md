@@ -1,0 +1,1 @@
+Demand every source-stated threshold of a conjoined condition as a companion-test boundary. `less than $500 and whose net income is less than $300` used to demand only `$300`, so a wrong `<=` on `$500` passed; each dropped threshold is now demanded with its own comparator's direction and inclusivity.
