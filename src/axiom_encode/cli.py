@@ -43,7 +43,7 @@ from dataclasses import replace as dataclass_replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
-from typing import Any, Callable, NamedTuple, Protocol
+from typing import Any, Callable, NamedTuple, NoReturn, Protocol
 
 # receipt is pinned to an exact version and artifact hashes in uv.lock. Any
 # upgrade must rerun this repository's signature tests at the new pin first.
@@ -166,7 +166,9 @@ from .corpus_resolver import (
     InactiveCorpusSourceError,
     InvalidCorpusReleaseError,
     LocalCorpusRelease,
+    RepealedCorpusSourceError,
     UnsafeCorpusPathError,
+    iter_active_local_corpus_rows,
     normalize_corpus_identifier,
     read_bounded_regular_file,
     require_canonical_corpus_citation_path,
@@ -194,6 +196,7 @@ from .engine_binding import (
     require_engine_ref_sha,
     resolve_pinned_engine_binary,
 )
+from .failure_classes import PRE_ENCODE_BLOCKED_STATUS, failure_class_payload
 from .harness.amendment_timing import amendment_timing_issues
 from .harness.dependency_stubs import (
     UnsafeRulespecContextPath,
@@ -273,6 +276,13 @@ from .harness.evals import (
 from .harness.policyengine_runtime import (
     PolicyEngineRuntime,
     PolicyEngineRuntimeError,
+)
+from .harness.pre_encode_gate import (
+    DEFAULT_PRE_ENCODE_GATE_MODE,
+    PRE_ENCODE_GATE_MODES,
+    GateResult,
+    GateSource,
+    evaluate_pre_encode_gate,
 )
 from .harness.proof_validator import (
     _UNRESOLVED_NUMERIC_ALPHA_PARENT,
@@ -687,6 +697,10 @@ _REVIEWED_CANDIDATE_MANIFEST_FIELDS = frozenset(
         "signature",
     }
 )
+_REVIEWED_REPAIR_MANIFEST_FIELDS = (
+    _REVIEWED_CANDIDATE_MANIFEST_FIELDS - {"reviewed_rulespec_ref"}
+) | {"reviewed_repair"}
+APPLIED_ENCODING_REVIEWED_REPAIR_TOOL = "axiom-encode apply-reviewed-repair"
 # Per-file waiver bindings (#2092): the same model and reviewed-candidate
 # contracts, with the repository waiver-set digest replaced by the waiver
 # identity of each covered file. Admission accepts both shapes.
@@ -839,6 +853,7 @@ _APPLIED_MANIFEST_SCHEMA_VARIANTS = {
         _REVIEWED_CANDIDATE_MANIFEST_FIELDS,
         _REVIEWED_CANDIDATE_PER_FILE_WAIVER_MANIFEST_FIELDS,
     ),
+    "reviewed repair": (_REVIEWED_REPAIR_MANIFEST_FIELDS,),
     "retirement": (_RETIRE_APPLY_MANIFEST_FIELDS,),
     "unreceipted retirement": (_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS,),
     "path migration": (_PATH_MIGRATION_APPLY_MANIFEST_FIELDS,),
@@ -907,6 +922,17 @@ _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES = {
         | {
             "citation",
             "reviewed_rulespec_ref",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+        },
+    ),
+    _REVIEWED_REPAIR_MANIFEST_FIELDS: (
+        frozenset({"run_id"}),
+        _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS
+        | {
+            "citation",
+            "reviewed_repair",
             "applied_files",
             "source_attestation",
             "validation_execution",
@@ -2780,6 +2806,20 @@ def main():
         )
     )
 
+    merge_guard_parser = subparsers.add_parser(
+        "merge-guard",
+        help=(
+            "Evaluate one RuleSpec pull request against the content-bound "
+            "merge guard (inactive; prints a verdict, writes nothing)"
+        ),
+    )
+    merge_guard_parser.add_argument(
+        "--repository",
+        required=True,
+        help="RuleSpec repository short name, for example rulespec-us",
+    )
+    merge_guard_parser.add_argument("--pr", required=True, type=int)
+
     admission_registry_parser = subparsers.add_parser(
         "admission-registry",
         help=(
@@ -2927,6 +2967,25 @@ def main():
         default=None,
         help="Optional protected workflow run identifier recorded in the manifest",
     )
+
+    reviewed_repair_parser = subparsers.add_parser(
+        "apply-reviewed-repair",
+        help="Validate and sign an exact code-reviewed repair package without a model",
+    )
+    for option in (
+        "repo",
+        "patch-checkout",
+        "corpus-path",
+        "seed-rulespec",
+        "seed-tests",
+        "seed-archive",
+    ):
+        reviewed_repair_parser.add_argument("--" + option, type=Path, required=True)
+    reviewed_repair_parser.add_argument(
+        "--axiom-rules-engine-path", dest="axiom_rules_path", type=Path, required=True
+    )
+    for option in ("patch-id", "source-bundle-json", "run-id"):
+        reviewed_repair_parser.add_argument("--" + option, required=True)
 
     promote_reviewed_candidate_parser = subparsers.add_parser(
         "promote-reviewed-candidate",
@@ -3398,6 +3457,17 @@ def main():
         action="store_false",
         default=True,
         help="Disable validator-failure retries and model escalation",
+    )
+    encode_parser.add_argument(
+        "--pre-encode-gate",
+        choices=PRE_ENCODE_GATE_MODES,
+        default=DEFAULT_PRE_ENCODE_GATE_MODE,
+        help=(
+            "Target checks before any model call: 'enforce' blocks empty or "
+            "punctuation-only extraction gaps and repealed targets; nonempty "
+            "heading findings remain advisory. 'report' makes every check "
+            "advisory (default: enforce)"
+        ),
     )
     encode_parser.add_argument(
         "--backend",
@@ -4326,6 +4396,10 @@ def main():
         from axiom_encode.notary.merge_guard import command as notary_guard_command
 
         raise SystemExit(notary_guard_command(args))
+    elif args.command == "merge-guard":
+        from axiom_encode.content_merge_guard import command as merge_guard_command
+
+        raise SystemExit(merge_guard_command(args))
     elif args.command == "migrate-retired-source-metadata":
         cmd_migrate_retired_source_metadata(args)
     elif args.command == "guard-generated":
@@ -4338,6 +4412,10 @@ def main():
         cmd_stage_signed_backfill(args)
     elif args.command == "refresh-applied-manifest":
         cmd_refresh_applied_manifest(args)
+    elif args.command == "apply-reviewed-repair":
+        from .reviewed_repair_patch import apply_reviewed_repair
+
+        apply_reviewed_repair(args)
     elif args.command == "promote-reviewed-candidate":
         cmd_promote_reviewed_candidate(args)
     elif args.command == "signed-import-inventory":
@@ -25708,6 +25786,7 @@ def _guard_base_manifest_claims(
             APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
             APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
             APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+            APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
         }
     ):
         return set(), [f"{label} has no allowlisted tool/backend contract"]
@@ -27503,6 +27582,7 @@ def _applied_manifest_counts_as_generated(payload: dict, *, depth: int = 0) -> b
         APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
         APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
         APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+        APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
     }
 
 
@@ -27629,7 +27709,12 @@ def _applied_manifest_source_attestation_issues(
 
     reviewed_candidate = (
         backend == ""
-        and payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+        and isinstance(tool, str)
+        and tool
+        in {
+            APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+            APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
+        }
     )
     generated_backend = (
         backend in APPLIED_ENCODING_GENERATED_BACKENDS or reviewed_candidate
@@ -28409,6 +28494,20 @@ def _applied_manifest_tool_execution_issues(
                 f"{manifest_label} model backend must not claim deterministic execution"
             )
         return issues
+    if backend is None and tool == APPLIED_ENCODING_REVIEWED_REPAIR_TOOL:
+        from .reviewed_repair_patch import CHECK_REPAIR_BINDING, verify_repair_binding
+
+        try:
+            verify_repair_binding(payload.get("reviewed_repair"))
+        except (ValueError, TypeError, RecursionError) as exc:
+            issues.append(
+                ValidationIssue(
+                    f"{manifest_label} reviewed repair reconstruction refused: {exc}",
+                    check=CHECK_REPAIR_BINDING,
+                )
+            )
+        check_producer("reviewed repair")
+        return issues
     if backend is None and tool == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL:
         reviewed_ref = payload.get("reviewed_rulespec_ref")
         if (
@@ -28661,6 +28760,10 @@ def _applied_manifest_exact_schema_issues(
         expected_fields = _MODEL_APPLY_MANIFEST_FIELDS
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
         contract = "model"
+    elif backend is None and tool == APPLIED_ENCODING_REVIEWED_REPAIR_TOOL:
+        expected_fields = _REVIEWED_REPAIR_MANIFEST_FIELDS
+        expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
+        contract = "reviewed repair"
     elif backend is None and tool == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL:
         expected_fields = _REVIEWED_CANDIDATE_MANIFEST_FIELDS
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
@@ -32389,7 +32492,14 @@ def _load_verified_applied_encoding_manifest_payload(
     if (
         isinstance(backend, str)
         and backend in APPLIED_ENCODING_ENCODER_BACKENDS
-        or payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+        or (
+            isinstance(payload.get("tool"), str)
+            and payload["tool"]
+            in {
+                APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+                APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
+            }
+        )
     ) and expected_encoder_identity is not None:
         issues.extend(
             _model_apply_validation_execution_issues(
@@ -32399,6 +32509,27 @@ def _load_verified_applied_encoding_manifest_payload(
                 expected_encoder_identity=expected_encoder_identity,
             )
         )
+    if payload.get("tool") == APPLIED_ENCODING_REVIEWED_REPAIR_TOOL:
+        from .reviewed_repair_patch import (
+            CHECK_REPAIR_LINEAGE,
+            verify_manifest_reconstruction,
+        )
+
+        try:
+            verify_manifest_reconstruction(payload, repo_path, manifest_label)
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            subprocess.CalledProcessError,
+            RecursionError,
+        ) as exc:
+            issues.append(
+                ValidationIssue(
+                    f"{manifest_label} reviewed repair lineage refused: {exc}",
+                    check=CHECK_REPAIR_LINEAGE,
+                )
+            )
     if VALIDATION_WAIVER_BINDINGS_FIELD in payload:
         issues.extend(
             _applied_manifest_file_waiver_binding_issues(
@@ -38086,6 +38217,35 @@ def _run_encode_attempts_with_retries(
     _validate_tests_only_repair_contract(args, initial_retry_candidate)
     failed_attempts: tuple[_FailedEncodeAttempt, ...] = ()
     current_model = config.initial_model
+    pre_encode_gate, prepared_source = _evaluate_encode_pre_encode_gate(
+        args,
+        resolved_policy_checkout_path=resolved_policy_checkout_path,
+        apply_signing_broker=apply_signing_broker,
+    )
+    if pre_encode_gate is not None:
+        for finding in pre_encode_gate.findings:
+            print(
+                f"  pre_encode_gate={'block' if finding.enforce else 'report'} "
+                f"check={finding.check} reason={finding.reason}"
+            )
+        if pre_encode_gate.blocked:
+            engine_ref = getattr(args, "axiom_rules_engine_ref", None)
+            if engine_ref is not None:
+                # A blocked run never reaches the try, so its single engine
+                # binding runs here: a bad binary fails as it would in the try.
+                _pinned_apply_engine_binding(
+                    _resolve_explicit_existing_directory(
+                        args.axiom_rules_path,
+                        label="Axiom rules engine",
+                    ),
+                    engine_ref,
+                )
+            _record_pre_encode_gate_block(
+                args,
+                pre_encode_gate,
+                model=current_model,
+                live_run=live_run,
+            )
 
     while True:
         # A try runs until the next one starts or the loop stops judging it.
@@ -38099,6 +38259,7 @@ def _run_encode_attempts_with_retries(
             defer_logging=config.enabled,
             apply_signing_broker=apply_signing_broker,
             resolved_policy_checkout_path=resolved_policy_checkout_path,
+            prepared_source=None if failed_attempts else prepared_source,
         )
         loop_timer.mark(PHASE_RETRY_HANDOFF)
         next_model = None
@@ -38218,6 +38379,8 @@ def _run_encode_attempts_with_retries(
                 "initial_model": config.initial_model,
                 "escalation_model": config.escalation_model,
             }
+        if pre_encode_gate is not None and pre_encode_gate.findings:
+            outcome["pre_encode_gate"] = pre_encode_gate.to_dict()
         db_path = getattr(args, "db", DEFAULT_DB)
         logged_run = execution.logged_run
         if logged_run is None:
@@ -38263,18 +38426,7 @@ def _run_encode_attempts_with_retries(
         if repair_manifest and repair_manifest.exists():
             print(f"  repair_manifest={repair_manifest}")
         if getattr(args, "sync", True) is True:
-            sync_result = _sync_run_to_supabase_if_configured(
-                logged_run,
-                db_path=db_path,
-            )
-            if not sync_result["configured"]:
-                print("  supabase_sync=skipped")
-            elif sync_result["run"] and sync_result["session"]:
-                print("  supabase_sync=run+session")
-            elif sync_result["run"]:
-                print("  supabase_sync=run")
-            else:
-                print("  supabase_sync=failed")
+            _sync_encode_run_and_report(logged_run, db_path=db_path)
 
         encode_succeeded = (
             execution.apply_passed if apply_requested else execution.result.success
@@ -38290,6 +38442,218 @@ def _run_encode_attempts_with_retries(
         sys.exit(0 if execution.result.success else 1)
 
 
+def _sync_encode_run_and_report(run: EncodingRun, *, db_path: Path) -> None:
+    sync_result = _sync_run_to_supabase_if_configured(run, db_path=db_path)
+    if not sync_result["configured"]:
+        print("  supabase_sync=skipped")
+    elif sync_result["run"] and sync_result["session"]:
+        print("  supabase_sync=run+session")
+    elif sync_result["run"]:
+        print("  supabase_sync=run")
+    else:
+        print("  supabase_sync=failed")
+
+
+class _PreparedEncodeSource(NamedTuple):
+    """The corpus release and source unit the gate resolved for the first try."""
+
+    corpus_path: Path
+    policy_checkout_path: Path
+    corpus_release: LocalCorpusRelease
+    source_unit: Any
+
+
+def _evaluate_encode_pre_encode_gate(
+    args,
+    *,
+    resolved_policy_checkout_path: Path | None = None,
+    apply_signing_broker: SigningBroker | None = None,
+) -> tuple[GateResult | None, _PreparedEncodeSource | None]:
+    """Run the pre-encode gate once, on the target the first try will resolve.
+
+    The gate runs the first try's own preflights, in the same order, before it
+    reads the corpus, then resolves the target with the same functions. When
+    any of that fails for a reason other than a repealed row, the gate returns
+    no result and the first try reports the same failure as before. A resolved
+    target is handed to the first try so it is not resolved twice.
+    """
+    mode = getattr(args, "pre_encode_gate", DEFAULT_PRE_ENCODE_GATE_MODE)
+    if not isinstance(mode, str):
+        # Programmatic callers that predate the option get the default.
+        mode = DEFAULT_PRE_ENCODE_GATE_MODE
+    if mode not in PRE_ENCODE_GATE_MODES:
+        raise ValueError(
+            "encode --pre-encode-gate must be one of "
+            + ", ".join(PRE_ENCODE_GATE_MODES)
+        )
+    # The first try's own preflights, in its order; when one of them would
+    # stop the try, the gate leaves that failure to the try.
+    try:
+        if getattr(args, "apply", False) is True and not apply_signing_broker:
+            return None, None
+        engine_ref = getattr(args, "axiom_rules_engine_ref", None)
+        if engine_ref is not None:
+            require_engine_ref_sha(engine_ref, description="axiom_rules_engine_ref")
+        _rulespec_dependency_roots_from_args(args)
+        _resolve_optional_axiom_compose_path(getattr(args, "axiom_compose_path", None))
+        if args.backend == "codex" and codex_auth_error():
+            return None, None
+        corpus_path = _resolve_explicit_existing_directory(
+            args.corpus_path,
+            label="Axiom Corpus",
+        )
+        # The engine's bytes are bound (_pinned_apply_engine_binding) once,
+        # after the gate: in the try, or before a block is recorded. Hashing
+        # the binary here too would double that cost.
+        _resolve_explicit_existing_directory(
+            args.axiom_rules_path,
+            label="Axiom rules engine",
+        )
+        policy_checkout_path = resolved_policy_checkout_path
+        if policy_checkout_path is None:
+            policy_checkout_path = _resolve_explicit_existing_directory(
+                args.policy_repo_path,
+                label="RuleSpec checkout",
+            )
+        if getattr(args, "apply", False) is not True:
+            pending_transaction = policy_checkout_path / _APPLY_TRANSACTION_DIRECTORY
+            if pending_transaction.exists() or pending_transaction.is_symlink():
+                return None, None
+        corpus_release = load_rulespec_local_corpus_release(
+            policy_checkout_path,
+            corpus_path,
+        )
+    except Exception:  # noqa: BLE001 - the first try reports this failure
+        return None, None
+    try:
+        source_unit = resolve_corpus_source_unit(args.citation, corpus_release)
+    except RepealedCorpusSourceError as exc:
+        return (
+            evaluate_pre_encode_gate(None, mode=mode, repealed_reason=str(exc)),
+            None,
+        )
+    except Exception:  # noqa: BLE001 - the first try reports this failure
+        return None, None
+    prepared = _PreparedEncodeSource(
+        corpus_path=corpus_path,
+        policy_checkout_path=policy_checkout_path,
+        corpus_release=corpus_release,
+        source_unit=source_unit,
+    )
+    try:
+        policy_repo_path = _resolve_explicit_policy_repo_for_corpus_source(
+            source_unit.citation_path,
+            policy_checkout_path,
+        )
+    except Exception:  # noqa: BLE001 - the first try reports this failure
+        policy_repo_path = None
+
+    # One read per cited jurisdiction and document class, not per citation.
+    active_paths: dict[tuple[str, str], frozenset[str]] = {}
+
+    def corpus_row_exists(citation_path: str) -> bool:
+        jurisdiction, document_class = citation_path.split("/")[:2]
+        key = (jurisdiction, document_class)
+        if key not in active_paths:
+            try:
+                active_paths[key] = frozenset(
+                    item.row.citation_path
+                    for item in iter_active_local_corpus_rows(
+                        corpus_release,
+                        jurisdiction=jurisdiction,
+                        document_class=document_class,
+                        include_bodyless=True,
+                    )
+                    if (item.metadata or {}).get("status") != "repealed"
+                )
+            except CorpusResolutionError:
+                active_paths[key] = frozenset()
+        return citation_path in active_paths[key]
+
+    gate = evaluate_pre_encode_gate(
+        GateSource.from_source_unit(source_unit),
+        mode=mode,
+        policy_repo_path=policy_repo_path,
+        replacement_target=(
+            getattr(args, "replace_rulespec_path", None) is not None
+            or getattr(args, "replace_legacy_rulespec_path", None) is not None
+        ),
+        rulespec_checkout_root=policy_checkout_path,
+        corpus_row_exists=corpus_row_exists,
+    )
+    return gate, prepared
+
+
+def _record_pre_encode_gate_block(
+    args,
+    gate: GateResult,
+    *,
+    model: str,
+    live_run: LiveRunTelemetry,
+) -> NoReturn:
+    """Record a run the pre-encode gate stopped, then exit non-zero.
+
+    No model was called, so the run has no generation iterations.
+    """
+    reasons = "; ".join(
+        f"{finding.check}: {finding.reason}" for finding in gate.blocking_findings
+    )
+    outcome = _initial_encode_outcome(
+        None,
+        apply_requested=getattr(args, "apply", False) is True,
+    )
+    outcome.update(
+        {
+            "status": PRE_ENCODE_BLOCKED_STATUS,
+            "final_success": False,
+            "primary_error": (
+                f"Pre-encode gate blocked the target before any model call: {reasons}"
+            ),
+            # No generation or validation ran.
+            "standalone_validation_success": None,
+            "pre_encode_gate": gate.to_dict(),
+        }
+    )
+    db_path = getattr(args, "db", DEFAULT_DB)
+    run = EncodingRun(
+        citation=str(args.citation),
+        agent_type=f"{args.backend}:encoder",
+        agent_model=str(model or ""),
+        axiom_encode_version=__version__,
+        generation_attempt_count=0,
+    )
+    run.session_id = f"encode-{run.id}"
+    db = EncodingDB(db_path)
+    db.log_run(run)
+    db.start_session(
+        model=str(model or ""),
+        cwd=os.getcwd(),
+        session_id=run.session_id,
+        run_id=run.id,
+        axiom_encode_version=__version__,
+    )
+    _record_encode_outcome(db_path=db_path, result=None, run=run, outcome=outcome)
+    if os.environ.get("AXIOM_ENCODE_DISABLE_RUN_LOG") != "1":
+        try:
+            from .run_log_export import emit_pre_encode_blocked_events
+
+            emit_pre_encode_blocked_events(
+                run.id,
+                outcome,
+                citation=str(args.citation),
+                backend=str(args.backend),
+                model=str(model or ""),
+            )
+        except Exception:  # noqa: BLE001 - run-log emission must never break a run
+            pass
+    print(f"  run_id={run.id}")
+    print(f"  outcome={outcome['status']} final_success=False")
+    if getattr(args, "sync", True) is True:
+        _sync_encode_run_and_report(run, db_path=db_path)
+    live_run.finish("failed", run_id=run.id)
+    sys.exit(1)
+
+
 def _run_encode_attempt(
     args,
     *,
@@ -38300,6 +38664,7 @@ def _run_encode_attempt(
     defer_logging: bool = True,
     apply_signing_broker: SigningBroker | None = None,
     resolved_policy_checkout_path: Path | None = None,
+    prepared_source: _PreparedEncodeSource | None = None,
 ) -> _EncodeAttemptExecution:
     """Run one generation through the existing standalone and apply gates."""
     if getattr(args, "apply", False) is True and not apply_signing_broker:
@@ -38347,11 +38712,20 @@ def _run_encode_attempt(
                 "rerun encode --apply, retire, or migrate-rulespec-paths to "
                 "recover it before encoding"
             )
-    corpus_release = load_rulespec_local_corpus_release(
-        policy_checkout_path,
-        corpus_path,
-    )
-    source_unit = resolve_corpus_source_unit(args.citation, corpus_release)
+    if (
+        prepared_source is not None
+        and prepared_source.corpus_path == corpus_path
+        and prepared_source.policy_checkout_path == policy_checkout_path
+    ):
+        # The pre-encode gate already resolved this try's target.
+        corpus_release = prepared_source.corpus_release
+        source_unit = prepared_source.source_unit
+    else:
+        corpus_release = load_rulespec_local_corpus_release(
+            policy_checkout_path,
+            corpus_path,
+        )
+        source_unit = resolve_corpus_source_unit(args.citation, corpus_release)
     policy_repo_path = _resolve_explicit_policy_repo_for_corpus_source(
         source_unit.citation_path,
         policy_checkout_path,
@@ -60345,6 +60719,34 @@ def _generated_rulespec_yaml_nonparser_issue(
 def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> None:
     """Mechanically bind model output to the resolver's full stored source body."""
 
+    from .reviewed_repair_patch import ReviewedRepairResult, verify_repair_binding
+
+    if isinstance(result, ReviewedRepairResult):
+        package, postimage = verify_repair_binding(result.review_binding)
+        if output_file.read_bytes() != postimage[0]:
+            raise RuntimeError(
+                "Reviewed repair RuleSpec differs from registered postimage"
+            )
+        payload = _safe_load_unique_keys(output_file.read_text())
+        module = payload.get("module") if isinstance(payload, dict) else None
+        verification = (
+            module.get("source_verification") if isinstance(module, dict) else None
+        )
+        attestation = _generated_result_source_attestation(result)
+        if (
+            attestation is None
+            or not isinstance(verification, dict)
+            or result.citation != package.manifest["citation"]
+        ):
+            raise RuntimeError("Reviewed repair lacks bound source identity")
+        issues = _source_attestation_structure_issues(attestation)
+        issues.extend(_source_attestation_binding_issues(attestation, verification))
+        if issues:
+            raise RuntimeError(
+                "Reviewed repair source binding failed: " + "; ".join(issues)
+            )
+        return
+
     backend = str(getattr(result, "backend", "") or "").strip().lower()
     if backend not in APPLIED_ENCODING_ENCODER_BACKENDS:
         return
@@ -60585,6 +60987,35 @@ def _canonical_apply_relative_path(raw_path: Path) -> Path:
 
 def _apply_result_metadata(result) -> dict[str, object]:
     """Return the exact result-owned fields admitted by overlay validation."""
+
+    from .reviewed_repair_patch import TOOL, ReviewedRepairResult, verify_repair_binding
+
+    if isinstance(result, ReviewedRepairResult):
+        package, _postimage = verify_repair_binding(result.review_binding)
+        if (
+            result.tool != TOOL
+            or result.runner != "reviewed-repair"
+            or result.backend is not None
+            or result.model is not None
+            or result.generation_prompt_sha256 is not None
+            or result.trace_file is not None
+            or result.citation != package.manifest["citation"]
+        ):
+            raise RuntimeError(
+                "Reviewed repair result has invalid non-model provenance"
+            )
+        return {
+            "tool": TOOL,
+            "citation": result.citation,
+            "runner": result.runner,
+            "backend": None,
+            "model": None,
+            "generation_prompt_sha256": None,
+            "codex_cli_version": None,
+            "codex_cli_sha256": None,
+            "source_attestation": copy.deepcopy(result.source_attestation),
+            "reviewed_repair": copy.deepcopy(result.review_binding),
+        }
 
     tool = getattr(result, "tool", None)
     if not isinstance(tool, str) or not tool.strip():
@@ -65001,12 +65432,20 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
     # changes modules the stamp returns early on (other backends, non-mapping
     # payloads, reviewed-candidate promotions) and the companion tests, which
     # the stamp never writes.
-    if vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None:
+    from .reviewed_repair_patch import ReviewedRepairResult
+
+    if (
+        not isinstance(result, ReviewedRepairResult)
+        and vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None
+    ):
         _rewrite_generated_yaml_without_non_ascii_escapes(
             output_file,
             contained_in=generated_root,
         )
-    if vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is not True:
+    if (
+        not isinstance(result, ReviewedRepairResult)
+        and vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is not True
+    ):
         _rewrite_generated_yaml_without_non_ascii_escapes(
             output_test,
             contained_in=generated_root,
@@ -70187,6 +70626,14 @@ def _record_encode_outcome(
 ) -> Path | None:
     """Persist final encode workflow status and close the encode session."""
     db = EncodingDB(db_path)
+    # Advisory only: the class never changes the recorded verdict.
+    outcome["failure_class"] = failure_class_payload(
+        {
+            **outcome,
+            "timed_out": getattr(result, "timed_out", False) is True,
+            "failure_kind": getattr(result, "failure_kind", None),
+        }
+    )
     run.outcome = dict(outcome)
     db.update_run_outcome(run.id, run.outcome)
     db.log_event(
