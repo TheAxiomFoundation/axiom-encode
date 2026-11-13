@@ -3271,9 +3271,10 @@ def main():
         choices=PRE_ENCODE_GATE_MODES,
         default=DEFAULT_PRE_ENCODE_GATE_MODE,
         help=(
-            "Target checks before any model call: 'enforce' stops a body with "
-            "no operative text or a repealed target; 'report' only records "
-            "every finding (default: enforce)"
+            "Target checks before any model call: 'enforce' blocks empty or "
+            "punctuation-only extraction gaps and repealed targets; nonempty "
+            "heading findings remain advisory. 'report' makes every check "
+            "advisory (default: enforce)"
         ),
     )
     encode_parser.add_argument(

@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from axiom_encode.corpus_resolver import (
     InvalidActiveCorpusSourceError,
@@ -123,12 +125,13 @@ def test_no_operative_text_blocks_a_punctuation_only_body_as_corpus(body):
         ("Eligibility Standards (a)", "us/statute/7/2014/a"),
     ],
 )
-def test_no_operative_text_blocks_a_heading_only_body(body, citation):
+def test_no_operative_text_only_reports_a_heading_only_body(body, citation):
     result = evaluate_pre_encode_gate(
         _source(body, labels=("Eligibility Standards",), citation=citation)
     )
 
-    assert _checks(result) == [(CHECK_NO_OPERATIVE_TEXT, True)]
+    assert _checks(result) == [(CHECK_NO_OPERATIVE_TEXT, False)]
+    assert not result.blocked
     assert (result.findings[0].failure_class, result.findings[0].subclass) == (
         "selection",
         None,
@@ -601,11 +604,52 @@ def test_a_heading_that_copies_a_rule_body_does_not_block(body):
         "Income and deductions.",
     ],
 )
-def test_a_heading_with_a_rule_word_still_blocks(body):
+def test_a_heading_with_a_rule_word_only_reports(body):
     result = evaluate_pre_encode_gate(_source(body, labels=(body,)))
 
-    assert _checks(result) == [(CHECK_NO_OPERATIVE_TEXT, True)]
+    assert _checks(result) == [(CHECK_NO_OPERATIVE_TEXT, False)]
+    assert not result.blocked
     assert result.findings[0].failure_class == "selection"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Applicants must be 18",
+        "Applicants must be 18:",
+        "The standard deduction is $198",
+        "Pay $100",
+        "Pay $100.",
+        "Minimum age 18",
+        "Section 401(a)(9)(A).",
+    ],
+)
+def test_copied_compact_rule_labels_never_block(body):
+    result = evaluate_pre_encode_gate(_source(body, labels=(body,)))
+
+    assert not result.blocked
+    assert all(not finding.enforce for finding in result.findings)
+
+
+@given(
+    label=st.text(
+        alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789é $%.,;:!?—\n",
+        min_size=1,
+        max_size=120,
+    ).filter(lambda text: any(character.isalnum() for character in text)),
+    locator=st.sampled_from(("", "273.9", "§ 273.9", "Section 273.9")),
+    punctuation=st.sampled_from(("", ".", ":", ";", "!")),
+)
+def test_nonempty_label_equal_body_and_own_locator_never_enforce(
+    label, locator, punctuation
+):
+    body = f"{label}{punctuation}\n{locator}"
+    result = evaluate_pre_encode_gate(
+        _source(body, labels=(label,), citation="us/regulation/7/273/9")
+    )
+
+    assert not result.blocked
+    assert all(not finding.enforce for finding in result.findings)
 
 
 # -- order against the resolver's part-heading refusal (#2035) --------------
@@ -686,7 +730,8 @@ def test_a_section_heading_only_body_reaches_only_the_gate(tmp_path):
     )
 
     assert refusal is None
-    assert _checks(gate) == [(CHECK_NO_OPERATIVE_TEXT, True)]
+    assert _checks(gate) == [(CHECK_NO_OPERATIVE_TEXT, False)]
+    assert not gate.blocked
     assert gate.findings[0].failure_class == "selection"
     assert gate.findings[0].reason == "source body is only its heading"
 

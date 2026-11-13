@@ -14627,6 +14627,42 @@ class TestCmdEncode:
 
         model_call.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("body", "title"),
+        [
+            ("Applicants must be 18", "Applicants must be 18"),
+            ("Applicants must be 18:", "Applicants must be 18:"),
+            ("The standard deduction is $198", "The standard deduction is $198"),
+            ("Pay $100", "Pay $100"),
+            ("Pay $100.", "Pay $100."),
+            ("Minimum age 18", "Minimum age 18"),
+            ("Section 401(a)(9)(A).", "Section 401(a)(9)(A)."),
+            ("Eligibility Standards\n273.9", "Eligibility Standards"),
+        ],
+    )
+    def test_encode_pre_encode_gate_only_reports_nonempty_copied_labels(
+        self, tmp_path, body, title
+    ):
+        args = self._make_args(
+            tmp_path,
+            citation="7 CFR 273.9",
+            corpus_body=body,
+            corpus_metadata={"title": title},
+        )
+
+        model_call, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        model_call.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "standalone_validated"
+        assert run.outcome["pre_encode_gate"]["blocked"] is False
+        assert [
+            (finding["check"], finding["enforce"])
+            for finding in run.outcome["pre_encode_gate"]["findings"]
+        ] == [("no_operative_text", False)]
+        assert run.outcome["failure_class"] is None
+
     def test_encode_first_try_reuses_the_gate_resolution(self, tmp_path):
         import axiom_encode.cli as cli_module
 

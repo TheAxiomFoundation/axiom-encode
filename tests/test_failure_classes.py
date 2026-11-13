@@ -88,7 +88,7 @@ def test_pre_encode_block_takes_the_enforced_finding_class():
     )
 
 
-def test_pre_encode_block_on_a_heading_only_body_is_selection():
+def test_advisory_heading_finding_does_not_classify_a_block():
     gate = evaluate_pre_encode_gate(
         GateSource(
             requested="us/x/y/z",
@@ -105,7 +105,8 @@ def test_pre_encode_block_on_a_heading_only_body_is_selection():
         }
     )
 
-    assert (record.failure_class, record.subclass) == ("selection", None)
+    assert not gate.blocked
+    assert (record.failure_class, record.subclass) == ("unknown", None)
 
 
 def test_pre_encode_block_without_an_enforced_finding_is_unknown():

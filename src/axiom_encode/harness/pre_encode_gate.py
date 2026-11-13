@@ -207,14 +207,22 @@ def check_toc_page(body: str, labels: Sequence[str] = ()) -> str | None:
 EMPTY_BODY_REASON = "source body is empty"
 PUNCTUATION_BODY_REASON = "source body has only punctuation"
 ELLIPSIS_BODY_REASON = "source body is only an ellipsis or dotted placeholder"
+HEADING_BODY_REASON = "source body is only its heading"
+HEADING_LOCATOR_BODY_REASON = (
+    "source body is only its heading and its own citation locator"
+)
 _CORPUS_CONTENT_REASONS = frozenset(
     {EMPTY_BODY_REASON, PUNCTUATION_BODY_REASON, ELLIPSIS_BODY_REASON}
 )
-# Reasons that only report. An editorial omission shown by an ellipsis or
+# Reasons that only report. A label can copy a complete operative body, so
+# heading equality cannot establish that the target lacks operative text.
+# An editorial omission shown by an ellipsis or
 # dotted placeholder (". . . . .") has its own encoder contract: the prompt and
 # the validator accept a `status: deferred` artifact for it, so the gate does
 # not stop it. A lone "." or an empty body stays an extraction gap and blocks.
-_ADVISORY_REASONS = frozenset({ELLIPSIS_BODY_REASON})
+_ADVISORY_REASONS = frozenset(
+    {ELLIPSIS_BODY_REASON, HEADING_BODY_REASON, HEADING_LOCATOR_BODY_REASON}
+)
 # An optional paragraph marker ("(a)", "2") and one omission mark: three or
 # more dots or asterisks ("...", ". . .", "* * *") or an ellipsis character,
 # optionally in brackets ("[...]", "(...)").
@@ -294,12 +302,12 @@ def check_no_operative_text(
         return None
     remaining = _normalize_space(remaining).strip(_EDGE_PUNCTUATION)
     if not remaining:
-        return "source body is only its heading"
+        return HEADING_BODY_REASON
     locator = _LOCATOR_RE.fullmatch(remaining)
     if locator is not None and citation_path:
         marker = _marker_key(locator.group("marker"))
         if marker and marker in _target_markers(citation_path):
-            return "source body is only its heading and its own citation locator"
+            return HEADING_LOCATOR_BODY_REASON
     return None
 
 
