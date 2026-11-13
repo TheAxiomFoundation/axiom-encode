@@ -36,9 +36,17 @@ import re
 from collections.abc import Mapping
 from typing import Final
 
-# Off until the merge guard is deployed and enforced (decision D2d). Turning
-# this on is a policy change on encoder main, not a runtime option: there is
-# deliberately no environment variable, CLI flag or repository setting.
+# The switch rule (the same words are in the design, section 8, row 2b and
+# activation checklist step 2):
+#   The reader may be switched on while no v6 writer exists: nothing new can
+#   land. The v6 writer and the admission without approval must stay off
+#   until the guard check is required. With the reader on, the writer on and
+#   the guard check not required, an enrolled dispatcher lands their own
+#   unreviewed candidate with no approval, and any account with write access
+#   re-lands signed v6 bytes from a closed pull request.
+# Turning this on is a policy change on encoder main, not a runtime option:
+# there is deliberately no environment variable, CLI flag or repository
+# setting.
 V6_READER_ENABLED: Final[bool] = False
 
 MANIFEST_SCHEMA_V6: Final = "axiom-encode/applied-rulespec/v6"

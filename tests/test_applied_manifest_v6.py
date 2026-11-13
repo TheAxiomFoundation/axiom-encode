@@ -711,3 +711,38 @@ def test_off_the_exact_schema_check_refuses_v6_on_its_own(promotion):
         assert cli._applied_manifest_exact_schema_issues(
             payload, manifest_label=MANIFEST, admit_v6=admit
         ) == [NOT_A_MANIFEST]
+
+
+@pytest.mark.parametrize(
+    "rulespec_root",
+    [None, ["rulespec-us/us"], {"repository": "rulespec-us"}, 7, ""],
+    ids=["none", "list", "object", "number", "empty"],
+)
+def test_enabled_rulespec_root_that_is_not_a_matching_string_is_refused(
+    enabled, promotion, rulespec_root
+):
+    repo, v5, _expected_identity = promotion
+    payload = _to_v6(v5)
+    payload["source_attestation"]["rulespec_root"] = rulespec_root
+    expected = "candidate repository is not the manifest's RuleSpec repository"
+    issues = v6.attestation_scope_issues(payload, manifest_label="m")
+    assert issues == [f"m attestation scope is invalid: {expected}"]
+    _claims, base_issues = _base_claims(repo, _sign(payload))
+    assert any(expected in issue for issue in base_issues), base_issues
+
+
+def test_the_switch_rule_is_stated_identically_at_the_constant_and_in_the_design():
+    root = cli.Path(cli.__file__).parents[2]
+    rule = (
+        "The reader may be switched on while no v6 writer exists: nothing new can "
+        "land. The v6 writer and the admission without approval must stay off "
+        "until the guard check is required."
+    )
+
+    def flat(text):
+        return " ".join(text.replace("#", " ").split())
+
+    assert rule in flat((root / "src/axiom_encode/applied_manifest_v6.py").read_text())
+    assert (
+        flat((root / "docs/content-bound-merge-guard.md").read_text()).count(rule) == 3
+    )

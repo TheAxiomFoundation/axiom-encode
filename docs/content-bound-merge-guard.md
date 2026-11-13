@@ -447,17 +447,15 @@ waiver checks are those of the v5 promotion contract.
   carries no manifest (workflows, pins, ledgers, tooling, ProgramSpec) reaches
   no reader of this change, with the switch on or off.
 
-**Precondition for turning the switch on (change 2b).** With the switch on,
-`validate / validate` treats an exact signed v6 manifest like a reviewed v5
-one: it proves validation and nothing about review. `owner_review_state`
-(`none` for v6, `before-signing` for the earlier lane) exists for callers to
-tell the two apart (D1), and it has no production caller yet. So the reader's
-safety with the switch on rests on two facts outside the reader: no writer
-emits v6, and the guard check is required before one does. Change 2b may
-merge while no v6 writer exists. The writer (change 5) must not be enabled
-before the guard check is required (activation checklist, step 4). This was
-chosen over wiring `owner_review_state` into `validate` now: a v6 refusal in
-`validate` would have to be removed again at activation, and the guard, not
+**The switch rule.** The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request.
+
+So the writer and admission change (change 5), not the reader, is what waits
+for the required check. With the reader on, `validate / validate` treats an
+exact signed v6 manifest like a reviewed v5 one: it proves validation and
+nothing about review. `owner_review_state` (`none` for v6, `before-signing`
+for the earlier lane) exists for callers to tell the two apart (D1), and it
+has no production caller yet. This was chosen over wiring a refusal into
+`validate` now: activation would have to remove it again, and the guard, not
 `validate`, is the control the maintainers decided on (D2).
 
 Not read as v6 yet (last row of the table): they treat a v6 manifest as
@@ -577,7 +575,7 @@ Implementation comes strictly before activation.
 |---|---|---|---|
 | 1 | axiom-encode | This change: evaluator, `merge-guard` CLI, tests, CODEOWNERS, this document. Nothing calls it | revert |
 | 2 | axiom-encode | Verifiers can read `applied-rulespec/v6` with the attestation scope, behind `V6_READER_ENABLED = False`; no writer | revert; no v6 exists |
-| 2b | axiom-encode | Set `V6_READER_ENABLED = True`. May ride with change 3 | set it back; no v6 exists |
+| 2b | axiom-encode | Set `V6_READER_ENABLED = True`. May ride with change 3. Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request. | set it back; no v6 exists |
 | 3 | axiom-encode | Workflow that runs the guard from `main` and publishes its check, with a dry-run mode | disable the workflow |
 | 4 | rulespec-us | Pin the encoder that verifies v6 | revert the pin |
 | 5 | axiom-encode | Emit v6 and admit without approval, behind a default-off switch | revert |
@@ -592,6 +590,7 @@ can do them.
    an axiom-encode environment restricted to branch `main`.
 2. Merge changes 1-4, including 2b. Publish the check in shadow mode: visible,
    not required.
+   Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request.
 3. Run cases 15-18 live on a throwaway PR and confirm every verdict.
 4. **M** Add the guard's check with the guard App's `app_id` to the required
    checks on `rulespec-us` main, only after question 0 of §10 is decided: under
