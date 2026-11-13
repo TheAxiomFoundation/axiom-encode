@@ -313,7 +313,9 @@ def test_represent_count_is_the_number_of_values_listed_first():
     first = _recall_issues(_analysis("(a) Table.\n" + rows))[0]
     count = _represent_count(first)
     listed = first.split(" Not located above (", 1)[0]
-    shown = re.findall(r"(?:In [^:]+:)? ([0-9.]+(?:, [0-9.]+)*) at [0-9]+:[0-9]+:", listed)
+    shown = re.findall(
+        r"(?:In [^:]+:)? ([0-9.]+(?:, [0-9.]+)*) at [0-9]+:[0-9]+:", listed
+    )
     assert count == sum(len(group.split(", ")) for group in shown)
     assert 0 < count < len(_recall_issues(_analysis("(a) Table.\n" + rows)))
 
