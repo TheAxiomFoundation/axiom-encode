@@ -62,6 +62,7 @@ EXPECTED_CONSUMERS = {
     ("actual_repayment_boundary_evidence", "_witnesses"): 1,
     ("printed_signed_format_evidence", "witnesses"): 1,
     ("actual_floor_evidence", "witnesses"): 1,
+    ("actual_floor_evidence", "same_page_witnesses"): 1,
     ("actual_sparse_worksheet_evidence", "witnesses"): 1,
     ("same_case_execution", "formula_witnesses"): 1,
     ("reporting_route_evidence", "certify_reporting_routes"): 1,

@@ -59,6 +59,7 @@ def test_only_bound_local_form_gets_exact_two_file_snapshot(tmp_path):
             ROOT.removesuffix(".yaml") + ".test.yaml",
         }
         assert capture.fresh()
+        assert capture.evidence() is None
         assert not (capture.snapshot_root / "ca/policies/unrelated.yaml").exists()
 
 
@@ -102,4 +103,22 @@ def test_local_snapshot_admission_stays_closed(tmp_path, change):
         pipe._proof_source_texts_for_rulespec_content = lambda *a, **k: {
             CITATION: SOURCE + "changed"
         }
+    assert e._snapshot_plan(pipe, target) is None
+
+
+def test_imported_module_cannot_use_local_snapshot_binders(tmp_path, monkeypatch):
+    import yaml
+
+    from axiom_encode.harness import actual_floor_evidence, bound_form_operands
+
+    pipe, target = local_world(tmp_path)
+    payload = yaml.safe_load(target.read_text())
+    payload["imports"] = ["ca:policies/provider#out"]
+    target.write_text(yaml.safe_dump(payload))
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("imported modules must use the derived-provider route")
+
+    monkeypatch.setattr(actual_floor_evidence, "bind_same_page_floors", forbidden)
+    monkeypatch.setattr(bound_form_operands, "bind_local_form_snapshot", forbidden)
     assert e._snapshot_plan(pipe, target) is None

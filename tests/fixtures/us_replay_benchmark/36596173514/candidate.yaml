@@ -1,0 +1,67 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-wv/manual/bfa/income-maintenance-manual/page-3
+    source_sha256: a8790de8fc383e8c5af5391b89982aeef50a1f549bf5337eb842708a5020123f
+  summary: The introduction describes SNAP, SNAP E&T, WVCHIP, WV WORKS, and Emergency
+    and Special Assistance programs. The Special Reduced Residential Service Rate
+    enables certain SNAP, SSI and WV WORKS clients to receive a 20% discount from
+    their natural gas, electric and water companies during the winter months.
+inputs:
+- name: client_qualifies_for_special_reduced_residential_service_rate
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: month_is_in_winter
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: service_is_natural_gas_electric_or_water
+  entity: Person
+  dtype: Boolean
+  period: Month
+rules:
+- name: special_reduced_residential_service_rate_discount_rate
+  kind: parameter
+  dtype: Rate
+  source: West Virginia Income Maintenance Manual, Introduction, Special Reduced Residential
+    Service Rate (20% Utility Program)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-wv/manual/bfa/income-maintenance-manual/page-3
+          excerpt: receive a 20% discount
+  versions:
+  - effective_from: '2026-07-01'
+    formula: '0.20'
+- name: applicable_special_reduced_residential_service_discount_rate
+  kind: derived
+  entity: Person
+  dtype: Rate
+  period: Month
+  source: West Virginia Income Maintenance Manual, Introduction, Special Reduced Residential
+    Service Rate (20% Utility Program)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-wv/manual/bfa/income-maintenance-manual/page-3
+          excerpt: certain SNAP, Supplemental Security Income (SSI) and WV WORKS clients
+            to receive a 20% discount
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-wv/manual/bfa/income-maintenance-manual/page-3
+          excerpt: during the winter months
+  versions:
+  - effective_from: '2026-07-01'
+    formula: 'if client_qualifies_for_special_reduced_residential_service_rate and
+      month_is_in_winter and service_is_natural_gas_electric_or_water: special_reduced_residential_service_rate_discount_rate
+      else: 0'
