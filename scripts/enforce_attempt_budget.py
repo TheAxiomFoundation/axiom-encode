@@ -391,7 +391,11 @@ def main() -> int:
         source_request = json.loads(os.environ.get("SOURCE_BUNDLE_JSON", ""))
     except (ValueError, RecursionError):
         source_request = None
-    reviewed_repair = isinstance(source_request, dict) and source_request.get("schema") == "axiom-encode/reviewed-repair-transaction/v1"
+    reviewed_repair = (
+        isinstance(source_request, dict)
+        and source_request.get("schema")
+        == "axiom-encode/reviewed-repair-transaction/v1"
+    )
     metadata_migration = is_retired_source_metadata_plan(
         os.environ.get("SOURCE_BUNDLE_JSON", "")
     )
