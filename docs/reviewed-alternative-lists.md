@@ -83,6 +83,16 @@ committed entry fail in CI.
 
 The registry file holds the full sentences.
 
+## Limits
+
+- The check verifies nothing about an excepted clause (see above).
+- The owner gate reads the runner's environment, so a pull request that edits
+  the CI workflow or the test configuration could defeat it; the binding
+  control is the code-owner approval of the registry file.
+- `reviewer` is an unauthenticated string: a code owner who is also the author
+  can sign their own entry and pass the gate. The same code-owner approval is
+  the control.
+
 ## Add an entry
 
 An entry loosens a validator for one unit. The pull request that adds it must
@@ -105,7 +115,7 @@ request: a pull request that is ready for review, the merge queue, a push, and
 a manually dispatched run. It passes locally and on a draft pull request, so
 the author can show the replay effect first. A signed entry must name a login
 from the registry file's line in `.github/CODEOWNERS`, with a `reviewed_at`
-date that is not in the future; this holds in every run.
+date of the form `YYYY-MM-DD` that is not in the future; this holds in every run.
 
 Consequence: a manually dispatched full-suite run on a branch with a pending
 entry (`gh workflow run CI --ref <branch>`) shows exactly one expected failure,

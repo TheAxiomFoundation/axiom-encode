@@ -41,6 +41,22 @@ PENDING_REVIEWER = "pending-owner-review"
 _GITHUB_LOGIN = re.compile(r"@[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
 
 
+_REVIEW_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+# The registry did not exist before this date.
+_FIRST_REVIEW_DATE = date(2026, 1, 1)
+
+
+def _review_date(value: str) -> date:
+    """Parse ``reviewed_at``: exactly YYYY-MM-DD, not before the registry."""
+
+    if not _REVIEW_DATE.fullmatch(value):
+        raise ValueError("reviewed_at must have the form YYYY-MM-DD")
+    parsed = date.fromisoformat(value)
+    if parsed < _FIRST_REVIEW_DATE:
+        raise ValueError(f"reviewed_at is before {_FIRST_REVIEW_DATE.isoformat()}")
+    return parsed
+
+
 def scanned_source_text(source_text: str) -> str:
     """Return the text that the check scans and that the digest covers.
 
@@ -184,7 +200,7 @@ class ReviewedAlternativeList:
         elif not isinstance(reviewed_at, str):
             raise ValueError("reviewed_at is required with a reviewer")
         else:
-            date.fromisoformat(reviewed_at)
+            _review_date(reviewed_at)
         return cls(
             value["citation_path"],
             value["source_text_sha256"],
@@ -352,7 +368,7 @@ def owner_review_problems(
                 f"{entry.citation_path}: reviewer {entry.reviewer} is not a code "
                 "owner of the registry file"
             )
-        elif entry.reviewed_at is None or date.fromisoformat(entry.reviewed_at) > today:
+        elif entry.reviewed_at is None or _review_date(entry.reviewed_at) > today:
             problems.append(
                 f"{entry.citation_path}: reviewed_at {entry.reviewed_at} is missing "
                 "or in the future"

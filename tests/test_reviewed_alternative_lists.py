@@ -479,6 +479,33 @@ def test_a_malformed_entry_is_rejected(name):
         registry.parse_reviewed_alternative_lists(json.dumps(entry))
 
 
+@pytest.mark.parametrize(
+    "reviewed_at",
+    [
+        "20261113",
+        "2026-W46-5",
+        "2026-11-13T00:00:00",
+        "2026-11-13 ",
+        " 2026-11-13",
+        "2026-1-3",
+        "2026-13-01",
+        "2026-02-30",
+        "0001-01-01",
+        "2025-12-31",
+        "",
+    ],
+)
+def test_a_review_date_is_a_plain_date_since_the_registry_exists(reviewed_at):
+    entry = _valid()
+    entry.update(reviewer="@PavelMakarchuk", reviewed_at=reviewed_at)
+    with pytest.raises(ValueError):
+        registry.ReviewedAlternativeList.from_mapping(entry)
+    entry["reviewed_at"] = "2026-01-01"
+    assert registry.ReviewedAlternativeList.from_mapping(entry).reviewed_at == (
+        "2026-01-01"
+    )
+
+
 def test_an_owner_review_is_a_login_and_a_date():
     entry = _valid()
     entry.update(reviewer="@PavelMakarchuk", reviewed_at="2026-11-14")
