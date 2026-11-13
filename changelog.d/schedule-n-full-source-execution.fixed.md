@@ -1,0 +1,1 @@
+Validate Quebec Schedule N against its complete source and authenticated guide using fresh typed execution records, including its Part C refusal, source-owned numeric roles, and boundary witnesses. Keep incomplete or altered evidence from receiving source coverage. Preserve match-arm arrows during generated formula-local assignment normalization.

@@ -7,7 +7,7 @@ corpus checkout. The `replay benchmark` CI job runs it as a required check.
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 46 committed
+(the `[complete-source-unit:*]` rules of the CI validator) over 47 committed
 fixtures in `tests/fixtures/us_replay_benchmark/`. Hosted fixtures are real candidates from `targeted-reencode-failure` artifacts
 of signed runs:
 
@@ -37,16 +37,19 @@ bundle inventory. The same file hashes, public-only restrictions and snapshot
 gates apply. Local fixtures are rejected examples, never production controls.
 The Schedule 2 floor fixture uses this route; its offline findings remain
 unresolved because replay has no live execution evidence. Its separate
-real-engine test verifies the targeted floor witnesses.
+real-engine test verifies the targeted floor witnesses. The Schedule N fixture
+retains 48 offline findings without the guide context and fresh execution
+evidence used by its separate runtime diagnostic; it does not claim native
+validation or publication clearance.
 
 The replay passes the same inputs as `ValidatorPipeline._complete_source_unit_issues`:
 the citation's numeric profile, the companion test cases, imported symbol
 contents, resolved deferral providers and same-act aliases from the source
 metadata. `--no-context` leaves out the last three.
 
-The set has 38 distinct citations: federal statutes, CFR regulations, IRS and
+The set has 39 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, one Canadian CRA guide
-(three runs), one Canadian CRA form (a local diagnostic), and one Israeli statute. It has one control (an Arizona candidate
+(three runs), one Canadian CRA form (a local diagnostic), one Revenu Québec Schedule N form (a local diagnostic), and one Israeli statute. It has one control (an Arizona candidate
 that passed validation and then failed a provenance guard). At 0.2.2349, 12
 fixtures replay clean and 33 have 3,313 findings; four 7 CFR 273.7 candidates
 hold 2,671 of them. Read clean counts and per-fixture changes, not only the

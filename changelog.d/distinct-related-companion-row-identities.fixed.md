@@ -1,0 +1,1 @@
+Keep anonymous rows from different companion relations on distinct entity IDs in the CLI caller, preserving single-relation IDs and relation aliases. This prevents unrelated same-kind rows from merging their facts or failing with ambiguous inputs.

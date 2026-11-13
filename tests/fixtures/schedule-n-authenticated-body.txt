@@ -1,0 +1,127 @@
+Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+
+T P -1. D. N-V (2025-12)
+T
+
+Adjustment of Investment Expenses
+A
+
+10
+
++ 12
++ 14
++ 16
+=
+
+18
+
+Investment income
+
+Dividends from taxable Canadian corporations (line 128 of your return)
+Interest and other investment income (line 130 of your return)
+Income from a partnership of which you were a specified member
+(included on line 29 of Schedule L or on line 136 of your return)
+Income accrued under a life insurance policy, RL-3 slip, box J
+Recovery of resource deductions (see line 154, point 11, in the guide)
+multiplied by 50%
+Ordinary annuities, RL-2 slip, box B,
+if code “RO” appears in the “Provenance des revenus” box
+Other property income allocated by a trust and property income allocated
+to shareholders
+Taxable capital gains (see line 260 in the guide)
+Add lines 20 through 34.
+Subtract line 36 from line 18. If the result is negative, enter 0.
+Carry the result to line 260 of your return.
+
+C
+
+N
+
+Investment expenses
+
+Loss from a partnership of which you were a specified member
+(included on line 29 of Schedule L or on line 136 of your return)
+Carrying charges and interest expenses (line 231 of your return)
+Deduction for exploration and development expenses (see line 260 in the guide)
+Other expenses incurred to earn property income
+(see line 260 in the guide)
+Add lines 10 through 16.
+
+B
+
+SCHEDULE
+
+20
+
++ 22
++ 24
++ 26
++ 28
++ 30
++ 32
++ 34
+=
+
+36
+
+Adjustment of investment expenses = 40
+
+Other investment expenses
+
+Complete this part only if you entered an amount on lines 289 and 290 of your return.
+Limited partnership loss
+(included on line 289 of your return)
+Net capital losses from other years (see line 276, point 9, in the guide)
+Add lines 50 and 52.
+Amount from line 36 above
+Amount from line 18 above
+Subtract line 58 from line 56. If the result is negative, enter 0.
+Subtract line 60 from line 54. If the result is negative, enter 0.
+Carry the result to line 276 of your return.
+
+D
+
+50
+
++ 52
+=
+
+54
+
+56
+
+– 58
+60
+
+Adjustment of other investment expenses = 64
+
+Amount that can be carried forward
+
+Unused portion of the adjustment of investment expenses (see line 252 in the guide)
+Amount from line 40 above
+Amount from line 64 above
+Add lines 70 through 74.
+Amount from line 252 of your 2025 return
+Subtract line 78 from line 76.
+
+
+Enclose this schedule with your return.
+If you want to keep a copy for your records, see the guide.
+
+70
+
++
++
+=
+–
+
+72
+74
+76
+78
+
+Amount that can be carried forward = 80
+
+Y4N1 ZZ 89527849
+
+N
