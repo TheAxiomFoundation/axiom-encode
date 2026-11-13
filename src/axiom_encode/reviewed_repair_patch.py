@@ -67,6 +67,26 @@ class ReviewedPatchRegistration:
 
 REVIEWED_REPAIR_PATCHES = MappingProxyType(
     {
+        "issue233-ca-t2036-2025-39337066830": ReviewedPatchRegistration(
+            commit="cdb71fff53a581b5e520e7fa74abdf8f798a9895",
+            members=(
+                (
+                    "ccedc03ab3cb6731347e6c2a47560911bb1b7d5f",
+                    "c5d99514b1c7042a14491ddcfbfb6debbe7636c539771502139274bfb2cfa850",
+                    5923,
+                ),
+                (
+                    "b0ea800a3ca6d6e18026a827d020fc1e521a5705",
+                    "96ba3d5a899d790de9c35e3d37d336f93f914af9b8ac6904c6ec1e3d9ac0061b",
+                    58163,
+                ),
+                (
+                    "a7a7b17b3c3b4084be3ed4011711e3d4543dffb4",
+                    "63af0f90f56b2f22ab229b115f5a74d67781b60ee3f6251684b72b0359c9d074",
+                    142528,
+                ),
+            ),
+        ),
         "issue233-ca-nl479-2025-43477826390": ReviewedPatchRegistration(
             commit="5e307f8b41044e9f8fbb61896b1861964824169a",
             members=(
