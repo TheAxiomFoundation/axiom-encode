@@ -51,6 +51,7 @@ from axiom_encode.concepts.registry import (
     load_concept_registry,
 )
 from axiom_encode.constants import (
+    OPENAI_AUTHORING_OUTPUT_LIMITS,
     RULESPEC_ATOMIC_MODULE_ROOTS,
     RULESPEC_COMPOSITION_SPEC_ROOT,
     RULESPEC_FILE_SUFFIX,
@@ -11902,6 +11903,8 @@ Existing canonical replacement baseline (not a rejected generated candidate):
   restores omitted named objects from this baseline before normal validation.
   Re-emitting a name replaces that entire object: preserve its other formulas,
   dates, proof atoms and expectations unless the requested repair requires it.
+- A retained `module.proof_validation.required: true` is preserved when omitted
+  and cannot be disabled by the replacement.
 - Do not regenerate a shortened substitute. All normal source, proof, runtime,
   completeness and signature requirements still apply. Existing validity never
   skips generation or validates the repaired result.
@@ -11940,7 +11943,9 @@ companion test file required by the task and deterministic validation.
             "- Return syntactically complete RuleSpec and companion test YAML, but "
             "you may omit unchanged named units, named inputs, named rules, imports, deferred "
             "outputs, and named companion cases. The encoder overlays those "
-            "omitted items from the hash-bound candidate before validation. Re-emit "
+            "omitted items from the hash-bound candidate before validation. "
+            "A retained `module.proof_validation.required: true` is restored when "
+            "omitted and cannot be disabled by the repair. Re-emit "
             "the complete item only when changing or replacing it. To remove an "
             "obsolete named unit, input, rule, or companion case from this rejected "
             "candidate, emit an exact YAML item containing only "
@@ -16759,7 +16764,9 @@ def _run_codex_prompt_eval(
         str(workspace.root),
         "-s",
         "read-only",
-        prompt,
+        # The prompt goes on stdin ("-"), not argv: a large source text as one
+        # argument fails exec with E2BIG before Codex starts.
+        "-",
     ]
 
     start = time.time()
@@ -16769,6 +16776,11 @@ def _run_codex_prompt_eval(
     timeout_reason = None
     triggering_timeout_seconds: float | None = None
     with (
+        # A seekable file, not a pipe: nothing has to feed the child while the
+        # wait loop below polls it, so a full pipe cannot block the timeouts.
+        tempfile.TemporaryFile(
+            mode="w+", encoding="utf-8", errors="surrogateescape"
+        ) as prompt_stdin,
         tempfile.TemporaryDirectory(prefix="axiom-codex-home-") as codex_home_dir,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stdout_file,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,
@@ -16778,9 +16790,12 @@ def _run_codex_prompt_eval(
         codex_env["CODEX_HOME"] = str(codex_home)
         stdout_path = Path(stdout_file.name)
         stderr_path = Path(stderr_file.name)
+        prompt_stdin.write(prompt)
+        prompt_stdin.flush()
+        prompt_stdin.seek(0)
         process = subprocess.Popen(
             cmd,
-            stdin=subprocess.DEVNULL,
+            stdin=prompt_stdin,
             stdout=stdout_file,
             stderr=stderr_file,
             text=True,
@@ -17239,6 +17254,8 @@ def _extract_openai_response_text(payload: dict) -> str:
 
 
 def _openai_prompt_max_output_tokens(model: str) -> int:
+    if model in OPENAI_AUTHORING_OUTPUT_LIMITS:
+        return OPENAI_AUTHORING_OUTPUT_LIMITS[model]
     if any(
         model == prefix or model.startswith(f"{prefix}-")
         for prefix in _OPENAI_EXTENDED_OUTPUT_MODEL_PREFIXES
@@ -17728,8 +17745,18 @@ def _run_openai_prompt_eval(
         ((usage.get("output_tokens_details") or {}).get("reasoning_tokens", 0) or 0)
     )
 
+    incomplete = payload.get("status") == "incomplete"
+    incomplete_details = payload.get("incomplete_details") or {}
+    incomplete_reason = (
+        incomplete_details.get("reason", "unspecified")
+        if isinstance(incomplete_details, dict)
+        else "unspecified"
+    )
     return EvalPromptResponse(
-        text=_extract_openai_response_text(payload),
+        text="" if incomplete else _extract_openai_response_text(payload),
+        error=(
+            f"OpenAI response incomplete: {incomplete_reason}" if incomplete else None
+        ),
         duration_ms=duration_ms,
         tokens=tokens,
         estimated_cost_usd=estimate_usage_cost_usd(runner.model, tokens),
@@ -19767,6 +19794,44 @@ def _repair_overlay_candidate_base_issue(
     return None
 
 
+def _preserve_repair_proof_requirement(
+    generated: dict, preserved: dict
+) -> tuple[str, ...]:
+    """Keep an integrity-bound strict-proof requirement through partial repairs."""
+    retained_module = preserved.get("module")
+    if (
+        not isinstance(retained_module, dict)
+        or "proof_validation" not in retained_module
+    ):
+        return ()
+    retained_proof = retained_module["proof_validation"]
+    if not isinstance(retained_proof, dict) or (
+        "required" in retained_proof and type(retained_proof["required"]) is not bool
+    ):
+        raise _PreservedRepairOverlayError(
+            "preserved repair module.proof_validation must be a mapping with a Boolean required value"
+        )
+    if retained_proof.get("required") is not True:
+        return ()
+
+    module = generated.get("module", {})
+    if not isinstance(module, dict):
+        raise ValueError(
+            "repair cannot replace a strict-proof module with a nonmapping"
+        )
+    proof = module.get("proof_validation", {})
+    if not isinstance(proof, dict) or (
+        "required" in proof and proof["required"] is not True
+    ):
+        raise ValueError(
+            "repair cannot disable retained module.proof_validation.required"
+        )
+    if proof.get("required") is True:
+        return ()
+    generated["module"] = {**module, "proof_validation": {**proof, "required": True}}
+    return ("module:proof_validation.required",)
+
+
 @timed_phase(PHASE_REPAIR_OVERLAY)
 def _overlay_validation_retry_candidate(
     rulespec_file: Path,
@@ -19814,7 +19879,7 @@ def _overlay_validation_retry_candidate(
             "preserved repair overlay RuleSpec must be a YAML mapping"
         )
 
-    repairs: list[str] = []
+    repairs: list[str] = list(_preserve_repair_proof_requirement(generated, preserved))
     generated_imports = generated.get("imports", [])
     preserved_imports = preserved.get("imports", [])
     if not isinstance(generated_imports, list) or not isinstance(
