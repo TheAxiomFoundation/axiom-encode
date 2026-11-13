@@ -1,3 +1,11 @@
+## 0.2.2367
+
+- Apply exact registered repairs through protected validation (#1963)
+- Publish signed RuleSpec PRs onto a main tip that moved only through plumbing (#1892)
+- Require Encoding-Target and Fixes-Run lines in every PR body (#2156)
+- Add content-bound merge guard evaluator (inactive, #2172) (#2204)
+- Declare the validation effect in automated version-bump PRs (#2197)
+
 ## 0.2.2366
 
 - Bind Canadian form and Schedule M obligations to observed execution (#2083)
