@@ -1,0 +1,12 @@
+{
+  "attempt_count": 4,
+  "citation": "il/statute/national-insurance-law-1995/schedule-a1/sign-4",
+  "encoder_version": "0.2.2311",
+  "issues": [
+    "statutes/national-insurance-law-1995/schedule-a1/sign-4.yaml: ci: Ungrounded generated numeric literal: 6 does not appear as a substantive numeric value in the source text."
+  ],
+  "path": "statutes/national-insurance-law-1995/schedule-a1/sign-4.yaml",
+  "rulespec_sha256": "ef4cd2e5fd1a1aeba287694dbdf4037a0a2d0f4d5ae78b44409fc74062b8e6fd",
+  "schema": "axiom-encode/failed-encode-candidate/v1",
+  "tests_sha256": "be53cdc6714ecfc2d653e2f41787c9a4e2be2bd1aea3b55d91ff6be53a1f8091"
+}

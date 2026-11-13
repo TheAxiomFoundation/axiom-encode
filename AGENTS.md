@@ -14,6 +14,7 @@
 - A blocker permits stopping the cycle, but it does not permit merging with unresolved actionable findings unless the PR records an explicit user or maintainer override.
 - Apply this even to prompt, oracle, harness, and validation changes. For docs-only changes, run a lightweight cycle and record the cycle outcome and checks in the PR description or final handoff comment.
 - Do not merge encoder PRs while CI is red, stale, or still pending unless the user explicitly overrides that for an emergency.
+- Every PR that fixes a validator false positive adds its failing candidate as a fixture in `tests/fixtures/us_replay_benchmark/` (public sources only; held-out cases, hand labels and private-corpus sources such as 12 CFR 1005/1006 never enter the repository), rewrites `snapshot.json` with `scripts/replay_us_failure_bundles.py snapshot --base-ref origin/main`, and explains in the PR body every change to other fixtures' findings. The required `replay benchmark` check fails on a replay error, on a clean fixture or control that becomes refused without a recorded reason, and on any finding that differs from the committed snapshot. See `docs/us-replay-benchmark.md`.
 
 ## Local Checks
 

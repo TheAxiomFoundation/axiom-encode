@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2026-06-26",
+    "generation_input_sha256": "ee15c76186b3533e280082826ffae74cdb24481ca30ae9e4fa7610410dd723f1",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-05-oasdi-title-ii-title-42-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "0cf626cb1e45e8f187450ec657071f7e97dae35fc213d8135d02fde2f369b14d",
+    "requested_corpus_citation_path": "us/statute/42/416/l",
+    "resolved_corpus_citation_path": "us/statute/42/416/l",
+    "resolved_text_sha256": "ee15c76186b3533e280082826ffae74cdb24481ca30ae9e4fa7610410dd723f1",
+    "row": {
+      "body_sha256": "ee15c76186b3533e280082826ffae74cdb24481ca30ae9e4fa7610410dd723f1",
+      "citation_path": "us/statute/42/416/l",
+      "document_class": "statute",
+      "expression_date": "2026-06-26",
+      "jurisdiction": "us",
+      "line_number": 273,
+      "provision_file": "data/corpus/provisions/us/statute/2026-07-05-oasdi-title-ii-title-42-r2026-07-17-dedup.jsonl",
+      "provision_file_sha256": "0cf626cb1e45e8f187450ec657071f7e97dae35fc213d8135d02fde2f369b14d",
+      "record_id": "088bf919-4d4d-5db2-b791-83d0af4c11c1",
+      "source_as_of": "2026-06-26",
+      "source_path": "sources/us/statute/2026-07-05-oasdi-title-ii-title-42-r2026-07-17-dedup/uslm/usc42.xml",
+      "version": "2026-07-05-oasdi-title-ii-title-42-r2026-07-17-dedup"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us",
+    "source_as_of": "2026-06-26",
+    "source_sha256": "ee15c76186b3533e280082826ffae74cdb24481ca30ae9e4fa7610410dd723f1"
+  }
+}

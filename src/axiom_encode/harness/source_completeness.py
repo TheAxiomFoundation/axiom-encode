@@ -22,8 +22,10 @@ import itertools
 import math
 import re
 import textwrap
+import unicodedata
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 from datetime import date
 from decimal import (
     ROUND_CEILING,
@@ -66,6 +68,7 @@ from axiom_encode.harness.partnership_reporting_evidence import (
     certify_partnership_reporting,
 )
 from axiom_encode.harness.proof_validator import (
+    WRAP_SPACE_FRAGMENT,
     _normalize_atom_path,
     _source_proof_evidence_spans,
 )
@@ -174,6 +177,12 @@ class SourceStructureBranch:
     structural_numeric_spans: tuple[tuple[int, int], ...] = ()
     computation_chapeaux: tuple[tuple[int, int, str], ...] = ()
     required_principal_output: str | None = None
+    # Printed-case designations for `path` (`("a", "6", "i", "A")` for the
+    # lowercased `("a", "6", "i", "a")`). Display only: excluded from equality
+    # and hashing, and ignored unless it still spells `path`.
+    display_path: tuple[str, ...] | None = dataclass_field(
+        default=None, compare=False, repr=False
+    )
 
     @property
     def computation_chapeau(self) -> tuple[int, int, str] | None:
@@ -535,6 +544,55 @@ _GERMAN_CARDINAL_VALUES = {
     "zehn": 10.0,
 }
 _SLASH_CONJUNCTION = re.compile(r"\b(?:and\s*/\s*or|und\s*/\s*oder)\b", re.IGNORECASE)
+_VULGAR_FRACTION_CHARS = f"{chr(0xBC)}-{chr(0xBE)}{chr(0x2150)}-{chr(0x215E)}"
+# Every separator `str.splitlines` treats as a line boundary, not only `\n`.
+_LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
+# Any whitespace on one line: spaces of any width, tabs and U+001F.
+_SAME_LINE_SPACE = rf"[^\S{_LINE_BREAK_CHARS}]"
+# Spaces of any width and tabs, without U+001F. The numeric extractor's
+# mixed-number patterns for "%" and for the fraction slash (U+2044) spell out the
+# same class; its pattern for a mixed number before "per cent" takes any
+# whitespace.
+_INLINE_SPACE = r"[ \t\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]"
+# A mixed percentage is one numeral. The slash of "2 6/7 per cent" divides
+# nothing, and its whole number, numerator and denominator state no amounts of
+# their own. Each alternative below matches a mixed number where the numeric
+# extractor, on one line, reads it whole:
+# - a fraction written with "/" before "%" across spaces or one line wrap, after
+#   an _INLINE_SPACE gap;
+# - a fraction written with "/" before "percent", "percentage", "per cent" or
+#   "per centum" after a hyphen or any whitespace, blank lines included, after a
+#   _SAME_LINE_SPACE gap, with any _SAME_LINE_SPACE between "per" and "cent";
+# - a fraction written with the fraction slash (U+2044) after an _INLINE_SPACE
+#   gap, before any marker or none, since that slash only typesets fractions;
+# - a vulgar fraction before a word marker, after any _SAME_LINE_SPACE or none.
+# The slash mask (_without_digit_mixed_percentage_slashes) and the collapse in
+# _formula_branch_computation_occurrences share the "/" alternatives, so on a
+# numeral written with "/" they agree: where the mask hides the slash, the gate
+# keeps none of the numeral's parts, and where it leaves the slash, the collapse
+# drops none of them. Across a line break the extractor reads a mixed number
+# before a word marker whole, but the gate keeps its slash and its parts, since
+# the number before the break may stand alone; so does a numeral before "per"
+# and "cent" on two lines. Corpora under de/ and dk/ keep the parts, because the
+# extractor reads "2 6/7 %" there as separate numbers.
+_PERCENT_SIGN_MARKER = rf"(?=(?:{WRAP_SPACE_FRAGMENT})*%)"
+_PERCENT_WORD_MARKER = (
+    rf"(?=(?:\s+|-)(?:percent(?:age)?|per{_SAME_LINE_SPACE}+cent(?:um)?)\b)"
+)
+_DIGIT_MIXED_PERCENTAGE_NUMERAL = (
+    rf"\d+(?:{_INLINE_SPACE}+\d+/\d+{_PERCENT_SIGN_MARKER}|"
+    rf"{_SAME_LINE_SPACE}+\d+/\d+{_PERCENT_WORD_MARKER})"
+)
+_DIGIT_MIXED_PERCENTAGE = re.compile(
+    rf"(?<![\d/.,]){_DIGIT_MIXED_PERCENTAGE_NUMERAL}",
+    flags=re.IGNORECASE,
+)
+_WHOLE_MIXED_NUMERAL = re.compile(
+    rf"(?<![\d/.,])(?:{_DIGIT_MIXED_PERCENTAGE_NUMERAL}|"
+    rf"\d+{_INLINE_SPACE}+\d+\s*{chr(0x2044)}\s*\d+|"
+    rf"\d+{_SAME_LINE_SPACE}*[{_VULGAR_FRACTION_CHARS}]{_PERCENT_WORD_MARKER})",
+    flags=re.IGNORECASE,
+)
 # Agency-manual typography that the arithmetic recognizer would otherwise read
 # as operators: a month/year date (every page header of the Oregon eligibility
 # notebook reads "93 (07/2026)"; `1/2000 of income` stays a fraction), web
@@ -566,6 +624,12 @@ _TYPOGRAPHY_MASK = "\x00"
 # prompt coverage index of a US manual citation path.
 _US_MANUAL_PROSE_SCOPE: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "_US_MANUAL_PROSE_SCOPE", default=False
+)
+# Whether a word states a condition can depend on the corpus: "falls" means "if"
+# in German and is a verb in English. `_condition_cue_scope` names the citation
+# path of the text the condition-cue reader sees. An empty path names no corpus.
+_CONDITION_CUE_CITATION_PATH: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "_CONDITION_CUE_CITATION_PATH", default=""
 )
 _MANUAL_WORD_SLASH = re.compile(r"(?<=[A-Za-z])[ \t]*/[ \t]*(?=[A-Za-z])")
 # A text that states an equation or a division keeps its slashes and dashes,
@@ -1483,6 +1547,16 @@ _SAME_ACT_SECTION_DEPENDENCY = re.compile(
     r"\bsection\s+(?P<section>\d+[a-z]?)\s+of\s+(?P<act>this|the)\s+act\b",
     flags=re.IGNORECASE,
 )
+# Corpus document classes whose "section N of this act" can name a section of
+# the source's own enactment: statutes (codes and session laws), enacted
+# legislation (acts and bills), and guidance law compilations that reproduce
+# an act. In regulations, policies, manuals
+# and forms, "the Act" is a defined term for a separate, codified enabling
+# statute (42 CFR "section 1927 of the Act" is 42 U.S.C. 1396r-8), so a
+# reason naming it is not a same-act dependency.
+_SAME_ACT_SELF_REFERENCE_DOCUMENT_CLASSES = frozenset(
+    {"statute", "legislation", "guidance"}
+)
 _USC_DEFERRAL_DEPENDENCY = re.compile(
     r"\b(?P<title>\d+)\s+U\.?\s*S\.?\s*C\.?(?:\s*[,;:])?\s*"
     r"(?:(?:§{1,2}|sections?)\s*)?"
@@ -2255,6 +2329,80 @@ _ENGLISH_LEGAL_CITATION = re.compile(
     r"\d+(?:\.\d+)*(?:\s*(?:through|to|[-–—]|and|,)\s*\d+(?:\.\d+)*)*",
     flags=re.IGNORECASE,
 )
+# A coordinated list of titled references, as UK instruments print them:
+# "regulation 15 (persons not entitled to council tax reduction: absentees),
+# regulation 16 (...) or 19 (...)". _ENGLISH_LEGAL_CITATION removes each
+# keyword-led item, but its number list stops at the title, so a keyword-less
+# item such as that 19 stayed behind as an amount.
+#
+# A title names a provision. A parenthesis counts as one only when space on the
+# item's own line separates it from the number and it opens with a letter; it
+# may hold parenthesized pairs one level deep ("(... to whom regulation 14(6)
+# does not apply)"). These never count, so their item keeps its number: a bare
+# subdivision marker ("5 (a)"), a parenthesis glued to its number ("5(a)"), one
+# that opens with a number word and restates an amount ("19 (nineteen) weeks"),
+# and one that opens with a word carrying on the amount or limiting the
+# reference ("19 (or more) weeks", "500 (per annum)", "5 (except paragraph 2)").
+# A parenthesis left open reaches to some later close, so one that holds a full
+# stop or semicolon and space before a capital letter or opening parenthesis,
+# or runs past 300 characters, counting a nested pair as one, doesn't count
+# either. A list ends at its first untitled item: in "regulation 15 (absentees)
+# or 19 weeks" the 19 stays.
+_ENGLISH_REFERENCE_KEYWORD = (
+    r"(?:articles?|sections?|secs?\.?|regulations?|paragraphs?|"
+    r"sub-?paragraphs?|subsections?|parts?|chapters?|schedules?)"
+)
+_ENGLISH_NON_TITLE_OPENING = (
+    r"(?:or|and|but|plus|minus|less|per|for|up\s+to|at\s+(?:least|most)|"
+    r"(?:not|no)\s+(?:more|less|fewer|exceeding)|more\s+than|except|excluding|"
+    r"with\s+the\s+exception\s+of|other\s+than|only\s+if|provided\s+that|unless|"
+    r"if|subject\s+to|notwithstanding|save|apart\s+from|read\s+with|"
+    r"as\s+modified\s+by|which\s+does\s+not\s+apply|so\s+far\s+as|"
+    r"in\s+so\s+far\s+as|insofar\s+as|to\s+the\s+extent|where)"
+)
+# The title patterns compile with IGNORECASE, so the capital that starts a
+# sentence needs its own case-sensitive group.
+_ENGLISH_TITLE_CHARACTER = r"(?![.;]\s+(?-i:[(A-Z]))[^()]"
+# Vulgar fractions count as word characters, and one opens an amount.
+_ENGLISH_REFERENCE_TITLE = (
+    rf"\((?=[^\W\d_{_VULGAR_FRACTION_CHARS}])"
+    r"(?!(?:[a-z]|[ivxlcdm]+)\))"
+    rf"(?!(?:{_ENGLISH_NUMBER_WORD}|{_ENGLISH_NON_TITLE_OPENING})\b)"
+    rf"(?:{_ENGLISH_TITLE_CHARACTER}|\((?:{_ENGLISH_TITLE_CHARACTER})*\))"
+    r"{1,300}\)"
+)
+_ENGLISH_TITLE_GAP = rf"[^\S{_LINE_BREAK_CHARS}]+"
+_ENGLISH_TITLED_REFERENCE_ITEM = (
+    rf"\d+[A-Za-z]*{_ENGLISH_TITLE_GAP}{_ENGLISH_REFERENCE_TITLE}"
+)
+# A number on the same line or one of these units right after the last title
+# makes that item an amount with an aside ("12 (in the case of a couple, 24)
+# months", "1 (January) 2020"). The possessive repeat stops the pattern from
+# falling back to the items before it.
+_ENGLISH_AMOUNT_AFTER_TITLE = (
+    rf"[^\S{_LINE_BREAK_CHARS}]*+\d|\s*+(?:per\s*cent(?:um)?\b|%|"
+    r"(?:week|month|year|day|hour|pound|dollar|euro|cent)s?\b|"
+    r"penn(?:y|ies)\b|pence\b)"
+)
+_ENGLISH_TITLED_REFERENCE_LIST = re.compile(
+    rf"\b{_ENGLISH_REFERENCE_KEYWORD}\s+{_ENGLISH_TITLED_REFERENCE_ITEM}"
+    r"(?:\s*(?:,\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)"
+    rf"(?:{_ENGLISH_REFERENCE_KEYWORD}\s+)?{_ENGLISH_TITLED_REFERENCE_ITEM})++"
+    rf"(?!{_ENGLISH_AMOUNT_AFTER_TITLE})",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_TITLED_REFERENCE_ITEM_TITLE = re.compile(
+    rf"(?P<keyword>{_ENGLISH_REFERENCE_KEYWORD}\s+)?(?P<number>\d+[A-Za-z]*)"
+    rf"{_ENGLISH_TITLE_GAP}(?P<title>{_ENGLISH_REFERENCE_TITLE})",
+    flags=re.IGNORECASE,
+)
+# One titled reference, which may name a subdivision first: "regulation 14(6)
+# (title)".
+_ENGLISH_TITLED_REFERENCE = re.compile(
+    rf"\b{_ENGLISH_REFERENCE_KEYWORD}\s+\d+[A-Za-z]*(?:\([^()\s]{{1,8}}\))*"
+    rf"[^\S{_LINE_BREAK_CHARS}]*(?P<title>{_ENGLISH_REFERENCE_TITLE})",
+    flags=re.IGNORECASE,
+)
 # A complete parenthesis containing only a Statutes at Large volume/page
 # reference is bibliographic metadata. Do not accept dollar signs, ranges,
 # additional text, or a citation split across lines.
@@ -2262,6 +2410,495 @@ _STATUTES_AT_LARGE_NUMERIC_RECALL_CITATION = re.compile(
     r"\([ \t]*[1-9]\d{0,3}[ \t]+Stat\.[ \t]+[1-9]\d{0,5}[ \t]*\)",
     flags=re.IGNORECASE,
 )
+# US bibliographic locators that numeric recall reads as values. Each grammar
+# matches one complete citation on one line; its `locator_*` groups are the
+# locator numbers. Recall does not rewrite the text: the numeric inventory is
+# tokenized exactly as before, and an occurrence is dropped only when it lies
+# wholly inside a locator group of a citation whose context is bibliographic
+# (`_us_locator_context_is_bibliographic`) and a re-read with the locator
+# numbers blanked agrees on every other occurrence
+# (`numeric_occurrences_without_us_bibliographic_locators`). No other
+# occurrence can change value, sign, text, position or context, and none can
+# be added.
+_US_LOCATOR_DASHES = "\u2010\u2011\u2012\u2013\u2014\u2015\u2212-"
+_US_LOCATOR_INVISIBLES = "\u00ad\u200b\u200c\u200d\u2060\ufeff"
+# Currency, percentage, sign and arithmetic/comparison marks bind a number to
+# its neighbour, as do invisible formatting characters.
+_US_LOCATOR_NUMERIC_MARKS = (
+    "$£€¢%‰+*/×÷·^=<>≤≥" + _US_LOCATOR_DASHES + _US_LOCATOR_INVISIBLES
+)
+# A list connector may join a citation to further prose (`62 FR 61344 and
+# the rule`); an arithmetic word makes a neighbouring number an operand.
+_US_LOCATOR_LIST_CONNECTORS = frozenset({"and", "or", "to", "through", "&"})
+_US_LOCATOR_ARITHMETIC_WORDS = frozenset(
+    {"plus", "minus", "less", "times", "by", "x", "of", "per", "each"}
+)
+_US_LOCATOR_CONNECTORS = _US_LOCATOR_LIST_CONNECTORS | _US_LOCATOR_ARITHMETIC_WORDS
+# A comparator or quantity word before a citation that starts with a number
+# makes that number a threshold or amount (`under 6 FR 1,200`, `less than 2
+# Fed. Reg. 150`, `equal 100 Fed. Reg. 500`), so the citation keeps main's
+# inventory.
+_US_LOCATOR_PRECEDING_QUANTITY_WORDS = frozenset(
+    {
+        "about",
+        "above",
+        "additional",
+        "age",
+        "aged",
+        "approximately",
+        "around",
+        "below",
+        "beyond",
+        "equal",
+        "equaling",
+        "equalling",
+        "equals",
+        "exceed",
+        "exceeded",
+        "exceeding",
+        "exceeds",
+        "first",
+        "last",
+        "least",
+        "max",
+        "maximum",
+        "min",
+        "minimum",
+        "most",
+        "nearly",
+        "next",
+        "over",
+        "than",
+        "total",
+        "totaling",
+        "totalling",
+        "under",
+        "up",
+        "upto",
+        "within",
+    }
+)
+# Words that may follow a citation without turning one of its numbers into a
+# quantity: function words, month names (`62 FR 61344, Nov. 17, 1997`) and
+# the verbs that U.S. Code, CFR and Federal Register prose attaches to a
+# citation. Articles and `for`/`of` are excluded (`61344 a month`, `100 for
+# each member`, `100 of the households`). `applica` and `appli` are the first
+# halves of `applica- ble` and `appli- cable` hyphenated across a line in the
+# scanned 1976 U.S. Code edition.
+_US_LOCATOR_FOLLOWING_WORDS = frozenset(
+    {
+        "are",
+        "as",
+        "at",
+        "be",
+        "been",
+        "from",
+        "had",
+        "has",
+        "have",
+        "in",
+        "is",
+        "on",
+        "shall",
+        "that",
+        "the",
+        "under",
+        "was",
+        "were",
+        "which",
+        "with",
+        "jan",
+        "january",
+        "feb",
+        "february",
+        "mar",
+        "march",
+        "apr",
+        "april",
+        "may",
+        "jun",
+        "june",
+        "jul",
+        "july",
+        "aug",
+        "august",
+        "sep",
+        "sept",
+        "september",
+        "oct",
+        "october",
+        "nov",
+        "november",
+        "dec",
+        "december",
+        "added",
+        "amended",
+        "amending",
+        "appli",
+        "applica",
+        "applicable",
+        "applied",
+        "applies",
+        "apply",
+        "approved",
+        "designated",
+        "div",
+        "effective",
+        "enacted",
+        "inserted",
+        "issued",
+        "means",
+        "provided",
+        "provides",
+        "published",
+        "redesignated",
+        "relating",
+        "repealed",
+        "see",
+        "set",
+        "struck",
+        "subtitle",
+        "substituted",
+        "title",
+    }
+)
+_US_LOCATOR_DASH_CLASS = r"[\u2010-\u2015\u2212\-]"
+# `62 FR 61344` and `90 Fed. Reg. 27074` cite a Federal Register volume and
+# page. The marker is case-sensitive, so `CFR` and lower-case prose never
+# match.
+_FEDERAL_REGISTER_NUMERIC_RECALL_CITATION = re.compile(
+    r"(?P<locator_volume>[1-9][0-9]{0,2})[ \t]+(?:FR|Fed\.[ \t]*Reg\.)[ \t]+"
+    r"(?P<locator_page>[1-9][0-9]{0,2}(?:,[0-9]{3})+|[1-9][0-9]{0,5})",
+    flags=re.ASCII,
+)
+# `Pub. L. 111-226` names the 226th public law of the 111th Congress. Main
+# already removes the `Public Law` and `P.L.` spellings of the same
+# identifier; this is the U.S. Code's own abbreviation.
+_PUB_L_NUMERIC_RECALL_CITATION = re.compile(
+    r"\bPub\.[ \t]*L\.[ \t]*(?:No\.[ \t]*)?"
+    r"(?P<locator_law>[1-9][0-9]{0,2}[ \t]*"
+    + _US_LOCATOR_DASH_CLASS
+    + r"[ \t]*[1-9][0-9]{0,3})",
+    flags=re.ASCII,
+)
+# A U.S. Code editorial note recording that a paragraph was repealed,
+# omitted or transferred: `Repealed. Pub. L. 111-226, title II, § 219(a)(2),
+# Aug. 10, 2010, 124 Stat. 2403`. Every element must belong to the note
+# grammar (division, title, subtitle, section designators, the enactment date
+# and the Statutes at Large volume/pages), and the note must end at a
+# bracket, a sentence end or the end of the line. The recall view has already
+# removed `§ 219`, leaving `(a)(2)`. Only the public-law number and the
+# Statutes at Large volume/pages are locator groups; the section designators
+# and the date keep main's handling. An unparenthesized `124 Stat. 2403`
+# outside such a note keeps its values.
+_US_SESSION_LAW_MONTH_ABBREVIATION = (
+    r"(?:Jan|Feb|Mar|Apr|May|June|July|Aug|Sept|Oct|Nov|Dec)\.?"
+)
+_US_CODE_NOTE_SECTION = r"[0-9]{1,5}[A-Za-z]?(?:\([A-Za-z0-9]{1,5}\)){0,6}"
+_US_CODE_NOTE_ELEMENT = (
+    r"(?:div\.[ \t]+[A-Z]{1,2}|(?:sub)?title[ \t]+[IVXL]{1,6}|"
+    rf"§[ \t]*{_US_CODE_NOTE_SECTION}|"
+    rf"§§[ \t]*{_US_CODE_NOTE_SECTION}"
+    rf"(?:[ \t]*(?:,|and)[ \t]*{_US_CODE_NOTE_SECTION}){{1,8}}|"
+    r"(?:\([A-Za-z0-9]{1,5}\)){1,6})"
+)
+_US_CODE_DISPOSITION_NOTE_NUMERIC_RECALL_CITATION = re.compile(
+    r"(?:(?P<bracket>\[)[ \t]*(?:\([A-Za-z0-9]{1,5}\)[ \t]*)?)?"
+    r"(?<!\w)(?:Repealed|Omitted|Transferred)\.[ \t]+Pub\.[ \t]*L\.[ \t]*"
+    r"(?P<locator_law>[1-9][0-9]{0,2}" + _US_LOCATOR_DASH_CLASS + r"[1-9][0-9]{0,3})"
+    rf"(?:[ \t]*,[ \t]*{_US_CODE_NOTE_ELEMENT}){{0,6}}"
+    rf"[ \t]*,[ \t]*{_US_SESSION_LAW_MONTH_ABBREVIATION}[ \t]+[0-9]{{1,2}},"
+    r"[ \t]+(?:17|18|19|20)[0-9]{2}[ \t]*,[ \t]*"
+    # Inside a bracketed note a page list (`90 Stat. 1764, 1795`) ends at the
+    # closing bracket. An unbracketed note takes exactly one page, so a
+    # following `, 62` is never read as a page.
+    r"(?(bracket)"
+    r"(?P<locator_bracketed_statutes_at_large>[1-9][0-9]{0,2}[ \t]+Stat\.[ \t]+"
+    r"[1-9][0-9]{0,4}(?:[ \t]*,[ \t]*[1-9][0-9]{0,4}){0,4})"
+    r"(?=[ \t]*\.?[ \t]*\])"
+    r"|"
+    r"(?P<locator_statutes_at_large>[1-9][0-9]{0,2}[ \t]+Stat\.[ \t]+[1-9][0-9]{0,4})"
+    r"(?=[ \t]*(?:\.(?=[ \t]*$|[ \t]+[A-Z(\[])|$)))",
+    flags=re.MULTILINE | re.ASCII,
+)
+# A year inside the title of an amending act (`the Social Security
+# Amendments of 1983`) or in the Railroad Retirement Act's two-year citation
+# (`Railroad Retirement Act of 1937 or 1974`) names a law. The tokenizer
+# already reads `<Title> Act of 1937` this way; these are the two title forms
+# it does not cover. Every title word before `Amendments` is capitalized or a
+# short connector.
+_US_LEGAL_TITLE_YEAR_NUMERIC_RECALL_CITATION = re.compile(
+    r"\b[A-Z][A-Za-z'’.]*(?:-[A-Z][A-Za-z'’.]*)*"
+    r"(?:[ \t]+(?:[A-Z][A-Za-z'’.]*(?:-[A-Z][A-Za-z'’.]*)*"
+    r"|and|of|the|for|on|to|in)){0,10}"
+    r"[ \t]+(?:Amendments[ \t]+of[ \t]+"
+    r"(?P<locator_amendments_year>(?:18|19|20)[0-9]{2})"
+    r"|Act[ \t]+of[ \t]+(?P<locator_first_year>(?:18|19|20)[0-9]{2})[ \t]+or[ \t]+"
+    r"(?P<locator_second_year>(?:18|19|20)[0-9]{2}))",
+    flags=re.ASCII,
+)
+_US_BIBLIOGRAPHIC_NUMERIC_RECALL_LOCATORS = (
+    _US_CODE_DISPOSITION_NOTE_NUMERIC_RECALL_CITATION,
+    _PUB_L_NUMERIC_RECALL_CITATION,
+    _FEDERAL_REGISTER_NUMERIC_RECALL_CITATION,
+    _US_LEGAL_TITLE_YEAR_NUMERIC_RECALL_CITATION,
+)
+_US_LOCATOR_HORIZONTAL_SPACE = re.compile(r"[ \t]*")
+_US_LOCATOR_SPACE = re.compile(r"\s*")
+_US_LOCATOR_WORD = re.compile(r"[A-Za-z]+|&")
+_US_LOCATOR_PREVIOUS_WORD = re.compile(r"(?:(?<![A-Za-z])[A-Za-z]{1,15}|&)$")
+_US_LOCATOR_PREVIOUS_CURRENCY_CODE = re.compile(r"(?<![A-Za-z])[A-Z]{3}$")
+_US_LOCATOR_PARAGRAPH_LABEL = re.compile(
+    r"\((?:[0-9]{1,3}[A-Za-z]?|[A-Za-z]{1,4})\)(?=[ \t]+[A-Za-z(\[\"“])",
+    flags=re.ASCII,
+)
+
+
+def _us_locator_character_is_numeric(character: str) -> bool:
+    """A digit, sign, currency/math symbol or invisible formatting character."""
+
+    return (
+        character.isdigit()
+        or character in _US_LOCATOR_NUMERIC_MARKS
+        or unicodedata.category(character) in {"Sc", "Sm", "Cf"}
+    )
+
+
+def _us_locator_number_starts_at(text: str, index: int) -> bool:
+    """A digit, a numeric mark, or `.5`/`,5`/`(5`, starting at `index`."""
+
+    if index >= len(text):
+        return False
+    character = text[index]
+    if _us_locator_character_is_numeric(character):
+        return True
+    return character in ".,(" and text[index + 1 : index + 2].isdigit()
+
+
+def _us_locator_next_token_is_bibliographic(text: str, position: int) -> bool:
+    """Whether the token at `position` (after a citation) leaves it a locator."""
+
+    if position >= len(text):
+        return True
+    if text[position] == "(":
+        # The next paragraph's label (`(18) any payment`), or a parenthetical
+        # such as `(relating to ...)` or `(Nov. 17, 1997)`; never `(1 + rate)`
+        # or `(x 5)`.
+        if _US_LOCATOR_PARAGRAPH_LABEL.match(text, position):
+            return True
+        word = _US_LOCATOR_WORD.match(text, position + 1)
+        return word is not None and word.group(0).lower() not in _US_LOCATOR_CONNECTORS
+    word = _US_LOCATOR_WORD.match(text, position)
+    if word is None:
+        return False
+    lowered = word.group(0).lower()
+    if lowered in _US_LOCATOR_ARITHMETIC_WORDS:
+        return False
+    if lowered in _US_LOCATOR_LIST_CONNECTORS:
+        following_word = _US_LOCATOR_HORIZONTAL_SPACE.match(text, word.end()).end()
+        return following_word < len(text) and (
+            text[following_word].isalpha() or text[following_word] == "§"
+        )
+    return lowered in _US_LOCATOR_FOLLOWING_WORDS
+
+
+def _us_locator_context_is_bibliographic(text: str, start: int, end: int) -> bool:
+    """Whether nothing around `text[start:end]` can make its numbers operative.
+
+    The citation must not touch a word, number, sign, decimal point, currency
+    or math symbol, or invisible formatting character. Before it, the previous
+    non-space token (looking back across line breaks, at most 64 characters)
+    must not be numeric, a currency code or, for a citation that starts with a
+    number, an arithmetic, comparator or quantity word (`x 62`, `of 62`,
+    `under 62`, `than 62`); a longer gap fails. After
+    it, up to three closing parentheses/brackets are skipped; then a sentence
+    end, the end of the text, or a line break followed by a line that does not
+    open with a number ends the check. Otherwise, after one optional
+    `,`/`;`/`:`, the next token must be the next paragraph's label, a
+    parenthetical that opens with a non-arithmetic word, a list connector
+    (`and`, `or`, `to`, `through`, `&`) followed by a word, or a word from
+    `_US_LOCATOR_FOLLOWING_WORDS`. An arithmetic word (`times`, `x`, `per`,
+    `each`, `of`, ...), a unit such as `percent`, `households` or `Percent`, a
+    number, a sign or a quotation fails. Every look-around is bounded, so the
+    check is constant-time per match.
+    """
+
+    if start > 0:
+        previous = text[start - 1]
+        if (
+            previous.isalnum()
+            or previous in "_.,/"
+            or _us_locator_character_is_numeric(previous)
+        ):
+            return False
+        index = start
+        while index > 0 and text[index - 1].isspace():
+            index -= 1
+            if start - index > 64:
+                return False
+        if index < start and index > 0:
+            window = text[max(0, index - 16) : index]
+            if _us_locator_character_is_numeric(window[-1]):
+                return False
+            if _US_LOCATOR_PREVIOUS_CURRENCY_CODE.search(window):
+                return False
+            previous_word = _US_LOCATOR_PREVIOUS_WORD.search(window)
+            if (
+                text[start].isdigit()
+                and previous_word is not None
+                and previous_word.group(0).lower()
+                in _US_LOCATOR_CONNECTORS | _US_LOCATOR_PRECEDING_QUANTITY_WORDS
+            ):
+                return False
+    if end < len(text):
+        following = text[end]
+        if (
+            following.isalnum()
+            or following == "_"
+            or _us_locator_character_is_numeric(following)
+        ):
+            return False
+        if following in ".," and text[end + 1 : end + 2].isdigit():
+            return False
+    position = _US_LOCATOR_HORIZONTAL_SPACE.match(text, end).end()
+    for _ in range(3):
+        if position < len(text) and text[position] in ")]":
+            position = _US_LOCATOR_HORIZONTAL_SPACE.match(text, position + 1).end()
+    if position >= len(text):
+        return True
+    if text[position] in "\r\n":
+        # A paragraph label such as `(4)` or a word may open the next line; a
+        # number, an amount or `.5` may not.
+        continuation = _US_LOCATOR_SPACE.match(text, position).end()
+        return not _us_locator_number_starts_at(text, continuation)
+    if text[position] == "." and not text[position + 1 : position + 2].isdigit():
+        return True
+    if text[position] in ",;:":
+        position = _US_LOCATOR_HORIZONTAL_SPACE.match(text, position + 1).end()
+    return _us_locator_next_token_is_bibliographic(text, position)
+
+
+def us_bibliographic_locator_spans(
+    text: str, *, corpus_citation_path: str
+) -> tuple[tuple[int, int], ...]:
+    """Spans of the locator numbers of bibliographic US citations in `text`."""
+
+    if not _US_CORPUS_CITATION_PATH.match(corpus_citation_path):
+        return ()
+    spans: list[tuple[int, int]] = []
+    for locator in _US_BIBLIOGRAPHIC_NUMERIC_RECALL_LOCATORS:
+        for match in locator.finditer(text):
+            if not _us_locator_context_is_bibliographic(
+                text, match.start(), match.end()
+            ):
+                continue
+            spans.extend(
+                match.span(name)
+                for name, value in match.groupdict().items()
+                if value is not None and name.startswith("locator_")
+            )
+    return tuple(sorted(set(spans)))
+
+
+def _us_locator_occurrence_key(occurrence: NumericOccurrenceLike) -> tuple[Any, ...]:
+    return (
+        occurrence.value,
+        occurrence.start,
+        occurrence.end,
+        getattr(occurrence, "has_rate_context", None),
+        getattr(occurrence, "has_temporal_context", None),
+        getattr(occurrence, "has_structural_context", None),
+        getattr(occurrence, "requires_rate_context", None),
+        tuple(getattr(occurrence, "alternative_values", ()) or ()),
+        getattr(occurrence, "raw", None),
+        getattr(occurrence, "source_value", None),
+        getattr(occurrence, "is_word_number", None),
+        getattr(occurrence, "requires_month_context", None),
+    )
+
+
+@dataclass(frozen=True)
+class _UsLocatorFilteredInventory:
+    """Main's inventory and, when it is safe, the inventory without locators."""
+
+    occurrences: tuple[NumericOccurrenceLike, ...]
+    kept: tuple[NumericOccurrenceLike, ...]
+    consistent: bool
+
+    @property
+    def dropped(self) -> tuple[tuple[Any, ...], ...]:
+        kept = {id(item) for item in self.kept}
+        return tuple(
+            _us_locator_occurrence_key(item)
+            for item in self.occurrences
+            if id(item) not in kept
+        )
+
+
+def _us_locator_filtered_inventory(
+    text: str,
+    *,
+    corpus_citation_path: str,
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> _UsLocatorFilteredInventory:
+    occurrences = tuple(extract_numeric_occurrences(text))
+    spans = us_bibliographic_locator_spans(
+        text, corpus_citation_path=corpus_citation_path
+    )
+    if not spans:
+        return _UsLocatorFilteredInventory(occurrences, occurrences, False)
+    starts = [start for start, _end in spans]
+    reach: list[int] = []
+    for _start, end in spans:
+        reach.append(max(end, reach[-1]) if reach else end)
+
+    def inside_locator(occurrence: NumericOccurrenceLike) -> bool:
+        # Spans are sorted by start; `reach[i]` is the furthest end among the
+        # first i + 1 spans, so one bisection finds any containing span.
+        index = bisect.bisect_right(starts, occurrence.start) - 1
+        return index >= 0 and reach[index] >= occurrence.end
+
+    kept = tuple(item for item in occurrences if not inside_locator(item))
+    if len(kept) == len(occurrences):
+        return _UsLocatorFilteredInventory(occurrences, occurrences, False)
+    characters = list(text)
+    for start, end in spans:
+        for index in range(start, end):
+            if characters[index].isdigit() or characters[index] in _US_LOCATOR_DASHES:
+                characters[index] = " "
+    reread = tuple(extract_numeric_occurrences("".join(characters)))
+    consistent = [_us_locator_occurrence_key(item) for item in reread] == [
+        _us_locator_occurrence_key(item) for item in kept
+    ]
+    return _UsLocatorFilteredInventory(occurrences, kept, consistent)
+
+
+def numeric_occurrences_without_us_bibliographic_locators(
+    text: str,
+    *,
+    corpus_citation_path: str,
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> tuple[NumericOccurrenceLike, ...]:
+    """Extract `text`'s numeric inventory without US locator numbers.
+
+    The inventory is extracted from `text` unchanged. An occurrence is dropped
+    only when it lies wholly inside a locator's numbers, and only when
+    re-reading the text with those numbers blanked yields exactly the kept
+    occurrences, with the same values, positions and context. The extractor
+    reads some tokens in the light of others (a later `124,000` can collapse
+    into an earlier `124`, a capitalized unit can be absorbed into a title),
+    so when any kept occurrence depends on a locator's digits, the whole
+    inventory is returned unchanged, as on main.
+    """
+
+    inventory = _us_locator_filtered_inventory(
+        text,
+        corpus_citation_path=corpus_citation_path,
+        extract_numeric_occurrences=extract_numeric_occurrences,
+    )
+    return inventory.kept if inventory.consistent else inventory.occurrences
+
+
 _US_CORPUS_CITATION_PATH = re.compile(r"us(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
 # Some US statutes abbreviate a list of U.S. Code references after the first
 # title number: `[42 U.S.C. 301 et seq., 401 et seq., ...]`. The continuation
@@ -2869,13 +3506,48 @@ def _irs_revenue_procedure_structure(
     return tuple(sorted(branches, key=lambda branch: (branch.start, len(branch.path))))
 
 
+def _with_display_paths(
+    branches: Iterable[SourceStructureBranch],
+) -> tuple[SourceStructureBranch, ...]:
+    """Attach printed-case designations (`(A)`, `(I)`) to lowercased paths."""
+
+    branches = tuple(branches)
+    printed: dict[tuple[str, ...], str] = {}
+    for branch in branches:
+        if not branch.path:
+            continue
+        label = re.fullmatch(
+            r"\s*\(?(?P<designation>[A-Za-z0-9]+)[.)]?\s*", branch.label
+        )
+        if label is not None and label.group("designation").lower() == branch.path[-1]:
+            printed.setdefault(branch.path, label.group("designation"))
+    return tuple(
+        replace(
+            branch,
+            display_path=tuple(
+                printed.get(branch.path[: index + 1], component)
+                for index, component in enumerate(branch.path)
+            ),
+        )
+        if branch.path
+        else branch
+        for branch in branches
+    )
+
+
 def recognize_source_structure(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> tuple[SourceStructureBranch, ...]:
-    """Recognize paragraph, list, letter, and glued German sentence markers."""
+    """Recognize paragraph, list, letter, and glued German sentence markers.
+
+    German glued (`1Das`) and explicit (`Satz 2`) sentence markers are German
+    drafting conventions; a U.S. source never numbers its sentences that way,
+    so U.S. corpus paths do not recognize them (`K-40ES`, `42CFR`, `22VAC40`
+    and `Form G-2RP` are not "Satz 40", "Satz 42", "Satz 22" or "Satz 2").
+    """
 
     if _IRS_REVENUE_PROCEDURE_CITATION.fullmatch(corpus_citation_path):
-        return _irs_revenue_procedure_structure(source_text)
+        return _with_display_paths(_irs_revenue_procedure_structure(source_text))
 
     outline = bare_outline(source_text, corpus_citation_path=corpus_citation_path)
     if outline:
@@ -2933,10 +3605,21 @@ def recognize_source_structure(
                     prefix_end,
                 )
             )
-        return tuple(
+        return _with_display_paths(
             sorted(branches, key=lambda branch: (branch.start, len(branch.path)))
         )
+    return _with_display_paths(
+        _recognize_source_structure(
+            source_text,
+            sentence_markers=_US_CORPUS_CITATION_PATH.match(corpus_citation_path)
+            is None,
+        )
+    )
 
+
+def _recognize_source_structure(
+    source_text: str, *, sentence_markers: bool
+) -> tuple[SourceStructureBranch, ...]:
     branches: list[SourceStructureBranch] = []
     paragraph_segments: list[tuple[tuple[str, ...], int, int, str]] = []
     dotted_matches = _qualified_dotted_subsection_matches(source_text)
@@ -3071,13 +3754,24 @@ def recognize_source_structure(
     legacy_marker_offsets = {
         *(match.start() for match in _NUMBER_MARKER.finditer(source_text)),
         *(match.start() for match in _LETTER_MARKER.finditer(source_text)),
-        *(match.start() for match in _GLUED_SENTENCE_MARKER.finditer(source_text)),
-        *(
-            match.start()
-            for match in _GLUED_SECTION_SENTENCE_MARKER.finditer(source_text)
-        ),
-        *(match.start() for match in _EXPLICIT_SENTENCE_MARKER.finditer(source_text)),
     }
+    if sentence_markers:
+        legacy_marker_offsets.update(
+            (
+                *(
+                    match.start()
+                    for match in _GLUED_SENTENCE_MARKER.finditer(source_text)
+                ),
+                *(
+                    match.start()
+                    for match in _GLUED_SECTION_SENTENCE_MARKER.finditer(source_text)
+                ),
+                *(
+                    match.start()
+                    for match in _EXPLICIT_SENTENCE_MARKER.finditer(source_text)
+                ),
+            )
+        )
     owner_paths = _most_specific_segment_paths_at_offsets(
         paragraph_segments,
         legacy_marker_offsets,
@@ -3138,18 +3832,22 @@ def recognize_source_structure(
                     )
                 )
 
-        sentence_matches = [
-            match
-            for match in sorted(
-                (
-                    *_GLUED_SENTENCE_MARKER.finditer(paragraph_text),
-                    *_glued_section_sentence_matches(paragraph_text),
-                    *_EXPLICIT_SENTENCE_MARKER.finditer(paragraph_text),
-                ),
-                key=lambda item: item.start(),
-            )
-            if owner_paths.get(paragraph_start + match.start()) == paragraph_path
-        ]
+        sentence_matches = (
+            [
+                match
+                for match in sorted(
+                    (
+                        *_GLUED_SENTENCE_MARKER.finditer(paragraph_text),
+                        *_glued_section_sentence_matches(paragraph_text),
+                        *_EXPLICIT_SENTENCE_MARKER.finditer(paragraph_text),
+                    ),
+                    key=lambda item: item.start(),
+                )
+                if owner_paths.get(paragraph_start + match.start()) == paragraph_path
+            ]
+            if sentence_markers
+            else []
+        )
         for index, match in enumerate(sentence_matches):
             start = paragraph_start + match.start()
             end = (
@@ -5083,10 +5781,44 @@ def _source_imperative_arithmetic_operations(
     return tuple(operations)
 
 
+def _is_informational_url_referral(source_text: str) -> bool:
+    """Recognize a complete information-only sentence, never mask a URL fragment.
+
+    The closed prose grammar cannot own an arithmetic or conditional suffix.
+    URL punctuation is inert only within this whole referral; numeric recall
+    and the raw source text/offsets remain unchanged.
+    """
+
+    if len(source_text) > 1024:
+        return False
+    domain_label = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+    url = (
+        r"(?:https?://)?"
+        + domain_label
+        + r"(?:\."
+        + domain_label
+        + r")*\.[a-z]{2,63}"
+        + r"(?:/[a-z0-9_~](?:[a-z0-9_~-]*[a-z0-9_~])?)*"
+    )
+    return (
+        re.fullmatch(
+            r"\s*For more information"
+            r"(?: about these credits(?:, including credit eligibility requirements)?)?"
+            r", go to " + url + r"\.\s*",
+            re.sub(r"[ \t\r\n]+", " ", source_text),
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
+
+
 def source_states_explicit_computation(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> bool:
     """Return whether text states a computation rather than only a scalar."""
+
+    if _is_informational_url_referral(source_text):
+        return False
 
     # A parenthesized cross-reference can contain title punctuation that looks
     # arithmetic to the generic expression recognizer (for example
@@ -5280,6 +6012,14 @@ def _without_slash_conjunction_operators(source_text: str) -> str:
     )
 
 
+def _without_digit_mixed_percentage_slashes(source_text: str) -> str:
+    """Keep offsets while masking the slash inside ``2 6/7 per cent``."""
+
+    return _DIGIT_MIXED_PERCENTAGE.sub(
+        lambda match: match.group().replace("/", " "), source_text
+    )
+
+
 def _is_list_bullet(source_text: str, start: int, end: int) -> bool:
     """Return whether a ``•`` marks a list item rather than multiplication.
 
@@ -5378,6 +6118,7 @@ def _without_manual_typography_operators(source_text: str) -> str:
 def _has_substantive_arithmetic_expression(source_text: str) -> bool:
     """Ignore prose conjunctions and year spans, retaining actual arithmetic."""
 
+    source_text = _without_digit_mixed_percentage_slashes(source_text)
     arithmetic_text = list(
         _without_slash_conjunction_operators(
             _without_manual_typography_operators(source_text)
@@ -5575,7 +6316,10 @@ def analyze_complete_source_unit(
 ) -> CompleteSourceUnitAnalysis:
     """Analyze one artifact against its authoritative, resolver-owned body."""
 
-    with _us_manual_prose_scope(corpus_citation_path):
+    with (
+        _us_manual_prose_scope(corpus_citation_path),
+        _condition_cue_scope(corpus_citation_path),
+    ):
         source_text = authoritative_source_text.strip()
         if not source_text:
             issue = (
@@ -6264,16 +7008,13 @@ def _analyze_rulespec_payload(
     numeric_recall_text = authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path, _source_map=recall_map
     )
-    source_occurrences = tuple(
-        occurrence
-        for occurrence in extract_numeric_occurrences(numeric_recall_text)
-        if not _temporal_occurrence_is_formula_applicability_preface(
-            occurrence,
-            numeric_recall_text,
-        )
+    source_inventory = _us_locator_filtered_inventory(
+        numeric_recall_text,
+        corpus_citation_path=corpus_citation_path,
+        extract_numeric_occurrences=extract_numeric_occurrences,
     )
-    unrepresented_occurrences = source_occurrences
     unrepresented_recall_text = numeric_recall_text
+    unrepresented_inventory = source_inventory
     if represented_annual_spans or represented_measurement_spans:
         recall_map = _NumericRecallSourceMap(list(range(len(source_text))))
         unrepresented_recall_text = authoritative_numeric_recall_text(
@@ -6283,9 +7024,40 @@ def _analyze_rulespec_payload(
             corpus_citation_path=corpus_citation_path,
             _source_map=recall_map,
         )
+        unrepresented_inventory = _us_locator_filtered_inventory(
+            unrepresented_recall_text,
+            corpus_citation_path=corpus_citation_path,
+            extract_numeric_occurrences=extract_numeric_occurrences,
+        )
+    # One decision for both counts: locator numbers are dropped only when both
+    # views are consistent and agree on exactly which occurrences they drop.
+    # The two views then lose the same occurrences, so the covered count never
+    # exceeds the source count. It can be lower than main's when main counted
+    # a dropped locator number as grounded by an equal named scalar.
+    drop_us_locators = (
+        source_inventory.consistent
+        and unrepresented_inventory.consistent
+        and source_inventory.dropped == unrepresented_inventory.dropped
+    )
+    source_occurrences = tuple(
+        occurrence
+        for occurrence in (
+            source_inventory.kept if drop_us_locators else source_inventory.occurrences
+        )
+        if not _temporal_occurrence_is_formula_applicability_preface(
+            occurrence,
+            numeric_recall_text,
+        )
+    )
+    unrepresented_occurrences = source_occurrences
+    if represented_annual_spans or represented_measurement_spans:
         unrepresented_occurrences = tuple(
             occurrence
-            for occurrence in extract_numeric_occurrences(unrepresented_recall_text)
+            for occurrence in (
+                unrepresented_inventory.kept
+                if drop_us_locators
+                else unrepresented_inventory.occurrences
+            )
             if not _temporal_occurrence_is_formula_applicability_preface(
                 occurrence,
                 unrepresented_recall_text,
@@ -6302,6 +7074,7 @@ def _analyze_rulespec_payload(
     )
     covered_source_values = len(source_occurrences) - len(unrepresented_occurrences)
     missing_source_values: list[float] = []
+    missing_occurrences: list[NumericOccurrenceLike] = []
     for occurrence in unrepresented_occurrences:
         raw_span = recall_map.source_span(occurrence.start, occurrence.end)
         if any(
@@ -6320,12 +7093,26 @@ def _analyze_rulespec_payload(
             covered_source_values += 1
         else:
             missing_source_values.append(float(occurrence.value))
-    for value in sorted(set(missing_source_values)):
+            missing_occurrences.append(occurrence)
+    missing_values = sorted(set(missing_source_values))
+    repair_context = _numeric_recall_repair_context(
+        missing_occurrences,
+        recall_text=unrepresented_recall_text,
+        source_text=source_text,
+        branches=branches,
+        corpus_citation_path=corpus_citation_path,
+        extract_numeric_occurrences=extract_numeric_occurrences,
+    )
+    for index, value in enumerate(missing_values):
+        # One issue per value keeps obligation counts and issue identity; only
+        # the first carries the located, branch-grouped repair context, which
+        # retry feedback (one diagnostic per category) always shows.
         issues.append(
             ValidationIssue(
                 "[complete-source-unit:numeric-recall] Authoritative corpus numeric "
                 f"value {value:g} has no named scalar representation. "
-                "`module.summary` is not consulted.",
+                "`module.summary` is not consulted."
+                + (repair_context if index == 0 else ""),
                 check=CHECK_NUMERIC_RECALL_VALUE_UNNAMED,
                 subject=IssueSubject(citation=corpus_citation_path),
                 expected=f"named scalar for {value:g}",
@@ -6471,6 +7258,331 @@ def _bound_copied_amount_categories(
     return tuple(found) if len(found) == 1 else ()
 
 
+_NUMERIC_RECALL_EXCERPT_RADIUS = 60
+_NUMERIC_RECALL_WORD_WIDENING = 20
+# Presentation only: a value whose first location reads like a citation or
+# section locator is listed in its own group so the repair context does not
+# steer the model into inventing scalars (or deferring real rules) for it.
+# Which values are demanded never depends on this.
+_NUMERIC_RECALL_LOCATOR_BEFORE = re.compile(
+    r"(?:\b(?:subdivisions?|sections?|subsections?|paragraphs?|title|chapter|"
+    r"Attachment|Stat\.|c\.|No\.)|§{1,2}|sub-§§?|Pub\.\s*L\.(?:\s*No\.)?)"
+    r"[ \t]*(?:[A-Za-z0-9().-]+[ \t]*(?:,|or|and)[ \t]*){0,4}"
+    r"(?:[A-Z][ \t]+)?$",
+    flags=re.IGNORECASE,
+)
+_NUMERIC_RECALL_LOCATOR_AFTER = re.compile(
+    r"^(?:-[A-Z]\b|[ \t]+(?:FR|Fed\.[ \t]*Reg\.|Stat\.|M\.R\.S\.)[ \t]|"
+    r"[ \t]+For guidance\b|[ \t]+or[ \t]*$)"
+)
+_NUMERIC_RECALL_CLUSTER_MAX_CHARS = 260
+_NUMERIC_RECALL_CONTEXT_MAX_CHARS = 6_000
+_NUMERIC_RECALL_UNLISTED_MAX_CHARS = 600
+_NUMERIC_RECALL_CONTEXT_PROBE_CHARS = 14
+
+
+def _numeric_recall_excerpt(source_text: str, start: int, end: int) -> str:
+    """A bounded, whitespace-normalized locator around `start:end` on its line."""
+
+    line_start = source_text.rfind("\n", 0, start) + 1
+    line_end = source_text.find("\n", end)
+    if line_end < 0:
+        line_end = len(source_text)
+    window_start = max(line_start, start - _NUMERIC_RECALL_EXCERPT_RADIUS)
+    window_end = min(line_end, end + _NUMERIC_RECALL_EXCERPT_RADIUS)
+    # Avoid cutting a word: widen to the nearest space inside the line, but by
+    # at most `_NUMERIC_RECALL_WORD_WIDENING` characters per side.
+    floor = max(line_start, window_start - _NUMERIC_RECALL_WORD_WIDENING)
+    ceiling = min(line_end, window_end + _NUMERIC_RECALL_WORD_WIDENING)
+    while window_start > floor and not source_text[window_start - 1].isspace():
+        window_start -= 1
+    while window_end < ceiling and not source_text[window_end].isspace():
+        window_end += 1
+    excerpt = " ".join(source_text[window_start:window_end].split())
+    return (
+        ("... " if window_start > line_start else "")
+        + excerpt
+        + (" ..." if window_end < line_end else "")
+    )
+
+
+def _numeric_recall_looks_like_locator(source_text: str, start: int, end: int) -> bool:
+    """Whether a located value reads like a citation, caption or label."""
+
+    line_start = source_text.rfind("\n", 0, start) + 1
+    line_end = source_text.find("\n", end)
+    if line_end < 0:
+        line_end = len(source_text)
+    before = source_text[max(line_start, start - 40) : start]
+    after = source_text[end:line_end]
+    if re.fullmatch(r"\s*(?:[0-9]+[-.:])?", source_text[:start]):
+        return True  # the unit's own caption, e.g. `43-1072 - Earned credit`
+    if re.fullmatch(r"[0-9]{1,2}", source_text[start:end]) and (
+        re.match(r"\.[ \t]+\(1\)", after)
+        or (
+            re.search(r"(?:^|[.;:][ \t]+)$", source_text[line_start:start])
+            and re.match(r"\.[ \t]+(?:\(|[A-Z])", after)
+        )
+    ):
+        return True  # an inline subsection label such as `5. Beginning`
+    if (
+        not source_text[line_start:start].strip()
+        and re.fullmatch(r"[0-9]+(?:\.[0-9]+)+", source_text[start:end])
+        and re.match(r"[ \t]+[A-Z][a-z]", after)
+    ):
+        return True  # a dotted section heading such as `214.2 Shared Utility`
+    if re.search(r";[ \t]*$", before) and re.match(r"[ \t]+or[ \t]*$", after):
+        return True  # a footnote reference such as `battered; 2 or`
+    if (
+        re.fullmatch(r"[0-9]{1,2}", source_text[start:end])
+        and re.search(r"[a-z]\.[ \t]+$", before)
+        and re.match(r"[ \t]+[A-Z][a-z]", after)
+    ):
+        return True  # a footnote reference such as `batterer. 3 After`
+    return bool(
+        _NUMERIC_RECALL_LOCATOR_BEFORE.search(before)
+        or _NUMERIC_RECALL_LOCATOR_AFTER.match(after)
+    )
+
+
+def _numeric_recall_context_key(text: str) -> str:
+    return "".join(text.split()).casefold()
+
+
+def _numeric_recall_source_locations(
+    missing_occurrences: Sequence[NumericOccurrenceLike],
+    *,
+    recall_text: str,
+    source_text: str,
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> dict[float, tuple[int, int]]:
+    """Map each missing value to a source span, preferring its recall context.
+
+    The recall view drops or blanks locators, so its coordinates are not
+    source coordinates. A source occurrence of the same value is preferred when
+    the text just before or after it matches the text around a missing recall
+    occurrence; otherwise the value's first source occurrence is used. Values
+    the extractor does not find in the raw source are left unlocated.
+    """
+
+    probe = _NUMERIC_RECALL_CONTEXT_PROBE_CHARS
+    wanted: dict[float, list[tuple[str, str]]] = {}
+    for occurrence in missing_occurrences:
+        value = float(occurrence.value)
+        before = _numeric_recall_context_key(
+            recall_text[max(0, occurrence.start - 3 * probe) : occurrence.start]
+        )[-probe:]
+        after = _numeric_recall_context_key(
+            recall_text[occurrence.end : occurrence.end + 3 * probe]
+        )[:probe]
+        wanted.setdefault(value, []).append((before, after))
+
+    def same_value(candidate: NumericOccurrenceLike, value: float) -> bool:
+        values = (
+            float(candidate.value),
+            *(
+                float(item)
+                for item in getattr(candidate, "alternative_values", ()) or ()
+            ),
+        )
+        return any(
+            math.isclose(item, value, rel_tol=1e-9, abs_tol=1e-9) for item in values
+        )
+
+    source_occurrences = tuple(extract_numeric_occurrences(source_text))
+    locations: dict[float, tuple[int, int]] = {}
+    for value, contexts in wanted.items():
+        matches = [item for item in source_occurrences if same_value(item, value)]
+        if not matches:
+            continue
+        chosen = matches[0]
+        for candidate in matches:
+            before = _numeric_recall_context_key(
+                source_text[max(0, candidate.start - 3 * probe) : candidate.start]
+            )
+            after = _numeric_recall_context_key(
+                source_text[candidate.end : candidate.end + 3 * probe]
+            )
+            if any(
+                (wanted_before and before.endswith(wanted_before))
+                or (wanted_after and after.startswith(wanted_after))
+                for wanted_before, wanted_after in contexts
+            ):
+                chosen = candidate
+                break
+        locations[value] = (chosen.start, chosen.end)
+    return locations
+
+
+def _numeric_recall_repair_context(
+    missing_occurrences: Sequence[NumericOccurrenceLike],
+    *,
+    recall_text: str,
+    source_text: str,
+    branches: Sequence[SourceStructureBranch],
+    corpus_citation_path: str,
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> str:
+    """Locate every missing value in the source and group them by branch.
+
+    This only describes demands already made; it never adds, removes or
+    changes one. Each value is located in the authoritative text, nearby
+    values on one line share a bounded excerpt, and excerpts are grouped under
+    the deepest recognized branch. The context is capped at
+    `_NUMERIC_RECALL_CONTEXT_MAX_CHARS`; values beyond the cap are still listed.
+    """
+
+    missing_values = sorted({float(item.value) for item in missing_occurrences})
+    if not missing_values:
+        return ""
+    locations = _numeric_recall_source_locations(
+        missing_occurrences,
+        recall_text=recall_text,
+        source_text=source_text,
+        extract_numeric_occurrences=extract_numeric_occurrences,
+    )
+
+    def branch_label(position: int) -> str:
+        containing = [
+            branch for branch in branches if branch.start <= position < branch.end
+        ]
+        branch = max(
+            containing,
+            key=lambda item: (len(item.path), -(item.end - item.start)),
+            default=None,
+        )
+        if branch is None:
+            return f"{corpus_citation_path} [source unit]"
+        return _branch_citation(corpus_citation_path, branch)
+
+    located = sorted(
+        (span, value, branch_label(span[0])) for value, span in locations.items()
+    )
+    # Cluster values on one line whose excerpts would overlap, so a table row
+    # or a run-on sentence is shown once with all of its missing values.
+    clusters: list[tuple[str, list[float], int, int]] = []
+    for (start, end), value, label in located:
+        if clusters:
+            previous_label, values, cluster_start, cluster_end = clusters[-1]
+            if (
+                previous_label == label
+                and "\n" not in source_text[cluster_end:start]
+                and start - cluster_end <= 2 * _NUMERIC_RECALL_EXCERPT_RADIUS
+                and end - cluster_start <= _NUMERIC_RECALL_CLUSTER_MAX_CHARS
+            ):
+                values.append(value)
+                clusters[-1] = (label, values, cluster_start, max(cluster_end, end))
+                continue
+        clusters.append((label, [value], start, end))
+
+    locator_values = {
+        value
+        for value, (start, end) in locations.items()
+        if _numeric_recall_looks_like_locator(source_text, start, end)
+    }
+    # The first location names a value that reads like a policy value when
+    # one exists, so the shown example is never a citation or caption.
+    first_value = next(
+        (
+            value
+            for value in missing_values
+            if value in locations and value not in locator_values
+        ),
+        next((value for value in missing_values if value in locations), None),
+    )
+    parts: list[str] = []
+    budget = _NUMERIC_RECALL_CONTEXT_MAX_CHARS
+    if first_value is not None:
+        start, end = locations[first_value]
+        first = (
+            f" First source location of {first_value:g}: character (code point) "
+            f"offsets {start}:{end} in source.txt, {branch_label(start)}: "
+            f"`{_numeric_recall_excerpt(source_text, start, end)}`."
+        )
+        parts.append(first)
+        budget -= len(first)
+    if len(missing_values) == 1:
+        if parts:
+            parts.append(
+                " The displayed text is only a bounded locator; copy any proof "
+                "excerpt verbatim from `source.txt`."
+            )
+        return "".join(parts)
+
+    operative_count = len(missing_values) - len(locator_values)
+    header = (
+        f" All {len(missing_values)} values of this source without a named "
+        "scalar, grouped by source branch, with character (code point) offsets "
+        f"in source.txt. Represent each of the {operative_count} listed first "
+        "in this attempt with a named scalar whose proof excerpt is copied "
+        "verbatim from `source.txt`, or precisely defer the branch that states "
+        "it. Displayed text is only a bounded locator."
+    )
+    budget -= len(header)
+    body: list[str] = []
+    listed: set[float] = set()
+
+    def render(groups, opening: str = "") -> list[str]:
+        nonlocal budget
+        entries: list[str] = []
+        current_label: str | None = None
+        for label, values, start, end in groups:
+            rendered_values = ", ".join(f"{value:g}" for value in values)
+            entry = (
+                f" {rendered_values} at {start}:{end}: "
+                f"`{_numeric_recall_excerpt(source_text, start, end)}`;"
+            )
+            if label != current_label:
+                entry = f" In {label}:" + entry
+            if not entries and opening:
+                entry = opening + entry
+            if len(entry) > budget:
+                break
+            budget -= len(entry)
+            entries.append(entry)
+            listed.update(values)
+            current_label = label
+        return entries
+
+    def split(keep_locators: bool):
+        groups = []
+        for label, values, start, end in clusters:
+            chosen = [
+                value for value in values if (value in locator_values) == keep_locators
+            ]
+            if chosen:
+                spans = [locations[value] for value in chosen]
+                groups.append(
+                    (
+                        label,
+                        chosen,
+                        min(span[0] for span in spans),
+                        max(span[1] for span in spans),
+                    )
+                )
+        return groups
+
+    body.extend(render(split(False)))
+    body.extend(
+        render(
+            split(True),
+            opening=(
+                " These values appear to be citation, caption or section "
+                "locators; do not invent scalars or defer real rules for them:"
+            ),
+        )
+    )
+    remaining = [value for value in missing_values if value not in listed]
+    tail = ""
+    if remaining:
+        rendered = ", ".join(f"{value:g}" for value in remaining)
+        if len(rendered) > _NUMERIC_RECALL_UNLISTED_MAX_CHARS:
+            rendered = rendered[:_NUMERIC_RECALL_UNLISTED_MAX_CHARS].rsplit(",", 1)[0]
+            rendered += ", ..."
+        tail = f" Not located above ({len(remaining)}): {rendered}."
+    return "".join(parts) + header + "".join(body) + tail
+
+
 def _rule_coverage(
     payload: dict[str, Any],
     *,
@@ -6499,6 +7611,10 @@ def _rule_coverage(
         paths = _paths_from_source_reference(
             str(rule.get("source") or ""),
             corpus_citation_path=corpus_citation_path,
+            # Only a principal output encodes every branch its citation
+            # lists; a parameter citing `(c)(3)(vi)-(vii)` for an age of 18
+            # does not encode those deeming exemptions.
+            list_continuations=kind in {"derived", "derived_relation"},
         )
         for excerpt_citation_path, excerpt in _rule_source_excerpts(rule):
             if (
@@ -6892,6 +8008,7 @@ def _paths_from_source_reference(
     source: str,
     *,
     corpus_citation_path: str,
+    list_continuations: bool = False,
 ) -> set[tuple[str, ...]]:
     value = source.strip()
     if not value or not _source_reference_targets_authoritative_unit(
@@ -6900,7 +8017,26 @@ def _paths_from_source_reference(
     ):
         return set()
     paths: set[tuple[str, ...]] = set()
+    us_source = (
+        list_continuations
+        and _US_CORPUS_CITATION_PATH.match(corpus_citation_path) is not None
+    )
     reference_aliases = _authoritative_source_unit_aliases(corpus_citation_path)
+    current_section = corpus_citation_path.rstrip("/").rsplit("/", 1)[-1]
+    # Another citation of this unit after a designation list (`(a)(1), (2),
+    # and 7 CFR 273.4(b)`) keeps the list on this unit. A bare `§ 4(b)` names
+    # no title or part (`§ 4(b) of the Act`), so it does not count.
+    same_unit_reference = (
+        re.compile(
+            "|".join(
+                rf"{re.escape(reference)}(?![A-Za-z0-9_])(?!\.\d)"
+                for reference in reference_aliases
+            ),
+            flags=re.IGNORECASE,
+        )
+        if us_source
+        else None
+    )
     for reference in reference_aliases:
         escaped_reference = re.escape(reference)
         for match in re.finditer(
@@ -6928,12 +8064,20 @@ def _paths_from_source_reference(
                         *_keyword_path_components(trailing, base_components),
                     )
                 )
+                if not suffix.startswith("/") and us_source:
+                    paths.update(
+                        _us_designation_list_continuations(
+                            value,
+                            match.end(),
+                            components,
+                            same_unit_reference=same_unit_reference,
+                        )
+                    )
 
     keyword_components = _keyword_path_components(value)
     if keyword_components:
         paths.add(tuple(keyword_components))
 
-    current_section = corpus_citation_path.rstrip("/").rsplit("/", 1)[-1]
     for match in re.finditer(
         rf"§\s*{re.escape(current_section)}"
         r"(?P<suffix>(?:\([A-Za-z0-9-]+\))+)",
@@ -6951,8 +8095,259 @@ def _paths_from_source_reference(
             paths.add(
                 (*base_components, *_keyword_path_components(trailing, base_components))
             )
+            if us_source and _section_sign_names_this_unit(
+                value[: match.start()], corpus_citation_path
+            ):
+                paths.update(
+                    _us_designation_list_continuations(
+                        value,
+                        match.end(),
+                        components,
+                        same_unit_reference=same_unit_reference,
+                    )
+                )
     if not paths:
         paths.add(())
+    return paths
+
+
+_US_CODE_TITLE_BEFORE_SECTION_SIGN = re.compile(
+    r"(?<![A-Za-z0-9])(?P<title>\d+)\s*U\.?\s?S\.?\s?C\.?(?:\s*A\.?)?\s*$",
+    flags=re.IGNORECASE,
+)
+
+
+def _section_sign_names_this_unit(prefix: str, corpus_citation_path: str) -> bool:
+    """Tell whether a bare `§ 15` before a designation list cites this unit.
+
+    A bare `§ <section>` names no title, part or code, so its list is read
+    only when nothing precedes it, or when the unit's own U.S. Code title
+    does (`26 U.S.C. § 15` for `us/statute/26/15`). After any other code
+    name or citation (`7 U.S.C. § 15`, `7 CFR § 4`, `N.C. Gen. Stat. § 15`,
+    `Pub. L. 99-514, § 15`, `7 U.S.C. 2014; § 15`) only the first
+    designation counts.
+    """
+
+    if not prefix.strip():
+        return True
+    parts = corpus_citation_path.strip().split("/")
+    if len(parts) < 3 or parts[0].lower() != "us" or parts[1] != "statute":
+        return False
+    match = _US_CODE_TITLE_BEFORE_SECTION_SIGN.search(prefix)
+    return (
+        match is not None
+        and match.group("title").lstrip("0") == parts[2].lstrip("0")
+        and not prefix[: match.start()].strip()
+    )
+
+
+_US_DESIGNATION_LIST_CONTINUATION = re.compile(
+    r"[ \t]*(?P<separator>,[ \t]*(?:(?:and|or)[ \t]+)?|[ \t]+(?:and|or)[ \t]+|"
+    r"[ \t]*(?:-|–|—|through|thru|to)[ \t]*)"
+    r"(?P<chain>(?:\([A-Za-z0-9]{1,6}\))+)",
+    flags=re.IGNORECASE,
+)
+# A list stays on the cited unit only when it ends the citation (end, `;`,
+# `.`, a line break), says `of this section` (or another `this` unit), or is
+# followed by another citation of the same unit. Anything else (`of 7 CFR
+# 273.9`, `in 7 CFR 273.9`, `under ...`, `as defined in ...`, `, 7 CFR
+# 273.9`, `(relating to ...) of ...`, `are not implemented`) may qualify the
+# listed items, so the list is not read. A line break ends the citation only
+# when the rest is blank or the next line starts a new citation: a title
+# and code name (`7 CFR 273.9`, `26 U.S.C. 32`), a U.S. corpus path
+# (`us/...`, `us-co/...`) or `;`.
+# Any other next line (`of 7 CFR 273.9`, `Note: only for aliens`, `Excluding
+# ...`) may qualify the listed items, so the list is not read.
+_US_DESIGNATION_LIST_TERMINAL = re.compile(
+    r"[ \t]*(?:$|[;.]|\r?\n(?=\s*(?:$|;|us(?:-[a-z0-9]+)?/|"
+    r"\d+\s*(?:C\.?\s?F\.?\s?R|U\.?\s?S\.?\s?C)(?![A-Za-z]))))|"
+    r"\s+of\s+this\s+(?:section|subsection|paragraph|subparagraph|clause|"
+    r"subclause|part|subpart|chapter|subchapter|title|rule|regulation)\b",
+    flags=re.IGNORECASE,
+)
+_US_DESIGNATION_LIST_JOINER = re.compile(
+    r"[ \t]*(?:[,;][ \t]*)?(?:(?:and/or|and|or)[ \t]+)?",
+    flags=re.IGNORECASE,
+)
+_US_DESIGNATION_RANGE_SEPARATORS = frozenset({"-", "–", "—", "through", "thru", "to"})
+_US_DESIGNATION_RANGE_LIMIT = 25
+
+
+def _is_outline_roman_designation(label: str) -> bool:
+    """A single letter is roman only as `i`, `v` or `x`."""
+
+    return _is_roman_outline_label(label) and (
+        len(label) > 1 or label.lower() in {"i", "v", "x"}
+    )
+
+
+def _us_designation_classes(label: str) -> frozenset[str]:
+    """Classify a U.S. designation: numeric, letter or roman, by case."""
+
+    if label[0].isdigit():
+        return frozenset({"numeric"})
+    case = "upper" if label.isupper() else "lower"
+    classes = set()
+    if len(label) == 1:
+        classes.add(f"{case}-letter")
+    if _is_outline_roman_designation(label):
+        classes.add(f"{case}-roman")
+    return frozenset(classes)
+
+
+def _us_designation_ordinal(label: str, label_class: str) -> int:
+    """Order designations of one class: 2 < 10, b < c, iv < vi."""
+
+    if label_class == "numeric":
+        return int(re.match(r"\d+", label).group(0))
+    if label_class.endswith("letter"):
+        return ord(label.lower())
+    return _roman_outline_value(label) or 0
+
+
+def _us_designation_range(
+    first: str, last: str, label_class: str
+) -> tuple[str, ...] | None:
+    """Expand `(3)-(5)`, `(A)-(C)`, `(vi)-(vii)` to the listed designations.
+
+    At most 25 siblings are expanded. `(v)-(x)` reads as roman numerals (v
+    to x), so a letter range `(v)-(x)` misses `(w)`: an under-claim that can
+    only leave a branch flagged, never cover one the citation did not name.
+    """
+
+    if label_class == "numeric":
+        if not (first.isdigit() and last.isdigit()):
+            return None
+        low, high = int(first), int(last)
+        if not 0 < high - low < _US_DESIGNATION_RANGE_LIMIT:
+            return None
+        return tuple(str(value) for value in range(low, high + 1))
+    if label_class.endswith("letter"):
+        if not 0 < ord(last.lower()) - ord(first.lower()) < _US_DESIGNATION_RANGE_LIMIT:
+            return None
+        return tuple(chr(code) for code in range(ord(first), ord(last) + 1))
+    first_value = _roman_outline_value(first)
+    last_value = _roman_outline_value(last)
+    if first_value is None or last_value is None:
+        return None
+    if not 0 < last_value - first_value < _US_DESIGNATION_RANGE_LIMIT:
+        return None
+    numerals = ((10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"))
+    labels = []
+    for value in range(first_value, last_value + 1):
+        rendered = ""
+        for size, numeral in numerals:
+            while value >= size:
+                rendered += numeral
+                value -= size
+        labels.append(rendered.upper() if first.isupper() else rendered)
+    return tuple(labels)
+
+
+def _us_designation_depth(previous: Sequence[str], label: str) -> int | None:
+    """Find the level that a continuation designation restates or advances.
+
+    The deepest level of the same class whose designation is not after the
+    label wins: `(c)(3)(v), and (c)(3)(vi)` restarts at (c), not at the
+    letter-shaped `(v)`. A label before a roman level of its class stops the
+    list: `(a)(1)(ii), (i)` does not reach subsection (i).
+    """
+
+    classes = _us_designation_classes(label)
+    for index in range(len(previous) - 1, -1, -1):
+        shared = _us_designation_classes(previous[index]) & classes
+        if not shared:
+            continue
+        if any(
+            _us_designation_ordinal(label, label_class)
+            >= _us_designation_ordinal(previous[index], label_class)
+            for label_class in shared
+        ):
+            return index
+        if any(label_class.endswith("roman") for label_class in shared):
+            return None
+    return None
+
+
+def _us_designation_list_ends_on_unit(
+    source: str,
+    position: int,
+    same_unit_reference: re.Pattern[str] | None,
+) -> bool:
+    """Tell whether a designation list ends without naming another source."""
+
+    if _US_DESIGNATION_LIST_TERMINAL.match(source, position):
+        return True
+    if same_unit_reference is None:
+        return False
+    joiner = _US_DESIGNATION_LIST_JOINER.match(source, position)
+    return bool(
+        joiner.group(0).strip()
+        and same_unit_reference.match(source, joiner.end()) is not None
+    )
+
+
+def _us_designation_list_continuations(
+    source: str,
+    position: int,
+    components: Sequence[str],
+    *,
+    same_unit_reference: re.Pattern[str] | None = None,
+) -> set[tuple[str, ...]]:
+    """Read the rest of `7 CFR 273.4(a)(1)-(2), (c)(3)(vi)-(vii)`.
+
+    U.S. citations list and range sibling designations after the first one.
+    Each continuation replaces the designation of its own class at the
+    deepest matching level of the previous one (`(a)(5)(iii)-(iv)` cites
+    (a)(5)(iii) and (a)(5)(iv); `(a)(4)(iii), (a)(5)(ii)` restarts at the
+    root). A range spans siblings only when it replaces the last designation;
+    `(a)(4)(iii)-(5)` cites (a)(4)(iii) and (a)(5), never all of (a)(4).
+    Reading stops at the first continuation that is not a designation of a
+    level already cited and at a gloss (`(a) (citizenship)`). A range that
+    crosses levels names only its endpoints. The list counts only when it
+    ends the citation, says `of this section`, or is followed by another
+    citation of this unit (`same_unit_reference`). After `of 7 CFR 273.9`,
+    `in ...`, `under ...`, `as defined in ...` or prose, which items the
+    qualifier governs is ambiguous, so only the first designation counts.
+    """
+
+    paths: set[tuple[str, ...]] = set()
+    previous = list(components)
+    read_any = False
+    while True:
+        continuation = _US_DESIGNATION_LIST_CONTINUATION.match(source, position)
+        if continuation is None:
+            break
+        labels = re.findall(r"\(([A-Za-z0-9]+)\)", continuation.group("chain"))
+        if not all(_is_parenthesized_outline_label(label) for label in labels):
+            break
+        classes = _us_designation_classes(labels[0])
+        depth = _us_designation_depth(previous, labels[0])
+        if depth is None:
+            break
+        current = [*previous[:depth], *labels]
+        if (
+            continuation.group("separator").strip().lower()
+            in _US_DESIGNATION_RANGE_SEPARATORS
+            and len(labels) == 1
+            and depth == len(previous) - 1
+        ):
+            shared = sorted(_us_designation_classes(previous[depth]) & classes)
+            expanded = (
+                _us_designation_range(previous[depth], labels[0], shared[-1])
+                if shared
+                else None
+            )
+            for label in expanded or ():
+                paths.add(tuple(part.lower() for part in (*previous[:depth], label)))
+        paths.add(tuple(part.lower() for part in current))
+        previous = current
+        position = continuation.end()
+        read_any = True
+    if read_any and not _us_designation_list_ends_on_unit(
+        source, position, same_unit_reference
+    ):
+        return set()
     return paths
 
 
@@ -7673,7 +9068,13 @@ def _resolved_definition_deferral_clauses(
             continue
         clauses.append(
             SourceStructureBranch(
-                owner.path, "deferred-definition", owner.label, text, start, end
+                owner.path,
+                "deferred-definition",
+                owner.label,
+                text,
+                start,
+                end,
+                display_path=owner.display_path,
             )
         )
     return tuple(clauses)
@@ -10073,9 +11474,23 @@ def _reason_names_missing_same_act_dependency(
     path: tuple[str, ...] | None,
     authenticated_same_act_aliases: Sequence[str] = (),
 ) -> bool:
-    """Recognize an exact missing session-law section named by one source branch."""
+    """Recognize an exact missing session-law section named by one source branch.
+
+    The source branch must make itself subject to "section N of this act" (a
+    self-reference, not the defined term "the Act"), and the source must be a
+    statute, enacted legislation, or a guidance law compilation; see
+    `_SAME_ACT_SELF_REFERENCE_DOCUMENT_CLASSES`.
+    """
 
     if not path:
+        return False
+    citation_parts = [
+        part for part in corpus_citation_path.strip("/").split("/") if part
+    ]
+    if (
+        len(citation_parts) < 3
+        or citation_parts[1].lower() not in _SAME_ACT_SELF_REFERENCE_DOCUMENT_CLASSES
+    ):
         return False
     exact_current_branch = _reason_cites_exact_current_statute_branch(
         reason,
@@ -10103,7 +11518,10 @@ def _reason_names_missing_same_act_dependency(
     source_sections = {
         match.group("section").lower()
         for match in _SAME_ACT_SECTION_DEPENDENCY.finditer(source_scope_text)
-        if re.search(
+        # Only the source's self-reference binds; "the Act" is a defined
+        # external statute even inside a statute.
+        if match.group("act").lower() == "this"
+        and re.search(
             r"\b(?:except|unless|subject\s+to)\b",
             source_scope_text[max(0, match.start() - 80) : match.start()],
             flags=re.IGNORECASE,
@@ -14208,6 +15626,8 @@ def _branch_citation(
         ]
         path = "".join(f"({component})" for component in branch.path)
         return f"{corpus_citation_path}{path} [{', '.join(components)}]"
+    if _uses_english_branch_labels(corpus_citation_path):
+        return _english_branch_citation(corpus_citation_path, branch)
     citation = corpus_citation_path
     components: list[str] = []
     for index, component in enumerate(branch.path):
@@ -14220,6 +15640,66 @@ def _branch_citation(
         else:
             components.append(f"Nummer {component}")
     return f"{citation}({branch.path[0]}) [{', '.join(components)}]"
+
+
+def _uses_english_branch_labels(corpus_citation_path: str) -> bool:
+    """Only U.S. sources get English labels.
+
+    Every other jurisdiction (German, Austrian and Swiss law included) and
+    unscoped legacy output keep Absatz/Nummer/Buchstabe, so their issue text
+    and fingerprints do not change.
+    """
+
+    return _US_CORPUS_CITATION_PATH.match(corpus_citation_path.strip()) is not None
+
+
+def _english_branch_citation(
+    corpus_citation_path: str,
+    branch: SourceStructureBranch,
+) -> str:
+    """Render `us/regulation/7/273/4(a)(6)(i)(A) [paragraph (a)(6)(i)(A)]`.
+
+    Repair feedback for a U.S. source names the branch with its full
+    parenthesized designation instead of German Absatz/Nummer/Buchstabe
+    labels. Only the wording differs; the branch is the same. This is a
+    locator, not the citation form a deferral `reason` must use (a U.S. Code
+    reason cites `42 U.S.C. 415(i)(5)(B)`, see
+    `_reason_cites_exact_current_statute_branch`). The CFR calls every level
+    a paragraph; elsewhere the level nouns vary, so the label says
+    `provision`.
+    """
+
+    display = branch.display_path
+    if not (
+        display is not None
+        and len(display) == len(branch.path)
+        and all(
+            printed.lower() == component
+            for printed, component in zip(display, branch.path, strict=True)
+        )
+    ):
+        display = branch.path
+    designations = [
+        printed
+        for printed, component in zip(display, branch.path, strict=True)
+        if not component.startswith("satz-")
+    ]
+    sentences = [
+        component.removeprefix("satz-")
+        for component in branch.path
+        if component.startswith("satz-")
+    ]
+    fragment = "".join(f"({designation})" for designation in designations)
+    noun = (
+        "paragraph"
+        if corpus_citation_path.strip().startswith("us/regulation/")
+        else "provision"
+    )
+    components = [
+        *((f"{noun} {fragment}",) if fragment else ()),
+        *(f"sentence {sentence}" for sentence in sentences),
+    ]
+    return f"{corpus_citation_path}{fragment} [{', '.join(components)}]"
 
 
 def _branch_subject(
@@ -14801,6 +16281,19 @@ def _us_manual_prose_scope(corpus_citation_path: str) -> Iterator[None]:
         yield
     finally:
         _US_MANUAL_PROSE_SCOPE.reset(scope)
+
+
+@contextlib.contextmanager
+def _condition_cue_scope(corpus_citation_path: str) -> Iterator[None]:
+    """Name the corpus of the text the condition-cue reader sees."""
+
+    scope = _CONDITION_CUE_CITATION_PATH.set(
+        corpus_citation_path or _CONDITION_CUE_CITATION_PATH.get()
+    )
+    try:
+        yield
+    finally:
+        _CONDITION_CUE_CITATION_PATH.reset(scope)
 
 
 def _is_manual_amount_row(label: re.Match[str]) -> bool:
@@ -16128,6 +17621,28 @@ def _irs_page_locator_numeric_recall_spans(
         yield line.span("page")
 
 
+def _blank_titled_reference_list(match: re.Match[str]) -> str:
+    """Overwrite the keyword-less item numbers of a titled reference list in place.
+
+    Later passes read a keyword-led item as any other reference, and its keyword
+    can make a line a Part, Chapter or Schedule heading, so those items stay. A
+    title can state an amount of its own ("regulation 15 (persons aged 65 or
+    over) or 19 (...)"), so the titles stay too. A placeholder takes each number's
+    place because an earlier reference reads on through spaces: "Under Part 3
+    and regulation 15 (absentees) or 19 (persons), 7 and 8" would lose the 7 and
+    8.
+    """
+    matched = match.group(0)
+    kept = list(matched)
+    # Each item consumes its whole title, so a number inside a title
+    # ("regulation 14(6)") never starts the next item.
+    for item in _ENGLISH_TITLED_REFERENCE_ITEM_TITLE.finditer(matched):
+        if item.group("keyword") is None:
+            start, end = item.span("number")
+            kept[start:end] = "#" * (end - start)
+    return "".join(kept)
+
+
 def authoritative_numeric_recall_text(
     source_text: str,
     *,
@@ -16344,6 +17859,9 @@ def authoritative_numeric_recall_text(
     cleaned = sub(_BFH_DECISION_NUMERIC_RECALL_CITATION, "", cleaned)
     cleaned = sub(_GERMAN_LEGAL_CITATION, "", cleaned)
     cleaned = sub(_TITLE_SUFFIX_LEGAL_CITATION, "", cleaned)
+    # Before _ENGLISH_LEGAL_CITATION removes "regulation 15", the keyword that
+    # anchors the rest of a titled list.
+    cleaned = sub(_ENGLISH_TITLED_REFERENCE_LIST, _blank_titled_reference_list, cleaned)
     cleaned = sub(_ENGLISH_LEGAL_CITATION, "", cleaned)
     cleaned = sub(_STRUCTURAL_REFERENCE, "", cleaned)
     cleaned = sub(
@@ -18012,8 +19530,37 @@ def _chart_completion_purpose_antecedent(body: str) -> str | None:
     )
 
 
+def _nonfiler_return_instruction_antecedent(body: str) -> str | None:
+    """Separate a closed same-person hypothetical-return instruction.
+
+    The counterfactual ``as if`` belongs to the calculation command, not to
+    another factual condition. Keep every byte of the actual antecedent.
+    """
+
+    actor = r"your\s+(?:spouse(?:\s+or\s+common-law\s+partner)?|common-law\s+partner)"
+    # Additional same-actor predicates stay in the antecedent. A second actor,
+    # punctuation, quotes, or a new sentence makes ownership uncertain.
+    antecedent = (
+        rf"(?P<antecedent>\s*(?:if\s+)?(?P<actor>{actor})\s+is\s+not\s+filing\s+a\s+return"
+        r"(?:\s+and\s+(?:(?:(?P=actor)\s+is|they\s+are)\s+)?"
+        r"(?:not\s+)?(?:disabled|dependent|resident))*)"
+    )
+    consequent = (
+        r",\s*use\s+the\s+amounts\s+they\s+would\s+have\s+entered"
+        r"\s+on\s+their\s+return,\s*schedules,\s*and\s+worksheets"
+        r"\s+as\s+if\s+they\s+were\s+filing\s+a\s+return,"
+        r"\s*and\s+attach\s+their\s+information\s+slips\.?(?:\s*)"
+    )
+    match = re.fullmatch(antecedent + consequent, body, re.IGNORECASE)
+    return match.group("antecedent") if match is not None else None
+
+
 def _without_worksheet_imperative_consequent(body: str) -> str:
     """Separate a bounded worksheet command from its factual antecedent."""
+
+    nonfiler_antecedent = _nonfiler_return_instruction_antecedent(body)
+    if nonfiler_antecedent is not None:
+        return nonfiler_antecedent
 
     chart_antecedent = _chart_completion_purpose_antecedent(body)
     if chart_antecedent is not None:
@@ -18991,6 +20538,11 @@ def _flattened_inline_dotted_list_ownership(
                 source_text[start:end].strip(),
                 start,
                 end,
+                display_path=(
+                    (*parent.display_path, match.group("label"))
+                    if parent.display_path is not None
+                    else None
+                ),
             )
         )
     return tuple(branches), False
@@ -21894,8 +23446,31 @@ def _companion_test_issues(
         source_text=source_text,
         corpus_citation_path=corpus_citation_path,
     )
+    # A fragment that states several thresholds composes them into one
+    # interval, which keeps only the tighter of two same-direction bounds
+    # (`less than $500 and ... less than $300` keeps $300). Each dropped
+    # threshold is still source-stated, so it is demanded too, with its own
+    # comparator's direction and inclusivity.
+    conjoined_thresholds = _source_conjoined_threshold_obligations(
+        boundary_branches,
+        branches=branches,
+        existing=boundary_obligations,
+        extract_numeric_occurrences=extract_numeric_occurrences,
+    )
+    # Keyed by the branch object: a narrative formula clause can share its
+    # paragraph's path while its offsets are in its own first-line frame.
+    conjoined_sources = {
+        (id(branch), boundary.start, boundary.end): (interval, polarity)
+        for branch, boundary, interval, polarity in conjoined_thresholds
+    }
     missing_boundaries: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
-    for branch, boundary in boundary_obligations:
+    for branch, boundary in (
+        *boundary_obligations,
+        *(
+            (branch, boundary)
+            for branch, boundary, _interval, _polarity in conjoined_thresholds
+        ),
+    ):
         if _branch_boundary_test_witnesses(
             branch,
             boundary,
@@ -21906,6 +23481,9 @@ def _companion_test_issues(
             formula_environment=formula_environment,
             source_bound_constant_occurrences=source_bound_constant_occurrences,
             extract_numeric_occurrences=extract_numeric_occurrences,
+            source_interval_and_polarity=conjoined_sources.get(
+                (id(branch), boundary.start, boundary.end)
+            ),
         ):
             continue
         if execution_evidence is not None and partnership_content is not None:
@@ -23037,6 +24615,7 @@ def _source_formula_branches(
                 for label_start, label_end in worksheet_labels
                 if start <= label_start < label_end <= end
             ),
+            display_path=owner.display_path,
             computation_chapeaux=computation_chapeaux,
         )
         if _rounding_clause_refers_to_previous_result(
@@ -23179,6 +24758,7 @@ def _retain_bare_punctuation_computations(
                     for label_start, label_end in worksheet_labels
                     if piece_start <= label_start < label_end <= piece_end
                 ),
+                display_path=owner.display_path if owner else None,
                 computation_chapeaux=previous.computation_chapeaux if previous else (),
             )
             if _rounding_clause_refers_to_previous_result(
@@ -25066,13 +26646,38 @@ def _formula_branch_computation_occurrences(
     fractional_spans = tuple(
         (occurrence.start, occurrence.end) for occurrence in fractional_percentages
     )
+    extracted_occurrences = tuple(extract_numeric_occurrences(recall_text))
+    # The extractor reads "2 6/7 per cent" as one rate and also yields the 2, 6
+    # and 7 inside it. Those components state no computation of their own, so
+    # the gate drops every occurrence nested in one that covers the numeral. The
+    # covering occurrence may start before the numeral, at a hyphen the
+    # extractor reads as a minus sign ("-2 6/7 per cent"). The extractor reads a
+    # mixed number with the fraction slash (U+2044) whole, as a plain number and
+    # before a percent marker also as a rate; its parts go either way.
+    whole_mixed_numerals = tuple(
+        match.span() for match in _WHOLE_MIXED_NUMERAL.finditer(recall_text)
+    )
+    mixed_percentage_spans = tuple(
+        (occurrence.start, occurrence.end)
+        for occurrence in extracted_occurrences
+        if any(
+            occurrence.start <= start and end <= occurrence.end
+            for start, end in whole_mixed_numerals
+        )
+    )
     source_occurrences = (
         tuple(
             occurrence
-            for occurrence in extract_numeric_occurrences(recall_text)
+            for occurrence in extracted_occurrences
             if not any(
                 start <= occurrence.start and occurrence.end <= end
                 for start, end in fractional_spans
+            )
+            and not any(
+                start <= occurrence.start
+                and occurrence.end <= end
+                and (occurrence.start, occurrence.end) != (start, end)
+                for start, end in mixed_percentage_spans
             )
         )
         + fractional_percentages
@@ -26888,7 +28493,9 @@ def _temporal_occurrence_is_formula_applicability_preface(
 def _formula_operation_kinds(text: str) -> set[str]:
     """Recognize operations in source prose or an explicit expression."""
 
-    text = _without_slash_conjunction_operators(text)
+    text = _without_digit_mixed_percentage_slashes(
+        _without_slash_conjunction_operators(text)
+    )
     parsed_operations = _formula_ast_operation_kinds(text)
     if parsed_operations:
         return parsed_operations
@@ -27971,7 +29578,7 @@ def _asserted_formula_runtime_values_equal(
 
     if _formula_runtime_values_equal(runtime, asserted):
         return True
-    if rule.get("dtype") != "Money" or type(asserted) is not float:
+    if rule.get("dtype") != "Money" or type(asserted) not in (float, int):
         return False
     runtime_number = _rulespec_runtime_decimal(runtime)
     asserted_number = _rulespec_runtime_decimal(asserted)
@@ -27983,7 +29590,7 @@ def _asserted_formula_runtime_values_equal(
         runtime_number,
         asserted_number,
         actual_kind="integer" if type(runtime) is int else "decimal",
-        expected_kind="decimal",
+        expected_kind="integer" if type(asserted) is int else "decimal",
     )
 
 
@@ -30044,17 +31651,21 @@ def _branch_boundary_test_witnesses(
     source_bound_constant_occurrences: dict[str, tuple[NumericOccurrenceLike, ...]]
     | None = None,
     extract_numeric_occurrences: NumericOccurrenceExtractor | None = None,
+    source_interval_and_polarity: tuple[_NumericInterval, int] | None = None,
 ) -> set[tuple[str, str]]:
     witnesses: set[tuple[str, str]] = set()
-    source_interval, source_boolean_polarity = (
-        _source_interval_and_polarity_for_boundary(
-            branch,
-            boundary,
-            extract_numeric_occurrences=extract_numeric_occurrences,
+    if source_interval_and_polarity is not None:
+        source_interval, source_boolean_polarity = source_interval_and_polarity
+    else:
+        source_interval, source_boolean_polarity = (
+            _source_interval_and_polarity_for_boundary(
+                branch,
+                boundary,
+                extract_numeric_occurrences=extract_numeric_occurrences,
+            )
+            if extract_numeric_occurrences is not None
+            else (None, 0)
         )
-        if extract_numeric_occurrences is not None
-        else (None, 0)
-    )
     for rule_name in _rules_covering_branch(branch, principal_rule_paths):
         rule = principal_rules[rule_name]
         for case in asserted_by_rule.get(rule_name, ()):
@@ -31903,6 +33514,64 @@ def _formula_bound_from_comparison(
     return None
 
 
+# The interval parser's patterns for the raw text around a bound's amounts: a
+# spelled amount and its parenthetical restatement, "five dollars ($5)", the
+# filler between a range keyword and its first amount, and the open-range word
+# after a German amount. Each optional unit word or currency marker takes the
+# whitespace next to it into its own optional group, so a run of spaces has
+# one way through the pattern. Written as ``\s*(?:usd)?\s*``, two adjacent
+# ``\s*`` runs split a run of n spaces n + 1 ways, and text that fails after
+# the run backtracks through every split: quadratic in the run, and cubic in
+# the restatement gap when spaces sit on both sides of its parenthesis.
+# tests/test_whitespace_run_patterns.py holds each pattern to the matches of
+# the one it replaced.
+_TRAILING_SPELLED_PARENTHETICAL_OPENING = re.compile(
+    rf"\b{_ENGLISH_CARDINAL_PHRASE}\s+"
+    r"(?:dollars?|usd|euros?|eur|pounds?|gbp)\s*"
+    r"\(\s*(?:(?:\$|€|£|usd|eur|gbp)\s*)?$",
+    flags=re.IGNORECASE,
+)
+_SPELLED_PARENTHETICAL_AMOUNT = re.compile(
+    rf"\b(?P<words>{_ENGLISH_CARDINAL_PHRASE})\s+"
+    r"(?P<unit>dollars?|usd|euros?|eur|pounds?|gbp)\s*"
+    r"\(\s*(?:(?P<marker>\$|€|£|usd|eur|gbp)\s*)?"
+    r"(?P<number>\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)"
+    r"\s*\)",
+    flags=re.IGNORECASE,
+)
+# The raw gap between two numeric occurrences when the second restates the
+# first in parentheses: "5 dollars (", "5 (usd ".
+_PARENTHETICAL_RESTATEMENT_GAP = re.compile(
+    r"\s*(?:(?:dollars?|usd|euros?|eur|pounds?|gbp)\s*)?"
+    r"\(\s*(?:(?:\$|€|£|usd|eur|gbp)\s*)?",
+    flags=re.IGNORECASE,
+)
+# The raw gap between a comparison keyword and its first amount.
+_SPELLED_PARENTHETICAL_FIRST_GAP = re.compile(
+    rf"\s*{_ENGLISH_CARDINAL_PHRASE}\s+"
+    r"(?:dollars?|usd|euros?|eur|pounds?|gbp)\s*"
+    r"\(\s*(?:(?:\$|€|£|usd|eur|gbp)\s*)?",
+    flags=re.IGNORECASE,
+)
+_FIRST_GAP_FILLER = re.compile(
+    r"\s*(?:(?:\$|€|£|usd|eur|gbp)\s*)?(?:(?:zu|bis)\s+)?"
+    r"(?:(?:einschließlich|maximal|inklusive|including|maximum)\s+)?"
+    r"(?:(?:a|an|the|einem?|einer|dem|der|das)\s+)?"
+    r"(?:(?:zu\s+versteuernd\w*|maßgeblich\w*)\s+)?"
+    r"(?:(?:einkommen|betrag|wert|income|amount|age)\s+)?"
+    r"(?:(?:von|of)\s+)?"
+    r"(?:(?:einschließlich|maximal|inklusive|including|maximum)\s+)?",
+    flags=re.IGNORECASE,
+)
+# The raw text after the first amount of "von 500 Euro an": an optional unit,
+# then the open-range word.
+_VON_OPEN_RANGE_CONTINUATION = re.compile(
+    r"(?:\s*(?:[^\W\d_]+(?:-[^\W\d_]+)?|[%€$£]|v\.\s*H\.))?\s+"
+    r"(?:an|aufwärts)\b",
+    flags=re.IGNORECASE,
+)
+
+
 def _formula_first_bound(
     text: str,
     occurrence: NumericOccurrenceLike,
@@ -31916,14 +33585,7 @@ def _formula_first_bound(
         text.rfind("\n", 0, occurrence.start),
     )
     prefix = _strip_source_clause_marker(text[clause_start + 1 : occurrence.start])
-    prefix = re.sub(
-        rf"\b{_ENGLISH_CARDINAL_PHRASE}\s+"
-        r"(?:dollars?|usd|euros?|eur|pounds?|gbp)\s*"
-        r"\(\s*(?:\$|€|£|usd|eur|gbp)?\s*$",
-        "",
-        prefix,
-        flags=re.IGNORECASE,
-    )
+    prefix = _TRAILING_SPELLED_PARENTHETICAL_OPENING.sub("", prefix)
     starts = [match.start() for match in re.finditer(r"(?<![\w-])(?=\S)", prefix)]
     for start in starts[-18:]:
         bound = _formula_bound_from_comparison(prefix[start:], occurrence)
@@ -32017,14 +33679,6 @@ def _formula_interval_with_conjoined_bound(
 def _formula_has_unequal_english_parenthetical_amount(text: str) -> bool:
     """Reject contradictory spelled and parenthetical English money amounts."""
 
-    pattern = re.compile(
-        rf"\b(?P<words>{_ENGLISH_CARDINAL_PHRASE})\s+"
-        r"(?P<unit>dollars?|usd|euros?|eur|pounds?|gbp)\s*"
-        r"\(\s*(?P<marker>\$|€|£|usd|eur|gbp)?\s*"
-        r"(?P<number>\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)"
-        r"\s*\)",
-        flags=re.IGNORECASE,
-    )
     currency_family = {
         "$": "usd",
         "dollar": "usd",
@@ -32039,7 +33693,7 @@ def _formula_has_unequal_english_parenthetical_amount(text: str) -> bool:
         "pounds": "gbp",
         "gbp": "gbp",
     }
-    for match in pattern.finditer(text):
+    for match in _SPELLED_PARENTHETICAL_AMOUNT.finditer(text):
         marker = match.group("marker")
         if (
             marker is not None
@@ -32134,12 +33788,7 @@ def _formula_interval_from_text(
             restatement_suffix = text[occurrence.end :]
             restatement_close = re.match(r"\s*\)", restatement_suffix)
             strict_parenthetical_restatement = (
-                re.fullmatch(
-                    r"\s*(?:dollars?|usd|euros?|eur|pounds?|gbp)?\s*"
-                    r"\(\s*(?:\$|€|£|usd|eur|gbp)?\s*",
-                    restatement_gap,
-                    flags=re.IGNORECASE,
-                )
+                _PARENTHETICAL_RESTATEMENT_GAP.fullmatch(restatement_gap)
                 and restatement_close is not None
             )
             if strict_parenthetical_restatement:
@@ -32218,32 +33867,15 @@ def _formula_interval_from_text(
                 text[candidate_occurrences[0].end : candidate_occurrences[1].start],
                 flags=re.IGNORECASE,
             )
-            open_range = re.match(
-                r"\s*(?:[^\W\d_]+(?:-[^\W\d_]+)?|[%€$£]|v\.\s*H\.)?\s+"
-                r"(?:an|aufwärts)\b",
-                after_first,
-                flags=re.IGNORECASE,
-            )
+            open_range = _VON_OPEN_RANGE_CONTINUATION.match(after_first)
             if not (bounded_range or open_range):
                 continue
         first_gap = text[candidate.end() : candidate_occurrences[0].start]
-        spelled_parenthetical_gap = re.fullmatch(
-            rf"\s*{_ENGLISH_CARDINAL_PHRASE}\s+"
-            r"(?:dollars?|usd|euros?|eur|pounds?|gbp)\s*"
-            r"\(\s*(?:\$|€|£|usd|eur|gbp)?\s*",
-            first_gap,
-            flags=re.IGNORECASE,
+        spelled_parenthetical_gap = _SPELLED_PARENTHETICAL_FIRST_GAP.fullmatch(
+            first_gap
         )
-        if spelled_parenthetical_gap is not None or re.fullmatch(
-            r"\s*(?:\$|€|£|usd|eur|gbp)?\s*(?:(?:zu|bis)\s+)?"
-            r"(?:(?:einschließlich|maximal|inklusive|including|maximum)\s+)?"
-            r"(?:(?:a|an|the|einem?|einer|dem|der|das)\s+)?"
-            r"(?:(?:zu\s+versteuernd\w*|maßgeblich\w*)\s+)?"
-            r"(?:(?:einkommen|betrag|wert|income|amount|age)\s+)?"
-            r"(?:(?:von|of)\s+)?"
-            r"(?:(?:einschließlich|maximal|inklusive|including|maximum)\s+)?",
-            first_gap,
-            flags=re.IGNORECASE,
+        if spelled_parenthetical_gap is not None or _FIRST_GAP_FILLER.fullmatch(
+            first_gap
         ):
             keyword = candidate
             occurrences = candidate_occurrences
@@ -32550,9 +34182,11 @@ def _source_exception_branches(
         tuple[int, int, str],
         list[re.Match[str]],
     ] = {}
-    for match in _source_exception_or_applicability_matches(
-        source_text, raw_source_text=raw_source_text
-    ):
+    with _condition_cue_scope(corpus_citation_path):
+        condition_cues = _source_exception_or_applicability_matches(
+            source_text, raw_source_text=raw_source_text
+        )
+    for match in condition_cues:
         if any(
             start <= match.start() and match.end() <= end for start, end in header_spans
         ):
@@ -32640,6 +34274,7 @@ def _source_exception_branches(
                     branch_text,
                     branch_start,
                     branch_end,
+                    display_path=owner.display_path,
                 )
             )
     return tuple(
@@ -32686,6 +34321,8 @@ def _source_exception_or_applicability_matches(
             *_APPLICABILITY_LANGUAGE.finditer(source_text),
         )
         if not _is_concessive_condition_cue(source_text, match)
+        and not _is_english_verb_falls(match)
+        and not _is_uk_reference_title_cue(source_text, match)
         and not _is_coordinated_parenthetical_if_any_cue(
             source_text, match, raw_source_text=raw_source_text
         )
@@ -32695,6 +34332,56 @@ def _source_exception_or_applicability_matches(
             (match.start(), match.end()): match
             for match in sorted(matches, key=lambda item: (item.start(), item.end()))
         }.values()
+    )
+
+
+def _condition_cues_read_uk_text() -> bool:
+    """Whether the condition-cue reader sees text from a UK corpus."""
+
+    namespace = _CONDITION_CUE_CITATION_PATH.get().split("/", 1)[0]
+    return namespace == "uk" or namespace.startswith("uk-")
+
+
+def _is_english_verb_falls(match: re.Match[str]) -> bool:
+    """Exclude the verb in ``the day falls within a week`` from a UK corpus.
+
+    "falls" joins a condition to a rule only in German. Other corpora keep the
+    cue, and so does text with no citation path, since nothing says its language.
+    """
+
+    return match.group(0).lower() == "falls" and _condition_cues_read_uk_text()
+
+
+@functools.lru_cache(maxsize=4096)
+def _uk_reference_title_spans(source_text: str) -> tuple[tuple[int, int], ...]:
+    """Locate the title of each cross-reference, keyword-less list items included."""
+
+    titles = {
+        match.span("title") for match in _ENGLISH_TITLED_REFERENCE.finditer(source_text)
+    }
+    for reference_list in _ENGLISH_TITLED_REFERENCE_LIST.finditer(source_text):
+        titles.update(
+            item.span("title")
+            for item in _ENGLISH_TITLED_REFERENCE_ITEM_TITLE.finditer(
+                source_text, reference_list.start(), reference_list.end()
+            )
+        )
+    return tuple(sorted(titles))
+
+
+def _is_uk_reference_title_cue(source_text: str, match: re.Match[str]) -> bool:
+    """Exclude a condition word that only describes another UK provision.
+
+    In ``regulation 57 (residents of a dwelling to whom regulation 14(6) does not
+    apply)`` the title names regulation 57. It states no condition of the
+    provision that cites it.
+    """
+
+    if not _condition_cues_read_uk_text():
+        return False
+    return any(
+        start < match.start() and match.end() < end
+        for start, end in _uk_reference_title_spans(source_text)
     )
 
 
@@ -33435,6 +35122,7 @@ def _source_rounding_obligations(
             clause_text,
             clause_start,
             clause_end,
+            display_path=owner.display_path,
         )
         obligations.append((obligation_branch, direction))
     return tuple(obligations)
@@ -40176,6 +41864,283 @@ def _source_boundary_obligations(
             for index, (branch, occurrence, raw_span) in enumerate(obligations)
         }.values()
     )
+
+
+_CONJOINED_THRESHOLD_SEPARATOR = re.compile(
+    r"(?:,\s*)?\s\b(?P<conjunction>and|or|but|und|oder|aber)\b\s"
+    r"|,\s+(?=(?:whose|who|which|deren|dessen)\b)",
+    flags=re.IGNORECASE,
+)
+_PERMISSIVE_THRESHOLD_SCOPE = re.compile(
+    r"\b(?:allowed|anticipated|appears?|apt|authorized|can|capable|could|"
+    r"designed|estimated|expected|forecast|free|liable|likely|may|might|need|"
+    r"occasionally|permitted|possibly|presumed|prone|projected|rarely|seems?|"
+    r"supposed|tends?|typically|unlikely|would)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _source_conjoined_threshold_pieces(
+    fragment: str,
+) -> tuple[tuple[int, str], ...]:
+    """Split one boundary fragment into its conjoined comparison clauses.
+
+    Only a coordinating conjunction separates two clauses. A comparator's own
+    `or` (`less than or equal to`, `at or below`, `$500 or more`) and the
+    `and` of a `between ... and ...` range stay inside one piece.
+    """
+
+    pieces: list[tuple[int, str]] = []
+    cursor = 0
+    for separator in _CONJOINED_THRESHOLD_SEPARATOR.finditer(fragment):
+        conjunction = (separator.group("conjunction") or "").lower()
+        before = fragment[cursor : separator.start()]
+        after = fragment[separator.end() :]
+        if conjunction in {"or", "oder"} and (
+            re.search(
+                r"\b(?:than|at|als|more|less|greater|fewer)\s*$",
+                before,
+                flags=re.IGNORECASE,
+            )
+            or (
+                # `$500 or more` continues one comparator; `or more than
+                # $1,000` starts another.
+                re.match(
+                    r"(?:equal|more|less|greater|fewer|older|younger|over|under|"
+                    r"above|below|higher|lower|mehr|weniger)\b",
+                    after,
+                    flags=re.IGNORECASE,
+                )
+                and not re.match(
+                    r"\w+\s+(?:than\s+|als\s+)?(?:[$€£]\s?)?"
+                    rf"(?:\d|{_ENGLISH_CARDINAL_PHRASE}\b)",
+                    after,
+                    flags=re.IGNORECASE,
+                )
+            )
+        ):
+            continue
+        if conjunction in {"and", "und"} and re.search(
+            r"\b(?:between|zwischen)\b(?!.*\b(?:and|und)\b)",
+            before,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        pieces.append((cursor, before))
+        cursor = separator.end()
+    if not pieces:
+        return ()
+    pieces.append((cursor, fragment[cursor:]))
+    return tuple((start, piece) for start, piece in pieces if piece.strip())
+
+
+def _source_fragment_has_mixed_effect(fragment: str) -> bool:
+    """Whether one fragment states both an eligible and an ineligible effect."""
+
+    lowered = _collapse_text(fragment).lower()
+    negative = re.compile(
+        r"\b(?:keine?\s+berechtigung|keinen?\s+anspruch|"
+        r"nicht\s+berechtigt|ausgeschlossen|gilt\s+nicht|"
+        r"does\s+not\s+apply|not\s+applicable|not\s+eligible|"
+        r"ineligible|excluded)\b"
+    )
+    if not negative.search(lowered):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:gilt(?:\s+für)?|anspruch\s+besteht|berechtigt|"
+            r"appl(?:y|ies)|eligible|qualif(?:y|ies))\b",
+            negative.sub(" ", lowered),
+        )
+    )
+
+
+def _source_conjoined_threshold_obligations(
+    boundary_branches: Sequence[SourceStructureBranch],
+    *,
+    branches: Sequence[SourceStructureBranch],
+    existing: Sequence[tuple[SourceStructureBranch, NumericOccurrenceLike]],
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> tuple[
+    tuple[SourceStructureBranch, NumericOccurrenceLike, _NumericInterval, int], ...
+]:
+    """Return source thresholds that a fragment's composed interval drops.
+
+    `_formula_interval_from_text` reads one fragment as one interval, so
+    `less than $500 and whose net income is less than $300` keeps only the
+    tighter `$300`. Each conjoined clause is read on its own; a threshold that
+    is not already a boundary obligation becomes one, with a one-sided
+    interval carrying its own comparator's direction and inclusivity. Only a
+    fragment that already parses as an operative interval is split, and a
+    clause under a permissive modal (`may`, `could`) is never a threshold. A
+    value the branch already demands, or a span overlapping a demanded
+    threshold, is not demanded again: a boundary witness is keyed by value.
+    Direct text is read against `boundary_branches`, as main's boundary demand
+    reads it; `branches` (all source branches) is not used for it.
+    """
+
+    # Values are claimed per path; spans only per branch object, because a
+    # narrative formula clause shares its paragraph's path while its offsets
+    # are in its own first-line frame.
+    claimed: dict[tuple[str, ...], list[tuple[int, NumericOccurrenceLike]]] = {}
+    for branch, occurrence in existing:
+        claimed.setdefault(branch.path, []).append((id(branch), occurrence))
+    obligations: list[
+        tuple[SourceStructureBranch, NumericOccurrenceLike, _NumericInterval, int]
+    ] = []
+    for branch in boundary_branches:
+        if branch.kind not in {
+            "definition",
+            "paragraph",
+            "number",
+            "letter",
+            "sentence",
+            "source-unit",
+        }:
+            continue
+        if branch.kind == "definition" and any(
+            container.kind != "definition"
+            and container.path == branch.path
+            and container.start
+            <= branch.start
+            < container.start
+            + len(_source_branch_direct_text(container, branches=boundary_branches))
+            for container in boundary_branches
+        ):
+            # As in _source_boundary_obligations: a detached heading inside its
+            # structural owner's text is read once, on that owner.
+            continue
+        # Read the same text _source_boundary_obligations reads: it stops only
+        # at a descendant that is itself a boundary branch, so an inactive
+        # child's thresholds are inventoried on the active parent.
+        direct_text = authoritative_numeric_recall_text(
+            _source_branch_direct_text(branch, branches=boundary_branches)
+        )
+        direct_inventory = tuple(extract_numeric_occurrences(direct_text))
+        for fragment_start, fragment in _source_boundary_fragments(direct_text):
+            range_fragment = fragment.split(":", 1)[0]
+            boundary_context = direct_text[
+                max(0, fragment_start - 160) : fragment_start + len(range_fragment)
+            ]
+            if _source_boundary_is_nonoperative_guidance_definition(
+                range_fragment,
+                context=boundary_context,
+            ) or _formula_has_unequal_english_parenthetical_amount(range_fragment):
+                continue
+            if (
+                _formula_interval_from_text(
+                    range_fragment,
+                    extract_numeric_occurrences=extract_numeric_occurrences,
+                )
+                is None
+            ):
+                continue
+            if _source_fragment_has_mixed_effect(fragment):
+                # `ineligible if income is more than $500, and eligible if
+                # resources are less than $2,000`: one fragment-level effect
+                # cannot give every clause its own polarity.
+                continue
+            polarity = _source_boundary_boolean_polarity(fragment)
+            for piece_start, piece in _source_conjoined_threshold_pieces(
+                range_fragment
+            ):
+                prefix = range_fragment[:piece_start]
+                if _PERMISSIVE_THRESHOLD_SCOPE.search(prefix):
+                    break
+                if re.search(
+                    r"\b(?:more\s+or\s+less|less\s+or\s+more)\b",
+                    piece,
+                    flags=re.IGNORECASE,
+                ):
+                    # `more or less than four weeks` states no direction.
+                    continue
+                if re.search(
+                    r"\b(?:or|nor|oder|noch)\s*$", prefix, flags=re.IGNORECASE
+                ) and re.search(
+                    r"\b(?:not|no|nor|neither|without|never|nicht|kein\w*|weder)\b",
+                    prefix,
+                    flags=re.IGNORECASE,
+                ):
+                    # `shall not exceed $500 or be less than $100`: a clause
+                    # joined by `or` after a negation shares that negation,
+                    # so its direction cannot be read from the clause alone.
+                    continue
+                previous_piece = range_fragment[:piece_start].rstrip()
+                if re.search(
+                    r"\b(?:not|no|nicht)\s+(?:be\s+|been\s+|sein\s+)?"
+                    r"(?:less|more|greater|fewer|mehr|weniger)\b",
+                    previous_piece,
+                    flags=re.IGNORECASE,
+                ) and re.match(
+                    r"\s*(?:less|more|greater|fewer|mehr|weniger)\b",
+                    piece,
+                    flags=re.IGNORECASE,
+                ):
+                    # `not less than 3 percent, and more than 15 percent ...`:
+                    # a bare comparator after a negated one is not read alone.
+                    continue
+                if not re.search(
+                    r"\b(?:zwischen|between|bis|von|ab|unter|über|"
+                    r"mehr\s+als|weniger\s+als|from|to|"
+                    r"through|less\s+than|more\s+than|at\s+least|up\s+to|"
+                    r"at\s+most|above|below|höchstens|mindestens|"
+                    r"nicht\s+mehr\s+als)\b",
+                    piece,
+                    flags=re.IGNORECASE,
+                ):
+                    continue
+                interval = _shift_numeric_interval(
+                    _formula_interval_from_text(
+                        piece,
+                        extract_numeric_occurrences=extract_numeric_occurrences,
+                    ),
+                    fragment_start + piece_start,
+                )
+                if interval is None:
+                    continue
+                for occurrence, inclusive, is_lower in (
+                    (interval.lower, interval.lower_inclusive, True),
+                    (interval.upper, interval.upper_inclusive, False),
+                ):
+                    if occurrence is None:
+                        continue
+                    branch_claims = claimed.setdefault(branch.path, [])
+                    if any(
+                        (
+                            claim_branch == id(branch)
+                            and occurrence.start < claim.end
+                            and claim.start < occurrence.end
+                        )
+                        or math.isclose(
+                            float(occurrence.value),
+                            float(claim.value),
+                            rel_tol=0.0,
+                            abs_tol=1e-9,
+                        )
+                        for claim_branch, claim in branch_claims
+                    ) or not any(
+                        occurrence.start == candidate.start
+                        and occurrence.end == candidate.end
+                        and _numeric_occurrences_are_equivalent(occurrence, candidate)
+                        for candidate in direct_inventory
+                    ):
+                        continue
+                    branch_claims.append((id(branch), occurrence))
+                    obligations.append(
+                        (
+                            branch,
+                            occurrence,
+                            (
+                                _NumericInterval(occurrence, inclusive, None, False)
+                                if is_lower
+                                else _NumericInterval(
+                                    None, False, occurrence, inclusive
+                                )
+                            ),
+                            polarity,
+                        )
+                    )
+    return tuple(obligations)
 
 
 def _source_boundary_is_nonoperative_guidance_definition(
