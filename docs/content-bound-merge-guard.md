@@ -2,9 +2,12 @@
 
 Status: **design, not decided; nothing is active.** This document and the
 evaluator in `src/axiom_encode/content_merge_guard.py` implement no gate. No
-workflow runs the evaluator, no check run is written, no GitHub App exists, no
-branch protection changes, and no manifest writer knows the schema the
-evaluator parses. A reader for that schema exists
+check run is written, no GitHub App exists, no branch protection changes, and
+no manifest writer knows the schema the evaluator parses. A runner workflow
+exists (`.github/workflows/merge-guard-runner.yml`, change 3 of §8) and is
+inert: it has no trigger but a manual dispatch, and it refuses unless the
+repository variable `MERGE_GUARD_RUNNER_ENABLED` is `true` and the guard App's
+credentials exist. Neither is the case. A reader for that schema exists
 (`src/axiom_encode/applied_manifest_v6.py`, change 2 of §8) and is switched
 off: `V6_READER_ENABLED` is `False`, so every verifier still refuses a v6
 manifest. Every promotion still uses the order in
@@ -335,10 +338,10 @@ The code at `main` wins where the two disagree.
   (`PromotionSelector.repository`). The evaluator accepts
   `rulespec-<country>-<subdivision>` names for applicability, and a v6 unit
   there gives `fail`.
-- The default `fetch` is the anonymous `github_json`. A recurring check needs a
-  token-capable bounded reader (for example `notary.remote.GitHubReader`); the
-  change that adds the runner injects it. The evaluator has no client of its
-  own.
+- The default `fetch` is the anonymous `github_json`. The runner
+  (`merge_guard_runner.token_reader`) injects a bounded reader that sends the
+  guard App's installation token to the fixed API origin, with no proxy and no
+  redirect. The evaluator has no client of its own.
 - Line numbers in the first design were taken at `02927526`; `cli.py` has moved
   since (#2194), so this document names functions and constants instead.
 
@@ -355,7 +358,8 @@ The code at `main` wins where the two disagree.
 
 ## 4. Where the guard would run and why it would be trusted
 
-None of this exists. It is the proposal for changes 3 and later (§8).
+The App, the environment and the required check do not exist. The runner of
+change 3 exists and is inert; "Runner as built" below says what it does.
 
 - **Code**: `src/axiom_encode/content_merge_guard.py` and the CLI command
   `merge-guard`, with CODEOWNERS entries like those for the admission files.
@@ -379,6 +383,40 @@ None of this exists. It is the proposal for changes 3 and later (§8).
 - **Alternative**: an organisation ruleset with "Require workflows to pass
   before merging". It needs no App. Plan availability, supported events and
   re-run on review are unconfirmed **[check docs]**.
+
+### Runner as built (change 3, shadow only, inert)
+
+`.github/workflows/merge-guard-runner.yml` calls `axiom-encode merge-guard-run`
+(`src/axiom_encode/merge_guard_runner.py`).
+
+| Item | Value |
+|---|---|
+| Trigger | `workflow_dispatch` only (inputs `country`, `pr`, `mode`). No `schedule`: the sweep on a timer is a later reviewed change to the workflow file |
+| Switch | Repository variable `MERGE_GUARD_RUNNER_ENABLED` must be exactly `true`. It is unset. The gate job also requires `github.ref == refs/heads/main` |
+| Environment | `merge-guard`, deployment branch rule: `main` only. The gate job has no environment, so a refused dispatch does not create one |
+| App client ID | Environment variable `MERGE_GUARD_APP_CLIENT_ID` |
+| App private key | Environment secret `MERGE_GUARD_APP_KEY` |
+| Token | Minted per run for `rulespec-<country>` only: `checks: read` in `dry-run`, `checks: write` in `shadow`; `pull_requests`, `contents`, `actions`: `read`. The CLI reads it from `MERGE_GUARD_TOKEN` and has no token argument |
+| `dry-run` (default) | Prints one JSON report. Writes nothing |
+| `shadow` | Also creates one check run per judged head, named `content-bound-merge-guard (shadow)`, conclusion always `neutral`, verdict in the title and summary. It skips the write when the newest shadow check on that head already carries the same verdict |
+| Enforcing mode | None. The name `content-bound-merge-guard` is reserved for it and is never published by this change |
+
+- **The shadow check must never be a required check.** `neutral` satisfies a
+  required check, so requiring the shadow name would require nothing. The
+  check to require later is `content-bound-merge-guard`, from the change that
+  adds an enforcing mode.
+- **Fail closed.** A missing variable, credential or token stops the run with
+  a message that names it. A pull request list that fails, is malformed or
+  reaches its page bound (10 pages of 100) is a run error, never an empty
+  sweep. A verdict whose reason is a failed read is `fail` and also a run
+  error. The run's exit code is about the run; verdicts are in the report.
+- **No authority in the list.** The open pull request list is a work list.
+  Each verdict comes from the evaluator's own live reads.
+- **Not verified.** Whether an installation token limited to `rulespec-<country>`
+  can read the public signing run in `axiom-encode` (step 6; reached only for
+  a v6 unit, and none exists). The request volume of a timed sweep: about 49
+  pull requests were open on 2026-11-13, and each evaluation makes many reads.
+  Size the cadence before the `schedule` trigger is added.
 
 ## 5. Manifest and encoder changes (planned, not in this change)
 
@@ -576,7 +614,7 @@ Implementation comes strictly before activation.
 | 1 | axiom-encode | This change: evaluator, `merge-guard` CLI, tests, CODEOWNERS, this document. Nothing calls it | revert |
 | 2 | axiom-encode | Verifiers can read `applied-rulespec/v6` with the attestation scope, behind `V6_READER_ENABLED = False`; no writer | revert; no v6 exists |
 | 2b | axiom-encode | Set `V6_READER_ENABLED = True`. May ride with change 3. Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request. | set it back; no v6 exists |
-| 3 | axiom-encode | Workflow that runs the guard from `main` and publishes its check, with a dry-run mode | disable the workflow |
+| 3 | axiom-encode | Workflow that runs the guard from `main` and publishes its check, with a dry-run mode. Built as shadow only and inert: manual dispatch, behind `MERGE_GUARD_RUNNER_ENABLED` (§4, "Runner as built"). It does not flip `V6_READER_ENABLED`; change 2b stays a separate one-line commit to `applied_manifest_v6.py` | unset the variable; disable the workflow |
 | 4 | rulespec-us | Pin the encoder that verifies v6 | revert the pin |
 | 5 | axiom-encode | Emit v6 and admit without approval, behind a default-off switch | revert |
 | 6 | axiom-encode | **Activation**: turn the switch on; update `docs/reviewed-pr-promotion.md` | flip the switch back; the required check stays |
@@ -587,7 +625,10 @@ Steps marked **M** need repository or organisation settings. Only a maintainer
 can do them.
 
 1. **M** Create the guard App, install it on `rulespec-us`, and store its key in
-   an axiom-encode environment restricted to branch `main`.
+   an axiom-encode environment restricted to branch `main`: environment
+   `merge-guard`, variable `MERGE_GUARD_APP_CLIENT_ID`, secret
+   `MERGE_GUARD_APP_KEY`. Then set the repository variable
+   `MERGE_GUARD_RUNNER_ENABLED` to `true`.
 2. Merge changes 1-4, including 2b. Publish the check in shadow mode: visible,
    not required.
    Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request.
