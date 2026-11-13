@@ -971,8 +971,20 @@
       "site": "axiom_encode/harness/proof_validator.py:_proof_excerpt_subsection_scope_issues",
       "title": "Proof excerpt lies outside the rule's declared subsection",
       "why": "A proof atom ties a rule to the exact source words it implements. An excerpt that is not in the cited provision, or not in the rule's own subsection, proves nothing and can hide an invented value or condition."
+    },
+    {
+      "category": "repair:companion-preservation",
+      "cause": "encoder_output",
+      "fix": "Preserve every original companion case and assertion, then regenerate and verify the signed repair with its exact seed hashes.",
+      "gate": "guard-generated",
+      "id": "repair:companion-preservation",
+      "requires": "All original case facts and typed assertions, bound to signed final bytes.",
+      "severity": "important",
+      "site": "axiom_encode/cli.py:cmd_guard_generated",
+      "title": "The repair must retain the authenticated companion contract",
+      "why": "A proof repair must not silently weaken the reviewed calculation coverage."
     }
   ],
-  "registry_sha256": "716132e942d166dddaaf0bda24effda9977888684e9be4a5432ff0ec6fd8ebb7",
+  "registry_sha256": "f29c5d1b1473c7d24085ce0b76e430b76fd5c598780a1273c9624509a7046aa4",
   "schema": "axiom-encode/check-registry/v1"
 }

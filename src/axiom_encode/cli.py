@@ -844,6 +844,14 @@ _APPLIED_MANIFEST_SCHEMA_VARIANTS = {
     "legacy retained successor": (_LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS,),
     "retired source metadata migration": (_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS,),
 }
+# A constrained repair adds exactly one signed record to an otherwise unchanged
+# model manifest. It does not extend deterministic or historical receipt shapes.
+for _model_contract in ("model", "codex model"):
+    _APPLIED_MANIFEST_SCHEMA_VARIANTS[_model_contract] += tuple(
+        fields | {"repair_companion_preservation"}
+        for fields in _APPLIED_MANIFEST_SCHEMA_VARIANTS[_model_contract]
+    )
+del _model_contract
 # Descriptive strings do not establish file coverage; snapshot integrity checks
 # may still read them. Every other value, including descriptive containers, scans.
 _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS = frozenset(
@@ -983,6 +991,20 @@ for _old_fields, _per_file_fields in (
         | _PER_FILE_WAIVER_FIELD_SWAP[1],
     )
 del _old_fields, _per_file_fields
+for _model_fields in (
+    _MODEL_APPLY_MANIFEST_FIELDS,
+    _MODEL_CODEX_APPLY_MANIFEST_FIELDS,
+    _MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
+    _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
+):
+    _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES[
+        _model_fields | {"repair_companion_preservation"}
+    ] = (
+        _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES[_model_fields][0],
+        _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES[_model_fields][1]
+        | {"repair_companion_preservation"},
+    )
+del _model_fields
 _UNRECEIPTED_RETIREMENT_NESTED_RECEIPT_FIELDS = frozenset(
     {
         "retired_manifest",
@@ -2786,6 +2808,12 @@ def main():
         "--json", action="store_true", help="Output guard result as JSON"
     )
     guard_generated_parser.add_argument(
+        "--preserved-repair-companion",
+        nargs=3,
+        metavar=("CITATION", "SEED_RULESPEC_SHA256", "SEED_TESTS_SHA256"),
+        help="Require a signed companion-preservation record for this exact repair",
+    )
+    guard_generated_parser.add_argument(
         "--candidate-status",
         action="store_true",
         help=(
@@ -3463,6 +3491,11 @@ def main():
             "only a non-weakening companion-test expansion required by a v2 "
             "review contract"
         ),
+    )
+    encode_parser.add_argument(
+        "--preserve-repair-companion",
+        action="store_true",
+        help="Require every authenticated retained companion fact and assertion before signing a full-artifact repair",
     )
     encode_parser.add_argument(
         "--emit-final-rejected-candidate",
@@ -8555,7 +8588,26 @@ def cmd_guard_generated(args):
         retrospective=bool(getattr(args, "retrospective", False)),
         expected_encoder_checkout=getattr(args, "expected_encoder_checkout", None),
     )
+    preservation = None
+    expectation = getattr(args, "preserved_repair_companion", None)
+    if expectation is not None and not issues:
+        from .checks import ValidationIssue
+        from .repair_companion import PRESERVATION_CHECK, guard_preservation_evidence
+
+        try:
+            if args.head_ref != "HEAD" or getattr(args, "retrospective", False):
+                raise ValueError("Companion preservation requires current live files")
+            preservation = guard_preservation_evidence(repo_path, *expectation)
+        except (ValueError, OSError, RuntimeError) as exc:
+            issues.append(
+                ValidationIssue(
+                    f"Companion preservation verification failed: {exc}",
+                    check=PRESERVATION_CHECK,
+                )
+            )
     payload = {"repo": str(repo_path), "passed": not issues, "issues": issues}
+    if preservation is not None and not issues:
+        payload["repair_companion_preservation"] = preservation
     if candidate_status is not None and args.json:
         payload["candidate_status"] = candidate_status
     if args.json:
@@ -28486,6 +28538,40 @@ def _applied_manifest_exact_schema_issues(
 
     issues: list[str] = []
     codex_fields = _MODEL_CODEX_APPLY_MANIFEST_FIELDS - _MODEL_APPLY_MANIFEST_FIELDS
+    if "repair_companion_preservation" in payload:
+        from .checks import ValidationIssue
+        from .prepare_signed_backfill import citation_rulespec_path
+        from .repair_companion import PRESERVATION_CHECK, verify_preservation_receipt
+
+        try:
+            if contract != "model" or tool != APPLIED_ENCODING_MODEL_TOOL:
+                raise ValueError("Preservation is restricted to ordinary model repair")
+            record = payload["repair_companion_preservation"]
+            if not isinstance(record, dict):
+                raise ValueError("Preservation record must be an object")
+            companion = Path(
+                citation_rulespec_path(str(payload.get("citation")))
+            ).with_suffix(".test.yaml")
+            companion_hashes = [
+                item.get("sha256")
+                for item in payload.get("applied_files", [])
+                if isinstance(item, dict) and item.get("path") == companion.as_posix()
+            ]
+            if len(companion_hashes) != 1:
+                raise ValueError("Preservation requires exactly one applied companion")
+            verify_preservation_receipt(
+                record,
+                original_rulespec_sha256=record.get("original_rulespec_sha256"),
+                original_tests_sha256=record.get("original_tests_sha256"),
+                final_tests_sha256=companion_hashes[0],
+            )
+        except (ValueError, TypeError) as exc:
+            issues.append(
+                ValidationIssue(
+                    f"{manifest_label} invalid repair preservation: {exc}",
+                    check=PRESERVATION_CHECK,
+                )
+            )
     present_codex_fields = set(payload) & codex_fields
     variants = _APPLIED_MANIFEST_SCHEMA_VARIANTS[
         "codex model" if backend == "codex" else contract
@@ -34557,6 +34643,76 @@ _MANIFEST_ONLY_REFRESH_ATTR = "_axiom_manifest_only_refresh"
 _REVIEWED_CANDIDATE_PROMOTION_ATTR = "_axiom_reviewed_candidate_promotion"
 _PRESERVED_COMPANION_TESTS_ATTR = "_axiom_preserved_companion_tests"
 _REQUIRED_TEST_CASE_CONTRACTS_ATTR = "_axiom_required_test_case_contracts"
+_PRESERVED_REPAIR_COMPANION_ATTR = "_axiom_preserved_repair_companion"
+
+
+def _validate_preserved_repair_companion(
+    args: Any, candidate: ValidationRetryCandidate | None
+) -> None:
+    """Constrain the opt-in mode before generation or retry recapture."""
+    requested = getattr(args, "preserve_repair_companion", False)
+    if type(requested) is not bool:
+        raise ValueError("preserve-repair-companion must be an exact boolean")
+    if not requested:
+        return
+    from .prepare_signed_backfill import citation_rulespec_path
+    from .repair_companion import preserved_companion_record
+
+    if (
+        candidate is None
+        or candidate.tests is None
+        or candidate.context_role != "rejected"
+    ):
+        raise ValueError(
+            "Companion preservation requires an authenticated rejected candidate"
+        )
+    if (
+        getattr(args, "apply", False) is not True
+        or getattr(args, "require_complete_source_unit", False) is not True
+    ):
+        raise ValueError("Companion preservation requires full-source encode --apply")
+    if getattr(args, "repair_candidate_tests_only", False) or any(
+        getattr(args, key, None)
+        for key in (
+            "replace_legacy_rulespec_path",
+            "legacy_dependent_rulespec_path",
+            "legacy_exact_dependent_rulespec_path",
+            "legacy_retained_successor_rulespec_path",
+            "manifest_only_refresh",
+            "reviewed_candidate_promotion",
+        )
+    ):
+        raise ValueError(
+            "Companion preservation supports only full-artifact ordinary repair"
+        )
+    expected = Path(citation_rulespec_path(str(args.citation)))
+    actual = Path(args.repair_candidate_path)
+    if actual not in (expected, Path(*expected.parts[1:])):
+        raise ValueError("Companion preservation candidate citation/path mismatch")
+    replacement = getattr(args, "replace_rulespec_path", None)
+    if replacement is not None and Path(replacement) != expected:
+        raise ValueError("Companion preservation replacement path mismatch")
+    preserved_companion_record(candidate.tests, candidate.tests)
+
+
+def _preserved_repair_companion_record(
+    result: Any, test_file: Path
+) -> dict[str, object] | None:
+    """Check final bytes against the original seed, independently of retry context."""
+    candidate = vars(result).get(_PRESERVED_REPAIR_COMPANION_ATTR)
+    if candidate is None:
+        return None
+    from .repair_companion import preserved_companion_record
+
+    if not isinstance(candidate, ValidationRetryCandidate) or candidate.tests is None:
+        raise RuntimeError("Retained companion preservation state is malformed")
+    try:
+        record = preserved_companion_record(
+            candidate.tests, test_file.read_bytes().decode("utf-8")
+        )
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise RuntimeError(f"Cannot apply repair: {exc}") from exc
+    return {**record, "original_rulespec_sha256": candidate.rulespec_sha256}
 
 
 def _immutable_rulespec_digest_issue(result: Any, output_file: Path) -> str | None:
@@ -37675,6 +37831,7 @@ def _run_encode_attempts_with_retries(
     initial_retry_candidate = _load_initial_validation_retry_candidate(args)
     initial_retry_feedback = _load_initial_validation_retry_feedback(args)
     _validate_tests_only_repair_contract(args, initial_retry_candidate)
+    _validate_preserved_repair_companion(args, initial_retry_candidate)
     failed_attempts: tuple[_FailedEncodeAttempt, ...] = ()
     current_model = config.initial_model
 
@@ -38149,6 +38306,11 @@ def _run_encode_attempt(
     )
 
     result = results[0]
+    if getattr(args, "preserve_repair_companion", False) is True:
+        _validate_preserved_repair_companion(args, initial_retry_candidate)
+        # Keep the original hash-checked seed, not validation_retry_candidate,
+        # which may refer to a generated and weakened prior attempt.
+        setattr(result, _PRESERVED_REPAIR_COMPANION_ATTR, initial_retry_candidate)
     if getattr(args, "repair_candidate_tests_only", False) is True:
         assert initial_retry_candidate is not None
         assert initial_retry_candidate.tests is not None
@@ -63530,6 +63692,7 @@ def _apply_generated_encoding_result(
     )
     if companion_issue is not None:
         raise RuntimeError(companion_issue)
+    _preserved_repair_companion_record(result, _rulespec_test_path(output_file))
 
     local_corpus_release = load_rulespec_local_corpus_release(
         content_root,
@@ -64173,6 +64336,11 @@ def _write_applied_encoding_manifest(
             "Cannot sign model validation from a different encoder commit or version"
         )
     payload["validation_execution"] = copy.deepcopy(validation_execution)
+    preservation = _preserved_repair_companion_record(
+        result, manifest_root / _rulespec_test_path(manifest_relative_output)
+    )
+    if preservation is not None:
+        payload["repair_companion_preservation"] = preservation
     validated_policy = validation_execution.get("policy_pre_apply")
     if _target_uses_per_file_waiver_bindings(policy_repo_path):
         payload[VALIDATION_WAIVER_BINDINGS_FIELD] = (

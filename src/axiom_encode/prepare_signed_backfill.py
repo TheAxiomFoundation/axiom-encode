@@ -647,6 +647,24 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         raise ValueError("atomic source JSON exceeds the maximum input size")
     payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
     if isinstance(payload, dict) and payload.get("schema") == (
+        "axiom-encode/atomic-source-transaction/v7"
+    ):
+        if set(payload) != {"schema", "transaction", "preserve_repair_companion"}:
+            raise ValueError(
+                "v7 requires exactly transaction and preserve_repair_companion"
+            )
+        if (
+            payload["preserve_repair_companion"] is not True
+            or payload["transaction"] != []
+        ):
+            raise ValueError(
+                "v7 requires exact true preservation and an empty source transaction"
+            )
+        return {
+            **split_atomic_source_input("[]"),
+            "preserve_repair_companion": True,
+        }
+    if isinstance(payload, dict) and payload.get("schema") == (
         "axiom-encode/reviewed-pr-promotion/v1"
     ):
         if set(payload) != {"schema", "transaction", "rulespec_pr"}:
@@ -902,6 +920,7 @@ def immutable_atomic_source_contract(atomic_source_json: str) -> dict[str, objec
     normalized = split_atomic_source_input(atomic_source_json)
     if not {
         "repair_mode",
+        "preserve_repair_companion",
         "corpus_artifact_run_id",
         "provision_export_run_ids",
         "rulespec_pr",
@@ -918,6 +937,51 @@ def resolve_atomic_repair_mode(
 ) -> dict[str, object]:
     """Select execution mode; old envelopes retain historical inference."""
     normalized = split_atomic_source_input(atomic_source_json)
+    if normalized.get("preserve_repair_companion") is True:
+        run_id = dispatch.get("REPAIR_RUN_ID", "")
+        if (
+            re.fullmatch(r"[1-9][0-9]{0,19}", run_id) is None
+            or run_id == dispatch.get("GITHUB_RUN_ID")
+            or run_id == "35160240952"
+        ):
+            raise ValueError("v7 requires a distinct authenticated failed repair run")
+        if any(
+            dispatch.get(field, "")
+            for field in (
+                "QUEUE_ID",
+                "QUEUE_ITEM_ID",
+                "QUEUE_MANIFEST_SHA256",
+                "QUEUE_ITEM_GENERATION_SHA256",
+                "QUEUE_DISPATCHER_RUN_ID",
+                "DEPENDENT_CITATION",
+                "SECOND_DEPENDENT_CITATION",
+                "DEPENDENT_REVIEW_FINDING",
+                "SECOND_DEPENDENT_REVIEW_FINDING",
+                "REPLACE_LEGACY_RULESPEC_PATH",
+                "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+                "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+            )
+        ):
+            raise ValueError("v7 supports only an ordinary single-target repair")
+        if (
+            _load_unambiguous_json(
+                dispatch.get("LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON") or "[]",
+                label="retained successors",
+            )
+            != []
+        ):
+            raise ValueError("v7 cannot include retained successors")
+        canonical = citation_rulespec_path(dispatch.get("CITATION", "")).as_posix()
+        target = dispatch.get("REPLACE_RULESPEC_PATH", "")
+        if target and target != canonical:
+            raise ValueError("v7 replacement must match its ordinary citation")
+        # Existing signed direct imports remain subject to their normal inventory
+        # and signature checks; this mode does not expand source scope.
+        return {
+            "mode": "full_artifact",
+            "tests_only": False,
+            "preserve_repair_companion": True,
+        }
     if "corpus_artifact_run_id" in normalized:
         repair_run_id = dispatch.get("REPAIR_RUN_ID", "")
         if repair_run_id and (
@@ -1055,13 +1119,19 @@ def repair_execution_metadata(
     repair_run_id: str,
     mode: str,
     tests_only: str,
+    preserve_repair_companion: str = "",
 ) -> dict[str, object] | None:
     """Bind recorded execution selection to the request; never infer execution."""
     if not repair_run_id:
-        if mode or tests_only:
+        if mode or tests_only or preserve_repair_companion:
             raise ValueError("repair execution selection without a repair run")
         return None
     normalized = split_atomic_source_input(atomic_source_json)
+    preserve = normalized.get("preserve_repair_companion") is True
+    if preserve_repair_companion not in (("true",) if preserve else ("", "false")):
+        raise ValueError(
+            "repair companion preservation differs from the selected request"
+        )
     requested = normalized.get("repair_mode")
     expected = requested or (
         "full_artifact"
@@ -1074,11 +1144,14 @@ def repair_execution_metadata(
         "true" if expected == "tests_only" else "false"
     ):
         raise ValueError("repair execution mode differs from the selected request")
-    return {
+    result = {
         "requested_mode": requested or "legacy_inference",
         "mode": mode,
         "tests_only": expected == "tests_only",
     }
+    if preserve:
+        result["preserve_repair_companion"] = True
+    return result
 
 
 def parse_source_bundle(
@@ -5566,6 +5639,7 @@ def main() -> None:
                     os.environ["REPAIR_RUN_ID"],
                     os.environ.get("REPAIR_MODE", ""),
                     os.environ.get("REPAIR_TESTS_ONLY", ""),
+                    os.environ.get("PRESERVE_REPAIR_COMPANION", ""),
                 )
             if os.environ.get("REPAIR_RUN_ID"):
                 resolved["execution"] = repair_execution_metadata(
@@ -5573,6 +5647,7 @@ def main() -> None:
                     os.environ["REPAIR_RUN_ID"],
                     str(resolved["mode"]),
                     "true" if resolved["tests_only"] else "false",
+                    "true" if resolved.get("preserve_repair_companion") else "false",
                 )
             print(json.dumps(resolved, separators=(",", ":"), sort_keys=True))
         elif args.command == "validate-source-add-targets":

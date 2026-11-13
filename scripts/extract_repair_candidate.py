@@ -289,6 +289,14 @@ def _repair_lane_for_atomic_source(
             }
             if metadata.get("repair_execution") != expected_execution:
                 raise ValueError("repair artifact v6 execution mode is not bound")
+        if prior.get("preserve_repair_companion") is True:
+            if metadata.get("repair_execution") != {
+                "requested_mode": "legacy_inference",
+                "mode": "full_artifact",
+                "tests_only": False,
+                "preserve_repair_companion": True,
+            }:
+                raise ValueError("repair artifact v7 preservation mode is not bound")
     has_atomic = "atomic_source_input" in metadata
     has_legacy_source = "source_bundle_input" in metadata
     has_legacy_refresh = "canonical_refresh_bundle_input" in metadata
@@ -471,9 +479,10 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
         requested_wrapper = json.loads(args.atomic_source_json)
     except (TypeError, ValueError):
         requested_wrapper = None
-    if isinstance(requested_wrapper, dict) and requested_wrapper.get("schema") == (
-        "axiom-encode/atomic-source-transaction/v6"
-    ):
+    if isinstance(requested_wrapper, dict) and requested_wrapper.get("schema") in {
+        "axiom-encode/atomic-source-transaction/v6",
+        "axiom-encode/atomic-source-transaction/v7",
+    }:
         RESOLVE_ATOMIC_REPAIR_MODE(
             args.atomic_source_json,
             {
