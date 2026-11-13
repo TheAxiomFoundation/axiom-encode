@@ -198,6 +198,16 @@ from .engine_binding import (
     resolve_pinned_engine_binary,
 )
 from .failure_classes import PRE_ENCODE_BLOCKED_STATUS, failure_class_payload
+from .generalist_review_record import (
+    GENERALIST_REVIEW_FIELD,
+    AppliedPair,
+    GeneralistReviewState,
+    applied_pair,
+    build_generalist_review_record,
+    generalist_review_record_issues,
+    require_review_setting,
+    review_requirement_refusal,
+)
 from .harness.amendment_timing import amendment_timing_issues
 from .harness.dependency_stubs import (
     UnsafeRulespecContextPath,
@@ -231,6 +241,7 @@ from .harness.eval_evidence import isolated_eval_evidence_signer
 from .harness.evals import (
     _DEFAULT_SUITE_RETRY_ATTEMPTS,
     _EVAL_RESULT_ARTIFACT_SPECS,
+    GENERALIST_REVIEW_EVIDENCE_ATTR,
     VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES,
     ValidationRetryCandidate,
     _amendment_documents_visible_in_context_manifest,
@@ -720,6 +731,17 @@ _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS = (
 _REVIEWED_CANDIDATE_PER_FILE_WAIVER_MANIFEST_FIELDS = (
     _REVIEWED_CANDIDATE_MANIFEST_FIELDS - _PER_FILE_WAIVER_FIELD_SWAP[0]
 ) | _PER_FILE_WAIVER_FIELD_SWAP[1]
+# Generalist review record (#2146): the per-file model contracts plus the
+# record of the encode's one model review. A verifier older than #2146
+# rejects the field, so the writer emits it only for a target whose protected
+# base verifies with the main encoder and holds it at no earlier commit.
+# Admission accepts the shapes with and without it.
+_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS = (
+    _MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS | {GENERALIST_REVIEW_FIELD}
+)
+_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS = (
+    _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS | {GENERALIST_REVIEW_FIELD}
+)
 _RETIRE_APPLY_MANIFEST_FIELDS = frozenset(
     {
         "schema_version",
@@ -845,11 +867,13 @@ _APPLIED_MANIFEST_SCHEMA_VARIANTS = {
     "model": (
         _MODEL_APPLY_MANIFEST_FIELDS,
         _MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
+        _MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
     ),
     "codex model": (
         _MODEL_APPLY_MANIFEST_FIELDS,
         _MODEL_CODEX_APPLY_MANIFEST_FIELDS,
         _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
+        _MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
     ),
     "reviewed candidate promotion": (
         _REVIEWED_CANDIDATE_MANIFEST_FIELDS,
@@ -1014,6 +1038,23 @@ for _old_fields, _per_file_fields in (
         | _PER_FILE_WAIVER_FIELD_SWAP[1],
     )
 del _old_fields, _per_file_fields
+for _per_file_fields, _review_fields in (
+    (
+        _MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
+        _MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
+    ),
+    (
+        _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
+        _MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
+    ),
+):
+    # The record holds digests and enumerated words only; it scans like the rest.
+    _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES[_review_fields] = (
+        _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES[_per_file_fields][0],
+        _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES[_per_file_fields][1]
+        | {GENERALIST_REVIEW_FIELD},
+    )
+del _per_file_fields, _review_fields
 _UNRECEIPTED_RETIREMENT_NESTED_RECEIPT_FIELDS = frozenset(
     {
         "retired_manifest",
@@ -3701,6 +3742,17 @@ def main():
         help=(
             "Skip slower LLM reviewer checks after deterministic compile/CI "
             "validation. Useful for bulk eval and stress runs."
+        ),
+    )
+    encode_parser.add_argument(
+        "--require-review",
+        action="store_true",
+        help=(
+            "With --apply, refuse to apply unless the generalist reviewer ran, "
+            "its result was read, it passed, and it reviewed the exact bytes "
+            "being applied. A reviewer that cannot start, an unreadable result "
+            "or a failed review ends the encode unsuccessfully with nothing "
+            "applied. Also set by AXIOM_ENCODE_REQUIRE_REVIEW=1. Off by default."
         ),
     )
     encode_parser.add_argument(
@@ -28434,6 +28486,46 @@ def _target_uses_per_file_waiver_bindings(policy_repo_path: Path) -> bool:
     or key keeps the set-digest shape; a malformed value refuses to sign.
     """
 
+    table = _target_protected_workflow_toolchain_table(policy_repo_path)
+    if table is None or "encoder_verifier" not in table:
+        return False
+    mode = table["encoder_verifier"]
+    if mode == "pinned":
+        return False
+    if mode == "main":
+        return True
+    raise RuntimeError(
+        "Cannot sign RuleSpec: [workflow_toolchain].encoder_verifier of the target "
+        "repository must be pinned or main"
+    )
+
+
+def _target_admits_generalist_review_record(policy_repo_path: Path) -> bool:
+    """Return whether new manifests for this repository carry the review record.
+
+    A verifier older than #2146 rejects the field. The record is written only
+    when the target's protected base verifies with the main encoder, which is
+    never older than the encoder that writes, and sets no
+    ``encoder_verifier_hold``: a hold verifies with one exact earlier commit,
+    which may predate the field. The value comes from the same protected Git
+    objects as the waiver shape; a malformed value refuses to sign.
+    """
+
+    if not _target_uses_per_file_waiver_bindings(policy_repo_path):
+        return False
+    table = _target_protected_workflow_toolchain_table(policy_repo_path)
+    return table is not None and table.get("encoder_verifier_hold") is None
+
+
+def _target_protected_workflow_toolchain_table(
+    policy_repo_path: Path,
+) -> dict[str, object] | None:
+    """Read ``[workflow_toolchain]`` from the target's protected base commit.
+
+    Returns None when the target has no protected base, file or table. Every
+    other failure refuses to sign.
+    """
+
     import tomllib
 
     # The toolchain root is the checkout top level (toolchain.py), so the
@@ -28471,13 +28563,13 @@ def _target_uses_per_file_waiver_bindings(policy_repo_path: Path) -> bool:
         base = candidate
         break
     if base is None:
-        return False
+        return None
     try:
         listing = _rulespec_migration_git_bytes(
             root, "ls-tree", "-z", "--full-tree", "--", base, relative.as_posix()
         )
         if not listing.strip(b"\0"):
-            return False
+            return None
         raw = _rulespec_migration_base_blob(root, base, relative)
         table = tomllib.loads(raw.decode("utf-8")).get("workflow_toolchain")
     except (OSError, RuntimeError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
@@ -28486,23 +28578,13 @@ def _target_uses_per_file_waiver_bindings(policy_repo_path: Path) -> bool:
             f"repository is unreadable: {exc}"
         ) from exc
     if table is None:
-        return False
+        return None
     if not isinstance(table, dict):
         raise RuntimeError(
             "Cannot sign RuleSpec: [workflow_toolchain] of the target repository "
             "is not a table"
         )
-    if "encoder_verifier" not in table:
-        return False
-    mode = table["encoder_verifier"]
-    if mode == "pinned":
-        return False
-    if mode == "main":
-        return True
-    raise RuntimeError(
-        "Cannot sign RuleSpec: [workflow_toolchain].encoder_verifier of the target "
-        "repository must be pinned or main"
-    )
+    return table
 
 
 def _build_applied_manifest_file_waiver_bindings(
@@ -29136,6 +29218,24 @@ def _applied_manifest_exact_schema_issues(
         issues.append(
             f"{manifest_label} does not match the exact {contract} v5 schema"
             + (f" ({'; '.join(detail)})" if detail else "")
+        )
+
+    if GENERALIST_REVIEW_FIELD in payload and contract == "model":
+        applied_entries = payload.get("applied_files")
+        issues.extend(
+            f"{manifest_label} {issue}"
+            for issue in generalist_review_record_issues(
+                payload[GENERALIST_REVIEW_FIELD],
+                [
+                    entry["sha256"]
+                    for entry in (
+                        applied_entries if isinstance(applied_entries, list) else []
+                    )
+                    if isinstance(entry, dict)
+                    and entry.get("deleted") is not True
+                    and isinstance(entry.get("sha256"), str)
+                ],
+            )
         )
 
     if backend == "codex" and present_codex_fields:
@@ -34472,6 +34572,7 @@ def cmd_encode(args):
             "encode --apply --backend claude-api is unavailable for signed "
             "encoding until the encoding rule changes"
         )
+    _encode_requires_review(args)
     local_roots = _local_verification_encode_roots(args)
     if local_roots is None:
         return _cmd_encode_under_current_trust(args)
@@ -34482,6 +34583,72 @@ def cmd_encode(args):
         eval_public_key=local_roots.eval_public_key,
     ):
         return _cmd_encode_under_current_trust(args)
+
+
+def _encode_requires_review(args) -> bool:
+    """Return whether this encode refuses to apply without a passed review.
+
+    Refuses contradictory or unreadable settings before any model call.
+    """
+
+    flag = getattr(args, "require_review", False) is True
+    apply_requested = getattr(args, "apply", False) is True
+    if flag and not apply_requested:
+        raise ValueError("encode --require-review requires --apply")
+    required = require_review_setting(flag, os.environ) and apply_requested
+    if required and getattr(args, "skip_reviewers", False) is True:
+        raise ValueError(
+            "encode cannot both require the generalist review "
+            "(--require-review or AXIOM_ENCODE_REQUIRE_REVIEW=1) and skip it "
+            "(--skip-reviewers)"
+        )
+    return required
+
+
+def _encode_generalist_review_state(
+    result,
+    *,
+    skipped_by_flag: bool,
+    required: bool,
+) -> GeneralistReviewState:
+    """Collect what this attempt knows about its generalist review.
+
+    Reads never raise: a value that cannot be read stays absent, and an
+    absent value can only produce an unavailable or skipped record.
+    """
+
+    metrics = getattr(result, "metrics", None)
+    issues = getattr(metrics, "generalist_review_issues", None)
+    return GeneralistReviewState(
+        metrics_pass=getattr(metrics, "generalist_review_pass", None),
+        score=getattr(metrics, "generalist_review_score", None),
+        issue_count=len(issues) if isinstance(issues, list) else 0,
+        prompt_sha256=getattr(metrics, "generalist_review_prompt_sha256", None),
+        evidence=getattr(metrics, GENERALIST_REVIEW_EVIDENCE_ATTR, None),
+        skipped_by_flag=skipped_by_flag,
+        required=required,
+    )
+
+
+def _review_applied_pairs(rulespec_files: Sequence[Path]) -> list[AppliedPair]:
+    """Digest each RuleSpec file with its companion test, as they are now.
+
+    A file that cannot be read contributes no pair, so a verdict cannot be
+    bound to it.
+    """
+
+    pairs: list[AppliedPair] = []
+    for path in rulespec_files:
+        if path.name.endswith(RULESPEC_TEST_FILE_SUFFIX):
+            continue
+        test_path = _rulespec_test_path(path)
+        try:
+            rulespec = path.read_bytes()
+            test = test_path.read_bytes() if test_path.is_file() else None
+        except OSError:
+            continue
+        pairs.append(applied_pair(rulespec, test))
+    return pairs
 
 
 def _cmd_encode_under_current_trust(args):
@@ -35398,6 +35565,7 @@ _LEGACY_REPLACEMENT_ATTR = "_axiom_legacy_replacement_contract"
 _REPLACEMENT_OVERLAY_SCOPE_ATTR = "_axiom_replacement_overlay_scope"
 _IMMUTABLE_RULESPEC_SHA256_ATTR = "_axiom_immutable_rulespec_sha256"
 _MANIFEST_ONLY_REFRESH_ATTR = "_axiom_manifest_only_refresh"
+_GENERALIST_REVIEW_STATE_ATTR = "_axiom_generalist_review_state"
 _REVIEWED_CANDIDATE_PROMOTION_ATTR = "_axiom_reviewed_candidate_promotion"
 _PRESERVED_COMPANION_TESTS_ATTR = "_axiom_preserved_companion_tests"
 _REQUIRED_TEST_CASE_CONTRACTS_ATTR = "_axiom_required_test_case_contracts"
@@ -42194,7 +42362,44 @@ def _run_encode_attempt(
                     _replace_overlay_validation_failures(outcome, apply_issues)
                     outcome["final_success"] = False
                     print(f"  apply=blocked_validation:{detail}")
-                else:
+                review_refusal: str | None = None
+                if can_apply:
+                    review_state = _encode_generalist_review_state(
+                        result,
+                        skipped_by_flag=skip_reviewers,
+                        required=_encode_requires_review(args),
+                    )
+                    # The manifest writer rebuilds this against the digests it
+                    # signs and enforces the requirement again; this check
+                    # refuses before any signing or installation starts.
+                    review_record = build_generalist_review_record(
+                        review_state,
+                        _review_applied_pairs(
+                            [Path(str(getattr(result, "output_file", "") or ""))]
+                        ),
+                    )
+                    setattr(result, _GENERALIST_REVIEW_STATE_ATTR, review_state)
+                    outcome["generalist_review"] = review_record
+                    print(
+                        f"  generalist_review_record={review_record['status']}"
+                        + (
+                            f":{review_record['reason']}"
+                            if review_record["reason"]
+                            else ""
+                        )
+                        + (" required=yes" if review_state.required else "")
+                    )
+                    review_refusal = (
+                        review_requirement_refusal(review_record)
+                        if review_state.required
+                        else None
+                    )
+                if can_apply and review_refusal is not None:
+                    outcome["status"] = "apply_blocked_review"
+                    outcome["apply_error"] = review_refusal
+                    outcome["final_success"] = False
+                    print(f"  apply=blocked_review:{review_refusal}")
+                elif can_apply:
                     mark_encode_phase(PHASE_APPLY_WRITE)
                     try:
                         applied = _apply_generated_encoding_result(
@@ -65325,7 +65530,24 @@ def _write_applied_encoding_manifest(
         )
     payload["validation_execution"] = copy.deepcopy(validation_execution)
     validated_policy = validation_execution.get("policy_pre_apply")
-    if _target_uses_per_file_waiver_bindings(policy_repo_path):
+    per_file_shape = _target_uses_per_file_waiver_bindings(policy_repo_path)
+    review_state = vars(result).get(_GENERALIST_REVIEW_STATE_ATTR)
+    if review_state is not None:
+        # The record is built against the files this manifest signs, so a
+        # verdict on other content is recorded as unavailable, never as passed.
+        if not isinstance(review_state, GeneralistReviewState):
+            raise RuntimeError("Generalist review state is malformed")
+        review_record = build_generalist_review_record(
+            review_state,
+            _review_applied_pairs(unique_applied_files),
+        )
+        if review_state.required:
+            refusal = review_requirement_refusal(review_record)
+            if refusal is not None:
+                raise RuntimeError(refusal)
+        if per_file_shape and _target_admits_generalist_review_record(policy_repo_path):
+            payload[GENERALIST_REVIEW_FIELD] = review_record
+    if per_file_shape:
         payload[VALIDATION_WAIVER_BINDINGS_FIELD] = (
             _build_applied_manifest_file_waiver_bindings(
                 policy_repo_path,

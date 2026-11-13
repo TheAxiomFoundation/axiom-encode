@@ -474,6 +474,46 @@ def test_writer_shape_follows_the_protected_base(frozen_repo, text, per_file):
 
 
 @pytest.mark.parametrize(
+    ("text", "admits"),
+    [
+        (None, False),
+        ("# no table\n", False),
+        ('[workflow_toolchain]\nencoder_verifier = "pinned"\n', False),
+        ('[workflow_toolchain]\nencoder_verifier = "main"\n', True),
+        (
+            '[workflow_toolchain]\nencoder_verifier = "main"\n'
+            'encoder_verifier_hold = "' + "a" * 40 + '"\n',
+            False,
+        ),
+    ],
+    ids=["absent-file", "absent-table", "pinned", "main", "main-held"],
+)
+def test_review_record_is_written_only_for_an_unheld_main_verifier(
+    frozen_repo, text, admits
+):
+    """A held or pinned verifier may predate the record field (#2146)."""
+    _write_workflow_toolchain(frozen_repo, text)
+    if text is not None:
+        _commit(frozen_repo.repo, "protected workflow toolchain")
+    assert cli._target_admits_generalist_review_record(frozen_repo.repo) is admits
+    # The hold never changes the waiver shape.
+    assert cli._target_uses_per_file_waiver_bindings(frozen_repo.repo) is (
+        text is not None and 'encoder_verifier = "main"' in text
+    )
+
+
+def test_review_record_gate_refuses_to_sign_on_a_malformed_protected_mode(
+    frozen_repo,
+):
+    _write_workflow_toolchain(
+        frozen_repo, '[workflow_toolchain]\nencoder_verifier = "latest"\n'
+    )
+    _commit(frozen_repo.repo, "malformed protected workflow toolchain")
+    with pytest.raises(RuntimeError, match="Cannot sign RuleSpec"):
+        cli._target_admits_generalist_review_record(frozen_repo.repo)
+
+
+@pytest.mark.parametrize(
     "text",
     [
         '[workflow_toolchain]\nencoder_verifier = "latest"\n',
