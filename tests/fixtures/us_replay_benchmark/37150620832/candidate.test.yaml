@@ -1,0 +1,112 @@
+- name: one_participant_allotment_is_calculated_and_rounded_up
+  period: 2026-01
+  input:
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.na_net_income_for_benefit_calculation
+    : 600
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.na_budgetary_unit_is_eligible
+    : true
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.thrifty_food_plan_amount_for_budgetary_unit_size
+    : 200
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.budgetary_unit_participant_count
+    : 1
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.minimum_na_allotment: 23
+  output:
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#na_net_income: 600
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_eligible: holds
+- name: three_participant_unit_gets_actual_benefit_below_minimum
+  period: 2026-01
+  input:
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.na_net_income_for_benefit_calculation
+    : 600
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.na_budgetary_unit_is_eligible
+    : true
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.thrifty_food_plan_amount_for_budgetary_unit_size
+    : 200
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.budgetary_unit_participant_count
+    : 3
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.minimum_na_allotment: 23
+  output:
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#na_net_income: 600
+- name: ineligible_unit_has_zero_allotment
+  period: 2026-01
+  input:
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.na_net_income_for_benefit_calculation
+    : 600
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.na_budgetary_unit_is_eligible
+    : false
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.thrifty_food_plan_amount_for_budgetary_unit_size
+    : 200
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.budgetary_unit_participant_count
+    : 1
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.minimum_na_allotment: 23
+  output:
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#na_net_income: 600
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_eligible: not_holds
+- name: initial_proration_under_ten_is_no_pay
+  period: 2026-01
+  input:
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.na_budgetary_unit_is_eligible
+    : true
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.initial_month_proration_applies
+    : true
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.prorated_initial_month_na_benefit
+    : 9
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.minimum_na_allotment: 23
+  output:
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#initial_month_eligible_no_pay: holds
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#initial_month_actual_benefit_paid
+    : 0
+- name: initial_proration_at_ten_pays_actual_benefit
+  period: 2026-01
+  input:
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.na_budgetary_unit_is_eligible
+    : true
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.initial_month_proration_applies
+    : true
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.prorated_initial_month_na_benefit
+    : 10
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.minimum_na_allotment: 23
+  output:
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#initial_month_eligible_no_pay: not_holds
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#initial_month_actual_benefit_paid
+    : 10
+- name: negative_prorated_amount_is_not_paid
+  period: 2026-01
+  input:
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.na_budgetary_unit_is_eligible
+    : true
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.initial_month_proration_applies
+    : true
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.prorated_initial_month_na_benefit
+    : -5
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.minimum_na_allotment: 23
+  output:
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#initial_month_eligible_no_pay: holds
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#initial_month_actual_benefit_paid
+    : 0
+- name: initial_proration_does_not_apply
+  period: 2026-01
+  input:
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.na_budgetary_unit_is_eligible
+    : true
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.initial_month_proration_applies
+    : false
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.prorated_initial_month_na_benefit
+    : 10
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.minimum_na_allotment: 23
+  output:
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#initial_month_eligible_no_pay: not_holds
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#initial_month_actual_benefit_paid
+    : 0
+- name: shelter_and_excess_deduction_negative_amounts_are_floored
+  period: 2026-01
+  input:
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.na_net_income_for_benefit_calculation
+    : -5
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.excess_shelter_deduction_amount
+    : -5
+    ? us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#input.household_shelter_costs_incurred
+    : -5
+  output:
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#na_net_income: 0
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 0

@@ -1126,6 +1126,7 @@ def test_concurrency_groups_sit_on_the_jobs_that_do_the_work():
             "locked-builds": "locked-builds-${{ matrix.python-version }}",
             "quick-tests": "quick-tests",
             "lint": "lint",
+            "replay-benchmark": "replay-benchmark",
         }.items()
     }
 
@@ -1209,6 +1210,7 @@ def test_drafts_run_lint_and_quick_tests_and_everything_else_runs_in_full():
     )
     assert jobs["quick-tests"]["if"] == _DRAFT_RUN
     assert "if" not in jobs["lint"]
+    assert "if" not in jobs["replay-benchmark"]
     # The gate runs on every event; nothing about drafts may skip it.
     assert jobs["test-gate"]["if"] == "always()"
     assert jobs.keys() == {
@@ -1218,6 +1220,7 @@ def test_drafts_run_lint_and_quick_tests_and_everything_else_runs_in_full():
         "locked-builds",
         "quick-tests",
         "lint",
+        "replay-benchmark",
     }
 
     runs = {
@@ -1473,3 +1476,20 @@ def test_quick_tests_fail_outside_a_pull_request_merge_commit(tmp_path):
     code, _, argv = _run_quick_tests(repo)
 
     assert code != 0 and argv is None
+
+
+def test_replay_benchmark_passes_each_event_its_base():
+    (step,) = [
+        step
+        for step in CI["jobs"]["replay-benchmark"]["steps"]
+        if "replay_us_failure_bundles.py ci" in step.get("run", "")
+    ]
+    run = step["run"]
+
+    assert "pull_request) args=(--base-ref 'HEAD^1' --changed-since 'HEAD^1') ;;" in run
+    assert 'merge_group) args=(--base-ref "$MERGE_GROUP_BASE_SHA") ;;' in run
+    assert "push) args=(--base-ref 'HEAD^1') ;;" in run
+    assert step["env"]["MERGE_GROUP_BASE_SHA"] == (
+        "${{ github.event.merge_group.base_sha }}"
+    )
+    assert "if" not in step
