@@ -193,6 +193,19 @@ def test_unrelated_malformed_case_still_refuses(field):
     assert certify(payload, cases + [unrelated]).unresolved
 
 
+def test_retained_complete_companion_keeps_country_certificate():
+    directory = Path(__file__).parent / "fixtures/t2036_country_case_selection"
+    payload = yaml.safe_load((directory / "candidate.yaml").read_text())
+    cases = yaml.safe_load((directory / "candidate.test.yaml").read_text())
+    source = (directory / "source.txt").read_text()
+    assert len(cases) == 45
+    assert source == SOURCE
+    evidence = certify(payload, cases, source)
+    assert not evidence.unresolved
+    assert len(evidence.pairs) == 2
+    assert owns(evidence, payload, cases)
+
+
 def test_interpretation_of_an_omitted_rule_does_not_change_country_evidence():
     payload, cases = fixture()
     assert payload["format"] == "rulespec/v1"
