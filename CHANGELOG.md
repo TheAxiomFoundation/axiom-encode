@@ -1,3 +1,7 @@
+## 0.2.2363
+
+- fix: bind copied return categories to source projections (#2129)
+
 ## 0.2.2362
 
 - fix: bind Schedule 2 document request evidence to its source duty (#2128)

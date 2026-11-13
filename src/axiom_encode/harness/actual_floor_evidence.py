@@ -1138,3 +1138,554 @@ def same_page_witnesses(
         )
     # A printed floor owns one obligation even when several pairs prove it.
     return {min(witnesses)} if witnesses else set()
+
+
+def bind_same_page_choices(
+    content: str, source_context: Mapping[str, str | None]
+) -> dict[int, dict[str, Any]]:
+    """Bind closed local choices; this alone issues no execution witness."""
+    floors = bind_same_page_floors(content, source_context)
+    if not floors:
+        return {}
+    payload = _payload(content.encode())
+    citation = "ca/policy/cra/t1-2025/federal-spouse-transfer-amounts"
+    body = source_context[citation]
+    header = body.split("\n", 1)[0]
+    rules = {r["name"]: r for r in payload["rules"]}
+    inputs = payload.get("inputs")
+    if not isinstance(inputs, list) or not all(
+        isinstance(i, dict) and isinstance(i.get("name"), str) for i in inputs
+    ):
+        return {}
+    facts = {i["name"]: i for i in inputs}
+    if len(facts) != len(inputs) or facts.keys() & rules.keys():
+        return {}
+    age = (
+        "Age amount (if your spouse or common-law partner was born in 1960 or earlier):\n"
+        "Enter the amount from line 30100 of their return.\n\n35200\n\n1\n"
+    )
+    threshold = (
+        "Enter the amount from line 26000 of their return on line 7 if it is $57,375 or less.\n"
+        "If it is more than $57,375, enter the result of the following calculation:\n"
+        "amount from line 76 of their return\n÷ 14.5% ="
+    )
+    parameter_excerpt = (
+        "Spouse's or common-law partner's taxable income:\n" + threshold + "\n"
+    )
+
+    def proved(rule: Any, kind: str, dtype: str, excerpt: str, atom_kind: str) -> bool:
+        if not isinstance(rule, dict) or tuple(
+            rule.get(k) for k in ("kind", "dtype", "entity", "period", "unit")
+        ) != (
+            kind,
+            dtype,
+            "Person" if kind == "derived" else None,
+            "Year",
+            "CAD" if dtype == "Money" else None,
+        ):
+            return False
+        if rule.get("rounding") is not None or any(
+            k in rule for k in ("resolved_currency_rounding", "default", "formula")
+        ):
+            return False
+        versions = rule.get("versions")
+        if (
+            not isinstance(versions, list)
+            or len(versions) != 1
+            or not isinstance(versions[0], dict)
+        ):
+            return False
+        if not isinstance(versions[0].get("formula"), str):
+            return False
+        if tuple(
+            str(versions[0].get(k)) for k in ("effective_from", "effective_to")
+        ) != ("2025-01-01", "2025-12-31"):
+            return False
+        metadata = rule.get("metadata")
+        proof = metadata.get("proof") if isinstance(metadata, dict) else None
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list) or not all(isinstance(a, dict) for a in atoms):
+            return False
+        for suffix, expected_kind, text in (
+            ("formula", atom_kind, excerpt),
+            ("effective_from", "effective_period", header),
+            ("effective_to", "effective_period", header),
+        ):
+            found = [a for a in atoms if a.get("path") == "versions[0]." + suffix]
+            if len(found) != 1 or found[0].get("kind") != expected_kind:
+                return False
+            source = found[0].get("source")
+            if (
+                not isinstance(source, dict)
+                or source.get("corpus_citation_path") != citation
+                or source.get("excerpt") != text
+            ):
+                return False
+        return True
+
+    def factual(name: str, dtype: str) -> bool:
+        fact = facts.get(name)
+        return (
+            isinstance(fact, dict)
+            and tuple(fact.get(k) for k in ("dtype", "entity", "period", "unit"))
+            == (dtype, "Person", "Year", "CAD" if dtype == "Money" else None)
+            and not any(
+                k in fact for k in ("default", "formula", "versions", "indexed_by")
+            )
+        )
+
+    bound = {}
+    for row, excerpt, selector, amount, cutoff_value, cutoff_dtype, atom_kind in (
+        (
+            1,
+            age,
+            "spouse_birth_year",
+            "spouse_age_amount_line_30100",
+            1960,
+            "Integer",
+            "formula",
+        ),
+        (
+            7,
+            threshold,
+            "spouse_taxable_income_line_26000",
+            "spouse_return_line_76_amount",
+            57375,
+            "Money",
+            "parameter",
+        ),
+    ):
+        found = []
+        for rule in rules.values():
+            if not proved(rule, "derived", "Money", excerpt, "formula"):
+                continue
+            try:
+                statements = ast.parse(rule["versions"][0]["formula"]).body
+            except (SyntaxError, TypeError, ValueError):
+                continue
+            if len(statements) != 1 or not isinstance(statements[0], ast.If):
+                continue
+            choice = statements[0]
+            test = choice.test
+            if not (
+                isinstance(test, ast.Compare)
+                and isinstance(test.left, ast.Name)
+                and test.left.id == selector
+                and len(test.ops) == 1
+                and isinstance(test.ops[0], ast.LtE)
+                and len(test.comparators) == 1
+                and isinstance(test.comparators[0], ast.Name)
+            ):
+                continue
+            cutoff = rules.get(test.comparators[0].id)
+            if not proved(
+                cutoff,
+                "parameter",
+                cutoff_dtype,
+                age if row == 1 else parameter_excerpt,
+                atom_kind,
+            ):
+                continue
+            try:
+                value = ast.literal_eval(cutoff["versions"][0]["formula"])
+            except (SyntaxError, TypeError, ValueError):
+                continue
+            if type(value) is not int or value != cutoff_value:
+                continue
+            if not factual(selector, "Integer" if row == 1 else "Money") or not factual(
+                amount, "Money"
+            ):
+                continue
+            if (
+                len(choice.body) != 1
+                or len(choice.orelse) != 1
+                or not isinstance(choice.body[0], ast.Expr)
+                or not isinstance(choice.orelse[0], ast.Expr)
+            ):
+                continue
+            yes, no = choice.body[0].value, choice.orelse[0].value
+            if not isinstance(yes, ast.Name) or yes.id != (
+                amount if row == 1 else selector
+            ):
+                continue
+            if row == 1:
+                if (
+                    not isinstance(no, ast.Constant)
+                    or type(no.value) is not int
+                    or no.value != 0
+                ):
+                    continue
+            else:
+                if not (
+                    isinstance(no, ast.BinOp)
+                    and isinstance(no.op, ast.Div)
+                    and isinstance(no.left, ast.Name)
+                    and no.left.id == amount
+                    and isinstance(no.right, ast.Name)
+                ):
+                    continue
+                rate = rules.get(no.right.id)
+                if not proved(
+                    rate, "parameter", "Rate", parameter_excerpt, "parameter"
+                ):
+                    continue
+                if rate["versions"][0].get("formula") != "0.145":
+                    continue
+                if rule != floors[7]:
+                    continue
+            found.append(rule)
+        if len(found) != 1:
+            return {}
+        bound[row] = found[0]
+    total_terms = _local_sum_names(floors[6]["versions"][0]["formula"], 5)
+    if total_terms is None or total_terms.count(bound[1]["name"]) != 1:
+        return {}
+    return bound
+
+
+def _same_page_choice_observation(
+    evidence: SameCaseEvidence,
+    case: dict[str, Any],
+    *,
+    content: str,
+    source_context: Mapping[str, str | None],
+    required_outputs: set[str],
+    principal_rules: dict[str, dict[str, Any]],
+    formula_environment: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
+    """Corroborate one ordinary captured case; never change its input facts."""
+    from . import source_completeness as s
+
+    if not evidence.bound(content, ()) or not bind_same_page_choices(
+        content, source_context
+    ):
+        return None
+    try:
+        payload = _payload(content.encode())
+        local = {r["name"]: r for r in payload["rules"] if r.get("kind") == "derived"}
+        if (
+            not required_outputs
+            or local != principal_rules
+            or not required_outputs <= local.keys()
+        ):
+            return None
+        authentic_environment = s._constant_rule_environment(payload)
+        if formula_environment != authentic_environment:
+            return None
+        formula_environment = authentic_environment
+        transport = _same_page_case(evidence, case, payload)
+        values = evidence.values(case, content)
+        if transport is None or values is None or values[0]:
+            return None
+        query, response = transport
+        observed = values[1]
+        module = evidence.snapshot_module(evidence.root_relative.removesuffix(".yaml"))
+        if not {module + "#" + n for n in required_outputs} <= set(query["outputs"]):
+            return None
+        artifact = json.loads(evidence.artifact_bytes)
+        declarations = artifact["program"]["derived"]
+        if not isinstance(declarations, list) or not all(
+            isinstance(d, dict) for d in declarations
+        ):
+            return None
+        replay = s._case_dependency_environment(
+            principal_rules,
+            case,
+            formula_environment=formula_environment,
+            require_asserted_value=False,
+        )
+        environment = s._case_formula_identifier_environment(
+            case,
+            formula_environment=formula_environment,
+            dependency_environment=replay,
+        )
+        if environment is None:
+            return None
+        pending, visited, executions = list(required_outputs), set(), {}
+        while pending:
+            name = pending.pop()
+            if name in visited:
+                continue
+            visited.add(name)
+            rule = principal_rules[name]
+            if (
+                name not in observed
+                or name not in replay
+                or not s._formula_runtime_values_equal(replay[name], observed[name])
+            ):
+                return None
+            ref = module + "#" + name
+            declared = [d for d in declarations if d.get("id") == ref]
+            dtype = (
+                "decimal"
+                if rule.get("dtype") == "Money"
+                else "judgment"
+                if rule.get("dtype") == "Judgment"
+                else None
+            )
+            if (
+                dtype is None
+                or len(declared) != 1
+                or any(
+                    declared[0].get(k) != v
+                    for k, v in {
+                        "entity": "Person",
+                        "period": "Year",
+                        "dtype": dtype,
+                        "unit": rule.get("unit"),
+                        "semantics": "judgment" if dtype == "judgment" else "scalar",
+                    }.items()
+                )
+            ):
+                return None
+            execution = s._case_formula_execution(
+                rule,
+                case,
+                formula_environment=formula_environment,
+                dependency_environment=replay,
+            )
+            if execution is None:
+                return None
+            executions[name] = execution
+            reached = s._reached_formula_expression_identifier_names(
+                execution.leaf, environment=environment
+            )
+            for step in execution.trace:
+                for selector in step.selectors:
+                    reached.update(
+                        s._reached_formula_expression_identifier_names(
+                            selector, environment=environment
+                        )
+                    )
+            pending.extend(reached & principal_rules.keys() - visited)
+            if name in required_outputs:
+                output = response.get("outputs", {}).get(ref)
+                trace = response.get("trace", {}).get(ref)
+                if (
+                    not isinstance(output, dict)
+                    or not isinstance(trace, dict)
+                    or any(
+                        output.get(k) != trace.get(k)
+                        for k in ("id", "kind", "dtype", "unit", "value", "outcome")
+                    )
+                ):
+                    return None
+                if not s._asserted_formula_runtime_values_equal(
+                    rule, observed[name], s._test_case_asserted_output_value(case, name)
+                ):
+                    return None
+        return query, observed, executions
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+
+
+def same_page_choice_witnesses(
+    evidence: SameCaseEvidence,
+    branch: Any,
+    *,
+    content: str,
+    source_text: str,
+    corpus_citation_path: str,
+    principal_rules: dict[str, dict[str, Any]],
+    asserted_by_rule: dict[str, list[dict[str, Any]]],
+    formula_environment: dict[str, Any],
+    source_context: Mapping[str, str | None] | None = None,
+) -> set[tuple[str, str, str]]:
+    """Prove closed source choices/composition from ordinary captured execution.
+
+    Choice arm coverage is not a claim that the age/income cases differ in
+    one fact. Only the unused-amount composition uses a one-fact causal pair.
+    """
+    from . import source_completeness as s
+
+    citation = "ca/policy/cra/t1-2025/federal-spouse-transfer-amounts"
+    if (
+        corpus_citation_path != citation
+        or source_context is None
+        or source_context.get(citation) != source_text
+        or not evidence.bound(content, ())
+        or branch.kind != "exception-clause"
+    ):
+        return set()
+    bound = bind_same_page_choices(content, source_context)
+    floors = bind_same_page_floors(content, source_context)
+    if not bound or not floors:
+        return set()
+    excerpts = {
+        1: "Age amount (if your spouse or common-law partner was born in 1960 or earlier):\n"
+        "Enter the amount from line 30100 of their return.\n\n35200\n\n1",
+        7: "Spouse's or common-law partner's taxable income:\n"
+        "Enter the amount from line 26000 of their return on line 7 if it is $57,375 or less.\n"
+        "If it is more than $57,375, enter the result of the following calculation:\n"
+        "amount from line 76 of their return\n÷ 14.5% =",
+        0: "You may be able to claim all or part of certain amounts that your spouse or "
+        "common-law partner qualifies for if they do not need\n"
+        "to use them to reduce their federal tax to zero.",
+    }
+    matches = [
+        row
+        for row, excerpt in excerpts.items()
+        if source_text.count(excerpt) == 1
+        and (branch.start, branch.end)
+        == (source_text.index(excerpt), source_text.index(excerpt) + len(excerpt))
+        and branch.text == excerpt
+    ]
+    if len(matches) != 1:
+        return set()
+    row = matches[0]
+    final = floors[13]["name"]
+    owner = bound[row]["name"] if row else final
+    if branch.required_principal_output not in (None, owner):
+        return set()
+    shape = _same_page_floor_shape(floors[13]["versions"][0]["formula"])
+    if shape is None or shape[0] is None:
+        return set()
+    gate = shape[0]
+    valid = []
+    for case in asserted_by_rule.get(final, ()):
+        observation = _same_page_choice_observation(
+            evidence,
+            case,
+            content=content,
+            source_context=source_context,
+            required_outputs={owner, final},
+            principal_rules=principal_rules,
+            formula_environment=formula_environment,
+        )
+        if observation is None:
+            continue
+        query, observed, executions = observation
+        if (
+            observed.get(gate) is not True
+            or _subtraction(executions[final].leaf) is None
+        ):
+            continue
+        environment = s._case_formula_identifier_environment(
+            case,
+            formula_environment=formula_environment,
+            dependency_environment=observed,
+        )
+        if environment is None:
+            continue
+        if row:
+            choice = ast.parse(bound[row]["versions"][0]["formula"]).body[0]
+            selector = environment.get(choice.test.left.id)
+            if isinstance(selector, bool) or not isinstance(selector, (int, Decimal)):
+                continue
+            try:
+                leaf = ast.parse(executions[owner].leaf, mode="eval").body
+            except (SyntaxError, TypeError, ValueError):
+                continue
+            if row == 1:
+                label = (
+                    "at" if selector == 1960 else "after" if selector == 1961 else None
+                )
+                if not (
+                    (
+                        label == "at"
+                        and isinstance(leaf, ast.Name)
+                        and observed[owner] > 0
+                        and observed[final] > 0
+                    )
+                    or (
+                        label == "after"
+                        and isinstance(leaf, ast.Constant)
+                        and leaf.value == 0
+                        and observed[owner] == 0
+                        and environment.get(choice.body[0].value.id) == 0
+                    )
+                ):
+                    continue
+            else:
+                label = (
+                    "below"
+                    if selector < 57375
+                    else "at"
+                    if selector == 57375
+                    else "above"
+                )
+                if not (
+                    (label in {"below", "at"} and isinstance(leaf, ast.Name))
+                    or (
+                        label == "above"
+                        and isinstance(leaf, ast.BinOp)
+                        and isinstance(leaf.op, ast.Div)
+                    )
+                ):
+                    continue
+            valid.append((case, query, observed, label))
+        else:
+            valid.append((case, query, observed, None))
+    if row:
+        labels = {entry[3] for entry in valid}
+        required = {"at", "after"} if row == 1 else {"below", "at", "above"}
+        if not required <= labels or (
+            row == 7
+            and not any(
+                label == "above" and observed[final] > 0
+                for _, _, observed, label in valid
+            )
+        ):
+            return set()
+        keys = sorted({case_key(case) for case, _, _, _ in valid})
+        # One token for this source obligation regardless of how many cases pass.
+        return {
+            (
+                f"same-page-choice:{row}:{branch.start}:{owner}",
+                keys[0],
+                "|".join(keys[1:]),
+            )
+        }
+    joint = {floors[n]["name"] for n in (6, 7, 11, 12, 13)} | {gate}
+    if not any(
+        _same_page_choice_observation(
+            evidence,
+            case,
+            content=content,
+            source_context=source_context,
+            required_outputs=joint,
+            principal_rules=principal_rules,
+            formula_environment=formula_environment,
+        )
+        is not None
+        for case, _, _, _ in valid
+    ):
+        return set()
+    threshold_choice = ast.parse(bound[7]["versions"][0]["formula"]).body[0]
+    selector = threshold_choice.test.left.id
+    witnesses = set()
+    for left, right in combinations(valid, 2):
+        lc, lq, lv, _ = left
+        rc, rq, rv, _ = right
+        if (
+            _explicit_identity(lc) != _explicit_identity(rc)
+            or any(
+                lq.get(k) != rq.get(k)
+                for k in ("entity_id", "period", "assessment_date")
+            )
+            or set(lq["outputs"]) != set(rq["outputs"])
+            or _changed_primitive(evidence, lc, rc) != "CAD"
+        ):
+            continue
+        changed = [k for k in lc["input"] if lc["input"][k] != rc["input"][k]]
+        if len(changed) != 1 or not changed[0].endswith("#input." + selector):
+            continue
+        six, twelve = floors[6]["name"], floors[12]["name"]
+        if any(n not in values for values in (lv, rv) for n in (six, twelve, final)):
+            continue
+        positive, blocked = (lv, rv) if lv[final] > 0 else (rv, lv)
+        if not (
+            positive[final] > 0
+            and positive[twelve] == 0
+            and positive[final] == positive[six] == blocked[six]
+            and blocked[final] == 0
+            and blocked[twelve] > blocked[six]
+        ):
+            continue
+        witnesses.add(
+            (
+                f"same-page-unused:{branch.start}:{final}",
+                *sorted((case_key(lc), case_key(rc))),
+            )
+        )
+    return {min(witnesses)} if witnesses else set()
