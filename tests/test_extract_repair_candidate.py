@@ -2163,3 +2163,144 @@ def test_workflow_replays_legacy_primary_and_reports_probe_failure(
         )
         assert outputs["lane"] == "target"
         assert outputs["rulespec_path"] == primary_path
+
+
+_PRESERVATION_REQUEST = json.dumps(
+    {
+        "schema": "axiom-encode/atomic-source-transaction/v7",
+        "transaction": [],
+        "preserve_repair_companion": True,
+    }
+)
+_ORIGIN_REFUSAL = (
+    "^prior v7 repair replay cannot authenticate the originating companion; "
+    "select the originating failed run$"
+)
+_ORIGINAL_COMPANION = (
+    b'- name: sample\n  period: "2025"\n  input: {}\n  output: {x: 0, y: 1}\n'
+)
+
+
+def _preservation_archive(tmp_path, *, retained, tests, prior_v7, consumed="valid"):
+    archive, metadata = _archive(tmp_path)
+    metadata.pop("source_bundle_input")
+    metadata["atomic_source_input"] = _PRESERVATION_REQUEST if prior_v7 else "[]"
+    if prior_v7:
+        metadata["repair_execution"] = {
+            "requested_mode": "legacy_inference",
+            "mode": "full_artifact",
+            "tests_only": False,
+            "preserve_repair_companion": True,
+        }
+        identity = {
+            "lane": "target",
+            "run_id": "1111",
+            "path": "statutes/42/1437c-1.yaml",
+            "runner": "openai-gpt-5.6-sol",
+            "source_rulespec_ref": "d" * 40,
+            "rulespec_sha256": hashlib.sha256(
+                b"format: rulespec/v1\nrules: []\n"
+            ).hexdigest(),
+            "tests_sha256": hashlib.sha256(_ORIGINAL_COMPANION).hexdigest(),
+        }
+        if consumed == "malformed":
+            identity["tests_sha256"] = "invalid"
+        elif consumed == "mismatching":
+            identity["tests_sha256"] = "f" * 64
+        if consumed != "missing":
+            metadata["repair_candidate"] = identity
+    for entry in metadata["files"]:
+        if entry["path"].endswith(".test.yaml"):
+            entry.update(size=len(tests), sha256=hashlib.sha256(tests).hexdigest())
+    rewritten = tmp_path / "preservation.tar"
+    with tarfile.open(archive) as source, tarfile.open(rewritten, "w") as target:
+        for member in source:
+            body = source.extractfile(member).read()
+            if member.name == "metadata.json":
+                body = json.dumps(metadata).encode()
+            elif member.name.endswith(".test.yaml"):
+                body = tests
+            member.size = len(body)
+            target.addfile(member, io.BytesIO(body))
+    if retained:
+        rewritten = _add_retained_candidate(
+            rewritten,
+            tmp_path / "retained.tar",
+            metadata,
+            candidate=b"format: rulespec/v1\nrules: []\n",
+            tests=tests,
+        )
+    return rewritten
+
+
+@pytest.mark.parametrize("retained", [False, True], ids=["runner", "retained-best"])
+@pytest.mark.parametrize(
+    "consumed,unchanged,requested_source",
+    [
+        ("valid", False, _PRESERVATION_REQUEST),
+        ("missing", False, _PRESERVATION_REQUEST),
+        ("malformed", False, _PRESERVATION_REQUEST),
+        ("mismatching", False, _PRESERVATION_REQUEST),
+        ("valid", True, _PRESERVATION_REQUEST),
+        ("valid", False, "[]"),
+    ],
+    ids=["weakened", "missing", "malformed", "mismatching", "unchanged", "downgrade"],
+)
+def test_prior_v7_replay_refuses_unestablished_origin(
+    tmp_path, retained, consumed, unchanged, requested_source
+):
+    tests = _ORIGINAL_COMPANION
+    if not unchanged:
+        tests = tests.replace(b"{x: 0, y: 1}", b"{x: 0}")
+    archive = _preservation_archive(
+        tmp_path, retained=retained, tests=tests, prior_v7=True, consumed=consumed
+    )
+    args = _args(tmp_path, archive, atomic_source_json=requested_source)
+    with pytest.raises(ValueError, match=_ORIGIN_REFUSAL):
+        extract_candidate(args)
+    assert list(args.destination.rglob("*")) == []
+
+
+@pytest.mark.parametrize("retained", [False, True], ids=["runner", "retained-best"])
+def test_historical_candidate_starts_preservation_with_authenticated_cli_seed(
+    tmp_path, retained
+):
+    from types import SimpleNamespace
+
+    from axiom_encode import cli
+
+    archive = _preservation_archive(
+        tmp_path, retained=retained, tests=_ORIGINAL_COMPANION, prior_v7=False
+    )
+    extracted = extract_candidate(
+        _args(tmp_path, archive, atomic_source_json=_PRESERVATION_REQUEST)
+    )
+    assert extracted["runner"] == (
+        "retained-best" if retained else "openai-gpt-5.6-sol"
+    )
+    args = SimpleNamespace(
+        repair_candidate_root=Path(extracted["root"]),
+        repair_candidate_path=Path(extracted["path"]),
+        repair_candidate_rulespec_sha256=extracted["rulespec_sha256"],
+        repair_candidate_tests_sha256=extracted["tests_sha256"],
+        preserve_repair_companion=True,
+        apply=True,
+        require_complete_source_unit=True,
+        citation="us/statute/42/1437c–1",
+    )
+    seed = cli._load_initial_validation_retry_candidate(args)
+    cli._validate_preserved_repair_companion(args, seed)
+    result = SimpleNamespace()
+    setattr(result, cli._PRESERVED_REPAIR_COMPANION_ATTR, seed)
+    companion = Path(extracted["root"]) / extracted["path"].replace(
+        ".yaml", ".test.yaml"
+    )
+    record = cli._preserved_repair_companion_record(result, companion)
+    assert record["assertions"] == 2
+    assert (
+        record["original_tests_sha256"]
+        == hashlib.sha256(_ORIGINAL_COMPANION).hexdigest()
+    )
+    companion.write_bytes(_ORIGINAL_COMPANION.replace(b"{x: 0, y: 1}", b"{x: 0}"))
+    with pytest.raises(RuntimeError, match="Cannot apply repair"):
+        cli._preserved_repair_companion_record(result, companion)

@@ -1009,6 +1009,18 @@
       "why": "A proof atom ties a rule to the exact source words it implements. An excerpt that is not in the cited provision, or not in the rule's own subsection, proves nothing and can hide an invented value or condition."
     },
     {
+      "category": "repair:companion-preservation",
+      "cause": "encoder_output",
+      "fix": "Preserve every original companion case and assertion, then regenerate and verify the signed repair with its exact seed hashes.",
+      "gate": "guard-generated",
+      "id": "repair:companion-preservation",
+      "requires": "All original case facts and typed assertions, bound to signed final bytes.",
+      "severity": "important",
+      "site": "axiom_encode/cli.py:cmd_guard_generated",
+      "title": "The repair must retain the authenticated companion contract",
+      "why": "A proof repair must not silently weaken the reviewed calculation coverage."
+    },
+    {
       "category": "validation-waivers:verifier-restate",
       "cause": "encoder_output",
       "fix": "Restore the protected-base entries, owner, issue, expiry and pending records. Change only active fingerprints or remove active-only entries; submit other waiver or policy changes in a separate reviewed transaction.",
@@ -1057,6 +1069,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "2d24a58c18a52093f02d154d169b283ed00447786dbcdf8fdf1ea90b96be89dc",
+  "registry_sha256": "fed4711c9e4436e24356e8578d50aa4628ba3d276b2b3cdbf8d8cb75779212eb",
   "schema": "axiom-encode/check-registry/v1"
 }
