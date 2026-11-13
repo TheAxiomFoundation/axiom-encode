@@ -326,9 +326,9 @@ control plane.
 
 | Class | Paths | Rule with the lane on |
 |---|---|---|
-| unguarded | the five allowlisted root files | as today: `not_applicable` |
+| unguarded | the allowlisted root files without `.gitignore`: `README.md`, `LICENSE`, `LICENSE-CODE`, `NOTICE` | as today: `not_applicable` |
 | content | every path at or under a jurisdiction directory (on the base, or of jurisdiction shape), every path under an atomic root at the repository root, every apply-manifest directory | the v5 lane or the v6 lane must claim the whole delta; the v6 lane needs the content-bound approval |
-| control plane | everything under `.github/`, `.claude/`, `programs/`, `tests/`, `tools/`, `bulk/`; every `.axiom/` file that is not an apply manifest; every root file off the allowlist (`known-*.yaml`, `oracle-coverage-pending.yaml`, `household-choices.yaml`, `.gitattributes`, `CLAUDE.md`, and any new root file) | **one content-bound approval** (`pass`, `control_plane_content_bound_approval`), never "stand aside" |
+| control plane | `.gitignore` (a `rulespec-us` test runs `git check-ignore`; with the lane off it stays on the allowlist, as on `main`); everything under `.github/`, `.claude/`, `programs/`, `tests/`, `tools/`, `bulk/`; every `.axiom/` file that is not an apply manifest; every root file off the allowlist (`known-*.yaml`, `oracle-coverage-pending.yaml`, `household-choices.yaml`, `.gitattributes`, `CLAUDE.md`, and any new root file) | **one content-bound approval** (`pass`, `control_plane_content_bound_approval`), never "stand aside" |
 | infrastructure (stand aside) | exactly `INFRASTRUCTURE_PATHS`, which is **empty** | `not_applicable` (`infrastructure_as_today`) |
 | unknown | any other top-level directory, and any path that is not canonical | no lane: `fail` |
 
@@ -354,7 +354,12 @@ allowlisted files ride along:
 
 - **content with anything else: refused.** Content only: the lanes of step 3,
   unchanged;
-- **any unknown path: refused;**
+- **an unknown path never joins the control-plane or the stand-aside
+  lane.** Outside a content lane it is refused. Inside a v5 unit the earlier
+  lane applies its own path rules, as on `main`, and does not ask this
+  classifier: a module path that this classifier calls not canonical, such as
+  the 15 `us-nh/... He-W 704/...` paths on `rulespec-us` that hold a space,
+  still gets `not_applicable` (`earlier_lane_v5`);
 - **control plane** (with or without allowlisted files or a listed
   stand-aside path): the whole delta is control plane. The approval covers
   every path of the delta, the allowlisted ones too;
@@ -368,8 +373,13 @@ the delta, with no manifest, signature or dispatcher:
   commit fails; the commit list must be complete and hold the head;
 - the approval is on a commit `C` of the PR whose delta against its merge
   base with `main` has the same paths as the head delta and, for each path,
-  the same blob or the same absence. A base-only update keeps it; any changed,
-  added or dropped path voids it;
+  the same blob or the same absence on **both** sides: what `C` held equals
+  what the head holds, and what `C` replaced (its merge base) equals what the
+  head replaces (the current `main` tip). A base update that touches no path
+  of the delta keeps the approval. A base update that touches a path of the
+  delta voids it, also when the head keeps the approved bytes: otherwise an
+  approved workflow or pin would silently revert a stricter one that `main`
+  received later. Any changed, added or dropped path voids it;
 - a draft PR, a blocking `CHANGES_REQUESTED`, a required check that is not
   green from this PR's run, and any movement of the PR, `main`, the reviews or
   CI between the two reads fail.

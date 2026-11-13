@@ -72,8 +72,12 @@ PROMOTION_TOOL = "axiom-encode promote-reviewed-candidate"
 MANIFEST_DIR = ".axiom/encoding-manifests"
 MANIFEST_PREFIX = MANIFEST_DIR + "/"
 # The only paths whose change the guard does not judge. They are not read by
-# validation, by Git when it checks out module bytes, or by the agent sessions
-# that author, dispatch and approve. This list is encoder policy: a RuleSpec
+# Git when it checks out module bytes or by the agent sessions that author,
+# dispatch and approve, and validation does not read them, with one known
+# exception: a rulespec-us test runs ``git check-ignore``, which reads
+# ``.gitignore``. The proposed lane therefore treats ``.gitignore`` as control
+# plane when it is on (``LANE_GUARDED_ROOT_FILES``); with the lane off the
+# list is unchanged. This list is encoder policy: a RuleSpec
 # pull request cannot change it. Every other path is guarded, including
 # ``.gitattributes`` (it changes checked-out bytes and review diffs) and
 # ``CLAUDE.md`` and ``.claude/`` (they steer agent sessions).
@@ -104,6 +108,9 @@ CONTROL_PLANE_ROOT_DIRECTORIES = frozenset(
 # No such path is established today, so the class is EMPTY: everything that
 # is not content and not unknown is control plane.
 INFRASTRUCTURE_PATHS: frozenset[str] = frozenset()
+# Allowlisted root files that a required test reads. With the lane on they
+# are control plane; with it off they stay unguarded, as on main.
+LANE_GUARDED_ROOT_FILES = frozenset({".gitignore"})
 # The receipt of a signed legacy replacement. Together with content it marks
 # the "signed backfill" shape (rulespec-us#1470), which has no lane.
 _LEGACY_REPLACEMENT_RECEIPT = re.compile(
@@ -753,7 +760,8 @@ def classify_path(path: str, jurisdictions: frozenset[str]) -> str:
     - ``unknown``: a path that is not canonical (empty, an empty or dot
       segment, a backslash, a control or non-ASCII character, a guarded name
       in another case), and any top-level directory no class names. No lane.
-    - ``unguarded``: the five root files of ``UNGUARDED_ROOT_FILES``.
+    - ``unguarded``: the root files of ``UNGUARDED_ROOT_FILES``, without
+      ``LANE_GUARDED_ROOT_FILES`` (``.gitignore``), which is control plane.
     - ``content``: where generated RuleSpec and its manifests live. Every
       path at or under a jurisdiction directory (one that holds modules on
       the base, or any name of jurisdiction shape, so a new jurisdiction is
@@ -773,6 +781,8 @@ def classify_path(path: str, jurisdictions: frozenset[str]) -> str:
     """
     if not _well_formed(path):
         return PATH_UNKNOWN
+    if path in LANE_GUARDED_ROOT_FILES:
+        return PATH_CONTROL_PLANE
     if _is_unguarded(path):
         return PATH_UNGUARDED
     head = path.split("/")[0]
@@ -799,6 +809,7 @@ def _control_plane_verdict(
     identity,
     base,
     head,
+    base_leaves,
     head_leaves,
     delta,
     evidence,
@@ -808,7 +819,8 @@ def _control_plane_verdict(
     The binding is the one of the v6 lane, over every path of the delta: an
     approval on commit ``C`` counts when the delta of ``C`` against its merge
     base with ``main`` has the same paths and, for each path, the same blob
-    (or the same absence) as the head. There is no manifest, no signature and
+    (or the same absence) as the head on the new side and as the current base
+    on the old side. There is no manifest, no signature and
     no dispatcher. The approver is enrolled, is not the pull request author,
     and is not the author or committer of any commit.
     """
@@ -852,8 +864,14 @@ def _control_plane_verdict(
             forked = _leaf_entries(
                 _object(read(f"{root}/git/trees/{fork}?recursive=1"), "fork tree")
             )
+        # Both sides of the change: what the approver saw replaced (the fork
+        # tree) is what the head replaces (the base tree), and what the
+        # approver saw added is what the head adds. Without the first half an
+        # approval would survive main changing the same file under it.
         return set(_delta(forked, approved)) == set(delta) and all(
-            leaf(approved, path) == leaf(head_leaves, path) for path in delta
+            leaf(approved, path) == leaf(head_leaves, path)
+            and leaf(forked, path) == leaf(base_leaves, path)
+            for path in delta
         )
 
     approvals, rejected = [], []
@@ -1059,7 +1077,12 @@ def _evaluate(name, number, read, evidence) -> Verdict:
     for path, entry in head_leaves.items():
         if path in delta and (entry["type"], entry["mode"]) != _REGULAR:
             raise _Refusal(R_GUARDED_LEAF, path)
-    guarded = sorted(path for path in delta if not _is_unguarded(path))
+    guarded = sorted(
+        path
+        for path in delta
+        if not _is_unguarded(path)
+        or (INFRASTRUCTURE_LANE_ENABLED is True and path in LANE_GUARDED_ROOT_FILES)
+    )
     if not guarded:
         return Verdict(
             NOT_APPLICABLE,
@@ -1099,6 +1122,7 @@ def _evaluate(name, number, read, evidence) -> Verdict:
                     identity,
                     base,
                     head,
+                    base_leaves,
                     head_leaves,
                     delta,
                     evidence,

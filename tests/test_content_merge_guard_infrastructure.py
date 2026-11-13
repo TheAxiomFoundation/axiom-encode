@@ -54,6 +54,7 @@ from tests.test_content_merge_guard import (
     plain,
     review,
     second_read,
+    v5_manifest,
 )
 
 CONTROL_PLANE = [
@@ -241,7 +242,9 @@ def test_malformed_or_case_variant_paths_are_unknown(path):
     assert guard.classify_path(path, JURISDICTIONS) == guard.PATH_UNKNOWN
 
 
-@pytest.mark.parametrize("path", sorted(guard.UNGUARDED_ROOT_FILES))
+@pytest.mark.parametrize(
+    "path", sorted(guard.UNGUARDED_ROOT_FILES - guard.LANE_GUARDED_ROOT_FILES)
+)
 def test_allowlisted_paths(path):
     assert guard.classify_path(path, JURISDICTIONS) == guard.PATH_UNGUARDED
 
@@ -686,3 +689,129 @@ def test_on_unreadable_tree_fails(enabled, inert):
     world.fetch = fetch
     result = world.evaluate()
     assert result.verdict == guard.FAIL, result
+
+
+# --- review round 3 ------------------------------------------------------------
+
+
+def _main_moved_under_the_approval(at_fork, approved_files, at_base, head_files):
+    """Approval on ``H`` cut from ``B``; ``main`` moves to ``B2``; head ``H2``.
+
+    Each argument maps paths to bytes over ``BASE_FILES`` (``None`` removes).
+    """
+
+    def tree(changes):
+        files = dict(BASE_FILES)
+        for path, value in changes.items():
+            if value is None:
+                files.pop(path, None)
+            else:
+                files[path] = value
+        return files
+
+    world = World()
+    world.tree(B, tree(at_fork))
+    world.tree(H, tree(at_fork | approved_files))
+    world.tree(B2, tree(at_base))
+    world.tree(H2, tree(at_base | head_files))
+    world.publish(H2, B2, [commit(H), commit(H2, PAVEL, WEB_FLOW)])
+    world.ancestry(B2, H, B)
+    world.reviews([review(11, MAX, H)])
+    return world
+
+
+def test_on_main_changing_an_approved_file_voids_the_approval(enabled):
+    # (i) Approved: workflow becomes "x". main lands a stricter workflow; the
+    # head keeps "x". Same path set, same head blob: a silent revert.
+    world = _main_moved_under_the_approval(
+        {WORKFLOW: b"old\n"},
+        {WORKFLOW: b"x\n"},
+        {WORKFLOW: b"stricter\n"},
+        {WORKFLOW: b"x\n"},
+    )
+    fails(world, guard.R_NOT_CONTENT_BOUND)
+
+
+def test_on_an_approved_addition_that_now_modifies_main_voids_the_approval(enabled):
+    # (ii) Approved as a new file; main has since added that path.
+    world = _main_moved_under_the_approval(
+        {}, {PIN: b"x\n"}, {PIN: b"from-main\n"}, {PIN: b"x\n"}
+    )
+    fails(world, guard.R_NOT_CONTENT_BOUND)
+
+
+def test_on_an_approved_removal_of_other_content_voids_the_approval(enabled):
+    # (iii) Approved: remove the ledger as it was; main has since rewritten it.
+    world = _main_moved_under_the_approval(
+        {LEDGER: b"old\n"}, {LEDGER: None}, {LEDGER: b"new waivers\n"}, {LEDGER: None}
+    )
+    fails(world, guard.R_NOT_CONTENT_BOUND)
+
+
+def test_on_main_changing_another_file_keeps_the_approval(enabled):
+    world = _main_moved_under_the_approval(
+        {WORKFLOW: b"old\n"},
+        {WORKFLOW: b"x\n"},
+        {WORKFLOW: b"old\n", "tests/merged_elsewhere.py": b"y\n"},
+        {WORKFLOW: b"x\n"},
+    )
+    expect(world, guard.PASS, guard.R_CONTROL_PLANE_PASS)
+
+
+def test_reason_strings_of_the_lane_are_pinned():
+    assert guard.R_SIGNED_BACKFILL == "signed_backfill_has_no_lane"
+    assert guard.R_CONTROL_PLANE_PASS == "control_plane_content_bound_approval"
+    assert guard.R_INFRASTRUCTURE == "infrastructure_as_today"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tests/" + RECEIPT,
+        RECEIPT + ".bak",
+        "tools/x/" + RECEIPT,
+    ],
+)
+def test_on_receipt_pattern_matches_the_whole_path(enabled, path):
+    fails(approved(V5_UNIT | {path: b"{}\n"}), guard.R_NO_LANE)
+
+
+def test_gitignore_is_control_plane_only_with_the_lane_on(monkeypatch):
+    assert guard.classify_path(".gitignore", JURISDICTIONS) == guard.PATH_CONTROL_PLANE
+    world = plain({".gitignore": b"x\n"})
+    expect(world, guard.NOT_APPLICABLE, guard.R_NO_GUARDED_CONTENT)  # off: as main
+    monkeypatch.setattr(guard, "INFRASTRUCTURE_LANE_ENABLED", True)
+    fails(plain({".gitignore": b"x\n"}), guard.R_NO_APPROVAL)
+    result = expect(
+        approved({".gitignore": b"x\n", "README.md": b"x\n"}),
+        guard.PASS,
+        guard.R_CONTROL_PLANE_PASS,
+    )
+    assert result.evidence["paths"] == [".gitignore", "README.md"]
+    expect(
+        plain({"README.md": b"x\n"}), guard.NOT_APPLICABLE, guard.R_NO_GUARDED_CONTENT
+    )
+
+
+def test_on_v5_unit_with_gitignore_is_mixed(enabled):
+    fails(approved(V5_UNIT | {".gitignore": b"x\n"}), guard.R_NO_LANE)
+
+
+def test_malformed_module_path_inside_a_v5_unit_is_judged_by_the_v5_lane(enabled):
+    """As on main: the earlier lane applies its own path rules, not this class.
+
+    rulespec-us holds module paths with a space (``us-nh/... He-W 704/...``).
+    """
+    primary = "us-az/policies/He-W 704/block-7.yaml"
+    companion = "us-az/policies/He-W 704/block-7.test.yaml"
+    manifest = ".axiom/encoding-manifests/us-az/policies/He-W 704/block-7.json"
+    assert guard.classify_path(primary, JURISDICTIONS) == guard.PATH_UNKNOWN
+    files = {
+        primary: PRIMARY,
+        companion: COMPANION,
+        manifest: v5_manifest(
+            primary, companion, content={primary: PRIMARY, companion: COMPANION}
+        ),
+    }
+    on = plain(files).evaluate()
+    assert (on.verdict, on.reason) == (guard.NOT_APPLICABLE, guard.R_EARLIER_LANE)
