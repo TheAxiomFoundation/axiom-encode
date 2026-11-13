@@ -1,0 +1,32 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "origin": "local-diagnostic",
+  "run_id": "local-t936-printed-row-20261113",
+  "citation": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+  "module_path": "ca/policies/cra/t1-2025/cumulative-net-investment-loss.yaml",
+  "policy_prefix": "ca",
+  "split": "visible",
+  "recorded_verdict": "rejected",
+  "encoder_commit": "1b7b0c07ce63e418ec4589ea5c30611a003c8937",
+  "encoder_tree": "404ea68a09fce33ceb597d7f1f271cc5e96ea679",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --out /tmp/replay.json",
+  "input_origins": {
+    "candidate.yaml": "tests/fixtures/t936-printed-row-diagnostic/candidate.yaml",
+    "candidate.test.yaml": "tests/fixtures/t936-printed-row-diagnostic/candidate.test.yaml",
+    "source.txt": "tests/fixtures/t936-printed-row-diagnostic/source.txt"
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "recorded_rules": [
+    "complete-source-unit:numeric-recall",
+    "complete-source-unit:source-explicit-conditions",
+    "complete-source-unit:tests"
+  ],
+  "files": {
+    "candidate.yaml": "d28b5ce8622a8d64ac1b82d717c04ea927794a82b7227e56726937fd4458b517",
+    "candidate.test.yaml": "99eb89e1baa9715afb025891e87c43b00f400b1224d4ce887184898a5d9677de",
+    "source.txt": "796503a6838cb17679a0051fe8b20b95a115febc7d034f67ca340c0a0b3eabdc",
+    "issues.json": "66c2f4142acad79af2f7de63d1d197780434d0f34681d4fd96eb4e05ea786e9e"
+  }
+}

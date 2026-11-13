@@ -1,0 +1,12 @@
+{
+  "attempt_count": 4,
+  "citation": "us-wv/manual/bfa/income-maintenance-manual/page-3",
+  "encoder_version": "0.2.2068",
+  "issues": [
+    "policies/bfa/income-maintenance-manual/page-3.yaml: ci: [complete-source-unit:source-explicit-conditions] Derived formula version(s) delegate multiple conjunctive factual gates stated in their exact authoritative source clause to too few terminal local inputs or canonical imports: `applicable_special_reduced_residential_service_discount_rate` versions[0] (`client_qualifies_for_special_reduced_residential_service_rate`, `month_is_in_winter`, `service_is_natural_gas_electric_or_water` for 6 source gates). Encode the source-stated facts as distinct local inputs or canonical imports, declare every local fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`), combine them in a source-proved derived Judgment, and test each gate. Reserve aggregate boundary statuses for source-atomic or externally determined conditions."
+  ],
+  "path": "policies/bfa/income-maintenance-manual/page-3.yaml",
+  "rulespec_sha256": "c921b3815f3c0a18026c682d09c607f6271755b9424d8df8720815f521fd5bea",
+  "schema": "axiom-encode/failed-encode-candidate/v1",
+  "tests_sha256": "5959d96bedf1ca72abe7ad29edbfba22ef2998011803a3361ad8446d626d99e8"
+}
