@@ -8,11 +8,22 @@ is wrong, and the check refuses a candidate that encodes the alternatives as
 alternatives.
 
 The check has no text grammar for alternatives. Two grammars were tried and
-both let conjunctive lists pass. The exception is a registry of reviewed
-readings: `src/axiom_encode/harness/data/reviewed_alternative_lists.jsonl`. It
-follows the pattern of the reviewed coverage exemptions
-(`docs/coverage-exemptions.md`): literal keys, no patterns, bound to the exact
-text.
+both let conjunctive lists pass. A registry that also re-checked the list
+structurally was tried and could be satisfied by naming an input. So the
+exception is a registry of reviewed exceptions:
+`src/axiom_encode/harness/data/reviewed_alternative_lists.jsonl`. It follows
+the pattern of the reviewed coverage exemptions (`docs/coverage-exemptions.md`):
+literal keys, no patterns, bound to the exact text.
+
+**An entry switches the check off for one clause of one unit text.** For that
+clause `gates-collapsed` verifies nothing: not the structure of the
+alternatives, and not the other facts of the clause. A candidate that merges
+the whole clause into one input passes this check. The assurance for the clause
+comes from the owner who reviews the candidate encoding against the source, and
+from the other checks of the lane (proof validation, companion tests, oracle
+and reviewers). Each entry says in plain words what is not examined and what
+the owner must verify. `tests/test_source_alternative_list_gates.py` pins this
+behaviour.
 
 ## What an entry says
 
@@ -25,21 +36,21 @@ One JSON object per line:
 | `chapeau` | `physical_start` and `line`: the physical line that holds the condition cue, verbatim. |
 | `lines` | Every nonblank physical line after the chapeau that the clause holds, in source order. Each has `physical_start`, `line` (verbatim) and `reading`. |
 | `reason` | One line: why the reviewer read the list this way. |
+| `not_examined` | Nonempty list of plain sentences: the facts of the clause that the check no longer verifies for this unit. |
+| `owner_must_verify` | Nonempty list of plain sentences: what the approving owner checks in the candidate encoding against the source. |
 | `author` | Who recorded the reading (a person or a model run). |
 | `reviewer`, `reviewed_at` | The owner who checked every recorded line against the source text, as a GitHub login (`@name`), and the date. Until an owner has done that: `"pending-owner-review"` and `null`. |
 
 `reading` is one of:
 
-- `alternative`: one alternative of the list. All `alternative` lines together
-  are one fact of the condition ("any one of these"), not one fact each.
-- `conjunct`: a line of the list that is a requirement of its own. It stays in
-  the condition and is counted as before, next to the group of alternatives.
+- `alternative`: one alternative of the list.
 - `outside_condition`: text after the list that is not part of the condition
-  (for example a later sentence in the same clause). It is not counted. It may
-  only follow the last line of the list.
+  (for example a later sentence in the same clause). It may only follow the
+  last line of the list.
 
-A list needs at least two lines and at least one `alternative`. Offsets count
-Unicode characters in the scanned text. There are no wildcards.
+A list needs at least two `alternative` lines. Offsets count Unicode characters
+in the scanned text. There are no wildcards. The readings document what the
+reviewer read; the effect of the entry is the same for every recorded line.
 
 ## When an entry applies
 
@@ -53,19 +64,24 @@ Only when all of these hold:
    the recorded chapeau, and the nonblank lines after it, to the end of the
    clause, are exactly the recorded lines.
 
-Then the `alternative` lines become one gate and the `outside_condition` lines
-are not counted. The other facts of the clause stay gates. A candidate must
-still give the group an input of its own next to the inputs of the other
-facts, among the inputs that the formula reaches. So a candidate that merges
-another fact of the clause with the whole list into one input is still
-refused. The check does not look inside the group: one input for "any of the
-alternatives" passes.
+Then the clause has no gates in this check.
 
 In every other case nothing changes: a changed source byte, another citation,
-a missing citation, a clause with other bounds, or an unreadable or malformed
-registry gives no exception and every bullet stays a gate.
+a missing citation, a clause with other bounds, or a registry that cannot be
+loaded gives no exception and every bullet stays a gate. Other clauses of the
+same unit are examined as before.
 `tests/test_reviewed_alternative_lists.py` makes a malformed or duplicate
 committed entry fail in CI.
+
+## The current entries
+
+| Unit | Not examined by the check | The owner verifies in the candidate |
+|---|---|---|
+| utility block-14 | Lifeline participation AND (discount does not pay in full OR extra airtime after free minutes): separate inputs, the AND, the OR | the Lifeline path is exactly that; Lifeline alone is not enough; no listed condition is negated, dropped or constant |
+| utility block-3 | listed utility expense AND used to provide heat for the home: separate inputs, the AND, every listed expense | heating source = (electricity OR gas OR propane OR coal OR wood OR oil) AND used for heat; nothing missing; the later lists are not conditions |
+| utility block-4 | verified expenses AND (situation 1 OR situation 2); the two facts inside each situation | both situations, each with both of its facts, combined with OR, next to verified expenses |
+
+The registry file holds the full sentences.
 
 ## Add an entry
 
@@ -76,11 +92,17 @@ The registry file, its loader and its test have code owners
 (`.github/CODEOWNERS`), so the pull request needs a code-owner review.
 
 The author records the reading with `reviewer` set to `"pending-owner-review"`
-and `reviewed_at` set to `null`. The approving owner checks each recorded line
-against the source text, then replaces the marker with their GitHub login
-(`@name`) and sets `reviewed_at`, in the same pull request, before merge.
-`tests/test_reviewed_alternative_lists.py` lists the citations that may wait
-for review; a pending entry that is not listed there fails.
+and `reviewed_at` set to `null`, and writes `not_examined` and
+`owner_must_verify`. The approving owner reads the source passage, confirms the
+reading, checks the candidate encoding against `owner_must_verify`, then
+replaces the marker with their GitHub login (`@name`) and sets `reviewed_at`,
+in the same pull request.
+
+CI enforces this. `tests/test_reviewed_alternative_lists.py` fails on any
+pending entry when the run is a pull request that is ready for review, the
+merge queue, or a push to `main`. It passes locally and on a draft pull
+request, so the author can show the replay effect first. The pull request
+cannot leave draft with a green suite until an owner has signed every entry.
 
 1. Confirm the false refusal. The finding quotes the source clause and its
    facts. The candidate must encode the alternatives as alternatives.
@@ -94,8 +116,9 @@ for review; a pending entry that is not listed there fails.
    final newline.
 4. Record the reading: the chapeau line, then every nonblank line after it in
    the clause, each with its character offset and its reading. Read each line
-   in the source. When a line of the list can be read as a requirement, record
-   it as `conjunct`.
+   in the source. When a line of the list can be read as a requirement of its
+   own, the list is not a list of alternatives: do not add an entry.
+   Write `not_examined` and `owner_must_verify` for the whole clause.
 5. Append the entry as one compact JSON line. Keep the field order.
 6. Run `uv run pytest tests/test_reviewed_alternative_lists.py
    tests/test_us_replay_benchmark.py`. The registry test requires every entry

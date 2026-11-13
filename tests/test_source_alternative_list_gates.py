@@ -3,7 +3,8 @@
 The fixtures are real rejected candidates of three Arizona utility units; see
 ``tests/fixtures/az-utility-alternative-lists/README.md``. The exception is a
 registry entry bound to the citation and the exact text; see
-``docs/reviewed-alternative-lists.md``. There is no text grammar.
+``docs/reviewed-alternative-lists.md``. There is no text grammar. An entry
+switches the check off for its clause; the tests below pin that trade-off.
 """
 
 from __future__ import annotations
@@ -19,8 +20,8 @@ from axiom_encode.harness import reviewed_alternative_lists as registry
 from axiom_encode.harness import validator_pipeline as vp
 from axiom_encode.harness.source_completeness import (
     CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED,
+    _clause_is_reviewed_alternative_list,
     _source_conjunctive_fact_gates,
-    _without_reviewed_alternative_lines,
     analyze_complete_source_unit,
 )
 
@@ -257,181 +258,197 @@ BLOCK_FIXTURE = [(block, directory) for directory, block in SIX[::2]]
 CLAUSES = [(LIFELINE, 14), (SHARED, 4), (HEATING, 3)]
 
 
-@pytest.mark.parametrize(
-    ("clause", "block", "gates"), [(LIFELINE, 14, 2), (SHARED, 4, 0), (HEATING, 3, 0)]
-)
-def test_a_bound_entry_makes_the_alternatives_one_gate(clause, block, gates):
+@pytest.mark.parametrize(("clause", "block"), CLAUSES)
+def test_a_bound_entry_leaves_its_clause_without_gates(clause, block):
     entries, start = _bound(clause, block)
     assert len(entries) == 1
     # Without the registry entry and the offset, every bullet is a gate.
     plain = _source_conjunctive_fact_gates(clause)
+    assert len(plain) >= 2
     assert plain == _source_conjunctive_fact_gates(
         clause, reviewed_alternative_lists=entries
     )
     assert plain == _source_conjunctive_fact_gates(clause, text_start=start)
-    added: list[bool] = []
-    bound = _source_conjunctive_fact_gates(
-        clause,
-        reviewed_alternative_lists=entries,
-        text_start=start,
-        alternative_group_added=added,
+    assert plain == _source_conjunctive_fact_gates(
+        clause, reviewed_alternative_lists=entries, text_start=start + 1
     )
-    # A clause with another fact keeps it, next to one gate for the whole
-    # list. A clause whose only fact is the list has fewer than two gates.
-    assert len(bound) == gates
-    assert added == ([True] if gates else [])
-    if gates:
-        assert bound[0] == plain[0]
-        words = bound[-1][1]
-        assert {"discount", "airtime"} <= words
-        assert all(not ({"discount", "airtime"} <= gate[1]) for gate in plain)
-
-
-def _opaque_lifeline(payload: dict) -> None:
-    """Merge the whole Lifeline branch, lead fact and list, into one input."""
-
-    template = payload["inputs"][0]
-    payload["inputs"] = [
-        entry
-        for entry in payload["inputs"]
-        if "lifeline" not in entry["name"]
-        and "airtime" not in entry["name"]
-        and "free_minutes" not in entry["name"]
-    ] + [
-        {
-            "name": "lifeline_telephone_expense_condition_met",
-            "entity": template["entity"],
-            "dtype": "Boolean",
-            "period": template["period"],
-        }
-    ]
-    rule = next(
-        rule
-        for rule in payload["rules"]
-        if rule["name"] == "snap_telephone_expense_component_allowable"
-    )
-    rule["versions"][0]["formula"] = (
-        "component_is_telephone_expense and "
-        "budgetary_unit_obligated_to_pay_any_portion_of_component and "
-        "(component_is_basic_landline_or_cell_phone_service_fee or "
-        "lifeline_telephone_expense_condition_met)"
+    assert (
+        _source_conjunctive_fact_gates(
+            clause, reviewed_alternative_lists=entries, text_start=start
+        )
+        == ()
     )
 
 
-def test_a_candidate_that_merges_a_fact_with_the_reviewed_list_still_fails():
-    directory = "block-14-e9371ed3"
-    payload = yaml.safe_load((FIXTURES / directory / "candidate.yaml").read_text())
-    assert _collapsed(directory, 14, yaml.safe_dump(payload, sort_keys=False)) == []
-    _opaque_lifeline(payload)
-
-    issues = _collapsed(directory, 14, yaml.safe_dump(payload, sort_keys=False))
-
-    assert len(issues) == 1
-    assert "`snap_telephone_expense_component_allowable` versions[0]" in issues[0]
-    assert issues[0].expected == "2 distinct gate inputs"
-
-
-def test_a_candidate_that_merges_only_the_alternatives_passes():
-    directory = "block-14-e9371ed3"
-    payload = yaml.safe_load((FIXTURES / directory / "candidate.yaml").read_text())
+def _input(payload: dict, name: str) -> None:
     template = payload["inputs"][0]
     payload["inputs"].append(
         {
-            "name": "lifeline_discount_short_or_extra_airtime_purchased",
+            "name": name,
             "entity": template["entity"],
             "dtype": "Boolean",
             "period": template["period"],
         }
     )
-    rule = payload["rules"][0]
-    formula = rule["versions"][0]["formula"]
-    start = formula.index("lifeline_discount_does_not_pay_component_in_full")
-    end = formula.index(
-        "component_is_extra_airtime_purchased_after_exhausting_free_minutes"
-    )
-    end += len("component_is_extra_airtime_purchased_after_exhausting_free_minutes")
-    rule["versions"][0]["formula"] = (
-        formula[:start]
-        + "lifeline_discount_short_or_extra_airtime_purchased"
-        + formula[end:]
-    )
-    # The list is one fact of the condition; the check does not look inside it.
-    assert _collapsed(directory, 14, yaml.safe_dump(payload, sort_keys=False)) == []
 
 
-def _reread(clause: str, block: int, *, body=None, shift=0, start_shift=0, text=None):
+def _formula(payload: dict, rule_name: str, formula: str) -> None:
+    (rule,) = [rule for rule in payload["rules"] if rule["name"] == rule_name]
+    rule["versions"][0]["formula"] = formula
+
+
+def _opaque_lifeline(payload: dict) -> None:
+    """Block 14: Lifeline AND (A or B) as one input."""
+
+    _input(payload, "lifeline_telephone_expense_condition_met")
+    _formula(
+        payload,
+        "snap_telephone_expense_component_allowable",
+        "component_is_telephone_expense and "
+        "budgetary_unit_obligated_to_pay_any_portion_of_component and "
+        "(component_is_basic_landline_or_cell_phone_service_fee or "
+        "lifeline_telephone_expense_condition_met)",
+    )
+
+
+def _lifeline_alone(payload: dict) -> None:
+    """Block 14: Lifeline alone is enough; a listed condition is only named."""
+
+    _formula(
+        payload,
+        "snap_telephone_expense_component_allowable",
+        "component_is_telephone_expense and "
+        "budgetary_unit_obligated_to_pay_any_portion_of_component and "
+        "(component_is_basic_landline_or_cell_phone_service_fee or "
+        "budgetary_unit_participates_in_lifeline or "
+        "(lifeline_discount_does_not_pay_component_in_full and False))",
+    )
+
+
+def _opaque_heating(payload: dict) -> None:
+    """Block 3: listed expense AND used for heat as one input."""
+
+    _input(payload, "component_is_heating_source_condition_met")
+    _formula(
+        payload,
+        "component_is_heating_source",
+        "component_is_heating_source_condition_met",
+    )
+
+
+def _opaque_shared(payload: dict) -> None:
+    """Block 4: verified expenses AND either situation as one input."""
+
+    _input(payload, "verified_utility_expenses_shared_living_situation_occurs")
+    _formula(
+        payload,
+        "shared_residence_utility_allowance_path",
+        "verified_utility_expenses_shared_living_situation_occurs",
+    )
+    payload["rules"] = [
+        rule
+        for rule in payload["rules"]
+        if rule["name"] != "nonrecipient_cooccupancy_utility_allowance_path"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("directory", "block", "collapse"),
+    [
+        ("block-14-e9371ed3", 14, _opaque_lifeline),
+        ("block-14-e9371ed3", 14, _lifeline_alone),
+        ("block-3-9dd68cae", 3, _opaque_heating),
+        ("block-4-28d570f4", 4, _opaque_shared),
+    ],
+)
+def test_an_entry_switches_the_check_off_for_its_clause(
+    directory, block, collapse, monkeypatch
+):
+    """Pin the documented trade-off of a reviewed exception.
+
+    For the recorded clause the check verifies nothing: a candidate that
+    merges the whole clause into one input, or that makes a listed condition
+    irrelevant, passes this check. Without the entry it is refused. The entry's
+    ``not_examined`` and ``owner_must_verify`` fields say so; the owner's review
+    of the candidate is the control. If this test fails because the check
+    examines the clause again, update the registry fields and the docs.
+    """
+
+    payload = yaml.safe_load((FIXTURES / directory / "candidate.yaml").read_text())
+    collapse(payload)
+    content = yaml.safe_dump(payload, sort_keys=False)
+
+    assert _collapsed(directory, block, content) == []
+
+    monkeypatch.setattr(
+        "axiom_encode.harness.source_completeness.reviewed_alternative_lists_for",
+        lambda citation, text: (),
+    )
+    assert len(_collapsed(directory, block, content)) == 1
+
+
+def _is_reviewed(
+    clause: str, block: int, *, body=None, shift=0, start_shift=0, text=None
+) -> bool:
     entries, start = _bound(clause, block)
     cue = clause.index(" when ") + len(" when") if block != 14 else len("When")
     text = clause if text is None else text
-    original = text[cue:] if body is None else body
-    result, alternatives = _without_reviewed_alternative_lines(
-        text, original, cue + shift, start + start_shift, entries
+    return _clause_is_reviewed_alternative_list(
+        text,
+        text[cue:] if body is None else body,
+        cue + shift,
+        start + start_shift,
+        entries,
     )
-    assert bool(alternatives) == (result != original)
-    return original, result
-
-
-def test_the_reading_separates_alternatives_conjuncts_and_outside_lines():
-    for clause, block in CLAUSES:
-        original, result = _reread(clause, block)
-        assert result == original.split("\n")[0]
-    # A line read as a conjunct stays in the body.
-    (entry,), start = _bound(SHARED, 4)
-    first, second = entry.lines
-    reread = dataclasses.replace(
-        entry, lines=(dataclasses.replace(first, reading="conjunct"), second)
-    )
-    cue = SHARED.index(" when ") + len(" when")
-    body, alternatives = _without_reviewed_alternative_lines(
-        SHARED, SHARED[cue:], cue, start, (reread,)
-    )
-    assert body == SHARED[cue:].split("\n")[0] + "\n" + first.line
-    assert alternatives == (second.line,)
-    # The lines after the heating list are outside the condition.
-    (entry,), start = _bound(HEATING, 3)
-    cue = HEATING.index(" when ") + len(" when")
-    body, alternatives = _without_reviewed_alternative_lines(
-        HEATING, HEATING[cue:], cue, start, (entry,)
-    )
-    assert alternatives == ("● Electricity", "● Gas or propane", "● Coal, wood, or oil")
-    assert [line.reading for line in entry.lines].count("outside_condition") == 12
 
 
 @pytest.mark.parametrize(("clause", "block"), CLAUSES)
-def test_any_mismatch_with_the_recorded_place_keeps_the_body(clause, block):
-    original, result = _reread(clause, block)
-    assert result != original
+def test_any_mismatch_with_the_recorded_place_keeps_the_gates(clause, block):
+    assert _is_reviewed(clause, block)
     # The clause is at another offset of the source text.
     for start_shift in (-1, 1, 7):
-        original, result = _reread(clause, block, start_shift=start_shift)
-        assert result == original
+        assert not _is_reviewed(clause, block, start_shift=start_shift)
     # An earlier step cut or rewrote the body.
-    original, result = _reread(clause, block, body=clause[clause.index("●") :])
-    assert result == original
-    original, result = _reread(clause, block, shift=1)
-    assert result == original
+    assert not _is_reviewed(clause, block, body=clause[clause.index("●") :])
+    assert not _is_reviewed(clause, block, shift=1)
     # A line that is not recorded follows the list.
     extra = clause + "\n\nThe parent is employed and the child is disabled."
-    original, result = _reread(clause, block, text=extra)
-    assert result == original
+    assert not _is_reviewed(clause, block, text=extra)
     # A recorded line is missing.
-    shorter = clause[: clause.rindex("●")].rstrip()
-    original, result = _reread(clause, block, text=shorter)
-    assert result == original
+    assert not _is_reviewed(clause, block, text=clause[: clause.rindex("●")].rstrip())
     # A recorded line has one other character, at the same offsets.
     last = clause.rindex("●") + 2
     changed = clause[:last] + ("x" if clause[last] != "x" else "y") + clause[last + 1 :]
-    original, result = _reread(clause, block, text=changed)
-    assert result == original
+    assert not _is_reviewed(clause, block, text=changed)
     # The chapeau has one other character.
     changed = clause.replace("when", "When", 1) if block != 14 else "w" + clause[1:]
     assert changed != clause and len(changed) == len(clause)
-    original, result = _reread(clause, block, text=changed)
-    assert result == original
+    assert not _is_reviewed(clause, block, text=changed)
     # A line moved: one more blank line before the last bullet.
     moved = clause[: clause.rindex("●")] + "\n" + clause[clause.rindex("●") :]
-    original, result = _reread(clause, block, text=moved)
-    assert result == original
+    assert not _is_reviewed(clause, block, text=moved)
+    # The recorded chapeau offset differs, with every line offset right.
+    (entry,), start = _bound(clause, block)
+    shifted = dataclasses.replace(
+        entry,
+        chapeau=dataclasses.replace(
+            entry.chapeau, physical_start=entry.chapeau.physical_start + 1
+        ),
+    )
+    cue = clause.index(" when ") + len(" when") if block != 14 else len("When")
+    assert _clause_is_reviewed_alternative_list(
+        clause, clause[cue:], cue, start, (entry,)
+    )
+    assert not _clause_is_reviewed_alternative_list(
+        clause, clause[cue:], cue, start, (shifted,)
+    )
+    # A second entry is found after one that does not match.
+    assert _clause_is_reviewed_alternative_list(
+        clause, clause[cue:], cue, start, (shifted, entry)
+    )
+    # No entry at all.
+    cue = clause.index(" when ") + len(" when") if block != 14 else len("When")
+    assert not _clause_is_reviewed_alternative_list(clause, clause[cue:], cue, 0, ())
 
 
 @pytest.mark.parametrize(

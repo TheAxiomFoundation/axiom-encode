@@ -16,6 +16,7 @@ base's two gates.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -111,7 +112,27 @@ def receipts():
 
 @pytest.fixture(scope="module")
 def base(receipts):
-    return receipts.load_base_completeness()
+    """The pinned base module, read from git history.
+
+    A shallow checkout (the draft quick-test job fetches two commits) does not
+    hold the pinned commit. There the comparisons with base are skipped; the
+    full suite, the merge queue and main check out the whole history and run
+    them. In a complete checkout a missing commit is still an error.
+    """
+
+    try:
+        return receipts.load_base_completeness()
+    except subprocess.CalledProcessError:
+        shallow = subprocess.run(
+            ["git", "rev-parse", "--is-shallow-repository"],
+            cwd=receipts.ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        if shallow != "true":
+            raise
+        pytest.skip(f"shallow checkout: base commit {receipts.BASE_REF} is not present")
 
 
 def test_fixture_is_the_quoted_clause_6a():

@@ -119,27 +119,109 @@ def test_the_digest_covers_the_text_that_the_check_scans(monkeypatch, capsys):
     assert "from axiom_encode.harness.reviewed_alternative_lists import main" in script
 
 
-def test_entries_that_wait_for_an_owner_review_are_listed():
-    """An owner replaces the pending marker with their login before merge.
+def test_no_entry_waits_for_an_owner_review_outside_a_draft():
+    """An owner writes their login into ``reviewer`` before the PR is ready.
 
-    A new entry may not wait for review silently: its citation must be here.
+    A local run and a draft pull request may hold pending entries, so that the
+    author can show the effect. A pull request that is ready for review, the
+    merge queue and a push to main may not.
     """
 
-    listed = {
-        "us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-14",
-        "us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-3",
-        "us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4",
-    }
     entries = registry.load_reviewed_alternative_lists()
-    pending = {
+    pending = [
         entry.citation_path
         for entry in entries
         if entry.reviewer == registry.PENDING_REVIEWER
-    }
-    assert pending <= listed
+    ]
     for entry in entries:
         assert (entry.reviewed_at is None) == (entry.citation_path in pending)
         assert entry.author.strip()
+        assert entry.not_examined and entry.owner_must_verify
+    if registry.owner_review_is_required():
+        assert pending == [], (
+            "an owner must check these entries against the source text and "
+            "replace the pending marker with their GitHub login: " + ", ".join(pending)
+        )
+
+
+def _event(tmp_path, payload) -> str:
+    path = tmp_path / "event.json"
+    path.write_text(payload if isinstance(payload, str) else json.dumps(payload))
+    return str(path)
+
+
+@pytest.mark.parametrize(
+    ("environ", "payload", "required"),
+    [
+        # Local runs and manual dispatches.
+        ({}, None, False),
+        ({"GITHUB_EVENT_NAME": "workflow_dispatch"}, None, False),
+        ({"GITHUB_EVENT_NAME": "schedule"}, None, False),
+        # Pull requests: only a draft may wait.
+        (
+            {"GITHUB_EVENT_NAME": "pull_request"},
+            {"pull_request": {"draft": True}},
+            False,
+        ),
+        (
+            {"GITHUB_EVENT_NAME": "pull_request"},
+            {"pull_request": {"draft": False}},
+            True,
+        ),
+        ({"GITHUB_EVENT_NAME": "pull_request"}, {"pull_request": {}}, True),
+        (
+            {"GITHUB_EVENT_NAME": "pull_request"},
+            {"pull_request": {"draft": "true"}},
+            True,
+        ),
+        ({"GITHUB_EVENT_NAME": "pull_request"}, {}, True),
+        ({"GITHUB_EVENT_NAME": "pull_request"}, "{not json", True),
+        ({"GITHUB_EVENT_NAME": "pull_request"}, None, True),
+        (
+            {"GITHUB_EVENT_NAME": "pull_request_target"},
+            {"pull_request": {"draft": False}},
+            True,
+        ),
+        # The merge queue and main.
+        ({"GITHUB_EVENT_NAME": "merge_group"}, None, True),
+        ({"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/main"}, None, True),
+        (
+            {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/fix/branch"},
+            None,
+            False,
+        ),
+        ({"GITHUB_EVENT_NAME": "push"}, None, False),
+    ],
+)
+def test_the_owner_review_gate_follows_the_draft_gate(
+    tmp_path, environ, payload, required
+):
+    environ = dict(environ)
+    if payload is not None:
+        environ["GITHUB_EVENT_PATH"] = _event(tmp_path, payload)
+    assert registry.owner_review_is_required(environ) is required
+
+
+def test_the_owner_review_gate_reads_the_process_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    monkeypatch.setenv(
+        "GITHUB_EVENT_PATH", _event(tmp_path, {"pull_request": {"draft": False}})
+    )
+    assert registry.owner_review_is_required() is True
+    monkeypatch.setenv(
+        "GITHUB_EVENT_PATH", _event(tmp_path, {"pull_request": {"draft": True}})
+    )
+    assert registry.owner_review_is_required() is False
+    monkeypatch.delenv("GITHUB_EVENT_NAME")
+    assert registry.owner_review_is_required() is False
+
+
+def test_the_draft_gate_of_ci_reads_the_same_event_field():
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    assert (
+        "github.event_name != 'pull_request' || !github.event.pull_request.draft"
+        in (workflow)
+    )
 
 
 def test_the_registry_and_its_loader_have_code_owners():
@@ -246,9 +328,19 @@ MALFORMED = {
     "line with a carriage return": _set(("lines", 0, "line"), "● a\r"),
     "line before the chapeau": _set(("lines", 0, "physical_start"), 0),
     "lines out of order": _set(("lines", 1, "physical_start"), 1),
-    "no alternative": lambda entry: [
-        line.__setitem__("reading", "conjunct") for line in entry["lines"]
-    ],
+    "conjunct reading": _set(("lines", 0, "reading"), "conjunct"),
+    "not_examined missing": _drop(("not_examined",)),
+    "not_examined empty": _set(("not_examined",), []),
+    "not_examined is text": _set(("not_examined",), "the structure"),
+    "not_examined is one word": _set(("not_examined",), "structure"),
+    "owner_must_verify is one word": _set(("owner_must_verify",), "formula"),
+    "not_examined with a blank item": _set(("not_examined",), ["x", " "]),
+    "not_examined with a two-line item": _set(("not_examined",), ["a\nb"]),
+    "not_examined with a number": _set(("not_examined",), [3]),
+    "owner_must_verify missing": _drop(("owner_must_verify",)),
+    "owner_must_verify empty": _set(("owner_must_verify",), []),
+    "owner_must_verify is text": _set(("owner_must_verify",), "the formula"),
+    "owner_must_verify with a blank item": _set(("owner_must_verify",), [""]),
     "only outside lines": lambda entry: [
         line.__setitem__("reading", "outside_condition") for line in entry["lines"]
     ],
@@ -289,10 +381,14 @@ def test_the_outside_lines_follow_the_last_line_of_the_list():
     readings = [line["reading"] for line in entry["lines"]]
     assert readings[:3] == ["alternative"] * 3
     assert set(readings[3:]) == {"outside_condition"}
+    # Only the two readings exist: a third list line cannot be a conjunct.
+    changed = copy.deepcopy(entry)
+    changed["lines"][2]["reading"] = "conjunct"
+    with pytest.raises(ValueError, match="reading is unknown"):
+        registry.ReviewedAlternativeList.from_mapping(changed)
     for bad in (
-        ["outside_condition", "alternative", "conjunct"],
+        ["outside_condition", "alternative", "alternative"],
         ["alternative", "outside_condition", "alternative"],
-        ["conjunct", "outside_condition", "alternative"],
     ):
         changed = copy.deepcopy(entry)
         for line, reading in zip(changed["lines"], bad, strict=False):

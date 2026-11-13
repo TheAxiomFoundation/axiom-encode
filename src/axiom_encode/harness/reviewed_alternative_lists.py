@@ -1,11 +1,16 @@
-"""Reviewed readings of bulleted lists of alternatives, bound to exact text.
+"""Reviewed exceptions for bulleted lists of alternatives, bound to exact text.
 
 There is deliberately no source interpretation here. The gates-collapsed check
-still reads every bullet under a condition cue as one more simultaneous fact.
-A registry entry records, for one source unit and one exact text, which
-physical lines a reviewer read as alternatives. The entry applies only when
-the citation, the SHA-256 of the text and every recorded line at its recorded
-offset match. Offsets count Python Unicode characters; hashes cover UTF-8.
+reads every bullet under a condition cue as one more simultaneous fact. For a
+list of alternatives that reading is wrong. A registry entry records, for one
+source unit and one exact text, the clause that a reviewer read as a list of
+alternatives. For that clause the check is switched off: it verifies nothing
+about the clause, and the entry says in plain words what it no longer verifies
+and what the approving owner verified instead.
+
+An entry applies only when the citation, the SHA-256 of the text and every
+recorded line at its recorded offset match. Offsets count Python Unicode
+characters; hashes cover UTF-8.
 """
 
 from __future__ import annotations
@@ -13,6 +18,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -23,10 +29,9 @@ from typing import Any, Mapping
 REGISTRY_PATH = "data/reviewed_alternative_lists.jsonl"
 
 # How the reviewer read one physical line after the chapeau.
-#   alternative        one alternative of the list; not a simultaneous fact
-#   conjunct           stays in the condition and is counted as before
+#   alternative        one alternative of the list
 #   outside_condition  text after the list that is not part of the condition
-READINGS = frozenset({"alternative", "conjunct", "outside_condition"})
+READINGS = frozenset({"alternative", "outside_condition"})
 
 # ``reviewer`` is the owner who checked every recorded line against the source
 # text: a GitHub login. Until an owner has done that, it is this marker and
@@ -124,6 +129,8 @@ class ReviewedAlternativeList:
     chapeau: ReviewedLine
     lines: tuple[ReviewedLine, ...]
     reason: str
+    not_examined: tuple[str, ...]
+    owner_must_verify: tuple[str, ...]
     author: str
     reviewer: str
     reviewed_at: str | None
@@ -144,20 +151,26 @@ class ReviewedAlternativeList:
             ReviewedLine.from_mapping(line, f"lines[{index}]", chapeau=False)
             for index, line in enumerate(raw_lines)
         )
-        in_list = [line for line in lines if line.reading != "outside_condition"]
-        if any(line.reading == "outside_condition" for line in lines[: len(in_list)]):
+        in_list = [line for line in lines if line.reading == "alternative"]
+        if len(in_list) < 2:
+            raise ValueError("a list of alternatives needs at least two alternatives")
+        if any(line.reading != "alternative" for line in lines[: len(in_list)]):
             raise ValueError(
                 "outside_condition lines may only follow the last line of the list"
-            )
-        if len(in_list) < 2 or all(line.reading == "conjunct" for line in in_list):
-            raise ValueError(
-                "a list of alternatives needs two lines and at least one alternative"
             )
         previous = chapeau
         for line in lines:
             if line.physical_start <= previous.physical_end:
                 raise ValueError("lines must follow the chapeau in source order")
             previous = line
+        statements = {}
+        for field in ("not_examined", "owner_must_verify"):
+            raw = value[field]
+            if not isinstance(raw, (list, tuple)) or not raw:
+                raise ValueError(f"{field} must be a nonempty list")
+            statements[field] = tuple(
+                _one_line(item, f"{field}[{index}]") for index, item in enumerate(raw)
+            )
         for field in ("reason", "author"):
             _one_line(value[field], field)
         reviewer, reviewed_at = value["reviewer"], value["reviewed_at"]
@@ -178,6 +191,8 @@ class ReviewedAlternativeList:
             chapeau,
             lines,
             value["reason"],
+            statements["not_examined"],
+            statements["owner_must_verify"],
             value["author"],
             value["reviewer"],
             value["reviewed_at"],
@@ -252,6 +267,31 @@ def reviewed_alternative_lists_for(
     return tuple(
         entry for entry in entries if entry.matches(citation_path, source_text)
     )
+
+
+def owner_review_is_required(environ: Mapping[str, str] | None = None) -> bool:
+    """Say whether a pending owner review must fail in this run.
+
+    It follows the draft gate of ``.github/workflows/ci.yml``: a draft pull
+    request and a local run may hold pending entries. A pull request that is
+    ready for review, the merge queue and a push to ``main`` may not. A pull
+    request whose event payload cannot be read counts as ready.
+    """
+
+    environ = os.environ if environ is None else environ
+    event = environ.get("GITHUB_EVENT_NAME", "")
+    if event == "merge_group":
+        return True
+    if event == "push":
+        return environ.get("GITHUB_REF", "") == "refs/heads/main"
+    if event not in {"pull_request", "pull_request_target"}:
+        return False
+    try:
+        with open(environ["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
+            draft = json.load(handle)["pull_request"]["draft"]
+    except Exception:
+        return True
+    return draft is not True
 
 
 def main(argv: list[str] | None = None) -> int:
