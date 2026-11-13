@@ -76,6 +76,24 @@ MANIFEST_PREFIX = MANIFEST_DIR + "/"
 UNGUARDED_ROOT_FILES = frozenset(
     {".gitignore", "LICENSE", "LICENSE-CODE", "NOTICE", "README.md"}
 )
+# PROPOSAL, OFF (design section 10, question 0; not a maintainer decision).
+# While this is False the classifier is unchanged: an infrastructure change
+# has no lane and gets ``fail``. When True, a pull request whose whole delta
+# is infrastructure gets ``not_applicable``: the guard stands aside and the
+# pull request merges under the controls it has today (the required
+# ``validate / validate`` check, no enforced approval). A pull request that
+# mixes infrastructure with RuleSpec content or a manifest is refused in both
+# states. The switch is a constant on encoder main, with no runtime override.
+INFRASTRUCTURE_LANE_ENABLED = False
+# Top-level directories that hold no generated RuleSpec. ``.axiom`` excludes
+# its ``encoding-manifests`` directory, which is content territory.
+INFRASTRUCTURE_ROOT_DIRECTORIES = frozenset(
+    {".axiom", ".claude", ".github", "bulk", "programs", "tests", "tools"}
+)
+PATH_UNGUARDED = "unguarded"
+PATH_CONTENT = "content"
+PATH_INFRASTRUCTURE = "infrastructure"
+PATH_UNKNOWN = "unknown"
 # Earlier apply-manifest schemas. Their lanes keep their own controls (the
 # approval is checked before signing); this guard does not judge them.
 EARLIER_MANIFEST_SCHEMAS = frozenset({"axiom-encode/applied-rulespec/v5"})
@@ -139,6 +157,7 @@ EXIT_CODES = {PASS: 0, FAIL: 1, NOT_APPLICABLE: 3}
 R_PASS = "content_bound_approval"
 R_NO_GUARDED_CONTENT = "no_guarded_content"
 R_EARLIER_LANE = "earlier_lane_v5"
+R_INFRASTRUCTURE = "infrastructure_as_today"
 R_GUARDED_LEAF = "guarded_leaf_not_regular"
 R_MANIFEST_REMOVED = "manifest_removed"
 R_NO_LANE = "no_lane_for_guarded_change"
@@ -678,6 +697,38 @@ def _is_module_path(path: str, jurisdictions: frozenset[str]) -> bool:
     )
 
 
+def classify_path(path: str, jurisdictions: frozenset[str]) -> str:
+    """Sort one changed path into a class, from the path alone.
+
+    - ``unguarded``: the five root files of ``UNGUARDED_ROOT_FILES``.
+    - ``content``: where generated RuleSpec and its manifests live. Every
+      path at or under a jurisdiction directory (one that holds modules on
+      the base, or any name of jurisdiction shape, so a new jurisdiction is
+      never infrastructure), every path at or under an atomic root at the
+      repository root, and every apply-manifest directory. The class is
+      deliberately wide: ``us-mo/manual/...``, ``us-az/.axiom/...`` and
+      ``us-az/README.md`` are content, because the encoder does not own the
+      list of what the engine loads below a jurisdiction.
+    - ``infrastructure``: a path under one of
+      ``INFRASTRUCTURE_ROOT_DIRECTORIES``, or a file at the repository root
+      (ledgers, ``.gitattributes``, ``CLAUDE.md``).
+    - ``unknown``: any other top-level directory. It has no lane.
+    """
+    if _is_unguarded(path):
+        return PATH_UNGUARDED
+    head = path.split("/")[0]
+    if (
+        _manifest_area(path) is not None
+        or head in RULESPEC_ATOMIC_ROOTS
+        or head in jurisdictions
+        or _JURISDICTION.fullmatch(head) is not None
+    ):
+        return PATH_CONTENT
+    if "/" not in path or head in INFRASTRUCTURE_ROOT_DIRECTORIES:
+        return PATH_INFRASTRUCTURE
+    return PATH_UNKNOWN
+
+
 def _manifest_module(manifest_path: str) -> str | None:
     """The primary module a manifest position stands for, in either layout."""
     prefix = _manifest_area(manifest_path)
@@ -828,6 +879,22 @@ def _evaluate(name, number, read, evidence) -> Verdict:
             "every changed path is on the allowlist of unvalidated locations",
             evidence,
         )
+    if INFRASTRUCTURE_LANE_ENABLED is True:
+        # Proposal, off. The whole delta must be infrastructure (allowlisted
+        # files may ride along); one content or unknown path leaves the pull
+        # request to the lanes below, which refuse a mixed delta.
+        jurisdictions = _base_jurisdictions(base_leaves)
+        if all(
+            classify_path(path, jurisdictions) == PATH_INFRASTRUCTURE
+            for path in guarded
+        ):
+            return Verdict(
+                NOT_APPLICABLE,
+                R_INFRASTRUCTURE,
+                "infrastructure only: no RuleSpec content and no manifest; "
+                "the pull request keeps the controls it has today",
+                evidence,
+            )
     manifests = [path for path in guarded if _manifest_area(path) not in (None, "leaf")]
     if not manifests:
         raise _Refusal(R_NO_LANE, "guarded paths change with no apply manifest")

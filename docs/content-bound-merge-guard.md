@@ -297,6 +297,65 @@ other; the 39 of those 62 that were listed all carried the historic
 `rulespec-us` merges today. It cannot be made a required check until the
 maintainers decide which lane these changes get.
 
+### Proposed infrastructure lane (off; a recommendation, not a decision)
+
+`INFRASTRUCTURE_LANE_ENABLED` in `content_merge_guard.py` is `False`. While it
+is off, everything above holds unchanged. It is a constant on encoder main
+with no runtime override. This section is the proposal for question 0 of §10.
+
+`classify_path` sorts each changed path, from the path alone:
+
+| Class | Paths | Rule with the lane on |
+|---|---|---|
+| unguarded | the five allowlisted root files | as today: `not_applicable` |
+| content | every path at or under a jurisdiction directory (on the base, or of jurisdiction shape), every path under an atomic root at the repository root, every apply-manifest directory | the v5 lane or the v6 lane must claim the whole delta; the v6 lane needs the content-bound approval |
+| infrastructure | paths under `.axiom/` (not `encoding-manifests`), `.claude/`, `.github/`, `bulk/`, `programs/`, `tests/`, `tools/`, and files at the repository root | the guard stands aside: `not_applicable` (`infrastructure_as_today`). The PR merges under today's controls: the required `validate / validate` check and no enforced approval |
+| unknown | any other top-level directory | no lane: `fail` |
+
+A pull request is judged as a whole:
+
+- every guarded path is infrastructure: `not_applicable`;
+- any content or unknown path together with infrastructure: `fail`. A mixed
+  pull request is refused; split it (the shape of rulespec-us#1470);
+- content only: the lanes of step 3, unchanged.
+
+The content class is wide on purpose. `us-mo/manual/...`, `us-az/.axiom/...`
+and `us-az/README.md` are content, and a jurisdiction that the base lacks is
+content with no lane, never infrastructure. The seven infrastructure
+directories are exactly the non-jurisdiction top-level directories on
+`rulespec-us` main on 2026-11-13.
+
+Evidence, read-only on 2026-11-13: the 50 most recently merged `rulespec-us`
+PRs to `main` (#1447 to #2156; file lists only).
+
+| Class of the whole PR | PRs |
+|---|---|
+| infrastructure only | 47 (33 of them change `.github/**` or a toolchain pin) |
+| content only | 2 (#2045, #2154) |
+| mixed | 1 (#1470) |
+| unknown top-level directory | 0 |
+
+2 of the 50 carry an approval from an account other than the author. The
+authors are the two enrolled owners (31 and 19 PRs).
+
+**What this lane gives and what it does not.** With it, the guard can become
+a required check without blocking 47 of 50 real PRs, and it guarantees one
+thing: no path of the content class reaches `main` without a v5 lane or a
+content-bound approval. It does not review infrastructure. A write
+collaborator can change a workflow or a pin under the same controls as today;
+the guard does not make that worse and does not make it better. A PR-supplied
+workflow cannot satisfy the guard's own check once that check is bound to the
+guard App (§4).
+
+Alternatives considered:
+
+| Alternative | Why not recommended first |
+|---|---|
+| Enrolled-owner, content-bound approval for every infrastructure PR (the earlier suggestion in §10) | Adds an enforced review to 47 of 50 PRs where 2 have one today. Each owner would wait for the other on every pin bump. It moves the bottleneck instead of removing it |
+| Approval only for the control plane (`.github/**`, toolchain pins, `CLAUDE.md`, `.claude/`, `.gitattributes`) | Still 33 of 47. Worth a second step after the pilot, with measured load |
+| Keep `fail` (today's classifier) | The check can never be required, so the pre-sign approval can never be removed (D2d) |
+| Decide by a label, a PR title or a file inside the PR | The PR controls all three (round 1, F1) |
+
 ### CLI
 
 `axiom-encode merge-guard --repository rulespec-us --pr <n>` prints one JSON
@@ -576,7 +635,7 @@ signed approval (option c in §3) or a separate approver account.
 
 | # | Question | Recommendation |
 |---|---|---|
-| 0 | **First decision.** Which lane do infrastructure changes (`.github/**`, `.axiom/` pins and configuration, ledgers, tooling, `.gitattributes`, `CLAUDE.md`, `.claude/`) and ProgramSpec changes get? Today none: `fail`. 48 of the last 50 merged PRs are in this class (49 before #2045 merged) | Decide before the check is required. One option is the same enrolled-owner, content-bound approval as the v6 lane, without a manifest |
+| 0 | **First decision.** Which lane do infrastructure changes (`.github/**`, `.axiom/` pins and configuration, ledgers, tooling, `.gitattributes`, `CLAUDE.md`, `.claude/`) and ProgramSpec changes get? Today none: `fail`. 48 of the last 50 merged PRs are in this class (49 before #2045 merged) | Decide before the check is required. Recommended: the guard stands aside for a PR that is infrastructure only and refuses a mixed PR ("Proposed infrastructure lane" in §3; implemented behind `INFRASTRUCTURE_LANE_ENABLED = False`). Alternative: the same enrolled-owner, content-bound approval as the v6 lane, without a manifest |
 | 0b | A module under a jurisdiction that the base lacks has no lane, also with a v5 manifest. How is a new jurisdiction added? | Through the lane of question 0 |
 | 1 | App-published check or an organisation required-workflow ruleset? | The App. Switch only if the ruleset documentation confirms the capability |
 | 2 | Is a polling sweep (about 5 minutes) acceptable as the trigger? | Yes for the pilot |

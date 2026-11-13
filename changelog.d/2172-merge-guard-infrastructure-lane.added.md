@@ -1,0 +1,1 @@
+Add a switched-off infrastructure lane proposal to the content-bound merge guard: a path classifier that lets the guard stand aside for infrastructure-only pull requests and refuse mixed ones; the evaluator's verdicts are unchanged while it is off.
