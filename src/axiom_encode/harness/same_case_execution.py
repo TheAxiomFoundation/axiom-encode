@@ -623,15 +623,20 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
             return None
         if imports == []:
             from .actual_floor_evidence import bind_same_page_floors
+            from .bound_form_operands import bind_local_form_snapshot
 
             sources = pipe._proof_source_texts_for_rulespec_content(
                 content, source_texts=pipe._source_texts_for_rulespec_content(content)
             )
             from .actual_local_relation_evidence import local_relation_snapshot_eligible
 
-            if not bind_same_page_floors(
-                content, sources
-            ) and not local_relation_snapshot_eligible(payload):
+            if (
+                not bind_same_page_floors(content, sources)
+                and not local_relation_snapshot_eligible(payload)
+                and not bind_local_form_snapshot(
+                    content, sources or {}, rules_file.relative_to(root).as_posix()
+                )
+            ):
                 return None
         else:
             exports = pipe._complete_source_unit_import_bindings(rules_file)

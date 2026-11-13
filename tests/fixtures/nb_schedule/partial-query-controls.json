@@ -1,0 +1,1073 @@
+{
+  "row3_assistance_excess": {
+    "case": {
+      "name": "row3_assistance_excess",
+      "entity_id": "nb-claimant-a",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_home_renovation_total_eligible_expenses_line_1": 100,
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_government_assistance_line_2": 200
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3": "-100"
+      }
+    },
+    "request": {
+      "mode": "explain",
+      "dataset": {
+        "inputs": [
+          {
+            "name": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_home_renovation_total_eligible_expenses_line_1",
+            "entity": "Person",
+            "entity_id": "nb-claimant-a",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 100
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_government_assistance_line_2",
+            "entity": "Person",
+            "entity_id": "nb-claimant-a",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 200
+            }
+          }
+        ],
+        "relations": []
+      },
+      "queries": [
+        {
+          "entity_id": "nb-claimant-a",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": [
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3"
+          ]
+        }
+      ]
+    },
+    "response": {
+      "metadata": {
+        "requested_mode": "explain",
+        "actual_mode": "explain",
+        "fallback_reason": null
+      },
+      "results": [
+        {
+          "entity_id": "nb-claimant-a",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": {
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3": {
+              "kind": "scalar",
+              "name": "nb_s12_net_home_renovation_expenses_line_3",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "-100"
+              }
+            }
+          },
+          "trace": {
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance": {
+              "kind": "scalar",
+              "name": "entered_home_renovation_assistance",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 200
+              },
+              "source": "Line 2: Amount of government assistance received or receivable included in\nthe amount on line 1 ^",
+              "executed_expression": "input(\"nb_s12_government_assistance_line_2\")",
+              "dependencies": []
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses": {
+              "kind": "scalar",
+              "name": "entered_total_eligible_home_renovation_expenses",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 100
+              },
+              "source": "Line 1: Total amount paid from all sales slips and contracts included in the\ntable above Total eligible expenses = ^",
+              "executed_expression": "input(\"nb_s12_home_renovation_total_eligible_expenses_line_1\")",
+              "dependencies": []
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3": {
+              "kind": "scalar",
+              "name": "nb_s12_net_home_renovation_expenses_line_3",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "-100"
+              },
+              "source": "Line 1: Total amount paid from all sales slips and contracts included in the\ntable above Total eligible expenses = ^\n\nLine 2: Amount of government assistance received or receivable included in\nthe amount on line 1 ^\n\nLine 3: Line 1 minus line 2 (maximum $10,000) = ^",
+              "executed_expression": "min(ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_2025_home_renovation_expense_cap[0], (ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses - ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance))",
+              "parameter_reads": [
+                {
+                  "parameter": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_2025_home_renovation_expense_cap",
+                  "name": "nb_s12_2025_home_renovation_expense_cap",
+                  "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_2025_home_renovation_expense_cap",
+                  "index": 0,
+                  "value": {
+                    "kind": "integer",
+                    "value": 10000
+                  },
+                  "unit": "CAD",
+                  "effective_from": "2025-01-01",
+                  "effective_to": "2025-12-31",
+                  "source": "Line 3: Line 1 minus line 2 (maximum $10,000) = ^"
+                }
+              ],
+              "dependencies": [
+                "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses",
+                "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "command": [
+      "/Users/pavelmakarchuk/axiom-api-catalog-readiness/.local/catalog-readiness/independent-t89-preflight/run39536963804/step3-repair-41127692566-diagnosis/overlay-origin-implementation/official-engine/axiom-rules-engine/target/release/axiom-rules-engine",
+      "run-compiled",
+      "--artifact",
+      "/var/folders/t5/1q_n2l7d1ndddzm52gy9n93w0000gn/T/tmpfo0v8fjc/compiled.json"
+    ],
+    "returncode": 0
+  },
+  "row5_other_excess": {
+    "case": {
+      "name": "row5_other_excess",
+      "entity_id": "nb-claimant-a",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_home_renovation_total_eligible_expenses_line_1": 100,
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_government_assistance_line_2": 0,
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_expenses_claimed_by_other_eligible_individuals_line_4": 200
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_home_renovation_expenses_line_60360": "-100"
+      }
+    },
+    "request": {
+      "mode": "explain",
+      "dataset": {
+        "inputs": [
+          {
+            "name": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_home_renovation_total_eligible_expenses_line_1",
+            "entity": "Person",
+            "entity_id": "nb-claimant-a",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 100
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_government_assistance_line_2",
+            "entity": "Person",
+            "entity_id": "nb-claimant-a",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 0
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_expenses_claimed_by_other_eligible_individuals_line_4",
+            "entity": "Person",
+            "entity_id": "nb-claimant-a",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 200
+            }
+          }
+        ],
+        "relations": []
+      },
+      "queries": [
+        {
+          "entity_id": "nb-claimant-a",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": [
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_home_renovation_expenses_line_60360"
+          ]
+        }
+      ]
+    },
+    "response": {
+      "metadata": {
+        "requested_mode": "explain",
+        "actual_mode": "explain",
+        "fallback_reason": null
+      },
+      "results": [
+        {
+          "entity_id": "nb-claimant-a",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": {
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_home_renovation_expenses_line_60360": {
+              "kind": "scalar",
+              "name": "nb_s12_home_renovation_expenses_line_60360",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_home_renovation_expenses_line_60360",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "-100"
+              }
+            }
+          },
+          "trace": {
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance": {
+              "kind": "scalar",
+              "name": "entered_home_renovation_assistance",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 0
+              },
+              "source": "Line 2: Amount of government assistance received or receivable included in\nthe amount on line 1 ^",
+              "executed_expression": "input(\"nb_s12_government_assistance_line_2\")",
+              "dependencies": []
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_other_claims": {
+              "kind": "scalar",
+              "name": "entered_home_renovation_other_claims",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_other_claims",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 200
+              },
+              "source": "Line 4: Amount of eligible expenses included on line 3 being claimed by other\neligible individuals ^",
+              "executed_expression": "input(\"nb_s12_expenses_claimed_by_other_eligible_individuals_line_4\")",
+              "dependencies": []
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses": {
+              "kind": "scalar",
+              "name": "entered_total_eligible_home_renovation_expenses",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 100
+              },
+              "source": "Line 1: Total amount paid from all sales slips and contracts included in the\ntable above Total eligible expenses = ^",
+              "executed_expression": "input(\"nb_s12_home_renovation_total_eligible_expenses_line_1\")",
+              "dependencies": []
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_home_renovation_expenses_line_60360": {
+              "kind": "scalar",
+              "name": "nb_s12_home_renovation_expenses_line_60360",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_home_renovation_expenses_line_60360",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "-100"
+              },
+              "source": "Line 3: Line 1 minus line 2 (maximum $10,000) = ^\n\nLine 4: Amount of eligible expenses included on line 3 being claimed by other\neligible individuals ^\n\nLine 5 and line 60360: Line 3 minus line 4 Home renovation expenses = ^",
+              "executed_expression": "(ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3 - ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_other_claims)",
+              "dependencies": [
+                "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3",
+                "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_other_claims"
+              ]
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3": {
+              "kind": "scalar",
+              "name": "nb_s12_net_home_renovation_expenses_line_3",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "100"
+              },
+              "source": "Line 1: Total amount paid from all sales slips and contracts included in the\ntable above Total eligible expenses = ^\n\nLine 2: Amount of government assistance received or receivable included in\nthe amount on line 1 ^\n\nLine 3: Line 1 minus line 2 (maximum $10,000) = ^",
+              "executed_expression": "min(ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_2025_home_renovation_expense_cap[0], (ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses - ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance))",
+              "parameter_reads": [
+                {
+                  "parameter": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_2025_home_renovation_expense_cap",
+                  "name": "nb_s12_2025_home_renovation_expense_cap",
+                  "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_2025_home_renovation_expense_cap",
+                  "index": 0,
+                  "value": {
+                    "kind": "integer",
+                    "value": 10000
+                  },
+                  "unit": "CAD",
+                  "effective_from": "2025-01-01",
+                  "effective_to": "2025-12-31",
+                  "source": "Line 3: Line 1 minus line 2 (maximum $10,000) = ^"
+                }
+              ],
+              "dependencies": [
+                "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses",
+                "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "command": [
+      "/Users/pavelmakarchuk/axiom-api-catalog-readiness/.local/catalog-readiness/independent-t89-preflight/run39536963804/step3-repair-41127692566-diagnosis/overlay-origin-implementation/official-engine/axiom-rules-engine/target/release/axiom-rules-engine",
+      "run-compiled",
+      "--artifact",
+      "/var/folders/t5/1q_n2l7d1ndddzm52gy9n93w0000gn/T/tmpfo0v8fjc/compiled.json"
+    ],
+    "returncode": 0
+  },
+  "row7_other_excess": {
+    "case": {
+      "name": "row7_other_excess",
+      "entity_id": "nb-claimant-a",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_home_renovation_total_eligible_expenses_line_1": 100,
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_government_assistance_line_2": 0,
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_expenses_claimed_by_other_eligible_individuals_line_4": 200
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#new_brunswick_seniors_home_renovation_tax_credit_line_47900": "-10"
+      }
+    },
+    "request": {
+      "mode": "explain",
+      "dataset": {
+        "inputs": [
+          {
+            "name": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_home_renovation_total_eligible_expenses_line_1",
+            "entity": "Person",
+            "entity_id": "nb-claimant-a",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 100
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_government_assistance_line_2",
+            "entity": "Person",
+            "entity_id": "nb-claimant-a",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 0
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_expenses_claimed_by_other_eligible_individuals_line_4",
+            "entity": "Person",
+            "entity_id": "nb-claimant-a",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 200
+            }
+          }
+        ],
+        "relations": []
+      },
+      "queries": [
+        {
+          "entity_id": "nb-claimant-a",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": [
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#new_brunswick_seniors_home_renovation_tax_credit_line_47900"
+          ]
+        }
+      ]
+    },
+    "response": {
+      "metadata": {
+        "requested_mode": "explain",
+        "actual_mode": "explain",
+        "fallback_reason": null
+      },
+      "results": [
+        {
+          "entity_id": "nb-claimant-a",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": {
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#new_brunswick_seniors_home_renovation_tax_credit_line_47900": {
+              "kind": "scalar",
+              "name": "new_brunswick_seniors_home_renovation_tax_credit_line_47900",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#new_brunswick_seniors_home_renovation_tax_credit_line_47900",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "-10"
+              }
+            }
+          },
+          "trace": {
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance": {
+              "kind": "scalar",
+              "name": "entered_home_renovation_assistance",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 0
+              },
+              "source": "Line 2: Amount of government assistance received or receivable included in\nthe amount on line 1 ^",
+              "executed_expression": "input(\"nb_s12_government_assistance_line_2\")",
+              "dependencies": []
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_other_claims": {
+              "kind": "scalar",
+              "name": "entered_home_renovation_other_claims",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_other_claims",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 200
+              },
+              "source": "Line 4: Amount of eligible expenses included on line 3 being claimed by other\neligible individuals ^",
+              "executed_expression": "input(\"nb_s12_expenses_claimed_by_other_eligible_individuals_line_4\")",
+              "dependencies": []
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses": {
+              "kind": "scalar",
+              "name": "entered_total_eligible_home_renovation_expenses",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 100
+              },
+              "source": "Line 1: Total amount paid from all sales slips and contracts included in the\ntable above Total eligible expenses = ^",
+              "executed_expression": "input(\"nb_s12_home_renovation_total_eligible_expenses_line_1\")",
+              "dependencies": []
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_home_renovation_expenses_line_60360": {
+              "kind": "scalar",
+              "name": "nb_s12_home_renovation_expenses_line_60360",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_home_renovation_expenses_line_60360",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "-100"
+              },
+              "source": "Line 3: Line 1 minus line 2 (maximum $10,000) = ^\n\nLine 4: Amount of eligible expenses included on line 3 being claimed by other\neligible individuals ^\n\nLine 5 and line 60360: Line 3 minus line 4 Home renovation expenses = ^",
+              "executed_expression": "(ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3 - ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_other_claims)",
+              "dependencies": [
+                "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3",
+                "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_other_claims"
+              ]
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3": {
+              "kind": "scalar",
+              "name": "nb_s12_net_home_renovation_expenses_line_3",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "100"
+              },
+              "source": "Line 1: Total amount paid from all sales slips and contracts included in the\ntable above Total eligible expenses = ^\n\nLine 2: Amount of government assistance received or receivable included in\nthe amount on line 1 ^\n\nLine 3: Line 1 minus line 2 (maximum $10,000) = ^",
+              "executed_expression": "min(ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_2025_home_renovation_expense_cap[0], (ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses - ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance))",
+              "parameter_reads": [
+                {
+                  "parameter": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_2025_home_renovation_expense_cap",
+                  "name": "nb_s12_2025_home_renovation_expense_cap",
+                  "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_2025_home_renovation_expense_cap",
+                  "index": 0,
+                  "value": {
+                    "kind": "integer",
+                    "value": 10000
+                  },
+                  "unit": "CAD",
+                  "effective_from": "2025-01-01",
+                  "effective_to": "2025-12-31",
+                  "source": "Line 3: Line 1 minus line 2 (maximum $10,000) = ^"
+                }
+              ],
+              "dependencies": [
+                "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses",
+                "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance"
+              ]
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#new_brunswick_seniors_home_renovation_tax_credit_line_47900": {
+              "kind": "scalar",
+              "name": "new_brunswick_seniors_home_renovation_tax_credit_line_47900",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#new_brunswick_seniors_home_renovation_tax_credit_line_47900",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "decimal",
+                "value": "-10"
+              },
+              "source": "Line 5 and line 60360: Line 3 minus line 4 Home renovation expenses = ^\n\nLine 6: Applicable rate 10%\n\nLine 7: Line 5 multiplied by the percentage from line 6 Enter this amount on\nline 47900 of your return. New Brunswick seniors' home renovation tax credit\n= ^",
+              "executed_expression": "(ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_home_renovation_expenses_line_60360 * ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_2025_home_renovation_rate[0])",
+              "parameter_reads": [
+                {
+                  "parameter": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_2025_home_renovation_rate",
+                  "name": "nb_s12_2025_home_renovation_rate",
+                  "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_2025_home_renovation_rate",
+                  "index": 0,
+                  "value": {
+                    "kind": "decimal",
+                    "value": "0.1"
+                  },
+                  "effective_from": "2025-01-01",
+                  "effective_to": "2025-12-31",
+                  "source": "Line 6: Applicable rate 10%"
+                }
+              ],
+              "dependencies": [
+                "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_home_renovation_expenses_line_60360"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "command": [
+      "/Users/pavelmakarchuk/axiom-api-catalog-readiness/.local/catalog-readiness/independent-t89-preflight/run39536963804/step3-repair-41127692566-diagnosis/overlay-origin-implementation/official-engine/axiom-rules-engine/target/release/axiom-rules-engine",
+      "run-compiled",
+      "--artifact",
+      "/var/folders/t5/1q_n2l7d1ndddzm52gy9n93w0000gn/T/tmpfo0v8fjc/compiled.json"
+    ],
+    "returncode": 0
+  },
+  "row1_only": {
+    "case": {
+      "name": "row1_only",
+      "entity_id": "nb-claimant-a",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_home_renovation_total_eligible_expenses_line_1": 100
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses": 100
+      }
+    },
+    "request": {
+      "mode": "explain",
+      "dataset": {
+        "inputs": [
+          {
+            "name": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_home_renovation_total_eligible_expenses_line_1",
+            "entity": "Person",
+            "entity_id": "nb-claimant-a",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 100
+            }
+          }
+        ],
+        "relations": []
+      },
+      "queries": [
+        {
+          "entity_id": "nb-claimant-a",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": [
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses"
+          ]
+        }
+      ]
+    },
+    "response": {
+      "metadata": {
+        "requested_mode": "explain",
+        "actual_mode": "explain",
+        "fallback_reason": null
+      },
+      "results": [
+        {
+          "entity_id": "nb-claimant-a",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": {
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses": {
+              "kind": "scalar",
+              "name": "entered_total_eligible_home_renovation_expenses",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 100
+              }
+            }
+          },
+          "trace": {
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses": {
+              "kind": "scalar",
+              "name": "entered_total_eligible_home_renovation_expenses",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 100
+              },
+              "source": "Line 1: Total amount paid from all sales slips and contracts included in the\ntable above Total eligible expenses = ^",
+              "executed_expression": "input(\"nb_s12_home_renovation_total_eligible_expenses_line_1\")",
+              "dependencies": []
+            }
+          }
+        }
+      ]
+    },
+    "command": [
+      "/Users/pavelmakarchuk/axiom-api-catalog-readiness/.local/catalog-readiness/independent-t89-preflight/run39536963804/step3-repair-41127692566-diagnosis/overlay-origin-implementation/official-engine/axiom-rules-engine/target/release/axiom-rules-engine",
+      "run-compiled",
+      "--artifact",
+      "/var/folders/t5/1q_n2l7d1ndddzm52gy9n93w0000gn/T/tmpfo0v8fjc/compiled.json"
+    ],
+    "returncode": 0
+  },
+  "entered_assistance_excess": {
+    "case": {
+      "name": "entered_assistance_excess",
+      "entity_id": "nb-claimant-a",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_home_renovation_total_eligible_expenses_line_1": 100,
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_government_assistance_line_2": 200
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance": 200,
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses": 100
+      }
+    },
+    "request": {
+      "mode": "explain",
+      "dataset": {
+        "inputs": [
+          {
+            "name": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_home_renovation_total_eligible_expenses_line_1",
+            "entity": "Person",
+            "entity_id": "nb-claimant-a",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 100
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_government_assistance_line_2",
+            "entity": "Person",
+            "entity_id": "nb-claimant-a",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 200
+            }
+          }
+        ],
+        "relations": []
+      },
+      "queries": [
+        {
+          "entity_id": "nb-claimant-a",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": [
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses",
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance"
+          ]
+        }
+      ]
+    },
+    "response": {
+      "metadata": {
+        "requested_mode": "explain",
+        "actual_mode": "explain",
+        "fallback_reason": null
+      },
+      "results": [
+        {
+          "entity_id": "nb-claimant-a",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": {
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance": {
+              "kind": "scalar",
+              "name": "entered_home_renovation_assistance",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 200
+              }
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses": {
+              "kind": "scalar",
+              "name": "entered_total_eligible_home_renovation_expenses",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 100
+              }
+            }
+          },
+          "trace": {
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance": {
+              "kind": "scalar",
+              "name": "entered_home_renovation_assistance",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 200
+              },
+              "source": "Line 2: Amount of government assistance received or receivable included in\nthe amount on line 1 ^",
+              "executed_expression": "input(\"nb_s12_government_assistance_line_2\")",
+              "dependencies": []
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses": {
+              "kind": "scalar",
+              "name": "entered_total_eligible_home_renovation_expenses",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 100
+              },
+              "source": "Line 1: Total amount paid from all sales slips and contracts included in the\ntable above Total eligible expenses = ^",
+              "executed_expression": "input(\"nb_s12_home_renovation_total_eligible_expenses_line_1\")",
+              "dependencies": []
+            }
+          }
+        }
+      ]
+    },
+    "command": [
+      "/Users/pavelmakarchuk/axiom-api-catalog-readiness/.local/catalog-readiness/independent-t89-preflight/run39536963804/step3-repair-41127692566-diagnosis/overlay-origin-implementation/official-engine/axiom-rules-engine/target/release/axiom-rules-engine",
+      "run-compiled",
+      "--artifact",
+      "/var/folders/t5/1q_n2l7d1ndddzm52gy9n93w0000gn/T/tmphyy35_86/compiled.json"
+    ],
+    "returncode": 0
+  },
+  "entered_other_excess": {
+    "case": {
+      "name": "entered_other_excess",
+      "entity_id": "nb-claimant-a",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_home_renovation_total_eligible_expenses_line_1": 100,
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_government_assistance_line_2": 0,
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_expenses_claimed_by_other_eligible_individuals_line_4": 200
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance": 0,
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_other_claims": 200,
+        "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses": 100
+      }
+    },
+    "request": {
+      "mode": "explain",
+      "dataset": {
+        "inputs": [
+          {
+            "name": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_home_renovation_total_eligible_expenses_line_1",
+            "entity": "Person",
+            "entity_id": "nb-claimant-a",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 100
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_government_assistance_line_2",
+            "entity": "Person",
+            "entity_id": "nb-claimant-a",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 0
+            }
+          },
+          {
+            "name": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_expenses_claimed_by_other_eligible_individuals_line_4",
+            "entity": "Person",
+            "entity_id": "nb-claimant-a",
+            "interval": {
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "value": {
+              "kind": "integer",
+              "value": 200
+            }
+          }
+        ],
+        "relations": []
+      },
+      "queries": [
+        {
+          "entity_id": "nb-claimant-a",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": [
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses",
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance",
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_other_claims"
+          ]
+        }
+      ]
+    },
+    "response": {
+      "metadata": {
+        "requested_mode": "explain",
+        "actual_mode": "explain",
+        "fallback_reason": null
+      },
+      "results": [
+        {
+          "entity_id": "nb-claimant-a",
+          "period": {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "outputs": {
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance": {
+              "kind": "scalar",
+              "name": "entered_home_renovation_assistance",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 0
+              }
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_other_claims": {
+              "kind": "scalar",
+              "name": "entered_home_renovation_other_claims",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_other_claims",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 200
+              }
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses": {
+              "kind": "scalar",
+              "name": "entered_total_eligible_home_renovation_expenses",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 100
+              }
+            }
+          },
+          "trace": {
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance": {
+              "kind": "scalar",
+              "name": "entered_home_renovation_assistance",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 0
+              },
+              "source": "Line 2: Amount of government assistance received or receivable included in\nthe amount on line 1 ^",
+              "executed_expression": "input(\"nb_s12_government_assistance_line_2\")",
+              "dependencies": []
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_other_claims": {
+              "kind": "scalar",
+              "name": "entered_home_renovation_other_claims",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_other_claims",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 200
+              },
+              "source": "Line 4: Amount of eligible expenses included on line 3 being claimed by other\neligible individuals ^",
+              "executed_expression": "input(\"nb_s12_expenses_claimed_by_other_eligible_individuals_line_4\")",
+              "dependencies": []
+            },
+            "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses": {
+              "kind": "scalar",
+              "name": "entered_total_eligible_home_renovation_expenses",
+              "id": "ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses",
+              "entity_id": "nb-claimant-a",
+              "dtype": "decimal",
+              "unit": "CAD",
+              "value": {
+                "kind": "integer",
+                "value": 100
+              },
+              "source": "Line 1: Total amount paid from all sales slips and contracts included in the\ntable above Total eligible expenses = ^",
+              "executed_expression": "input(\"nb_s12_home_renovation_total_eligible_expenses_line_1\")",
+              "dependencies": []
+            }
+          }
+        }
+      ]
+    },
+    "command": [
+      "/Users/pavelmakarchuk/axiom-api-catalog-readiness/.local/catalog-readiness/independent-t89-preflight/run39536963804/step3-repair-41127692566-diagnosis/overlay-origin-implementation/official-engine/axiom-rules-engine/target/release/axiom-rules-engine",
+      "run-compiled",
+      "--artifact",
+      "/var/folders/t5/1q_n2l7d1ndddzm52gy9n93w0000gn/T/tmphyy35_86/compiled.json"
+    ],
+    "returncode": 0
+  }
+}
