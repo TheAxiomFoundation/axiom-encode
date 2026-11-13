@@ -23283,7 +23283,16 @@ rules:
 
         assert "`1998-01-01`" in prompt
         assert "`2018-01-01`" in prompt
-        assert "Prefer the earliest scaffold date" in prompt
+        # #2212: a precedent date is listed, but it is not a start date for a
+        # date-silent unit.
+        assert "Prefer the earliest scaffold date" not in prompt
+        assert (
+            "A date copied from a precedent or an import is not evidence of "
+            "this source unit's own start date"
+        ) in prompt
+        assert "Start date of a date-silent unit" in prompt
+        assert "the neutral scaffold `0001-01-01`" in prompt
+        assert "there is no evidence floor" in prompt
 
 
 class TestCodexPromptEvalPolicyEngineSkillIsolation:

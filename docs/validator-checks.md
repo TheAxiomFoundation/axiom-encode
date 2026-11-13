@@ -219,6 +219,51 @@ neither coverage of every legal alternative nor complete semantic equivalence,
 successful protected validation, or oracle parity. No historical failed run is
 reclassified, and generated candidates are not manually rewritten to fit it.
 
+## Start date of a date-silent unit
+
+`complete-source-unit:effective-date/start-unsupported`
+([`harness/start_date_evidence.py`](../src/axiom_encode/harness/start_date_evidence.py),
+issue #2212) covers a source unit that prints no date. The rule, which the
+encoder prompt states with the dates computed in code:
+
+- An `effective_from` is supported when it is printed in the unit text or in a
+  proof excerpt, equals the corpus `expression_date` or `source_as_of`, equals
+  the evidence floor, or is the `0001-01-01` scaffold.
+- The evidence floor is the first day of the first full calendar month that
+  starts on or after `source_as_of` (2026-07-17 gives 2026-08-01; 2026-07-01
+  gives 2026-07-01). It is an evidence-coverage floor, not a claimed legal
+  commencement date: the corpus holds the text from that date, and earlier
+  coverage is unproven.
+- A date copied from a precedent module or an import is not support.
+
+The check enforces only the narrow form, to keep false refusals low:
+
+| Condition | Effect |
+| --- | --- |
+| The citation's document class (second path segment) is not `manual` | not examined |
+| The unit text prints any date, month-year, fiscal year or bare year | not examined |
+| The module has a top-level `imports` entry or an `import` proof atom | not examined |
+| The run binds amendment or commencement documents | not examined |
+| `effective_from` is on or after `source_as_of` | passes |
+| `effective_from` is `0001-01-01`, or equals `expression_date`, or is printed in a proof excerpt of the module | passes |
+| Any other `effective_from` | refused, one issue per distinct date |
+
+`effective_to`, `values` keys and companion test periods are not examined.
+
+Missing metadata never counts as support. When the resolver attestation has no
+`source_as_of`, or the value is not a `YYYY-MM-DD` date, or its two copies
+differ, a start date that is not the scaffold, the `expression_date` or a date
+printed in a proof excerpt is refused, and the message names the unreadable
+field. This follows the sibling evidence readers (same-act aliases, referral
+sources), which grant nothing without authenticated metadata.
+
+The check runs where the other complete-source checks run: in
+`--require-complete-source-unit` mode (the targeted re-encode workflow and
+reviewed-candidate promotion). `axiom-encode validate` and the
+waiver audit in the RuleSpec repositories do not set that mode, so modules that
+are already on a RuleSpec `main` are not examined. The replay benchmark passes
+each fixture's attestation dates and no amendment context.
+
 ## Publish the registry
 
 - `axiom-encode checks` lists the checks; `axiom-encode checks --json` prints

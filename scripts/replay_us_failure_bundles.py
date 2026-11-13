@@ -463,6 +463,9 @@ def replay_case(case: ReplayCase, *, use_context: bool = True) -> dict[str, Any]
         analyze_complete_source_unit,
         collect_artifact_numeric_bindings,
     )
+    from axiom_encode.harness.start_date_evidence import (
+        start_date_evidence_from_metadata,
+    )
     from axiom_encode.harness.validator_pipeline import (
         _authenticated_same_act_aliases_from_metadata,
         _numeric_profile_for_citation_path,
@@ -521,6 +524,11 @@ def replay_case(case: ReplayCase, *, use_context: bool = True) -> dict[str, Any]
             imported_symbol_contents=bindings,
             resolved_dependency_outputs=deferral_outputs,
             authenticated_same_act_aliases=aliases,
+            # A fixture records no amendment documents, so the replay reads
+            # the start-date check as a run without amendment context.
+            start_date_evidence=start_date_evidence_from_metadata(
+                dict(case.source_metadata) if case.source_metadata else None
+            ),
         )
     except Exception as exc:  # report, never hide
         result.update(issues=[], rules={}, error=f"{type(exc).__name__}: {exc}"[:500])

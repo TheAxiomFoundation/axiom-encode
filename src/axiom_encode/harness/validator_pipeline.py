@@ -206,6 +206,7 @@ from .source_completeness import (
     manual_outcome_exception_advice,
     source_states_stated_conversion_result,
 )
+from .start_date_evidence import start_date_evidence_from_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -37174,6 +37175,12 @@ class ValidatorPipeline:
             ),
             authenticated_same_act_aliases=(
                 _authenticated_same_act_aliases_from_metadata(self.source_metadata)
+            ),
+            start_date_evidence=start_date_evidence_from_metadata(
+                self.source_metadata,
+                amendment_context=bool(
+                    self.amendment_documents or self.amendment_source_texts
+                ),
             ),
         )
         # Reported beside the CI result for the admission score; a result that

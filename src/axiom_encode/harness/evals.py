@@ -147,6 +147,7 @@ from .eval_evidence import (
 )
 from .eval_prompt_surface import (
     render_date_silent_scaffold_guidance,
+    render_date_silent_start_guidance,
     render_single_amount_row_guidance,
     render_uk_legislation_guidance,
 )
@@ -165,6 +166,7 @@ from .source_completeness import (
     collect_artifact_numeric_values,
     mask_armenian_amendment_history,
 )
+from .start_date_evidence import start_date_evidence_from_metadata
 from .validator_pipeline import (
     ExistingTargetOracleContract,
     NumericOccurrence,
@@ -12053,7 +12055,7 @@ def _build_rulespec_eval_prompt(
         scaffold_dates_section = f"""
 Temporal scaffold dates visible in copied context:
 {", ".join(f"`{item}`" for item in scaffold_dates)}
-Prefer the earliest scaffold date that is relevant to the copied precedent when `./source.txt` lacks its own effective date.
+These dates belong to the copied files. A date copied from a precedent or an import is not evidence of this source unit's own start date: do not write one into `effective_from` because a neighbouring module carries it. When `./source.txt` prints no effective date, follow the start-date rule for a date-silent unit.
 """
 
     source_metadata_section = ""
@@ -12614,6 +12616,21 @@ Preferred principal output:
         and not workspace.amendment_documents
     ):
         guidance_parts.append(render_date_silent_scaffold_guidance())
+    start_date_evidence = start_date_evidence_from_metadata(workspace.source_metadata)
+    if not workspace.amendment_documents and (
+        scaffold_dates
+        or start_date_evidence.source_as_of is not None
+        or start_date_evidence.expression_date is not None
+    ):
+        # Not rendered when the workspace has neither copied dates nor corpus
+        # dates: the neutral-scaffold fallback above already covers that case.
+        guidance_parts.append(
+            render_date_silent_start_guidance(
+                source_as_of=start_date_evidence.source_as_of,
+                expression_date=start_date_evidence.expression_date,
+                evidence_floor=start_date_evidence.evidence_floor,
+            )
+        )
     additional_guidance = "\n".join(
         part.strip() for part in guidance_parts if part.strip()
     )

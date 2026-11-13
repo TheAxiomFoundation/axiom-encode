@@ -73,6 +73,18 @@
       "why": "A deferral is a recorded gap in the encoding. A gap that is vague, or rooted at the wrong place, cannot be audited or closed later, and it can hide law that the module should encode."
     },
     {
+      "category": "complete-source-unit:effective-date",
+      "cause": "encoder_output",
+      "fix": "Change `rules[].versions[].effective_from` (and the companion test periods that depend on it) to a date the unit's own evidence supports: a date printed in `./source.txt` or in a proof excerpt you cite, the corpus `expression_date` or `source_as_of`, the evidence floor (the first day of the first full calendar month on or after `source_as_of`), or the `0001-01-01` scaffold. Do not copy the start date of a precedent or an imported module. The evidence floor is an evidence-coverage floor, not a claimed legal commencement date.",
+      "gate": "ci",
+      "id": "complete-source-unit:effective-date/start-unsupported",
+      "requires": "In a manual source unit that prints no date and has no imports, every `rules[].versions[].effective_from` is the `0001-01-01` scaffold, or is not earlier than the corpus `source_as_of`, or equals the corpus `expression_date`, or is printed in a proof excerpt of the module.",
+      "severity": "important",
+      "site": "axiom_encode/harness/start_date_evidence.py:date_silent_start_issues",
+      "title": "Start date of a date-silent unit has no support in its own evidence",
+      "why": "A start date that nothing in the unit supports was copied from a neighbouring module or guessed. The rule then claims to apply from a date for which the corpus holds no text of this unit, and compile, the other completeness checks and the companion tests all pass on it."
+    },
+    {
       "category": "complete-source-unit:formula-output",
       "cause": "encoder_output",
       "fix": "Add a principal derived rule whose formula implements the branch and whose source or formula proof cites the branch, or precisely defer the branch.",
@@ -1057,6 +1069,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "2d24a58c18a52093f02d154d169b283ed00447786dbcdf8fdf1ea90b96be89dc",
+  "registry_sha256": "d325fb80ee4a381947506f56c60ce3ac8097f3ef4feb44f7217d0acc4176a6f7",
   "schema": "axiom-encode/check-registry/v1"
 }
