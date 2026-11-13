@@ -1,0 +1,48 @@
+{
+  "source_attestation": {
+    "component_rows": [
+      {
+        "body_sha256": "a99d8daf841ed1a50afe576d9ca9846e8a697060d71a5b2fd59d87c848e0c139",
+        "citation_path": "ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit/primary-document",
+        "document_class": "policy",
+        "expression_date": "2025-01-01",
+        "jurisdiction": "ca",
+        "line_number": 253,
+        "provision_file": "data/corpus/provisions/ca/policy/2026-07-21-ca-rulespec-oracle-complete-v2.jsonl",
+        "provision_file_sha256": "e6de7777ae00634cf4dc60d37f3d0b018b367759146e89f42f96cd76ae59075a",
+        "record_id": "8a9d1f40-0599-5c2b-9965-5c6874388107",
+        "source_as_of": "2026-07-01",
+        "source_path": "sources/ca/policy/2026-07-21-ca-rulespec-oracle-complete-v2/2026-07-21-ca-rulespec-oracle-complete/2026-07-21-ca-rulespec-source-complete/2026-07-01-cra-2025-provincial-territorial-foreign-tax-credit/official-documents/cra-2025-provincial-territorial-foreign-tax-credit.txt",
+        "version": "2026-07-21-ca-rulespec-oracle-complete-v2"
+      }
+    ],
+    "corpus_release": "ca-rulespec-2026-07-21-oracle-complete-v2",
+    "corpus_release_content_sha256": "5acdb15ce948857a13baf9088c2179951716edd47a0327c078b4e97be6eb0ef4",
+    "corpus_release_selector_sha256": "4b4f9723c443aa4e7e4ef3b867786713eec408338e4b55aa28811dd69aadf693",
+    "corpus_source": "local",
+    "expression_date": "2025-01-01",
+    "generation_input_sha256": "7637ab494fc385b938e9e3ce4d5f3b1af8bc331ad644fe3cedefaee8434028ee",
+    "provision_file": "data/corpus/provisions/ca/policy/2026-07-21-ca-rulespec-oracle-complete-v2.jsonl",
+    "provision_file_sha256": "e6de7777ae00634cf4dc60d37f3d0b018b367759146e89f42f96cd76ae59075a",
+    "requested_corpus_citation_path": "ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit",
+    "resolved_corpus_citation_path": "ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit",
+    "resolved_text_sha256": "7637ab494fc385b938e9e3ce4d5f3b1af8bc331ad644fe3cedefaee8434028ee",
+    "row": {
+      "body_sha256": null,
+      "citation_path": "ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit",
+      "document_class": "policy",
+      "expression_date": "2025-01-01",
+      "jurisdiction": "ca",
+      "line_number": 252,
+      "provision_file": "data/corpus/provisions/ca/policy/2026-07-21-ca-rulespec-oracle-complete-v2.jsonl",
+      "provision_file_sha256": "e6de7777ae00634cf4dc60d37f3d0b018b367759146e89f42f96cd76ae59075a",
+      "record_id": "828ed410-8772-5257-8bbd-76cbf1ac4766",
+      "source_as_of": "2026-07-01",
+      "source_path": "sources/ca/policy/2026-07-21-ca-rulespec-oracle-complete-v2/2026-07-21-ca-rulespec-oracle-complete/2026-07-21-ca-rulespec-source-complete/2026-07-01-cra-2025-provincial-territorial-foreign-tax-credit/official-documents/cra-2025-provincial-territorial-foreign-tax-credit.txt",
+      "version": "2026-07-21-ca-rulespec-oracle-complete-v2"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-ca/ca",
+    "source_as_of": "2026-07-01",
+    "source_sha256": "7637ab494fc385b938e9e3ce4d5f3b1af8bc331ad644fe3cedefaee8434028ee"
+  }
+}

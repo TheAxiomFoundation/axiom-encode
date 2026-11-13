@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2023-10-01",
+    "generation_input_sha256": "a3bbb6b3c5a09419403486d40f2836bcdcea5fff3ef042cd87195d0c953000cb",
+    "provision_file": "data/corpus/provisions/us/guidance/2026-07-08-snap-fy2024-cola.jsonl",
+    "provision_file_sha256": "cf95bd487adf1e2da2db4f94937031903ec0fa5f56afe5bc9c457d84c2639d47",
+    "requested_corpus_citation_path": "us/guidance/usda/fns/snap-fy2024-cola/page-2",
+    "resolved_corpus_citation_path": "us/guidance/usda/fns/snap-fy2024-cola/page-2",
+    "resolved_text_sha256": "a3bbb6b3c5a09419403486d40f2836bcdcea5fff3ef042cd87195d0c953000cb",
+    "row": {
+      "body_sha256": "a3bbb6b3c5a09419403486d40f2836bcdcea5fff3ef042cd87195d0c953000cb",
+      "citation_path": "us/guidance/usda/fns/snap-fy2024-cola/page-2",
+      "document_class": "guidance",
+      "expression_date": "2023-10-01",
+      "jurisdiction": "us",
+      "line_number": 3,
+      "provision_file": "data/corpus/provisions/us/guidance/2026-07-08-snap-fy2024-cola.jsonl",
+      "provision_file_sha256": "cf95bd487adf1e2da2db4f94937031903ec0fa5f56afe5bc9c457d84c2639d47",
+      "record_id": "bea40955-2299-5d93-b895-063ae777c7aa",
+      "source_as_of": "2023-10-16",
+      "source_path": "sources/us/guidance/2026-07-08-snap-fy2024-cola/official-documents/release-scope-us-guidance-2026-07-08-snap-fy2024-cola",
+      "version": "2026-07-08-snap-fy2024-cola"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us",
+    "source_as_of": "2023-10-16",
+    "source_sha256": "a3bbb6b3c5a09419403486d40f2836bcdcea5fff3ef042cd87195d0c953000cb"
+  }
+}

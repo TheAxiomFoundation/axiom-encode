@@ -1,0 +1,315 @@
+format: rulespec/v1
+inputs:
+- name: joint_return_was_filed
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year
+- name: surviving_spouse_return_category_applies
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year
+- name: head_of_household_return_category_applies
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year
+- name: married_individual_filed_separate_return
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year
+- name: may_be_claimed_as_dependent_by_another_taxpayer
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year
+- name: earned_income
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+- name: additional_standard_deduction_entitlement_count_under_subsection_f
+  entity: TaxUnit
+  dtype: Count
+  period: Year
+- name: employer_provides_fuel_or_reimburses_fuel_expenses
+  entity: Employer
+  dtype: Boolean
+  period: Year
+- name: fuel_hourly_amount_paid
+  entity: Employer
+  dtype: Money
+  period: Year
+  unit: USD
+- name: fuel_hourly_amount_paid_in_accordance_with_revenue_procedure_2002_41
+  entity: Employer
+  dtype: Boolean
+  period: Year
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-18
+    source_sha256: d1c89e5b0c0c35d49d16a245a15f126c267fcd8903610e64f4cc65343a31e18f
+  summary: 'Page 18 states that, when an employer provides fuel or reimburses fuel
+
+    expenses, up to $14 per hour is deemed substantiated if paid in accordance
+
+    with Rev. Proc. 2002-41. Section .14 publishes the standard-deduction,
+
+    dependent-limit, and aged-or-blind amounts for taxable years beginning in
+
+    2026. The page ends during the opening sentence of section .15 concerning
+
+    the section 125(i) cafeteria-plan limitation.'
+  deferred_outputs:
+  - output: us:policies/irs/rev-proc-2025-32/page-18#cafeteria_plan_voluntary_employee_salary_reduction_limitation
+    reason: Rev. Proc. 2025-32 section .15 on page 18 ends after “the dollar limitation
+      under § 125(i) on voluntary employee salary reductions for contributions to
+      health flexible” and omits the source-stated limitation amount and the remainder
+      of the operative sentence needed to compute the cafeteria-plan limitation.
+  - output: us:policies/irs/rev-proc-2025-32/page-18#fuel_substantiation_amount_per_hour
+    reason: Rev. Proc. 2025-32 section .13 states that an amount up to $14 per hour
+      is deemed substantiated when paid in accordance with Rev. Proc. 2002-41, but
+      RuleSpec supports no hourly cadence or money-per-hour dtype for the stated hourly
+      computation.
+    source_values:
+    - us:policies/irs/rev-proc-2025-32/standard-deduction#fuel_substantiation_hourly_limit
+  - output: us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_for_aged_or_blind
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/standard-deduction#basic_standard_deduction_after_dependent_limit
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/standard-deduction#basic_standard_deduction_by_filing_status
+    reason: Generated rule treated a filing-status or marital-status legal classification
+      as a local fact. This output is deferred until the upstream status source can
+      be encoded or imported without inventing local tax-status component inputs.
+  - output: us:policies/irs/rev-proc-2025-32/standard-deduction#individual_is_unmarried_and_not_surviving_spouse
+    reason: Generated rule treated a filing-status or marital-status legal classification
+      as a local fact. This output is deferred until the upstream status source can
+      be encoded or imported without inventing local tax-status component inputs.
+  - output: us:policies/irs/rev-proc-2025-32/standard-deduction#standard_deduction
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/standard-deduction#dependent_standard_deduction_limit
+    reason: Generated rule ignored a source-stated substitution, modification, or
+      limitation parameter. This output is deferred until the upstream cross-referenced
+      mechanics can be imported or composed without stranding the modifier.
+    source_values:
+    - us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_amount_unmarried_not_surviving_spouse
+  - output: us:policies/irs/rev-proc-2025-32/standard-deduction#fuel_hourly_amount_deemed_substantiated
+    reason: Generated rule ignored a source-stated substitution, modification, or
+      limitation parameter. This output is deferred until the upstream cross-referenced
+      mechanics can be imported or composed without stranding the modifier.
+    source_values:
+    - us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_amount_unmarried_not_surviving_spouse
+rules:
+- name: fuel_substantiation_hourly_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section .13 continuation
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-18
+          excerpt: an amount up to $14 per hour is deemed substantiated
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '14'
+- name: joint_or_surviving_spouse_standard_deduction_amount
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section .14(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-18
+          excerpt: Married Individuals Filing Joint Returns and Surviving Spouses
+            (§ 1(j)(2)(A)) $32,200
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '32200'
+- name: head_of_household_standard_deduction_amount
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section .14(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-18
+          excerpt: Heads of Households (§ 1(j)(2)(B)) $24,150
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '24150'
+- name: unmarried_individual_standard_deduction_amount
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section .14(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-18
+          excerpt: Unmarried Individuals (other than Surviving Spouses and Heads of
+            Households) (§ 1(j)(2)(C)) $16,100
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '16100'
+- name: married_filing_separately_standard_deduction_amount
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section .14(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-18
+          excerpt: Married Individuals Filing Separate Returns (§ 1(j)(2)(D)) $16,100
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '16100'
+- name: dependent_standard_deduction_floor_amount
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section .14(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-18
+          excerpt: cannot exceed the greater of (1) $1,350
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '1350'
+- name: dependent_earned_income_addition_amount
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section .14(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-18
+          excerpt: the sum of $450 and the individual's earned income
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '450'
+- name: additional_standard_deduction_amount
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section .14(3)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-18
+          excerpt: the additional standard deduction amount under § 63(f) for the
+            aged or the blind is $1,650
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '1650'
+- name: additional_standard_deduction_amount_unmarried_not_surviving_spouse
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section .14(3)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-18
+          excerpt: increased to $2,050 if the individual is also unmarried and not
+            a surviving spouse
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '2050'
+- name: cumulative_bulletin_year
+  kind: parameter
+  dtype: Integer
+  source: Rev. Proc. 2025-32 page 18, section .13 continuation
+  metadata:
+    private: true
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-18
+          excerpt: 2002-1 C.B. 1098
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '2002'
+- name: cumulative_bulletin_part
+  kind: parameter
+  dtype: Integer
+  source: Rev. Proc. 2025-32 page 18, section .13 continuation
+  metadata:
+    private: true
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-18
+          excerpt: 2002-1 C.B. 1098
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '1'
+- name: cumulative_bulletin_page
+  kind: parameter
+  dtype: Integer
+  source: Rev. Proc. 2025-32 page 18, section .13 continuation
+  metadata:
+    private: true
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-18
+          excerpt: 2002-1 C.B. 1098
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '1098'
