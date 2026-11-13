@@ -1464,6 +1464,8 @@ def test_model_run_id_naming_independent_pair_does_not_create_ownership(
         axiom_encode_git=_encoder_provenance(),
     )
     assert refreshed_manifest == owner_manifest
+    # The target repository has no protected encoder_verifier = "main", so
+    # the writer keeps the repository waiver-set digest (#2092).
     expected_fields = cli._MODEL_APPLY_MANIFEST_FIELDS
     if backend == "codex":
         expected_fields |= {"codex_cli_version", "codex_cli_sha256"}
@@ -1634,6 +1636,9 @@ _SCAN_SCHEMA_NAMES = (
     "_LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS",
     "_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS",
     "_LEGACY_REPLACEMENT_RECEIPT_FIELDS",
+    "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+    "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+    "_REVIEWED_CANDIDATE_PER_FILE_WAIVER_MANIFEST_FIELDS",
 )
 # Independent audited sets: adding a field requires an explicit classification.
 _EXPECTED_COMMON_SCANNED = frozenset(
@@ -1734,6 +1739,24 @@ _EXPECTED_MANIFEST_CLASSES["_MODEL_CODEX_APPLY_MANIFEST_FIELDS"] = (
     _EXPECTED_MANIFEST_CLASSES["_MODEL_APPLY_MANIFEST_FIELDS"][1]
     | {"codex_cli_version", "codex_cli_sha256"},
 )
+# Per-file waiver variants (#2092): the waiver bindings replace the set
+# digest and are scanned, because they name covered paths.
+for _set_name, _per_file_name in (
+    ("_MODEL_APPLY_MANIFEST_FIELDS", "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS"),
+    (
+        "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
+        "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+    ),
+    (
+        "_REVIEWED_CANDIDATE_MANIFEST_FIELDS",
+        "_REVIEWED_CANDIDATE_PER_FILE_WAIVER_MANIFEST_FIELDS",
+    ),
+):
+    _EXPECTED_MANIFEST_CLASSES[_per_file_name] = (
+        _EXPECTED_MANIFEST_CLASSES[_set_name][0],
+        (_EXPECTED_MANIFEST_CLASSES[_set_name][1] - {"validation_waiver_set_sha256"})
+        | {"validation_waiver_bindings"},
+    )
 _EXPECTED_DESCRIPTIVE_FIELDS = frozenset({"reason", "run_id", "runner", "model"})
 _SCAN_SCHEMAS = {name: getattr(cli, name) for name in _SCAN_SCHEMA_NAMES}
 _SCAN_PATH = "us/policies/council/second.yaml"
@@ -1808,6 +1831,9 @@ _SCAN_ADMISSION_TOOLS = {
     "_LEGACY_EXACT_DEPENDENT_APPLY_MANIFEST_FIELDS": cli.APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
     "_LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS": cli.APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
     "_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS": cli.RETIRED_SOURCE_METADATA_TOOL,
+    "_REVIEWED_CANDIDATE_PER_FILE_WAIVER_MANIFEST_FIELDS": (
+        cli.APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+    ),
 }
 
 
@@ -1914,8 +1940,22 @@ def test_manifest_scan_recognition_matches_direct_schema_admission(schema_name):
         )
         assert admitted == (keys in recognized), (schema_name, sorted(keys))
     for backend in backends:
-        assert not _admission_shape_issues(schema, schema_name, backend) or (
-            schema_name == "_MODEL_CODEX_APPLY_MANIFEST_FIELDS" and backend != "codex"
+        assert (
+            not _admission_shape_issues(schema, schema_name, backend)
+            or (
+                schema_name
+                in {
+                    "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
+                    "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+                }
+                and backend != "codex"
+            )
+            or (
+                # A per-file Codex manifest must carry CLI provenance; only
+                # historical set-digest Codex receipts may omit it.
+                schema_name == "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS"
+                and backend == "codex"
+            )
         )
 
 

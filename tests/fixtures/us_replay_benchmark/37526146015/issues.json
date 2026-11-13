@@ -1,0 +1,17 @@
+{
+  "attempt_count": 4,
+  "citation": "us/guidance/usda/fns/snap-fy2026-cola/page-2",
+  "encoder_version": "0.2.2112",
+  "issues": [
+    "policies/usda/snap/fy-2026-cola/deductions.yaml: ci: Proof source evidence not found: rule `snap_maximum_excess_shelter_deduction_48_states_dc` proof atom 0 `source.excerpt` does not appear in `us/guidance/usda/fns/snap-fy2026-cola/page-2`.",
+    "policies/usda/snap/fy-2026-cola/deductions.yaml: ci: Proof source evidence not found: rule `snap_maximum_excess_shelter_deduction_alaska` proof atom 0 `source.excerpt` does not appear in `us/guidance/usda/fns/snap-fy2026-cola/page-2`.",
+    "policies/usda/snap/fy-2026-cola/deductions.yaml: ci: Proof source evidence not found: rule `snap_maximum_excess_shelter_deduction_guam` proof atom 0 `source.excerpt` does not appear in `us/guidance/usda/fns/snap-fy2026-cola/page-2`.",
+    "policies/usda/snap/fy-2026-cola/deductions.yaml: ci: Proof source evidence not found: rule `snap_maximum_excess_shelter_deduction_hawaii` proof atom 0 `source.excerpt` does not appear in `us/guidance/usda/fns/snap-fy2026-cola/page-2`.",
+    "policies/usda/snap/fy-2026-cola/deductions.yaml: ci: Proof source evidence not found: rule `snap_asset_limit_elderly_or_disabled_member` proof atom 0 `source.excerpt` does not appear in `us/guidance/usda/fns/snap-fy2026-cola/page-2`.",
+    "policies/usda/snap/fy-2026-cola/deductions.yaml: ci: [complete-source-unit:numeric-recall] Authoritative corpus numeric value 48 has no named scalar representation. `module.summary` is not consulted."
+  ],
+  "path": "policies/usda/snap/fy-2026-cola/deductions.yaml",
+  "rulespec_sha256": "49a0321138b4de4f275590aeb7ffd16eed9bcb6c8beb141c18971d9ad11405e2",
+  "schema": "axiom-encode/failed-encode-candidate/v1",
+  "tests_sha256": "0c6a21604c093401f14bfe46c0d9af9c9669c19d459ea3aeaccc2c88d4062883"
+}

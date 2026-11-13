@@ -1,0 +1,9 @@
+AZTECS compares the income of an NA basic categorically eligible budgetary unit against the Net Income Standard. Benefits are calculated based on NA income criteria.
+
+AZTECS determines when the gross income of an NA expanded categorically eligible (ECE) budgetary unit exceeds 200% of the current federal poverty level (FPL). When the budgetary unit's gross income exceeds 200% of the current FPL, the budgetary unit is not categorically eligible.
+
+NA categorically eligible budgetary units are eligible for at least the minimum NA allotment.
+
+NOTE NA categorically eligible three or more participant budgetary units are not eligible for at least the minimum NA allotment. These budgetary units must receive the actual amount of benefits.
+
+NA budgetary units with benefits that are reduced to less than the minimum NA allotment, as a result of NA proration, are placed in an eligible no pay status.

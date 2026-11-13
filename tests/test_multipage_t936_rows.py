@@ -103,7 +103,7 @@ def test_only_reviewed_source_callers_opt_in():
     assert found == {("form_numeric_structure.py", "form_numeric_locator_spans")} | {
         ("source_completeness.py", name)
         for name in [
-            "recognize_source_structure",
+            "_recognize_source_structure",
             "_printed_operation_context",
             "_source_clause_spans",
             "_source_exception_branches",
