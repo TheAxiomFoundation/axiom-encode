@@ -1,3 +1,7 @@
+## 0.2.2362
+
+- fix: bind Schedule 2 document request evidence to its source duty (#2128)
+
 ## 0.2.2361
 
 - Verify actual same-page Schedule 2 floor evidence (#2127)
