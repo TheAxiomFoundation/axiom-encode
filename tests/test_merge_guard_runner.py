@@ -764,6 +764,10 @@ def test_workflow_runs_the_dispatched_main_commit_with_pinned_actions():
     for step in steps:
         if "uses" in step:
             assert re.fullmatch(r"[\w./-]+@[0-9a-f]{40}", step["uses"]), step["uses"]
+    # The job holds the App key: it restores no cache that another run wrote.
+    setup_uv = next(step for step in steps if "setup-uv" in step.get("uses", ""))
+    assert setup_uv["with"] == {"version": "0.11.7", "enable-cache": "false"}
+    assert not any("cache" in step.get("uses", "").lower() for step in steps)
 
 
 def test_fixture_tree_and_modules_are_what_the_tests_assume():
