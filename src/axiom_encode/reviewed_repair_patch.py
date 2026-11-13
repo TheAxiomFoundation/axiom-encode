@@ -1,7 +1,7 @@
 """Closed, reviewed patch packages; never a source or signature authority.
 
-The registry is intentionally empty. Adding an entry requires independent review
-of the immutable package and a normal encoder change. Caller hashes do not grant
+Each registry entry requires independent review of the immutable package and a
+normal encoder change. Caller hashes do not grant
 admission. Command integration must bind these bytes to actual validated state.
 """
 
@@ -62,7 +62,30 @@ class ReviewedPatchRegistration:
     members: tuple[tuple[str, str, int], ...]
 
 
-REVIEWED_REPAIR_PATCHES = MappingProxyType({})
+REVIEWED_REPAIR_PATCHES = MappingProxyType(
+    {
+        "issue233-ca-schedule-m-2025-43445779735": ReviewedPatchRegistration(
+            commit="3b962ac0a5e845b25bbee1708c5a6489f08b85d4",
+            members=(
+                (
+                    "7321e5c59d20a63f37f3ccd5247c0a809c61ecac",
+                    "1aaed89e26657d912d99f5ac0bf4b6d35f3f7d852e7798b302ef9a62995dbd3e",
+                    3145,
+                ),
+                (
+                    "5f9a1307a7d2e15b1a559a32400eddad4d68ed10",
+                    "0ad95b443c29f4bc9b25571ff70ed4410c68f0001f0ab4024ae9ef97517ebeb0",
+                    15593,
+                ),
+                (
+                    "2d6ac88c9a84e9dc809ee278367070b54bdf7afd",
+                    "c8f8bdb50d959f87fb3b77b900885aedfefe402401d631f5cf965f986a409fe2",
+                    25057,
+                ),
+            ),
+        ),
+    }
+)
 
 
 @dataclass(frozen=True)

@@ -1,8 +1,13 @@
 # Registered reviewed repairs
 
 `axiom-encode apply-reviewed-repair` validates and applies an exact reviewed patch
-without model generation. The production registry is empty. This capability alone
-admits no package and does not make any candidate ready for publication.
+without model generation. The registry admits only its exact listed packages;
+registration does not make any candidate ready for publication.
+
+The registered `issue233-ca-schedule-m-2025-43445779735` package repairs the
+authenticated failed Schedule M run 43445779735. It preserves all 30 seed cases
+and the original 18 required contracts while restoring the reviewed source-bound
+seven-rule graph. Its three immutable members are pinned to their data commit.
 
 A package must be registered by a separately reviewed encoder change. Registration
 binds an immutable official encoder commit and the exact Git blob, SHA-256, and
