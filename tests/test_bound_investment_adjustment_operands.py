@@ -175,3 +175,41 @@ def test_upper_conditions_report_cannot_gain_unproved_nonnegative_requirement():
         "if ", "if schedule_n_amount_from_return_line_252_line_78 >= 0 and ", 1
     )
     assert bind(doc) is None
+
+
+def test_line14_contract_subtracts_expenses_before_applying_half_rate():
+    # The guide defines an upstream supplied amount; this binder does not
+    # calculate it from raw return241 or infer the three expense amounts.
+    from decimal import Decimal
+
+    source_steps = (
+        "Subtract the total from the amount on line 241 of your return. "
+        "• Multiply the result by 50%."
+    )
+    assert source_steps in GUIDE
+    return241 = Decimal("1000")
+    specified_expenses = sum(map(Decimal, ("100", "50", "50")))
+    correct_supplied_line14 = (return241 - specified_expenses) * Decimal("0.5")
+    wrong_order_line14 = return241 * Decimal("0.5") - specified_expenses
+    assert correct_supplied_line14 == Decimal("400")
+    assert wrong_order_line14 == Decimal("300")
+
+    doc = yaml.safe_load(CONTENT)
+    name = "schedule_n_exploration_development_expenses_line_14"
+    target = next(i for i in doc["inputs"] if i["name"] == name)
+    target["description"] = (
+        "Already calculated line14 result under guide260: 50% of (return241 "
+        "minus the sum of the three specified Quebec expense amounts); "
+        "supplied result, not raw241."
+    )
+    assert bind(doc) is not None
+    assert not any(r["name"] == name for r in doc["rules"])
+    line18 = next(
+        r for r in doc["rules"] if r["name"] == "schedule_n_investment_expenses_line_18"
+    )
+    assert name in line18["versions"][0]["formula"]
+    target["description"] = (
+        "Already calculated line14 result under guide260: 50% of return241 "
+        "minus the three specified Quebec expense amounts; supplied result, not raw241."
+    )
+    assert bind(doc) is None

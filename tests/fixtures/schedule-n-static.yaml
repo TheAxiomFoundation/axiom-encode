@@ -29,7 +29,7 @@ inputs:
   dtype: Money
   period: Year
   unit: CAD
-  description: 'Already calculated line14 result under guide260: 50% of return241 minus the three specified Quebec expense amounts; supplied result, not raw241.'
+  description: 'Already calculated line14 result under guide260: 50% of (return241 minus the sum of the three specified Quebec expense amounts); supplied result, not raw241.'
 - name: schedule_n_other_property_income_expenses_line_16
   entity: Person
   dtype: Money

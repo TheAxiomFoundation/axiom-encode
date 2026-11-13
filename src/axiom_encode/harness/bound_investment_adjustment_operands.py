@@ -66,7 +66,7 @@ MONEY_ROLE_DESCRIPTIONS = {
     PREFIX
     + INPUT_ROWS[
         14
-    ]: "Already calculated line14 result under guide260: 50% of return241 minus the three specified Quebec expense amounts; supplied result, not raw241.",
+    ]: "Already calculated line14 result under guide260: 50% of (return241 minus the sum of the three specified Quebec expense amounts); supplied result, not raw241.",
     PREFIX
     + INPUT_ROWS[
         16
