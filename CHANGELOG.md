@@ -1,3 +1,9 @@
+## 0.2.2370
+
+- fix: scope T2036 country evidence to its asserted cases (#2232)
+- Register reviewed NL479 and NB Schedule 12 source-binding repairs (#2236)
+- fix: load reviewed repair packages through protected Git (#2233)
+
 ## 0.2.2369
 
 - fix: validate complete retirement transfer execution (#2105)
