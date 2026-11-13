@@ -84,21 +84,30 @@ UNGUARDED_ROOT_FILES = frozenset(
 # While this is False the classifier is unchanged: every change outside the
 # manifest lanes has no lane and gets ``fail``. When True, three classes
 # exist (``classify_path``): content keeps its lanes; a control-plane change
-# needs one content-bound approval from an enrolled owner; an
-# infrastructure-only change gets ``not_applicable``. Content mixed with
+# needs one content-bound approval from an enrolled owner; a change made
+# only of ``INFRASTRUCTURE_PATHS`` (none today) gets ``not_applicable``.
+# Content mixed with
 # anything else is refused in both states. The switch is a constant on
 # encoder main, with no runtime override.
 INFRASTRUCTURE_LANE_ENABLED = False
-# Top-level directories whose changes run in CI but do not decide what
-# validation accepts. Named control-plane files inside them are excepted.
-INFRASTRUCTURE_ROOT_DIRECTORIES = frozenset({"bulk", "tests", "tools"})
-# Top-level directories that decide what validation runs or accepts, what a
-# program computes, or what the agent sessions do. ``.axiom`` is default-deny:
-# every file in it that is not an apply manifest is control plane.
-CONTROL_PLANE_ROOT_DIRECTORIES = frozenset({".axiom", ".claude", ".github", "programs"})
-# Registers of accepted failures that live among the tools.
-CONTROL_PLANE_FILES = frozenset(
-    {"tools/known-broken-specs.txt", "tools/known-engine-load-failures.txt"}
+# Top-level directories of the control plane: what decides which validation
+# runs and what it accepts, what a program computes, and what the agent
+# sessions do. ``.axiom`` is default-deny: every file in it that is not an
+# apply manifest. ``tests``, ``tools`` and ``bulk`` belong here because the
+# required ``validate / validate`` check runs ``pytest tests`` from the pull
+# request head, and those tests import modules of ``tools`` and ``bulk``.
+CONTROL_PLANE_ROOT_DIRECTORIES = frozenset(
+    {".axiom", ".claude", ".github", "bulk", "programs", "tests", "tools"}
+)
+# Paths the guard stands aside for. A path belongs here only when it is
+# positively known that required validation neither executes nor reads it.
+# No such path is established today, so the class is EMPTY: everything that
+# is not content and not unknown is control plane.
+INFRASTRUCTURE_PATHS: frozenset[str] = frozenset()
+# The receipt of a signed legacy replacement. Together with content it marks
+# the "signed backfill" shape (rulespec-us#1470), which has no lane.
+_LEGACY_REPLACEMENT_RECEIPT = re.compile(
+    r"\.axiom/legacy-replacements/[0-9a-f]{64}\.json"
 )
 PATH_UNGUARDED = "unguarded"
 PATH_CONTENT = "content"
@@ -110,11 +119,9 @@ PATH_UNKNOWN = "unknown"
 # the guarded name.
 _GUARDED_NAMES = (
     UNGUARDED_ROOT_FILES
-    | INFRASTRUCTURE_ROOT_DIRECTORIES
     | CONTROL_PLANE_ROOT_DIRECTORIES
     | RULESPEC_ATOMIC_ROOTS
     | {"encoding-manifests", ".gitattributes", "CLAUDE.md"}
-    | {path.split("/")[1] for path in CONTROL_PLANE_FILES}
 )
 _GUARDED_NAMES_FOLDED = frozenset(name.casefold() for name in _GUARDED_NAMES)
 _PATH_SEGMENT = re.compile(r"[!-.0-\[\]-~]+")  # printable ASCII, no "/" or "\\"
@@ -183,6 +190,7 @@ R_NO_GUARDED_CONTENT = "no_guarded_content"
 R_EARLIER_LANE = "earlier_lane_v5"
 R_INFRASTRUCTURE = "infrastructure_as_today"
 R_CONTROL_PLANE_PASS = "control_plane_content_bound_approval"
+R_SIGNED_BACKFILL = "signed_backfill_has_no_lane"
 R_GUARDED_LEAF = "guarded_leaf_not_regular"
 R_MANIFEST_REMOVED = "manifest_removed"
 R_NO_LANE = "no_lane_for_guarded_change"
@@ -754,14 +762,14 @@ def classify_path(path: str, jurisdictions: frozenset[str]) -> str:
       deliberately wide: ``us-mo/manual/...``, ``us-az/.axiom/...`` and
       ``us-az/README.md`` are content, because the encoder does not own the
       list of what the engine loads below a jurisdiction.
-    - ``control_plane``: what decides which validation runs, what it accepts,
-      what a program computes and what the agent sessions do. Everything
-      under ``CONTROL_PLANE_ROOT_DIRECTORIES`` (``.axiom`` without its
-      manifests), ``CONTROL_PLANE_FILES``, and every other file at the
-      repository root (the ``known-*.yaml`` registers,
+    - ``infrastructure``: exactly ``INFRASTRUCTURE_PATHS``, which is empty.
+    - ``control_plane``: everything else that a class names. All of
+      ``CONTROL_PLANE_ROOT_DIRECTORIES`` (``.axiom`` without its manifests;
+      ``tests``, ``tools`` and ``bulk``, which required validation executes
+      from the pull request head) and every file at the repository root off
+      the allowlist (the ``known-*.yaml`` registers,
       ``oracle-coverage-pending.yaml``, ``household-choices.yaml``,
       ``.gitattributes``, ``CLAUDE.md``, and any new root file).
-    - ``infrastructure``: the rest of ``INFRASTRUCTURE_ROOT_DIRECTORIES``.
     """
     if not _well_formed(path):
         return PATH_UNKNOWN
@@ -775,14 +783,10 @@ def classify_path(path: str, jurisdictions: frozenset[str]) -> str:
         or _JURISDICTION.fullmatch(head) is not None
     ):
         return PATH_CONTENT
-    if (
-        "/" not in path
-        or head in CONTROL_PLANE_ROOT_DIRECTORIES
-        or path in CONTROL_PLANE_FILES
-    ):
-        return PATH_CONTROL_PLANE
-    if head in INFRASTRUCTURE_ROOT_DIRECTORIES:
+    if path in INFRASTRUCTURE_PATHS:
         return PATH_INFRASTRUCTURE
+    if "/" not in path or head in CONTROL_PLANE_ROOT_DIRECTORIES:
+        return PATH_CONTROL_PLANE
     return PATH_UNKNOWN
 
 
@@ -1064,14 +1068,26 @@ def _evaluate(name, number, read, evidence) -> Verdict:
             evidence,
         )
     if INFRASTRUCTURE_LANE_ENABLED is True:
-        # Proposal, off. Every path of the delta, the allowlisted ones too,
-        # must be infrastructure or control plane; one content or unknown
-        # path leaves the pull request to the lanes below, which refuse a
-        # mixed delta. One control-plane path puts the whole delta under the
-        # approval. A changed leaf that is not a regular 100644 file was
-        # refused above, so an executable tool has no lane here either.
+        # Proposal, off. Only the guarded paths are classified; allowlisted
+        # paths were set aside above and ride along. Every guarded path must
+        # be infrastructure or control plane; one content or unknown path
+        # leaves the pull request to the lanes below, which refuse a mixed
+        # delta. One control-plane path puts the whole delta, the allowlisted
+        # paths too, under the approval. A changed leaf that is not a regular
+        # 100644 file was refused above, so an executable tool has no lane
+        # here either.
         jurisdictions = _base_jurisdictions(base_leaves)
         classes = {classify_path(path, jurisdictions) for path in guarded}
+        if PATH_CONTENT in classes and any(
+            _LEGACY_REPLACEMENT_RECEIPT.fullmatch(path) for path in guarded
+        ):
+            # A known atomic shape with no lane (design, "Known shapes
+            # without a lane"). Named so that it is not read as "split it".
+            raise _Refusal(
+                R_SIGNED_BACKFILL,
+                "signed backfill: content together with a legacy-replacement "
+                "receipt has no lane",
+            )
         if classes <= {PATH_INFRASTRUCTURE, PATH_CONTROL_PLANE}:
             if PATH_CONTROL_PLANE in classes:
                 return _control_plane_verdict(

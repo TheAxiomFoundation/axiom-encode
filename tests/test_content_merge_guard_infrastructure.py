@@ -5,8 +5,10 @@ default) the classifier is unchanged. With it on:
 
 - content keeps its lanes;
 - a control-plane change needs one content-bound approval from an enrolled
-  owner who did not author it;
-- an infrastructure-only change is ``not_applicable``;
+  owner who did not author it. ``tests/``, ``tools/`` and ``bulk/`` are
+  control plane: required validation executes them from the PR head;
+- the infrastructure class (stand aside) is empty: no path is known to be
+  inert. Its branch is tested with a patched list;
 - content mixed with anything else, and any unknown path, is refused.
 """
 
@@ -21,6 +23,7 @@ from tests.test_content_merge_guard import (
     B2,
     BASE_FILES,
     C1,
+    CI_RUN,
     COMPANION,
     EXECUTABLE,
     H2,
@@ -83,17 +86,28 @@ CONTROL_PLANE = [
     "NEWFILE.md",  # a root file no class names is control plane
     "pyproject.toml",
 ]
-INFRASTRUCTURE = [
+# Executed or imported by required validation from the pull request head.
+EXECUTED_BY_VALIDATION = [
+    "tests/test_encoding_manifests.py",
+    "tests/conftest.py",
+    "tests/test_x.py",
+    "tests/fixtures/case.yaml",
+    "tools/engine_root_load.py",
+    "tools/source_conflicts.py",
+    "tools/household_choices.py",
     "tools/generate.py",
     "tools/README.md",
     "tools/tests/test_manifest_provenance.py",
     "tools/pin_oracle/axiom_pin_oracle.py",
     "tools/known-other.txt",
+    "bulk/applied_artifacts.py",
     "bulk/compute_matrix.py",
     "bulk/worklist.yaml",
-    "tests/test_x.py",
-    "tests/fixtures/case.yaml",
+    "bulk/PROGRESS-local-drain.md",
 ]
+CONTROL_PLANE += EXECUTED_BY_VALIDATION
+# The stand-aside class is empty. These stand in for a future inert path.
+INERT = ["bulk/notes-inert.md", "tools/inert.txt"]
 CONTENT = [
     P,
     T,
@@ -153,7 +167,6 @@ MALFORMED = [
     ".GitHub/workflows/x.yml",
     "Tests/test_x.py",
     "TOOLS/generate.py",
-    "tools/Known-Broken-Specs.txt",
     "Programs/us/snap.yaml",
     "us-az/Policies/x.yaml",
     "STATUTES/26/1.yaml",
@@ -173,6 +186,12 @@ def enabled(monkeypatch):
     monkeypatch.setattr(guard, "INFRASTRUCTURE_LANE_ENABLED", True)
 
 
+@pytest.fixture
+def inert(monkeypatch):
+    """A non-empty stand-aside list, to exercise its branch."""
+    monkeypatch.setattr(guard, "INFRASTRUCTURE_PATHS", frozenset(INERT))
+
+
 def approved(files, *, approver=MAX, author=PAVEL, **kwargs):
     """A PR of ``files`` by ``author``, approved on its head by ``approver``."""
     world = plain(files, **kwargs)
@@ -189,9 +208,19 @@ def test_control_plane_paths(path):
     assert guard.classify_path(path, JURISDICTIONS) == guard.PATH_CONTROL_PLANE
 
 
-@pytest.mark.parametrize("path", INFRASTRUCTURE)
-def test_infrastructure_paths(path):
+def test_the_stand_aside_class_is_empty():
+    assert guard.INFRASTRUCTURE_PATHS == frozenset()
+    every = CONTROL_PLANE + CONTENT + UNKNOWN + [m for m in MALFORMED if m]
+    assert not any(
+        guard.classify_path(path, JURISDICTIONS) == guard.PATH_INFRASTRUCTURE
+        for path in every
+    )
+
+
+@pytest.mark.parametrize("path", INERT)
+def test_only_a_listed_path_is_infrastructure(inert, path):
     assert guard.classify_path(path, JURISDICTIONS) == guard.PATH_INFRASTRUCTURE
+    assert guard.classify_path(path + "x", JURISDICTIONS) == guard.PATH_CONTROL_PLANE
 
 
 @pytest.mark.parametrize("path", CONTENT)
@@ -228,15 +257,9 @@ def test_a_base_jurisdiction_of_any_name_is_content():
 
 
 def test_no_named_directory_can_be_a_jurisdiction_or_a_root():
-    named = guard.INFRASTRUCTURE_ROOT_DIRECTORIES | guard.CONTROL_PLANE_ROOT_DIRECTORIES
-    assert not guard.INFRASTRUCTURE_ROOT_DIRECTORIES & (
-        guard.CONTROL_PLANE_ROOT_DIRECTORIES
-    )
-    for name in named:
+    for name in guard.CONTROL_PLANE_ROOT_DIRECTORIES:
         assert guard._JURISDICTION.fullmatch(name) is None, name
         assert name not in guard.RULESPEC_ATOMIC_ROOTS, name
-    for path in guard.CONTROL_PLANE_FILES:
-        assert path.split("/")[0] in guard.INFRASTRUCTURE_ROOT_DIRECTORIES
 
 
 # --- off (default): nothing changes -------------------------------------------
@@ -246,7 +269,7 @@ def test_the_lane_is_off_by_default():
     assert guard.INFRASTRUCTURE_LANE_ENABLED is False
 
 
-@pytest.mark.parametrize("path", CONTROL_PLANE + INFRASTRUCTURE)
+@pytest.mark.parametrize("path", CONTROL_PLANE + INERT)
 def test_off_no_lane_also_with_an_enrolled_approval(path):
     fails(approved({path: b"x\n"}), guard.R_NO_LANE)
 
@@ -254,29 +277,47 @@ def test_off_no_lane_also_with_an_enrolled_approval(path):
 def test_only_an_exact_true_enables(monkeypatch):
     monkeypatch.setattr(guard, "INFRASTRUCTURE_LANE_ENABLED", 1)
     fails(approved({PIN: b"x\n"}), guard.R_NO_LANE)
-    fails(plain({"tests/test_x.py": b"x\n"}), guard.R_NO_LANE)
+    fails(approved({"tests/test_x.py": b"x\n"}), guard.R_NO_LANE)
+
+
+def test_off_a_listed_inert_path_still_has_no_lane(inert):
+    fails(plain({INERT[0]: b"x\n"}), guard.R_NO_LANE)
 
 
 # --- on: infrastructure only --------------------------------------------------
 
 
-@pytest.mark.parametrize("path", INFRASTRUCTURE)
-def test_on_infrastructure_only_is_not_applicable(enabled, path):
+@pytest.mark.parametrize("path", INERT)
+def test_on_listed_inert_path_only_is_not_applicable(enabled, inert, path):
     world = plain({path: b"x\n"})
     expect(world, guard.NOT_APPLICABLE, guard.R_INFRASTRUCTURE)
     # Decided from the two trees: no review, CI or manifest is read.
     assert not any("/reviews" in call or "/check-runs" in call for call in world.calls)
 
 
-def test_on_many_infrastructure_paths_with_an_allowlisted_file(enabled):
-    world = plain({path: b"x\n" for path in INFRASTRUCTURE} | {"README.md": b"x\n"})
+def test_on_inert_paths_with_an_allowlisted_file(enabled, inert):
+    world = plain({path: b"x\n" for path in INERT} | {"README.md": b"x\n"})
     expect(world, guard.NOT_APPLICABLE, guard.R_INFRASTRUCTURE)
 
 
-def test_on_removed_infrastructure_is_not_applicable(enabled):
+def test_on_removed_inert_path_is_not_applicable(enabled, inert):
+    world = plain({}, base_extra={INERT[0]: b"x\n"}, removed=[INERT[0]])
+    expect(world, guard.NOT_APPLICABLE, guard.R_INFRASTRUCTURE)
+
+
+def test_on_nothing_stands_aside_by_default(enabled):
+    """The review's second P1: validation runs ``pytest tests`` from the head.
+
+    A change or deletion of a test, of ``tests/conftest.py`` or of a tool the
+    tests import must not be free (rulespec-us#1472 narrowed a guard test).
+    """
+    for path in EXECUTED_BY_VALIDATION:
+        fails(plain({path: b"x\n"}), guard.R_NO_APPROVAL)
     removed = "tests/fixtures/case.yaml"
     assert removed in BASE_FILES
-    expect(plain({}, removed=[removed]), guard.NOT_APPLICABLE, guard.R_INFRASTRUCTURE)
+    fails(plain({}, removed=[removed]), guard.R_NO_APPROVAL)
+    for path in INERT:  # not listed without the patch
+        fails(plain({path: b"x\n"}), guard.R_NO_APPROVAL)
 
 
 def test_on_allowlist_only_keeps_its_own_reason(enabled):
@@ -318,12 +359,13 @@ def test_on_two_pr_split_first_half_is_not_waved_through(enabled):
         {PIN: b"x\n"},
         {LEDGER: b"x\n", ".axiom/toolchain.toml": b"x\n"},
         {LEDGER: b"x\n", "tests/test_x.py": b"x\n"},
+        {"tests/test_encoding_manifests.py": b"x\n"},
     ):
         fails(plain(files), guard.R_NO_APPROVAL)
 
 
-def test_on_control_plane_with_infrastructure_is_all_control_plane(enabled):
-    files = {PIN: b"x\n", "tests/test_x.py": b"x\n", "README.md": b"x\n"}
+def test_on_control_plane_with_infrastructure_is_all_control_plane(enabled, inert):
+    files = {PIN: b"x\n", INERT[0]: b"x\n", "README.md": b"x\n"}
     fails(plain(files), guard.R_NO_APPROVAL)
     result = expect(approved(files), guard.PASS, guard.R_CONTROL_PLANE_PASS)
     assert result.evidence["paths"] == sorted(files)
@@ -340,6 +382,51 @@ def test_on_non_enrolled_approver_does_not_count(enabled):
 
 def test_on_enrolled_login_with_another_id_does_not_count(enabled):
     fails(approved({PIN: b"x\n"}, approver=(777, "MaxGhenis")), guard.R_NOT_ENROLLED)
+
+
+def test_on_enrolled_id_with_another_login_does_not_count(enabled):
+    world = approved({PIN: b"x\n"}, approver=(MAX[0], "max-renamed"))
+    fails(world, guard.R_NOT_ENROLLED)
+
+
+@pytest.mark.parametrize("kind", ["Bot", "Organization", None])
+def test_on_enrolled_reviewer_that_is_not_a_user_does_not_count(enabled, kind):
+    world = approved({PIN: b"x\n"})
+    world.reviews([review(11, MAX, H, type=kind)])
+    fails(world, guard.R_NOT_ENROLLED)
+
+
+def test_on_incomplete_commit_list_fails(enabled):
+    world = approved({PIN: b"x\n"})
+    world.api[PR]["commits"] = 2  # the PR reports more commits than listed
+    fails(world, guard.R_COMMITS)
+
+
+def test_on_commit_list_without_the_head_fails(enabled):
+    world = approved({PIN: b"x\n"})
+    world.api[PR + "/commits?per_page=100&page=1"] = [commit(C1)]
+    fails(world, guard.R_COMMITS)
+
+
+def test_on_main_moving_between_the_two_reads_fails(enabled):
+    world = approved({PIN: b"x\n"})
+    second_read(world, ROOT + "/git/ref/heads/main", {"object": {"sha": B2}})
+    fails(world, guard.R_CHANGED)
+
+
+def test_on_ci_changing_between_the_two_reads_fails(enabled):
+    world = approved({PIN: b"x\n"})
+    run = f"{ROOT}/actions/runs/{CI_RUN}"
+    later = dict(world.api[run], run_attempt=2)
+    seen = []
+
+    def read():
+        seen.append(1)
+        return world_first if len(seen) == 1 else later
+
+    world_first = world.api[run]
+    world.api[run] = read
+    fails(world, guard.R_CHANGED)
 
 
 def test_on_approver_who_committed_does_not_count(enabled):
@@ -415,8 +502,8 @@ def test_on_added_path_after_approval_voids_it(enabled):
     fails(world, guard.R_NOT_CONTENT_BOUND)
 
 
-def test_on_added_infrastructure_path_after_approval_voids_it(enabled):
-    world = _moved({PIN: b"x\n"}, {PIN: b"x\n", "tests/test_x.py": b"x\n"})
+def test_on_added_infrastructure_path_after_approval_voids_it(enabled, inert):
+    world = _moved({PIN: b"x\n"}, {PIN: b"x\n", INERT[0]: b"x\n"})
     fails(world, guard.R_NOT_CONTENT_BOUND)
 
 
@@ -526,9 +613,43 @@ def test_on_malformed_path_in_the_delta_fails_also_when_approved(enabled, path):
 
 @pytest.mark.parametrize("other", [WORKFLOW, PIN, LEDGER, "tests/test_x.py"])
 def test_on_signed_v5_unit_with_anything_else_fails(enabled, other):
-    # The shape of rulespec-us#1470: a signed manifest together with a pin, a
-    # ledger and a test. Still no lane: split the pull request.
     fails(approved(V5_UNIT | {other: b"x\n"}), guard.R_NO_LANE)
+
+
+RECEIPT = ".axiom/legacy-replacements/" + "3" * 64 + ".json"
+
+
+def test_on_signed_backfill_shape_is_refused_by_name(enabled):
+    # rulespec-us#1470: modules, their manifest, a legacy-replacement
+    # receipt, a pin, a register and a test. Atomic; no lane; not "split it".
+    files = V5_UNIT | {
+        RECEIPT: b"{}\n",
+        ".axiom/toolchain.toml": b"x\n",
+        LEDGER: b"x\n",
+        "tests/test_x.py": b"x\n",
+    }
+    fails(approved(files), guard.R_SIGNED_BACKFILL)
+    fails(approved(V5_UNIT | {RECEIPT: b"{}\n"}), guard.R_SIGNED_BACKFILL)
+
+
+def test_off_signed_backfill_shape_keeps_the_reason_of_main():
+    fails(approved(V5_UNIT | {RECEIPT: b"{}\n"}), guard.R_NO_LANE)
+
+
+def test_on_receipt_without_content_is_control_plane(enabled):
+    expect(approved({RECEIPT: b"{}\n"}), guard.PASS, guard.R_CONTROL_PLANE_PASS)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".axiom/legacy-replacements/" + "3" * 63 + ".json",
+        ".axiom/legacy-replacements/" + "G" * 64 + ".json",
+        ".axiom/legacy-replacements/notes.md",
+    ],
+)
+def test_on_other_legacy_replacement_file_with_content_is_plain_mixed(enabled, path):
+    fails(approved(V5_UNIT | {path: b"{}\n"}), guard.R_NO_LANE)
 
 
 def test_on_v5_unit_alone_is_still_the_earlier_lane(enabled):
@@ -553,8 +674,8 @@ def test_on_content_removed_under_a_control_plane_change_fails(enabled):
     fails(world, guard.R_NO_LANE)
 
 
-def test_on_unreadable_tree_fails(enabled):
-    world = plain({"tests/test_x.py": b"x\n"})
+def test_on_unreadable_tree_fails(enabled, inert):
+    world = plain({INERT[0]: b"x\n"})
     inner = world.fetch
 
     def fetch(path):

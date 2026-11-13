@@ -303,15 +303,24 @@ maintainers decide which lane these changes get.
 is off, everything above holds unchanged. It is a constant on encoder main
 with no runtime override. This section is the proposal for question 0 of §10.
 
-**Why three classes.** The v5 lane trusts this PR's `validate / validate` run.
-Its scope proves that *this* PR did not change the workflow files, the pins or
-the registers of accepted failures. It proves nothing about an earlier PR. If
-an infrastructure PR could change those files with no approval, two PRs would
-give an unreviewed landing: PR A relaxes validation and stands aside; PR B
-adds a module with a v5-labelled manifest and takes the earlier lane. So the
-files that decide what validation runs and accepts need their own enforced
-approval. That approval is the precondition that makes the single post-sign
+**Why the control plane needs an approval.** The v5 lane trusts this PR's
+`validate / validate` run. Its scope proves that *this* PR did not change the
+workflow files, the pins or the registers of accepted failures. It proves
+nothing about an earlier PR. If such a change could land with no approval, two
+PRs would give an unreviewed landing: PR A relaxes validation and stands
+aside; PR B adds a module with a v5-labelled manifest and takes the earlier
+lane. That approval is the precondition that makes the single post-sign
 approval of the content lane meaningful.
+
+**Why `tests/`, `tools/` and `bulk/` are control plane.** The shared validate
+workflow runs `python -m pytest -q tests` from the PR head inside
+`validate / validate`, and those tests import `tools/source_conflicts.py`,
+`tools/household_choices.py` and `bulk/applied_artifacts.py`. A change or a
+deletion of `tests/test_encoding_manifests.py`, `tests/conftest.py` or
+`tools/engine_root_load.py` changes what the required check accepts
+(rulespec-us#1472 narrowed the manifest-sync guard test). The rule: anything
+that required validation executes, imports or reads from the PR head is
+control plane.
 
 `classify_path` sorts each changed path, from the path alone:
 
@@ -319,9 +328,17 @@ approval of the content lane meaningful.
 |---|---|---|
 | unguarded | the five allowlisted root files | as today: `not_applicable` |
 | content | every path at or under a jurisdiction directory (on the base, or of jurisdiction shape), every path under an atomic root at the repository root, every apply-manifest directory | the v5 lane or the v6 lane must claim the whole delta; the v6 lane needs the content-bound approval |
-| control plane | `.github/**`; every `.axiom/` file that is not an apply manifest (default-deny: `toolchain.toml`, `workflow-toolchain.toml`, `repository-structure.yaml`, `target-validation-passes.json`, `pending-validation-fingerprints.json`, `reviewed-migrations.json`, `legacy-replacements/**`, `upstream-source-check-baseline.txt`, and any new file); `.claude/**`; `programs/**` (ProgramSpec decides what a program computes); `tools/known-broken-specs.txt` and `tools/known-engine-load-failures.txt`; every root file off the allowlist (`known-*.yaml`, `oracle-coverage-pending.yaml`, `household-choices.yaml`, `.gitattributes`, `CLAUDE.md`, and any new root file) | **one content-bound approval** (`pass`, `control_plane_content_bound_approval`), never "stand aside" |
-| infrastructure | the rest of `tests/`, `tools/` and `bulk/` | the guard stands aside: `not_applicable` (`infrastructure_as_today`) |
+| control plane | everything under `.github/`, `.claude/`, `programs/`, `tests/`, `tools/`, `bulk/`; every `.axiom/` file that is not an apply manifest; every root file off the allowlist (`known-*.yaml`, `oracle-coverage-pending.yaml`, `household-choices.yaml`, `.gitattributes`, `CLAUDE.md`, and any new root file) | **one content-bound approval** (`pass`, `control_plane_content_bound_approval`), never "stand aside" |
+| infrastructure (stand aside) | exactly `INFRASTRUCTURE_PATHS`, which is **empty** | `not_applicable` (`infrastructure_as_today`) |
 | unknown | any other top-level directory, and any path that is not canonical | no lane: `fail` |
+
+**The stand-aside class is empty on purpose.** A path belongs in it only when
+it is positively known that required validation neither executes nor reads it.
+The candidates on `rulespec-us` are the Markdown files under `bulk/` and
+`tools/`. No test or workflow names them today, but a search is not a proof
+(a test can walk a directory), and none of the last 50 landings changed only
+such files. So nothing is listed, and the default for everything that is not
+content and not unknown is control plane.
 
 The names were checked against the `rulespec-us` tree on 2026-11-13. Its
 non-jurisdiction top-level directories are exactly `.axiom`, `.claude`,
@@ -332,77 +349,95 @@ segment, a backslash, a space, a control or non-ASCII character, or a segment
 that equals a name the classifier knows only after case folding
 (`.axiom/ENCODING-MANIFESTS/...`, `Tests/x.py`, `readme.md`).
 
-A pull request is judged as a whole:
+A pull request is judged as a whole. Only guarded paths are classified;
+allowlisted files ride along:
 
-- **content with anything else: refused.** Split it (the shape of
-  rulespec-us#1470). Content only: the lanes of step 3, unchanged;
+- **content with anything else: refused.** Content only: the lanes of step 3,
+  unchanged;
 - **any unknown path: refused;**
-- **control plane, alone or with infrastructure or allowlisted files:** the
-  whole delta is control plane. The approval covers every path of the delta;
-- **infrastructure only** (allowlisted files may ride along):
-  `not_applicable`.
+- **control plane** (with or without allowlisted files or a listed
+  stand-aside path): the whole delta is control plane. The approval covers
+  every path of the delta, the allowlisted ones too;
+- **only listed stand-aside paths:** `not_applicable`. None exists today.
 
 **The control-plane approval** uses the binding of step 5 over every path of
 the delta, with no manifest, signature or dispatcher:
 
 - the reviewer is enrolled (id, login, `type == "User"`), is not the PR
   author, and is not the author or committer of any commit; an unattributed
-  commit fails;
+  commit fails; the commit list must be complete and hold the head;
 - the approval is on a commit `C` of the PR whose delta against its merge
   base with `main` has the same paths as the head delta and, for each path,
   the same blob or the same absence. A base-only update keeps it; any changed,
   added or dropped path voids it;
 - a draft PR, a blocking `CHANGES_REQUESTED`, a required check that is not
-  green from this PR's run, and any movement between the two reads fail.
+  green from this PR's run, and any movement of the PR, `main`, the reviews or
+  CI between the two reads fail.
+
+**Limit of the independence check.** Independence is by GitHub attribution
+only. The evaluator checks the PR author and the GitHub-attributed author and
+committer of each commit. It does not read commit trailers or message text. A
+PR opened by a bot account, with commits attributed to that bot, passes with
+one enrolled approval also when that owner wrote the change. This is the
+residual risk of §9 in another form.
 
 **Executable files.** The leaf rule of step 3 stays: an added or modified leaf
 that is not a regular `100644` blob fails in every class. `rulespec-us` holds
 three executable tools (`bulk/compute_matrix.py`, `bulk/roots_for.py`,
 `tools/generate_hts_rate_tables.py`); a change to one of them has no lane, also
-with this lane on. None of the 50 PRs below changed one. The remedy is to make
-them `100644` in `rulespec-us` first, not to loosen the leaf rule.
+with this lane on. None of the 50 landings below changed one. The remedy is to
+make them `100644` in `rulespec-us` first, not to loosen the leaf rule.
 
-Evidence, read-only on 2026-11-13: the 50 most recently merged `rulespec-us`
-PRs to `main` (#1447 to #2156), each classified from its merge commit against
+**Known shapes without a lane.**
+
+| Shape | File pattern | Verdict with the lane on | Follow-up |
+|---|---|---|---|
+| Signed backfill (rulespec-us#1470) | module files and their manifest, together with a receipt `.axiom/legacy-replacements/<64 hex>.json`; usually also `.axiom/toolchain.toml`, a `known-*.yaml` waiver edit and a test | `fail`, `signed_backfill_has_no_lane` | The receipt, the waiver edit and the pin belong to one signed operation, so "split it" is not verified to work. A lane for this shape is a separate change; this one does not invent it |
+
+With the lane off, that shape keeps today's reason
+(`no_lane_for_guarded_change`). No other mixed shape occurs in the 50
+landings below.
+
+Evidence, read-only on 2026-11-13: the last 50 first-parent landings on
+`rulespec-us` main (from the landing of #1470 to the landing of #2045), each classified from its delta against
 its first parent.
 
-| Class of the whole PR | PRs |
+| Class of the whole landing | Landings |
 |---|---|
-| control plane (one owner approval) | 42 |
-| infrastructure only (stand aside) | 5 (#1472, #1485, #1772, #1842, #1922) |
-| content only | 2 (#2045, #2154) |
-| content mixed with other classes (refused) | 1 (#1470) |
+| control plane (one owner approval) | 47 |
+| content only (v5 lane) | 2 (#2045, #2154) |
+| signed backfill (refused by name) | 1 (#1470) |
+| stand aside | 0 |
 | unknown path | 0 |
 
-Of the 42: 33 change `.github/**` or a toolchain pin, 17 change
-`.axiom/toolchain.toml`, 11 `.axiom/workflow-toolchain.toml`, 14 `.github/**`,
-13 `known-validation-gaps.yaml`, 7 `known-source-conflicts.yaml`, 3
-`programs/**`.
+Of the 47: 29 change `tests/`, 17 `.axiom/toolchain.toml`, 12 `.github/**`, 9
+`tools/`, 3 `bulk/`; 6 change only `tests/`, `tools/` or `bulk/`.
 
-**The load, stated plainly.** `rulespec-us` main requires 0 approvals today,
-and 2 of these 50 PRs carry an approval from an account other than the author.
-The control-plane approval is a **new review requirement** on 42 of 50 PRs.
-The authors are the two enrolled owners (31 and 19 PRs), so each would wait
-for the other. This proposal removes one of two reviews per encoding and adds
-one review per control-plane PR.
+**The load, stated plainly.** `rulespec-us` main requires 0 approvals today.
+With this lane, **47 of the last 50 landings need an enrolled owner's
+approval**: a new review requirement on almost every change that is not an
+encoding. 18 of the 50 landings touch `.axiom/toolchain.toml`, and all 18 were
+authored by the two enrolled owners (9 each), so each owner waits for the
+other on every pin bump. This proposal removes one of two reviews per encoding
+and adds one review per control-plane change. Alternative (c) below is the
+recommended follow-up to cut that load.
 
 **What this lane gives and what it does not.** With it, the guard can become a
 required check, and two things hold for an account that is not an enrolled
 owner: it cannot land a content-class path without a v5 lane or a
-content-bound approval, and it cannot change a control-plane file without an
-enrolled owner's approval of the exact bytes. It does not review `tests/`,
-`bulk/` or the other tools, which CI may execute; a tool that validation
-depends on belongs in `CONTROL_PLANE_FILES`. It does not close the residual
-risk of §9: agents that hold both enrolled identities.
+content-bound approval, and it cannot change anything that required
+validation executes or reads without an enrolled owner's approval of the
+exact bytes. It does not close the residual risk of §9: agents that hold both
+enrolled identities.
 
 Alternatives considered:
 
 | Alternative | Why not recommended first |
 |---|---|
-| (a) Minimum control plane: `.github/**` and the two pins only (33 of 47) | Leaves the registers that relax validation (`known-*.yaml`, `target-validation-passes.json`, the `tools/known-*` lists) without approval, so the two-PR path stays open through them |
-| (b) Stand aside for every infrastructure PR (the first version of this proposal) | No new review, but the two-PR path above stays open. It is no worse than today and gives no guarantee |
-| (c) Exempt machine-made pin bumps by a named trusted automation identity from the approval | Recommended as a **follow-up** to cut the load (17 of 47 touch `.axiom/toolchain.toml`). It needs a trusted publisher for the bump and a rule for what a bump may contain; not in this change |
-| (d) Retire the v5 CI-trust lane before change 6, so every content landing needs a content-bound approval | Removes the premise the two-PR path attacks. Worth doing, but workflow changes still decide what the required check runs |
+| (a) Minimum control plane: `.github/**` and the two pins only | Leaves the registers that relax validation, and the tests and tools the required check runs, without approval; the two-PR path stays open through them |
+| (b) Stand aside for every infrastructure PR (the first version of this proposal), or for `tests/`, `tools/` and `bulk/` (the second) | No new review, or fewer, but the required check runs those files from the PR head. No guarantee |
+| (c) Exempt machine-made pin bumps by a named trusted automation identity from the approval | Recommended as a **follow-up** to cut the load (18 of 50 landings). It needs a trusted publisher for the bump and a rule for what a bump may contain; not in this change |
+| (d) Retire the v5 CI-trust lane before change 6, so every content landing needs a content-bound approval | Removes the premise the two-PR path attacks. Worth doing, but the control plane still decides what the required check runs |
 | Keep `fail` (today's classifier) | The check can never be required, so the pre-sign approval can never be removed (D2d) |
 | Decide by a label, a PR title or a file inside the PR | The PR controls all three (round 1, F1) |
 
@@ -685,7 +720,7 @@ signed approval (option c in §3) or a separate approver account.
 
 | # | Question | Recommendation |
 |---|---|---|
-| 0 | **First decision.** Which lane do infrastructure changes (`.github/**`, `.axiom/` pins and configuration, ledgers, tooling, `.gitattributes`, `CLAUDE.md`, `.claude/`) and ProgramSpec changes get? Today none: `fail`. 48 of the last 50 merged PRs are in this class (49 before #2045 merged) | Decide before the check is required. Recommended: three classes ("Proposed three-class lane" in §3; implemented behind `INFRASTRUCTURE_LANE_ENABLED = False`): content keeps its lanes, a control-plane change needs one content-bound approval from an enrolled owner, an infrastructure-only change stands aside, and content mixed with anything else is refused. Alternatives are listed there |
+| 0 | **First decision.** Which lane do infrastructure changes (`.github/**`, `.axiom/` pins and configuration, ledgers, tooling, `.gitattributes`, `CLAUDE.md`, `.claude/`) and ProgramSpec changes get? Today none: `fail`. 48 of the last 50 merged PRs are in this class (49 before #2045 merged) | Decide before the check is required. Recommended: three classes ("Proposed three-class lane" in §3; implemented behind `INFRASTRUCTURE_LANE_ENABLED = False`): content keeps its lanes; every other known path is control plane and needs one content-bound approval from an enrolled owner; the stand-aside class is empty; content mixed with anything else is refused. Alternatives are listed there |
 | 0b | A module under a jurisdiction that the base lacks has no lane, also with a v5 manifest. How is a new jurisdiction added? | Through the lane of question 0 |
 | 1 | App-published check or an organisation required-workflow ruleset? | The App. Switch only if the ruleset documentation confirms the capability |
 | 2 | Is a polling sweep (about 5 minutes) acceptable as the trigger? | Yes for the pilot |
