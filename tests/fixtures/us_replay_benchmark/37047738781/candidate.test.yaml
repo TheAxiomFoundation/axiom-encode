@@ -1,0 +1,99 @@
+- name: subsection_4_both_revenue_conditions_met
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-mo:statutes/143/011#input.previous_fiscal_year_net_general_revenue_collected: 1200000000
+    us-mo:statutes/143/011#input.highest_net_general_revenue_collected_in_three_prior_fiscal_years: 1000000000
+    us-mo:statutes/143/011#input.five_year_prior_net_general_revenue_adjusted_annually_for_inflation: 1100000000
+  output:
+    us-mo:statutes/143/011#net_revenue_threshold_for_subsection_4_reduction_met: holds
+    us-mo:statutes/143/011#subsection_4_five_year_revenue_comparison_met: holds
+    us-mo:statutes/143/011#subsection_4_revenue_conditions_met: holds
+- name: subsection_4_five_year_comparison_blocks_reduction
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-mo:statutes/143/011#input.previous_fiscal_year_net_general_revenue_collected: 1200000000
+    us-mo:statutes/143/011#input.highest_net_general_revenue_collected_in_three_prior_fiscal_years: 1000000000
+    us-mo:statutes/143/011#input.five_year_prior_net_general_revenue_adjusted_annually_for_inflation: 1200000000
+  output:
+    us-mo:statutes/143/011#net_revenue_threshold_for_subsection_4_reduction_met: holds
+    us-mo:statutes/143/011#subsection_4_five_year_revenue_comparison_met: not_holds
+    us-mo:statutes/143/011#subsection_4_revenue_conditions_met: not_holds
+- name: subsection_4_three_year_comparison_blocks_reduction
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-mo:statutes/143/011#input.previous_fiscal_year_net_general_revenue_collected: 1199999999
+    us-mo:statutes/143/011#input.highest_net_general_revenue_collected_in_three_prior_fiscal_years: 1000000000
+    us-mo:statutes/143/011#input.five_year_prior_net_general_revenue_adjusted_annually_for_inflation: 1100000000
+  output:
+    us-mo:statutes/143/011#net_revenue_threshold_for_subsection_4_reduction_met: not_holds
+    us-mo:statutes/143/011#subsection_4_five_year_revenue_comparison_met: holds
+    us-mo:statutes/143/011#subsection_4_revenue_conditions_met: not_holds
+- name: inflation_above_reference
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-mo:statutes/143/011#input.cpi_for_reference_period: 200
+    us-mo:statutes/143/011#input.cpi_for_preceding_calendar_year: 220
+  output:
+    us-mo:statutes/143/011#percent_increase_in_inflation: 0.1
+- name: inflation_not_above_reference
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-mo:statutes/143/011#input.cpi_for_reference_period: 200
+    us-mo:statutes/143/011#input.cpi_for_preceding_calendar_year: 190
+  output:
+    us-mo:statutes/143/011#percent_increase_in_inflation: 0
+- name: subsection_3_revenue_trigger_met
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-mo:statutes/143/011#input.previous_fiscal_year_net_general_revenue_collected: 1175000000
+    us-mo:statutes/143/011#input.highest_net_general_revenue_collected_in_three_prior_fiscal_years: 1000000000
+  output:
+    us-mo:statutes/143/011#net_revenue_threshold_for_subsection_3_reduction_met: holds
+- name: subsection_3_revenue_trigger_not_met
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-mo:statutes/143/011#input.previous_fiscal_year_net_general_revenue_collected: 117499999
+    us-mo:statutes/143/011#input.highest_net_general_revenue_collected_in_three_prior_fiscal_years: 0
+  output:
+    us-mo:statutes/143/011#net_revenue_threshold_for_subsection_3_reduction_met: not_holds
+- name: subsection_4_revenue_trigger_met
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-mo:statutes/143/011#input.previous_fiscal_year_net_general_revenue_collected: 1200000000
+    us-mo:statutes/143/011#input.highest_net_general_revenue_collected_in_three_prior_fiscal_years: 1000000000
+  output:
+    us-mo:statutes/143/011#net_revenue_threshold_for_subsection_4_reduction_met: holds
+- name: subsection_4_revenue_trigger_not_met
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-mo:statutes/143/011#input.previous_fiscal_year_net_general_revenue_collected: 119999999
+    us-mo:statutes/143/011#input.highest_net_general_revenue_collected_in_three_prior_fiscal_years: 0
+  output:
+    us-mo:statutes/143/011#net_revenue_threshold_for_subsection_4_reduction_met: not_holds

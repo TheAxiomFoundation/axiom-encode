@@ -1,0 +1,13 @@
+{
+  "attempt_count": 4,
+  "citation": "us/guidance/irs/rev-proc-2025-32/page-13",
+  "encoder_version": "0.2.2023",
+  "issues": [
+    "policies/irs/rev-proc-2025-32/capital-gains.yaml: ci: [existing-target-oracle-contract] Replacement must retain valid exact-oracle-mapped surface `us:policies/irs/rev-proc-2025-32/capital-gains#capital_gains_fifteen_percent_threshold` with its existing kind/entity/dtype/period/unit/index and metadata.private/public contract. Repair its implementation under that stable surface.",
+    "policies/irs/rev-proc-2025-32/capital-gains.yaml: ci: [existing-target-oracle-contract] Replacement must retain valid exact-oracle-mapped surface `us:policies/irs/rev-proc-2025-32/capital-gains#capital_gains_zero_rate_threshold` with its existing kind/entity/dtype/period/unit/index and metadata.private/public contract. Repair its implementation under that stable surface."
+  ],
+  "path": "policies/irs/rev-proc-2025-32/capital-gains.yaml",
+  "rulespec_sha256": "88430cfed336a97bbd3ccbd3eb4b6377610fa1e771c4ba908a1fa1d2ad195b14",
+  "schema": "axiom-encode/failed-encode-candidate/v1",
+  "tests_sha256": "8caf458a152bd3cc7f8e7358666210ff0e1d1d5187f0781f3433bdc86982d1e2"
+}

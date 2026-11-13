@@ -1,0 +1,545 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+    source_sha256: 5032b89b8b046e596b76b9d9d3d5aee62c926870c9ec9573c8a4210d402ed62e
+  summary: 'For taxable years beginning in 2026, section 1(j)(5) publishes maximum
+
+    zero-rate and 15-percent-rate capital-gains amounts by filing status.
+
+    Section 23 sets the special-needs adoption credit and other-adoption
+
+    expense cap at $17,670, with phaseout beginning above $265,080 MAGI and
+
+    complete phaseout at $305,080 or more.'
+  deferred_outputs:
+  - output: us:policies/irs/rev-proc-2025-32/capital-gains#capital_gains_fifteen_percent_threshold
+    reason: Generated rule treated a filing-status or marital-status legal classification
+      as a local fact. This output is deferred until the upstream status source can
+      be encoded or imported without inventing local tax-status component inputs.
+  - output: us:policies/irs/rev-proc-2025-32/capital-gains#capital_gains_zero_rate_threshold
+    reason: Generated rule treated a filing-status or marital-status legal classification
+      as a local fact. This output is deferred until the upstream status source can
+      be encoded or imported without inventing local tax-status component inputs.
+rules:
+- name: maximum_zero_rate_reference
+  kind: parameter
+  dtype: Rate
+  source: Rev. Proc. 2025-32 section 4.03
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: .03 Maximum Capital Gains Rate
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0.03'
+- name: maximum_fifteen_percent_rate
+  kind: parameter
+  dtype: Rate
+  source: Rev. Proc. 2025-32 section 4.03
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: maximum 15 percent rate amounts
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0.15'
+- name: capital_gains_zero_rate_threshold_joint
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.03
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: 'For taxable years beginning in 2026, the maximum zero rate amounts
+            and maximum 15 percent rate amounts under § 1(j)(5)(B), as adjusted for
+            inflation, are as follows: Filing Status Maximum Zero Rate Amount Maximum15%
+            Rate Amount Married Individuals Filing Joint Returns and Surviving Spouse
+            $98,900 $613,700 Married Individuals Filing Separate Returns $49,450 $306,850
+            Heads of Household $66,200 $579,600 All Other Individuals $49,450 $545,500
+            Estates and Trusts $3,300 $16,250'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '98900'
+- name: capital_gains_zero_rate_threshold_separate
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.03
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: 'For taxable years beginning in 2026, the maximum zero rate amounts
+            and maximum 15 percent rate amounts under § 1(j)(5)(B), as adjusted for
+            inflation, are as follows: Filing Status Maximum Zero Rate Amount Maximum15%
+            Rate Amount Married Individuals Filing Joint Returns and Surviving Spouse
+            $98,900 $613,700 Married Individuals Filing Separate Returns $49,450 $306,850
+            Heads of Household $66,200 $579,600 All Other Individuals $49,450 $545,500
+            Estates and Trusts $3,300 $16,250'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '49450'
+- name: capital_gains_zero_rate_threshold_head_of_household
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.03
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: 'For taxable years beginning in 2026, the maximum zero rate amounts
+            and maximum 15 percent rate amounts under § 1(j)(5)(B), as adjusted for
+            inflation, are as follows: Filing Status Maximum Zero Rate Amount Maximum15%
+            Rate Amount Married Individuals Filing Joint Returns and Surviving Spouse
+            $98,900 $613,700 Married Individuals Filing Separate Returns $49,450 $306,850
+            Heads of Household $66,200 $579,600 All Other Individuals $49,450 $545,500
+            Estates and Trusts $3,300 $16,250'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '66200'
+- name: capital_gains_zero_rate_threshold_single
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.03
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: 'For taxable years beginning in 2026, the maximum zero rate amounts
+            and maximum 15 percent rate amounts under § 1(j)(5)(B), as adjusted for
+            inflation, are as follows: Filing Status Maximum Zero Rate Amount Maximum15%
+            Rate Amount Married Individuals Filing Joint Returns and Surviving Spouse
+            $98,900 $613,700 Married Individuals Filing Separate Returns $49,450 $306,850
+            Heads of Household $66,200 $579,600 All Other Individuals $49,450 $545,500
+            Estates and Trusts $3,300 $16,250'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '49450'
+- name: capital_gains_zero_rate_threshold_estate_trust
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.03
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: 'For taxable years beginning in 2026, the maximum zero rate amounts
+            and maximum 15 percent rate amounts under § 1(j)(5)(B), as adjusted for
+            inflation, are as follows: Filing Status Maximum Zero Rate Amount Maximum15%
+            Rate Amount Married Individuals Filing Joint Returns and Surviving Spouse
+            $98,900 $613,700 Married Individuals Filing Separate Returns $49,450 $306,850
+            Heads of Household $66,200 $579,600 All Other Individuals $49,450 $545,500
+            Estates and Trusts $3,300 $16,250'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '3300'
+- name: capital_gains_fifteen_percent_threshold_joint
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.03
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: 'For taxable years beginning in 2026, the maximum zero rate amounts
+            and maximum 15 percent rate amounts under § 1(j)(5)(B), as adjusted for
+            inflation, are as follows: Filing Status Maximum Zero Rate Amount Maximum15%
+            Rate Amount Married Individuals Filing Joint Returns and Surviving Spouse
+            $98,900 $613,700 Married Individuals Filing Separate Returns $49,450 $306,850
+            Heads of Household $66,200 $579,600 All Other Individuals $49,450 $545,500
+            Estates and Trusts $3,300 $16,250'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '613700'
+- name: capital_gains_fifteen_percent_threshold_separate
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.03
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: 'For taxable years beginning in 2026, the maximum zero rate amounts
+            and maximum 15 percent rate amounts under § 1(j)(5)(B), as adjusted for
+            inflation, are as follows: Filing Status Maximum Zero Rate Amount Maximum15%
+            Rate Amount Married Individuals Filing Joint Returns and Surviving Spouse
+            $98,900 $613,700 Married Individuals Filing Separate Returns $49,450 $306,850
+            Heads of Household $66,200 $579,600 All Other Individuals $49,450 $545,500
+            Estates and Trusts $3,300 $16,250'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '306850'
+- name: capital_gains_fifteen_percent_threshold_head_of_household
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.03
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: 'For taxable years beginning in 2026, the maximum zero rate amounts
+            and maximum 15 percent rate amounts under § 1(j)(5)(B), as adjusted for
+            inflation, are as follows: Filing Status Maximum Zero Rate Amount Maximum15%
+            Rate Amount Married Individuals Filing Joint Returns and Surviving Spouse
+            $98,900 $613,700 Married Individuals Filing Separate Returns $49,450 $306,850
+            Heads of Household $66,200 $579,600 All Other Individuals $49,450 $545,500
+            Estates and Trusts $3,300 $16,250'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '579600'
+- name: capital_gains_fifteen_percent_threshold_single
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.03
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: 'For taxable years beginning in 2026, the maximum zero rate amounts
+            and maximum 15 percent rate amounts under § 1(j)(5)(B), as adjusted for
+            inflation, are as follows: Filing Status Maximum Zero Rate Amount Maximum15%
+            Rate Amount Married Individuals Filing Joint Returns and Surviving Spouse
+            $98,900 $613,700 Married Individuals Filing Separate Returns $49,450 $306,850
+            Heads of Household $66,200 $579,600 All Other Individuals $49,450 $545,500
+            Estates and Trusts $3,300 $16,250'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '545500'
+- name: capital_gains_fifteen_percent_threshold_estate_trust
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.03
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: 'For taxable years beginning in 2026, the maximum zero rate amounts
+            and maximum 15 percent rate amounts under § 1(j)(5)(B), as adjusted for
+            inflation, are as follows: Filing Status Maximum Zero Rate Amount Maximum15%
+            Rate Amount Married Individuals Filing Joint Returns and Surviving Spouse
+            $98,900 $613,700 Married Individuals Filing Separate Returns $49,450 $306,850
+            Heads of Household $66,200 $579,600 All Other Individuals $49,450 $545,500
+            Estates and Trusts $3,300 $16,250'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '16250'
+- name: adoption_credit_special_needs_amount
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.04(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: the credit allowed for an adoption of a child with special needs
+            is $17,670
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '17670'
+- name: adoption_credit_other_adoptions_cap
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.04(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: qualified adoption expenses up to $17,670
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '17670'
+- name: adoption_credit_phaseout_start
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.04(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: begins to phase out under § 23(b)(2)(A) for taxpayers with modified
+            adjusted gross income in excess of $265,080
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '265080'
+- name: adoption_credit_complete_phaseout_start
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.04(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: completely phased out for taxpayers with modified adjusted gross
+            income of $305,080 or more
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '305080'
+- name: adoption_credit_for_special_needs_child
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.04(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: the credit allowed for an adoption of a child with special needs
+            is $17,670
+      - path: versions[0].formula
+        kind: parameter
+        import:
+          target: us:policies/irs/rev-proc-2025-32/capital-gains#adoption_credit_special_needs_amount
+          output: adoption_credit_special_needs_amount
+          hash: sha256:local
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'if adoption_has_special_needs: adoption_credit_special_needs_amount
+      else: 0'
+- name: adoption_credit_for_other_adoption
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: Rev. Proc. 2025-32 section 4.04(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: maximum credit allowed for other adoptions is the amount of qualified
+            adoption expenses up to $17,670
+      - path: versions[0].formula
+        kind: parameter
+        import:
+          target: us:policies/irs/rev-proc-2025-32/capital-gains#adoption_credit_other_adoptions_cap
+          output: adoption_credit_other_adoptions_cap
+          hash: sha256:local
+  versions:
+  - effective_from: '2026-01-01'
+    formula: min(qualified_adoption_expenses, adoption_credit_other_adoptions_cap)
+- name: adoption_credit_phaseout_begins
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Year
+  source: Rev. Proc. 2025-32 section 4.04(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: predicate
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: The available adoption credit begins to phase out under § 23(b)(2)(A)
+            for taxpayers with modified adjusted gross income in excess of $265,080
+            and is completely phased out for taxpayers with modified adjusted gross
+            income of $305,080 or more.
+      - path: versions[0].formula
+        kind: parameter
+        import:
+          target: us:policies/irs/rev-proc-2025-32/capital-gains#adoption_credit_phaseout_start
+          output: adoption_credit_phaseout_start
+          hash: sha256:local
+  versions:
+  - effective_from: '2026-01-01'
+    formula: modified_adjusted_gross_income > adoption_credit_phaseout_start
+- name: adoption_credit_is_completely_phased_out
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Year
+  source: Rev. Proc. 2025-32 section 4.04(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: predicate
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-13
+          excerpt: completely phased out for taxpayers with modified adjusted gross
+            income of $305,080 or more
+      - path: versions[0].formula
+        kind: parameter
+        import:
+          target: us:policies/irs/rev-proc-2025-32/capital-gains#adoption_credit_complete_phaseout_start
+          output: adoption_credit_complete_phaseout_start
+          hash: sha256:local
+  versions:
+  - effective_from: '2026-01-01'
+    formula: modified_adjusted_gross_income >= adoption_credit_complete_phaseout_start
+inputs:
+- name: joint_return_or_surviving_spouse
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year
+- name: separate_return
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year
+- name: head_of_household_return
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year
+- name: estate_or_trust_return
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year
+- name: adoption_has_special_needs
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year
+- name: qualified_adoption_expenses
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+- name: modified_adjusted_gross_income
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD

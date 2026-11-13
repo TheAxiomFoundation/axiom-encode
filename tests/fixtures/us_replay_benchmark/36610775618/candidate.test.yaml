@@ -1,0 +1,149 @@
+- name: tenant_electric_and_phone_example_after_revision
+  period: 2025-10
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.heat_and_air_conditioning_not_billed_to_household: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_pays_electric_bill: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_pays_phone_bill: true
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#separately_metered_electric_and_phone_tenant_lua_applies: holds
+- name: full_telephone_allowance_with_telephone_cost
+  period: 2025-10
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_incurred_telephone_cost: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_eligible_for_utility_allowance: false
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#telephone_allowance_applies: holds
+    us-md:policies/dhs/fia/snap-manual-214/page-5#full_telephone_allowance_applies_regardless_of_bill_payment_or_sharing: holds
+- name: full_telephone_allowance_without_telephone_cost
+  period: 2025-10
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_incurred_telephone_cost: false
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_eligible_for_utility_allowance: false
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#telephone_allowance_applies: not_holds
+    us-md:policies/dhs/fia/snap-manual-214/page-5#full_telephone_allowance_applies_regardless_of_bill_payment_or_sharing: not_holds
+- name: shared_utility_paid_to_company
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_pays_its_portion_of_shared_utility_expense: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.portion_paid_directly_to_utility_company: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.portion_paid_to_landlord: false
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.portion_paid_to_household_sharing_utility_expenses: false
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#shared_utility_payment_destination_permitted: holds
+- name: shared_utility_paid_to_landlord
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_pays_its_portion_of_shared_utility_expense: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.portion_paid_directly_to_utility_company: false
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.portion_paid_to_landlord: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.portion_paid_to_household_sharing_utility_expenses: false
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#shared_utility_payment_destination_permitted: holds
+- name: shared_utility_paid_to_sharing_household
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_pays_its_portion_of_shared_utility_expense: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.portion_paid_directly_to_utility_company: false
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.portion_paid_to_landlord: false
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.portion_paid_to_household_sharing_utility_expenses: true
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#shared_utility_payment_destination_permitted: holds
+- name: shared_utility_portion_not_paid
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_pays_its_portion_of_shared_utility_expense: false
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.portion_paid_directly_to_utility_company: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.portion_paid_to_landlord: false
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.portion_paid_to_household_sharing_utility_expenses: false
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#shared_utility_payment_destination_permitted: not_holds
+- name: separate_units_sharing_meter_get_full_sua
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.separate_housing_units_share_one_utility_meter: true
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#shared_meter_sua_applies: holds
+- name: separate_units_not_sharing_meter_do_not_get_shared_meter_sua
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.separate_housing_units_share_one_utility_meter: false
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#shared_meter_sua_applies: not_holds
+- name: telephone_cost_and_no_utility_allowance
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_incurred_telephone_cost: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_eligible_for_utility_allowance: false
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#telephone_allowance_applies: holds
+    us-md:policies/dhs/fia/snap-manual-214/page-5#full_telephone_allowance_applies_regardless_of_bill_payment_or_sharing: holds
+- name: no_telephone_cost
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_incurred_telephone_cost: false
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_eligible_for_utility_allowance: false
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#telephone_allowance_applies: not_holds
+    us-md:policies/dhs/fia/snap-manual-214/page-5#full_telephone_allowance_applies_regardless_of_bill_payment_or_sharing: not_holds
+- name: utility_allowance_eligibility_blocks_telephone_allowance
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_incurred_telephone_cost: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_eligible_for_utility_allowance: true
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#telephone_allowance_applies: not_holds
+    us-md:policies/dhs/fia/snap-manual-214/page-5#full_telephone_allowance_applies_regardless_of_bill_payment_or_sharing: not_holds
+- name: telephone_and_other_nonheating_utility_get_lua_only
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_incurred_telephone_cost: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_has_other_nonheating_noncooling_utility_expense: true
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#telephone_and_other_utility_expense_lua_only: holds
+- name: telephone_without_other_nonheating_utility
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_incurred_telephone_cost: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_has_other_nonheating_noncooling_utility_expense: false
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#telephone_and_other_utility_expense_lua_only: not_holds
+- name: no_telephone_expense_for_lua_only_branch
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_incurred_telephone_cost: false
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_has_other_nonheating_noncooling_utility_expense: true
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#telephone_and_other_utility_expense_lua_only: not_holds
+- name: tenant_electric_and_phone_example
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.heat_and_air_conditioning_not_billed_to_household: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_pays_electric_bill: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_pays_phone_bill: true
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#separately_metered_electric_and_phone_tenant_lua_applies: holds
+- name: tenant_example_without_electric_bill
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.heat_and_air_conditioning_not_billed_to_household: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_pays_electric_bill: false
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_pays_phone_bill: true
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#separately_metered_electric_and_phone_tenant_lua_applies: not_holds
+- name: tenant_example_without_phone_bill
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.heat_and_air_conditioning_not_billed_to_household: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_pays_electric_bill: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_pays_phone_bill: false
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#separately_metered_electric_and_phone_tenant_lua_applies: not_holds
+- name: tenant_example_with_heat_or_cooling_billed
+  period: 2025-09
+  input:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.heat_and_air_conditioning_not_billed_to_household: false
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_pays_electric_bill: true
+    us-md:policies/dhs/fia/snap-manual-214/page-5#input.household_pays_phone_bill: true
+  output:
+    us-md:policies/dhs/fia/snap-manual-214/page-5#separately_metered_electric_and_phone_tenant_lua_applies: not_holds
