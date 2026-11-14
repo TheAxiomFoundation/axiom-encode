@@ -118,6 +118,28 @@ capability.
 The launcher is validated but never executed; the
 supervisor executes the validated interpreter and protected bootstrap directly.
 
+### Requiring the generalist review
+
+`encode --apply` records its generalist review in the encode outcome, and in
+the signed manifest for a target that verifies with the main encoder. By
+default a review that is unavailable, failed or partial does not stop the
+apply. To make it stop, add `--require-review` to the supervised command:
+
+```text
+  -- /opt/axiom/python/bin/axiom-encode encode ... --apply --require-review
+```
+
+With the flag, the encode applies only when the reviewer ran, passed, and was
+shown the whole content of every applied file; otherwise it ends
+`apply_blocked_review` with a non-zero exit and nothing applied. The flag is
+the only switch. There is no environment variable for it, because the
+supervisor builds the child environment from empty and would drop one.
+
+Turn it on only where a reviewer CLI can start under the supervisor: the local
+trusted lane (#2037), after the trusted runtime is re-provisioned at a commit
+that has the flag. The hosted signed workflow has no reviewer CLI on its
+runner, so the flag would block every run there.
+
 The Python environment is constructed from empty. It contains fixed locale,
 bytecode/isolation controls, a fixed path containing only the validated runtime
 tool directory, and the anonymous

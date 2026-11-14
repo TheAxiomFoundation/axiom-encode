@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+from pathlib import Path
 
 import pytest
 
@@ -471,6 +472,183 @@ def test_writer_shape_follows_the_protected_base(frozen_repo, text, per_file):
     if text is not None:
         _commit(frozen_repo.repo, "protected workflow toolchain")
     assert cli._target_uses_per_file_waiver_bindings(frozen_repo.repo) is per_file
+
+
+@pytest.mark.parametrize(
+    ("text", "admits"),
+    [
+        (None, False),
+        ("# no table\n", False),
+        ('[workflow_toolchain]\nencoder_verifier = "pinned"\n', False),
+        ('[workflow_toolchain]\nencoder_verifier = "main"\n', True),
+        (
+            '[workflow_toolchain]\nencoder_verifier = "main"\n'
+            'encoder_verifier_hold = "' + "a" * 40 + '"\n',
+            False,
+        ),
+    ],
+    ids=["absent-file", "absent-table", "pinned", "main", "main-held"],
+)
+def test_review_record_is_written_only_for_an_unheld_main_verifier(
+    frozen_repo, text, admits
+):
+    """A held or pinned verifier may predate the record field (#2146)."""
+    _write_workflow_toolchain(frozen_repo, text)
+    if text is not None:
+        _commit(frozen_repo.repo, "protected workflow toolchain")
+    assert cli._target_admits_generalist_review_record(frozen_repo.repo) is admits
+    # The hold never changes the waiver shape.
+    assert cli._target_uses_per_file_waiver_bindings(frozen_repo.repo) is (
+        text is not None and 'encoder_verifier = "main"' in text
+    )
+
+
+@pytest.mark.parametrize(
+    ("toolchain", "carries_record"),
+    [
+        ('[workflow_toolchain]\nencoder_verifier = "main"\n', True),
+        ('[workflow_toolchain]\nencoder_verifier = "pinned"\n', False),
+        (
+            '[workflow_toolchain]\nencoder_verifier = "main"\n'
+            'encoder_verifier_hold = "' + "a" * 40 + '"\n',
+            False,
+        ),
+    ],
+    ids=["main", "pinned", "main-held"],
+)
+def test_real_apply_staging_reads_the_record_gate_from_the_real_checkout(
+    frozen_repo, tmp_path, toolchain, carries_record
+):
+    """`encode --apply` signs in a staged copy that has no Git objects.
+
+    Nothing about the gate is mocked: the staged manifest carries the review
+    record exactly when the real checkout's protected base opted in (#2146).
+    """
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from axiom_encode.generalist_review_record import (
+        GENERALIST_REVIEW_FIELD,
+        GeneralistReviewState,
+        review_evidence_digests,
+    )
+    from tests.test_cli import TEST_APPLY_SIGNING_BROKER
+
+    _write_workflow_toolchain(frozen_repo, toolchain)
+    _commit(frozen_repo.repo, "protected workflow toolchain")
+    repo = frozen_repo.repo
+    relative_output = Path("statutes/26/1.yaml")
+    rule_bytes = (repo / "us" / relative_output).read_bytes()
+    test_bytes = b"- name: base_case\n"
+    planned = {
+        relative_output: rule_bytes,
+        relative_output.with_name("1.test.yaml"): test_bytes,
+    }
+    result = SimpleNamespace(
+        output_file=None,
+        context_manifest_file=None,
+        trace_file=None,
+        generation_prompt_sha256=None,
+        tool=cli.APPLIED_ENCODING_MODEL_TOOL,
+        citation="us/statute/26/1",
+        runner="openai",
+        backend="openai",
+        model="staging-gate-test",
+        source_attestation={},
+    )
+    setattr(
+        result,
+        cli._APPLY_VALIDATION_SNAPSHOT_ATTR,
+        {
+            "manifest_validation_execution": {
+                "axiom_encode": dict(TEST_PINNED_ENCODER_IDENTITY)
+            }
+        },
+    )
+    setattr(
+        result,
+        cli._GENERALIST_REVIEW_STATE_ATTR,
+        GeneralistReviewState(
+            metrics_pass=True,
+            score=9.0,
+            issue_count=0,
+            prompt_sha256="4" * 64,
+            evidence={
+                **review_evidence_digests(rule_bytes, test_bytes),
+                "rulespec_complete": True,
+                "test_complete": True,
+            },
+            required=True,
+        ),
+    )
+    seen_roots = []
+    real_gate = cli._target_protected_workflow_toolchain_table
+
+    def recording_gate(root):
+        seen_roots.append(Path(root))
+        return real_gate(root)
+
+    with (
+        patch(
+            "axiom_encode.cli._resolver_owned_manifest_source_attestation",
+            return_value={"rulespec_root": "rulespec-us/us"},
+        ),
+        patch(
+            "axiom_encode.cli.load_rulespec_local_corpus_release",
+            return_value=object(),
+        ),
+        patch(
+            "axiom_encode.cli._target_protected_workflow_toolchain_table",
+            side_effect=recording_gate,
+        ),
+    ):
+        _manifest_relative, manifest_bytes = cli._stage_signed_apply_manifest(
+            result,
+            output_root=tmp_path / "out",
+            content_root=repo / "us",
+            corpus_path=tmp_path / "axiom-corpus",
+            relative_output=relative_output,
+            planned=planned,
+            run_id="staging-gate-test",
+            signing_broker=TEST_APPLY_SIGNING_BROKER,
+            axiom_encode_git={"commit": "a" * 40},
+        )
+
+    payload = json.loads(manifest_bytes)
+    assert (GENERALIST_REVIEW_FIELD in payload) is carries_record
+    # The record gate asked the real checkout, never the staged copy.
+    assert repo / "us" in seen_roots
+    if carries_record:
+        record = payload[GENERALIST_REVIEW_FIELD]
+        assert record["status"] == "passed"
+        assert record["required"] is True
+        assert [entry["sha256"] for entry in record["files"]] == sorted(
+            item["sha256"] for item in payload["applied_files"]
+        )
+        assert (
+            cli._applied_encoding_manifest_signature_issue(
+                payload, TEST_APPLY_SIGNING_BROKER
+            )
+            is None
+        )
+        assert not [
+            issue
+            for issue in cli._applied_manifest_exact_schema_issues(
+                payload, manifest_label="manifest"
+            )
+            if "exact" in issue or "generalist_review" in issue
+        ]
+
+
+def test_review_record_gate_refuses_to_sign_on_a_malformed_protected_mode(
+    frozen_repo,
+):
+    _write_workflow_toolchain(
+        frozen_repo, '[workflow_toolchain]\nencoder_verifier = "latest"\n'
+    )
+    _commit(frozen_repo.repo, "malformed protected workflow toolchain")
+    with pytest.raises(RuntimeError, match="Cannot sign RuleSpec"):
+        cli._target_admits_generalist_review_record(frozen_repo.repo)
 
 
 @pytest.mark.parametrize(

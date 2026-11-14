@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unicodedata
 from bisect import bisect_left, bisect_right
@@ -124,6 +125,7 @@ from axiom_encode.form_numeric_structure import (
     mask_form_numeric_locators,
 )
 from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.generalist_review_record import review_evidence_digests
 from axiom_encode.harness.amendment_timing import amendment_timing_issues
 from axiom_encode.harness.coverage_exemptions import (
     CoverageDemand,
@@ -548,6 +550,19 @@ _LOCAL_REVIEWER_SYSTEM_PATH: tuple[str, ...] = (
 )
 _LOCAL_REVIEWER_CONFIG_DIR_NAMES: tuple[str, ...] = ("CODEX_HOME", "CLAUDE_CONFIG_DIR")
 _REVIEWER_UNAVAILABLE = "reviewer_unavailable"
+# The reviewer CLI one thread last started, as (backend, model). A review
+# record names its reviewer from this; nothing reads it to decide a verdict.
+_REVIEWER_CLI_STARTED = threading.local()
+
+
+def _note_reviewer_cli_started(backend: str | None, model: str | None) -> None:
+    _REVIEWER_CLI_STARTED.identity = (
+        None if backend is None else (backend, str(model or ""))
+    )
+
+
+def _reviewer_cli_started() -> tuple[str, str] | None:
+    return getattr(_REVIEWER_CLI_STARTED, "identity", None)
 
 
 def _protected_reviewer_context_active() -> bool:
@@ -687,6 +702,7 @@ def run_claude_code(
             return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
         claude_executable = resolved_claude
         local_environment = _local_reviewer_environment([resolved_claude])
+    _note_reviewer_cli_started("claude", model)
 
     cmd = [
         claude_executable,
@@ -762,6 +778,7 @@ def _run_codex_reviewer_cli(
         if not os.path.isabs(codex_executable):
             resolved_codex = _resolve_local_reviewer_executable(codex_executable)
             if resolved_codex is None:
+                _note_reviewer_cli_started(None, None)
                 return (
                     f"{_REVIEWER_UNAVAILABLE}: no reviewer CLI could start "
                     "(claude and codex were not found on PATH)",
@@ -769,6 +786,10 @@ def _run_codex_reviewer_cli(
                 )
             codex_executable = resolved_codex
         local_environment = _local_reviewer_environment([codex_executable])
+    codex_model = os.environ.get(
+        "AXIOM_ENCODE_REVIEWER_CODEX_MODEL", DEFAULT_OPENAI_MODEL
+    )
+    _note_reviewer_cli_started("codex", codex_model)
     cmd = [
         codex_executable,
         "exec",
@@ -777,7 +798,7 @@ def _run_codex_reviewer_cli(
         "--sandbox",
         "read-only",
         "--model",
-        os.environ.get("AXIOM_ENCODE_REVIEWER_CODEX_MODEL", DEFAULT_OPENAI_MODEL),
+        codex_model,
     ]
     if cwd is not None:
         cmd.extend(["-C", str(cwd)])
@@ -834,6 +855,7 @@ def _run_codex_reviewer_cli(
     except subprocess.TimeoutExpired:
         return f"Timeout after {timeout}s", 1
     except FileNotFoundError:
+        _note_reviewer_cli_started(None, None)
         return (
             f"{_REVIEWER_UNAVAILABLE}: Reviewer CLIs not found "
             "(missing claude and codex)",
@@ -42189,12 +42211,19 @@ class ValidatorPipeline:
         start = time.time()
 
         # Read RuleSpec file content
+        review_evidence: dict[str, Any] = {}
         try:
-            rulespec_content = Path(rulespec_file).read_text()
+            reviewed_rulespec_bytes = Path(rulespec_file).read_bytes()
+            rulespec_content = reviewed_rulespec_bytes.decode("utf-8")
             test_content = None
+            reviewed_test_bytes = None
             companion_test = self._rulespec_test_path(rulespec_file)
             if companion_test.exists():
-                test_content = companion_test.read_text()
+                reviewed_test_bytes = companion_test.read_bytes()
+                test_content = reviewed_test_bytes.decode("utf-8")
+            review_evidence.update(
+                review_evidence_digests(reviewed_rulespec_bytes, reviewed_test_bytes)
+            )
         except Exception as e:
             duration = int((time.time() - start) * 1000)
             return ValidationResult(
@@ -42279,6 +42308,14 @@ Output ONLY valid JSON:
 }}
 """
         prompt_sha256 = _sha256_text(prompt)
+        # The prompt quotes a bounded prefix of each file; record whether the
+        # reviewer was shown the whole of what the digests above name.
+        rulespec_limit = 6000 if prompt_template is not None else 3000
+        review_evidence["rulespec_complete"] = len(rulespec_content) <= rulespec_limit
+        review_evidence["test_complete"] = (
+            test_content is None or len(test_content) <= 3000
+        )
+        _note_reviewer_cli_started(None, None)
 
         try:
             reviewer_timeout = int(
@@ -42290,6 +42327,9 @@ Output ONLY valid JSON:
                 timeout=reviewer_timeout,
                 cwd=self.policy_repo_path,
             )
+            started = _reviewer_cli_started()
+            review_evidence["reviewer_backend"] = started[0] if started else None
+            review_evidence["reviewer_model"] = started[1] if started else None
             if returncode != 0:
                 output_excerpt = output.strip()[:500] or "no output"
                 raise RuntimeError(
@@ -42301,6 +42341,8 @@ Output ONLY valid JSON:
             # letting the generic except below swallow the detail.
             try:
                 data = _extract_json_object(output)
+                if "passed" in data and type(data["passed"]) is not bool:
+                    raise ValueError("Reviewer passed must be a JSON boolean")
             except (ValueError, json.JSONDecodeError) as parse_err:
                 duration = int((time.time() - start) * 1000)
                 raw_snippet = (output or "").strip()
@@ -42362,6 +42404,7 @@ Output ONLY valid JSON:
                     passed = len(blocking_issues) == 0
                 else:
                     passed = score >= 7.0
+                passed = passed and not blocking_issues
 
                 reported_issues = data.get("issues", [])
                 if not isinstance(reported_issues, list):
@@ -42396,6 +42439,7 @@ Output ONLY valid JSON:
                 duration_ms=duration,
                 raw_output=output,
                 prompt_sha256=prompt_sha256,
+                details={"review_evidence": review_evidence},
             )
 
         except Exception as e:

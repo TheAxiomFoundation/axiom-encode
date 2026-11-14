@@ -9135,7 +9135,7 @@ def _evaluate_artifact_in_scope(
         and not policyengine_hint_upstream_issues
     )
 
-    return EvalArtifactMetrics(
+    metrics = EvalArtifactMetrics(
         compile_pass=compile_result.passed,
         compile_issues=compile_result.issues,
         ci_pass=ci_pass,
@@ -9177,8 +9177,17 @@ def _evaluate_artifact_in_scope(
             else None
         ),
     )
+    # In-process only (#2146): what the reviewer call measured about the bytes
+    # it read. It is not a dataclass field, so persisted metric shapes and
+    # signed eval rows are unchanged; a metrics object reloaded from disk has
+    # none, and a review record then reports the verdict as unreadable.
+    review_evidence = generalist_review_result.details.get("review_evidence")
+    if isinstance(review_evidence, dict):
+        setattr(metrics, GENERALIST_REVIEW_EVIDENCE_ATTR, dict(review_evidence))
+    return metrics
 
 
+GENERALIST_REVIEW_EVIDENCE_ATTR = "_axiom_generalist_review_evidence"
 _GENERATED_EVAL_REPAIR_LIMIT = 50
 
 

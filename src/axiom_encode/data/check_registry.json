@@ -961,6 +961,42 @@
       "why": "The step publishes verified changes. The encode itself finished; a failure here means no pull request or no signed artifact for this run."
     },
     {
+      "category": "manifest:generalist-review",
+      "cause": "encoder_output",
+      "fix": "Do not edit a signed manifest. Run encode --apply again so the encoder writes and signs the record itself.",
+      "gate": "manifest",
+      "id": "manifest:generalist-review/binding",
+      "requires": "The record lists exactly the files the manifest applies; a passed record marks every one of them reviewed in full; a scored record has equal reviewed and applied content digests.",
+      "severity": "important",
+      "site": "axiom_encode/generalist_review_record.py:generalist_review_record_issues",
+      "title": "Generalist review verdict is not bound to the applied files",
+      "why": "The record is the only statement in a signed manifest about whether a model reviewed the applied module; a wrong record reads as a review."
+    },
+    {
+      "category": "manifest:generalist-review",
+      "cause": "encoder_output",
+      "fix": "Do not edit a signed manifest. Run encode --apply again so the encoder writes and signs the record itself.",
+      "gate": "manifest",
+      "id": "manifest:generalist-review/shape",
+      "requires": "The record has the exact v1 fields, a supported status and reason, and well-formed reviewer, verdict, digest and file values.",
+      "severity": "important",
+      "site": "axiom_encode/generalist_review_record.py:generalist_review_record_issues",
+      "title": "Generalist review record is malformed",
+      "why": "The record is the only statement in a signed manifest about whether a model reviewed the applied module; a wrong record reads as a review."
+    },
+    {
+      "category": "manifest:generalist-review",
+      "cause": "encoder_output",
+      "fix": "Do not edit a signed manifest. Run encode --apply again so the encoder writes and signs the record itself.",
+      "gate": "manifest",
+      "id": "manifest:generalist-review/verdict",
+      "requires": "A passed, partial or failed status carries the matching verdict, a pass is at or above the threshold, an unscored status carries no verdict, and a required review is passed.",
+      "severity": "important",
+      "site": "axiom_encode/generalist_review_record.py:generalist_review_record_issues",
+      "title": "Generalist review status contradicts its verdict",
+      "why": "The record is the only statement in a signed manifest about whether a model reviewed the applied module; a wrong record reads as a review."
+    },
+    {
       "category": "manifest:reviewed-repair",
       "cause": "encoder_output",
       "fix": "Use the reviewed package registration and its exact binding; do not edit signed artifacts.",
@@ -1057,6 +1093,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "2d24a58c18a52093f02d154d169b283ed00447786dbcdf8fdf1ea90b96be89dc",
+  "registry_sha256": "7d01dd5c2a64cccb27c2ebd3bc572daf078d7322e1def4c43490bb6911a0afb1",
   "schema": "axiom-encode/check-registry/v1"
 }
