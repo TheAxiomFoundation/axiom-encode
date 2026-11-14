@@ -14,7 +14,7 @@ import re
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Final
 
 # The same human owners who authorize encoder signing-critical changes. Numeric
 # GitHub identities prevent a recycled login from gaining signing authority.
@@ -24,6 +24,86 @@ SCHEMA = "axiom-encode/live-reviewed-pr-admission/v1"
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 MAX_PAGES = 10
 INDEX_PATH = ".axiom/index/provisions_to_rules.json"
+
+# --- The unreviewed-candidate lane. SWITCHED OFF. ----------------------------
+#
+# Change 5 of ``docs/content-bound-merge-guard.md`` section 8 (#2172): admit a
+# candidate WITHOUT the owner approval before signing, and let the promotion
+# writer emit ``applied-rulespec/v6``. The owner approval then happens once,
+# on the signed pull request, and the content-bound merge guard requires it.
+#
+# The switch rule (design, section 8, row 2b):
+#   The reader may be switched on while no v6 writer exists: nothing new can
+#   land. The v6 writer and the admission without approval must stay off
+#   until the guard check is required. With the reader on, the writer on and
+#   the guard check not required, an enrolled dispatcher lands their own
+#   unreviewed candidate with no approval, and any account with write access
+#   re-lands signed v6 bytes from a closed pull request.
+#
+# Three locks, all on encoder main, none with an environment variable, CLI
+# flag, dispatch input or repository setting:
+#
+# 1. ``V6_WRITER_ENABLED``. While it is not exactly ``True`` this module
+#    behaves as before the lane existed: the same reads, results and errors.
+# 2. ``GUARD_APP_ID``. ``None`` until the guard GitHub App exists. A reviewed
+#    change records its numeric App ID here. While it is ``None`` the lane
+#    refuses, also with lock 1 open.
+# 3. ``require_guard_enforced``: a live read at every admission and every
+#    revalidation. It refuses unless ``main`` of the RuleSpec repository
+#    requires the check ``GUARD_CHECK_NAME`` from exactly ``GUARD_APP_ID``,
+#    for administrators too. So an open switch does not help while the guard
+#    is not a required check (decision D2d).
+#
+# OPERATOR PRECONDITION, not checkable here: the read of lock 3 proves the
+# requirement at admission and before signing. A repository administrator can
+# remove a required check afterwards; that adversary is out of scope (design,
+# section 9). Do not turn lock 1 before activation checklist step 4 is done.
+#
+# RESIDUAL RISK the owners accept with lock 1. Lock 3 is read again, never
+# cached, at five points: preflight (start and end), root provisioner (start
+# and end), before validation, immediately before signing, before
+# publication. AFTER publication only the GitHub setting protects the merge.
+# Today the approval before signing is enforced by this module, independent
+# of repository settings. After activation an enrolled owner who is also a
+# repository administrator can sign their own candidate, then remove the
+# required check (or lower its enforcement level, or use the guard App key)
+# and merge with no second approval. What exists against that: the
+# organisation audit log records the settings change, and the push to main
+# still runs validation. Neither prevents the merge or supplies a review.
+#
+# KNOWN LIMIT (availability only). Every read is anonymous. One run of this
+# lane makes 45 reads (7 of them the branch record; the reviewed lane makes
+# 38) against GitHub's 60 per hour per address, so a second run in the same
+# hour from the same address is refused. Follow-up: send the reads with the
+# workflow token when one is available. The record is public, so a token
+# only raises the limit; any error must still refuse.
+V6_WRITER_ENABLED: Final[bool] = False
+# The enforcing check of the merge guard, and the App that must publish it.
+# The shadow check of the runner has another name and never satisfies this.
+GUARD_CHECK_NAME: Final = "content-bound-merge-guard"
+GUARD_APP_ID: Final[int | None] = None
+# GitHub Actions. Any workflow of the RuleSpec repository can publish a check
+# as this App, so it can never be the guard's publisher.
+GITHUB_ACTIONS_APP_ID: Final = 15368
+CANDIDATE_SCHEMA: Final = "axiom-encode/live-candidate-pr-admission/v1"
+CANDIDATE_FIELDS: Final = frozenset(
+    {
+        "schema",
+        "selector",
+        "record",
+        "owner_review",
+        "candidate",
+        "dispatcher",
+        "guard",
+        "workflow_commit",
+    }
+)
+CANDIDATE_OWNER_REVIEW: Final = "none"
+CANDIDATE_PURPOSE: Final = (
+    "Live scope-checked candidate on the RuleSpec PR; NO owner approval before "
+    "signing; the content-bound merge guard requires the approval before merge; "
+    "new-module promotion only."
+)
 
 
 class AdmissionError(ValueError):
@@ -195,6 +275,8 @@ def revalidate_admission(
     expected: object, *, fetch: Callable[[str], object] = github_json
 ) -> dict:
     payload = _object(expected, "provisioned admission")
+    if V6_WRITER_ENABLED is True and payload.get("schema") == CANDIDATE_SCHEMA:
+        return _revalidate_candidate_admission(payload, fetch=fetch)
     if (
         set(payload) != {"schema", "selector", "record", "approvals", "workflow_commit"}
         or payload.get("schema") != SCHEMA
@@ -230,6 +312,163 @@ def revalidate_admission(
     # The head and base are immutable Git objects already fully inspected by
     # the root provisioner. The signer separately rehashes the local primary
     # and companion; re-fetch only mutable authorization, not all source bytes.
+    return payload
+
+
+def candidate_lane_enabled() -> bool:
+    """Whether the unreviewed-candidate lane may be used at all (lock 1)."""
+
+    return V6_WRITER_ENABLED is True
+
+
+def is_candidate_admission(payload: object) -> bool:
+    """Whether ``payload`` is an admission of the unreviewed-candidate lane.
+
+    ``False`` for everything while the switch is off. It reads the label only:
+    call ``revalidate_admission`` first, which checks the whole record live.
+    """
+
+    return (
+        V6_WRITER_ENABLED is True
+        and isinstance(payload, dict)
+        and payload.get("schema") == CANDIDATE_SCHEMA
+    )
+
+
+def require_guard_enforced(
+    repository: str, *, fetch: Callable[[str], object] = github_json
+) -> dict:
+    """Refuse unless ``main`` requires the guard's check from the guard App.
+
+    Locks 2 and 3. The read is the public branch record, so the signing
+    runtime needs no credential. Any read error, a missing field or a shape
+    this function does not know refuses. A required check that comes from a
+    repository ruleset is not in this record and does not count.
+    """
+
+    if (
+        type(GUARD_APP_ID) is not int
+        or GUARD_APP_ID <= 0
+        or GUARD_APP_ID == GITHUB_ACTIONS_APP_ID
+    ):
+        raise AdmissionError(
+            "the merge guard App is not recorded on encoder main (GUARD_APP_ID)"
+        )
+    if re.fullmatch(r"TheAxiomFoundation/rulespec-[a-z]{2}", str(repository)) is None:
+        raise AdmissionError("invalid repository for the merge guard requirement")
+    try:
+        branch = fetch(f"/repos/{repository}/branches/main")
+    except AdmissionError:
+        raise
+    except Exception as exc:  # HTTP error, rate limit, bad JSON: never "absent"
+        raise AdmissionError(
+            "branch protection of the RuleSpec repository cannot be read"
+        ) from exc
+    branch = _object(branch, "main branch")
+    protection = _object(branch.get("protection"), "main branch protection")
+    required = _object(
+        protection.get("required_status_checks"), "required status checks"
+    )
+    checks = required.get("checks")
+    if (
+        branch.get("name") != "main"
+        or branch.get("protected") is not True
+        or protection.get("enabled") is not True
+        or required.get("enforcement_level") != "everyone"
+        or not isinstance(checks, list)
+    ):
+        raise AdmissionError(
+            "main does not enforce required checks for everyone, administrators "
+            "included"
+        )
+    named = [
+        _object(check, "required check")
+        for check in checks
+        if _object(check, "required check").get("context") == GUARD_CHECK_NAME
+    ]
+    if (
+        len(named) != 1
+        or type(named[0].get("app_id")) is not int
+        or named[0]["app_id"] != GUARD_APP_ID
+    ):
+        raise AdmissionError(
+            "the content-bound merge guard is not a required check of main, "
+            "bound to the guard App"
+        )
+    return {"check": GUARD_CHECK_NAME, "app_id": GUARD_APP_ID}
+
+
+def _enrolled_dispatcher(run: dict, selector: PromotionSelector) -> dict:
+    """The run's triggering actor, by numeric id, enrolled (decision D3)."""
+
+    actor = _object(run.get("triggering_actor"), "triggering actor")
+    identity, login = actor.get("id"), actor.get("login")
+    if (
+        type(identity) is not int
+        or identity not in TRUSTED_SIGNING_REVIEWERS
+        or login != TRUSTED_SIGNING_REVIEWERS[identity]
+        or login != selector.actor
+        or actor.get("type") != "User"
+    ):
+        raise AdmissionError("candidate dispatcher is not an enrolled identity")
+    return {"id": identity, "login": login}
+
+
+def _refuse_changes_requested(reviews: list[dict]) -> None:
+    """The blocking half of ``_approved_reviews``; no approval is required."""
+
+    decisive: dict[object, dict] = {}
+    for review in sorted(reviews, key=lambda item: item.get("id", 0)):
+        reviewer = _object(review.get("user"), "reviewer")
+        state = review.get("state")
+        if state in {"CHANGES_REQUESTED", "APPROVED", "DISMISSED"}:
+            decisive[reviewer.get("id")] = review
+        elif state not in {"COMMENTED", "PENDING"}:
+            raise AdmissionError("unknown review state")
+    if any(review["state"] == "CHANGES_REQUESTED" for review in decisive.values()):
+        raise AdmissionError("candidate has unresolved changes requested")
+
+
+def _revalidate_candidate_admission(
+    payload: dict, *, fetch: Callable[[str], object]
+) -> dict:
+    """Recheck the mutable state of an unreviewed-candidate admission."""
+
+    if (
+        V6_WRITER_ENABLED is not True
+        or set(payload) != CANDIDATE_FIELDS
+        or payload.get("schema") != CANDIDATE_SCHEMA
+        or payload.get("owner_review") != CANDIDATE_OWNER_REVIEW
+    ):
+        raise AdmissionError("invalid provisioned admission")
+    selector = selector_from_payload(payload["selector"])
+    record = _object(payload["record"], "admission record")
+    candidate = _object(payload["candidate"], "admission candidate")
+    root = "/repos/" + selector.repository
+    run = _object(
+        fetch(f"/repos/TheAxiomFoundation/axiom-encode/actions/runs/{selector.run_id}"),
+        "protected run",
+    )
+    if (
+        run.get("status") != "in_progress"
+        or run.get("head_sha") != payload["workflow_commit"]
+        or _enrolled_dispatcher(run, selector) != payload["dispatcher"]
+    ):
+        raise AdmissionError("protected run changed after provisioning")
+    guard = require_guard_enforced(selector.repository, fetch=fetch)
+    pr_path = f"{root}/pulls/{selector.pr}"
+    pr = _object(fetch(pr_path), "PR")
+    base, author_id = _pr_identity(pr, selector)
+    main = _object(fetch(root + "/git/ref/heads/main"), "main ref")
+    _refuse_changes_requested(_pages(fetch, pr_path + "/reviews"))
+    if (
+        set(candidate) != {"author_id"}
+        or base != record.get("base_sha")
+        or _object(main.get("object"), "main object").get("sha") != base
+        or author_id != candidate["author_id"]
+        or guard != payload["guard"]
+    ):
+        raise AdmissionError("live candidate differs from provisioned admission")
     return payload
 
 
@@ -331,6 +570,12 @@ def verify_reviewed_pr(
         raise AdmissionError(
             "admission is not bound to the live central main signing run"
         )
+    candidate_lane = V6_WRITER_ENABLED is True
+    if candidate_lane:
+        # Before any candidate read: the dispatcher is enrolled by numeric id,
+        # and the merge guard is already a required check of main.
+        dispatcher = _enrolled_dispatcher(run, selector)
+        guard = require_guard_enforced(selector.repository, fetch=fetch)
     root = "/repos/" + selector.repository
     pr_path = f"{root}/pulls/{selector.pr}"
     before = _object(fetch(pr_path), "PR")
@@ -379,7 +624,10 @@ def verify_reviewed_pr(
         raise AdmissionError("candidate PR changes files outside its new module scope")
 
     reviews = _pages(fetch, pr_path + "/reviews")
-    approvals = _approved_reviews(reviews, selector, author_id)
+    if candidate_lane:
+        _refuse_changes_requested(reviews)
+    else:
+        approvals = _approved_reviews(reviews, selector, author_id)
 
     digests = {}
     tree = _object(
@@ -421,6 +669,36 @@ def verify_reviewed_pr(
         raise AdmissionError("candidate PR moved during admission")
     if _pages(fetch, pr_path + "/reviews") != reviews:
         raise AdmissionError("candidate reviews changed during admission")
+    if candidate_lane:
+        if require_guard_enforced(selector.repository, fetch=fetch) != guard:
+            raise AdmissionError("merge guard requirement changed during admission")
+        # No ``approvals`` key and another schema: nobody can read this as a
+        # reviewed admission.
+        return {
+            "schema": CANDIDATE_SCHEMA,
+            "workflow_commit": run["head_sha"],
+            "selector": selector.__dict__,
+            "owner_review": CANDIDATE_OWNER_REVIEW,
+            "candidate": {"author_id": author_id},
+            "dispatcher": dispatcher,
+            "guard": guard,
+            "record": {
+                "schema": "axiom-encode/reviewed-rulespec-admission/v1",
+                "country": selector.country,
+                "rulespec_ref": selector.head,
+                "rulespec_pr": selector.pr,
+                "pr_base_branch": selector.branch,
+                "base_sha": base,
+                "binding": {
+                    "citation": selector.citation,
+                    "rulespec_path": selector.rulespec_path,
+                    "rulespec_sha256": digests[selector.rulespec_path],
+                    "companion_sha256": digests[selector.companion],
+                },
+                "declared": None,
+                "purpose": CANDIDATE_PURPOSE,
+            },
+        }
     return {
         "schema": SCHEMA,
         "workflow_commit": run["head_sha"],

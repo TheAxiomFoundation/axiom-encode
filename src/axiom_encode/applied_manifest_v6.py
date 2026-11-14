@@ -11,7 +11,9 @@ Nothing here is active:
 - ``V6_READER_ENABLED`` is ``False``. While it is ``False`` every verifier
   treats a manifest labelled v6 exactly as before this module existed: it is
   not an encoder apply manifest.
-- No writer emits v6, so no signed v6 manifest exists. The switch is a second,
+- The one writer, ``as_v6_candidate_payload``, is switched off by its own
+  constant (``reviewed_pr_admission.V6_WRITER_ENABLED``) and by two further
+  locks there, so no signed v6 manifest exists. The reader switch is an
   independent lock, and only a reviewed change to this file on encoder main
   can turn it.
 
@@ -35,6 +37,8 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from typing import Final
+
+from axiom_encode import reviewed_pr_admission as _admission
 
 # The switch rule (the same words are in the design, section 8, row 2b and
 # activation checklist step 2):
@@ -218,6 +222,83 @@ def contract_issues(
     return field_issues + attestation_scope_issues(
         payload, manifest_label=manifest_label
     )
+
+
+def require_candidate_writer() -> None:
+    """Refuse unless a v6 manifest may be written and could then be read.
+
+    The writer has its own switch, ``reviewed_pr_admission.V6_WRITER_ENABLED``
+    (off). It also needs the reader on: a v6 manifest that no verifier admits
+    cannot pass its own post-install verification or ``validate / validate``.
+    Both are read at call time and compared with ``is True``.
+    """
+
+    if _admission.V6_WRITER_ENABLED is not True:
+        raise ValueError("the applied-rulespec/v6 writer is switched off")
+    if V6_READER_ENABLED is not True:
+        raise ValueError(
+            "an applied-rulespec/v6 manifest cannot be written while the v6 "
+            "reader is switched off"
+        )
+
+
+def as_v6_candidate_payload(
+    payload: Mapping[str, object],
+    *,
+    v5_ref_field: str,
+    repository: object,
+    pull_request: object,
+    base_sha: object,
+    author_id: object,
+    dispatcher: object,
+) -> dict[str, object]:
+    """The one writer of the v6 shape: relabel an unsigned v5 promotion payload.
+
+    The result is the v5 promotion payload with ``v5_ref_field`` renamed to
+    ``candidate_rulespec_ref`` and the attestation scope added. The scope is
+    built from the field sets the reader checks (one definition), and the
+    result must pass the reader's own scope check before it is returned, so
+    the writer cannot emit a scope that the reader or the merge guard refuses.
+    Call it before the waiver fields are added and before signing.
+    """
+
+    require_candidate_writer()
+    if (
+        is_v6_labelled(payload)
+        or payload.get("tool") != PROMOTION_TOOL
+        or "backend" in payload
+        or "signature" in payload
+        or v5_ref_field not in payload
+        or CANDIDATE_REF_FIELD in payload
+        or ATTESTATION_SCOPE_FIELD in payload
+    ):
+        raise ValueError("only an unsigned promotion payload can be written as v6")
+    if not isinstance(dispatcher, Mapping):
+        raise ValueError("candidate manifest dispatcher is invalid")
+    ref = payload[v5_ref_field]
+    scope: dict[str, object] = {
+        "schema": ATTESTATION_SCOPE_SCHEMA,
+        "validation": ATTESTATION_VALIDATION,
+        "owner_review": ATTESTATION_OWNER_REVIEW,
+        "origin": ATTESTATION_ORIGIN,
+        "candidate": {
+            "repository": repository,
+            "pull_request": pull_request,
+            "head_sha": ref,
+            "base_sha": base_sha,
+            "author_id": author_id,
+        },
+        "dispatcher": {name: dispatcher.get(name) for name in ("id", "login")},
+        "merge_requirement": MERGE_REQUIREMENT,
+    }
+    result = {name: value for name, value in payload.items() if name != v5_ref_field}
+    result["schema_version"] = MANIFEST_SCHEMA_V6
+    result[CANDIDATE_REF_FIELD] = ref
+    result[ATTESTATION_SCOPE_FIELD] = scope
+    issues = attestation_scope_issues(result, manifest_label="candidate manifest")
+    if issues:
+        raise ValueError("; ".join(issues))
+    return result
 
 
 def owner_review_state(payload: Mapping[str, object]) -> str:
