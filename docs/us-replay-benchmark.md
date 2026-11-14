@@ -87,7 +87,7 @@ FNS guidance, state statutes, manuals and guidance, eight Canadian citations,
 three Arizona utility manual units with bulleted alternative lists (six local
 diagnostics) and one Israeli statute. Its 60 fixtures include one Arizona control that passed
 validation and then failed a provenance guard. The current snapshot has 16 clean
-fixtures and 44 refused fixtures with 3,366 findings. It keeps the rule ids and
+fixtures and 44 refused fixtures with 3,347 findings. It keeps the rule ids and
 finding counts of every snapshot row on `main`; ten of their
 `source-explicit-conditions` findings are reworded. The child-credit and retirement-transfer
 diagnostics retain six and 19 findings; the section 219(g) diagnostic retains 33.

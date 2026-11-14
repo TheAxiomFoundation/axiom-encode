@@ -67,6 +67,46 @@ class ReviewedPatchRegistration:
 
 REVIEWED_REPAIR_PATCHES = MappingProxyType(
     {
+        "issue233-ca-ns479-2025-43506739931": ReviewedPatchRegistration(
+            commit="713b11c3d568e8723ef4a48331c0d59964d2752f",
+            members=(
+                (
+                    "d242a6216a45465f6eeff66ccbe3d07b2916ff0a",
+                    "022e502d719e14db262439c7133f06fc9fec97ac0349b74e638953d2b0a38a5c",
+                    3409,
+                ),
+                (
+                    "a6befa59d8f133f5cbcaedad1d489887ce18a39f",
+                    "71b3f04ba7d5dc9176b7b0149319404e3853c2971311b881bdb088b1552e4592",
+                    24679,
+                ),
+                (
+                    "d188e3c1430ba193428a667e22260aef4986afbf",
+                    "027bf49ba7e2e78f5a26419eaf0dd8b41333d9245242eddbb94acccfe46d2e69",
+                    22403,
+                ),
+            ),
+        ),
+        "issue233-ca-t2036-2025-39337066830": ReviewedPatchRegistration(
+            commit="cdb71fff53a581b5e520e7fa74abdf8f798a9895",
+            members=(
+                (
+                    "ccedc03ab3cb6731347e6c2a47560911bb1b7d5f",
+                    "c5d99514b1c7042a14491ddcfbfb6debbe7636c539771502139274bfb2cfa850",
+                    5923,
+                ),
+                (
+                    "b0ea800a3ca6d6e18026a827d020fc1e521a5705",
+                    "96ba3d5a899d790de9c35e3d37d336f93f914af9b8ac6904c6ec1e3d9ac0061b",
+                    58163,
+                ),
+                (
+                    "a7a7b17b3c3b4084be3ed4011711e3d4543dffb4",
+                    "63af0f90f56b2f22ab229b115f5a74d67781b60ee3f6251684b72b0359c9d074",
+                    142528,
+                ),
+            ),
+        ),
         "issue233-ca-nl479-2025-43477826390": ReviewedPatchRegistration(
             commit="5e307f8b41044e9f8fbb61896b1861964824169a",
             members=(
