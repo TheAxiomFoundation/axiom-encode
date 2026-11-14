@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 import pytest
 import yaml
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 from axiom_encode import cli
 from axiom_encode import generalist_review_record as record_module
@@ -1084,6 +1086,137 @@ def test_scored_review_records_the_digests_of_the_bytes_it_read(tmp_path, monkey
     # A candidate that can no longer be read is never bound.
     rule.unlink()
     assert _record_for(result, rule)["reason"] == "reviewed_content_not_applied"
+
+
+@pytest.mark.parametrize("changed_file", ["rulespec", "companion"])
+def test_review_prompt_and_digests_use_the_same_file_snapshot(
+    tmp_path, monkeypatch, changed_file
+):
+    rule = _candidate(
+        tmp_path, rule_text=RULE_BYTES.decode(), test_text=TEST_BYTES.decode()
+    )
+    test = tmp_path / "rule.test.yaml"
+    changed = rule if changed_file == "rulespec" else test
+    original = RULE_BYTES if changed_file == "rulespec" else TEST_BYTES
+    replacement = original.replace(b"1000", b"2000")
+    original_read_text = Path.read_text
+    prompts = []
+
+    def replace_after_text_read(path, *args, **kwargs):
+        text = original_read_text(path, *args, **kwargs)
+        if path == changed:
+            changed.write_bytes(replacement)
+        return text
+
+    def reviewer(prompt, **_kwargs):
+        prompts.append(prompt)
+        return '{"score": 9.0, "passed": true}', 0
+
+    monkeypatch.setattr(Path, "read_text", replace_after_text_read)
+    monkeypatch.setattr(validator_pipeline, "run_claude_code", reviewer)
+
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+
+    assert original.decode() in prompts[0]
+    digest_field = (
+        "reviewed_rulespec_sha256"
+        if changed_file == "rulespec"
+        else "reviewed_test_sha256"
+    )
+    assert (
+        result.details["review_evidence"][digest_field]
+        == hashlib.sha256(original).hexdigest()
+    )
+    record = _record_for(result, rule, required=True)
+    if changed.read_bytes() == replacement:
+        assert record["status"] != "passed"
+        assert review_requirement_refusal(record) is not None
+
+
+@pytest.mark.parametrize("verdict", ["false", "true", 0, 1, None, [], {}, [True]])
+def test_non_boolean_reviewer_verdict_cannot_satisfy_required_review(
+    tmp_path, monkeypatch, verdict
+):
+    rule = _candidate(tmp_path)
+    monkeypatch.setattr(
+        validator_pipeline,
+        "run_claude_code",
+        lambda *_a, **_k: (json.dumps({"score": 9.0, "passed": verdict}), 0),
+    )
+
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+
+    assert result.passed is False
+    assert "reviewer_parse_failed" in result.issues
+    record = _record_for(result, rule, required=True)
+    assert record["status"] == "unavailable"
+    assert review_requirement_refusal(record) is not None
+
+
+@pytest.mark.parametrize(
+    ("blocking", "non_blocking", "expected_status"),
+    [
+        (["wrong and/or"], [], "failed"),
+        (["wrong and/or"], ["clarify a comment"], "failed"),
+        ([], ["clarify a comment"], "passed"),
+    ],
+)
+def test_required_review_respects_blocking_findings(
+    tmp_path, monkeypatch, blocking, non_blocking, expected_status
+):
+    rule = _candidate(tmp_path)
+    monkeypatch.setattr(
+        validator_pipeline,
+        "run_claude_code",
+        lambda *_a, **_k: (
+            json.dumps(
+                {
+                    "score": 9.0,
+                    "passed": True,
+                    "blocking_issues": blocking,
+                    "non_blocking_issues": non_blocking,
+                }
+            ),
+            0,
+        ),
+    )
+
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+    record = _record_for(result, rule, required=True)
+
+    assert record["status"] == expected_status
+    assert result.passed is (not blocking)
+    assert (review_requirement_refusal(record) is None) is (not blocking)
+
+
+@settings(
+    max_examples=30,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(
+    verdict=st.one_of(
+        st.none(),
+        st.integers(),
+        st.floats(allow_nan=False, allow_infinity=False),
+        st.text(),
+        st.lists(st.booleans()),
+        st.dictionaries(st.text(), st.integers()),
+    )
+)
+def test_non_boolean_reviewer_verdict_property(tmp_path, monkeypatch, verdict):
+    # Each example rewrites the same scratch candidate and replaces the mock.
+    rule = _candidate(tmp_path)
+    monkeypatch.setattr(
+        validator_pipeline,
+        "run_claude_code",
+        lambda *_a, **_k: (json.dumps({"score": 9.0, "passed": verdict}), 0),
+    )
+
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+
+    assert result.passed is False
+    assert "reviewer_parse_failed" in result.issues
+    assert review_requirement_refusal(_record_for(result, rule, required=True))
 
 
 def test_review_without_a_companion_test_file(tmp_path, monkeypatch):

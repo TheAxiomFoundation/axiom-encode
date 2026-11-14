@@ -42213,14 +42213,14 @@ class ValidatorPipeline:
         # Read RuleSpec file content
         review_evidence: dict[str, Any] = {}
         try:
-            rulespec_content = Path(rulespec_file).read_text()
             reviewed_rulespec_bytes = Path(rulespec_file).read_bytes()
+            rulespec_content = reviewed_rulespec_bytes.decode("utf-8")
             test_content = None
             reviewed_test_bytes = None
             companion_test = self._rulespec_test_path(rulespec_file)
             if companion_test.exists():
-                test_content = companion_test.read_text()
                 reviewed_test_bytes = companion_test.read_bytes()
+                test_content = reviewed_test_bytes.decode("utf-8")
             review_evidence.update(
                 review_evidence_digests(reviewed_rulespec_bytes, reviewed_test_bytes)
             )
@@ -42341,6 +42341,8 @@ Output ONLY valid JSON:
             # letting the generic except below swallow the detail.
             try:
                 data = _extract_json_object(output)
+                if "passed" in data and type(data["passed"]) is not bool:
+                    raise ValueError("Reviewer passed must be a JSON boolean")
             except (ValueError, json.JSONDecodeError) as parse_err:
                 duration = int((time.time() - start) * 1000)
                 raw_snippet = (output or "").strip()
@@ -42402,6 +42404,7 @@ Output ONLY valid JSON:
                     passed = len(blocking_issues) == 0
                 else:
                     passed = score >= 7.0
+                passed = passed and not blocking_issues
 
                 reported_issues = data.get("issues", [])
                 if not isinstance(reported_issues, list):
