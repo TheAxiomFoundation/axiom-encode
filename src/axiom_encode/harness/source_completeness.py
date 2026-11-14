@@ -4339,6 +4339,33 @@ def _flattened_inline_numeric_root_context_prefix(
     return source_text[context_start:marker_start]
 
 
+# Legal abbreviations whose periods end no sentence: "e.g.", "i.e.", "U.S.",
+# a run of capital initials such as "U.S.C.", and the abbreviated words of a
+# code citation such as "Rev. Stat." or "Gen. Stat. 12".
+_LEGAL_ABBREVIATION_PATTERNS = (
+    re.compile(r"\b(?:e\.g|i\.e|U\.S)\.", re.IGNORECASE),
+    re.compile(r"\b(?:[A-Z]\.){2,}"),
+    re.compile(r"\b[A-Z][A-Za-z]{0,7}\.(?=\s+(?:Code|Rev|Stat|Comp|Gen)\b)"),
+    re.compile(r"\b(?:Code|Rev|Stat|Comp|Gen)\.(?=\s+\d)"),
+)
+
+
+def _legal_abbreviation_periods(text: str) -> frozenset[int]:
+    """The indexes of the periods in ``text`` that end a legal abbreviation.
+
+    A period counts when a match of ``_LEGAL_ABBREVIATION_PATTERNS`` holds it,
+    as each period of "U.S.C." and "e.g." does.
+    """
+
+    return frozenset(
+        index
+        for pattern in _LEGAL_ABBREVIATION_PATTERNS
+        for abbreviation in pattern.finditer(text)
+        for index in range(abbreviation.start(), abbreviation.end())
+        if text[index] == "."
+    )
+
+
 def _flattened_inline_numeric_root_immediate_clause(
     source_text: str,
     match: re.Match[str],
@@ -4347,17 +4374,8 @@ def _flattened_inline_numeric_root_immediate_clause(
 
     prefix = _flattened_inline_numeric_root_context_prefix(source_text, match)
     masked = list(prefix)
-    abbreviation_patterns = (
-        re.compile(r"\b(?:e\.g|i\.e|U\.S)\.", re.IGNORECASE),
-        re.compile(r"\b(?:[A-Z]\.){2,}"),
-        re.compile(r"\b[A-Z][A-Za-z]{0,7}\.(?=\s+(?:Code|Rev|Stat|Comp|Gen)\b)"),
-        re.compile(r"\b(?:Code|Rev|Stat|Comp|Gen)\.(?=\s+\d)"),
-    )
-    for pattern in abbreviation_patterns:
-        for abbreviation in pattern.finditer(prefix):
-            for index in range(abbreviation.start(), abbreviation.end()):
-                if masked[index] == ".":
-                    masked[index] = "\u2024"
+    for index in _legal_abbreviation_periods(prefix):
+        masked[index] = "\u2024"
     masked_text = "".join(masked)
     content_end = len(masked_text.rstrip())
     boundary_end = content_end
@@ -23966,6 +23984,7 @@ def _companion_test_issues(
             asserted_by_rule=asserted_by_rule,
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
+            source_branches=branches,
         )
         if (
             missing_exception_branches
@@ -36076,6 +36095,7 @@ def _unwitnessed_exception_branches(
     certified_transfers: Any = None,
     certified_paths: Any = None,
     certified_operations: Any = None,
+    source_branches: Sequence[SourceStructureBranch] = (),
 ) -> tuple[SourceStructureBranch, ...]:
     bare_branches = (
         recognize_source_structure(
@@ -36098,6 +36118,7 @@ def _unwitnessed_exception_branches(
             asserted_by_rule=asserted_by_rule,
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
+            source_branches=source_branches,
         )
         affected_outputs = _bare_definition_condition_outputs(
             branch,
@@ -38106,6 +38127,650 @@ def _formula_comparison_changes_boolean_output(
     ) is (not actual)
 
 
+# A sentence's last character, before any closing quotes or brackets.
+_SENTENCE_END = re.compile(r"[.!?][\"'”’)\]]*\s*\Z")
+# A list item's closing separator, such as ";", "; or", ", and" or "; and/or".
+_LIST_SEPARATOR_END = re.compile(
+    r"[;,](?:\s*(?:and/or|and|or))?\s*\Z", flags=re.IGNORECASE
+)
+
+
+def _chapeau_list_items(
+    branch: SourceStructureBranch,
+    source_branches: Sequence[SourceStructureBranch],
+) -> tuple[SourceStructureBranch, ...]:
+    """The list items that follow a chapeau in ``branch``, in source order.
+
+    The items are the branches one level below ``branch``'s paragraph that
+    start after the chapeau, in source order, through the first whose text
+    ends a sentence. In "...if they are: (1) ...; or (2) .... (3) Records.
+    ...", (1) and (2) are the items and (3) is not. A child's text runs
+    through its own children, so a nested list ends where its last item does.
+    Each item before the last ends with a separator such as ";", "; or" or
+    ",". A child that ends with neither a separator nor a sentence end leaves
+    the list's end unmarked, as a list does when no child ends a sentence,
+    and then no child counts. So "(1) ...; or (2) ... (3) Records. ...",
+    where (2) has lost its period, gives no items rather than (1) through (3).
+
+    ``branch`` may be the chapeau's clause, which carries its paragraph's
+    path but only the clause's own span. The paragraph is the branch on that
+    path whose span holds the clause's start, and a child counts only when it
+    starts inside that paragraph. A unit may repeat a label, as when two
+    paragraphs are labeled (a), so a later (a)'s children share the paths of
+    the chapeau's items without being any of them. A chapeau whose paragraph
+    isn't among ``source_branches`` has no items, except one at the unit's
+    top level, whose paragraph is the whole unit.
+    """
+
+    depth = len(branch.path)
+    paragraph = next(
+        (
+            candidate
+            for candidate in source_branches
+            if candidate.path == branch.path
+            and candidate.start <= branch.start < candidate.end
+        ),
+        None,
+    )
+    if paragraph is None and depth:
+        return ()
+    children = sorted(
+        (
+            candidate
+            for candidate in source_branches
+            if len(candidate.path) == depth + 1
+            and candidate.path[:depth] == branch.path
+            and candidate.start >= branch.start
+            and (paragraph is None or candidate.start < paragraph.end)
+        ),
+        key=lambda candidate: candidate.start,
+    )
+    items: list[SourceStructureBranch] = []
+    for child in children:
+        items.append(child)
+        if _SENTENCE_END.search(child.text):
+            return tuple(items)
+        if not _LIST_SEPARATOR_END.search(child.text):
+            return ()
+    return ()
+
+
+def _chapeau_list_item_paths(
+    branch: SourceStructureBranch,
+    source_branches: Sequence[SourceStructureBranch],
+) -> frozenset[tuple[str, ...]]:
+    """The paths of the items ``_chapeau_list_items`` finds."""
+
+    return frozenset(item.path for item in _chapeau_list_items(branch, source_branches))
+
+
+@dataclass(frozen=True)
+class _ListItemExcerpt:
+    """An excerpt that a rule cites from one of a list chapeau's items."""
+
+    excerpt: str
+    # The text of the branch the excerpt sits in, from the branch's start
+    # through the excerpt's end, with whitespace collapsed. It keeps a "Not"
+    # that opens the item even when the excerpt leaves that word off.
+    wording: str
+    # The lead-ins that come before some of the excerpt in the list's item:
+    # that of each branch from the item down to the excerpt's branch, and the
+    # excerpt branch's own when the excerpt runs on into its sub-items. In
+    # "(1) Not received from any of the following: (i) A pension fund; or",
+    # an excerpt from (i) has the lead-in "(1) Not received from any of the
+    # following:", which its wording leaves out.
+    lead_ins: tuple[str, ...] = ()
+    # Whether the wording leaves off a negation that may scope the excerpt's
+    # words. That is so when a negation cue that the reader reads after a
+    # name's word, such as "is absent", runs past the wording's end in the
+    # branch (``_negation_follows_wording``), or when any negation follows
+    # the wording in its clause (``_negation_follows_in_clause``), as "never"
+    # does in "Paid to a person whose consent was never given" after the
+    # excerpt "Paid to a person whose consent".
+    negation_follows: bool = False
+
+
+# The negation cues the shared reader reads before one of a selector name's
+# words (``_source_selector_concept_polarity``), German ones included.
+_SELECTOR_NEGATION_PREFIX_CUE = (
+    r"kein(?:e|en|em|er|es)?|fehlend\w*|ohne|mangels|"
+    r"no|without|lack(?:ing)?(?:\s+of)?|absence\s+of|nicht|not"
+)
+# The words the reader takes as a negative state when one is a word of the
+# selector's own name (``_selector_identifier_negation_count``).
+_NEGATIVE_STATE_SELECTOR_TOKENS = frozenset(
+    {
+        "absent",
+        "disqualified",
+        "inability",
+        "ineligible",
+        "lacking",
+        "missing",
+        "unable",
+        "unqualified",
+        "unwilling",
+        "unwillingness",
+    }
+)
+# The shared reader, ``_source_exception_selector_wording_value``, reads a
+# "not", "no", "without", "lack(ing)", "absence of" or one of its German cues
+# (``_SELECTOR_NEGATION_PREFIX_CUE``) before a name's words, and a "does ...
+# not" or "fails to" before its verb. So it reads "Not subject to
+# withholding", "No longer subject to withholding", "Lacking a social security
+# number", "fails to consent" and "does not consent" the way they read, and
+# items worded so keep the value it gives them. It has no cue for these words
+# and reads past them, so "Never reported to the agency", "Received from a
+# source other than a pension fund" and "Cannot claim withholding" would read
+# as positive. An item whose wording holds one gives no value.
+_UNREAD_LIST_ITEM_NEGATOR = re.compile(
+    r"\b(?:never|neither|nor|except|other\s+than|unless|cannot|none|nothing"
+    r"|nobody|nowhere)\b",
+    flags=re.IGNORECASE,
+)
+# A negation cue the reader knows, and "n't", in an item's wording. The reader
+# reads one of a name's words as negated when any cue comes before it, so it
+# doesn't combine two cues: it reads "Not without withholding" as it reads
+# "Without withholding", and so `withholding` false, though the item needs it
+# true. An item whose wording holds two or more negations gives no value
+# (``_list_item_negation_count``). The reader has no cue for "n't", but "Isn't
+# without withholding" turns around the same way, so "n't" counts here too.
+# The count matches this pattern, and the ones below, against the wording in
+# lower case.
+_LIST_ITEM_NEGATION_CUE = re.compile(
+    rf"\b(?:{_SELECTOR_NEGATION_PREFIX_CUE}|fails?\s+to)\b|n['’]t\b"
+)
+# A form that negates without being a cue to the reader: "lacks", "lacked",
+# "failed to", "failing to", "refuse" and its forms, "free of", and the prefix
+# "non", with or without a hyphen. The reader reads past one that stands
+# between a cue and the name's words. So it reads "Not paid to a non-resident
+# alien" as it reads "Not paid to a resident alien", and `resident_alien`
+# false, though the item needs it true. Each one counts as a negation too, and
+# so does each word the reader takes as negative only in a selector's own
+# name, such as "disqualified" (``_INHERENTLY_NEGATIVE_SELECTOR_WORD``) or
+# "missing" (``_NEGATIVE_STATE_SELECTOR_WORD``).
+_UNREAD_LIST_ITEM_NEGATION = re.compile(
+    r"\b(?:lack(?:s|ed)|fail(?:ed|ing)\s+to|refus\w+|free\s+of)\b"
+    r"|\bnon(?:-|(?=[a-z]{4}))"
+)
+# One of ``_NEGATIVE_STATE_SELECTOR_TOKENS`` as a whole word.
+_NEGATIVE_STATE_SELECTOR_WORD = re.compile(
+    r"\b(?:" + "|".join(sorted(_NEGATIVE_STATE_SELECTOR_TOKENS)) + r")\b"
+)
+# What ends the clause an excerpt stops in: a ";" or ":", an "and", "or" or
+# "but", after which a negation scopes other words, or a "." that ends a
+# sentence (``_excerpt_clause_end``). In "Reported to the agency and never
+# withheld", "never" scopes "withheld".
+_EXCERPT_CLAUSE_END = re.compile(r"[.;:]|\b(?:and|or|but)\b", flags=re.IGNORECASE)
+# A short word whose "." ends an abbreviation, such as "No." in "Form No. W-2"
+# or "Pub." and "L." in "Pub. L. 104-193", beside the legal abbreviations in
+# ``_LEGAL_ABBREVIATION_PATTERNS``. The words of a tax or benefits citation
+# count too, such as "Treas. Reg.", "Rev. Rul.", "Rev. Proc.", "Fed. Reg." and
+# "Supp.". A single capital letter counts, as an initial does. The check
+# matches it right before the period, the words in any letter case, as in "art.
+# III" or "sec. B", and a single letter only as a capital.
+_CLAUSE_ABBREVIATION_WORD = re.compile(
+    r"\b(?:(?i:No|Nos|Pub|Secs?|Stat|Ch|Pt|Art|Inc|Co|Corp|Ltd|St|Mrs?|Ms|Dr|Jr"
+    r"|Sr|Treas|Regs?|Rev|Rul|Proc|Fed|Dept|Admin|Ann|Supp"
+    r"|etc|seq|vs?)|[A-Z])\Z"
+)
+# What follows a "." that ends a sentence: the text's end, or whitespace and an
+# upper-case letter.
+_SENTENCE_START_AFTER_PERIOD = re.compile(r"\s*\Z|\s+[A-Z]")
+
+
+def _list_negation_spans(text: str) -> tuple[tuple[int, int], ...]:
+    """Where ``text`` holds a negation of any kind the item checks know.
+
+    That is one of the negators the reader reads past
+    (``_UNREAD_LIST_ITEM_NEGATOR``), such as "never" or "cannot", or any form
+    ``_list_item_negation_count`` counts: a cue the reader knows or "n't", a
+    cue it reads after a name's word, a word it takes as negative only in a
+    selector's own name, such as "disqualified" or "missing", or another
+    negating form such as "lacks", "lacked", "refused", "free of" or "non-".
+    The reader never sees a lead-in that sits above an excerpt's branch, or
+    the text after an excerpt, so any of these there counts, even a word that
+    could be one of the name's own. The spans index ``text`` in lower case,
+    as the count reads it.
+    """
+
+    lowered = text.lower()
+    return tuple(
+        match.span()
+        for pattern in (
+            _UNREAD_LIST_ITEM_NEGATOR,
+            _LIST_ITEM_NEGATION_CUE,
+            _POSTPOSED_SELECTOR_NEGATION,
+            rf"\b{_INHERENTLY_NEGATIVE_SELECTOR_WORD}\b",
+            _NEGATIVE_STATE_SELECTOR_WORD,
+            _UNREAD_LIST_ITEM_NEGATION,
+        )
+        for match in re.finditer(pattern, lowered)
+    )
+
+
+def _branch_lead_in(
+    branch: SourceStructureBranch,
+    source_branches: Sequence[SourceStructureBranch],
+) -> str | None:
+    """``branch``'s text before its first child's, collapsed.
+
+    That is the lead-in to a sub-list, such as "(1) Not received from any of
+    the following:". A branch with no child has none. When the first child's
+    text doesn't appear in the branch's own, the whole branch text stands in,
+    so a cue anywhere in it still counts.
+    """
+
+    depth = len(branch.path)
+    first_child = min(
+        (
+            candidate
+            for candidate in source_branches
+            if len(candidate.path) == depth + 1
+            and candidate.path[:depth] == branch.path
+            and branch.start <= candidate.start < branch.end
+        ),
+        key=lambda candidate: candidate.start,
+        default=None,
+    )
+    if first_child is None:
+        return None
+    text = _collapse_text(branch.text)
+    index = text.find(_collapse_text(first_child.text))
+    return text if index < 0 else text[:index].rstrip()
+
+
+def _lead_ins_before_excerpt(
+    located: SourceStructureBranch,
+    wording: str,
+    *,
+    item_depth: int,
+    source_branches: Sequence[SourceStructureBranch],
+) -> tuple[str, ...]:
+    """The lead-ins in a list item that come before some of an excerpt.
+
+    ``located`` is the excerpt's branch, at or below the item at
+    ``item_depth``, and ``wording`` is its text through the excerpt. Each
+    branch from the item down to ``located``'s parent puts its lead-in before
+    the whole excerpt. ``located``'s own lead-in counts when the wording runs
+    past it into a sub-item.
+    """
+
+    lead_ins: list[str] = []
+    for length in range(item_depth, len(located.path)):
+        path = located.path[:length]
+        parent = next(
+            (
+                candidate
+                for candidate in source_branches
+                if candidate.path == path
+                and candidate.start <= located.start < candidate.end
+            ),
+            None,
+        )
+        lead_in = None if parent is None else _branch_lead_in(parent, source_branches)
+        if lead_in is not None:
+            lead_ins.append(lead_in)
+    own_lead_in = _branch_lead_in(located, source_branches)
+    if own_lead_in is not None and len(wording) > len(own_lead_in):
+        lead_ins.append(own_lead_in)
+    return tuple(lead_ins)
+
+
+def _wording_through_excerpt(text: str, excerpt: str) -> str:
+    """``text`` from its start through the end of ``excerpt``'s first match.
+
+    Both are compared with whitespace collapsed, as
+    ``_most_specific_excerpt_branch`` compares them. An excerpt that ``text``
+    doesn't contain gives the excerpt itself.
+    """
+
+    collapsed_text = _collapse_text(text)
+    collapsed_excerpt = _collapse_text(excerpt)
+    start = collapsed_text.find(collapsed_excerpt)
+    if start < 0:
+        return collapsed_excerpt
+    return collapsed_text[: start + len(collapsed_excerpt)]
+
+
+def _negation_follows_wording(text: str, wording: str) -> bool:
+    """Whether a postposed negation cue runs past ``wording``'s end in ``text``.
+
+    ``wording`` is ``text`` through an excerpt
+    (``_wording_through_excerpt``). The reader reads "is absent" and its
+    other postposed cues (``_POSTPOSED_SELECTOR_NEGATION``) right after one
+    of a name's words. A cue that starts where the wording ends, or that the
+    wording stops inside, never reaches the reader whole, so it would read
+    "Paid when withholding", cited from "Paid when withholding is absent",
+    as positive. A wording that ``text`` doesn't start with is the excerpt
+    alone, and nothing follows it.
+    """
+
+    collapsed_text = _collapse_text(text)
+    if not collapsed_text.startswith(wording):
+        return False
+    end = len(wording)
+    return any(
+        match.start() <= end < match.end()
+        for match in re.finditer(
+            _POSTPOSED_SELECTOR_NEGATION, collapsed_text, flags=re.IGNORECASE
+        )
+    )
+
+
+def _excerpt_clause_end(text: str, start: int) -> int:
+    """Where the clause that runs on from ``start`` in ``text`` ends.
+
+    The clause ends at the first ";", ":", "and", "or" or "but" from
+    ``start`` on (``_EXCERPT_CLAUSE_END``), or at the first "." that ends a
+    sentence. A "." ends a sentence when no legal abbreviation holds it
+    (``_legal_abbreviation_periods``), as the periods of "U.S.C." and "e.g."
+    are held, no short abbreviation such as "No", "Pub" or "Treas", in any
+    letter case, comes right before it (``_CLAUSE_ABBREVIATION_WORD``), and
+    the text ends after it or whitespace and an upper-case letter follow it
+    (``_SENTENCE_START_AFTER_PERIOD``). So the "." in "No. 5", in "Treas.
+    Reg.", in "art. III" or in "e.g., a release" ends nothing. A clause with
+    no end runs through the text's end.
+    """
+
+    abbreviation_periods = _legal_abbreviation_periods(text)
+    for match in _EXCERPT_CLAUSE_END.finditer(text, start):
+        index = match.start()
+        if match.group() != "." or (
+            index not in abbreviation_periods
+            and not _CLAUSE_ABBREVIATION_WORD.search(text, max(0, index - 8), index)
+            and _SENTENCE_START_AFTER_PERIOD.match(text, index + 1)
+        ):
+            return index
+    return len(text)
+
+
+def _negation_follows_in_clause(text: str, wording: str) -> bool:
+    """Whether a negation follows ``wording`` in its clause of ``text``.
+
+    ``wording`` is ``text`` through an excerpt
+    (``_wording_through_excerpt``). The clause runs on after the wording
+    through the first ";", ":", "and", "or" or "but", or the first "." that
+    ends a sentence rather than an abbreviation (``_excerpt_clause_end``). A
+    negation that ends after the wording and starts before that point
+    (``_list_negation_spans``) may scope the excerpt's words, as "never" does
+    in "Paid to a person whose consent was never given" after the excerpt
+    "Paid to a person whose consent", and the wording leaves it off or cuts
+    it short, as an excerpt that stops inside "never" or between "failed" and
+    "to" does. "never" in "Reported to the agency and never withheld" comes
+    after the clause's end, so the excerpt "Reported to the agency" keeps its
+    reading, but "never" in "Paid to a person whose consent under 5 U.S.C.
+    552a was never given" comes before it. A wording that ``text`` doesn't
+    start with is the excerpt alone, and nothing follows it. When lower case
+    changes the text's length, the clause runs through the text's end, so the
+    spans, which index the lower-case text, line up with it.
+    """
+
+    collapsed_text = _collapse_text(text)
+    if not collapsed_text.startswith(wording):
+        return False
+    lowered = collapsed_text.lower()
+    end = len(wording.lower())
+    limit = (
+        _excerpt_clause_end(collapsed_text, end)
+        if len(lowered) == len(collapsed_text)
+        else len(lowered)
+    )
+    return any(
+        end < span_end and span_start < limit
+        for span_start, span_end in _list_negation_spans(lowered)
+    )
+
+
+def _rule_excerpts_under_branch(
+    rule: dict[str, Any],
+    branch: SourceStructureBranch,
+    *,
+    source_branches: Sequence[SourceStructureBranch],
+    corpus_citation_path: str,
+) -> tuple[_ListItemExcerpt, ...]:
+    """The rule's cited excerpts that lie in the items of ``branch``'s list.
+
+    Each excerpt sits in the deepest branch whose text contains it, as rule
+    coverage places it, and counts when that branch is one of the items
+    ``_chapeau_list_items`` finds or lies below one. That takes the item's
+    span as well as its path: an excerpt in a later branch that repeats an
+    item's path, as the items of a second paragraph (a) do, lies outside the
+    item and doesn't count. Each result also carries that branch's wording
+    through the excerpt, the lead-ins in the item that come before some of
+    the excerpt, and whether a postposed negation cue runs past the
+    wording's end or another negation follows it in its clause.
+    """
+
+    items = _chapeau_list_items(branch, source_branches)
+    if not items:
+        return ()
+    depth = len(branch.path)
+    unit = corpus_citation_path.strip("/").lower()
+    excerpts: list[_ListItemExcerpt] = []
+    for citation_path, excerpt in _rule_source_excerpts(rule):
+        if citation_path.strip("/").lower() != unit:
+            continue
+        located = _most_specific_excerpt_branch(excerpt, source_branches)
+        if located is not None and any(
+            located.path[: depth + 1] == item.path
+            and item.start <= located.start < item.end
+            for item in items
+        ):
+            wording = _wording_through_excerpt(located.text, excerpt)
+            excerpts.append(
+                _ListItemExcerpt(
+                    excerpt,
+                    wording,
+                    _lead_ins_before_excerpt(
+                        located,
+                        wording,
+                        item_depth=depth + 1,
+                        source_branches=source_branches,
+                    ),
+                    _negation_follows_wording(located.text, wording)
+                    or _negation_follows_in_clause(located.text, wording),
+                )
+            )
+    return tuple(excerpts)
+
+
+def _list_item_negation_count(wording: str, selector_name: str) -> int:
+    """How many negations an item's wording holds.
+
+    The count reads the wording in lower case, as the reader does. It takes:
+
+    - each cue the reader knows before a name's words or its verb, and each
+      "n't" (``_LIST_ITEM_NEGATION_CUE``);
+    - each cue the reader reads after one of a name's words, such as "is
+      absent" (``_POSTPOSED_SELECTOR_NEGATION``). Such a cue may hold one of
+      the first kind, as "is not present" holds "not", and then the two count
+      once;
+    - each word or form that negates without being a cue to the reader: the
+      words it takes as negative only in a selector's own name
+      (``_INHERENTLY_NEGATIVE_SELECTOR_WORD`` and
+      ``_NEGATIVE_STATE_SELECTOR_WORD``, such as "disqualified" and
+      "missing"), and the forms in ``_UNREAD_LIST_ITEM_NEGATION``. One of
+      these doesn't count where the reader matches it as one of the name's own
+      words. There the reader reads it as the name's concept, so "Not
+      disqualified" needs ``disqualified`` false and "Not refused by the
+      agency" needs ``refused_by_agency`` false.
+
+    A negation that more than one of these patterns matches, as both lists
+    of negative words match "disqualified" and a cue and a negative word both
+    match "lacking", counts once.
+    """
+
+    text = wording.lower()
+    postposed = [
+        match.span() for match in re.finditer(_POSTPOSED_SELECTOR_NEGATION, text)
+    ]
+    name_words = [
+        match.span()
+        for match in _source_selector_concept_matches(
+            text, _normalized_selector_name(selector_name)
+        )
+    ]
+
+    def overlaps(span: tuple[int, int], others: list[tuple[int, int]]) -> bool:
+        return any(span[0] < end and start < span[1] for start, end in others)
+
+    cues = [match.span() for match in _LIST_ITEM_NEGATION_CUE.finditer(text)]
+    unread = [
+        match.span()
+        for pattern in (
+            rf"\b{_INHERENTLY_NEGATIVE_SELECTOR_WORD}\b",
+            _NEGATIVE_STATE_SELECTOR_WORD,
+            _UNREAD_LIST_ITEM_NEGATION,
+        )
+        for match in re.finditer(pattern, text)
+        if not overlaps(match.span(), name_words)
+    ]
+    counted = list(postposed)
+    for span in (*cues, *unread):
+        if not overlaps(span, counted):
+            counted.append(span)
+    return len(counted)
+
+
+def _prefix_cue_misses_a_name_word(wording: str, selector_name: str) -> bool:
+    """Whether a prefix cue stands before a name's word the reader doesn't negate.
+
+    The reader reads one of its prefix cues (``_SELECTOR_NEGATION_PREFIX_CUE``)
+    as negating one of a name's words only when the cue stands close before
+    the word (``_source_selector_concept_readings``): within 48 characters,
+    with no ".", ";", "," or ":" between them, and with no other predicate
+    starting between them. So it reads "Not, in the agency's view, subject to
+    withholding" and "Not subject in any calendar quarter of the reporting
+    year to backup withholding" as positive, though each item needs its name
+    false. The answer is yes when a cue stands anywhere before one of the
+    name's words in ``wording``, read in lower case as the reader reads it,
+    and the reader doesn't read that word as negated.
+    """
+
+    text = _collapse_text(wording).lower()
+    first_cue = re.search(rf"\b(?:{_SELECTOR_NEGATION_PREFIX_CUE})\b", text)
+    if first_cue is None:
+        return False
+    return any(
+        first_cue.end() <= match.start() and not explicitly_negated
+        for match, _inherently_negative, explicitly_negated in (
+            _source_selector_concept_readings(
+                text, _normalized_selector_name(selector_name)
+            )
+        )
+    )
+
+
+def _list_item_value(item: _ListItemExcerpt, selector_name: str) -> bool | None:
+    """The selector value that one cited item needs, if its wording settles it.
+
+    The shared reader reads the value from the item's wording through the
+    excerpt. The item gives none, and so can't pair the chapeau, when:
+
+    - its wording holds a negator the reader reads past, such as "never" or
+      "cannot" (``_UNREAD_LIST_ITEM_NEGATOR``);
+    - its wording holds two or more negations, which the reader doesn't
+      combine (``_list_item_negation_count``), as in "Not without
+      withholding", "Not lacking a social security number" or "Not
+      disqualified from receiving benefits";
+    - the wording leaves off a negation that may scope the excerpt's words
+      (``item.negation_follows``): a negation cue that the reader reads after
+      a name's word runs past the wording's end, as "is absent" does after
+      the excerpt "Paid when withholding", or any negation follows the
+      wording in its clause, as "never" does after the excerpt "Paid to a
+      person whose consent" in "Paid to a person whose consent was never
+      given";
+    - the reader takes no polarity from the wording, because the name's words
+      read with mixed polarity there, as "paid" and "withholding" do in "Paid
+      without withholding" for ``paid_with_withholding``, or because none of
+      them appears there, as with "SSN" for ``has_social_security_number``;
+    - one of the reader's prefix cues stands before one of the name's words
+      in the wording, and the reader doesn't read it as negating that word,
+      because it stands too far back, a ".", ";", "," or ":" comes between
+      them, or another predicate starts between them
+      (``_prefix_cue_misses_a_name_word``), as in "Not, in the agency's
+      view, subject to withholding";
+    - a lead-in that comes before some of the excerpt holds a negation of any
+      kind the other checks know (``_list_negation_spans``), as "(1) Not
+      received from any of the following:" and "(1) Ineligible for any of
+      the following:" do. A colon after a lead-in ends the scope of the
+      reader's cues, and the reader never sees a lead-in above the excerpt's
+      branch.
+
+    In each case the reader would read the item as positive, read it as
+    negative when two negations make it positive, or guess from the
+    selector's name, whichever way the item points.
+    """
+
+    if (
+        item.negation_follows
+        or _UNREAD_LIST_ITEM_NEGATOR.search(item.wording)
+        or _list_item_negation_count(item.wording, selector_name) > 1
+        or _prefix_cue_misses_a_name_word(item.wording, selector_name)
+        or any(_list_negation_spans(lead_in) for lead_in in item.lead_ins)
+    ):
+        return None
+    return _source_exception_selector_wording_value(item.wording, selector_name)
+
+
+def _list_item_values(
+    selector_name: str,
+    items: Sequence[_ListItemExcerpt],
+) -> tuple[tuple[str, bool], ...]:
+    """Each cited item that names the selector and settles its value.
+
+    An item names the selector by the test
+    ``_source_exception_selector_is_relevant`` applies to it, and gives the
+    value ``_list_item_value`` reads. Each result pairs the item's excerpt
+    with that value. An item that settles no value is left out, so it adds
+    neither a value nor relevance.
+    """
+
+    normalized_name = _normalized_selector_name(selector_name)
+    found: list[tuple[str, bool]] = []
+    for item in items:
+        if not _source_selector_distinctive_concept_matches(
+            item.excerpt, normalized_name
+        ):
+            continue
+        value = _list_item_value(item, selector_name)
+        if value is not None:
+            found.append((item.excerpt, value))
+    return tuple(found)
+
+
+def _list_item_active_values(
+    condition_text: str,
+    selector_name: str,
+    items: Sequence[_ListItemExcerpt],
+) -> frozenset[bool]:
+    """The selector values under which a list chapeau's exception holds.
+
+    A list chapeau such as "if they are:" leaves its condition to its items,
+    so its own words can't say whether an item needs the selector true or
+    false. Each cited item that names the selector gives the value its
+    wording through the excerpt needs (``_list_item_values``). So the item
+    "Not subject to withholding" needs ``subject_to_withholding`` false and
+    ``not_subject_to_withholding`` true. Two items may need different values.
+    When the chapeau names the selector itself, or no cited item settles a
+    value for it, the chapeau's own wording decides, as it does for any other
+    condition. The caller passes ``_source_exception_selector_is_relevant``
+    only the items ``_list_item_values`` keeps, so when no item settles a
+    value, the check reads the selector as it would without the items.
+    """
+
+    values = frozenset(
+        value for _excerpt, value in _list_item_values(selector_name, items)
+    )
+    if values and not _source_exception_selector_is_relevant(
+        condition_text, selector_name
+    ):
+        return values
+    return frozenset(
+        {_source_exception_selector_active_value(condition_text, selector_name)}
+    )
+
+
 def _exception_witnesses_for_branch(
     branch: SourceStructureBranch,
     *,
@@ -38119,6 +38784,7 @@ def _exception_witnesses_for_branch(
     asserted_by_rule: dict[str, list[dict[str, Any]]],
     toggled_exception_selectors: set[_ExceptionWitness],
     extract_numeric_occurrences: NumericOccurrenceExtractor,
+    source_branches: Sequence[SourceStructureBranch] = (),
 ) -> set[_ExceptionWitness]:
     # Neither a numeric operand switch nor a named Judgment selector proves
     # an independent condition combined with the greater-alternative clause.
@@ -38157,6 +38823,21 @@ def _exception_witnesses_for_branch(
         }
     requirement = _source_exception_effect_requirement(branch.text)
     condition_text = _source_exception_condition_text(branch.text)
+    item_excerpts_by_rule = (
+        {
+            rule_name: _rule_excerpts_under_branch(
+                principal_rules[rule_name],
+                branch,
+                source_branches=source_branches,
+                corpus_citation_path=corpus_citation_path,
+            )
+            for rule_name in affecting_rules
+            if rule_name in principal_rules
+        }
+        if source_branches
+        and _IF_LIST_CHAPEAU_PATTERN.fullmatch(_collapse_text(condition_text).lower())
+        else {}
+    )
     numeric_interval = _formula_interval_from_text(
         authoritative_numeric_recall_text(condition_text),
         extract_numeric_occurrences=extract_numeric_occurrences,
@@ -38247,9 +38928,10 @@ def _exception_witnesses_for_branch(
                             )
                         )
                         and witness.active_value
-                        == _source_exception_selector_active_value(
+                        in _list_item_active_values(
                             condition_text,
                             witness.selector_name,
+                            item_excerpts_by_rule.get(witness.rule_name, ()),
                         )
                     )
                 )
@@ -38263,6 +38945,13 @@ def _exception_witnesses_for_branch(
                         excerpt
                         for _citation_path, excerpt in _rule_source_excerpts(
                             principal_rules[witness.rule_name]
+                        )
+                    ),
+                    item_texts=tuple(
+                        excerpt
+                        for excerpt, _value in _list_item_values(
+                            witness.selector_name,
+                            item_excerpts_by_rule.get(witness.rule_name, ()),
                         )
                     ),
                 )
@@ -38868,13 +39557,45 @@ def _direct_exception_reverses_negative_proposition(text: str) -> bool:
     )
 
 
+# A list chapeau, such as "if they are:", whose condition lies in the items
+# that follow it. Only a bare subject may stand between "if" or "when" and the
+# verb: a pronoun, or a determiner and one word, as in "the payments" or "such
+# person". A second word can carry a condition of the clause's own, as
+# "disabled" does in "if the disabled member's payments are:", and so can a
+# verb, as in "if the household elects to be:". Such clauses aren't list
+# chapeaus, and the check reads them as it reads any other condition. The verb
+# is "is", "are" or "be", and "be" may follow a modal such as "would". The one
+# word may itself carry a condition, as in "if the disabled are:"; the check
+# reads it as the subject. The one word can't be or hold "unless" or "except",
+# as in "if the except are:". ``_source_exception_selector_is_relevant`` reads
+# a clause with either word before its verb from every excerpt the rule cites,
+# as it reads an unless list, and takes the direction from the clause. That
+# reading stays, so no clause both takes its items and reads that way.
+_IF_LIST_CHAPEAU_PATTERN = re.compile(
+    r"(?:if|when)\s+"
+    r"(?:they|it|he\s+or\s+she|he|she"
+    r"|(?:the|a|an|such|its|their|his|her|each|this|that|these|those)"
+    r"\s+(?!(?:who|whom|whose|which|that|and|or|but|so|not)\b)"
+    r"(?![\w'’-]*\b(?:unless|except)\b)[\w'’-]+)"
+    r"\s+(?:is|are|(?:(?:would|shall|will|may|must|can|could|should|might)\s+)?be)"
+    r"\s*(?:[-–—]|:)\s*"
+)
+
+
 def _source_exception_selector_is_relevant(
     text: str,
     name: str,
     *,
     supporting_texts: Sequence[str] = (),
+    item_texts: Sequence[str] = (),
 ) -> bool:
-    """Reject formula toggles with no semantic link to the source exception."""
+    """Reject formula toggles with no semantic link to the source exception.
+
+    ``supporting_texts`` holds every excerpt the toggling rule cites.
+    ``item_texts`` holds only those that lie in the exception's own
+    sub-items, the list items that follow a chapeau, and whose wording
+    settles the selector's value there (``_list_item_values``).
+    """
 
     normalized_name = _normalized_selector_name(name)
     collapsed = _collapse_text(text).lower()
@@ -38915,6 +39636,22 @@ def _source_exception_selector_is_relevant(
             )
             for supporting_text in supporting_texts
         )
+    if _IF_LIST_CHAPEAU_PATTERN.fullmatch(collapsed) and any(
+        _source_selector_distinctive_concept_matches(item_text, normalized_name)
+        for item_text in item_texts
+    ):
+        # A list chapeau such as "leaves out course hours if they are:"
+        # states its condition only in the items that follow it, so a
+        # selector named in full by a cited excerpt of one of those items is
+        # relevant. The caller passes only excerpts from the chapeau's own
+        # unit that lie in those items (`_rule_excerpts_under_branch`), so a
+        # parent rule's own text, a paragraph after the list, or another
+        # provision's text can't pair the chapeau. It also leaves out an item
+        # whose wording doesn't settle the selector's value
+        # (`_list_item_values`), such as "Never reported to the agency". This
+        # branch only adds a match, so a chapeau that names the selector
+        # itself still matches below.
+        return True
     return _source_selector_relevance_matches(collapsed, normalized_name)
 
 
@@ -39253,6 +39990,21 @@ def _source_selector_distinctive_concept_matches(
 def _source_exception_selector_active_value(text: str, name: str) -> bool:
     """Resolve exception orientation from source wording, not formula output."""
 
+    value = _source_exception_selector_wording_value(text, name)
+    if value is not None:
+        return value
+    return _exception_selector_semantic_active_value(_normalized_selector_name(name))
+
+
+def _source_exception_selector_wording_value(text: str, name: str) -> bool | None:
+    """The orientation ``text`` sets for the selector, or None if it sets none.
+
+    None means the name's words read with mixed polarity in ``text``, or none
+    of them appears there, and no "does ... not" or "fails to" before the
+    selector's verb settles it. ``_source_exception_selector_active_value``
+    then guesses from the name alone.
+    """
+
     normalized_name = _normalized_selector_name(name)
     collapsed = _collapse_text(text).lower()
     bilingual_predicate = _source_age_relative_deviation_predicate(
@@ -39286,7 +40038,7 @@ def _source_exception_selector_active_value(text: str, name: str) -> bool:
             -1 if _selector_identifier_negation_count(normalized_name) % 2 else 1
         )
         return selector_polarity == source_polarity
-    return _exception_selector_semantic_active_value(normalized_name)
+    return None
 
 
 def _source_selector_has_explicitly_negated_action(
@@ -39831,26 +40583,65 @@ def _source_selector_concept_matches(
     return tuple(matches[key] for key in sorted(matches))
 
 
+# The words ``_source_selector_concept_polarity`` reads as negative in
+# themselves, when one of them is a word of the selector's name.
+_INHERENTLY_NEGATIVE_SELECTOR_WORD = (
+    r"(?:ineligible|disqualified|unqualified|inability|unable|"
+    r"unwilling|unwillingness)"
+)
+# The negation cues it reads right after one of the name's words, as in
+# "withholding is absent".
+_POSTPOSED_SELECTOR_NEGATION = (
+    r"\s+(?:fehlt|fehlen|nicht\s+(?:vorhanden|"
+    r"gegeben)|liegt\s+nicht\s+vor|is\s+not\s+present|"
+    r"is\s+absent)\b"
+)
+
+
 def _source_selector_concept_polarity(
     text: str,
     normalized_name: str,
 ) -> int | None:
-    polarities: set[int] = set()
+    polarities = {
+        -1 if inherently_negative != explicitly_negated else 1
+        for _match, inherently_negative, explicitly_negated in (
+            _source_selector_concept_readings(text, normalized_name)
+        )
+    }
+    return next(iter(polarities)) if len(polarities) == 1 else None
+
+
+def _source_selector_concept_readings(
+    text: str,
+    normalized_name: str,
+) -> tuple[tuple[re.Match[str], bool, bool], ...]:
+    """Each of a name's words in ``text``, with how the reader reads it.
+
+    Each reading holds the word's match, whether the word is negative in
+    itself (``_INHERENTLY_NEGATIVE_SELECTOR_WORD``), and whether a cue
+    negates it. A prefix cue (``_SELECTOR_NEGATION_PREFIX_CUE``) negates the
+    word when it stands in the 48 characters before the word, no ".", ";",
+    "," or ":" comes between them, and the words between them don't cross
+    into another predicate, as "if", "when" or "and is" do, or, before a
+    word negative in itself, any "and", "or", "und" or "oder". A postposed cue
+    (``_POSTPOSED_SELECTOR_NEGATION``) negates it when it follows the word
+    right away. ``_source_selector_concept_polarity`` reads the word as
+    negative when exactly one of the two holds.
+    """
+
+    readings: list[tuple[re.Match[str], bool, bool]] = []
     for match in _source_selector_concept_matches(text, normalized_name):
         before = text[max(0, match.start() - 48) : match.start()]
         after = text[match.end() : min(len(text), match.end() + 48)]
         inherently_negative = bool(
             re.fullmatch(
-                r"(?:ineligible|disqualified|unqualified|inability|unable|"
-                r"unwilling|unwillingness)",
+                _INHERENTLY_NEGATIVE_SELECTOR_WORD,
                 match.group(0),
                 flags=re.IGNORECASE,
             )
         )
         explicit_prefix = re.search(
-            r"\b(?:kein(?:e|en|em|er|es)?|fehlend\w*|ohne|mangels|"
-            r"no|without|lack(?:ing)?(?:\s+of)?|absence\s+of|nicht|not)\b"
-            r"(?P<scope>[^.;,:]{0,80})$",
+            rf"\b(?:{_SELECTOR_NEGATION_PREFIX_CUE})\b(?P<scope>[^.;,:]{{0,80}})$",
             before,
             flags=re.IGNORECASE,
         )
@@ -39879,16 +40670,13 @@ def _source_selector_concept_polarity(
         explicitly_negated = bool(
             (explicit_prefix is not None and not prefix_crosses_predicate)
             or re.match(
-                r"\s+(?:fehlt|fehlen|nicht\s+(?:vorhanden|"
-                r"gegeben)|liegt\s+nicht\s+vor|is\s+not\s+present|"
-                r"is\s+absent)\b",
+                _POSTPOSED_SELECTOR_NEGATION,
                 after,
                 flags=re.IGNORECASE,
             )
         )
-        negative = inherently_negative != explicitly_negated
-        polarities.add(-1 if negative else 1)
-    return next(iter(polarities)) if len(polarities) == 1 else None
+        readings.append((match, inherently_negative, explicitly_negated))
+    return tuple(readings)
 
 
 def _selector_identifier_negation_count(normalized_name: str) -> int:
@@ -39904,20 +40692,7 @@ def _selector_identifier_negation_count(normalized_name: str) -> int:
         for token in tokens
     )
     has_negative_state = any(
-        token
-        in {
-            "absent",
-            "disqualified",
-            "inability",
-            "ineligible",
-            "lacking",
-            "missing",
-            "unable",
-            "unqualified",
-            "unwilling",
-            "unwillingness",
-        }
-        for token in tokens
+        token in _NEGATIVE_STATE_SELECTOR_TOKENS for token in tokens
     )
     return explicit_negation_count + int(has_negative_state)
 
