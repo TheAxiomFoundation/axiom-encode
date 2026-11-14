@@ -1049,12 +1049,13 @@ def test_required_check_is_the_gate_over_all_shards():
     assert gate["if"] == "always()"
     # real-engine and locked-builds too, so a passing gate means both passed in
     # its run. locked-builds (scripts/check_locked_builds.py) is one result for
-    # both of its Python legs.
+    # every one of its Python legs.
     assert gate["needs"] == ["test", "real-engine", "locked-builds"]
     locked_builds = CI["jobs"]["locked-builds"]
     assert _rendered_names("locked-builds", locked_builds) == {
         "locked builds (3.13)",
         "locked builds (3.14)",
+        "locked builds (3.15)",
     }
     # Its result means only what the gate reads if a failure cannot pass and the
     # job's last act is the check.

@@ -235,10 +235,11 @@ jobs:
   # lists, but builds one it omits unpinned. This job builds every one of those
   # sources with `uv build --require-hashes`, which fails on an omitted or
   # unhashed build dependency. It runs on 3.13, which bulk-encode,
-  # golden-regeneration and targeted-signed-reencode stage with, and on 3.14,
+  # golden-regeneration and targeted-signed-reencode stage with, on 3.14,
   # the default of the organization's reusable validate-rulespec.yml, which also
-  # stages this lock and builds pyroaring there (no cp314 wheel). Skipped
-  # exactly when the test shards are; test (3.13) needs both legs to pass.
+  # stages this lock and builds pyroaring there (no cp314 wheel), and on 3.15,
+  # the newest CPython release. Skipped exactly when the test shards are;
+  # test (3.13) needs every leg to pass.
   locked-builds:
     name: locked builds (${{ matrix.python-version }})
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
@@ -249,7 +250,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.13", "3.14"]
+        python-version: ["3.13", "3.14", "3.15"]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
