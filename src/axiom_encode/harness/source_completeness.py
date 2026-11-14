@@ -479,6 +479,9 @@ _INLINE_PARENTHESIZED_OUTLINE_MARKER = re.compile(
     r"(?=\s|bis\b)",
     flags=re.IGNORECASE,
 )
+_STANDALONE_ROMAN_ITEM_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9)\]])(?P<marker>\((?:i|ii)\))(?![ \t]*\()"
+)
 _INLINE_OUTLINE_REFERENCE_CONTEXT = re.compile(
     r"\b(?:section|subsection|paragraph|subparagraph|clause|subclause|item|"
     r"subitem|division|subdivision|part|subpart|chapter|subchapter|title|article|"
@@ -4161,6 +4164,23 @@ def _qualified_parenthesized_legal_outline_markers(
     )
     if not matches:
         return ()
+    cue_matches = tuple(
+        heapq.merge(
+            line_matches,
+            all_inline_matches,
+            key=lambda match: match.start("marker"),
+        )
+    )
+    cue_index = {
+        match.start("marker"): index for index, match in enumerate(cue_matches)
+    }
+    token_matches = _markers_with_standalone_roman_items(source_text, cue_matches)
+    token_index = {
+        match.start("marker"): index for index, match in enumerate(token_matches)
+    }
+    scan = _LabelBesideIScan(matches)
+    cue_scan = _LabelBesideIScan(cue_matches)
+    token_scan = _LabelBesideIScan(token_matches)
 
     first_labels = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", matches[0].group("marker")))
     outline_levels = (
@@ -4172,7 +4192,7 @@ def _qualified_parenthesized_legal_outline_markers(
     markers: list[_OutlineMarker] = []
     emitted_paths: set[tuple[str, ...]] = set()
     active: list[tuple[int, str, str, str]] = []
-    for match in matches:
+    for match_index, match in enumerate(matches):
         raw_labels = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", match.group("marker")))
         if not raw_labels or not all(
             _is_parenthesized_outline_label(label) for label in raw_labels
@@ -4181,11 +4201,40 @@ def _qualified_parenthesized_legal_outline_markers(
         marker_start = match.start("marker")
         attached_parent_level: int | None = None
         for label_index, raw_label in enumerate(raw_labels):
+            # The level function applies the roman rule only to an (i) that
+            # opens a marker, so no other label gets a deciding label.
+            following_label: str | None = None
+            if label_index == 0 and raw_label == "i":
+                following_label = _label_beside_i(scan, match_index + 1, raw_labels[1:])
+                if following_label == "ii":
+                    # The reference filter can drop an inline (i) and keep the
+                    # (ii) after it, so (ii) counts only when the unfiltered
+                    # markers also put it next.
+                    unfiltered_label = _label_beside_i(
+                        cue_scan, cue_index[marker_start] + 1, raw_labels[1:]
+                    )
+                    if unfiltered_label != "ii":
+                        following_label = unfiltered_label
+                    else:
+                        # A list can open mid-sentence inside a lettered
+                        # paragraph (i), as in "(i) A grantee may not (i)
+                        # lobby; (ii) relocate." No marker regex takes the
+                        # list's (i), which follows a word, but the inline
+                        # regex takes its (ii), so both checks see (ii) next.
+                        # This check also counts the (i) and (ii) that no
+                        # marker regex takes, pairing them like nested items.
+                        # It can only withhold the roman reading.
+                        token_label = token_scan.next_label(
+                            token_index[marker_start] + 1, raw_labels[1:]
+                        )
+                        if token_label != "ii":
+                            following_label = token_label
             level, category = _parenthesized_legal_outline_level(
                 raw_label,
                 active=active,
                 attached_parent_level=attached_parent_level,
                 outline_levels=outline_levels,
+                following_label=following_label,
             )
             if (
                 marker_start in inline_marker_starts
@@ -4419,12 +4468,210 @@ def _inline_outline_marker_has_reference_context(
     )
 
 
+def _first_parenthesized_outline_label(
+    matches: Sequence[re.Match[str]],
+    index: int,
+) -> str | None:
+    """Return the first label of the marker at ``index``, if there is one."""
+
+    if index >= len(matches):
+        return None
+    labels = re.findall(r"\(([A-Za-z0-9]+)\)", matches[index].group("marker"))
+    return labels[0] if labels else None
+
+
+def _label_beside_i(
+    scan: _LabelBesideIScan,
+    start: int,
+    labels_after_i: Sequence[str],
+) -> str | None:
+    """Return the label that decides how to read an ``(i)`` that opens a marker.
+
+    ``labels_after_i`` holds the labels after ``(i)`` in its own marker, and
+    ``start`` indexes the next marker in ``scan.matches``. That label is
+    usually the next one. But ``(A)`` opens children under either reading of
+    ``(i)``, so after ``(A)`` the scan looks past them to the next marker at
+    the level of ``(i)``. A fused marker such as ``(i)(A)(i)`` carries the
+    first of those children, so the scan starts with the labels after ``(A)``.
+    """
+
+    following_label = (
+        labels_after_i[0]
+        if labels_after_i
+        else _first_parenthesized_outline_label(scan.matches, start)
+    )
+    if following_label == "A":
+        return scan.next_label(start, labels_after_i[1:])
+    return following_label
+
+
+def _label_ends_scan_beside_i(label: str) -> bool:
+    """Whether ``label`` is a lower-case letter other than ``(j)`` or a roman numeral."""
+
+    return label != "j" and _parenthesized_legal_outline_categories(label) == (
+        "lower-alpha",
+    )
+
+
+class _LabelBesideIScan:
+    """Find ``(ii)`` or ``(j)``, whichever next stands at the level of an ``(i)``.
+
+    :meth:`next_label` scans from inside the children of ``(i)``: first
+    ``leading``, the labels that follow ``(A)`` in the marker of ``(i)``,
+    then every label of each marker in ``matches`` from ``start`` on. Each
+    nested ``(i)`` pairs with a later ``(ii)``, so only an unpaired ``(ii)``
+    or ``(j)`` counts. A lower-case letter that is neither ``(j)`` nor a
+    roman numeral ends the scan: the outline has moved past the place where
+    either could stand.
+
+    Numeric and upper-case markers don't end a scan, so scanning label by
+    label for each ``(i)`` can reach the end of the outline each time, which
+    takes time quadratic in its length. A scan's only state is its count of
+    unpaired ``(i)``. Until the scan returns, that count is the count it
+    started with plus the ``(i)`` less the ``(ii)`` it has passed, since an
+    ``(ii)`` at a count of zero ends it. So the first call records, for every
+    label in ``matches``, its depth (the ``(i)`` less the ``(ii)`` before it)
+    and the next label that ends a scan, and it groups the ``(ii)`` and
+    ``(j)`` by depth. A scan from label ``p`` with ``u`` unpaired returns the
+    first ``(ii)`` or ``(j)`` at or after ``p`` whose depth is ``depth(p) -
+    u``, if that label comes before the next label that ends the scan.
+    """
+
+    def __init__(self, matches: Sequence[re.Match[str]]) -> None:
+        self.matches = matches
+        self._labels: list[str] | None = None
+        # _first_label is indexed by marker, _depths and _stops by label, and
+        # each ends with one entry for the end of the sequence.
+        self._first_label: list[int] = []
+        self._depths: list[int] = []
+        self._stops: list[int] = []
+        self._answers_by_depth: dict[int, list[int]] = {}
+
+    def _build(self) -> list[str]:
+        labels: list[str] = []
+        for match in self.matches:
+            self._first_label.append(len(labels))
+            marker_labels = re.findall(r"\(([A-Za-z0-9]+)\)", match.group("marker"))
+            if marker_labels and all(
+                _is_parenthesized_outline_label(label) for label in marker_labels
+            ):
+                labels.extend(marker_labels)
+        self._first_label.append(len(labels))
+        depth = 0
+        for position, label in enumerate(labels):
+            self._depths.append(depth)
+            if label in {"ii", "j"}:
+                self._answers_by_depth.setdefault(depth, []).append(position)
+            if label == "i":
+                depth += 1
+            elif label == "ii":
+                depth -= 1
+        self._depths.append(depth)
+        self._stops = [len(labels)] * (len(labels) + 1)
+        for position in reversed(range(len(labels))):
+            self._stops[position] = (
+                position
+                if _label_ends_scan_beside_i(labels[position])
+                else self._stops[position + 1]
+            )
+        self._labels = labels
+        return labels
+
+    def next_label(self, start: int, leading: Sequence[str] = ()) -> str | None:
+        """Return ``(ii)``, ``(j)`` or ``None``, scanning ``leading`` then ``start`` on."""
+
+        unpaired = 0
+        if leading and all(_is_parenthesized_outline_label(label) for label in leading):
+            for label in leading:
+                if label == "i":
+                    unpaired += 1
+                elif label == "ii":
+                    if not unpaired:
+                        return label
+                    unpaired -= 1
+                elif label == "j":
+                    if not unpaired:
+                        return label
+                elif _label_ends_scan_beside_i(label):
+                    return None
+        labels = self._labels if self._labels is not None else self._build()
+        position = self._first_label[min(start, len(self.matches))]
+        answers = self._answers_by_depth.get(self._depths[position] - unpaired, [])
+        answer_index = bisect.bisect_left(answers, position)
+        if (
+            answer_index < len(answers)
+            and answers[answer_index] < self._stops[position]
+        ):
+            return labels[answers[answer_index]]
+        return None
+
+
+def _markers_with_standalone_roman_items(
+    source_text: str,
+    marker_matches: Sequence[re.Match[str]],
+) -> tuple[re.Match[str], ...]:
+    """Merge ``marker_matches`` with the ``(i)`` and ``(ii)`` no marker regex takes.
+
+    A list that opens mid-sentence, as in "may not (i) lobby; (ii) relocate",
+    leaves its ``(i)`` in running text. Such a token counts only when it is a
+    lower-case ``(i)`` or ``(ii)`` that sits outside every marker, when no
+    ASCII letter or digit, ``)`` or ``]`` comes right before it, as in
+    "(h)(1)(i)", when no ``(`` follows it, directly or after spaces or tabs,
+    as in "(i)(A)" and "(i) (A)", and when no reference context, such as
+    "clause", leads into it. ``marker_matches`` must be in document order,
+    and so is the result.
+    """
+
+    marker_spans = [
+        (match.start("marker"), match.end("marker")) for match in marker_matches
+    ]
+    marker_starts = [start for start, _end in marker_spans]
+
+    def inside_a_marker(position: int) -> bool:
+        span_index = bisect.bisect_right(marker_starts, position) - 1
+        if span_index < 0:
+            return False
+        start, end = marker_spans[span_index]
+        return start <= position < end
+
+    standalone_items = (
+        token
+        for token in _STANDALONE_ROMAN_ITEM_TOKEN.finditer(source_text)
+        if not inside_a_marker(token.start("marker"))
+        and not _inline_outline_marker_has_reference_context(source_text, token)
+    )
+    return tuple(
+        heapq.merge(
+            marker_matches,
+            standalone_items,
+            key=lambda match: match.start("marker"),
+        )
+    )
+
+
+def _outline_label_opens_roman_items(following_label: str | None) -> bool:
+    """Whether an ``(i)`` opens roman items, judged by the marker after it.
+
+    ``(i)`` is both the letter after ``(h)`` and the first roman numeral. A
+    roman ``(i)`` has ``(ii)`` as its next sibling and a lettered ``(i)`` has
+    ``(j)``, so ``(i)`` reads as roman when the next marker at its level is
+    ``(ii)``. For an ``(i)`` that opens a marker, ``following_label`` is the
+    label after it, or, when that label is a child ``(A)``, the label
+    :meth:`_LabelBesideIScan.next_label` finds. It stays ``(ii)`` only when
+    the unfiltered markers and the count of standalone items also put ``(ii)``
+    next. For every other label it is ``None``.
+    """
+
+    return following_label == "ii"
+
+
 def _parenthesized_legal_outline_level(
     raw_label: str,
     *,
     active: Sequence[tuple[int, str, str, str]],
     attached_parent_level: int | None,
     outline_levels: Sequence[str],
+    following_label: str | None = None,
 ) -> tuple[int, str]:
     categories = _parenthesized_legal_outline_categories(raw_label)
     candidate_levels = tuple(
@@ -4439,6 +4686,22 @@ def _parenthesized_legal_outline_level(
             candidate_levels[-1],
         )
         return level, outline_levels[level]
+
+    if raw_label == "i" and _outline_label_opens_roman_items(following_label):
+        # Inside paragraph (h), an (i) that opens a marker also reads as the
+        # next lettered paragraph. When the next marker at its level is (ii),
+        # not (j), it opens roman items under the innermost open marker.
+        parent_level = active[-1][0] if active else -1
+        roman_level = next(
+            (
+                level
+                for level in candidate_levels
+                if level > parent_level and outline_levels[level] == "roman"
+            ),
+            None,
+        )
+        if roman_level is not None:
+            return roman_level, "roman"
 
     continuing = [
         (level, category)
