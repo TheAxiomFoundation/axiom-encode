@@ -22,6 +22,7 @@ from collections import Counter, defaultdict
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field, replace
 from datetime import date, datetime, timezone
+from functools import partial
 from pathlib import Path
 from statistics import mean
 from typing import Any, Callable, Iterable, Iterator, Literal, Mapping, Sequence
@@ -160,10 +161,12 @@ from .policyengine_runtime import (
 from .pricing import estimate_anthropic_refusal_cost_usd, estimate_usage_cost_usd
 from .proof_validator import find_interpretation_yaml_issues
 from .source_completeness import (
+    _US_CODE_SECTION_NUMERIC_RECALL_CITATION,
     _deferral_anchor_bases,
     _rulespec_target_base,
     collect_artifact_numeric_values,
     mask_armenian_amendment_history,
+    numeric_occurrences_without_us_bibliographic_locators,
 )
 from .validator_pipeline import (
     ExistingTargetOracleContract,
@@ -8991,12 +8994,23 @@ def _evaluate_artifact_in_scope(
             numeric_recall_source_text or "",
             suppress_source_backed_half_up_increment=bool(half_up_helper_count),
         )
-    typed_source_numeric_occurrences = (
-        extract_typed_numeric_inventory_occurrences_from_text(
-            counted_numeric_source_text,
-            profile=numeric_profile,
-        )
+    extract_occurrences = partial(
+        extract_typed_numeric_inventory_occurrences_from_text,
+        profile=numeric_profile,
     )
+    if require_complete_source_unit:
+        typed_source_numeric_occurrences = (
+            numeric_occurrences_without_us_bibliographic_locators(
+                counted_numeric_source_text,
+                corpus_citation_path=numeric_source_citation_path or "",
+                extract_numeric_occurrences=extract_occurrences,
+                locator_patterns=(_US_CODE_SECTION_NUMERIC_RECALL_CITATION,),
+            )
+        )
+    else:
+        typed_source_numeric_occurrences = extract_occurrences(
+            counted_numeric_source_text
+        )
     source_numeric_occurrences = Counter(
         occurrence.value for occurrence in typed_source_numeric_occurrences
     )
@@ -18684,7 +18698,11 @@ def _normalize_single_amount_row_test_content(
         for key in ("input", "inputs", "output"):
             if key in normalized_case and isinstance(normalized_case[key], dict):
                 normalized_case[key] = {
-                    child_key: _normalize_test_case_value(child_value)
+                    child_key: (
+                        _normalize_test_case_value(child_value)
+                        if key == "output"
+                        else _normalize_test_case_input_value(child_key, child_value)
+                    )
                     for child_key, child_value in normalized_case[key].items()
                 }
         output = normalized_case.get("output")
@@ -19034,6 +19052,20 @@ def _normalize_test_case_output_value(value: object) -> object:
     return _normalize_test_case_value(value)
 
 
+def _normalize_test_case_input_value(key: object, value: object) -> object:
+    if "#relation." not in str(key):
+        return _normalize_test_case_value(value)
+    if not isinstance(value, list):
+        return value
+    # A singleton relation row still names a fact on a related entity.
+    return [
+        {fact: _normalize_test_case_value(amount) for fact, amount in row.items()}
+        if isinstance(row, dict)
+        else row
+        for row in value
+    ]
+
+
 def _period_precedes_effective_month(period: object, effective_date: date) -> bool:
     """Return True when an explicit period falls before the effective month."""
     effective_month = effective_date.strftime("%Y-%m")
@@ -19154,7 +19186,7 @@ def _normalize_test_periods_to_effective_dates(
         for key in ("input", "inputs"):
             if key in normalized_case and isinstance(normalized_case[key], dict):
                 normalized_case[key] = {
-                    child_key: _normalize_test_case_value(child_value)
+                    child_key: _normalize_test_case_input_value(child_key, child_value)
                     for child_key, child_value in normalized_case[key].items()
                 }
         if "output" in normalized_case and isinstance(normalized_case["output"], dict):

@@ -1,0 +1,1 @@
+Preserve fully qualified Utah subsection paths and bind apportionment deferrals to the cited exception. Keep U.S. Code locators out of the numeric inventory and preserve typed relation rows in companion fixtures.

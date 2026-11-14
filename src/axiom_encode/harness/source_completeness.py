@@ -1579,6 +1579,18 @@ _PRECISE_DEFERRAL_DEPENDENCY = re.compile(
     r")",
     flags=re.IGNORECASE,
 )
+_UTAH_CODE_SECTION = r"\d+[A-Za-z]?-\d+[A-Za-z]?-\d+[A-Za-z]?(?:\.\d+)*"
+_UTAH_CODE_EXCEPTION = re.compile(
+    r"[ \t]*(?:\([A-Za-z0-9]+\)[ \t]*)*except\s+as\s+provided\s+in\s+section\s+"
+    rf"(?P<section>{_UTAH_CODE_SECTION})\s*,",
+    flags=re.IGNORECASE,
+)
+_UTAH_CODE_DEFERRAL_REASON = re.compile(
+    r"\s*cannot\s+be\s+computed\s+until\s+"
+    r"(?:us-ut/statute/|Utah\s+Code\s+(?:Section\s+|§\s*))"
+    rf"(?P<section>{_UTAH_CODE_SECTION})\s+is\s+encoded\.\s*",
+    flags=re.IGNORECASE,
+)
 _SAME_ACT_SECTION_DEPENDENCY = re.compile(
     r"\bsection\s+(?P<section>\d+[a-z]?)\s+of\s+(?P<act>this|the)\s+act\b",
     flags=re.IGNORECASE,
@@ -2673,7 +2685,23 @@ _US_LEGAL_TITLE_YEAR_NUMERIC_RECALL_CITATION = re.compile(
     r"(?P<locator_second_year>(?:18|19|20)[0-9]{2}))",
     flags=re.ASCII,
 )
+# Explicit dotted U.S. Code references sometimes spell the section marker
+# before a single section or a range. Keep the exact numeric spans separate
+# so recall never removes a number from the adjoining prose.
+_US_CODE_SECTION_NUMERIC_RECALL_CITATION = re.compile(
+    r"(?P<locator_title>[1-9][0-9]?)[ \t]+U\.S\.C\.[ \t]+"
+    r"(?:Sec\.[ \t]+(?P<locator_section>[1-9][0-9]{0,4})|"
+    r"Secs\.[ \t]+(?P<locator_first_section>[1-9][0-9]{0,4})[ \t]+through"
+    r"[ \t]+(?P<locator_last_section>[1-9][0-9]{0,4}))",
+    flags=re.ASCII,
+)
+_ENGLISH_LEGAL_CITATION_WITH_US_CODE = re.compile(
+    rf"(?P<us_code>(?-i:{_US_CODE_SECTION_NUMERIC_RECALL_CITATION.pattern}))"
+    rf"|{_ENGLISH_LEGAL_CITATION.pattern}",
+    flags=re.IGNORECASE,
+)
 _US_BIBLIOGRAPHIC_NUMERIC_RECALL_LOCATORS = (
+    _US_CODE_SECTION_NUMERIC_RECALL_CITATION,
     _US_CODE_DISPOSITION_NOTE_NUMERIC_RECALL_CITATION,
     _PUB_L_NUMERIC_RECALL_CITATION,
     _FEDERAL_REGISTER_NUMERIC_RECALL_CITATION,
@@ -2815,14 +2843,21 @@ def _us_locator_context_is_bibliographic(text: str, start: int, end: int) -> boo
 
 
 def us_bibliographic_locator_spans(
-    text: str, *, corpus_citation_path: str
+    text: str,
+    *,
+    corpus_citation_path: str,
+    locator_patterns: tuple[re.Pattern[str], ...] | None = None,
 ) -> tuple[tuple[int, int], ...]:
     """Spans of the locator numbers of bibliographic US citations in `text`."""
 
     if not _US_CORPUS_CITATION_PATH.match(corpus_citation_path):
         return ()
     spans: list[tuple[int, int]] = []
-    for locator in _US_BIBLIOGRAPHIC_NUMERIC_RECALL_LOCATORS:
+    for locator in (
+        _US_BIBLIOGRAPHIC_NUMERIC_RECALL_LOCATORS
+        if locator_patterns is None
+        else locator_patterns
+    ):
         for match in locator.finditer(text):
             if not _us_locator_context_is_bibliographic(
                 text, match.start(), match.end()
@@ -2876,10 +2911,13 @@ def _us_locator_filtered_inventory(
     *,
     corpus_citation_path: str,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
+    locator_patterns: tuple[re.Pattern[str], ...] | None = None,
 ) -> _UsLocatorFilteredInventory:
     occurrences = tuple(extract_numeric_occurrences(text))
     spans = us_bibliographic_locator_spans(
-        text, corpus_citation_path=corpus_citation_path
+        text,
+        corpus_citation_path=corpus_citation_path,
+        locator_patterns=locator_patterns,
     )
     if not spans:
         return _UsLocatorFilteredInventory(occurrences, occurrences, False)
@@ -2914,6 +2952,7 @@ def numeric_occurrences_without_us_bibliographic_locators(
     *,
     corpus_citation_path: str,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
+    locator_patterns: tuple[re.Pattern[str], ...] | None = None,
 ) -> tuple[NumericOccurrenceLike, ...]:
     """Extract `text`'s numeric inventory without US locator numbers.
 
@@ -2931,6 +2970,7 @@ def numeric_occurrences_without_us_bibliographic_locators(
         text,
         corpus_citation_path=corpus_citation_path,
         extract_numeric_occurrences=extract_numeric_occurrences,
+        locator_patterns=locator_patterns,
     )
     return inventory.kept if inventory.consistent else inventory.occurrences
 
@@ -4180,6 +4220,20 @@ def _qualified_parenthesized_legal_outline_markers(
             continue
         marker_start = match.start("marker")
         attached_parent_level: int | None = None
+        # Some corpus statutes print each nested marker with its full ancestry.
+        # A line-leading, attached numeric root and unambiguous lowercase child
+        # resumes the active root, even after a deeper branch. A relative
+        # numeric item followed by a roman child does not establish this.
+        if (
+            outline_levels[0] == "numeric"
+            and len(raw_labels) > 1
+            and marker_start not in inline_marker_starts
+            and active
+            and active[0][:2] == (0, raw_labels[0])
+            and re.match(r"\(\d+[a-z]?\)\([a-z]\)", match.group("marker"))
+            and not _is_roman_outline_label(raw_labels[1])
+        ):
+            attached_parent_level = -1
         for label_index, raw_label in enumerate(raw_labels):
             level, category = _parenthesized_legal_outline_level(
                 raw_label,
@@ -6629,9 +6683,13 @@ def _analyze_rulespec_payload(
         resolved_dependency_outputs=resolved_dependency_outputs,
         deferred_clauses=deferred_clauses,
     )
-    # Like a source-bound proof excerpt, a precise clause accounts for its
-    # structural owner. It does not defer that owner's other obligations.
-    all_covered_paths.update(clause.path for clause in deferred_clauses)
+    # A deferred definition accounts for its structural owner. An exception
+    # inside a still-operative chapeau accounts only for the exception itself.
+    all_covered_paths.update(
+        clause.path
+        for clause in deferred_clauses
+        if clause.kind == "deferred-definition"
+    )
     # Optional closed source-path evidence is independent of the legacy
     # names-only gate approximation. Unsupported sources retain that route.
     from axiom_encode.harness.source_path_evidence import certify_worksheet_paths
@@ -8879,6 +8937,24 @@ def _deferred_coverage(
             source_text=source_text,
             branches=branches,
         )
+        if (
+            deferred_clauses is not None
+            and path
+            and "blocked_by" not in record
+            and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", output.partition("#")[2])
+            and (
+                exception := _utah_code_exception_deferral(
+                    reason,
+                    corpus_citation_path=corpus_citation_path,
+                    path=path,
+                    source_text=source_text,
+                    branches=branches,
+                )
+            )
+            is not None
+        ):
+            deferred_clauses.append(exception)
+            continue
 
         def reason_is_precise_for(
             candidate_scope_text: str,
@@ -9098,6 +9174,46 @@ def _deferred_coverage(
                 )
             )
     return covered, issues
+
+
+def _utah_code_exception_deferral(
+    reason: str,
+    *,
+    corpus_citation_path: str,
+    path: tuple[str, ...],
+    source_text: str,
+    branches: Sequence[SourceStructureBranch],
+) -> SourceStructureBranch | None:
+    """Bind an external Utah Code dependency to the exception's source span."""
+    if not re.fullmatch(rf"us-ut/statute/{_UTAH_CODE_SECTION}", corpus_citation_path):
+        return None
+    missing_dependency = _UTAH_CODE_DEFERRAL_REASON.fullmatch(reason)
+    if missing_dependency is None:
+        return None
+    owner = max(
+        (branch for branch in branches if branch.path == path),
+        key=lambda branch: len(branch.text),
+        default=None,
+    )
+    if owner is None:
+        return None
+    exception = _UTAH_CODE_EXCEPTION.match(source_text, owner.start, owner.end)
+    target = missing_dependency.group("section").lower()
+    if (
+        exception is None
+        or target != exception.group("section").lower()
+        or corpus_citation_path.lower() == f"us-ut/statute/{target}"
+    ):
+        return None
+    return SourceStructureBranch(
+        owner.path,
+        "deferred-exception",
+        owner.label,
+        exception.group(),
+        owner.start,
+        exception.end(),
+        display_path=owner.display_path,
+    )
 
 
 # The resolver authenticates these exact known interfaces. Shared words in an
@@ -17848,6 +17964,14 @@ def _blank_titled_reference_list(match: re.Match[str]) -> str:
     return "".join(kept)
 
 
+def _preserve_complete_us_code_reference(match: re.Match[str]) -> str:
+    if match.group("us_code") and _us_locator_context_is_bibliographic(
+        match.string, match.start(), match.end()
+    ):
+        return match.group()
+    return _ENGLISH_LEGAL_CITATION.sub("", match.group())
+
+
 def authoritative_numeric_recall_text(
     source_text: str,
     *,
@@ -18067,7 +18191,16 @@ def authoritative_numeric_recall_text(
     # Before _ENGLISH_LEGAL_CITATION removes "regulation 15", the keyword that
     # anchors the rest of a titled list.
     cleaned = sub(_ENGLISH_TITLED_REFERENCE_LIST, _blank_titled_reference_list, cleaned)
-    cleaned = sub(_ENGLISH_LEGAL_CITATION, "", cleaned)
+    if _US_CORPUS_CITATION_PATH.match(corpus_citation_path):
+        # Keep authenticated U.S. Code references intact until the numeric
+        # inventory can remove their locator spans without changing any value.
+        cleaned = sub(
+            _ENGLISH_LEGAL_CITATION_WITH_US_CODE,
+            _preserve_complete_us_code_reference,
+            cleaned,
+        )
+    else:
+        cleaned = sub(_ENGLISH_LEGAL_CITATION, "", cleaned)
     cleaned = sub(_STRUCTURAL_REFERENCE, "", cleaned)
     cleaned = sub(
         r"(?m)^[ \t]*\((?:\d+[a-z]?|[a-z])\)(?:[ \t]+bis[ \t]+\(\d+[a-z]?\))?",
