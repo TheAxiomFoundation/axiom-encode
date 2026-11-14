@@ -464,7 +464,7 @@ nothing about review. `owner_review_state` (`none` for v6, `before-signing`
 for the earlier lane) exists for callers to tell the two apart (D1), and it
 has no production caller yet. This was chosen over wiring a refusal into
 `validate` now: activation would have to remove it again, and the guard, not
-`validate`, is the control the maintainers decided on (D2).
+`validate`, is the control proposed in D2.
 
 Not read as v6 yet (last row of the table): they treat a v6 manifest as
 absent or foreign. They matter only after a v6 module is on `main`, and
@@ -693,7 +693,7 @@ preserves proposed constraint D2d.
 What fixes the order. D2d ("deployed and enforced before the pre-sign approval
 is removed") forces the guard App (step 1), the runner and the v6 reader pin
 (step 2) and the required check (step 4) before activation (step 7). The
-canary (step 5) is the maintainers' sequence decision. The shadow period and
+canary (step 5) follows the proposed sequence. The shadow period and
 the live cases (steps 2 and 3) are this document's own choice, not a
 requirement of D2d.
 
