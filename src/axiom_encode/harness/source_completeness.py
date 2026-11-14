@@ -35365,6 +35365,7 @@ def _source_exception_or_applicability_matches(
         and not _is_coordinated_parenthetical_if_any_cue(
             source_text, match, raw_source_text=raw_source_text
         )
+        and not _subject_to_describes_excepted_item(source_text, match)
     )
     return tuple(
         {
@@ -35490,6 +35491,1055 @@ def _is_concessive_condition_cue(
             flags=re.IGNORECASE,
         )
         is not None
+    )
+
+
+# How far, in characters, the check looks around a "subject to" cue: back
+# from the cue for its "other than", back from that "other than" for the mark
+# right before it, for the start of its clause and for a quotation or square
+# bracket still open at it, and forward from the cue for the end of its
+# phrase. Each bound keeps the scan linear in the length of the text.
+_EXCEPTED_ITEM_WINDOW = 400
+# The most words the phrase of an unenclosed excepted-item "subject to" may
+# hold. A short phrase names the state of the item, as "subject to the
+# lease" does; a longer one more often runs on into the main clause.
+_EXCEPTED_ITEM_PHRASE_WORDS = 4
+# The most letters a word before a period may hold and still end a sentence;
+# see _EXCEPTED_ITEM_SENTENCE_WORD. The bound keeps each look back short.
+_EXCEPTED_ITEM_WORD_LETTERS = 24
+
+
+def _excepted_item_words(words: Iterable[str]) -> str:
+    """A pattern that matches any of ``words`` as a whole word, in any case."""
+
+    return r"\b(?i:" + "|".join(words) + r")\b"
+
+
+def _excepted_item_is_capital(character: str) -> bool:
+    """Whether ``character`` is a capital: a cased character in upper or title case.
+
+    Any script counts, so "É", "Ł", "Ω", "Ж" and "ǅ" are capitals, as "A" is.
+    """
+
+    return character.isupper() or character.istitle()
+
+
+_EXCEPTED_ITEM_OTHER_THAN = re.compile(r"\bother\s+than\b")
+# Marks right before an "other than" that leave its complement's end unknown:
+# a comma, or a hyphen set off as a dash. After these the complement may run
+# to a comma, as in "The Secretary may, other than as provided in subsection
+# (b), make grants". After a mark that may end a clause, the clause before the
+# "other than" holds no predicate (_excepted_item_clause_has_predicate), so
+# the cue stays then too.
+_EXCEPTED_ITEM_FRONTING_MARKS = frozenset({",", "-"})
+# The word right before the cue. The lookbehind starts each try at the start
+# of a word, so the search stays linear in the window. A word that a digit or
+# underscore runs into, as "k" does in "401k", isn't one.
+_EXCEPTED_ITEM_PREVIOUS_WORD = re.compile(
+    r"(?<![\w'’-])['’-]*([A-Za-z][A-Za-z'’-]*)\s+\Z"
+)
+# Words that can't head the noun an excepted-item "subject to" describes:
+# articles, most determiners, personal, reflexive and some indefinite
+# pronouns, prepositions, conjunctions, modals, the finite forms of "be", and
+# the listed adverbs, participles and linking verbs. Any word ending in "-ly"
+# can't either, nor can a word ending in "-ed" outside
+# _EXCEPTED_ITEM_ED_NOUNS; see _excepted_item_can_head_noun. Pronouns that can
+# stand for the excepted item, such as "one" and "another", count as nouns, as
+# in "any vessel other than one subject to review".
+_EXCEPTED_ITEM_NON_NOUNS = frozenset(
+    {
+        "a",
+        "about",
+        "above",
+        "after",
+        "against",
+        "all",
+        "also",
+        "am",
+        "among",
+        "an",
+        "and",
+        "any",
+        "anybody",
+        "anyone",
+        "anything",
+        "appear",
+        "appearing",
+        "appears",
+        "are",
+        "as",
+        "at",
+        "be",
+        "became",
+        "become",
+        "becomes",
+        "becoming",
+        "been",
+        "before",
+        "being",
+        "below",
+        "between",
+        "beyond",
+        "both",
+        "but",
+        "by",
+        "can",
+        "continue",
+        "continues",
+        "continuing",
+        "could",
+        "during",
+        "each",
+        "either",
+        "every",
+        "everybody",
+        "everyone",
+        "everything",
+        "except",
+        "fall",
+        "falling",
+        "falls",
+        "for",
+        "from",
+        "grow",
+        "growing",
+        "grows",
+        "having",
+        "he",
+        "held",
+        "her",
+        "hers",
+        "herself",
+        "him",
+        "himself",
+        "his",
+        "if",
+        "in",
+        "including",
+        "into",
+        "is",
+        "it",
+        "its",
+        "itself",
+        "lie",
+        "lies",
+        "lying",
+        "made",
+        "may",
+        "me",
+        "mine",
+        "must",
+        "myself",
+        "neither",
+        "nobody",
+        "none",
+        "nor",
+        "not",
+        "nothing",
+        "of",
+        "on",
+        "oneself",
+        "onto",
+        "or",
+        "other",
+        "otherwise",
+        "our",
+        "ours",
+        "ourselves",
+        "over",
+        "per",
+        "prove",
+        "proves",
+        "proving",
+        "remain",
+        "remaining",
+        "remains",
+        "rest",
+        "resting",
+        "rests",
+        "seem",
+        "seeming",
+        "seems",
+        "shall",
+        "she",
+        "should",
+        "sit",
+        "sits",
+        "sitting",
+        "somebody",
+        "someone",
+        "something",
+        "stand",
+        "standing",
+        "stands",
+        "stay",
+        "staying",
+        "stays",
+        "such",
+        "than",
+        "that",
+        "the",
+        "their",
+        "theirs",
+        "them",
+        "themself",
+        "themselves",
+        "these",
+        "they",
+        "this",
+        "those",
+        "through",
+        "to",
+        "toward",
+        "turn",
+        "turning",
+        "turns",
+        "under",
+        "unless",
+        "upon",
+        "us",
+        "via",
+        "was",
+        "we",
+        "were",
+        "whatever",
+        "when",
+        "where",
+        "which",
+        "whichever",
+        "who",
+        "whoever",
+        "whom",
+        "whomever",
+        "whose",
+        "will",
+        "with",
+        "within",
+        "without",
+        "would",
+        "you",
+        "your",
+        "yours",
+        "yourself",
+        "yourselves",
+    }
+)
+# Nouns that end in "-ed". Any other such word reads as a verb or participle,
+# which may begin the main clause's predicate.
+_EXCEPTED_ITEM_ED_NOUNS = frozenset(
+    {
+        "bed",
+        "breed",
+        "creed",
+        "deed",
+        "feed",
+        "greed",
+        "hundred",
+        "red",
+        "reed",
+        "seed",
+        "shed",
+        "speed",
+        "steed",
+        "weed",
+    }
+)
+# Modals and finite forms of "be", "have" and "do", whole or joined to "not"
+# ("cannot", "isn't", "won't"). One between "other than" and the cue shows
+# that a predicate has begun, so the cue no longer sits in the excepted list.
+# One in the cue's phrase shows that the phrase runs into a predicate, as in
+# "A lender other than a bank subject to paragraph (b) shall file", where the
+# phrase may describe "lender" rather than "bank". And one must come before an
+# unenclosed "other than" in its clause; see
+# _excepted_item_clause_has_predicate.
+_EXCEPTED_ITEM_PREDICATE_WORDS = (
+    "am",
+    "are",
+    "can",
+    "cannot",
+    "could",
+    "dare",
+    "did",
+    "do",
+    "does",
+    "had",
+    "has",
+    "have",
+    "is",
+    "may",
+    "might",
+    "must",
+    "need",
+    "ought",
+    "shall",
+    "should",
+    "was",
+    "were",
+    "will",
+    "would",
+)
+_EXCEPTED_ITEM_PREDICATE = re.compile(
+    _excepted_item_words(_EXCEPTED_ITEM_PREDICATE_WORDS) + r"|\b[A-Za-z]+n['’]t\b"
+)
+# A parenthesis or a predicate word, for the scan of the clause before an
+# "other than".
+_EXCEPTED_ITEM_CLAUSE_TOKEN = re.compile(r"[()]|" + _EXCEPTED_ITEM_PREDICATE.pattern)
+# Words that open a clause. One in the "other than" complement may begin a
+# relative or adverbial clause, as in "copies that the agency holds subject
+# to", so the word before the cue may be that clause's verb.
+_EXCEPTED_ITEM_CLAUSE_WORDS = (
+    "although",
+    "because",
+    "if",
+    "since",
+    "that",
+    "though",
+    "unless",
+    "until",
+    "when",
+    "whenever",
+    "where",
+    "whereas",
+    "whereby",
+    "wherein",
+    "wherever",
+    "whether",
+    "which",
+    "while",
+    "who",
+    "whom",
+    "whose",
+)
+_EXCEPTED_ITEM_CLAUSE_WORD = re.compile(
+    _excepted_item_words(_EXCEPTED_ITEM_CLAUSE_WORDS)
+)
+# A comma followed by one of these words, alone or after "and", "or" or
+# "nor", starts a phrase that attaches outside the excepted list, as
+# "including a search fee" does in "any fee other than copies, including a
+# search fee, or a fee subject to review".
+_EXCEPTED_ITEM_PHRASE_LEADS = (
+    "after",
+    "as",
+    "at",
+    "before",
+    "beginning",
+    "by",
+    "during",
+    "except",
+    "for",
+    "from",
+    "if",
+    "in",
+    "including",
+    "of",
+    "on",
+    "provided",
+    "such",
+    "that",
+    "to",
+    "under",
+    "unless",
+    "until",
+    "upon",
+    "when",
+    "where",
+    "whether",
+    "which",
+    "who",
+    "whom",
+    "whose",
+    "with",
+    "within",
+    "without",
+)
+_EXCEPTED_ITEM_PHRASE_LEAD = re.compile(
+    r"(?:(?i:and|or|nor)\s+)?" + _excepted_item_words(_EXCEPTED_ITEM_PHRASE_LEADS)
+)
+# A quantifier after "and", "or" or "nor" in the complement may open a second
+# object of the main clause rather than another excepted item, as "or any
+# charge" does in "impose any fee other than a copy fee or any charge subject
+# to review".
+_EXCEPTED_ITEM_QUANTIFIERS = (
+    "all",
+    "another",
+    "any",
+    "each",
+    "either",
+    "every",
+    "neither",
+    "no",
+    "some",
+    "such",
+)
+_EXCEPTED_ITEM_SIBLING = re.compile(
+    r"\b(?i:and|or|nor)\s+" + _excepted_item_words(_EXCEPTED_ITEM_QUANTIFIERS)
+)
+_EXCEPTED_ITEM_PARENTHESIS = re.compile(r"[()]")
+# Quotation marks and square brackets. An "other than" inside a quotation or
+# a square-bracket insertion may be text the rule quotes, prints or inserts
+# rather than an exception, as in "We may print “other than loans” on forms
+# subject to review.", so a cue whose excepted item starts inside one, or
+# crosses into or out of one, stays; see
+# _excepted_item_exception_crosses_quotation.
+_EXCEPTED_ITEM_QUOTATION_MARK = re.compile(r"[\"'“”‘’«»\[\]]")
+# A line break starts a new heading, paragraph or list item unless a
+# lowercase word that is no label carries the sentence on: it does when a
+# capital, digit, parenthesis, section sign, bullet or other mark, a short
+# lowercase label ("a." or "iv)"), or a blank line follows it.
+_EXCEPTED_ITEM_LINE_BREAK = re.compile(r"\n\s*(?:[^a-z\s]|[a-z]{1,5}[.)])|\n[^\S\n]*\n")
+# Marks that may end a clause: a semicolon, colon, period, question or
+# exclamation mark, dash (an em dash, an en dash or two hyphens), or a line
+# break that starts a new heading, paragraph or list item. Every period
+# counts, including one in an abbreviation or a number, since the check can't
+# always tell those from a sentence end.
+_EXCEPTED_ITEM_BREAK = re.compile(r"[;:.!?—–]|--|" + _EXCEPTED_ITEM_LINE_BREAK.pattern)
+# The marks the phrase scan stops at to decide where the phrase ends.
+_EXCEPTED_ITEM_PHRASE_MARK = re.compile(r"[(),;:.!?—–\n-]")
+# A period, question or exclamation mark, and any closing quotation marks
+# (", ', ” or ’) or closing square brackets after it, before the end of a
+# line or of the text, or before whitespace and an opening parenthesis, an
+# opening double quote or another character. That other character, which the
+# group captures, must be a capital (_excepted_item_is_capital) in any
+# script. The phrase of an unenclosed "subject to" must end at such a mark,
+# and at a period only when _EXCEPTED_ITEM_SENTENCE_WORD comes right before
+# it; see _excepted_item_sentence_ends_at.
+_EXCEPTED_ITEM_SENTENCE_END = re.compile(
+    r"[.!?][\"'”’\]]*(?=[^\S\n]*(?:\n|\Z)|\s+[(“\"]|\s+(\S))",
+)
+# The word before a period that ends a sentence: a word of at least two
+# lowercase ASCII letters that no letter of any script and no apostrophe runs
+# into, as "lease" is in "subject to the lease." A capitalized or
+# one-letter word ("U.S.", "Cal.", "LLC.", "Ébc."), a word after an apostrophe
+# ("Dep't."), a word with a letter outside ASCII ("naïve."), a word longer
+# than _EXCEPTED_ITEM_WORD_LETTERS letters and the listed abbreviations ("et
+# seq.") end none.
+_EXCEPTED_ITEM_SENTENCE_WORD = re.compile(r"(?<![^\W\d_])(?<!['’])[a-z]{2,}\Z")
+# Lowercase abbreviations whose period may end no sentence, as in "et seq.",
+# "etc." or "50 lbs.".
+_EXCEPTED_ITEM_ABBREVIATIONS = frozenset(
+    {
+        "al",
+        "amdt",
+        "ann",
+        "app",
+        "approx",
+        "art",
+        "arts",
+        "assn",
+        "ave",
+        "bros",
+        "cf",
+        "ch",
+        "chap",
+        "chs",
+        "cir",
+        "cl",
+        "cmt",
+        "co",
+        "comm",
+        "cong",
+        "corp",
+        "ct",
+        "dept",
+        "div",
+        "doc",
+        "dr",
+        "ed",
+        "eds",
+        "est",
+        "etc",
+        "fed",
+        "fig",
+        "figs",
+        "ft",
+        "gov",
+        "govt",
+        "hr",
+        "hrs",
+        "ibid",
+        "id",
+        "inc",
+        "jr",
+        "lb",
+        "lbs",
+        "ltd",
+        "max",
+        "min",
+        "mo",
+        "mos",
+        "mr",
+        "mrs",
+        "ms",
+        "no",
+        "nos",
+        "op",
+        "oz",
+        "par",
+        "para",
+        "paras",
+        "pp",
+        "proc",
+        "prop",
+        "pt",
+        "pts",
+        "pub",
+        "reg",
+        "regs",
+        "rep",
+        "rept",
+        "res",
+        "rev",
+        "rul",
+        "sched",
+        "sec",
+        "secs",
+        "seq",
+        "sess",
+        "sq",
+        "sr",
+        "st",
+        "stat",
+        "subch",
+        "subd",
+        "subpar",
+        "subpt",
+        "subsec",
+        "supp",
+        "temp",
+        "tit",
+        "tr",
+        "treas",
+        "viz",
+        "vol",
+        "vols",
+        "vs",
+        "yr",
+        "yrs",
+    }
+)
+# Words that make the phrase of an unenclosed "subject to" read as a condition
+# on the rule: a cross-reference, a pointer, a word for a rule, requirement or
+# limit, for funding, or for an approval, a procedure or the authority that
+# gives it. Such a phrase, like one with "of" or "by" before a capitalized
+# name (_excepted_item_phrase_has_condition), may attach to the main clause,
+# as in "make grants to States other than Alaska subject to the availability
+# of appropriations", so the cue keeps its condition.
+_EXCEPTED_ITEM_CONDITION_TERMS = (
+    # A cross-reference.
+    "secs?",
+    "sections?",
+    "subsections?",
+    "paragraphs?",
+    "subparagraphs?",
+    "clauses?",
+    "subclauses?",
+    "items?",
+    "chapters?",
+    "subchapters?",
+    "titles?",
+    "parts?",
+    "subparts?",
+    "articles?",
+    "divisions?",
+    "subdivisions?",
+    "schedules?",
+    "appendix",
+    "appendices",
+    "exhibits?",
+    "annex",
+    "headings?",
+    "subheadings?",
+    "notes?",
+    # A pointer.
+    "this",
+    "these",
+    "those",
+    "such",
+    "said",
+    "applicable",
+    "any",
+    "all",
+    "each",
+    "every",
+    # A rule, requirement or limit.
+    "provisions?",
+    "requirements?",
+    "limitations?",
+    "limits?",
+    "conditions?",
+    "terms?",
+    "restrictions?",
+    "rules?",
+    "regulations?",
+    "laws?",
+    "statutes?",
+    "acts?",
+    "codes?",
+    "orders?",
+    "standards?",
+    "procedures?",
+    "guidelines?",
+    "polic(?:y|ies)",
+    "criteria",
+    "criterion",
+    "qualifications?",
+    "exceptions?",
+    "exemptions?",
+    "waivers?",
+    "maximums?",
+    "minimums?",
+    "caps?",
+    "ceilings?",
+    "thresholds?",
+    "reductions?",
+    "adjustments?",
+    "deductions?",
+    "offsets?",
+    "withholding",
+    "tax(?:es|ation)?",
+    "penalt(?:y|ies)",
+    "sanctions?",
+    "forfeitures?",
+    "recapture",
+    "repayments?",
+    "matching",
+    "contributions?",
+    # Funding.
+    "appropriations?",
+    "appropriated",
+    "availability",
+    "available",
+    "funds?",
+    "funding",
+    "budgets?",
+    "allotments?",
+    "allocations?",
+    # An approval, a procedure or the authority that gives it.
+    "approvals?",
+    "consent",
+    "concurrence",
+    "authorizations?",
+    "permission",
+    "discretion",
+    "direction",
+    "determinations?",
+    "certifications?",
+    "verifications?",
+    "audits?",
+    "inspections?",
+    "oversight",
+    "supervision",
+    "control",
+    "jurisdiction",
+    "authority",
+    "enforcement",
+    "agreements?",
+    "notices?",
+    "hearings?",
+    "appeals?",
+    "secretary",
+    "administrator",
+    "director",
+    "commissioner",
+    "board",
+    "commission",
+    "court",
+    "agency",
+    "department",
+    "governor",
+    "president",
+    "congress",
+    "legislature",
+    "comptroller",
+    "bureau",
+    "attorney",
+    "officer",
+    "official",
+    "tribunal",
+    "judge",
+)
+_EXCEPTED_ITEM_CONDITION_WORDS = re.compile(
+    r"§|" + _excepted_item_words(_EXCEPTED_ITEM_CONDITION_TERMS)
+)
+# An "of" or "by", with the word after it and the first character of the
+# word after that, for the capitalized name that may follow, alone or after
+# "the"; see _excepted_item_phrase_has_condition. The lookahead consumes
+# neither word, so an "of" or "by" among them is read too.
+_EXCEPTED_ITEM_OF_OR_BY = re.compile(r"\b(?i:of|by)\s+(?=(\w+)(?:\s+(\w))?)")
+
+
+def _excepted_item_can_head_noun(word: str) -> bool:
+    """Whether ``word`` can head the noun an excepted-item ``subject to`` describes."""
+
+    lowered = word.lower()
+    if lowered in _EXCEPTED_ITEM_NON_NOUNS or lowered.endswith("ly"):
+        return False
+    return not lowered.endswith("ed") or lowered in _EXCEPTED_ITEM_ED_NOUNS
+
+
+def _excepted_item_phrase_has_condition(phrase: str) -> bool:
+    """Whether ``phrase`` holds a condition word or names an authority.
+
+    A condition word is "§" or one of _EXCEPTED_ITEM_CONDITION_TERMS. A name
+    is a word that starts with a capital (_excepted_item_is_capital) right
+    after "of" or "by", or right after "the" that follows one, as in "review
+    by the Secretary" or "review by Ørsted".
+    """
+
+    if _EXCEPTED_ITEM_CONDITION_WORDS.search(phrase) is not None:
+        return True
+    for lead in _EXCEPTED_ITEM_OF_OR_BY.finditer(phrase):
+        word, following = lead.group(1), lead.group(2)
+        if _excepted_item_is_capital(word[0]) or (
+            word.lower() == "the"
+            and following is not None
+            and _excepted_item_is_capital(following)
+        ):
+            return True
+    return False
+
+
+def _excepted_item_mark_before(source_text: str, index: int) -> str:
+    """The last character before ``index`` that isn't whitespace.
+
+    Returns "" when only whitespace, or nothing, lies within the window
+    before ``index``.
+    """
+
+    stop = max(0, index - _EXCEPTED_ITEM_WINDOW)
+    while index > stop and source_text[index - 1].isspace():
+        index -= 1
+    return source_text[index - 1] if index > stop else ""
+
+
+def _excepted_item_sentence_ends_at(source_text: str, index: int) -> bool:
+    """Whether the mark at ``index`` in ``source_text`` surely ends a sentence.
+
+    A period after a word that may be an abbreviation ends none, even at the
+    end of the text, because a clause can end there while its sentence runs
+    on: the clause splitter cuts "review by the U.S. Court of Appeals" after
+    "U.S.". Erring toward no end only keeps the cue.
+    """
+
+    if source_text[index] not in ".!?":
+        return False
+    end = _EXCEPTED_ITEM_SENTENCE_END.match(source_text, index)
+    if end is None:
+        return False
+    following = end.group(1)
+    if following is not None and not _excepted_item_is_capital(following):
+        return False
+    if source_text[index] != ".":
+        return True
+    word = _EXCEPTED_ITEM_SENTENCE_WORD.search(
+        source_text, max(0, index - _EXCEPTED_ITEM_WORD_LETTERS), index
+    )
+    return word is not None and word.group(0) not in _EXCEPTED_ITEM_ABBREVIATIONS
+
+
+def _excepted_item_parentheses_balance(span: str) -> bool:
+    """Whether every parenthesis ``span`` opens, it also closes, and no other."""
+
+    depth = 0
+    for parenthesis in _EXCEPTED_ITEM_PARENTHESIS.findall(span):
+        if parenthesis == "(":
+            depth += 1
+        else:
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
+
+
+def _excepted_item_quotation_mark_role(source_text: str, index: int) -> str:
+    """Whether the quotation mark or square bracket at ``index`` opens or closes.
+
+    Returns "open", "close", or "" for an apostrophe inside a word, which
+    has a letter on each side, as in "applicant's", "Dep’t" or "won’t". "“",
+    "‘", "«" and "[" open; "”", "’", "»" and "]" close. A straight quote
+    opens when the start of the text, whitespace or an opening mark comes
+    before it and a character other than whitespace follows it, and closes
+    otherwise.
+    """
+
+    character = source_text[index]
+    before = source_text[index - 1] if index > 0 else ""
+    after = source_text[index + 1 : index + 2]
+    if character in "'‘’" and before.isalpha() and after.isalpha():
+        return ""
+    if character in "“‘«[":
+        return "open"
+    if character in "”’»]":
+        return "close"
+    if (not before or before.isspace() or before in "([{“‘«—–-/") and (
+        after and not after.isspace()
+    ):
+        return "open"
+    return "close"
+
+
+def _excepted_item_open_quotations(
+    source_text: str, start: int, end: int, *, strict: bool
+) -> list[str] | None:
+    """The kinds of the quotations and square brackets still open at ``end``.
+
+    Reads the marks from ``start`` to ``end``. Each closing mark closes the
+    last mark of its kind that the span opened: a double quote, a single
+    quote or a square bracket. A closing mark with none of its kind open
+    closes nothing, unless ``strict``: then it closes a quotation opened
+    before ``start``, and the function returns None. A single closing quote
+    right after a letter or digit is exempt, since it may be a possessive
+    apostrophe, as in "the applicants’ permits", or a prime.
+    """
+
+    opened: list[str] = []
+    for mark in _EXCEPTED_ITEM_QUOTATION_MARK.finditer(source_text, start, end):
+        index = mark.start()
+        role = _excepted_item_quotation_mark_role(source_text, index)
+        if not role:
+            continue
+        character = mark.group(0)
+        kind = '"' if character in '"“”«»' else "'" if character in "'‘’" else "["
+        if role == "open":
+            opened.append(kind)
+        elif kind in opened:
+            del opened[len(opened) - 1 - opened[::-1].index(kind) :]
+        elif strict and not (kind == "'" and source_text[index - 1 : index].isalnum()):
+            return None
+    return opened
+
+
+def _excepted_item_exception_crosses_quotation(
+    source_text: str, start: int, cue: int, end: int
+) -> bool:
+    """Whether the excepted item from ``start`` to ``end`` meets a quotation's edge.
+
+    ``start`` is where the ``other than`` begins, ``cue`` where the cue
+    does, and ``end`` where the cue's phrase ends, after any closing
+    quotation marks or square brackets that follow its sentence end. The
+    item meets an edge when a quotation or square bracket opened within the
+    window before ``start`` is still open there, when the complement, up to
+    ``cue``, leaves one it opened still open, or when the item closes one it
+    didn't open or leaves one it opened still open at ``end``
+    (_excepted_item_open_quotations). So a cue stays when its "other than"
+    sits in a quotation, as in "We may print “other than loans” on forms
+    subject to review.", when the complement opens a quotation that holds
+    the cue, and when a text cut that starts inside a quotation keeps the
+    quotation's closing mark within the item, unless that mark is a single
+    closing quote right after a letter or digit, which reads as an
+    apostrophe. In such a cut, or one whose closing mark lies past the item,
+    the check reads the item as unquoted. A quotation that opens and closes
+    inside the complement, as in "the “processing fee” and copies", or a
+    possessive apostrophe leaves the item as it is.
+    """
+
+    if _excepted_item_open_quotations(
+        source_text, max(0, start - _EXCEPTED_ITEM_WINDOW), start, strict=False
+    ):
+        return True
+    return any(
+        _excepted_item_open_quotations(source_text, start, stop, strict=True) != []
+        for stop in (cue, end)
+    )
+
+
+def _excepted_item_commas_separate_items(span: str) -> bool:
+    """Whether the commas in an ``other than`` complement may separate items.
+
+    No comma may come right before a word of _EXCEPTED_ITEM_PHRASE_LEAD,
+    which starts a phrase that attaches elsewhere, as "including" does, and
+    an "and", "or" or "nor" must open the item after the last comma, as in "a
+    deed, a plat, or a lease".
+    """
+
+    commas = [comma.end() for comma in re.finditer(",", span)]
+    if not commas:
+        return True
+    if any(_EXCEPTED_ITEM_PHRASE_LEAD.match(span[end:].lstrip()) for end in commas):
+        return False
+    return (
+        re.match(r"\s*(?:and|or|nor)\b", span[commas[-1] :], flags=re.IGNORECASE)
+        is not None
+    )
+
+
+def _excepted_item_complement_is_clean(source_text: str, start: int, end: int) -> bool:
+    """Whether ``source_text[start:end]`` reads as one ``other than`` complement.
+
+    It holds no capital (_excepted_item_is_capital), which may start a
+    sentence, heading or paragraph whose marks the text has lost, as in
+    "copies Each grant"; no mark that may end a clause (_EXCEPTED_ITEM_BREAK),
+    no modal or finite form of "be", "have" or "do", no clause word, and no
+    quantifier after "and", "or" or "nor"; its parentheses balance; and its
+    commas pass _excepted_item_commas_separate_items.
+    """
+
+    span = source_text[start:end]
+    return not (
+        any(map(_excepted_item_is_capital, span))
+        or _EXCEPTED_ITEM_BREAK.search(span)
+        or _EXCEPTED_ITEM_PREDICATE.search(span)
+        or _EXCEPTED_ITEM_CLAUSE_WORD.search(span)
+        or _EXCEPTED_ITEM_SIBLING.search(span)
+        or not _excepted_item_parentheses_balance(span)
+        or not _excepted_item_commas_separate_items(span)
+    )
+
+
+def _excepted_item_phrase_end(
+    source_text: str,
+    start: int,
+    *,
+    enclosed: bool,
+) -> int | None:
+    """Where the phrase after an excepted-item ``subject to`` ends.
+
+    The phrase in an enclosed complement must end at the parenthesis that
+    encloses it. Any other phrase must end at its first period, question or
+    exclamation mark, outside nested parentheses, and that mark must surely
+    end the sentence (_excepted_item_sentence_ends_at). Returns None when the
+    phrase ends otherwise: at a comma outside nested parentheses, a semicolon,
+    colon, dash, new heading, paragraph or list item, the wrong one of those
+    two ends, any other period, question or exclamation mark, the window's
+    end, or the end of the text without a sentence end. Each of those leaves
+    room for the phrase to attach to the main clause.
+    """
+
+    depth = 0
+    limit = min(len(source_text), start + _EXCEPTED_ITEM_WINDOW)
+    for mark in _EXCEPTED_ITEM_PHRASE_MARK.finditer(source_text, start, limit):
+        index = mark.start()
+        character = mark.group(0)
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth < 0:
+                return index if enclosed else None
+        elif character == ",":
+            if depth == 0:
+                return None
+        elif character in ".!?":
+            if (
+                enclosed
+                or depth > 0
+                or not _excepted_item_sentence_ends_at(source_text, index)
+            ):
+                return None
+            return index
+        elif _EXCEPTED_ITEM_BREAK.match(source_text, index):
+            return None
+    return None
+
+
+def _excepted_item_clause_has_predicate(source_text: str, end: int) -> bool:
+    """Whether a modal or finite "be", "have" or "do" precedes ``end`` in its clause.
+
+    The clause runs back to the last mark within the window that may end a
+    clause (_EXCEPTED_ITEM_BREAK). One inside a parenthesis that closes
+    before ``end`` doesn't count, and neither does one before a parenthesis
+    still open at ``end``. A lexical verb doesn't count either, so a clause
+    whose only verb is one, as "charges" is in "The agency charges for any
+    service other than a copy subject to review", keeps its cue.
+    """
+
+    start = max(0, end - _EXCEPTED_ITEM_WINDOW)
+    for mark in _EXCEPTED_ITEM_BREAK.finditer(source_text, start, end):
+        start = mark.end()
+    depth = 0
+    for token in reversed(_EXCEPTED_ITEM_CLAUSE_TOKEN.findall(source_text, start, end)):
+        if token == ")":
+            depth += 1
+        elif token == "(":
+            if depth == 0:
+                return False
+            depth -= 1
+        elif depth == 0:
+            return True
+    return False
+
+
+def _subject_to_describes_excepted_item(
+    source_text: str,
+    match: re.Match[str],
+) -> bool:
+    """Exclude a ``subject to`` that describes an item an ``other than`` excepts.
+
+    In "Each registrar shall file every record other than the owner's deed
+    and the parcel map subject to the lease.", the phrase names the map the
+    list excepts and states no condition on the rule, just as the "other
+    than" that excepts it asks for no pair.
+
+    The cue must be in lower case and directly follow a word that can head a
+    noun, and sit in the complement of the nearest lowercase "other than"
+    before it, within the window. When that "other than" follows one of
+    _EXCEPTED_ITEM_FRONTING_MARKS, the complement's end is unknown, so the cue
+    stays. The complement must read as one list
+    (_excepted_item_complement_is_clean), which a capitalized "Other than" in
+    it fails. The cue's phrase must then end as an excepted item's phrase does
+    (_excepted_item_phrase_end) and hold no modal or finite form of "be",
+    "have" or "do". The excepted item, from the "other than" to the phrase's
+    end, must neither start inside a quotation or square bracket nor cross
+    into or out of one (_excepted_item_exception_crosses_quotation), since
+    quoted, printed or inserted text may hold an "other than" that excepts
+    nothing, as in "We may print “other than loans” on forms subject to
+    review."
+
+    An opening parenthesis right before the "other than" encloses the
+    exception and everything in it, so that is enough. Otherwise the phrase
+    may still attach to the main clause, as in "make grants to States other
+    than Alaska subject to the availability of appropriations", or hold the
+    main clause's verb, as in "A lender other than a bank subject to review
+    files reports". So the phrase must also run at most
+    _EXCEPTED_ITEM_PHRASE_WORDS words, hold no condition word and name no
+    authority (_excepted_item_phrase_has_condition), and a modal or finite
+    form of "be", "have" or "do" must come before the "other than" in its
+    clause (_excepted_item_clause_has_predicate).
+    """
+
+    if re.fullmatch(r"subject\s+to", match.group(0)) is None:
+        return False
+    window_start = max(0, match.start() - _EXCEPTED_ITEM_WINDOW)
+    previous = _EXCEPTED_ITEM_PREVIOUS_WORD.search(
+        source_text, window_start, match.start()
+    )
+    if previous is None or not _excepted_item_can_head_noun(previous.group(1)):
+        return False
+    other_than = None
+    for other_than in _EXCEPTED_ITEM_OTHER_THAN.finditer(
+        source_text, window_start, match.start()
+    ):
+        pass
+    if other_than is None:
+        return False
+    mark = _excepted_item_mark_before(source_text, other_than.start())
+    if mark in _EXCEPTED_ITEM_FRONTING_MARKS:
+        return False
+    if not _excepted_item_complement_is_clean(
+        source_text, other_than.end(), match.start()
+    ):
+        return False
+    enclosed = mark == "("
+    phrase_end = _excepted_item_phrase_end(source_text, match.end(), enclosed=enclosed)
+    if phrase_end is None:
+        return False
+    sentence_end = (
+        None if enclosed else _EXCEPTED_ITEM_SENTENCE_END.match(source_text, phrase_end)
+    )
+    if _excepted_item_exception_crosses_quotation(
+        source_text,
+        other_than.start(),
+        match.start(),
+        phrase_end if sentence_end is None else sentence_end.end(),
+    ):
+        return False
+    phrase = source_text[match.end() : phrase_end]
+    if _EXCEPTED_ITEM_PREDICATE.search(phrase):
+        return False
+    return enclosed or (
+        len(phrase.split()) <= _EXCEPTED_ITEM_PHRASE_WORDS
+        and not _excepted_item_phrase_has_condition(phrase)
+        and _excepted_item_clause_has_predicate(source_text, other_than.start())
     )
 
 
