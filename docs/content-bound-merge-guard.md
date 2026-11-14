@@ -10,10 +10,12 @@ off: `V6_READER_ENABLED` is `False`, so every verifier still refuses a v6
 manifest. Every promotion still uses the order in
 `docs/reviewed-pr-promotion.md`. Tracking issue: #2172.
 
-The binding requirements are the "Maintainer decisions (2026-11-12)" in
-`docs/reviewed-pr-promotion-order-proposal.md`. The design below is a proposal
-for how to meet them. Platform claims that were not confirmed are marked
-**[check docs]**.
+The design follows the agent-proposed answers in
+`docs/reviewed-pr-promotion-order-proposal.md`. An agent posted those answers
+under @MaxGhenis's account; Max has not ratified them. D1, D2a-D2f, D3 and Seq.
+identify proposed constraints throughout this design and related source
+comments, not maintainer acceptance. Platform claims that were not confirmed
+are marked **[check docs]**.
 
 ## 1. What exists today
 
@@ -50,9 +52,11 @@ Verified against `main` at `eb98f8d7` (after #2194).
   `validate / validate` satisfies app 15368, and the workflow that produces it
   runs on `pull_request`, so the pull request's own copy of the caller runs.
 
-## 2. Binding decisions and where each lands
+<a name="2-binding-decisions-and-where-each-lands"></a>
 
-| # | Decision | Design element |
+## 2. Proposed constraints and where each lands
+
+| # | Proposed constraint | Design element |
 |---|---|---|
 | D1 | "The signing service may sign validated, unreviewed candidate bytes when a versioned signed manifest explicitly records that scope. Verifiers must distinguish validation from owner approval." | §5: schema v6 with `attestation_scope` |
 | D2a | "Its code and the enrolled identities load from protected policy." | §4: guard code and identity list on encoder main |
@@ -584,7 +588,8 @@ Implementation comes strictly before activation.
 ### Activation checklist
 
 Steps marked **M** need repository or organisation settings. Only a maintainer
-can do them.
+can do them. Maintainers must accept the proposed promotion order before
+activation.
 
 1. **M** Create the guard App, install it on `rulespec-us`, and store its key in
    an axiom-encode environment restricted to branch `main`.
@@ -603,7 +608,7 @@ can do them.
    on group SHAs in a test repository.
 
 Steps 4 and 7 are separate reviewed changes, and step 4 comes first. That
-satisfies D2d.
+preserves proposed constraint D2d.
 
 What fixes the order. D2d ("deployed and enforced before the pre-sign approval
 is removed") forces the guard App (step 1), the runner and the v6 reader pin
