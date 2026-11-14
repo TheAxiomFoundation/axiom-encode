@@ -479,6 +479,80 @@ _INLINE_PARENTHESIZED_OUTLINE_MARKER = re.compile(
     r"(?=\s|bis\b)",
     flags=re.IGNORECASE,
 )
+_CONJOINED_PARENTHESIZED_OUTLINE_MARKER = re.compile(
+    r"(?<=[;,])[ \t]+(?:or|and)[ \t]+"
+    r"(?P<marker>\((?:\d+[a-z]?|[a-z]|[ivxlcdm]{2,15})\)"
+    r"(?:[ \t]*\((?:\d+[a-z]?|[a-z]|[ivxlcdm]{2,15})\))*)"
+    r"(?=\s|bis\b)",
+    flags=re.IGNORECASE,
+)
+_CONJOINED_OUTLINE_REFERENCE_CHAIN = re.compile(
+    r"\b(?:sections?|subsections?|paragraphs?|subparagraphs?|clauses?|"
+    r"subclauses?|items?|subitems?|divisions?|subdivisions?|parts?|subparts?|"
+    r"under|pursuant\s+to|according\s+to)\s*[:;]?\s*"
+    r"\([A-Za-z0-9]+\)(?:[ \t]*\([A-Za-z0-9]+\))*"
+    r"(?:[ \t]*[,;]?[ \t]+(?:and|or)[ \t]+"
+    r"\([A-Za-z0-9]+\)(?:[ \t]*\([A-Za-z0-9]+\))*)+"
+    r"(?=[ \t]*(?:[.;,!?)]|$|\b(?:of|in|under|for|to|with|that|which|"
+    r"must|shall|may|is|are|was|were|has|have|does|do|can)\b))",
+    flags=re.IGNORECASE,
+)
+_CONJOINED_OUTLINE_REFERENCE_END = re.compile(
+    r"[ \t]*(?:[.;,!?)]|$|\b(?:of|in|under)[ \t]+"
+    r"(?:(?:this|that|the)[ \t]+)?"
+    r"(?:sections?|subsections?|paragraphs?|subparagraphs?|clauses?|"
+    r"subclauses?|items?|subitems?|parts?|subparts?|titles?|chapters?)\b)",
+    flags=re.IGNORECASE,
+)
+_FIRST_NUMERIC_ROOT_CHAPEAU = re.compile(
+    r"\b(?:for[ \t]+purposes[ \t]+(?:of|in)|as[ \t]+used[ \t]+in)"
+    r"[ \t]+this[ \t]+(?:chapter|section|subsection|paragraph|subparagraph|"
+    r"clause|subclause|part|subpart|title|article|division)"
+    r"(?:[ \t]*\([A-Za-z0-9]+\))*[ \t]*[:—][ \t]*(?=\(1\))",
+    flags=re.IGNORECASE,
+)
+_ROOT_CHAPEAU_REFERENCE_COMMAND = re.compile(
+    r"\b(?:see|compare|refer(?:\s+back)?(?:\s+to)?|"
+    r"subject\s+to|under|pursuant\s+to|according\s+to|"
+    r"in\s+accordance\s+with|"
+    r"as\s+(?:provided|specified|described|stated)\s+in)\b",
+    flags=re.IGNORECASE,
+)
+_ROOT_CHAPEAU_TAIL_LABEL = re.compile(r"\([A-Za-z0-9]+\)")
+_ROOT_CHAPEAU_TAIL_JOINER = re.compile(
+    r"\s*(?:(?:[,;]\s*)?(?:and(?:\s*/\s*or)?|or)\s*|[,;]\s*)?",
+    flags=re.IGNORECASE,
+)
+_ROOT_CHAPEAU_TAIL_QUALIFIER = re.compile(
+    r"\s*(?:of|in|under)\s+"
+    r"(?:(?:this|that|the|these|those|such|any|each|every|a|an|said|other|"
+    r"either|both|all|another|some|same|preceding|following)\s+)*"
+    r"(?:section|subsection|paragraph|subparagraph|clause|subclause|item|"
+    r"subitem|division|subdivision|part|subpart|chapter|subchapter|title|"
+    r"article|subarticle|act|code|sentence|schedule)s?\b",
+    flags=re.IGNORECASE,
+)
+_FIRST_NUMERIC_TAIL_QUALIFIER = re.compile(
+    r"\s*(?:of|in|under)\s+"
+    r"(?:(?:each\s+and\s+every|any\s+and\s+all|this|that|the|these|those|such|"
+    r"any|each|every|a|an|said|other|either|both|all|another|some|same|"
+    r"preceding|following)\s+)*"
+    r"(?:section|subsection|paragraph|subparagraph|clause|subclause|item|"
+    r"subitem|division|subdivision|part|subpart|chapter|subchapter|title|"
+    r"article|subarticle|act|code|sentence|schedule)s?\b",
+    flags=re.IGNORECASE,
+)
+_HEADED_FIRST_ALPHA_OUTLINE_MARKER = re.compile(
+    r"[ \t]+(?i:(?:general|special)[ \t]+rules?|definitions?|in[ \t]+general)"
+    r"[ \t]+(?P<marker>\(A\))(?=\s)"
+)
+_COMPLETED_SENTENCE_OUTLINE_HEADING = re.compile(
+    r"[ \t]+(?:Definitions?|(?:General|Special)[ \t]+rules?|In[ \t]+general)(?=[ \t])"
+)
+_COMPLETED_SENTENCE_ABBREVIATION = re.compile(
+    r"\b(?:e\.g|i\.e|U\.S)\.|\b(?:[A-Z]\.){2,}", re.IGNORECASE
+)
+_COMPLETED_SENTENCE_BOUNDARY = re.compile(r"[.!?]\s+")
 _INLINE_OUTLINE_REFERENCE_CONTEXT = re.compile(
     r"\b(?:section|subsection|paragraph|subparagraph|clause|subclause|item|"
     r"subitem|division|subdivision|part|subpart|chapter|subchapter|title|article|"
@@ -4135,8 +4209,8 @@ def _qualified_parenthesized_legal_outline_markers(
     """
 
     line_matches = tuple(_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text))
-    all_inline_matches = tuple(
-        _INLINE_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text)
+    all_inline_matches = _inline_parenthesized_legal_outline_matches(
+        source_text, line_matches
     )
     flattened_root_starts = _flattened_inline_numeric_root_starts(
         source_text,
@@ -4151,7 +4225,322 @@ def _qualified_parenthesized_legal_outline_markers(
             or not _inline_outline_marker_has_reference_context(source_text, match)
         )
     )
+    baseline = _resolve_parenthesized_legal_outline_markers(
+        source_text, line_matches, inline_matches, flattened_root_starts
+    )
+    accepted_starts = {match.start("marker") for match in inline_matches}
+    candidates = tuple(
+        match
+        for match in all_inline_matches
+        if match.re is _INLINE_PARENTHESIZED_OUTLINE_MARKER
+        and match.group("marker") == "(1)"
+        and match.start("marker") not in accepted_starts
+    )
+    restored = _root_chapeau_first_numeric_matches(
+        source_text, line_matches, candidates, baseline
+    )
+    headed = _headed_first_alpha_outline_matches(source_text, baseline)
+    qualified_matches = inline_matches
+    qualified = baseline
+    if restored or headed:
+        qualified_matches = tuple(
+            heapq.merge(
+                inline_matches,
+                restored,
+                headed,
+                key=lambda match: match.start("marker"),
+            )
+        )
+        qualified = _resolve_parenthesized_legal_outline_markers(
+            source_text, line_matches, qualified_matches, flattened_root_starts
+        )
+    later = _completed_sentence_heading_outline_matches(
+        source_text,
+        tuple(
+            match
+            for match in all_inline_matches
+            if match.start("marker") not in accepted_starts
+        ),
+        qualified,
+        baseline,
+    )
+    if not later:
+        return qualified
+    return _resolve_parenthesized_legal_outline_markers(
+        source_text,
+        line_matches,
+        tuple(
+            heapq.merge(
+                qualified_matches, later, key=lambda match: match.start("marker")
+            )
+        ),
+        flattened_root_starts,
+    )
+
+
+def _later_heading_source_context(
+    source_text: str,
+) -> tuple[tuple[tuple[int, int], ...], str] | None:
+    """Index only supported outside-quote/group evidence for the new admission.
+
+    The annual-role lexer does not interpret escapes, backticks or every quote
+    glyph. Refuse that syntax here without changing any of its existing users.
+    Parentheses are indexed too: a marker's own opener is not an outer group.
+    """
+
+    quoted = _annual_source_quoted_spans(source_text)
+    if quoted is None:
+        return None
+    supported_quotes = frozenset("\"'“”‘’«»")
+    spans: list[tuple[int, int]] = []
+    groups: list[tuple[str, int, int]] = []
+    closing = {")": "(", "]": "[", "}": "{"}
+    quote_index = 0
+    for index, character in enumerate(source_text):
+        name = unicodedata.name(character, "")
+        if (
+            character in "\\`<>"
+            or (
+                character not in supported_quotes
+                and (
+                    "QUOTATION" in name
+                    or "APOSTROPHE" in name
+                    or unicodedata.category(character) in {"Pi", "Pf"}
+                )
+            )
+            or (
+                character not in supported_quotes
+                and character not in "()[]{}"
+                and unicodedata.category(character) in {"Ps", "Pe"}
+            )
+        ):
+            return None
+        while quote_index < len(quoted) and quoted[quote_index][1] <= index:
+            quote_index += 1
+        if quote_index < len(quoted) and quoted[quote_index][0] <= index:
+            if quoted[quote_index][0] == index:
+                spans.append(quoted[quote_index])
+            continue
+        if character in "([{":
+            groups.append((character, index, len(spans)))
+            spans.append((index, index))
+        elif character in closing:
+            if not groups or groups[-1][0] != closing[character]:
+                return None
+            _opener, start, slot = groups.pop()
+            spans[slot] = (start, index + 1)
+    if groups:
+        return None
+    merged: list[tuple[int, int]] = []
+    for start, end in spans:
+        if merged and start < merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+        else:
+            merged.append((start, end))
+    pieces = []
+    previous = 0
+    for start, end in merged:
+        pieces.extend((source_text[previous:start], " " * (end - start)))
+        previous = end
+    pieces.append(source_text[previous:])
+    return tuple(merged), "".join(pieces)
+
+
+def _later_heading_reference_tail_starts(source_text: str) -> frozenset[int]:
+    """Veto a headed label through the entire joined coordinate-reference chain."""
+
+    labels = tuple(_ROOT_CHAPEAU_TAIL_LABEL.finditer(source_text))
+    pending: list[int] = []
+    blocked: set[int] = set()
+    previous_end: int | None = None
+    for index, label in enumerate(labels):
+        if previous_end is None or not _ROOT_CHAPEAU_TAIL_JOINER.fullmatch(
+            source_text, previous_end, label.start()
+        ):
+            pending.clear()
+        tail_end = (
+            labels[index + 1].start() if index + 1 < len(labels) else len(source_text)
+        )
+        end = label.end()
+        heading = _COMPLETED_SENTENCE_OUTLINE_HEADING.match(source_text, end, tail_end)
+        if heading is not None:
+            pending.append(label.start())
+            end = heading.end()
+        if _ROOT_CHAPEAU_TAIL_QUALIFIER.match(source_text, end, tail_end):
+            blocked.update(pending)
+            pending.clear()
+        previous_end = end
+    return frozenset(blocked)
+
+
+def _completed_sentence_heading_outline_matches(
+    source_text: str,
+    candidates: Sequence[re.Match[str]],
+    baseline: Sequence[_OutlineMarker],
+    independent: Sequence[_OutlineMarker],
+) -> tuple[re.Match[str], ...]:
+    """Recover later siblings from one immutable, independently qualified outline.
+
+    Two unique preceding uppercase siblings, a unique numeric parent and its
+    actual interval must already exist. A previously approved first A can
+    supply a sibling; no newly recovered C/D or numeric parent supplies proof.
+    Every per-candidate scan is limited to its short leaf or fixed-depth ancestry.
+    """
+
+    known = {marker.start for marker in baseline}
+    headed = tuple(
+        match
+        for match in candidates
+        if match.re is _INLINE_PARENTHESIZED_OUTLINE_MARKER
+        and len(match.group("marker")) == 3
+        and "C" <= match.group("marker")[1] <= "Z"
+        and match.start("marker") not in known
+        and _COMPLETED_SENTENCE_OUTLINE_HEADING.match(source_text, match.end("marker"))
+    )
+    if not headed or not baseline:
+        return ()
+    by_path: dict[tuple[str, ...], int | None] = {}
+    by_start: dict[int, int | None] = {}
+    closes = [len(source_text)] * len(baseline)
+    active: list[int] = []
+    for index, marker in enumerate(baseline):
+        by_path[marker.path] = None if marker.path in by_path else index
+        by_start[marker.start] = None if marker.start in by_start else index
+        while active:
+            previous = baseline[active[-1]]
+            if (
+                len(marker.path) > len(previous.path)
+                and marker.path[: len(previous.path)] == previous.path
+            ):
+                break
+            closes[active.pop()] = marker.start
+        active.append(index)
+    numeric_identities = {
+        (marker.path, marker.start, marker.label)
+        for marker in independent
+        if marker.label[1:-1].isdigit()
+    }
+    starts = tuple(marker.start for marker in baseline)
+    context = _later_heading_source_context(source_text)
+    if context is None:
+        return ()
+    spans, plain = context
+    context_starts = tuple(start for start, _end in spans)
+
+    def outside_context(position: int) -> bool:
+        enclosing = bisect.bisect_left(context_starts, position) - 1
+        return enclosing < 0 or spans[enclosing][1] <= position
+
+    blocked = _later_heading_reference_tail_starts(source_text)
+    max_depth = max(
+        len(_PARENTHESIZED_LEGAL_OUTLINE_LEVELS),
+        len(_NUMERIC_ROOT_PARENTHESIZED_LEGAL_OUTLINE_LEVELS),
+    )
+    restored = []
+    for match in headed:
+        start = match.start("marker")
+        if (
+            start in blocked
+            or not outside_context(start)
+            or _INLINE_OUTLINE_REFERENCE_CONTEXT.search(
+                source_text, max(0, start - 128), start
+            )
+        ):
+            continue
+        leaf_index = bisect.bisect_left(starts, start) - 1
+        if leaf_index < 0:
+            continue
+        leaf = baseline[leaf_index]
+        if (
+            by_start.get(leaf.start) != leaf_index
+            or by_path.get(leaf.path) != leaf_index
+            or not outside_context(leaf.start)
+        ):
+            continue
+        body_start = leaf.start + len(leaf.label)
+        if not 0 < start - body_start <= 512 or len(leaf.path) > max_depth:
+            continue
+        body = source_text[body_start:start].strip()
+        if not body.endswith("."):
+            continue
+        sentence_text = plain[body_start:start].strip()
+        if not re.search(r"[A-Za-z]", sentence_text):
+            continue
+        masked = _COMPLETED_SENTENCE_ABBREVIATION.sub(
+            lambda found: found.group().replace(".", "\u2024"), sentence_text[:-1]
+        )
+        boundary = 0
+        for found in _COMPLETED_SENTENCE_BOUNDARY.finditer(masked):
+            boundary = found.end()
+        if _ROOT_CHAPEAU_REFERENCE_COMMAND.match(sentence_text, boundary):
+            continue
+        label = match.group("marker")[1]
+        previous_label = chr(ord(label) - 1)
+        first_label = chr(ord(label) - 2)
+        proofs = 0
+        for depth in range(1, len(leaf.path) + 1):
+            sibling_path = leaf.path[:depth]
+            sibling_index = by_path.get(sibling_path)
+            parent_index = by_path.get(sibling_path[:-1])
+            first_index = by_path.get(sibling_path[:-1] + (first_label.lower(),))
+            if sibling_index is None or parent_index is None or first_index is None:
+                continue
+            sibling, parent, first = (
+                baseline[sibling_index],
+                baseline[parent_index],
+                baseline[first_index],
+            )
+            if (
+                sibling.label != f"({previous_label})"
+                or first.label != f"({first_label})"
+                or not parent.label[1:-1].isdigit()
+                or (parent.path, parent.start, parent.label) not in numeric_identities
+                or any(
+                    by_start.get(marker.start) != i
+                    for marker, i in (
+                        (first, first_index),
+                        (sibling, sibling_index),
+                        (parent, parent_index),
+                    )
+                )
+                or any(
+                    not outside_context(marker.start)
+                    for marker in (parent, first, sibling)
+                )
+                or not parent.start
+                < first.start
+                < sibling.start
+                <= leaf.start
+                < start
+                < closes[parent_index]
+                or start >= closes[sibling_index]
+                or parent.path + (label.lower(),) in by_path
+                or any(
+                    not source_text.startswith(marker.label, marker.start)
+                    for marker in (parent, first, sibling, leaf)
+                )
+            ):
+                continue
+            proofs += 1
+        if proofs == 1:
+            restored.append(match)
+    return tuple(restored)
+
+
+def _resolve_parenthesized_legal_outline_markers(
+    source_text: str,
+    line_matches: Sequence[re.Match[str]],
+    inline_matches: Sequence[re.Match[str]],
+    flattened_root_starts: frozenset[int],
+) -> tuple[_OutlineMarker, ...]:
+    """Resolve one candidate set without recognizing the source recursively."""
+
     inline_marker_starts = {match.start("marker") for match in inline_matches}
+    conjoined_marker_starts = {
+        match.start("marker")
+        for match in inline_matches
+        if _CONJOINED_PARENTHESIZED_OUTLINE_MARKER.match(source_text, match.start())
+    }
     matches = tuple(
         heapq.merge(
             line_matches,
@@ -4187,6 +4576,19 @@ def _qualified_parenthesized_legal_outline_markers(
                 attached_parent_level=attached_parent_level,
                 outline_levels=outline_levels,
             )
+            if (
+                marker_start in conjoined_marker_starts
+                and label_index == 0
+                and not any(
+                    active_level == level
+                    and active_category == category
+                    and _parenthesized_outline_label_follows(
+                        previous, raw_label, category
+                    )
+                    for active_level, previous, _normalized, active_category in active
+                )
+            ):
+                break
             if (
                 marker_start in inline_marker_starts
                 and marker_start not in flattened_root_starts
@@ -4227,6 +4629,277 @@ def _qualified_parenthesized_legal_outline_markers(
         for first, second in itertools.pairwise(root_labels)
     )
     return tuple(markers) if has_sequential_roots else ()
+
+
+def _headed_first_alpha_outline_matches(
+    source_text: str, baseline: Sequence[_OutlineMarker]
+) -> tuple[re.Match[str], ...]:
+    """Recover a heading-adjacent first A using independent parent/B evidence.
+
+    A short legislative heading is stronger evidence than arbitrary prose
+    such as ``Applicability of (A)``. Require an already resolved numeric
+    parent and later B within its original interval. Neither a newly added A
+    nor a separately restored numeric child can supply that proof. Keep all
+    existing admission and reference filters unchanged.
+    """
+
+    if not baseline:
+        return ()
+    closes = [len(source_text)] * len(baseline)
+    active: list[int] = []
+    for index, marker in enumerate(baseline):
+        while active:
+            previous = baseline[active[-1]]
+            if (
+                len(marker.path) > len(previous.path)
+                and marker.path[: len(previous.path)] == previous.path
+            ):
+                break
+            closes[active.pop()] = marker.start
+        active.append(index)
+    siblings = tuple(marker for marker in baseline if marker.label == "(B)")
+    sibling_starts = tuple(marker.start for marker in siblings)
+    if not siblings:
+        return ()
+
+    candidates = []
+    known_starts = {marker.start for marker in baseline}
+    for index, parent in enumerate(baseline):
+        if not parent.label[1:-1][0].isdigit():
+            continue
+        parent_end = parent.start + len(parent.label)
+        match = _HEADED_FIRST_ALPHA_OUTLINE_MARKER.match(source_text, parent_end)
+        if match is None or match.start("marker") in known_starts:
+            continue
+        start = match.start("marker")
+        following = bisect.bisect_right(sibling_starts, start)
+        if following == len(siblings):
+            continue
+        sibling = siblings[following]
+        if (
+            sibling.start >= closes[index]
+            or sibling.path[: len(parent.path)] != parent.path
+            or _inline_outline_marker_has_reference_context(source_text, match)
+            or _ROOT_CHAPEAU_REFERENCE_COMMAND.search(source_text, parent_end, start)
+        ):
+            continue
+        candidates.append(match)
+    if not candidates:
+        return ()
+    reference_starts = _headed_first_alpha_reference_tail_starts(source_text)
+    return tuple(
+        match for match in candidates if match.start("marker") not in reference_starts
+    )
+
+
+def _headed_first_alpha_reference_tail_starts(source_text: str) -> frozenset[int]:
+    """Apply the existing bounded legal-reference vocabulary to first A tails."""
+
+    labels = tuple(_ROOT_CHAPEAU_TAIL_LABEL.finditer(source_text))
+    blocked: set[int] = set()
+    pending: list[int] = []
+    previous_end: int | None = None
+    for index, label in enumerate(labels):
+        if previous_end is None or not _ROOT_CHAPEAU_TAIL_JOINER.fullmatch(
+            source_text, previous_end, label.start()
+        ):
+            pending = []
+        if label.group() == "(A)":
+            pending.append(label.start())
+        tail_end = (
+            labels[index + 1].start() if index + 1 < len(labels) else len(source_text)
+        )
+        if _ROOT_CHAPEAU_TAIL_QUALIFIER.match(source_text, label.end(), tail_end):
+            blocked.update(pending)
+            pending.clear()
+        previous_end = label.end()
+    return frozenset(blocked)
+
+
+def _root_chapeau_first_numeric_matches(
+    source_text: str,
+    line_matches: Sequence[re.Match[str]],
+    candidates: Sequence[re.Match[str]],
+    baseline: Sequence[_OutlineMarker],
+) -> tuple[re.Match[str], ...]:
+    """Recover a first numeric child only below an already proven root.
+
+    A direct ``For purposes of this chapter—`` chapeau can introduce a list
+    despite looking like reference prose to the default guard. Keep that guard
+    unchanged. Use the original resolution's roots, not roots produced by this
+    repair, and require the nearest raw line marker to be that same root.
+    An existing descendant, including one fused to the root marker, prevents
+    borrowing that proof. Restore at most one first child per baseline root.
+    Heading-adjacent labels and ambiguous alphabetic/Roman roots remain outside
+    this proof. Scan chapeaux and commands once; never rescan a root prefix for
+    every candidate or invoke the public recognizer to establish ancestry.
+    """
+
+    if not candidates or not baseline:
+        return ()
+    roots = tuple(marker for marker in baseline if len(marker.path) == 1)
+    root_starts = tuple(marker.start for marker in roots)
+    descendant_starts = tuple(
+        marker.start for marker in baseline if len(marker.path) > 1
+    )
+    line_starts = tuple(match.start("marker") for match in line_matches)
+    chapeaux = {
+        match.end(): match.start()
+        for match in _FIRST_NUMERIC_ROOT_CHAPEAU.finditer(source_text)
+    }
+    reference_tail_starts = (
+        _root_chapeau_reference_tail_starts(
+            source_text, qualifier=_FIRST_NUMERIC_TAIL_QUALIFIER
+        )
+        if chapeaux
+        else frozenset()
+    )
+    command_starts = tuple(
+        match.start() for match in _ROOT_CHAPEAU_REFERENCE_COMMAND.finditer(source_text)
+    )
+    restored = []
+    proof_positions: list[tuple[int, int, int]] = []
+    restored_roots: set[int] = set()
+    for match in candidates:
+        start = match.start("marker")
+        chapeau_start = chapeaux.get(start)
+        if chapeau_start is None or start in reference_tail_starts:
+            continue
+        root_index = bisect.bisect_right(root_starts, start) - 1
+        line_index = bisect.bisect_right(line_starts, start) - 1
+        if root_index < 0 or line_index < 0:
+            continue
+        root = roots[root_index]
+        root_end = root.start + len(root.label)
+        if (
+            line_starts[line_index] != root.start
+            or root.start >= start
+            or root.start in restored_roots
+            or not source_text.startswith(root.label, root.start)
+            or chapeau_start < root_end
+        ):
+            continue
+        descendant_index = bisect.bisect_left(descendant_starts, start) - 1
+        if descendant_index >= 0 and descendant_starts[descendant_index] >= root.start:
+            continue
+        command_index = bisect.bisect_right(command_starts, start) - 1
+        if command_index >= 0 and command_starts[command_index] >= root_end:
+            continue
+        restored.append(match)
+        proof_positions.append((root.start, chapeau_start, start))
+        restored_roots.add(root.start)
+    if not restored:
+        return ()
+    context = _source_context_checkpoints(
+        source_text, [point for positions in proof_positions for point in positions]
+    )
+    return tuple(
+        match
+        for match, positions in zip(restored, proof_positions)
+        if all(context[point] != "PROTECTED" for point in positions)
+    )
+
+
+def _root_chapeau_reference_tail_starts(
+    source_text: str, *, qualifier: re.Pattern[str] | None = None
+) -> frozenset[int]:
+    """Index first labels whose immediate tail qualifies a legal reference.
+
+    A chapeau alone cannot distinguish ``(1) eligible people`` from ``(1) and
+    (2) of this section``. Walk label tokens once, keeping only chains joined
+    by whitespace, punctuation or conjunctions. Each qualifier check stops at
+    the next label; each disjoint gap is inspected at most twice. This avoids
+    rescanning a long failing suffix for every possible first label.
+    """
+
+    if qualifier is None:
+        qualifier = _ROOT_CHAPEAU_TAIL_QUALIFIER
+    labels = tuple(_ROOT_CHAPEAU_TAIL_LABEL.finditer(source_text))
+    blocked: set[int] = set()
+    pending: list[int] = []
+    previous_end: int | None = None
+    for index, label in enumerate(labels):
+        if previous_end is None or not _ROOT_CHAPEAU_TAIL_JOINER.fullmatch(
+            source_text, previous_end, label.start()
+        ):
+            pending = []
+        if label.group() == "(1)":
+            pending.append(label.start())
+        tail_end = (
+            labels[index + 1].start() if index + 1 < len(labels) else len(source_text)
+        )
+        if qualifier.match(source_text, label.end(), tail_end):
+            blocked.update(pending)
+            pending.clear()
+        previous_end = label.end()
+    return frozenset(blocked)
+
+
+def _inline_parenthesized_legal_outline_matches(
+    source_text: str,
+    line_matches: Sequence[re.Match[str]],
+) -> tuple[re.Match[str], ...]:
+    """Admit conjoined items without splitting a named reference chain.
+
+    Reference recognition needs the text after a label too: ``clause (i); or
+    (ii) of this section`` is a reference, whereas ``clause (i); or (ii) a
+    second condition`` can end one item and begin another. Keep the existing
+    punctuation scan unchanged, including its flattened-root context rules.
+    Scan named chains once and walk their disjoint spans alongside the new
+    candidates, rather than rescanning the source for each marker. A bare
+    predicate after a named reference remains ambiguous; only an independently
+    lexed next sibling before the next line marker proves that new item.
+    """
+
+    chains = iter(_CONJOINED_OUTLINE_REFERENCE_CHAIN.finditer(source_text))
+    chain = next(chains, None)
+    legacy = tuple(_INLINE_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text))
+    legacy_starts = tuple(match.start("marker") for match in legacy)
+    line_starts = tuple(match.start("marker") for match in line_matches)
+    conjoined = []
+    for match in _CONJOINED_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text):
+        start = match.start("marker")
+        while chain is not None and chain.end() <= start:
+            chain = next(chains, None)
+        in_reference = chain is not None and chain.start() <= start < chain.end()
+        if in_reference and not _CONJOINED_OUTLINE_REFERENCE_END.match(
+            source_text, chain.end()
+        ):
+            following = bisect.bisect_right(legacy_starts, start)
+            next_line = bisect.bisect_right(line_starts, start)
+            if (
+                following < len(legacy)
+                and match.end("marker") <= legacy[following].start("marker")
+                and (
+                    next_line == len(line_starts)
+                    or legacy_starts[following] < line_starts[next_line]
+                )
+                and not _inline_outline_marker_has_reference_context(
+                    source_text,
+                    legacy[following],
+                    context_start=match.end("marker"),
+                )
+            ):
+                labels = re.findall(r"\(([A-Za-z0-9]+)\)", match.group("marker"))
+                next_labels = re.findall(
+                    r"\(([A-Za-z0-9]+)\)", legacy[following].group("marker")
+                )
+                if len(labels) == len(next_labels) == 1 and any(
+                    _parenthesized_outline_label_follows(
+                        labels[0], next_labels[0], category
+                    )
+                    for category in _parenthesized_legal_outline_categories(labels[0])
+                ):
+                    in_reference = False
+        if not in_reference:
+            conjoined.append(match)
+    return tuple(
+        heapq.merge(
+            legacy,
+            conjoined,
+            key=lambda match: match.start("marker"),
+        )
+    )
 
 
 def _flattened_inline_numeric_root_starts(
@@ -4407,8 +5080,12 @@ def _flattened_inline_numeric_root_is_proven(
 def _inline_outline_marker_has_reference_context(
     source_text: str,
     match: re.Match[str],
+    *,
+    context_start: int = 0,
 ) -> bool:
-    prefix = source_text[max(0, match.start("marker") - 128) : match.start("marker")]
+    prefix = source_text[
+        max(context_start, match.start("marker") - 128) : match.start("marker")
+    ]
     if _INLINE_OUTLINE_STRUCTURAL_CHAPEAU_CONTEXT.search(prefix) and not (
         _INLINE_OUTLINE_CHAPEAU_REFERENCE_LEAD.search(prefix)
     ):
@@ -15781,18 +16458,29 @@ def _is_marker_only_container(
 ) -> bool:
     """Ignore a parent wrapper only when it has no operative chapeau text."""
 
-    direct_child_starts = [
-        candidate.start
+    direct_children = [
+        candidate
         for candidate in branches
         if len(candidate.path) == len(branch.path) + 1
         and candidate.path[: len(branch.path)] == branch.path
         and branch.start <= candidate.start < branch.end
     ]
-    if not direct_child_starts:
+    if not direct_children:
         return False
-    chapeau = source_text[branch.start : min(direct_child_starts)]
+    first_child = min(direct_children, key=lambda candidate: candidate.start)
+    chapeau = source_text[branch.start : first_child.start]
     if branch.kind == "guidance-subsection" and chapeau.strip() == branch.label:
         return True
+    if (
+        branch.kind == "paragraph"
+        and re.fullmatch(r"\([0-9]+\)", branch.label)
+        and first_child.label == "(A)"
+    ):
+        heading = _HEADED_FIRST_ALPHA_OUTLINE_MARKER.match(
+            source_text, branch.start + len(branch.label)
+        )
+        if heading is not None and heading.start("marker") == first_child.start:
+            return True
     return re.search(r"\w", _strip_source_clause_marker(chapeau)) is None
 
 
@@ -26177,13 +26865,8 @@ class _AnnualSourceEvidence:
     version_index: int
 
 
-@functools.lru_cache(maxsize=256)
-def _annual_source_quoted_spans(text: str) -> tuple[tuple[int, int], ...] | None:
-    """Require balanced source context before inferring a temporal role.
-
-    Word apostrophes and unquoted possessives are punctuation, not delimiters.
-    Unknown mixed quotes or mismatched brackets conservatively reject evidence.
-    """
+def _source_quote_group_walk(text: str, checkpoints: Sequence[int] = ()):
+    """One shared lexical walk with optional prefix-causal checkpoints."""
 
     open_quotes = {'"': '"', "'": "'", "“": "”", "‘": "’", "«": "»"}
     close_quotes = set(open_quotes.values())
@@ -26192,7 +26875,24 @@ def _annual_source_quoted_spans(text: str) -> tuple[tuple[int, int], ...] | None
     quote: str | None = None
     quote_start = 0
     spans: list[tuple[int, int]] = []
+    states: dict[int, str] = {}
+    checkpoint = 0
+    unknown = False
     for index, character in enumerate(text):
+        if checkpoints:
+            if index == checkpoints[checkpoint]:
+                states[index] = (
+                    "UNKNOWN"
+                    if unknown
+                    else "PROTECTED"
+                    if quote is not None or stack
+                    else "OUTSIDE"
+                )
+                checkpoint += 1
+                if checkpoint == len(checkpoints):
+                    return None, states
+            if _source_context_character_is_unknown(character):
+                unknown = True
         previous = text[index - 1] if index else ""
         following = text[index + 1] if index + 1 < len(text) else ""
         apostrophe = (
@@ -26207,19 +26907,70 @@ def _annual_source_quoted_spans(text: str) -> tuple[tuple[int, int], ...] | None
                 spans.append((quote_start, index + 1))
                 quote = None
             elif character in open_quotes or character in close_quotes:
-                return None
+                return None, states
             continue
         if character in open_quotes:
             quote = open_quotes[character]
             quote_start = index
         elif character in close_quotes:
-            return None
+            return None, states
         elif character in "([{":
             stack.append(character)
         elif character in closing:
             if not stack or stack.pop() != closing[character]:
-                return None
-    return None if quote is not None or stack else tuple(spans)
+                return None, states
+    return (None if quote is not None or stack else tuple(spans)), states
+
+
+def _source_context_character_is_unknown(character: str) -> bool:
+    """Use the later-heading surface's closed syntax only to mark uncertainty."""
+
+    supported_quotes = frozenset("\"'“”‘’«»")
+    name = unicodedata.name(character, "")
+    return (
+        character in "\\`<>"
+        or (
+            character not in supported_quotes
+            and (
+                "QUOTATION" in name
+                or "APOSTROPHE" in name
+                or unicodedata.category(character) in {"Pi", "Pf"}
+            )
+        )
+        or (
+            character not in supported_quotes
+            and character not in "()[]{}"
+            and unicodedata.category(character) in {"Ps", "Pe"}
+        )
+    )
+
+
+def _source_context_checkpoints(
+    source_text: str, positions: Sequence[int]
+) -> dict[int, str]:
+    """Veto known protection only; unsupported prior syntax remains UNKNOWN.
+
+    Consume the same lexical primitive as the legacy annual-role API. Observe
+    before a queried marker's own opener and stop at the last needed offset.
+    Later malformed or unsupported text cannot erase earlier proof states.
+    """
+
+    points = tuple(sorted(set(positions)))
+    if not points:
+        return {}
+    _spans, states = _source_quote_group_walk(source_text, points)
+    return {point: states.get(point, "UNKNOWN") for point in points}
+
+
+@functools.lru_cache(maxsize=256)
+def _annual_source_quoted_spans(text: str) -> tuple[tuple[int, int], ...] | None:
+    """Require balanced source context before inferring a temporal role.
+
+    Word apostrophes and unquoted possessives are punctuation, not delimiters.
+    Unknown mixed quotes or mismatched brackets conservatively reject evidence.
+    """
+
+    return _source_quote_group_walk(text)[0]
 
 
 def _annual_source_evidence(
