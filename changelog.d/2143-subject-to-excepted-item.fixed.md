@@ -1,0 +1,1 @@
+Stop the complete-source check from demanding a case pair for a "subject to" phrase that only describes an item an "other than" list excepts, as in "Each registrar shall file every record other than the owner's deed and the parcel map subject to the lease." (axiom-encode#2143).
