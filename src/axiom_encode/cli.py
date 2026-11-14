@@ -116,6 +116,7 @@ from axiom_encode.yaml_serialization import (
     safe_dump_yaml,
 )
 
+from . import applied_manifest_v6 as _manifest_v6
 from . import validation_waiver_partition as _waiver_partition
 from . import validation_waivers as _validation_waivers
 from . import version_provenance as _version_provenance
@@ -864,6 +865,25 @@ _APPLIED_MANIFEST_SCHEMA_VARIANTS = {
     "legacy retained successor": (_LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS,),
     "retired source metadata migration": (_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS,),
 }
+# applied-rulespec/v6 (#2172): the promotion contract with the reviewed ref
+# renamed and the attestation scope added. Read only by the top-level verified
+# loader and the immutable-base claim reader, and only while
+# the reader switch of the v6 reader module is on (it is off). No writer
+# emits it. A manifest without the v6 label takes none of these paths.
+_REVIEWED_CANDIDATE_V6_MANIFEST_VARIANTS = _manifest_v6.v6_field_variants(
+    _APPLIED_MANIFEST_SCHEMA_VARIANTS["reviewed candidate promotion"],
+    v5_ref_field="reviewed_rulespec_ref",
+)
+
+
+def _apply_manifest_schema_admitted(payload: Mapping[str, object]) -> bool:
+    """Admit the v5 label, or an admissible v6 promotion label (off today)."""
+
+    return payload.get(
+        "schema_version"
+    ) == APPLIED_ENCODING_MANIFEST_SCHEMA or _manifest_v6.v6_admissible(payload)
+
+
 # Descriptive strings do not establish file coverage; snapshot integrity checks
 # may still read them. Every other value, including descriptive containers, scans.
 _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS = frozenset(
@@ -26069,10 +26089,7 @@ def _guard_base_manifest_claims(
         payload = json.loads(raw.decode("utf-8"))
     except (UnicodeError, json.JSONDecodeError, RecursionError):
         return set(), [f"{label} is not valid JSON"]
-    if (
-        not isinstance(payload, dict)
-        or payload.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA
-    ):
+    if not isinstance(payload, dict) or not _apply_manifest_schema_admitted(payload):
         return set(), [f"{label} is not an encoder apply manifest"]
     backend = payload.get("backend")
     tool = payload.get("tool")
@@ -26095,7 +26112,9 @@ def _guard_base_manifest_claims(
     ):
         return set(), [f"{label} has no allowlisted tool/backend contract"]
     try:
-        issues = _applied_manifest_exact_schema_issues(payload, manifest_label=label)
+        issues = _applied_manifest_exact_schema_issues(
+            payload, manifest_label=label, admit_v6=True
+        )
     except (TypeError, ValueError):
         return set(), [f"{label} does not match an exact encoder receipt schema"]
     # An immutable predecessor proves obligations only. The distinct empty
@@ -28813,7 +28832,11 @@ def _applied_manifest_tool_execution_issues(
         check_producer("reviewed repair")
         return issues
     if backend is None and tool == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL:
-        reviewed_ref = payload.get("reviewed_rulespec_ref")
+        reviewed_ref = payload.get(
+            _manifest_v6.CANDIDATE_REF_FIELD
+            if _manifest_v6.is_v6_labelled(payload)
+            else "reviewed_rulespec_ref"
+        )
         if (
             not isinstance(reviewed_ref, str)
             or re.fullmatch(r"[0-9a-f]{40}", reviewed_ref) is None
@@ -29055,11 +29078,23 @@ def _applied_manifest_exact_schema_issues(
     payload: Mapping[str, object],
     *,
     manifest_label: str,
+    admit_v6: bool = False,
 ) -> list[str]:
-    """Reject every field outside the model or retirement v5 contract."""
+    """Reject every field outside the model or retirement v5 contract.
+
+    A v6 label is refused here unless the caller reads a top-level manifest
+    (``admit_v6``) and the v6 reader admits it. Only the verified loader and
+    the immutable-base claim reader pass it. The readers of a manifest nested
+    in a retirement, migration or replacement receipt and the historical
+    refresh reader do not, so a v6 manifest cannot stand in for a model
+    manifest there.
+    """
 
     backend = payload.get("backend")
     tool = payload.get("tool")
+    v6 = _manifest_v6.is_v6_labelled(payload)
+    if v6 and not (admit_v6 and _manifest_v6.v6_admissible(payload)):
+        return [f"{manifest_label} is not an encoder apply manifest"]
     if isinstance(backend, str) and backend in APPLIED_ENCODING_ENCODER_BACKENDS:
         expected_fields = _MODEL_APPLY_MANIFEST_FIELDS
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
@@ -29109,8 +29144,17 @@ def _applied_manifest_exact_schema_issues(
     variants = _APPLIED_MANIFEST_SCHEMA_VARIANTS[
         "codex model" if backend == "codex" else contract
     ]
+    if v6:
+        # v6_admissible already proved the promotion tool and no backend.
+        issues.extend(
+            _manifest_v6.contract_issues(
+                payload,
+                manifest_label=manifest_label,
+                field_variants=_REVIEWED_CANDIDATE_V6_MANIFEST_VARIANTS,
+            )
+        )
     admitted_fields = frozenset().union(*variants)
-    if frozenset(payload) not in variants:
+    if not v6 and frozenset(payload) not in variants:
         if VALIDATION_WAIVER_BINDINGS_FIELD in payload and contract in {
             "model",
             "reviewed candidate promotion",
@@ -32701,7 +32745,7 @@ def _load_verified_applied_encoding_manifest_payload(
             manifest_sha256,
             [f"{manifest_label} is not a JSON object"],
         )
-    if payload.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA:
+    if not _apply_manifest_schema_admitted(payload):
         return (
             None,
             root_prefix,
@@ -32749,6 +32793,7 @@ def _load_verified_applied_encoding_manifest_payload(
         _applied_manifest_exact_schema_issues(
             payload,
             manifest_label=manifest_label,
+            admit_v6=True,
         )
     )
     if expected_encoder_identity is None:

@@ -3,14 +3,19 @@
 Status: **design, not decided; nothing is active.** This document and the
 evaluator in `src/axiom_encode/content_merge_guard.py` implement no gate. No
 workflow runs the evaluator, no check run is written, no GitHub App exists, no
-branch protection changes, and no manifest reader or writer knows the schema the
-evaluator parses. Every promotion still uses the order in
+branch protection changes, and no manifest writer knows the schema the
+evaluator parses. A reader for that schema exists
+(`src/axiom_encode/applied_manifest_v6.py`, change 2 of §8) and is switched
+off: `V6_READER_ENABLED` is `False`, so every verifier still refuses a v6
+manifest. Every promotion still uses the order in
 `docs/reviewed-pr-promotion.md`. Tracking issue: #2172.
 
-The binding requirements are the "Maintainer decisions (2026-11-12)" in
-`docs/reviewed-pr-promotion-order-proposal.md`. The design below is a proposal
-for how to meet them. Platform claims that were not confirmed are marked
-**[check docs]**.
+The design follows the agent-proposed answers in
+`docs/reviewed-pr-promotion-order-proposal.md`. An agent posted those answers
+under @MaxGhenis's account; Max has not ratified them. D1, D2a-D2f, D3 and Seq.
+identify proposed constraints throughout this design and related source
+comments, not maintainer acceptance. Platform claims that were not confirmed
+are marked **[check docs]**.
 
 ## 1. What exists today
 
@@ -47,9 +52,11 @@ Verified against `main` at `eb98f8d7` (after #2194).
   `validate / validate` satisfies app 15368, and the workflow that produces it
   runs on `pull_request`, so the pull request's own copy of the caller runs.
 
-## 2. Binding decisions and where each lands
+<a name="2-binding-decisions-and-where-each-lands"></a>
 
-| # | Decision | Design element |
+## 2. Proposed constraints and where each lands
+
+| # | Proposed constraint | Design element |
 |---|---|---|
 | D1 | "The signing service may sign validated, unreviewed candidate bytes when a versioned signed manifest explicitly records that scope. Verifiers must distinguish validation from owner approval." | §5: schema v6 with `attestation_scope` |
 | D2a | "Its code and the enrolled identities load from protected policy." | §4: guard code and identity list on encoder main |
@@ -405,10 +412,65 @@ test pins its field sets to the live v5 promotion contract in `cli.py`. The
 shape has no run attempt; adding `run_attempt` would let the guard bind one
 (open question 13).
 
-Still to do in later changes: verifiers accept `{v5, v6}` and require the
-block's exact shape; the promotion writer emits v6. A verifier pinned before
-that change rejects v6, so no v6 manifest can pass `validate / validate` until
-`rulespec-us` bumps its encoder pin. That is a built-in ordering gate.
+### Reader (change 2, present and switched off)
+
+`applied_manifest_v6.py` holds the reader contract and one switch,
+`V6_READER_ENABLED`, which is `False`. The switch is a constant on encoder
+main. It has no environment variable, flag or repository setting, so a
+RuleSpec PR or workflow cannot turn it.
+
+Which reader does what, with the switch off and on:
+
+| Reader | Off (today) | On |
+|---|---|---|
+| `_load_verified_applied_encoding_manifest_payload`, and so its callers (19 call sites in `cli.py`, and others in reviewed repair, run-log export, telemetry sync, the regeneration judge and notary administration): validation coverage (`guard-generated`), promotion, retire, path and metadata migration, import inventory, legacy replacement, reviewed repair; with and without `historical_verification` | refuses | admits an exact signed v6 |
+| `_guard_base_manifest_claims` (a manifest on the immutable base) | refuses | admits an exact signed v6, as obligations only |
+| Readers of a nested manifest (`_retired_model_manifest_issues`, `_migrated_model_manifest_issues`, `_legacy_replacement_manifest_issues`) and `_historical_manifest_refresh_inputs` | refuse | refuse |
+| `supabase_sync.run_from_apply_manifest`, `prepare_signed_backfill.py`, the canonical-refresh selection in `targeted-signed-reencode.yml`, `_canonical_replacement_baseline` | refuse or ignore (v5 only) | refuse or ignore (v5 only) |
+
+"Exact signed v6" means: the promotion tool and no `backend` key; a valid
+signature over the whole payload; the exact v6 field set; the exact
+`attestation_scope` shape; `candidate.head_sha == candidate_rulespec_ref`; and
+`candidate.repository` equal to the repository of the manifest's attested
+`source_attestation.rulespec_root`. Producer, validation-execution, source and
+waiver checks are those of the v5 promotion contract.
+
+- **Historical verification admits v6 when the switch is on, by design.** A
+  landed v6 manifest becomes history that every later change must verify
+  (`historical_verification=True` reads the manifests of unchanged files). If
+  that reader refused v6, the first v6 landing would turn later validation
+  red. It admits v6 on the same terms as a v5 promotion manifest, and no
+  wider.
+- **The repository rule is shared.** `is_promotion_repository`
+  (`TheAxiomFoundation/rulespec-<country>`) is the one definition for the
+  reader and the evaluator. The reader binds the scope's repository to the
+  manifest's attested RuleSpec root, which the loader compares with the
+  checkout. It cannot compare the named PR, author or dispatcher with GitHub;
+  the merge guard does (§3 steps 4 and 6, case 19).
+- **Boundary:** only a manifest labelled v6 takes these paths. A change that
+  carries no manifest (workflows, pins, ledgers, tooling, ProgramSpec) reaches
+  no reader of this change, with the switch on or off.
+
+**The switch rule.** The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request.
+
+So the writer and admission change (change 5), not the reader, is what waits
+for the required check. With the reader on, `validate / validate` treats an
+exact signed v6 manifest like a reviewed v5 one: it proves validation and
+nothing about review. `owner_review_state` (`none` for v6, `before-signing`
+for the earlier lane) exists for callers to tell the two apart (D1), and it
+has no production caller yet. This was chosen over wiring a refusal into
+`validate` now: activation would have to remove it again, and the guard, not
+`validate`, is the control proposed in D2.
+
+Not read as v6 yet (last row of the table): they treat a v6 manifest as
+absent or foreign. They matter only after a v6 module is on `main`, and
+belong to change 5. The unreceipted-retirement scan has no v6 field class, so
+it scans every string of a v6 manifest, which is the conservative reading.
+
+Still to do in later changes: turn the switch on (change 2b); the promotion
+writer emits v6. A verifier pinned before change 2b rejects v6, so no v6
+manifest can pass `validate / validate` until `rulespec-us` bumps its encoder
+pin. That is a built-in ordering gate.
 
 ### Encoder (behind a switch that the activation change flips)
 
@@ -516,7 +578,8 @@ Implementation comes strictly before activation.
 | # | Repo | Change | Rollback |
 |---|---|---|---|
 | 1 | axiom-encode | This change: evaluator, `merge-guard` CLI, tests, CODEOWNERS, this document. Nothing calls it | revert |
-| 2 | axiom-encode | Verifiers admit `applied-rulespec/v6` with the attestation scope; no writer | revert; no v6 exists |
+| 2 | axiom-encode | Verifiers can read `applied-rulespec/v6` with the attestation scope, behind `V6_READER_ENABLED = False`; no writer | revert; no v6 exists |
+| 2b | axiom-encode | Set `V6_READER_ENABLED = True`. May ride with change 3. Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request. | set it back; no v6 exists |
 | 3 | axiom-encode | Workflow that runs the guard from `main` and publishes its check, with a dry-run mode | disable the workflow |
 | 4 | rulespec-us | Pin the encoder that verifies v6 | revert the pin |
 | 5 | axiom-encode | Emit v6 and admit without approval, behind a default-off switch | revert |
@@ -525,11 +588,14 @@ Implementation comes strictly before activation.
 ### Activation checklist
 
 Steps marked **M** need repository or organisation settings. Only a maintainer
-can do them.
+can do them. Maintainers must accept the proposed promotion order before
+activation.
 
 1. **M** Create the guard App, install it on `rulespec-us`, and store its key in
    an axiom-encode environment restricted to branch `main`.
-2. Merge changes 1-4. Publish the check in shadow mode: visible, not required.
+2. Merge changes 1-4, including 2b. Publish the check in shadow mode: visible,
+   not required.
+   Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request.
 3. Run cases 15-18 live on a throwaway PR and confirm every verdict.
 4. **M** Add the guard's check with the guard App's `app_id` to the required
    checks on `rulespec-us` main, only after question 0 of §10 is decided: under
@@ -542,7 +608,14 @@ can do them.
    on group SHAs in a test repository.
 
 Steps 4 and 7 are separate reviewed changes, and step 4 comes first. That
-satisfies D2d.
+preserves proposed constraint D2d.
+
+What fixes the order. D2d ("deployed and enforced before the pre-sign approval
+is removed") forces the guard App (step 1), the runner and the v6 reader pin
+(step 2) and the required check (step 4) before activation (step 7). The
+canary (step 5) follows the proposed sequence. The shadow period and
+the live cases (steps 2 and 3) are this document's own choice, not a
+requirement of D2d.
 
 ## 9. Threat model
 
