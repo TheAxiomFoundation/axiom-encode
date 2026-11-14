@@ -15221,7 +15221,12 @@ class TestEvalPrompt:
         assert "leave any tests" in prompt
         assert "deferred surface empty" in prompt
         assert "module.deferred_outputs[]" in prompt
-        assert "absolute `output` and `blocked_by` targets" in prompt
+        assert "use an absolute `output` target in every deferred record" in prompt
+        assert (
+            "Include `blocked_by` only when the exact upstream RuleSpec output is known"
+            in prompt
+        )
+        assert "`blocked_by_provisions`" in prompt
         assert "copied child output" in prompt
         assert "parent composition" in prompt
 

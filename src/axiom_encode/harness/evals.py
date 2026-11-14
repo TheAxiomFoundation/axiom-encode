@@ -14272,8 +14272,9 @@ context, remove that import and defer the affected executable surface instead of
 preserving a dirty-tree dependency. For deferred executable surfaces, record
 exact provenance under `module.deferred_outputs[]` with absolute `output`,
 `source_values`, and exact `blocked_by` targets as applicable. If an exact
-upstream RuleSpec output is unknown, omit `blocked_by` and explain the legal
-dependency in `reason` instead of inventing a bare provision target:
+upstream RuleSpec output is unknown, omit `blocked_by`. Explain the legal
+dependency in `reason` and put its canonical corpus ID in
+`blocked_by_provisions` when the ID is known in the selected release:
 {lines}
 """.format(lines="\n".join(issue_lines))
 
@@ -15231,9 +15232,11 @@ If an executable output would depend on any missing target above, emit
 `module.status: deferred` or `module.status: entity_not_supported` for that
 surface, or add a `module.deferred_outputs[]` record for that output when the
 module has independent executable rules. Preserve the source text in
-`module.summary`, use absolute `output` and `blocked_by` targets in deferred
-records, and leave any tests for that deferred surface empty. Do not use
-top-level `module.status` merely because some other branch in the same source
+`module.summary` and use an absolute `output` target in every deferred record.
+Include `blocked_by` only when the exact upstream RuleSpec output is known.
+Record a known canonical corpus ID for the cited blocker in
+`blocked_by_provisions`, and leave any tests for that deferred surface empty.
+Do not use top-level `module.status` merely because some other branch in the same source
 has a missing citation. If an independent output can be encoded using available
 imports or source-grounded local facts, encode it and omit or defer only the
 blocked surface. If a copied child output
