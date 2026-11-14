@@ -1,0 +1,170 @@
+name: Merge guard runner (shadow)
+
+# Change 3 of docs/content-bound-merge-guard.md section 8: run the
+# content-bound merge guard from encoder main on RuleSpec pull requests and
+# report the verdict. SHADOW ONLY. Nothing here can block a merge.
+#
+# INERT BY DEFAULT. Merging this file starts nothing:
+#   - the only trigger is workflow_dispatch (no schedule, no push, no
+#     pull_request), so it runs only when a person dispatches it;
+#   - the first job refuses unless the dispatch is on main AND the repository
+#     variable MERGE_GUARD_RUNNER_ENABLED is exactly 'true' (unset today);
+#   - the second job refuses unless the merge-guard environment holds the guard
+#     App's client ID (variable MERGE_GUARD_APP_CLIENT_ID) and private key
+#     (secret MERGE_GUARD_APP_KEY). The App does not exist yet.
+# The recurring sweep of the design (a schedule trigger) is a later reviewed
+# change to this file.
+#
+# Modes. dry-run (default) prints verdicts and writes nothing: its token has
+# no write permission. shadow also writes one check run per judged head, named
+# "content-bound-merge-guard (shadow)", always with conclusion neutral. That
+# check must never be made a required check: neutral satisfies a required
+# check, so requiring it would require nothing. There is no enforcing mode.
+#
+# The App's client ID and key live in the merge-guard environment, whose
+# deployment branch rule must allow only main: a workflow on any pushed branch
+# can read repository secrets. The first job has no environment, so a refused
+# dispatch does not create one. Each run mints a token that lasts one hour, is
+# limited to the one RuleSpec repository and the permissions below, and is
+# revoked when the job ends.
+
+on:
+  workflow_dispatch:
+    inputs:
+      country:
+        description: "Country of the RuleSpec repository (us selects rulespec-us)"
+        required: true
+        default: us
+        type: string
+      pr:
+        description: "Pull request number; leave empty to evaluate every open pull request to main"
+        required: false
+        default: ""
+        type: string
+      mode:
+        description: "dry-run writes nothing; shadow writes a neutral check run"
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - shadow
+
+permissions:
+  contents: read
+
+concurrency:
+  group: merge-guard-runner-${{ inputs.country }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: Require main and the runner switch
+    if: github.repository == 'TheAxiomFoundation/axiom-encode'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse unless dispatched on main with the switch on
+        env:
+          REF: ${{ github.ref }}
+          ENABLED: ${{ vars.MERGE_GUARD_RUNNER_ENABLED }}
+          COUNTRY: ${{ inputs.country }}
+          PR: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::The merge guard runner runs from refs/heads/main only; this dispatch is on $REF."
+            exit 1
+          fi
+          if [ "$ENABLED" != "true" ]; then
+            echo "::error::The merge guard runner is switched off: the repository variable MERGE_GUARD_RUNNER_ENABLED is not 'true'. See docs/content-bound-merge-guard.md section 8."
+            exit 1
+          fi
+          # Whole-string matches. A per-line match (grep -x) admits a value
+          # with a second line, and the token action splits its repository
+          # list on newlines and commas.
+          export LC_ALL=C
+          if ! [[ "$COUNTRY" =~ ^[a-z]{2}$ ]]; then
+            echo "::error::country must be two lowercase letters."
+            exit 1
+          fi
+          if [ -n "$PR" ] && ! [[ "$PR" =~ ^[1-9][0-9]{0,8}$ ]]; then
+            echo "::error::pr must be a pull request number or empty."
+            exit 1
+          fi
+
+  run:
+    name: Evaluate and report
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Holds the guard App's client ID and private key; its branch rule must
+    # allow only main.
+    environment: merge-guard
+    steps:
+      - name: Require the guard App
+        env:
+          APP_CLIENT_ID: ${{ vars.MERGE_GUARD_APP_CLIENT_ID }}
+          APP_KEY_SET: ${{ secrets.MERGE_GUARD_APP_KEY != '' }}
+        run: |
+          if [ -z "$APP_CLIENT_ID" ] || [ "$APP_KEY_SET" != "true" ]; then
+            echo "::error::MERGE_GUARD_APP_CLIENT_ID or MERGE_GUARD_APP_KEY is not set in the merge-guard environment. The guard GitHub App must exist and be installed on the RuleSpec repository first (activation checklist step 1 of docs/content-bound-merge-guard.md)."
+            exit 1
+          fi
+
+      - name: Checkout axiom-encode main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      # No uv cache: this job can read the App key, and a cache entry can be
+      # written by any run on main.
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+          enable-cache: "false"
+
+      - name: Install the locked encoder
+        run: uv sync --no-config --locked --python 3.13 --extra api --no-dev
+
+      - name: Create the guard App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.MERGE_GUARD_APP_CLIENT_ID }}
+          private-key: ${{ secrets.MERGE_GUARD_APP_KEY }}
+          owner: TheAxiomFoundation
+          repositories: rulespec-${{ inputs.country }}
+          permission-checks: ${{ inputs.mode == 'shadow' && 'write' || 'read' }}
+          permission-pull-requests: read
+          permission-contents: read
+          permission-actions: read
+
+      - name: Evaluate and report
+        env:
+          MERGE_GUARD_TOKEN: ${{ steps.app-token.outputs.token }}
+          MERGE_GUARD_APP_CLIENT_ID: ${{ vars.MERGE_GUARD_APP_CLIENT_ID }}
+          COUNTRY: ${{ inputs.country }}
+          PR: ${{ inputs.pr }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          if [ -n "$PR" ]; then
+            target=(--pr "$PR")
+          else
+            target=(--sweep)
+          fi
+          .venv/bin/axiom-encode merge-guard-run \
+            --repository "rulespec-$COUNTRY" \
+            "${target[@]}" \
+            --mode "$MODE" | tee "$RUNNER_TEMP/merge-guard-report.json"
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: merge-guard-report
+          path: ${{ runner.temp }}/merge-guard-report.json
+          if-no-files-found: ignore
+          retention-days: 14

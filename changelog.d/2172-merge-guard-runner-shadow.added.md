@@ -1,0 +1,1 @@
+Add an inert shadow runner for the content-bound merge guard: `axiom-encode merge-guard-run` and a manually dispatched workflow that evaluate RuleSpec pull requests as the guard GitHub App and can write a neutral, never-required check; nothing runs until a repository variable and the App credentials exist.

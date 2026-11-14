@@ -2900,6 +2900,35 @@ def main():
     )
     merge_guard_parser.add_argument("--pr", required=True, type=int)
 
+    merge_guard_run_parser = subparsers.add_parser(
+        "merge-guard-run",
+        help=(
+            "Run the content-bound merge guard as the guard GitHub App on one "
+            "pull request or on every open pull request to main, and report "
+            "(dry-run prints only; shadow also writes a neutral check run)"
+        ),
+    )
+    merge_guard_run_parser.add_argument(
+        "--repository",
+        required=True,
+        help="RuleSpec repository short name, for example rulespec-us",
+    )
+    merge_guard_run_target = merge_guard_run_parser.add_mutually_exclusive_group(
+        required=True
+    )
+    merge_guard_run_target.add_argument("--pr", type=int)
+    merge_guard_run_target.add_argument(
+        "--sweep",
+        action="store_true",
+        help="Evaluate every open pull request to main",
+    )
+    merge_guard_run_parser.add_argument(
+        "--mode",
+        choices=("dry-run", "shadow"),
+        default="dry-run",
+        help="dry-run writes nothing (default); shadow writes a neutral check run",
+    )
+
     admission_registry_parser = subparsers.add_parser(
         "admission-registry",
         help=(
@@ -4480,6 +4509,10 @@ def main():
         from axiom_encode.content_merge_guard import command as merge_guard_command
 
         raise SystemExit(merge_guard_command(args))
+    elif args.command == "merge-guard-run":
+        from axiom_encode.merge_guard_runner import command as merge_guard_run_command
+
+        raise SystemExit(merge_guard_run_command(args))
     elif args.command == "migrate-retired-source-metadata":
         cmd_migrate_retired_source_metadata(args)
     elif args.command == "guard-generated":

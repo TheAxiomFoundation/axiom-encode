@@ -2058,11 +2058,17 @@ def test_nothing_in_the_encoder_calls_the_guard():
     ]
     # applied_manifest_v6.py names the merge requirement a v6 manifest must
     # carry (a string constant). It does not import or call the guard.
+    # The runner (change 3) calls the guard, in shadow only: its workflow has
+    # no trigger but a manual dispatch and refuses unless a repository
+    # variable is set (tests/test_merge_guard_runner.py pins both).
     assert sorted(callers) == [
+        ".github/workflows/merge-guard-runner.yml",
         "src/axiom_encode/applied_manifest_v6.py",
         "src/axiom_encode/cli.py",
+        "src/axiom_encode/merge_guard_runner.py",
     ]
-    # By import, not by text: only the lazy import of the CLI command.
+    # By import, not by text: the lazy import of the CLI command, and the
+    # runner.
     importers = set()
     for path in (root / "src" / "axiom_encode").rglob("*.py"):
         if path.name == "content_merge_guard.py":
@@ -2077,7 +2083,10 @@ def test_nothing_in_the_encoder_calls_the_guard():
             )
             if any(name.split(".")[-1] == "content_merge_guard" for name in names):
                 importers.add(path.relative_to(root).as_posix())
-    assert importers == {"src/axiom_encode/cli.py"}
+    assert importers == {
+        "src/axiom_encode/cli.py",
+        "src/axiom_encode/merge_guard_runner.py",
+    }
 
 
 # --- CLI --------------------------------------------------------------------
