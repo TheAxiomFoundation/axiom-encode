@@ -1,3 +1,7 @@
+## 0.2.2373
+
+- Read (i) under paragraph (h) as a roman item when (ii) follows at its level (#2115)
+
 ## 0.2.2372
 
 - Register reviewed Nova Scotia NS479 repair (#2244)
