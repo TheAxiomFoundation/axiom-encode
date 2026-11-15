@@ -1,5 +1,5 @@
 """Companion-test findings: no duplicate demands, exact boundary repair detail,
-and structured obligations for deterministic case synthesis."""
+and structured obligations for model-authored companion cases."""
 
 from __future__ import annotations
 
@@ -163,7 +163,9 @@ def test_boundary_finding_names_source_text_covering_output_and_input():
     assert "less than $500 is eligible" in detail
     assert "covering principal output(s) `household_eligible`" in detail
     assert "input(s) compared directly with 500 `countable_income`" in detail
-    assert "to exactly the listed value" in detail
+    assert "at exactly the listed source value" in detail
+    assert "first establish from the source which input" in detail
+    assert "formula-derived hints do not prove that identity" in detail
     assert result.companion_test_obligations == (
         CompanionTestObligation(
             "boundary",
@@ -244,7 +246,7 @@ def test_encoded_branch_boundary_is_still_demanded():
         "countable_income * 2 < income_limit * 2",
     ],
 )
-def test_no_synthesis_input_when_the_input_is_not_compared_directly(formula):
+def test_candidate_input_hints_omit_computed_operands(formula):
     result = _analyze(HEADER.replace("__FORMULA__", formula), ELIGIBILITY_CASES)
 
     assert not any(
@@ -255,7 +257,7 @@ def test_no_synthesis_input_when_the_input_is_not_compared_directly(formula):
     assert "no input is compared directly with 500" in issue
 
 
-def test_fractional_boundary_is_never_proposed_for_an_integer_input():
+def test_fractional_boundary_hint_omits_incompatible_integer_inputs():
     content = HEADER.replace(
         "__FORMULA__", "countable_income < income_limit"
     ) + MINOR_RULES.replace("formula: 18\n", "formula: 18.5\n").replace(

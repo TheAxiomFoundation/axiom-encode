@@ -229,15 +229,11 @@ class _OutlineMarker:
 
 @dataclass(frozen=True)
 class CompanionTestObligation:
-    """One unmet companion-test demand in structured form.
+    """One unmet companion-test demand with numeric diagnostic hints.
 
-    ``rule_names`` are the local principal outputs that could witness it;
-    ``values`` are source-derived values (a boundary, or a negative clamp
-    input) for the numeric ``input_names``, which a covering formula compares
-    directly with that source value (or which the demand names). ``label`` is
-    the validator's display key for the demand. Expected values are never
-    carried here. Only boundary demands are synthesized, and synthesis must
-    execute every proposed case.
+    Values can be source boundaries or negative clamp probes. Input names
+    come from candidate formulas, not proven source-operand identities.
+    Expected values belong in model-authored companion cases.
     """
 
     kind: str
@@ -23932,6 +23928,13 @@ _MISSING_BOUNDARY_DETAIL_LIMIT = 12
 _MISSING_BOUNDARY_NAME_LIMIT = 4
 
 
+def _boundary_value_text(value: float) -> str:
+    """Render the stored value exactly, without YAML-ambiguous exponents."""
+
+    text = format(Decimal(str(value)), "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
 def _boundary_source_context(
     branch: SourceStructureBranch,
     boundary: NumericOccurrenceLike,
@@ -23939,7 +23942,12 @@ def _boundary_source_context(
     """Return a short verbatim source window around one boundary occurrence."""
 
     text = branch.text
-    start, end = int(boundary.start), int(boundary.end)
+    source_map = _NumericRecallSourceMap(list(range(len(text))))
+    authoritative_numeric_recall_text(text, _source_map=source_map)
+    span = source_map.source_span(int(boundary.start), int(boundary.end))
+    if span is None:
+        return None
+    start, end = span
     if not (0 <= start < end <= len(text)) or not text[start:end].strip():
         return None
     window_start = max(0, start - 90)
@@ -24000,8 +24008,8 @@ def _missing_boundary_repair_detail(
 ) -> str:
     """Explain, per missing boundary, the source text and the case to add.
 
-    ``direct_boundary_inputs`` holds, by position, the inputs a covering
-    formula compares directly with that boundary (the ones synthesis sets).
+    ``direct_boundary_inputs`` holds formula-derived candidate input hints.
+    It does not establish which input represents the source quantity.
     """
 
     def bounded(names: Sequence[str]) -> str:
@@ -24013,7 +24021,7 @@ def _missing_boundary_repair_detail(
     for index, (branch, boundary) in enumerate(
         missing_boundaries[:_MISSING_BOUNDARY_DETAIL_LIMIT]
     ):
-        value = f"{boundary.value:g}"
+        value = _boundary_value_text(boundary.value)
         context = _boundary_source_context(branch, boundary)
         parts = [
             f"{branch.label}={value} at "
@@ -24027,7 +24035,8 @@ def _missing_boundary_repair_detail(
             direct_inputs = direct_boundary_inputs.get(index, ())
             if direct_inputs:
                 parts.append(
-                    f"input(s) compared directly with {value} {bounded(direct_inputs)}"
+                    f"formula-derived candidate input(s) compared directly with {value} "
+                    f"{bounded(direct_inputs)}"
                 )
             else:
                 selector_inputs = _boundary_selector_input_names(
@@ -24056,10 +24065,10 @@ def _missing_boundary_repair_detail(
     return (
         f"{MISSING_BOUNDARY_DETAIL_MARKER} "
         + " | ".join(details)
-        + ". For each listed boundary, copy an existing case that asserts a "
-        "covering principal output, set the numeric input that its formula "
-        "compares with this source value to exactly the listed value, keep the "
-        "period and every other input, and assert the covering principal output "
+        + ". For each listed boundary, first establish from the source which "
+        "input represents its quantity; the formula-derived hints do not prove "
+        "that identity. Write a case at exactly the listed source value and "
+        "assert the covering principal output "
         "with the value the source requires at that boundary (whether the "
         "source includes or excludes the value itself). When no principal "
         "output covers the branch, "
@@ -24069,8 +24078,8 @@ def _missing_boundary_repair_detail(
     )
 
 
-_SYNTHESIS_CLOSURE_LIMIT = 32
-_SYNTHESIS_EXPRESSION_LIMIT = 256
+_BOUNDARY_HINT_CLOSURE_LIMIT = 32
+_BOUNDARY_HINT_EXPRESSION_LIMIT = 256
 _BOOLEAN_INPUT_DTYPES = frozenset({"bool", "boolean", "judgment"})
 
 
@@ -24083,7 +24092,7 @@ def _principal_rule_closure(
 
     closure: list[str] = []
     pending = sorted(set(rule_names), reverse=True)
-    while pending and len(closure) < _SYNTHESIS_CLOSURE_LIMIT:
+    while pending and len(closure) < _BOUNDARY_HINT_CLOSURE_LIMIT:
         name = pending.pop()
         if name in closure or name not in principal_rules:
             continue
@@ -24110,7 +24119,7 @@ def _formula_expression_texts(formula_text: str) -> tuple[str, ...]:
 
     def visit(text: str, depth: int) -> None:
         text = textwrap.dedent(text).strip()
-        if not text or depth > 32 or len(texts) >= _SYNTHESIS_EXPRESSION_LIMIT:
+        if not text or depth > 32 or len(texts) >= _BOUNDARY_HINT_EXPRESSION_LIMIT:
             return
         node = _first_formula_branch_node(text)
         if node is None:
@@ -24187,12 +24196,10 @@ def _direct_threshold_input_names(
     numeric_input_names: set[str],
     values: Iterable[float],
 ) -> tuple[str, ...]:
-    """Return numeric inputs compared directly with one of the source values.
+    """Return candidate formula inputs compared with one source value.
 
-    Only a bare declared input on one side of a comparison, ``min`` or ``max``
-    and a literal or parameter equal to the source value on the other side
-    qualifies. Setting such an input to that value is the source boundary
-    itself, never a coincidental number placed in an unrelated input.
+    These are formula-derived hints. They do not establish which input is the
+    quantity named in the source; model-authored cases must establish that.
     """
 
     targets = {
@@ -24238,7 +24245,7 @@ def _direct_threshold_input_names(
 _INTEGRAL_INPUT_DTYPES = frozenset({"integer", "int", "count"})
 
 
-def _values_for_synthesis_inputs(
+def _values_for_boundary_input_hints(
     values: Iterable[float],
     input_names: Sequence[str],
     input_declarations: Mapping[str, dict[str, Any]],
@@ -24806,7 +24813,7 @@ def _companion_test_issues(
             else ()
         )
         direct_boundary_inputs[len(missing_boundaries) - 1] = boundary_input_names
-        boundary_values = _values_for_synthesis_inputs(
+        boundary_values = _values_for_boundary_input_hints(
             (float(boundary.value),),
             boundary_input_names,
             input_declarations or {},
@@ -24818,12 +24825,12 @@ def _companion_test_issues(
                     covering_rule_names,
                     values=boundary_values,
                     input_names=boundary_input_names,
-                    label=f"{branch.label}={boundary.value:g}",
+                    label=f"{branch.label}={_boundary_value_text(boundary.value)}",
                 )
             )
     if missing_boundaries:
         rendered = ", ".join(
-            f"{branch.label}={occurrence.value:g}"
+            f"{branch.label}={_boundary_value_text(occurrence.value)}"
             for branch, occurrence in missing_boundaries
         )
         issues.append(
@@ -24845,7 +24852,7 @@ def _companion_test_issues(
                 expected=(
                     "case at "
                     f"{missing_boundaries[0][0].label}="
-                    f"{missing_boundaries[0][1].value:g}"
+                    f"{_boundary_value_text(missing_boundaries[0][1].value)}"
                 ),
                 found=f"no case at {rendered}",
             )

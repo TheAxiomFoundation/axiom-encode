@@ -126,7 +126,6 @@ from axiom_encode.toolchain import (
 from axiom_encode.yaml_serialization import safe_dump_yaml
 
 from .amendment_timing import amendment_timing_issues
-from .companion_case_synthesis import has_synthesizable_test_issue
 from .coverage_index import format_coverage_index
 from .dependency_stubs import (
     ResolvedCanonicalConcept,
@@ -9281,7 +9280,6 @@ def _evaluate_generated_artifact_with_repairs(
     axiom_rules_engine_ref: str | None = None,
 ) -> EvalArtifactMetrics | None:
     evaluated_states: set[tuple[bytes | None, bytes | None]] = set()
-    synthesis_rounds = 0
     for _repair_round in range(_GENERATED_EVAL_REPAIR_LIMIT + 1):
         test_file = _rulespec_test_path(rulespec_file)
         artifact_state = tuple(
@@ -9331,184 +9329,8 @@ def _evaluate_generated_artifact_with_repairs(
             protected_review_excerpts=protected_review_excerpts,
             rulespec_dependency_roots=rulespec_dependency_roots,
         )
-        if (
-            not repairs
-            and require_complete_source_unit
-            and synthesis_rounds < _COMPLETE_SOURCE_CASE_SYNTHESIS_ROUNDS
-            and has_synthesizable_test_issue(metrics.ci_issues)
-        ):
-            synthesis_rounds += 1
-            synthesized = _append_synthesized_complete_source_companion_cases(
-                rulespec_file=rulespec_file,
-                policy_repo_root=policy_repo_root,
-                axiom_rules_path=axiom_rules_path,
-                axiom_compose_path=axiom_compose_path,
-                oracle=oracle,
-                policyengine_runtime=policyengine_runtime,
-                policyengine_rule_hint=policyengine_rule_hint,
-                source_text=source_text,
-                local_corpus_release=local_corpus_release,
-                source_metadata=source_metadata,
-                source_citation_path=source_citation_path,
-                rulespec_dependency_roots=rulespec_dependency_roots,
-                amendment_documents=amendment_documents,
-                legacy_replacement=legacy_replacement,
-                replacement_overlay_scope=replacement_overlay_scope,
-                axiom_rules_engine_ref=axiom_rules_engine_ref,
-            )
-            if synthesized:
-                print("  auto_complete_source_cases:" + ",".join(synthesized))
-            repairs = [f"complete_source_case:{name}" for name in synthesized]
         if not repairs:
             return metrics
-
-
-_COMPLETE_SOURCE_CASE_SYNTHESIS_MAX_ANALYSES = 32
-# Covers the baseline analysis and every trial. One compile and the final
-# runner screen fall outside it, and an analysis that starts before the
-# deadline finishes, so a round on a slow module (one analysis ~100 s, as on
-# 7 CFR 273.4) can take about one analysis longer than this budget.
-_COMPLETE_SOURCE_CASE_SYNTHESIS_SECONDS = 120.0
-# Each round already tries every demand; a second round only covers demands
-# that the first round's cases exposed. More rounds would only add latency.
-_COMPLETE_SOURCE_CASE_SYNTHESIS_ROUNDS = 2
-
-
-@timed_phase(PHASE_ARTIFACT_REPAIR)
-def _append_synthesized_complete_source_companion_cases(
-    *,
-    rulespec_file: Path,
-    policy_repo_root: Path,
-    axiom_rules_path: Path,
-    axiom_compose_path: Path | None,
-    oracle: EvalOracleMode = "none",
-    policyengine_runtime: PolicyEngineRuntime | None = None,
-    policyengine_rule_hint: str | None = None,
-    source_text: str,
-    local_corpus_release: _corpus_resolver.LocalCorpusRelease,
-    source_metadata: dict[str, object] | None,
-    source_citation_path: str | None,
-    rulespec_dependency_roots: Sequence[Path],
-    amendment_documents: Sequence[CorpusAmendmentDocument] = (),
-    legacy_replacement: LegacyReplacementContract | None,
-    replacement_overlay_scope: bool,
-    axiom_rules_engine_ref: str | None = None,
-) -> list[str]:
-    """Append engine-executed companion cases that the validator credits.
-
-    The validation pipeline (built exactly as evaluation builds it) proposes,
-    executes, credits, and screens each case in the same staged overlay that
-    evaluation uses; this function only appends the returned cases to the
-    generated companion file. Any failure leaves the file untouched so the
-    demand stays visible to the model.
-    """
-
-    test_file = _rulespec_test_path(rulespec_file)
-    if not test_file.exists() or test_file.is_symlink():
-        return []
-    try:
-        original = test_file.read_bytes()
-        existing = yaml.safe_load(original.decode()) or []
-    except (OSError, UnicodeDecodeError, ValueError, yaml.YAMLError):
-        return []
-    existing_cases = existing.get("cases") if isinstance(existing, dict) else existing
-    if not isinstance(existing_cases, list):
-        return []
-    try:
-        execution_git_origin = _eval_execution_git_origin(
-            policy_repo_root=policy_repo_root,
-            require_complete_source_unit=True,
-            rulespec_dependency_roots=rulespec_dependency_roots,
-            legacy_replacement=legacy_replacement,
-            replacement_overlay_scope=replacement_overlay_scope,
-        )
-        with (
-            _authoritative_corpus_scope(local_corpus_release),
-            _authoritative_rulespec_dependency_scope(rulespec_dependency_roots),
-            _rulespec_validation_target(
-                rulespec_file,
-                policy_repo_root,
-                rulespec_dependency_roots=rulespec_dependency_roots,
-                legacy_replacement=legacy_replacement,
-                replacement_overlay_scope=replacement_overlay_scope,
-            ) as validation_file,
-        ):
-            pipeline = _eval_validator_pipeline(
-                validation_file=validation_file,
-                policy_repo_root=policy_repo_root,
-                axiom_rules_path=axiom_rules_path,
-                axiom_compose_path=axiom_compose_path,
-                oracle=oracle,
-                policyengine_runtime=policyengine_runtime,
-                policyengine_rule_hint=policyengine_rule_hint,
-                source_text=source_text,
-                source_metadata=source_metadata,
-                local_corpus_release=local_corpus_release,
-                source_citation_path=source_citation_path,
-                rulespec_dependency_roots=rulespec_dependency_roots,
-                require_complete_source_unit=True,
-                amendment_documents=amendment_documents,
-                existing_target_oracle_contract=(
-                    _eval_existing_target_oracle_contract(
-                        rulespec_file, policy_repo_root
-                    )
-                ),
-                execution_git_origin=execution_git_origin,
-                legacy_replacement=legacy_replacement,
-                replacement_overlay_scope=replacement_overlay_scope,
-                axiom_rules_engine_ref=axiom_rules_engine_ref,
-            )
-            synthesized = pipeline.synthesize_complete_source_companion_cases(
-                validation_file,
-                max_analyses=_COMPLETE_SOURCE_CASE_SYNTHESIS_MAX_ANALYSES,
-                time_budget_seconds=_COMPLETE_SOURCE_CASE_SYNTHESIS_SECONDS,
-            )
-    except Exception:
-        # Unavailable engines, compile errors, and staging failures leave the
-        # demand pending for model feedback.
-        return []
-    existing_names = {
-        str(case.get("name") or "") for case in existing_cases if isinstance(case, dict)
-    }
-    synthesized = [
-        case
-        for case in synthesized
-        if isinstance(case, dict) and str(case.get("name") or "") not in existing_names
-    ]
-    if not synthesized or test_file.read_bytes() != original:
-        return []
-    test_file.write_text(
-        _companion_file_with_appended_cases(original.decode(), existing, synthesized)
-    )
-    return [str(case["name"]) for case in synthesized]
-
-
-def _companion_file_with_appended_cases(
-    original: str,
-    existing: list[Any] | dict[str, Any],
-    cases: list[dict[str, Any]],
-) -> str:
-    """Append cases as text, keeping the model's comments and formatting.
-
-    A top-level case list gains a text suffix only when re-reading it yields
-    exactly the old cases plus the new ones; otherwise (or for a mapping with
-    `cases`) the file is re-serialized.
-    """
-
-    if isinstance(existing, list):
-        separator = "" if original.endswith("\n") or not original else "\n"
-        appended = (
-            original
-            + separator
-            + safe_dump_yaml(cases, sort_keys=False, allow_unicode=True)
-        )
-        with contextlib.suppress(ValueError, yaml.YAMLError):
-            if yaml.safe_load(appended) == [*existing, *cases]:
-                return appended
-        return safe_dump_yaml([*existing, *cases], sort_keys=False, allow_unicode=True)
-    updated = dict(existing)
-    updated["cases"] = [*existing["cases"], *cases]
-    return safe_dump_yaml(updated, sort_keys=False, allow_unicode=True)
 
 
 def _rebind_retained_candidate_proof_import_hashes(
