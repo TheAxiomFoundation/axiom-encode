@@ -1,3 +1,9 @@
+## 0.2.2374
+
+- Preserve authenticated companion assertions during constrained repairs (#2203)
+- Correct the promotion-order decision status (#2246)
+- Use constructed modules in declared-dtype and repair tests (#2247)
+
 ## 0.2.2373
 
 - Read (i) under paragraph (h) as a roman item when (ii) follows at its level (#2115)
