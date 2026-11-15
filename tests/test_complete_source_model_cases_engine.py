@@ -395,6 +395,31 @@ def test_cross_boundary_boolean_logic_needs_a_model_boundary_case(
     )
     _assert_model_boundary_mismatch(executed, "model state-residency boundary")
 
+    correct = _boundary_payload(
+        source,
+        "countable_income <= income_limit and household_is_state_resident",
+        extra_inputs=(("household_is_state_resident", "Boolean"),),
+    )
+    correct_cases = [
+        _model_case("low state", 100, "holds", household_is_state_resident=True),
+        _model_case("low neither", 100, "not_holds", household_is_state_resident=False),
+        _model_case("high state", 900, "not_holds", household_is_state_resident=True),
+        _model_case(
+            "model source boundary", 500, "holds", household_is_state_resident=True
+        ),
+        _model_case(
+            "model nonresident boundary",
+            500,
+            "not_holds",
+            household_is_state_resident=False,
+        ),
+    ]
+    executed, issues = _validate_model_cases(
+        tmp_path / "correct", real_engine, monkeypatch, correct, correct_cases, source
+    )
+    assert executed == []
+    assert issues == []
+
 
 def test_equal_rent_threshold_does_not_create_an_income_boundary_case(
     real_engine, tmp_path, monkeypatch
