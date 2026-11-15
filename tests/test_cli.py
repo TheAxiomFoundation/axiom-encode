@@ -14535,6 +14535,9 @@ class TestCmdEncode:
         args.repair_candidate_tests_only = overrides.get(
             "repair_candidate_tests_only", False
         )
+        args.preserve_repair_companion = overrides.get(
+            "preserve_repair_companion", False
+        )
         args.emit_final_rejected_candidate = overrides.get(
             "emit_final_rejected_candidate", None
         )
@@ -17549,7 +17552,10 @@ rules:
         assert candidate.allowed_missing_rule_removals == ("obsolete",)
         assert candidate.allowed_missing_test_removals == ("obsolete_case",)
 
-    def test_encode_replaces_cross_run_candidate_after_in_run_rejection(self, tmp_path):
+    @pytest.mark.parametrize("preserve_companion", [False, True])
+    def test_encode_replaces_cross_run_candidate_after_in_run_rejection(
+        self, tmp_path, preserve_companion
+    ):
         candidate_root = tmp_path / "preserved-candidate"
         candidate_path = Path("statutes/26/1/j/2.yaml")
         output_file = candidate_root / candidate_path
@@ -17558,10 +17564,16 @@ rules:
             "format: rulespec/v1\n# preserved-cross-run-rule\nrules: []\n"
         )
         test_file = output_file.with_suffix(".test.yaml")
-        test_file.write_text("# preserved-cross-run-companion\n[]\n")
+        test_file.write_text(
+            '- name: retained\n  period: "2025"\n  input: {}\n  output: {x: 1}\n'
+            if preserve_companion
+            else "# preserved-cross-run-companion\n[]\n"
+        )
         args = self._make_args(
             tmp_path,
             model=None,
+            citation="us/statute/26/1/j/2",
+            preserve_repair_companion=preserve_companion,
             apply=True,
             sync=False,
             escalation_enabled=True,
@@ -17575,6 +17587,12 @@ rules:
             ).hexdigest(),
         )
 
+        args.require_complete_source_unit = True
+        args.legacy_dependent_rulespec_path = []
+        args.legacy_exact_dependent_rulespec_path = []
+        args.legacy_retained_successor_rulespec_path = []
+        args.manifest_only_refresh = False
+        args.reviewed_candidate_promotion = False
         _exit_code, _generated, _validated, mock_run, _mock_validate, _mock_apply = (
             self._run_validator_escalation_case(
                 args,
@@ -17597,6 +17615,23 @@ rules:
         assert mock_run.call_args_list[1].kwargs["validation_retry_feedback"] == (
             "first candidate regressed",
         )
+
+        if preserve_companion:
+            from axiom_encode import cli
+
+            final_result = _mock_apply.call_args.args[0]
+            original = vars(final_result)[cli._PRESERVED_REPAIR_COMPANION_ATTR]
+            assert original.rulespec_sha256 == args.repair_candidate_rulespec_sha256
+            assert original.tests_sha256 == args.repair_candidate_tests_sha256
+            assert original is retry_candidates[0]
+            assert original is not retry_candidates[1]
+            # The mocked model/validator emitted an empty companion. The actual
+            # final gate still refuses it against the original seed on retry 2.
+            with pytest.raises(RuntimeError, match="Cannot apply repair"):
+                cli._preserved_repair_companion_record(
+                    final_result,
+                    Path(final_result.output_file).with_suffix(".test.yaml"),
+                )
 
     def test_encode_retry_context_rejects_feedback_without_matching_candidate(self):
         import axiom_encode.cli as cli_module
@@ -18535,7 +18570,10 @@ rules:
 
         assert mock_sync.call_args.kwargs["github_run"] == {}
 
-    def test_apply_generated_encoding_writes_manifest(self, tmp_path):
+    @pytest.mark.parametrize("preserve_companion", [False, True])
+    def test_apply_generated_encoding_writes_manifest(
+        self, tmp_path, preserve_companion
+    ):
         output_root = tmp_path / "out"
         policy_checkout = tmp_path / "rulespec-us"
         policy_repo = policy_checkout / "us-ny"
@@ -18553,9 +18591,22 @@ rules:
         )
         generated.parent.mkdir(parents=True)
         generated.write_text("format: rulespec/v1\nrules: []\n")
-        generated.with_name("c.test.yaml").write_text("[]\n")
+        companion = (
+            '- name: retained\n  period: "2025"\n  input: {}\n  output: {result: 0}\n'
+            if preserve_companion
+            else "[]\n"
+        )
+        generated.with_name("c.test.yaml").write_text(companion)
         policy_repo.mkdir(parents=True)
         result = self._make_eval_result(True)
+        if preserve_companion:
+            from axiom_encode import cli
+
+            result.citation = "us-ny/regulation/18-nycrr/387/12/f/3/v/c"
+            result._axiom_preserved_repair_companion = cli.ValidationRetryCandidate(
+                rulespec=generated.read_text(),
+                tests=companion,
+            )
         result.output_file = str(generated)
         result.context_manifest_file = str(tmp_path / "context.json")
         result.trace_file = str(tmp_path / "trace.json")
@@ -18592,7 +18643,7 @@ rules:
                 "axiom_encode.cli._require_axiom_encode_version_provenance",
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
-                    "version_commit": "version123",
+                    "version_commit": "a" * 40,
                     "identity_source": "git",
                 },
             ),
@@ -18622,7 +18673,7 @@ rules:
             "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
             "dirty_tracked": False,
             "version": AXIOM_ENCODE_TEST_VERSION,
-            "version_commit": "version123",
+            "version_commit": "a" * 40,
             "identity_source": "git",
         }
         assert payload["validation_execution"]["axiom_encode"] == {
@@ -18655,6 +18706,49 @@ rules:
                 "sha256": _sha256_file(target_test),
             },
         ]
+
+        if preserve_companion:
+            from axiom_encode import cli
+            from axiom_encode.repair_companion import (
+                guard_preservation_evidence,
+                verified_preservation_manifest,
+            )
+
+            record = payload["repair_companion_preservation"]
+            assert record["cases"] == 1
+            assert record["assertions"] == 1
+            assert record["final_tests_sha256"] == _sha256_file(target_test)
+            with patch.object(
+                cli,
+                "_applied_encoding_manifest_verifier",
+                return_value=TEST_APPLY_SIGNING_BROKER,
+            ):
+                assert verified_preservation_manifest(
+                    manifest.read_bytes(),
+                    original_rulespec_sha256=result._axiom_preserved_repair_companion.rulespec_sha256,
+                    original_tests_sha256=hashlib.sha256(
+                        companion.encode()
+                    ).hexdigest(),
+                    final_tests_sha256=_sha256_file(target_test),
+                ) == _sha256_file(manifest)
+                evidence = guard_preservation_evidence(
+                    policy_checkout,
+                    "us-ny/regulation/18-nycrr/387/12/f/3/v/c",
+                    result._axiom_preserved_repair_companion.rulespec_sha256,
+                    hashlib.sha256(companion.encode()).hexdigest(),
+                )
+                assert evidence["manifest_sha256"] == _sha256_file(manifest)
+                assert evidence["final_tests_sha256"] == _sha256_file(target_test)
+                target_test.write_text("[]\n")
+                with pytest.raises(ValueError, match="failed verification"):
+                    guard_preservation_evidence(
+                        policy_checkout,
+                        "us-ny/regulation/18-nycrr/387/12/f/3/v/c",
+                        result._axiom_preserved_repair_companion.rulespec_sha256,
+                        hashlib.sha256(companion.encode()).hexdigest(),
+                    )
+        else:
+            assert "repair_companion_preservation" not in payload
 
     @pytest.mark.parametrize(
         "publication_mutation",
