@@ -1,0 +1,23 @@
+{
+  "schema": "axiom-encode/rejected-candidate-fixture/v1",
+  "citation": "us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-8",
+  "run": "local:f61921aa",
+  "encoder_version": "0.2.2371",
+  "encoder_commit": "377b90e54529252d269e0369beeb39c6c1fb1852",
+  "recorded_issue": "[complete-source-unit:tests] Companion tests do not exercise every source-stated boundary input; missing: source unit=40.",
+  "candidate": {
+    "origin": "rejected/policies/des/faa5/na-medical-expenses-and-deduction/block-8.yaml",
+    "sha256": "179d978d18e7c0b3bd54f0cc41f236e92795569165691cbb7b7ac3d66b0ac765"
+  },
+  "companion": {
+    "origin": "rejected/policies/des/faa5/na-medical-expenses-and-deduction/block-8.test.yaml",
+    "sha256": "7ad8e56b92acd8dbcdde7cbb52ed240198dabf588e10682094c570aded7cf121"
+  },
+  "source": {
+    "origin": "workspace/source.txt",
+    "corpus_release": "us-rulespec-2026-10-29-ecfr-section-text",
+    "provision_file": "data/corpus/provisions/us-az/manual/2026-07-17-faa5-recovery.jsonl",
+    "line_number": 86,
+    "sha256": "79ceaa92daca31ced9fd61ad00d4cffe928290abd5facaa2f3152b539cc7fc1b"
+  }
+}

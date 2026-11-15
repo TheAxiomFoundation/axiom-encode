@@ -32990,7 +32990,11 @@ def _branch_boundary_test_witnesses(
                 dependency_environment=dependency_environment,
                 formula_environment=formula_environment or {},
             ):
-                selector_names = _rule_numeric_selector_names(controller_rule)
+                # A capped amount (`min(amount, cap)`) is a boundary selector
+                # too: `_formula_expression_has_boundary_clamp` reads the cap.
+                selector_names = _rule_numeric_selector_names(
+                    controller_rule
+                ) | _rule_minimum_operand_names(controller_rule)
                 if selector_names and any(
                     numeric_value_is_grounded(value, (boundary,))
                     and _formula_execution_references_names(
@@ -35366,6 +35370,39 @@ def _rule_numeric_selector_names(rule: dict[str, Any]) -> set[str]:
                 "holds",
                 "not_holds",
             }
+        )
+    return names
+
+
+def _rule_minimum_operand_names(rule: dict[str, Any]) -> set[str]:
+    """Return the names inside each two-argument ``min`` of a rule's formulas.
+
+    `_rule_numeric_selector_names` reads comparisons and ``max`` forms, and it
+    falls back to every identifier only when it finds neither. So in a rule
+    that is gated by a comparison and caps an amount, as in
+    ``if miles > threshold: min(max(0, cost), cap) else: 0``, the capped
+    ``cost`` is not a selector, and no case can reach the cap reader
+    (`_formula_expression_has_boundary_clamp`). A boundary case still has to
+    set the capped input to the source value and change the asserted output.
+    """
+
+    names: set[str] = set()
+    for operands_text in _balanced_call_operands(_rule_formula_text(rule), "min"):
+        expression = _parse_formula_expression(f"min({operands_text})")
+        if not (
+            isinstance(expression, ast.Call)
+            and len(expression.args) == 2
+            and not expression.keywords
+        ):
+            continue
+        called = {
+            id(node.func) for node in ast.walk(expression) if isinstance(node, ast.Call)
+        }
+        names.update(
+            node.id
+            for argument in expression.args
+            for node in ast.walk(argument)
+            if isinstance(node, ast.Name) and id(node) not in called
         )
     return names
 
