@@ -75,11 +75,22 @@ def build_request(tmp_path, case, executor, catalog=None):
                     }
                 ],
                 "rules": [
+                    *[
+                        {
+                            "name": relation["name"].rsplit(".", 1)[-1],
+                            "kind": "data_relation",
+                            "data_relation": {
+                                "arity": 2,
+                                "arguments": relation["slot_entities"],
+                            },
+                        }
+                        for relation in catalog
+                    ],
                     {
                         "name": "expense_amount",
                         "kind": "derived",
                         "versions": [{"formula": "amount"}],
-                    }
+                    },
                 ],
             }
         )
@@ -124,12 +135,54 @@ def build_request(tmp_path, case, executor, catalog=None):
         case["input"],
         case_tables=case["tables"],
         explicit_relations_case=case,
+        declared_relation_names={r["name"] for r in catalog},
+        declared_relation_slots={r["name"]: tuple(r["slot_entities"]) for r in catalog},
         compiled_relations=catalog,
+        input_entities={PREFIX + "input.amount": "Expense"},
         period=PERIOD,
         query_entity="Person",
         query_entity_id=root_id,
     )
     return {"dataset": dataset, "root_id": root_id}
+
+
+@pytest.mark.parametrize("executor", ["cli", "pipeline"])
+def test_graph_scalar_targets_root_with_other_same_kind_table_rows(tmp_path, executor):
+    case = graph_case()
+    case["tables"]["Person"] = [{"id": "person-B"}]
+    request = build_request(tmp_path, case, executor)
+    if executor == "cli":
+        assert [q["entity_id"] for q in request["queries"]] == ["person-A"]
+    else:
+        assert request["root_id"] == "person-A"
+
+
+@pytest.mark.parametrize("executor", ["cli", "pipeline"])
+def test_graph_anonymous_child_cannot_supply_root_or_table_facts(tmp_path, executor):
+    name = PREFIX + "relation.people"
+    catalog = [{"name": name, "arity": 2, "slot_entities": ["Person", "Person"]}]
+    case = graph_case()
+    case.update(entity_id="related_0", relations=[], input={name: [{"amount": 100}]})
+    case["tables"] = {"Person": [{"id": "related_0:entity:Person"}]}
+    dataset = build_request(tmp_path, case, executor, catalog)["dataset"]
+    child = dataset["inputs"][0]["entity_id"]
+    assert child not in {case["entity_id"], case["tables"]["Person"][0]["id"]}
+    assert any(
+        set(edge["tuple"]) == {child, case["entity_id"]}
+        for edge in dataset["relations"]
+    )
+
+
+@pytest.mark.parametrize("executor", ["cli", "pipeline"])
+def test_flat_expense_fact_cannot_supply_an_explicit_same_kind_row(tmp_path, executor):
+    case = graph_case()
+    occupied = "person-A:entity:Expense"
+    case["tables"]["Expense"][0] = {"id": occupied}
+    case["relations"][2]["tuple"][0] = occupied
+    case["input"] = {PREFIX + "input.amount": 777}
+    dataset = build_request(tmp_path, case, executor)["dataset"]
+    assert any(occupied in edge["tuple"] for edge in dataset["relations"])
+    assert all(record["entity_id"] != occupied for record in dataset["inputs"])
 
 
 @pytest.mark.parametrize("executor", ["cli", "pipeline"])
@@ -234,6 +287,7 @@ def test_relations_survive_normalization_and_bind_case_identity():
     "control",
     [
         "positive",
+        "mixed_outputs",
         "duplicate",
         "missing_fact",
         "null_relations",
@@ -258,6 +312,7 @@ def test_two_level_graph_executes(tmp_path, real_engine, executor, control):
         ("expense_amount", "Expense", "amount"),
         ("claim_total", "Claim", "sum(expenses.expense_amount)"),
         ("total", "Person", "sum(claims.claim_total)"),
+        ("row_total", "Person", "total"),
     ]:
         rules.append(
             {
@@ -286,6 +341,9 @@ def test_two_level_graph_executes(tmp_path, real_engine, executor, control):
         )
     )
     case = graph_case()
+    if control == "mixed_outputs":
+        case["tables"]["Person"] = [{"id": "person-B"}, {"id": "person-A"}]
+        case["output"][PREFIX + "row_total"] = [0, 350]
     if control == "duplicate":
         case["relations"].append(copy.deepcopy(case["relations"][2]))
     if control == "missing_fact":
@@ -349,7 +407,9 @@ def test_two_level_graph_executes(tmp_path, real_engine, executor, control):
             cases=[case],
             execution_capture=capture,
         )
-        if not expected_failure:
+        if control == "mixed_outputs":
+            capture.stage.assert_not_called()
+        elif not expected_failure:
             captured_case, request = capture.stage.call_args.args[:2]
             assert case_key(captured_case) == case_key(case)
             assert request["queries"][0]["entity_id"] == case["entity_id"]

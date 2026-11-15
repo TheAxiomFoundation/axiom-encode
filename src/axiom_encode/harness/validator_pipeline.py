@@ -77,6 +77,7 @@ from axiom_encode.companion_edges import (
 )
 from axiom_encode.companion_entities import (
     assign_generated_fixture_ids,
+    companion_output_queries,
     cross_entity_input_findings,
     declared_input_entities,
     flat_input_entity_id,
@@ -38653,8 +38654,16 @@ class ValidatorPipeline:
             )
 
         require_distinct_entity_ids(occupied_entity_ids)
-        assign_generated_fixture_ids(generated_table_rows, occupied_entity_ids)
-        assign_generated_fixture_ids(generated_relation_rows, occupied_entity_ids)
+        assign_generated_fixture_ids(
+            generated_table_rows,
+            occupied_entity_ids,
+            distinct_rows=explicit_relations_case is not None,
+        )
+        assign_generated_fixture_ids(
+            generated_relation_rows,
+            occupied_entity_ids,
+            distinct_rows=explicit_relations_case is not None,
+        )
         if table_entity_ids is not None:
             table_entity_ids.update(
                 {
@@ -38673,7 +38682,8 @@ class ValidatorPipeline:
                     reserved_entity_ids=(
                         entity_id
                         for entity_id, entities in occupied_entity_ids.items()
-                        if entities - {input_entity}
+                        if explicit_relations_case is not None
+                        or entities - {input_entity}
                     ),
                 )
                 flat_entity_ids[input_entity] = entity_id
@@ -39109,14 +39119,14 @@ class ValidatorPipeline:
         request = {
             "mode": "explain",
             "dataset": dataset,
-            "queries": [
-                {
-                    "entity_id": entity_id,
-                    "period": period,
-                    "outputs": output_names,
-                }
-                for entity_id in query_entity_ids
-            ],
+            "queries": companion_output_queries(
+                query_entity_ids,
+                query_entity_id,
+                period,
+                output_names,
+                row_ordered_outputs,
+                explicit_graph="relations" in case,
+            ),
         }
         command = [str(binary), "run-compiled", "--artifact", str(compiled_path)]
         try:
@@ -39192,10 +39202,10 @@ class ValidatorPipeline:
         results = response.get("results") if isinstance(response, dict) else None
         if not isinstance(results, list) or not results:
             return None, [f"Test case `{case_name}` returned no results."]
-        if len(results) != len(query_entity_ids):
+        if len(results) != len(request["queries"]):
             return None, [
                 f"Test case `{case_name}` returned {len(results)} row result(s), "
-                f"expected {len(query_entity_ids)}."
+                f"expected {len(request['queries'])}."
             ]
         if any(not isinstance(row, dict) for row in results):
             return None, [f"Test case `{case_name}` returned a malformed result row."]
@@ -39213,10 +39223,10 @@ class ValidatorPipeline:
                     "its execution query."
                 ]
         if row_ordered_outputs:
-            aggregated_outputs: dict[str, list[Any]] = {
-                output_name: [] for output_name in output_names
-            }
-            for row_index, row_result in enumerate(results, 1):
+            aggregated_outputs: dict[str, Any] = {}
+            for row_index, (row_result, query) in enumerate(
+                zip(results, request["queries"], strict=True), 1
+            ):
                 outputs = row_result.get("outputs")
                 if not isinstance(outputs, dict):
                     return None, [
@@ -39227,14 +39237,19 @@ class ValidatorPipeline:
                     row_outputs = self._rulespec_outputs_by_reference(outputs)
                 except ValueError as exc:
                     return None, [f"Test case `{case_name}` row #{row_index}: {exc}"]
-                for output_name in output_names:
+                for output_name in query["outputs"]:
                     actual_output = row_outputs.get(output_name)
                     if actual_output is None:
                         return None, [
                             f"Test case `{case_name}` row #{row_index} output "
                             f"`{output_name}` missing from execution response."
                         ]
-                    aggregated_outputs[output_name].append(actual_output)
+                    if "relations" in case and output_name not in row_ordered_outputs:
+                        aggregated_outputs[output_name] = actual_output
+                    else:
+                        aggregated_outputs.setdefault(output_name, []).append(
+                            actual_output
+                        )
             return aggregated_outputs, []
         outputs = results[0].get("outputs")
         if not isinstance(outputs, dict):
