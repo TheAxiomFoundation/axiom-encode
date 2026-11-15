@@ -174,7 +174,6 @@ def test_source_stamp_changes_the_bytes_and_not_the_content():
         REPAIRED_RULE_BYTES,
         RULE_BYTES.replace(b"credit_amount", b"credit_amounts"),
         RULE_BYTES.replace(b"'2018-01-01'", b"'2019-01-01'"),
-        RULE_BYTES.replace(b"'2018-01-01'", b"2018-01-01"),  # a date, not a string
         RULE_BYTES.replace(b"formula: 1000", b"formula: '1000'"),
         RULE_BYTES.replace(b"formula: 1000", b"formula: 1000.5"),
         RULE_BYTES.replace(b"summary: A credit", b"summary: The credit"),
@@ -241,6 +240,7 @@ def test_values_that_only_yaml_1_1_reads_as_equal_have_different_digests(left, r
         (b"a: True\n", b"a: true\n"),
         (b"a: 'x'\n", b'a: "x"\n'),
         (b"a: x\n", b"a: 'x'\n"),
+        (b"a: 2018-01-01\n", b"a: '2018-01-01'\n"),
         (b"a: |-\n  x\n  y\n", b'a: "x\\ny"\n'),
         (b"{a: 1, b: [1, 2]}\n", b"b:\n- 1\n- 2\na: 1\n"),
     ],
@@ -2095,7 +2095,7 @@ rules:
     "value",
     ["0.10", "1500.00", ".5", "1_000", "+5", "yes", "0x10", "1.0e+3", "010", "1:00"],
 )
-def test_review_stays_bound_when_the_dump_respells_a_scalar(value):
+def test_scalar_respelling_is_not_an_alternate_review_binding(value):
     reviewed = _rule(value)
     applied = _as_apply_rewrites(reviewed)
     # The dump changes the text of this scalar, so the plain digests differ.
@@ -2108,15 +2108,135 @@ def test_review_stays_bound_when_the_dump_respells_a_scalar(value):
         [applied_pair(applied, TEST_BYTES)],
     )
 
-    assert record["status"] == "passed"
+    assert record["status"] == "unavailable"
+    assert record["reason"] == "reviewed_content_not_applied"
     assert record["reviewed"] == _reviewed(
         applied_pair(reviewed, TEST_BYTES), rulespec=reviewed
     )
-    assert (
-        record["applied"]["rulespec_content_sha256"]
-        == (record["reviewed"]["rulespec_dumped_content_sha256"])
+    assert record["reviewed"]["rulespec_dumped_content_sha256"] is None
+    assert review_requirement_refusal(record) is not None
+
+
+@pytest.mark.parametrize("value", ["1e5", "-0o17", "+0o17", "0o17"])
+def test_plain_yaml12_number_cannot_become_a_quoted_string(value):
+    raw = _rule(value)
+    quoted = _rule(json.dumps(value))
+    assert review_content_sha256(raw, rulespec=True) != review_content_sha256(
+        quoted, rulespec=True
     )
-    assert _issues(record) == []
+    rewritten = _as_apply_rewrites(raw)
+    assert dumped_review_content_sha256(raw) is None
+    record = build_generalist_review_record(
+        _state(evidence=_evidence(rulespec=raw), required=True),
+        [applied_pair(rewritten, TEST_BYTES)],
+    )
+    assert record["status"] == "unavailable"
+    assert review_requirement_refusal(record) is not None
+
+
+def test_explicit_string_tag_stays_equivalent_to_quoted_string():
+    assert review_content_sha256(b"a: !!str 1e5\n", rulespec=True) == (
+        review_content_sha256(b"a: '1e5'\n", rulespec=True)
+    )
+
+
+@pytest.mark.parametrize("value", ["1e5", "0o17"])
+def test_explicit_tag_cannot_impersonate_an_internal_scalar_type_marker(value):
+    raw = f"a: {value}\n".encode()
+    tagged = f"a: !<axiom-review:implicit-yaml12-non-string> '{value}'\n".encode()
+    for rulespec in (True, False):
+        assert review_content_sha256(raw, rulespec=rulespec) != review_content_sha256(
+            tagged, rulespec=rulespec
+        )
+
+
+@pytest.mark.parametrize(
+    "left,right",
+    [
+        ("yes", "YES"),
+        ("on", "ON"),
+        ("off", "OFF"),
+        ("no", "NO"),
+        ("yes", "!!bool yes"),
+        ("1:00", "!!int 1:00"),
+        ("2018-01-01", "!!timestamp 2018-01-01"),
+        ("!!null garbage", "null"),
+    ],
+)
+def test_yaml11_implicit_typing_cannot_hide_changed_companion_content(left, right):
+    reviewed = f"- name: case\n  input: {{status: {left}}}\n  output: {{credit_amount: 1}}\n".encode()
+    applied = f"- name: case\n  input: {{status: {right}}}\n  output: {{credit_amount: 1}}\n".encode()
+    original = applied_pair(RULE_BYTES, reviewed)
+    changed = applied_pair(RULE_BYTES, applied)
+    assert original.test_content_sha256 != changed.test_content_sha256
+    record = build_generalist_review_record(
+        _state(evidence=_evidence(test=reviewed), required=True), [changed]
+    )
+    assert record["status"] == "unavailable"
+    assert review_requirement_refusal(record) is not None
+    forged = build_generalist_review_record(
+        _state(evidence=_evidence(test=reviewed), required=True), [original]
+    )
+    forged["applied"] = _digests(changed)
+    forged["files"] = _files(
+        (changed.rulespec_sha256, True, True), (changed.test_sha256, True, True)
+    )
+    assert _issues(forged)
+
+
+@pytest.mark.parametrize("keys", [("1", "1.0"), ("yes", "true")])
+def test_loader_key_collapse_cannot_bind_a_review_through_the_dump(keys):
+    raw = RULE_BYTES + f"extra:\n  {keys[0]}: first\n  {keys[1]}: second\n".encode()
+    rewritten = _as_apply_rewrites(raw)
+    assert dumped_review_content_sha256(raw) is None
+    pair = applied_pair(rewritten, TEST_BYTES)
+    evidence = _evidence(rulespec=raw)
+    # Even a claimed alternate digest from a producer cannot widen binding.
+    evidence["reviewed_rulespec_dumped_content_sha256"] = pair.rulespec_content_sha256
+    record = build_generalist_review_record(
+        _state(evidence=evidence, required=True), [pair]
+    )
+    assert record["status"] == "unavailable"
+    assert review_requirement_refusal(record) is not None
+
+
+@pytest.mark.parametrize(
+    "left,right",
+    [
+        (b"a: !!set {x: null}\n", b"a: {x: null}\n"),
+        (b"!!set {}\n", b"{}\n"),
+        (b"a: !!omap [x: 1]\n", b"a: [x: 1]\n"),
+        (b"module: !!set {source_verification: {source_sha256: abc}}\n", b"{}\n"),
+        (b"module: {source_verification: !!set {source_sha256: abc}}\n", b"{}\n"),
+    ],
+)
+def test_collection_tags_are_reviewed_content(left, right):
+    assert review_content_sha256(left, rulespec=True) != review_content_sha256(
+        right, rulespec=True
+    )
+
+
+def test_reader_refuses_a_forged_alternate_dump_binding():
+    record = _build()
+    record["reviewed"]["rulespec_content_sha256"] = OTHER_SHA
+    record["reviewed"]["rulespec_dumped_content_sha256"] = PAIR.rulespec_content_sha256
+    assert any("differs" in issue for issue in _issues(record))
+
+
+def test_oversized_integer_score_fails_closed_in_producer_and_reader():
+    huge = 10**400
+    assert _build(score=huge)["status"] == "unavailable"
+    record = _build()
+    record["verdict"]["score"] = huge
+    assert _issues(record)
+
+
+@pytest.mark.parametrize("raw", [b"!!null not-null\n", b"module: !!null not-null\n"])
+def test_invalid_explicit_null_is_never_an_empty_document_or_stamp(raw):
+    for rulespec in (True, False):
+        assert review_content_sha256(raw, rulespec=rulespec) != review_content_sha256(
+            b"", rulespec=rulespec
+        )
 
 
 REPEATED_KEY_RULE = b"""format: rulespec/v1
@@ -2316,15 +2436,21 @@ def test_apply_stamp_writes_these_exact_bytes(tmp_path, case):
         )
 
     assert output_file.read_bytes() == expected
-    # The binding digests the reviewed file through the same dump.
-    assert dumped_review_content_sha256(original) == review_content_sha256(
-        expected, rulespec=True
-    )
+    # The stamp stays byte-for-byte compatible; a scalar-changing stamp is
+    # not evidence that the reviewer read the applied content.
+    if case == "non-canonical-number":
+        assert dumped_review_content_sha256(original) is None
+    else:
+        assert dumped_review_content_sha256(original) == review_content_sha256(
+            expected, rulespec=True
+        )
     record = build_generalist_review_record(
         _state(evidence=_evidence(rulespec=original)),
         [applied_pair(expected, TEST_BYTES)],
     )
-    assert record["status"] == "passed"
+    assert record["status"] == (
+        "unavailable" if case == "non-canonical-number" else "passed"
+    )
 
 
 # --- documents the digest refuses ----------------------------------------

@@ -61428,7 +61428,8 @@ def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> 
         "requested_corpus_citation_path"
     ]
     source_verification["source_sha256"] = attestation["source_sha256"]
-    # The review record binds a verdict across this exact dump (#2146).
+    # The review record binds across this stamp only if the content digest
+    # stays unchanged; a dump-derived hash cannot authorize changed content.
     output_file.write_text(apply_stamp_dump(payload), encoding="utf-8")
 
 

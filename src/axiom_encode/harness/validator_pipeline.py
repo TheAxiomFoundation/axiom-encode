@@ -1073,115 +1073,100 @@ def _decode_json_object_candidate(text: str) -> dict[str, Any] | None:
     return None
 
 
-def _iter_balanced_json_object_snippets(output: str) -> list[str]:
-    """Return brace-balanced object snippets for repair-oriented parsing."""
-    snippets: list[str] = []
-    for start, char in enumerate(output):
-        if char != "{":
-            continue
+@dataclass
+class _ReviewJsonObjectSpan:
+    start: int
+    end: int | None = None
+    review_like: bool = False
+    has_passed: bool = False
 
-        depth = 0
-        in_string = False
-        escaped = False
-        for index in range(start, len(output)):
-            current = output[index]
+
+def _review_json_object_spans(output: str) -> list[_ReviewJsonObjectSpan]:
+    """Locate physical objects and review keys, including malformed fragments.
+
+    One lexical pass gives a fenced/balanced/repaired view of the same object
+    one identity. Quotes outside objects are prose; quotes within objects hide
+    braces and escaped JSON examples. A recognized review key still counts if
+    the object's value or closing brace is malformed, so a valid verdict cannot
+    silently supersede an undecodable conflicting fragment.
+    """
+    spans: list[_ReviewJsonObjectSpan] = []
+    stack: list[_ReviewJsonObjectSpan] = []
+    string_start: int | None = None
+    string_owner: _ReviewJsonObjectSpan | None = None
+    escaped = False
+    for index, current in enumerate(output):
+        if string_start is not None:
             if escaped:
                 escaped = False
-                continue
-            if current == "\\":
+            elif current == "\\":
                 escaped = True
-                continue
-            if current == '"':
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if current == "{":
-                depth += 1
-            elif current == "}":
-                depth -= 1
-                if depth == 0:
-                    snippets.append(output[start : index + 1])
-                    break
-    return snippets
-
-
-def _iter_terminal_object_brace_repairs(output: str) -> list[str]:
-    """Repair reviewer output that is missing only the final top-level brace."""
-    snippets: list[str] = []
-    for start, char in enumerate(output):
-        if char != "{":
+            elif current == '"':
+                following = index + 1
+                while following < len(output) and output[following].isspace():
+                    following += 1
+                if (
+                    string_owner is not None
+                    and following < len(output)
+                    and output[following] == ":"
+                ):
+                    with contextlib.suppress(json.JSONDecodeError):
+                        key = json.loads(output[string_start : index + 1], strict=False)
+                        if key in _REVIEW_JSON_KEYS:
+                            string_owner.review_like = True
+                        if key == "passed":
+                            string_owner.has_passed = True
+                string_start = None
+                string_owner = None
             continue
-
-        stack: list[str] = []
-        in_string = False
-        escaped = False
-        balanced_before_end = False
-        invalid = False
-        for index in range(start, len(output)):
-            current = output[index]
-            if escaped:
-                escaped = False
-                continue
-            if current == "\\":
-                escaped = True
-                continue
-            if current == '"':
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if current == "{":
-                stack.append("}")
-            elif current == "[":
-                stack.append("]")
-            elif current in "}]":
-                if not stack or stack[-1] != current:
-                    invalid = True
-                    break
-                stack.pop()
-                if not stack:
-                    balanced_before_end = True
-                    break
-
-        if invalid or balanced_before_end or in_string or stack != ["}"]:
-            continue
-
-        candidate = output[start:].strip()
-        candidate = re.sub(r"\s*```\s*$", "", candidate).strip()
-        snippets.append(candidate + "}")
-
-    return snippets
+        if current == "{":
+            span = _ReviewJsonObjectSpan(index)
+            spans.append(span)
+            stack.append(span)
+        elif current == "}" and stack:
+            stack.pop().end = index + 1
+        elif current == '"' and stack:
+            string_start = index
+            string_owner = stack[-1]
+    return spans
 
 
 def _extract_json_object(output: str) -> dict[str, Any]:
-    """Extract the reviewer JSON object from model output."""
-    candidates: list[dict[str, Any]] = []
-    fenced_blocks = re.findall(
-        r"```(?:json)?\s*(.*?)```",
-        output,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-    for block in fenced_blocks:
-        data = _decode_json_object_candidate(block)
-        if data is not None:
-            candidates.append(data)
+    """Extract one physical reviewer verdict; refuse multiple occurrences."""
+    spans = _review_json_object_spans(output)
+    reviews: list[tuple[_ReviewJsonObjectSpan, dict[str, Any] | None]] = []
+    for span in spans:
+        if not span.review_like:
+            continue
+        # Nested scores/details may be metadata, but a second explicit
+        # `passed` object is another verdict even inside a decoded wrapper.
+        # An undecodable fragment cannot hide a later object.
+        if any(
+            data is not None
+            and parent.start < span.start < (parent.end or len(output))
+            and not span.has_passed
+            for parent, data in reviews
+        ):
+            continue
+        if reviews:
+            raise ValueError("Multiple reviewer JSON verdict objects in output")
+        candidate = output[span.start : span.end]
+        if span.end is None:
+            candidate = re.sub(r"\s*```\s*$", "", candidate.strip()).strip() + "}"
+        reviews.append((span, _decode_json_object_candidate(candidate)))
+    if reviews:
+        _span, data = reviews[0]
+        if data is None or not _looks_like_review_json(data):
+            raise ValueError("Malformed reviewer JSON verdict object")
+        return data
 
-    for snippet in _iter_balanced_json_object_snippets(output):
-        data = _decode_json_object_candidate(snippet)
+    for span in spans:
+        candidate = output[span.start : span.end]
+        if span.end is None:
+            candidate = re.sub(r"\s*```\s*$", "", candidate.strip()).strip() + "}"
+        data = _decode_json_object_candidate(candidate)
         if data is not None:
-            candidates.append(data)
-
-    for snippet in _iter_terminal_object_brace_repairs(output):
-        data = _decode_json_object_candidate(snippet)
-        if data is not None:
-            candidates.append(data)
-
-    for data in candidates:
-        if _looks_like_review_json(data):
             return data
-    if candidates:
-        return candidates[0]
 
     raise ValueError("No JSON found in output")
 

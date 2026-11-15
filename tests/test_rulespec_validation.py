@@ -37890,6 +37890,110 @@ def test_extract_json_object_repairs_missing_terminal_object_brace():
     ]
 
 
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [(True, False), (False, True), (True, True), (False, False)],
+)
+@pytest.mark.parametrize("fenced", [False, True])
+def test_extract_json_object_refuses_multiple_physical_verdicts(first, second, fenced):
+    def verdict(passed):
+        return json.dumps({"passed": passed, "score": 9 if passed else 2})
+
+    draft, final = verdict(first), verdict(second)
+    if fenced:
+        draft = f"```json\n{draft}\n```"
+        final = f"```json\n{final}\n```"
+
+    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+        _extract_json_object(f"Draft:\n{draft}\nFinal:\n{final}")
+
+
+@pytest.mark.parametrize("fragment_first", [False, True])
+@pytest.mark.parametrize("fragment", ['{"passed": false', '{"passed": fals}'])
+def test_extract_json_object_refuses_a_second_malformed_verdict(
+    fragment_first, fragment
+):
+    valid = '{"passed": true, "score": 9}'
+    output = (
+        f"{fragment}\nFinal:\n{valid}"
+        if fragment_first
+        else f"{valid}\nFinal:\n{fragment}"
+    )
+
+    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+        _extract_json_object(output)
+
+
+def test_extract_json_object_counts_fenced_repaired_payload_only_once():
+    output = '```json\n{"passed": true, "score": 9, "issues": [],}\n```'
+
+    assert _extract_json_object(output) == {"passed": True, "score": 9, "issues": []}
+
+
+def test_extract_json_object_keeps_nested_metadata_and_quoted_json_in_one_payload():
+    payload = {
+        "passed": True,
+        "score": 9,
+        "metadata": {"score": 1, "transport": {"request_id": "r1"}},
+        "reasoning": 'A string example {"passed": false} is not another object.',
+    }
+    output = json.dumps({"type": "thread.started", "metadata": {"id": "r1"}})
+    output += f"\n```json\n{json.dumps(payload)}\n```\n"
+    output += json.dumps({"type": "complete", "metadata": {"id": "r1"}})
+
+    assert _extract_json_object(output) == payload
+
+
+def test_extract_json_object_accepts_one_review_inside_transport_metadata():
+    payload = {"passed": True, "score": 9, "issues": []}
+
+    assert (
+        _extract_json_object(json.dumps({"type": "message", "payload": payload}))
+        == payload
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"passed": True, "score": 9, "final": {"passed": False, "score": 1}},
+        {"passed": False, "score": 1, "draft": {"passed": True, "score": 9}},
+        {"score": 9, "payload": {"passed": False, "score": 1}},
+    ],
+)
+def test_extract_json_object_refuses_a_second_explicit_nested_verdict(payload):
+    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+        _extract_json_object(json.dumps(payload))
+
+
+@pytest.mark.parametrize("first", [True, False])
+def test_reviewer_multiple_verdicts_fail_closed_as_parse_failure(
+    monkeypatch, tmp_path, first
+):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\nrules: []\n")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    output = "\n".join(
+        json.dumps({"passed": passed, "score": 9 if passed else 2})
+        for passed in [first, not first]
+    )
+    monkeypatch.setattr(
+        validator_pipeline, "run_claude_code", lambda *a, **k: (output, 0)
+    )
+
+    result = pipeline._run_reviewer("generalist-reviewer", rules_file)
+
+    assert result.passed is False
+    assert result.score is None
+    assert "reviewer_parse_failed" in result.issues
+    assert "Multiple reviewer JSON verdict objects" in result.error
+    assert result.raw_output == output
+
+
 def test_rulespec_ci_executes_companion_test_outputs(real_engine, tmp_path):
     citation_path = "us/guidance/example/sua"
     release = _write_local_corpus_provision(

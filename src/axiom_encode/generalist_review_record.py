@@ -30,20 +30,20 @@ here turns a missing or unreadable value into ``passed``.
 "The same content" is decided by a content digest, not by file bytes. Between
 the review and the apply, ``encode --apply`` always rewrites the candidate
 once: it stamps ``module.source_verification`` with the resolver's attested
-corpus path and source hash and dumps the YAML again. That rewrite changes
-every byte digest and no rule. The content digest is the SHA-256 of the YAML
+corpus path and source hash and dumps the YAML again. That rewrite can change
+scalar values as well as file bytes. The content digest is the SHA-256 of the YAML
 node tree (each scalar with its resolved type and its exact text), with those
-two stamped keys left out. Key order, quoting style and comments do not
-change it; any other edit does, including one that only a YAML 1.1 reader
+two stamped keys left out. Key order, harmless quoting and comments do not
+change it; other edits do, including one that only a YAML 1.1 reader
 treats as equal (``yes`` and ``true``, ``010`` and ``8``). A document with a
-repeated key, an alias or a merge key has no content digest.
+repeated key, a collection alias or a merge key has no content digest.
 
-The dump also respells some scalars (``0.10`` becomes ``0.1``, ``1_000``
-becomes ``1000``, ``yes`` becomes ``true``). So an applied file is bound to
-the review when its content digest equals the digest of the reviewed file,
-or the digest of the reviewed file after the same dump call that apply makes
-(:func:`apply_stamp_dump`). Nothing looser is accepted. The record also names
-the byte digests on both sides.
+An applied file is bound only when its content digest equals that of the
+reviewed file. A different dump-derived digest is never an alternate binding:
+the dump may collapse keys or change YAML 1.2 types. Scalar respellings that
+this digest cannot establish as equal leave the verdict unavailable, even
+when a particular respelling might be harmless. The record also names byte
+digests on both sides.
 
 The record holds only enumerated words, numbers and digests. Reviewer prose
 (issues, reasoning) never enters it, so model output cannot place a string of
@@ -62,7 +62,7 @@ from typing import Any, Iterable, Mapping
 import yaml
 
 from axiom_encode.checks import ValidationIssue, declare_check
-from axiom_encode.yaml_serialization import safe_dump_yaml
+from axiom_encode.yaml_serialization import is_yaml12_core_non_string, safe_dump_yaml
 
 GENERALIST_REVIEW_FIELD = "generalist_review"
 GENERALIST_REVIEW_SCHEMA = "axiom-encode/generalist-review/v1"
@@ -192,22 +192,53 @@ _FILE_FIELDS = frozenset({"sha256", "reviewed", "complete"})
 # The two keys `encode --apply` stamps into module.source_verification.
 _SOURCE_STAMP_KEYS = ("corpus_citation_path", "source_sha256")
 _NULL_TAG = "tag:yaml.org,2002:null"
+_NULL_LEXEMES = frozenset({"", "~", "null", "Null", "NULL"})
 _BOOL_TAG = "tag:yaml.org,2002:bool"
+_STR_TAG = "tag:yaml.org,2002:str"
+_YAML11_TYPED_SCALARS = frozenset(
+    {
+        _BOOL_TAG,
+        "tag:yaml.org,2002:int",
+        "tag:yaml.org,2002:float",
+        "tag:yaml.org,2002:timestamp",
+    }
+)
+_MAP_TAG = "tag:yaml.org,2002:map"
+_SEQ_TAG = "tag:yaml.org,2002:seq"
+
+
+class _ReviewContentLoader(yaml.SafeLoader):
+    """Retain whether a scalar's tag was implicit, without global changes."""
+
+    def compose_scalar_node(self, anchor):
+        event = self.peek_event()
+        node = super().compose_scalar_node(anchor)
+        node._review_implicit_plain = event.implicit[0]
+        return node
 
 
 def _is_empty(node: yaml.Node | None) -> bool:
     if node is None:
         return True
     if isinstance(node, yaml.ScalarNode):
-        return node.tag == _NULL_TAG
-    return not node.value
+        return node.tag == _NULL_TAG and node.value in _NULL_LEXEMES
+    return (
+        isinstance(node, yaml.MappingNode)
+        and node.tag == _MAP_TAG
+        or isinstance(node, yaml.SequenceNode)
+        and node.tag == _SEQ_TAG
+    ) and not node.value
 
 
 def _mapping_item(node: yaml.Node | None, key: str) -> yaml.Node | None:
-    if not isinstance(node, yaml.MappingNode):
+    if not isinstance(node, yaml.MappingNode) or node.tag != _MAP_TAG:
         return None
     for key_node, value_node in node.value:
-        if isinstance(key_node, yaml.ScalarNode) and key_node.value == key:
+        if (
+            isinstance(key_node, yaml.ScalarNode)
+            and key_node.tag == _STR_TAG
+            and key_node.value == key
+        ):
             return value_node
     return None
 
@@ -231,17 +262,44 @@ def _canonical_node(
         return None
     if isinstance(node, yaml.ScalarNode):
         value = node.value
-        if node.tag == _NULL_TAG:
+        tag = node.tag
+        implicit_yaml12_non_string = False
+        implicit_plain = getattr(node, "_review_implicit_plain", False)
+        if (
+            implicit_plain
+            and tag in _YAML11_TYPED_SCALARS
+            and not is_yaml12_core_non_string(value)
+        ):
+            # YAML 1.1-only implicit types (yes/ON, sexagesimal numbers,
+            # dates, etc.) are strings for a YAML 1.2 core consumer. Preserve
+            # their case and distinguish them from explicit type tags.
+            tag = _STR_TAG
+        if tag == _STR_TAG and implicit_plain and is_yaml12_core_non_string(value):
+            # PyYAML 1.1 calls plain `1e5` a string, but a YAML 1.2 consumer
+            # reads a number. Quoting it must change the binding. Explicit
+            # !!str scalars remain strings; harmless quoting stays neutral.
+            # Keep this distinction outside the tag namespace: an explicit
+            # user tag must not be able to impersonate an internal marker.
+            implicit_yaml12_non_string = True
+        if tag == _NULL_TAG and value in _NULL_LEXEMES:
             value = ""  # `key:`, `~` and `null` are one value, dumped as `null`
-        elif node.tag == _BOOL_TAG:
-            value = value.lower()  # `True` is dumped as `true`; `yes` stays `yes`
-        return ["scalar", node.tag, value]
+        elif tag == _BOOL_TAG and value in {
+            "true",
+            "True",
+            "TRUE",
+            "false",
+            "False",
+            "FALSE",
+        }:
+            value = value.lower()
+        return ["scalar", tag, value, implicit_yaml12_non_string]
     if id(node) in seen:
         raise ValueError("YAML alias")
     seen.add(id(node))
     if isinstance(node, yaml.SequenceNode):
         return [
             "sequence",
+            node.tag,
             [_canonical_node(item, drop=drop, seen=seen) for item in node.value],
         ]
     if isinstance(node, yaml.MappingNode):
@@ -259,10 +317,14 @@ def _canonical_node(
             keys.add(key)
             # A left-out value is still walked, so an alias of it is refused.
             item = _canonical_node(value_node, drop=drop, seen=seen)
-            if isinstance(key_node, yaml.ScalarNode) and key_node.value in dropped:
+            if (
+                isinstance(key_node, yaml.ScalarNode)
+                and key_node.tag == _STR_TAG
+                and key_node.value in dropped
+            ):
                 continue
             items.append([key, item])
-        return ["mapping", sorted(items)]
+        return ["mapping", node.tag, sorted(items)]
     raise TypeError(f"unsupported YAML node {type(node).__name__}")
 
 
@@ -279,17 +341,18 @@ def review_content_sha256(raw: bytes | None, *, rulespec: bool) -> str | None:
         root: yaml.Node | None = None
     else:
         try:
-            root = yaml.compose(raw.decode("utf-8"), Loader=yaml.SafeLoader)
+            root = yaml.compose(raw.decode("utf-8"), Loader=_ReviewContentLoader)
         except (UnicodeError, yaml.YAMLError, RecursionError, ValueError):
             return None
     drop: dict[int, frozenset[str]] = {}
     if rulespec and isinstance(root, yaml.MappingNode):
         module = _mapping_item(root, "module")
         verification = _mapping_item(module, "source_verification")
-        if isinstance(verification, yaml.MappingNode):
+        if isinstance(verification, yaml.MappingNode) and verification.tag == _MAP_TAG:
             drop[id(verification)] = frozenset(_SOURCE_STAMP_KEYS)
             if all(
                 isinstance(key_node, yaml.ScalarNode)
+                and key_node.tag == _STR_TAG
                 and key_node.value in _SOURCE_STAMP_KEYS
                 for key_node, _value in verification.value
             ):
@@ -301,7 +364,7 @@ def review_content_sha256(raw: bytes | None, *, rulespec: bool) -> str | None:
             drop[id(root)] = frozenset({"module"})
     try:
         canonical_value = _canonical_node(root, drop=drop, seen=set())
-        if _is_empty(root) or canonical_value == ["mapping", []]:
+        if _is_empty(root) or canonical_value == ["mapping", _MAP_TAG, []]:
             canonical_value = None
         canonical = json.dumps(
             canonical_value,
@@ -329,10 +392,12 @@ def apply_stamp_dump(payload: object) -> str:
 
 
 def dumped_review_content_sha256(raw: bytes) -> str | None:
-    """Digest a reviewed RuleSpec as apply would rewrite it, or None.
+    """Digest the apply dump only when the reviewed digest stays equal.
 
     Apply loads the candidate with ``yaml.safe_load`` and dumps it with
     :func:`apply_stamp_dump`; it rewrites nothing that is not a mapping.
+    A changed scalar spelling or collapsed key cannot supply an alternate
+    binding, even if a particular change might preserve a numeric value.
     """
 
     try:
@@ -342,7 +407,9 @@ def dumped_review_content_sha256(raw: bytes) -> str | None:
         dumped = apply_stamp_dump(payload).encode("utf-8")
     except (UnicodeError, yaml.YAMLError, RecursionError, ValueError, TypeError):
         return None
-    return review_content_sha256(dumped, rulespec=True)
+    original_digest = review_content_sha256(raw, rulespec=True)
+    dumped_digest = review_content_sha256(dumped, rulespec=True)
+    return dumped_digest if dumped_digest == original_digest else None
 
 
 @dataclass(frozen=True)
@@ -406,7 +473,10 @@ def _is_sha256(value: object) -> bool:
 def _finite_score(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    number = float(value)
+    try:
+        number = float(value)
+    except (OverflowError, ValueError):
+        return None
     if not math.isfinite(number) or number < 0.0 or number > _MAX_SCORE:
         return None
     return number
@@ -550,18 +620,16 @@ def build_generalist_review_record(
     }
     if not _is_sha256(reviewed[_DUMPED_FIELD]):
         reviewed[_DUMPED_FIELD] = None
-    # The applied RuleSpec is the reviewed one, or the reviewed one after the
-    # dump that apply performs. Nothing else counts.
-    reviewed_rulespec_contents = {
-        reviewed["rulespec_content_sha256"],
-        reviewed[_DUMPED_FIELD],
-    } - {None}
+    # A dump-derived hash is diagnostic only. It cannot authorize content
+    # different from the reviewed node tree, even if the loader collapsed it.
+    if reviewed[_DUMPED_FIELD] != reviewed["rulespec_content_sha256"]:
+        reviewed[_DUMPED_FIELD] = None
     bound_pair = next(
         (
             pair
             for pair in pairs
             if _is_sha256(pair.rulespec_sha256)
-            and pair.rulespec_content_sha256 in reviewed_rulespec_contents
+            and pair.rulespec_content_sha256 == reviewed["rulespec_content_sha256"]
             and pair.test_content_sha256 == reviewed["test_content_sha256"]
             and (pair.test_sha256 is None or _is_sha256(pair.test_sha256))
         ),
@@ -782,8 +850,7 @@ def generalist_review_record_issues(
         return found
 
     if (
-        applied_block["rulespec_content_sha256"]
-        not in {reviewed["rulespec_content_sha256"], reviewed[_DUMPED_FIELD]} - {None}
+        applied_block["rulespec_content_sha256"] != reviewed["rulespec_content_sha256"]
         or applied_block["test_content_sha256"] != reviewed["test_content_sha256"]
     ):
         found += [
@@ -791,6 +858,10 @@ def generalist_review_record_issues(
                 "generalist_review verdict is on content that differs from the "
                 "applied content"
             )
+        ]
+    if reviewed[_DUMPED_FIELD] not in {None, reviewed["rulespec_content_sha256"]}:
+        found += [
+            binding("generalist_review dump digest differs from reviewed content")
         ]
     pair_files = {
         digest
