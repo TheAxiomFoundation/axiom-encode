@@ -152,6 +152,62 @@ def test_actual_source_three_boundary_cases_and_exact_projection():
     assert owns(evidence, payload, cases, start=886)
 
 
+@pytest.mark.parametrize("first", [False, True])
+@pytest.mark.parametrize("vector", [{"existing_child": 150}, [150, 150]])
+def test_unrelated_table_case_does_not_supply_or_disable_country_evidence(
+    first, vector
+):
+    payload, cases = fixture()
+    baseline = certify(payload, cases)
+    unrelated = {
+        "name": "unrelated child projection",
+        "period": copy.deepcopy(cases[0]["period"]),
+        "input": {},
+        "tables": {"Child": {"existing_child": {}}},
+        "output": {PREFIX + "unrelated_child_credit": vector},
+    }
+    extended = [unrelated] + cases if first else cases + [unrelated]
+    evidence = certify(payload, extended)
+    assert not evidence.unresolved
+    assert evidence.pairs == tuple(
+        (name, a + int(first), b + int(first)) for name, a, b in baseline.pairs
+    )
+    assert owns(evidence, payload, extended)
+    assert not owns(evidence, payload, cases)
+    assert certify(payload, [unrelated]).unresolved
+
+
+@pytest.mark.parametrize("foreign", [False, True])
+def test_country_owner_table_case_still_refuses(foreign):
+    payload, cases = fixture()
+    cases[0]["tables"] = {"Child": {"existing_child": {}}}
+    if foreign:
+        value = cases[0]["output"].pop(PREFIX + c.OWNER)
+        cases[0]["output"]["foreign#" + c.OWNER] = value
+    assert certify(payload, cases).unresolved
+
+
+@pytest.mark.parametrize("field", ["input", "output"])
+def test_unrelated_malformed_case_still_refuses(field):
+    payload, cases = fixture()
+    unrelated = {"name": "malformed unrelated", "input": {}, "output": {}}
+    unrelated[field] = []
+    assert certify(payload, cases + [unrelated]).unresolved
+
+
+def test_retained_complete_companion_keeps_country_certificate():
+    directory = Path(__file__).parent / "fixtures/t2036_country_case_selection"
+    payload = yaml.safe_load((directory / "candidate.yaml").read_text())
+    cases = yaml.safe_load((directory / "candidate.test.yaml").read_text())
+    source = (directory / "source.txt").read_text()
+    assert len(cases) == 45
+    assert source == SOURCE
+    evidence = certify(payload, cases, source)
+    assert not evidence.unresolved
+    assert len(evidence.pairs) == 2
+    assert owns(evidence, payload, cases)
+
+
 def test_interpretation_of_an_omitted_rule_does_not_change_country_evidence():
     payload, cases = fixture()
     assert payload["format"] == "rulespec/v1"

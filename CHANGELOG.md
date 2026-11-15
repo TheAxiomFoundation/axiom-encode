@@ -1,3 +1,32 @@
+## 0.2.2374
+
+- Preserve authenticated companion assertions during constrained repairs (#2203)
+- Correct the promotion-order decision status (#2246)
+- Use constructed modules in declared-dtype and repair tests (#2247)
+
+## 0.2.2373
+
+- Read (i) under paragraph (h) as a roman item when (ii) follows at its level (#2115)
+
+## 0.2.2372
+
+- Register reviewed Nova Scotia NS479 repair (#2244)
+
+## 0.2.2371
+
+- Register reviewed T2036 full-artifact repair (#2241)
+
+## 0.2.2370
+
+- fix: scope T2036 country evidence to its asserted cases (#2232)
+- Register reviewed NL479 and NB Schedule 12 source-binding repairs (#2236)
+- fix: load reviewed repair packages through protected Git (#2233)
+
+## 0.2.2369
+
+- fix: validate complete retirement transfer execution (#2105)
+- Register the reviewed Schedule 2 repair with all original expectations (#2228)
+
 ## 0.2.2368
 
 - Register exact Schedule M repair preserving all companion cases (#2223)
