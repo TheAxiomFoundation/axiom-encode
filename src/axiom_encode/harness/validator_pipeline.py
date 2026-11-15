@@ -25665,6 +25665,58 @@ _NUMERIC_DERIVED_DTYPES = {
     "number",
     "rate",
 }
+# Corpus document classes whose modules live under `policies/` with the same
+# path tail (`evals._RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN`). A deferral that
+# copies the class, as `us-az:manuals/...` for `us-az/manual/...`, names no
+# module; `us-az:policies/...` does.
+_DEFERRED_OUTPUT_ROOT_BY_SOURCE_CLASS = {
+    "form": "policies",
+    "forms": "policies",
+    "guidance": "policies",
+    "manual": "policies",
+    "manuals": "policies",
+    "policy": "policies",
+}
+CHECK_DEFERRED_OUTPUT_TARGET_NOT_ABSOLUTE = declare_check(
+    "deferred-outputs/target-not-absolute",
+    title="Deferred output is not an absolute RuleSpec output target",
+    requires=(
+        "Each `module.deferred_outputs[].output` is "
+        "`<jurisdiction>:<root>/<path>#<output>` with the root `legislation`, "
+        "`policies`, `regulations` or `statutes`."
+    ),
+    why=(
+        "A deferral records which output is still missing so that a later "
+        "encode can supply it. A target outside the RuleSpec module roots names "
+        "no module, so nobody can find or close the gap."
+    ),
+    fix=(
+        "Write the deferred output under the module's own RuleSpec target, the "
+        "prefix that its companion tests use, and add `#<output>`. Manual, "
+        "guidance, policy and form sources are encoded under `policies/`, not "
+        "`manuals/` or `forms/`."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site="axiom_encode/harness/validator_pipeline.py:find_deferred_output_issues",
+)
+
+
+def _deferred_output_with_module_root(
+    output: str,
+) -> tuple[str, str, str] | None:
+    """Return the corpus class root, its module root and the corrected output."""
+
+    prefix, separator, path = output.partition(":")
+    root, slash, tail = path.partition("/")
+    module_root = _DEFERRED_OUTPUT_ROOT_BY_SOURCE_CLASS.get(root)
+    if not (separator and slash and module_root):
+        return None
+    corrected = f"{prefix}:{module_root}/{tail}"
+    corrected_ref = _parse_rulespec_target(corrected)
+    if corrected_ref is None or corrected_ref.symbol is None:
+        return None
+    return root, module_root, corrected
 
 
 def find_deferred_output_issues(content: str) -> list[str]:
@@ -25698,9 +25750,27 @@ def find_deferred_output_issues(content: str) -> list[str]:
         output = str(record.get("output") or "").strip()
         output_ref = _parse_rulespec_target(output) if output else None
         if output_ref is None or output_ref.symbol is None:
+            corrected = _deferred_output_with_module_root(output)
+            root_hint = (
+                f" `{corrected[0]}/` is a corpus document class, not a RuleSpec "
+                f"module root; its modules are under `{corrected[1]}/`. Use the "
+                f"module's own target, for example `{corrected[2]}`."
+                if corrected
+                else ""
+            )
             issues.append(
-                f"{label}.output must use an absolute RuleSpec output target "
-                "such as `us:statutes/26/63/f#additional_amount`."
+                ValidationIssue(
+                    f"{label}.output must use an absolute RuleSpec output target "
+                    f"such as `us:statutes/26/63/f#additional_amount`.{root_hint}",
+                    check=CHECK_DEFERRED_OUTPUT_TARGET_NOT_ABSOLUTE,
+                    subject=IssueSubject(field=f"{label}.output"),
+                    expected=(
+                        corrected[2]
+                        if corrected
+                        else "<jurisdiction>:<root>/<path>#<output>"
+                    ),
+                    found=output or "<empty output>",
+                )
             )
 
         reason = str(record.get("reason") or "").strip()

@@ -679,6 +679,13 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   mixed provision, add `module.deferred_outputs[]` with absolute RuleSpec
   targets for `output`, a plain-language `reason`, and `source_values` entries
   for any source-stated local parameters retained only for that deferred output.
+  An absolute target is the module's own RuleSpec target, the same
+  `<jurisdiction>:<root>/<path>` prefix its companion tests use, plus
+  `#<output>`. The root is `statutes`, `regulations`, `policies` or
+  `legislation`. A manual, guidance, policy or form source is encoded under
+  `policies/`, never `manuals/` or `forms/`: a deferral in the manual unit
+  `us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-10` is
+  `us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#private_vehicle_mileage_amount`.
   If those scalar legal values are independently encoded as `kind: parameter`
   rules in the same file, do not also demote them to prose or rely on
   `source_values` instead.
@@ -1730,7 +1737,11 @@ Complete-source-unit mode is enabled for this request:
   Satz enumerations. If a branch cannot be encoded, use a precise typed
   deferral that names the exact branch and its missing dependency or citation;
   never omit it silently. Put the structural branch in the deferred output
-  path (for example, `de:statutes/estg/32a/6#surviving_spouse_tariff`). Include
+  path (for example, `de:statutes/estg/32a/6#surviving_spouse_tariff`). Add a
+  branch segment only for a marker that the source prints, such as `(a)`,
+  `1.` or `A.`. Never invent a branch label such as `/private-vehicles` for
+  unmarked manual prose: keep the module's own target and quote the source
+  sentence and its missing value in `reason`. Include
   `blocked_by` only for known exact RuleSpec targets with a `#rule_fragment`;
   otherwise omit `blocked_by` and name the exact missing legal dependency or
   citation in `reason`. For a runtime-gap deferral of a current-source branch,

@@ -1,0 +1,1 @@
+Tell the encoder that a deferral in a manual, guidance, policy or form unit uses the module's own `policies/` target, not `manuals/` or `forms/`, and that unmarked prose gets no invented branch label; the deferred-output target refusal is now a typed check (`deferred-outputs/target-not-absolute`) that names the corrected `policies/` target.

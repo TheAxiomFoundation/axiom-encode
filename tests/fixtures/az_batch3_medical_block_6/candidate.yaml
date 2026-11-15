@@ -1,0 +1,140 @@
+format: rulespec/v1
+module:
+  summary: |-
+    The costs for employing any of the following are allowable medical expenses:
+    When the participant provides two or more of the assistant's daily meals, an amount equal to the maximum NA allotment for a one-person budgetary unit is allowable.
+    When the budgetary unit has assistance care costs that could qualify as either a medical or a dependent care expense, the cost is allowed as a medical expense.
+  source_verification:
+    corpus_citation_path: us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-6
+    source_sha256: b718238906168c762bf613588bff6261da4d98479777c019746052cc9f64d37b
+  proof_validation:
+    required: true
+  deferred_outputs:
+    - output: us-az:manuals/des/faa5/na-medical-expenses-and-deduction/block-6/assistant-meals#assistant_meals_allowable_amount
+      reason: Cannot be computed until Thrifty Food Plan is encoded.
+  # The deferred amount is the one-person maximum NA allotment from
+  # Thrifty Food Plan, unavailable in copied context. Its two-meal
+  # condition remains executable below. No dollar amount is assumed.
+inputs:
+  - name: cost_is_for_employing_assistant
+    entity: Payment
+    dtype: Boolean
+    period: Month
+  - name: assistant_role
+    entity: Payment
+    dtype: String
+    period: Month
+  - name: participant_provided_assistant_daily_meals
+    entity: Person
+    dtype: Count
+    period: Month
+  - name: budgetary_unit_has_this_assistance_care_cost
+    entity: Payment
+    dtype: Boolean
+    period: Month
+  - name: assistance_care_cost_could_qualify_as_medical_expense
+    entity: Payment
+    dtype: Boolean
+    period: Month
+  - name: assistance_care_cost_could_qualify_as_dependent_care_expense
+    entity: Payment
+    dtype: Boolean
+    period: Month
+rules:
+  - name: assistant_employment_cost_allowable_as_medical
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Medical Expenses and Deduction, block 6, employment list
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-6
+              excerpt: "The costs for employing any of the following are allowable medical expenses:"
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-6
+              excerpt: |-
+                ● Attendant
+
+                ● Dependent care service
+
+                ● Homemaker
+
+                ● Home health aide
+
+                ● Housekeeper
+
+                ● Nurse
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          cost_is_for_employing_assistant
+          and (
+            assistant_role == "Attendant"
+            or assistant_role == "Dependent care service"
+            or assistant_role == "Homemaker"
+            or assistant_role == "Home health aide"
+            or assistant_role == "Housekeeper"
+            or assistant_role == "Nurse"
+          )
+  - name: assistant_meals_minimum_daily_count
+    kind: parameter
+    dtype: Count
+    period: Month
+    source: Arizona DES FAA5, NA Medical Expenses and Deduction, block 6, assistant meals
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-6
+              excerpt: "When the participant provides two or more of the assistant's daily meals"
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          2
+  - name: assistant_meals_allowance_meal_condition_met
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Medical Expenses and Deduction, block 6, assistant meals
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-6
+              excerpt: "When the participant provides two or more of the assistant's daily meals"
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          participant_provided_assistant_daily_meals >= assistant_meals_minimum_daily_count
+  - name: dual_qualifying_assistance_care_cost_allowed_as_medical
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Medical Expenses and Deduction, block 6, assistance care coordination
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-6
+              excerpt: "When the budgetary unit has assistance care costs that could qualify as either a medical or a dependent care expense, the cost is allowed as a medical expense."
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          budgetary_unit_has_this_assistance_care_cost
+          and assistance_care_cost_could_qualify_as_medical_expense
+          and assistance_care_cost_could_qualify_as_dependent_care_expense
