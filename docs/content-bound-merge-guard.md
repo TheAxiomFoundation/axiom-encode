@@ -6,7 +6,7 @@ workflow runs the evaluator, no check run is written, no GitHub App exists, no
 branch protection changes, and no manifest writer knows the schema the
 evaluator parses. A reader for that schema exists
 (`src/axiom_encode/applied_manifest_v6.py`, change 2 of §8) and is switched
-off: `V6_READER_ENABLED` is `False`, so every verifier still refuses a v6
+off: `V6_READER_ENABLED` is `False`, so every verifier refuses a v6
 manifest. Every promotion still uses the order in
 `docs/reviewed-pr-promotion.md`. Tracking issue: #2172.
 
