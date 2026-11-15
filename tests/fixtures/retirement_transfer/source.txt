@@ -1,0 +1,84 @@
+Revenu Quebec Schedule Q 2025 - Retirement Income Transferred to Your Spouse
+
+T P -1. D.Q-V (2025-12)
+T
+
+SCHEDULE
+
+Retirement Income Transferred to Your Spouse
+
+Q
+
+If you were born before January 1, 1961, and you had a spouse on December 31, 2025, you and your spouse can jointly decide to include a portion
+of your retirement income in the calculation of your spouse’s income. For more information, see “Transfer of retirement income between spouses”
+in the instructions for line 122 in the guide.
+NOTE
+If you transfer a portion of your retirement income to your spouse, you must also transfer the corresponding Québec income tax withheld from that income.
+
+Only the person transferring retirement income must enclose Schedule Q with their return.
+Your spouse’s
+social insurance number
+
+Last name and first name of your spouse on December 31, 2025
+3
+
+A
+
+4
+
+Retirement income transferred to your spouse
+
+Amount from line 122 of your return. If you received amounts under a retirement compensation arrangement,
+see “Eligible retirement income” in the instructions for line 122 in the guide.
+Amount from line 10 used to purchase an annuity or transferred to an RRSP, a RRIF
+or a PRPP/VRSP (included in the amount on line 250 [point 4])
+12
+Deduction claimed on line 250 (point 6) for a refund of unused PRPP/VRSP
+contributions included in the amount on line 10 above
++ 13
+Deduction claimed on line 293 of your return for the amount on line 10
++ 14
+Deduction claimed on line 297 (point 12) of your return for the amount on line 10
++ 16
+Add lines 12 through 16.
+=
+Subtract line 18 from line 10.
+Retirement income you are transferring to your spouse on December 31, 2025 (maximum: 50% of the amount on line 20).
+Carry this amount to line 245 of your return.
+Your spouse must enter the same amount on line 123 of their return.
+
+B
+
+10
+
+18
+
+= 20
+
+22
+
+Québec income tax withholding transferred to your spouse
+
+Québec income tax withheld (RL-2 slip, box J ) from the income on line 20.
+If the income includes amounts received under a retirement compensation arrangement,
+include, on this line, the amount shown in box E of your RL-1 slip.
+Amount from line 22
+Amount from line 20
+Multiply line 50 by line 52. Divide the result by line 53.
+Carry this amount to line 451.1 of your return.
+Your spouse must enter the same amount on line 451.3 of their return.
+
+Enclose this schedule with your return.
+If you want to keep a copy for your records, see the guide.
+
+50
+52
+53
+
+58
+
+Y4Q1 ZZ 89528149
+
+Prescribed form
+
+Q

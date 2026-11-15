@@ -79,7 +79,12 @@ RECORDED_FAILURE_CLASSES = COMPLETENESS_RULES | {
     "proof:excerpt-not-found",
     "tests:wrong-expected-value",
 }
-MAX_FIXTURE_BYTES = 5 * 1024 * 1024
+BASE_MAX_FIXTURE_BYTES = 5 * 1024 * 1024
+# The public raw-merge regression adds 61,524 bytes. Keep every other fixture
+# within the original budget and bound this one case to a 64 KiB allowance.
+RAW_MERGE_FIXTURE = "local-date-silent-merge-41088317595"
+RAW_MERGE_FIXTURE_ALLOWANCE = 64 * 1024
+MAX_FIXTURE_BYTES = BASE_MAX_FIXTURE_BYTES + RAW_MERGE_FIXTURE_ALLOWANCE
 LABEL_KEYS = ("expected_class", "expected_subclass", "class_evidence", "class_source")
 # Private corpus: never committed (see docs/us-replay-benchmark.md).
 PRIVATE_CITATION_PREFIXES = ("us/regulation/12/1005", "us/regulation/12/1006")
@@ -246,6 +251,13 @@ def test_fixtures_carry_provenance_and_stay_small():
         )
 
     assert total <= MAX_FIXTURE_BYTES
+    raw_merge_bytes = sum(
+        path.stat().st_size
+        for path in (FIXTURES / RAW_MERGE_FIXTURE).rglob("*")
+        if path.is_file()
+    )
+    assert 0 < raw_merge_bytes <= RAW_MERGE_FIXTURE_ALLOWANCE
+    assert total - raw_merge_bytes <= BASE_MAX_FIXTURE_BYTES
 
 
 @pytest.mark.parametrize(

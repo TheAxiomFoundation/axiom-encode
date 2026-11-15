@@ -11,6 +11,7 @@ import functools
 import json
 import os
 from datetime import date
+from pathlib import Path
 
 import pytest
 import yaml
@@ -481,3 +482,97 @@ def test_real_engine_explicit_null_versions_are_not_blank_vectors(
     completed, _output = compile_raw_control(real_engine, tmp_path, content)
     assert completed.returncode != 0
     assert "expected a sequence" in completed.stderr
+
+
+def test_public_raw_merge_regression_retains_its_original_inputs():
+    import hashlib
+
+    from scripts.replay_us_failure_bundles import load_fixture, replay_case
+
+    root = Path(__file__).parent / "fixtures/us_replay_benchmark"
+    directory = root / "local-date-silent-merge-41088317595"
+    case = load_fixture(directory)
+    mutation = case.provenance["mutation"]
+    parent = root / mutation["base_fixture"]
+    original = (parent / "candidate.yaml").read_text()
+    [replacement] = mutation["replacements"]
+    assert original.count(replacement["old"]) == 1
+    assert original.replace(replacement["old"], replacement["new"], 1) == case.candidate
+    assert mutation["not_historical_encoder_output"] is True
+    for name, digest in mutation["original_hashes"].items():
+        assert hashlib.sha256((parent / name).read_bytes()).hexdigest() == digest
+        if name != "candidate.yaml":
+            assert (directory / name).read_bytes() == (parent / name).read_bytes()
+    for relative in case.provenance["context_imports"].values():
+        assert (directory / relative).read_bytes() == (parent / relative).read_bytes()
+    recorded = json.loads((directory / "issues.json").read_text())
+    assert len(recorded["issues"]) == 1
+    assert "2025-10-01" in recorded["issues"][0]
+    assert "complete-source-unit:effective-date" in recorded["issues"][0]
+    replayed = replay_case(case)
+    assert replayed["error"] is None
+    assert replayed["issues"] == []
+
+
+def test_real_engine_public_raw_merge_preserves_the_program_and_companion(
+    real_engine, tmp_path
+):
+    from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+    from axiom_encode.rules_engine_compat import run_rulespec_compile
+    from scripts.replay_us_failure_bundles import load_fixture
+
+    root = Path(__file__).parent / "fixtures/us_replay_benchmark"
+    directory = root / "local-date-silent-merge-41088317595"
+    case = load_fixture(directory)
+    original = load_fixture(root / "41088317595")
+    checkout = tmp_path / "rulespec-us"
+    country = checkout / case.policy_prefix
+    program = country / case.module_path
+    program.parent.mkdir(parents=True)
+    for target, content in case.context.items():
+        path = (country / target.split(":", 1)[1]).with_suffix(".yaml")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    receipt = json.loads(
+        real_engine.binary.with_name("axiom-rules-engine.provenance.json").read_text()
+    )
+    assert receipt["binary_sha256"] == real_engine.sha256
+    config = checkout / ".axiom/toolchain.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        f'[toolchain]\naxiom_rules_engine_ref = "{receipt["engine_commit"]}"\n'
+    )
+    program.with_name(program.stem + ".test.yaml").write_text(case.tests)
+    payloads = []
+    for index, content in enumerate((original.candidate, case.candidate)):
+        program.write_text(content)
+        output = tmp_path / f"compiled-{index}.json"
+        compiled = run_rulespec_compile(
+            binary=real_engine.binary,
+            program=program,
+            rulespec_roots=[checkout],
+            output=output,
+            cwd=real_engine.root,
+            env=os.environ.copy(),
+        )
+        assert compiled.returncode == 0, compiled.stderr or compiled.stdout
+        payload = json.loads(output.read_text())
+        payloads.append(output.read_bytes())
+        pipeline = ValidatorPipeline(
+            policy_repo_path=country,
+            axiom_rules_path=real_engine.root,
+            local_corpus_release=None,
+            enable_oracles=False,
+            max_workers=1,
+            axiom_rules_engine_ref=receipt["engine_commit"],
+        )
+        assert (
+            pipeline._run_rulespec_test_cases(
+                rules_file=program,
+                compiled_path=output,
+                compiled_payload=payload,
+                cases=yaml.safe_load(case.tests),
+            )
+            == []
+        )
+    assert payloads[0] == payloads[1]

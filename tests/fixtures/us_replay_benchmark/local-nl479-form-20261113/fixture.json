@@ -7,9 +7,10 @@
   "policy_prefix": "ca",
   "split": "visible",
   "recorded_verdict": "rejected",
-  "encoder_commit": "3737dc44b2df2a9d4ed0d3c8ef83ce99de5d6fd1",
-  "encoder_tree": "f15f9b03c59e95d13fe3921aa60fceb105091016",
-  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --out /tmp/replay.json",
+  "encoder_commit": "7d6016a548f1db9c907c70c84526f7a9f89d3e84",
+  "encoder_tree": "bc3d2cdc2480758908f6fa4168e9ac09f56563de",
+  "encoder_version": "0.2.2363",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --jobs 1 --out /tmp/axiom-2105-local-diagnostics.json",
   "input_origins": {
     "candidate.yaml": "tests/fixtures/bound_form_operands/diagnostic.yaml",
     "candidate.test.yaml": "tests/fixtures/bound_form_operands/diagnostic.test.yaml",
