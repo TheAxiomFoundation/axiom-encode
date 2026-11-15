@@ -17,6 +17,5 @@
     "characters": 251689,
     "cases": 85,
     "assertions": 177
-  },
-  "historical_compatibility": "Earlier2971pass18skip1socketfailure with separate unchanged socket-test pass is historical and not current fullsuite clearance."
+  }
 }

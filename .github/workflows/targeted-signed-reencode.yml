@@ -869,6 +869,7 @@ jobs:
           repair_mode="$(jq -er '.mode' <<< "$repair_mode_json")"
           echo "tests_only=$repair_tests_only" >> "$GITHUB_OUTPUT"
           echo "mode=$repair_mode" >> "$GITHUB_OUTPUT"
+          echo "preserve_companion=$(jq -r '.preserve_repair_companion // false' <<< "$repair_mode_json")" >> "$GITHUB_OUTPUT"
           echo "execution=$(jq -c '.execution' <<< "$repair_mode_json")" \
             >> "$GITHUB_OUTPUT"
           if [ "$REPAIR_RUN_ID" = "35160240952" ]; then
@@ -1137,6 +1138,7 @@ jobs:
           CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           REPAIR_TESTS_ONLY: ${{ steps.repair_candidate.outputs.tests_only }}
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
+          PRESERVE_REPAIR_COMPANION: ${{ steps.repair_candidate.outputs.preserve_companion }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
@@ -1868,6 +1870,7 @@ jobs:
         env:
           CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
+          PRESERVE_REPAIR_COMPANION: ${{ steps.repair_candidate.outputs.preserve_companion }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
@@ -2117,6 +2120,7 @@ jobs:
         env:
           CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
+          PRESERVE_REPAIR_COMPANION: ${{ steps.repair_candidate.outputs.preserve_companion }}
           PYTHONUNBUFFERED: "1"
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
@@ -2148,6 +2152,7 @@ jobs:
         run: |
           set -euo pipefail
           : "${REPAIR_TESTS_ONLY:=false}"
+          : "${PRESERVE_REPAIR_COMPANION:=false}"
           : "${REPAIR_RUN_LANE:=target}"
           : "${REPAIR_RULESPEC_PATH:=}"
           : "${QUEUE_ID:=}"
@@ -2390,6 +2395,9 @@ jobs:
                 --repair-candidate-tests-sha256 \
                   "$candidate_tests_sha256"
               )
+              if [ "$PRESERVE_REPAIR_COMPANION" = "true" ]; then
+                args+=(--preserve-repair-companion)
+              fi
               if [ -n "$replacement_path" ] && \
                  [ "$REPAIR_TESTS_ONLY" = "true" ]; then
                 args+=(--repair-candidate-tests-only)
@@ -2882,7 +2890,7 @@ jobs:
           signing_queue="$RUNNER_TEMP/signed-encode"
           mkdir -m 700 "$signing_queue"
           declare -p \
-            REPAIR_MODE PYTHONUNBUFFERED ATOMIC_SOURCE_JSON \
+            REPAIR_MODE PRESERVE_REPAIR_COMPANION PYTHONUNBUFFERED ATOMIC_SOURCE_JSON \
             CITATION CORPUS_REF COUNTRY REVIEW_FINDING \
             REPAIR_CANDIDATE_PATH REPAIR_CANDIDATE_ROOT \
             REPAIR_CANDIDATE_RULESPEC_SHA256 REPAIR_CANDIDATE_TESTS_SHA256 \
@@ -3459,8 +3467,11 @@ jobs:
         env:
           RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          PRESERVE_REPAIR_COMPANION: ${{ steps.repair_candidate.outputs.preserve_companion }}
           REVIEW_FINDING: ${{ inputs.review_finding }}
           CITATION: ${{ inputs.citation }}
+          REPAIR_CANDIDATE_RULESPEC_SHA256: ${{ steps.repair_candidate.outputs.rulespec_sha256 }}
+          REPAIR_CANDIDATE_TESTS_SHA256: ${{ steps.repair_candidate.outputs.tests_sha256 }}
         run: |
           set -euo pipefail
           guidance_guard_args=()
@@ -3472,6 +3483,11 @@ jobs:
               ;;
             axiom-producer-review-guidance-ref:*) exit 1 ;;
           esac
+          preservation_args=()
+          if [ "$PRESERVE_REPAIR_COMPANION" = true ]; then
+            preservation_args=(--preserved-repair-companion "$CITATION"
+              "$REPAIR_CANDIDATE_RULESPEC_SHA256" "$REPAIR_CANDIDATE_TESTS_SHA256")
+          fi
           set +e
           /opt/axiom-verification/axiom-encode-signing-supervisor \
             --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
@@ -3483,6 +3499,7 @@ jobs:
             --corpus-path "$GITHUB_WORKSPACE/axiom-corpus" \
             --expected-encoder-checkout "$GITHUB_WORKSPACE/axiom-encode" \
             --base-ref "$RULESPEC_REF" \
+            "${preservation_args[@]}" \
             --json "${guidance_guard_args[@]}" > "$RUNNER_TEMP/guard-generated.json"
           guard_status="$?"
           set -e
@@ -3593,6 +3610,7 @@ jobs:
         if: steps.retired_source_metadata_request.outputs.enabled != 'true'
         env:
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
+          PRESERVE_REPAIR_COMPANION: ${{ steps.repair_candidate.outputs.preserve_companion }}
           REPAIR_TESTS_ONLY: ${{ steps.repair_candidate.outputs.tests_only }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
@@ -3675,6 +3693,8 @@ jobs:
           from pathlib import Path
           from axiom_encode.prepare_signed_backfill import (
               immutable_atomic_source_contract,
+              split_atomic_source_input,
+              citation_rulespec_path,
           )
 
           from axiom_encode.corpus_resolver import (
@@ -3991,11 +4011,14 @@ jobs:
 
           matches = {}
           initial_manifest_digests = {}
+          captured_manifests = {}
+          preservation_digests = {}
           for relative_path in sorted(manifest_paths):
               initial_manifest_bytes = read_bounded_regular(
                   os.environ["RULESPEC_CHECKOUT"], relative_path,
                   label="changed apply manifest", max_bytes=1024 * 1024,
               )
+              captured_manifests[relative_path] = initial_manifest_bytes
               initial_manifest_digests[relative_path] = hashlib.sha256(initial_manifest_bytes).hexdigest()
               payload = json.loads(initial_manifest_bytes.decode("utf-8"))
               effective = payload
@@ -4189,6 +4212,34 @@ jobs:
                   if initial_manifest_digests[relative_path] != guidance_guard_payload["producer_review_guidance"]["manifest_sha256"]:
                       raise SystemExit("initial apply manifest snapshot differs from protected guidance guard")
               manifest_path = Path(os.environ["RULESPEC_CHECKOUT"]) / relative_path
+              # Reconstruct the request from the original workflow input, not a
+              # generated flag or an unsigned artifact metadata claim.
+              preservation_requested = split_atomic_source_input(
+                  os.environ.get("ATOMIC_SOURCE_JSON") or "[]"
+              ).get("preserve_repair_companion") is True
+              if preservation_requested:
+                  if lane != "target":
+                      raise SystemExit("companion preservation requires one primary lane")
+                  companion = citation_rulespec_path(citation).with_suffix(".test.yaml")
+                  companion_bytes = read_bounded_regular(
+                      os.environ["RULESPEC_CHECKOUT"], companion,
+                      label="preserved repair companion", max_bytes=512 * 1024,
+                  )
+                  guard = json.loads((Path(sys.argv[1]).parent / "guard-generated.json").read_bytes())
+                  expected_preservation = {
+                      "schema": "axiom-encode/verified-repair-companion/v1",
+                      "citation": citation,
+                      "manifest_path": relative_path.as_posix(),
+                      "manifest_sha256": hashlib.sha256(captured_manifests[relative_path]).hexdigest(),
+                      "companion_path": companion.as_posix(),
+                      "original_rulespec_sha256": os.environ["REPAIR_CANDIDATE_RULESPEC_SHA256"],
+                      "original_tests_sha256": os.environ["REPAIR_CANDIDATE_TESTS_SHA256"],
+                      "final_tests_sha256": hashlib.sha256(companion_bytes).hexdigest(),
+                  }
+                  if (guard.get("passed") is not True or guard.get("issues") != []
+                      or guard.get("repair_companion_preservation") != expected_preservation):
+                      raise SystemExit("Preservation evidence does not match supervised guard and packaged bytes")
+                  preservation_digests[relative_path] = expected_preservation["manifest_sha256"]
               if canonical_refresh_items:
                   applied_files = applied_manifest.get("applied_files")
                   applied_paths = [
@@ -5008,6 +5059,8 @@ jobs:
               packaged_manifest_digest = hashlib.sha256(packaged_manifest_bytes).hexdigest()
               if primary_guidance_descriptor is not None and packaged_manifest_digest != guidance_guard_payload["producer_review_guidance"]["manifest_sha256"]:
                   raise SystemExit("apply manifest changed after protected guidance verification")
+              if relative_path in preservation_digests and packaged_manifest_bytes != captured_manifests[relative_path]:
+                  raise SystemExit("Preservation manifest changed after verification")
               applied_inventory.append(
                   {
                       "citation": citation,
@@ -5164,6 +5217,7 @@ jobs:
                   os.environ.get("REPAIR_RUN_ID") or "",
                   os.environ.get("REPAIR_MODE") or "",
                   os.environ.get("REPAIR_TESTS_ONLY") or "",
+                  os.environ.get("PRESERVE_REPAIR_COMPANION") or "",
               ),
               "repair_run_id": os.environ.get("REPAIR_RUN_ID") or None,
               "queue_id": os.environ.get("QUEUE_ID") or None,
@@ -5683,9 +5737,15 @@ jobs:
                   selected = json.loads(raw)
               except (ValueError, TypeError):
                   return None
-              if not isinstance(selected, dict) or set(selected) != {
-                  "requested_mode", "mode", "tests_only"
-              }:
+              if not isinstance(selected, dict) or set(selected) not in (
+                  {"requested_mode", "mode", "tests_only"},
+                  {"requested_mode", "mode", "tests_only", "preserve_repair_companion"},
+              ):
+                  return None
+              if "preserve_repair_companion" in selected and (
+                  selected["preserve_repair_companion"] is not True
+                  or selected.get("mode") != "full_artifact"
+              ):
                   return None
               mode = selected["mode"]
               if mode not in ("full_artifact", "tests_only") or (

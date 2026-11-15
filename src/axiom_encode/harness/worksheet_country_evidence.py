@@ -281,12 +281,15 @@ def _certify(
     for n, case in enumerate(normalized):
         if not isinstance(case, dict):
             return fail("malformed case")
-        if set(case) - {"name", "period", "input", "output"}:
-            return fail("unsupported case entity/context")
         outputs = case.get("output", {})
         keys = [k for k in outputs if k.rsplit("#", 1)[-1] == OWNER]
         if not keys:
             continue
+        # This certificate owns only the country gate. Other outputs can use
+        # table contexts without supplying evidence for that gate; their cases
+        # remain bound into the complete companion identity below.
+        if set(case) - {"name", "period", "input", "output"}:
+            return fail("unsupported case entity/context")
         if keys != [expected_prefix + OWNER]:
             return fail("foreign output identity")
         period = case.get("period")

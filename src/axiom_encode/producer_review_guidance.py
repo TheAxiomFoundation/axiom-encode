@@ -449,6 +449,7 @@ def validate_workflow_guidance_input(
         or atomic["require_complete_source_unit"] is not True
         or atomic.get("manifest_only_refresh", False)
         or atomic.get("reviewed_candidate_promotion", False)
+        or atomic.get("preserve_repair_companion", False)
         or atomic.get("repair_mode") is not None
     ):
         raise ValueError(

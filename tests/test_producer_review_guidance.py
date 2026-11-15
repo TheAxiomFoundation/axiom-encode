@@ -394,6 +394,7 @@ def test_guidance_requires_exact_source_scope(
         {"repair_candidate_rulespec_sha256": "a" * 64},
         {"repair_candidate_tests_sha256": "a" * 64},
         {"repair_candidate_tests_only": True},
+        {"preserve_repair_companion": True},
         {"replace_legacy_rulespec_path": "old.yaml"},
         {"legacy_dependent_rulespec_path": ["dep"]},
         {"legacy_exact_dependent_rulespec_path": ["dep"]},
@@ -630,6 +631,30 @@ def test_workflow_pointer_refuses_other_lanes(make_repo, field):
     }
     with pytest.raises(ValueError, match="cannot mix"):
         validate_workflow_guidance_input(inputs, producer_commit=head)
+
+
+def test_workflow_guidance_reference_excludes_preserved_companion_mode(make_repo):
+    from axiom_encode.producer_review_guidance import (
+        GUIDANCE_INPUT_PREFIX,
+        validate_workflow_guidance_input,
+    )
+
+    _, head, descriptor, _ = make_repo()
+    inputs = {
+        "citation": CITATION,
+        "review_finding": GUIDANCE_INPUT_PREFIX + json.dumps(descriptor),
+        "source_bundle_json": json.dumps(
+            {
+                "schema": "axiom-encode/atomic-source-transaction/v7",
+                "transaction": [],
+                "preserve_repair_companion": True,
+            }
+        ),
+    }
+    with pytest.raises(ValueError, match="single full-source"):
+        validate_workflow_guidance_input(inputs, producer_commit=head)
+    inputs["review_finding"] = "ordinary inline repair"
+    assert validate_workflow_guidance_input(inputs, producer_commit=head) is None
 
 
 def test_workflow_pointer_empty_transaction_and_inline_compatibility(make_repo):
