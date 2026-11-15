@@ -16,6 +16,10 @@ its demand. A proposal is kept only when
 * the engine reproduces every value the model asserted in the source case on
   the covering rule's entity (a clone never takes the encoding's side of a
   conflict with the model's stated expectation),
+* the covering output and its local derived dependencies are Boolean
+  comparisons, with input-independent local numeric parameters, and the changed
+  input is only a bare comparison operand in every version (numeric outputs,
+  value-selecting branches, opaque syntax and imports stay with the model),
 * the clone asserts only the covering rule and the local dependencies it reads,
 * the analysis removes the targeted boundary demand, removes nothing but
   boundary demands, and adds no finding.
@@ -27,6 +31,7 @@ exception evidence all stay with the model.
 
 from __future__ import annotations
 
+import ast
 import copy
 import re
 import time
@@ -38,6 +43,7 @@ from typing import Any
 from axiom_encode.harness.source_completeness import (
     MISSING_BOUNDARY_DETAIL_MARKER,
     CompanionTestObligation,
+    _parse_formula_expression,
 )
 
 SYNTHESIZED_CASE_PREFIX = "auto_source_"
@@ -197,6 +203,167 @@ def _unique_name(base: str, used: set[str]) -> str:
     return name
 
 
+def _comparison_only_closure(
+    rule_name: str,
+    input_name: str,
+    rules: Mapping[str, dict[str, Any]],
+    input_names: set[str],
+) -> set[str] | None:
+    """Limit synthesis to local Boolean comparisons, never numeric values.
+
+    Bare comparison reads alone are insufficient: changing a selector can enter
+    an untested arithmetic region using other inputs. Only Boolean outputs with
+    comparison/Boolean dependencies qualify. Parameters must be input-independent
+    numeric literals or local parameter aliases. Every version is inspected;
+    imports, cycles, opaque syntax and exhausted budgets leave the model's demand.
+    """
+
+    pending = [(rule_name, False)]
+    active: set[str] = set()
+    closure: set[str] = set()
+    saw_comparison = False
+    inspected = 0
+    literal_names = {"true", "false", "holds", "not_holds", "unknown"}
+    try:
+        while pending:
+            name, leaving = pending.pop()
+            if leaving:
+                active.remove(name)
+                closure.add(name)
+                continue
+            if name in active:
+                return None
+            if name in closure:
+                continue
+            if name not in rules or len(closure) + len(active) >= 64:
+                return None
+            rule = rules[name]
+            parameter = rule.get("kind") == "parameter"
+            if not parameter and str(rule.get("dtype") or "").lower() not in {
+                "judgment",
+                "boolean",
+                "bool",
+            }:
+                return None
+            active.add(name)
+            pending.append((name, True))
+            versions = rule.get("versions")
+            if not isinstance(versions, list) or not versions:
+                return None
+            dependencies: set[str] = set()
+            for version in versions:
+                inspected += 1
+                if (
+                    inspected > 256
+                    or not isinstance(version, dict)
+                    or not isinstance(formula := version.get("formula"), str)
+                    or len(formula) > 16384
+                ):
+                    return None
+                expression = _parse_formula_expression(formula)
+                if expression is None:
+                    return None
+                nodes = list(ast.walk(expression))
+                if len(nodes) > 4096:
+                    return None
+                parents = {
+                    child: parent
+                    for parent in nodes
+                    for child in ast.iter_child_nodes(parent)
+                }
+                if parameter:
+                    if not (
+                        isinstance(expression, ast.Name)
+                        or isinstance(expression, ast.Constant)
+                        and _is_number(expression.value)
+                        or isinstance(expression, ast.UnaryOp)
+                        and isinstance(expression.op, (ast.USub, ast.UAdd))
+                        and isinstance(expression.operand, ast.Constant)
+                        and _is_number(expression.operand.value)
+                    ):
+                        return None
+                elif any(
+                    not isinstance(
+                        node,
+                        (
+                            ast.BoolOp,
+                            ast.And,
+                            ast.Or,
+                            ast.UnaryOp,
+                            ast.Not,
+                            ast.Compare,
+                            ast.Lt,
+                            ast.LtE,
+                            ast.Gt,
+                            ast.GtE,
+                            ast.Eq,
+                            ast.NotEq,
+                            ast.Name,
+                            ast.Load,
+                            ast.Constant,
+                        ),
+                    )
+                    for node in nodes
+                ):
+                    return None
+                if not parameter:
+                    conditions = [expression]
+                    while conditions:
+                        condition = conditions.pop()
+                        if isinstance(condition, ast.BoolOp):
+                            conditions.extend(condition.values)
+                        elif isinstance(condition, ast.UnaryOp):
+                            conditions.append(condition.operand)
+                        elif isinstance(condition, ast.Compare):
+                            if len(condition.ops) != 1 or any(
+                                not isinstance(operand, (ast.Name, ast.Constant))
+                                for operand in (condition.left, *condition.comparators)
+                            ):
+                                return None
+                        elif isinstance(condition, ast.Name):
+                            if (rules.get(condition.id) or {}).get(
+                                "kind"
+                            ) == "parameter":
+                                return None
+                        elif not (
+                            isinstance(condition, ast.Constant)
+                            and isinstance(condition.value, bool)
+                        ):
+                            return None
+                for node in nodes:
+                    if not isinstance(node, ast.Name):
+                        continue
+                    if parameter:
+                        if (rules.get(node.id) or {}).get("kind") != "parameter":
+                            return None
+                        dependencies.add(node.id)
+                    elif node.id == input_name:
+                        parent = parents.get(node)
+                        if not isinstance(parent, ast.Compare) or len(parent.ops) != 1:
+                            return None
+                        other = (
+                            parent.comparators[0]
+                            if parent.left is node
+                            else parent.left
+                        )
+                        if isinstance(other, ast.Name):
+                            if (rules.get(other.id) or {}).get("kind") != "parameter":
+                                return None
+                        elif not (
+                            isinstance(other, ast.Constant) and _is_number(other.value)
+                        ):
+                            return None
+                        saw_comparison = True
+                    elif node.id in rules:
+                        dependencies.add(node.id)
+                    elif node.id not in input_names | literal_names:
+                        return None
+            pending.extend((dependency, False) for dependency in sorted(dependencies))
+    except (RecursionError, SyntaxError, ValueError):
+        return None
+    return closure if saw_comparison else None
+
+
 def propose_companion_cases(
     obligations: Sequence[CompanionTestObligation],
     *,
@@ -206,15 +373,30 @@ def propose_companion_cases(
     """Clone existing cases onto each missing boundary, round-robin."""
 
     rules = rules_payload.get("rules") if isinstance(rules_payload, Mapping) else None
-    principal_rules = {
+    all_rules = {
         str(rule.get("name")): rule
         for rule in (rules if isinstance(rules, list) else [])
-        if isinstance(rule, dict)
-        and str(rule.get("kind") or "").strip().lower()
-        in {"derived", "derived_relation"}
-        and rule.get("name")
+        if isinstance(rule, dict) and rule.get("name")
     }
-    cases = [case for case in test_cases if _usable_case(case)]
+    principal_rules = {
+        name: rule
+        for name, rule in all_rules.items()
+        if str(rule.get("kind") or "").strip().lower()
+        in {"derived", "derived_relation"}
+    }
+    cases = [
+        case
+        for case in test_cases
+        if _usable_case(case)
+        and not str(case.get("name") or "").startswith(SYNTHESIZED_CASE_PREFIX)
+    ]
+    input_names = {_local_name(key) for case in cases for key in case["input"]}
+    declarations = {
+        str(item.get("name")): item
+        for item in rules_payload.get("inputs", [])
+        if isinstance(item, dict) and item.get("name")
+    }
+    input_names.update(declarations)
     asserted: dict[str, list[dict[str, Any]]] = {}
     for case in cases:
         for key in case["output"]:
@@ -222,26 +404,6 @@ def propose_companion_cases(
 
     def entity(rule_name: str) -> str:
         return str((principal_rules.get(rule_name) or {}).get("entity") or "")
-
-    def dependency_closure(rule_name: str) -> set[str]:
-        closure: set[str] = set()
-        pending = [rule_name]
-        while pending and len(closure) < 64:
-            name = pending.pop()
-            if name in closure or name not in principal_rules:
-                continue
-            closure.add(name)
-            versions = principal_rules[name].get("versions")
-            formulas = " ".join(
-                str(version.get("formula"))
-                for version in (versions if isinstance(versions, list) else [])
-                if isinstance(version, dict)
-            )
-            pending.extend(
-                set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", formulas))
-                & set(principal_rules)
-            )
-        return closure
 
     per_obligation: list[list[CompanionCaseProposal]] = []
     for obligation in obligations:
@@ -252,7 +414,6 @@ def propose_companion_cases(
         targets = set(obligation.input_names)
         for rule_name in obligation.rule_names:
             target_entity = entity(rule_name)
-            reached = dependency_closure(rule_name)
             for case in asserted.get(rule_name, [])[:_CASES_PER_RULE]:
                 same_entity = tuple(
                     str(key)
@@ -260,14 +421,28 @@ def propose_companion_cases(
                     if _local_name(key) in principal_rules
                     and entity(_local_name(key)) == target_entity
                 )
-                # The clone re-asserts only the covering rule and what it reads.
-                output_keys = tuple(
-                    key for key in same_entity if _local_name(key) in reached
-                )
                 for key, value in case["input"].items():
                     if _local_name(key) not in targets or not _is_number(value):
                         continue
+                    reached = _comparison_only_closure(
+                        rule_name, _local_name(key), all_rules, input_names
+                    )
+                    if reached is None:
+                        continue
+                    output_keys = tuple(
+                        output
+                        for output in same_entity
+                        if _local_name(output) in reached
+                    )
                     for target in obligation.values:
+                        dtype = str(
+                            declarations.get(_local_name(key), {}).get("dtype") or ""
+                        ).lower()
+                        if (
+                            dtype in {"integer", "int", "count"}
+                            and not float(target).is_integer()
+                        ):
+                            continue
                         if float(value) == float(target):
                             continue
                         inputs = dict(case["input"])

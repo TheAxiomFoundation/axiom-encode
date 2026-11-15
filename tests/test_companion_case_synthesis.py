@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import copy
+
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode.harness.companion_case_synthesis import (
     SYNTHESIZED_CASE_PREFIX,
@@ -23,6 +27,12 @@ TESTS = "[complete-source-unit:tests]"
 RULES = {
     "format": "rulespec/v1",
     "rules": [
+        {
+            "name": "limit",
+            "kind": "parameter",
+            "dtype": "Money",
+            "versions": [{"effective_from": "2024-01-01", "formula": "500"}],
+        },
         {
             "name": "income_considered",
             "kind": "derived",
@@ -236,6 +246,191 @@ def test_boundary_proposal_changes_only_the_directly_compared_input():
     assert proposal.source_output_keys == tuple(case["output"])
     # The source case is never mutated.
     assert case["input"][f"{BASE}#input.income"] == 100
+
+
+def _proposals_for_formula(formula, *, extra_rules=(), cases=None):
+    payload = copy.deepcopy(RULES)
+    payload["rules"][-2]["versions"] = [
+        {"effective_from": "2025-07-01", "formula": formula}
+    ]
+    payload["rules"].extend(extra_rules)
+    return propose_companion_cases(
+        [
+            CompanionTestObligation(
+                "boundary",
+                ("income_limit_met",),
+                values=(500,),
+                input_names=("income",),
+                label="(i)=500",
+            )
+        ],
+        rules_payload=payload,
+        test_cases=cases or [_case("model", income=100, need=300)],
+    )
+
+
+@pytest.mark.parametrize(
+    "formula",
+    [
+        "if income <= limit: max(0, need) - income\nelse: 0",
+        "if income <= limit: max(0, need - income)\nelse: 0",
+        "income <= limit and income + need > 0",
+        "income <= limit and external_result",
+        "income <= limit and table[income]",
+        "income <= limit and mystery(need)",
+        "income <= limit and 20",
+        "income <= limit and limit",
+        "income <= limit and (",  # An unparsed fragment cannot be skipped.
+    ],
+)
+def test_boundary_arithmetic_or_opaque_closure_is_left_for_model(formula):
+    assert _proposals_for_formula(formula) == []
+
+
+def test_value_selecting_conditional_is_left_for_model():
+    assert _proposals_for_formula("if income < limit: 20\nelse: 0") == []
+
+
+def test_numeric_outputs_are_never_proposed_even_with_comparison_only_reads():
+    payload = copy.deepcopy(RULES)
+    payload["rules"][-2]["dtype"] = "Money"
+    assert (
+        propose_companion_cases(
+            [
+                CompanionTestObligation(
+                    "boundary",
+                    ("income_limit_met",),
+                    values=(500,),
+                    input_names=("income",),
+                )
+            ],
+            rules_payload=payload,
+            test_cases=[_case("model", income=100)],
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize("formula", ["income + need", "income < limit", "helper"])
+def test_all_local_dependency_versions_are_inspected(formula):
+    helper = {
+        "name": "helper",
+        "kind": "derived",
+        "dtype": "Judgment",
+        "entity": "Person",
+        "versions": [
+            {"effective_from": "2024-01-01", "formula": "income + need"},
+            {"effective_from": "2025-07-01", "formula": formula},
+        ],
+    }
+    assert (
+        _proposals_for_formula("income < limit and helper", extra_rules=[helper]) == []
+    )
+
+
+def test_synthesized_cases_cannot_supply_model_expectations():
+    generated = _case(SYNTHESIZED_CASE_PREFIX + "boundary_income_100", income=100)
+    assert _proposals_for_formula("income < limit", cases=[generated]) == []
+
+
+@pytest.mark.parametrize("length", [2, 65])
+def test_cycles_and_exhausted_dependency_budget_leave_demand_for_model(length):
+    helpers = [
+        {
+            "name": f"helper_{index}",
+            "kind": "derived",
+            "dtype": "Judgment",
+            "entity": "Person",
+            "versions": [
+                {
+                    "formula": (
+                        "income < limit"
+                        if length > 2 and index == length - 1
+                        else f"helper_{(index + 1) % length}"
+                    )
+                }
+            ],
+        }
+        for index in range(length)
+    ]
+    assert (
+        _proposals_for_formula("income < limit and helper_0", extra_rules=helpers) == []
+    )
+
+
+def test_boolean_dependencies_and_literal_parameter_aliases_are_supported():
+    helper = {
+        "name": "helper",
+        "kind": "derived",
+        "dtype": "Boolean",
+        "entity": "Person",
+        "versions": [{"formula": "income < alias"}],
+    }
+    alias = {"name": "alias", "kind": "parameter", "versions": [{"formula": "limit"}]}
+    assert _proposals_for_formula("helper", extra_rules=[helper, alias])
+
+
+def test_input_dependent_parameter_version_is_left_for_model():
+    alias = {
+        "name": "alias",
+        "kind": "parameter",
+        "versions": [
+            {"formula": "income"},
+            {"formula": "500"},
+        ],
+    }
+    assert _proposals_for_formula("income < alias", extra_rules=[alias]) == []
+
+
+def test_input_dtype_is_applied_separately_to_each_target():
+    payload = {
+        "inputs": [
+            {"name": "count", "dtype": "Integer"},
+            {"name": "amount", "dtype": "Money"},
+        ],
+        "rules": [
+            {
+                "name": "eligible",
+                "kind": "derived",
+                "dtype": "Judgment",
+                "entity": "Person",
+                "versions": [{"formula": "count <= 2.5 and amount <= 2.5"}],
+            }
+        ],
+    }
+    proposals = propose_companion_cases(
+        [
+            CompanionTestObligation(
+                "boundary",
+                ("eligible",),
+                values=(2.5,),
+                input_names=("count", "amount"),
+            )
+        ],
+        rules_payload=payload,
+        test_cases=[
+            {
+                "name": "model",
+                "input": {"count": 1, "amount": 1},
+                "output": {"eligible": "holds"},
+            }
+        ],
+    )
+    assert len(proposals) == 1
+    assert proposals[0].case["input"] == {"count": 1, "amount": 2.5}
+
+
+@settings(max_examples=25, deadline=None)
+@given(st.integers(min_value=-10000, max_value=10000), st.sampled_from(["+", "-", "*"]))
+def test_boundary_arithmetic_never_receives_an_engine_authored_expectation(
+    offset, operator
+):
+    assert (
+        _proposals_for_formula(
+            f"if income <= limit: income {operator} ({offset})\nelse: 0"
+        )
+        == []
+    )
 
 
 def test_clones_assert_only_outputs_on_the_covering_rule_entity():

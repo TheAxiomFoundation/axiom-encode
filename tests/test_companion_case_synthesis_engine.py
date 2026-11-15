@@ -530,6 +530,125 @@ def test_clamp_on_the_wrong_operand_is_never_pinned(real_engine, tmp_path, monke
     assert any("`max(0, unmet_need)`" in issue for issue in after)
 
 
+@pytest.mark.parametrize("subtrahend", ["countable_income", "household_contribution"])
+def test_boundary_inside_wrong_clamped_arithmetic_is_left_for_model(
+    real_engine, tmp_path, monkeypatch, subtrahend
+):
+    """Both original cases agree with the wrong formula; at 500 it pays -460.
+
+    The boundary input also enters arithmetic in the covering rule itself.
+    Synthesis must not turn that engine result into a source expectation.
+    """
+    source = (
+        "(a) The benefit of a household whose countable income is not more than "
+        "$500 is its unmet need minus its countable income, but not less than zero.\n"
+    )
+    if subtrahend == "household_contribution":
+        source = source.replace(
+            "minus its countable income", "minus its household contribution"
+        )
+    payload = yaml.safe_load(MODULE)
+    if subtrahend == "household_contribution":
+        payload["inputs"].append(
+            {
+                "name": subtrahend,
+                "entity": "Household",
+                "dtype": "Money",
+                "period": "Month",
+            }
+        )
+    payload["rules"] = payload["rules"][:1]
+    payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"]["excerpt"] = (
+        "not more than $500"
+    )
+    payload["rules"].append(
+        {
+            "name": "benefit",
+            "kind": "derived",
+            "entity": "Household",
+            "dtype": "Money",
+            "unit": "USD",
+            "period": "Month",
+            "metadata": {
+                "proof": {
+                    "atoms": [
+                        {
+                            "path": "versions[0].formula",
+                            "kind": "formula",
+                            "source": {
+                                "corpus_citation_path": CITATION,
+                                "excerpt": source[4:].strip(),
+                            },
+                        }
+                    ]
+                }
+            },
+            "versions": [
+                {
+                    "effective_from": "2026-01-01",
+                    "formula": f"if countable_income <= income_limit: max(0, unmet_need) - {subtrahend}\n"
+                    "else: 0",
+                }
+            ],
+        }
+    )
+
+    def case(name, income, need, expected):
+        item = {
+            "name": name,
+            "period": "2026-01",
+            "input": {
+                f"{TARGET}#input.countable_income": income,
+                f"{TARGET}#input.unmet_need": need,
+            },
+            "output": {f"{TARGET}#benefit": expected},
+        }
+
+        if subtrahend == "household_contribution":
+            item["input"][f"{TARGET}#input.household_contribution"] = (
+                0 if need < 0 else 100
+            )
+        return item
+
+    cases = [
+        case("high", 900, 40, 0),
+        case("low", 100, 300, 200),
+        case("negative need", 0, -10, 0),
+    ]
+    root = tmp_path.resolve() / "rulespec-us/us"
+    module = root / "statutes/7/9999.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text(yaml.safe_dump(payload, sort_keys=False))
+    module.with_name("9999.test.yaml").write_text(
+        yaml.safe_dump(cases, sort_keys=False)
+    )
+    pipeline = _pipeline(root, real_engine.root, monkeypatch, source)
+    compiled_path = tmp_path / "compiled.json"
+    result, compiled = pipeline._compile_rulespec_to_artifact(module, compiled_path)
+    assert result.returncode == 0, result.stderr
+
+    def execute(item):
+        return pipeline._rulespec_case_engine_outputs(
+            rules_file=module,
+            compiled_path=compiled_path,
+            compiled_payload=compiled,
+            case=item,
+            output_keys=(f"{TARGET}#benefit",),
+        )
+
+    for item in cases:
+        assert execute(item) == item["output"]
+    at_boundary = case("model states source zero", 500, 40, 0)
+    assert execute(at_boundary) == {
+        f"{TARGET}#benefit": -460 if subtrahend == "countable_income" else -60
+    }
+    assert pipeline.synthesize_complete_source_companion_cases(module) == []
+    assert any(
+        "boundary input" in issue
+        for issue in _tests_issues(pipeline, module, cases, source)
+    )
+
+
 SOURCE_TOGGLE = (
     "(a) A household whose countable income is less than $500 is eligible.\n"
     "(b) The allowance of an elderly household is 20 percent of the countable "

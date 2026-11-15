@@ -4,6 +4,7 @@ and structured obligations for deterministic case synthesis."""
 from __future__ import annotations
 
 import functools
+from pathlib import Path
 
 import pytest
 from hypothesis import given, settings
@@ -503,6 +504,43 @@ def test_clamp_call_itself_must_be_reached(formula, income, expected, reached):
         for issue in result.issues
     )
     assert missing is not reached
+
+
+def test_guarded_public_replay_clamp_feedback_keeps_the_unsatisfied_obligation():
+    from scripts.replay_us_failure_bundles import load_fixture, replay_case
+
+    # This fixture already asserts -5 -> 0, but the clamp is guarded by the
+    # same input being >= 10. No negative input can execute that clamp.
+    fixture = Path(__file__).parent / "fixtures/us_replay_benchmark/37150620832"
+    result = replay_case(load_fixture(fixture))
+
+    assert result["error"] is None
+    [issue] = [
+        issue
+        for issue in result["issues"]
+        if isinstance(issue, ValidationIssue)
+        and issue.check == "complete-source-unit:tests/negative-clamp-unwitnessed"
+    ]
+    assert (
+        "`max(0, prorated_initial_month_na_benefit)` in "
+        "`initial_month_actual_benefit_paid`" in issue
+    )
+    assert issue.expected.endswith("below zero whose selected path reaches the clamp")
+    assert issue.found.endswith("below-zero case that reaches the clamp")
+    assert (
+        "remove the redundant clamp rather than adding an impossible witness" in issue
+    )
+
+
+@pytest.mark.parametrize("depth", [4, 600])
+def test_deep_clamp_expression_fails_closed(depth):
+    # Unary expressions have valid RuleSpec syntax but can exceed the AST
+    # walker's recursion budget. Exhaustion is no execution-path evidence.
+    assert _expression_reaches_direct_clamp(
+        "-" * depth + "max(0, unmet_need)",
+        input_name="unmet_need",
+        environment={"unmet_need": -1},
+    ) is (depth == 4)
 
 
 @pytest.mark.parametrize(

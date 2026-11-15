@@ -195,13 +195,13 @@
     {
       "category": "complete-source-unit:tests",
       "cause": "encoder_output",
-      "fix": "Add a case with the clamped input below zero that asserts the clamped rule (and the downstream principal output when one exists). A zero input does not exercise the clamp.",
+      "fix": "Add a case with the clamped input below zero that asserts the clamped rule (and the downstream principal output when one exists), with a selected formula path that reaches the clamp. A zero input does not exercise the clamp. If guards prevent every below-zero input from reaching it, restate the formula or remove the redundant clamp rather than adding an impossible witness.",
       "gate": "ci",
       "id": "complete-source-unit:tests/negative-clamp-unwitnessed",
-      "requires": "Each direct `max(0, input)` clamp has an executed companion case with the input below zero in every distinct temporal owner context.",
+      "requires": "Each direct `max(0, input)` clamp has an executed companion case with the input below zero whose selected formula path reaches the clamp in every distinct temporal owner context.",
       "severity": "important",
       "site": "axiom_encode/harness/source_completeness.py:_negative_local_input_clamp_test_issues",
-      "title": "Nonnegative clamp has no below-zero companion case",
+      "title": "Nonnegative clamp has no below-zero case that reaches it",
       "why": "Companion tests are the executed evidence that the encoding behaves as the source says. A source-stated output, branch, boundary, exception or rounding rule without a test can be wrong without any gate noticing."
     },
     {
@@ -1057,6 +1057,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "2d24a58c18a52093f02d154d169b283ed00447786dbcdf8fdf1ea90b96be89dc",
+  "registry_sha256": "c367ba029d97e4ac7591abe2dc359b3f3ba40d9fd67779a0aabc95e1f25dffa9",
   "schema": "axiom-encode/check-registry/v1"
 }

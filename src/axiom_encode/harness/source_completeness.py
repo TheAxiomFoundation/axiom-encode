@@ -23029,15 +23029,12 @@ def _expression_reaches_direct_clamp(
     input_name: str,
     environment: dict[str, Any],
 ) -> bool:
-    """Find a reached clamp call, honoring expression short-circuiting."""
+    """Find a reached clamp call within one already reduced expression.
 
-    expression = _parse_formula_expression(text)
-    if (
-        expression is None
-        or _evaluate_rulespec_expression(expression, environment)
-        is _UNRESOLVED_CONDITION_VALUE
-    ):
-        return False
+    Boolean operands honor short-circuiting here. Nested RuleSpec ``if``
+    expressions may already have been reduced into trace selectors; this
+    does not establish their original short-circuit execution.
+    """
 
     def visit(node: ast.AST) -> bool:
         if isinstance(node, ast.BoolOp):
@@ -23066,7 +23063,18 @@ def _expression_reaches_direct_clamp(
                 return True
         return any(visit(child) for child in ast.iter_child_nodes(node))
 
-    return visit(expression)
+    try:
+        expression = _parse_formula_expression(text)
+        return (
+            expression is not None
+            and _evaluate_rulespec_expression(expression, environment)
+            is not _UNRESOLVED_CONDITION_VALUE
+            and visit(expression)
+        )
+    except RecursionError:
+        # A deeply nested formula cannot witness a clamp if its expression
+        # cannot be parsed, resolved or traversed within the recursion budget.
+        return False
 
 
 def _case_execution_may_reach_direct_clamp(
@@ -23185,15 +23193,19 @@ CHECK_TESTS_OUTPUT_UNASSERTED = _declare_companion_test_check(
 )
 CHECK_TESTS_NEGATIVE_CLAMP_UNWITNESSED = _declare_companion_test_check(
     "negative-clamp-unwitnessed",
-    title="Nonnegative clamp has no below-zero companion case",
+    title="Nonnegative clamp has no below-zero case that reaches it",
     requires=(
         "Each direct `max(0, input)` clamp has an executed companion case with "
-        "the input below zero in every distinct temporal owner context."
+        "the input below zero whose selected formula path reaches the clamp "
+        "in every distinct temporal owner context."
     ),
     fix=(
         "Add a case with the clamped input below zero that asserts the clamped "
-        "rule (and the downstream principal output when one exists). A zero "
-        "input does not exercise the clamp."
+        "rule (and the downstream principal output when one exists), with a "
+        "selected formula path that reaches the clamp. A zero input does not "
+        "exercise the clamp. If guards prevent every below-zero input from "
+        "reaching it, restate the formula or remove the redundant clamp "
+        "rather than adding an impossible witness."
     ),
     site="axiom_encode/harness/source_completeness.py:_negative_local_input_clamp_test_issues",
 )
@@ -23873,15 +23885,25 @@ def _negative_local_input_clamp_test_issues(
             f"evidence is missing for {rendered_clamps}{omission}. Each requires "
             "an executed companion case in every distinct selected temporal "
             "owner/downstream claimant context, with the input below zero, that "
-            "asserts the clamped rule and, when downstream consumers exist, an "
+            "reaches the clamp and asserts the clamped rule and, when "
+            "downstream consumers exist, an "
             "unambiguous authoritative principal output with selected-version "
             "formula proof whose matching assertion and selected formula path "
             "reach it through a resolved dependency chain. A zero-valued case "
-            "does not exercise the negative clamp.",
+            "does not exercise the negative clamp. If guards prevent every "
+            "below-zero input from reaching the clamp, restate the formula "
+            "or remove the redundant clamp rather than adding an impossible "
+            "witness.",
             check=CHECK_TESTS_NEGATIVE_CLAMP_UNWITNESSED,
             subject=IssueSubject(citation=corpus_citation_path, rule=first_owner),
-            expected=f"case with {first_input} below zero",
-            found=f"{len(ordered_clamps)} clamp(s) without a below-zero case",
+            expected=(
+                f"case with {first_input} below zero whose selected path "
+                "reaches the clamp"
+            ),
+            found=(
+                f"{len(ordered_clamps)} clamp(s) without a below-zero case "
+                "that reaches the clamp"
+            ),
         )
     ]
 

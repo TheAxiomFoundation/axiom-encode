@@ -39721,8 +39721,9 @@ class ValidatorPipeline:
             deadline = time.monotonic() + time_budget_seconds
 
             def analyze_cases(cases: list[dict[str, Any]]) -> SimpleNamespace | None:
-                # Credit only against the same findings CI raises for the file:
-                # the complete-source analysis plus the static companion checks.
+                # Credit against static complete-source and companion checks.
+                # Runtime/referral evidence is not supplied here; the ordinary
+                # validation path still checks the final companion payload.
                 analysis = self._complete_source_unit_analysis(
                     content,
                     validation_source_texts=validation_source_texts,

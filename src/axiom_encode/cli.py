@@ -35099,8 +35099,8 @@ def _validation_residual_obligation_count(issues: Sequence[str]) -> int:
             )
         # Companion demands that a structure or formula-output finding
         # absorbed are not repeated in its message, but they are still
-        # residual work: a less encoded candidate must not outrank a more
-        # complete one only because its feedback is de-duplicated.
+        # residual work, so folding cannot reduce this primary ranking count.
+        # Equal obligation counts still use the legacy message-count tie-break.
         total += obligation_count + _absorbed_obligation_count(issue)
     return total
 
