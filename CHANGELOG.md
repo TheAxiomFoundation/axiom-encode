@@ -1,3 +1,8 @@
+## 0.2.2375
+
+- Add a switched-off reader for applied-rulespec/v6 promotion manifests (inactive, #2172) (#2230)
+- State the unpaired (ii) limit in the roman-item changelog fragment (#2250)
+
 ## 0.2.2374
 
 - Preserve authenticated companion assertions during constrained repairs (#2203)
