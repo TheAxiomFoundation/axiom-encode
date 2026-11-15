@@ -25,8 +25,8 @@ built the environment.
 
 Out of scope:
 - what ``uv pip install --target`` stages for the verification and
-  axiom-compose runtimes (the verification tree is locked by
-  ``test_verification_site_packages_lock.py`` once #1712 lands);
+  axiom-compose runtimes, which ``test_verification_site_packages_lock.py``
+  holds to their locks;
 - ``uv version --bump``, which re-locks without ``--frozen`` (#1730);
 - programs named by a variable, such as ``"$PYBIN" -m pip``.
 """
@@ -42,6 +42,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import sysconfig
 from collections import defaultdict
 from pathlib import Path
@@ -60,7 +61,7 @@ UV_OPTIONS = workflow_shell.load_uv_options()
 
 # workflow -> jobs whose environment runs the repository's tests or linters.
 TEST_ENVIRONMENTS = {
-    "ci.yml": {"test", "real-engine", "quick-tests", "lint"},
+    "ci.yml": {"test", "real-engine", "quick-tests", "lint", "replay-benchmark"},
     "signing-supervisor.yml": {"build-and-test"},
 }
 # The only `if:` a test job may have, exactly: one that skips the whole job, so
@@ -104,6 +105,18 @@ LOCK_OVERRIDES = frozenset(
         "--with-requirements",
     }
 )
+# The one --build-constraints a workflow may pass: the hash-pinned export of
+# uv.lock's `build` group, which the same step writes first (the staging steps
+# that tests/test_verification_site_packages_lock.py pins). It holds builds to
+# the locked backends rather than overriding the lock.
+LOCKED_BUILD_CONSTRAINTS_ASSIGNMENT = (
+    "build_constraints=$RUNNER_TEMP/axiom-verification-build-constraints.txt"
+)
+LOCKED_BUILD_CONSTRAINTS_EXPORT = (
+    *("uv", "export", "--no-config", "--locked", "--only-group", "build"),
+    *("--no-emit-project", "--format", "requirements-txt"),
+    *("--output-file", "$build_constraints"),
+)
 # The exact run: of the step every test job dedicates to the runtime check.
 RUNTIME_CHECK_RUN = (
     ".venv/bin/pytest -q -o addopts='' "
@@ -132,7 +145,7 @@ SIGNED_ENCODE_ADVANCE_CONSUMERS = frozenset(
     }
 )
 SIGNED_ENCODE_STATE_VARIABLES = tuple(
-    """REPAIR_MODE PYTHONUNBUFFERED ATOMIC_SOURCE_JSON
+    """REPAIR_MODE PRESERVE_REPAIR_COMPANION PYTHONUNBUFFERED ATOMIC_SOURCE_JSON
     CITATION CORPUS_REF COUNTRY REVIEW_FINDING
     REPAIR_CANDIDATE_PATH REPAIR_CANDIDATE_ROOT
     REPAIR_CANDIDATE_RULESPEC_SHA256 REPAIR_CANDIDATE_TESTS_SHA256
@@ -982,6 +995,83 @@ def test_python_module_follows_python_option_syntax():
     assert module(("python", "script.py", "-m", "pip")) is None
 
 
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param([], id="no-options"),
+        pytest.param(["-I", "-S"], id="flags"),
+        pytest.param(["-IS"], id="flag-cluster"),
+        pytest.param(["-X", "utf8"], id="dash-x-separate"),
+        pytest.param(["-Xutf8"], id="dash-x-attached"),
+        pytest.param(["-W", "ignore"], id="dash-w-separate"),
+        pytest.param(["-Wignore"], id="dash-w-attached"),
+        pytest.param(["--check-hash-based-pycs", "default"], id="long-valued"),
+        pytest.param(["--"], id="double-dash"),
+    ],
+)
+def test_python_program_finds_the_script_the_interpreter_runs(tmp_path, options):
+    script = tmp_path / "show.py"
+    script.write_text("import json, sys; print(json.dumps(sys.argv[1:]))\n")
+    words = ("python", *options, str(script), "--flag", "value")
+
+    name, arguments, module = workflow_shell.python_program(words)
+    result = subprocess.run(
+        [sys.executable, *options, str(script), "--flag", "value"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert (name, module) == (str(script), False)
+    assert list(words[arguments:]) == json.loads(result.stdout)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param(["-m", "show"], id="separate"),
+        pytest.param(["-mshow"], id="attached"),
+        pytest.param(["-B", "-m", "show"], id="after-a-flag"),
+        pytest.param(["-Bm", "show"], id="ending-a-cluster"),
+        pytest.param(["-Bmshow"], id="attached-to-a-cluster"),
+    ],
+)
+def test_python_program_finds_the_module_the_interpreter_runs(tmp_path, options):
+    (tmp_path / "show.py").write_text(
+        "import json, sys; print(json.dumps(sys.argv[1:]))\n"
+    )
+    words = ("python", *options, "--flag", "value")
+
+    name, arguments, module = workflow_shell.python_program(words)
+    result = subprocess.run(
+        [sys.executable, *options, "--flag", "value"],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=tmp_path,
+    )
+
+    assert (name, module) == ("show", True)
+    assert list(words[arguments:]) == json.loads(result.stdout)
+
+
+@pytest.mark.parametrize(
+    "words",
+    [
+        ("python",),
+        ("python", "-"),
+        ("python", "-c", "print(1)"),
+        ("python", "-Ic", "print(1)"),
+        ("python", "-m"),
+        ("python", "--"),
+        ("python", "--", "-", "a"),
+        ("python", "-X", "utf8"),
+    ],
+)
+def test_python_program_is_none_without_a_script_or_module(words):
+    assert workflow_shell.python_program(words) is None
+
+
 def test_uv_option_table_matches_the_pinned_uv():
     # CI installs the pinned uv (setup-uv), so there the comparison must run;
     # locally it runs only when the installed uv is the pinned release.
@@ -1050,12 +1140,98 @@ def test_every_setup_uv_step_pins_the_same_exact_uv_release():
     assert len(set(versions.values())) == 1, versions
 
 
+def _takes_the_locked_build_constraints(
+    invocation: workflow_shell.UvInvocation, step: tuple[Command, ...]
+) -> bool:
+    """Whether ``invocation``'s one lock override is the locked build export.
+
+    That is: a `uv pip install` whose only --build-constraints is spelled out
+    as `--build-constraints "$build_constraints"`, in a step that assigns
+    `build_constraints` once, to the staging path, and writes it with the
+    `build` group export before the install. Nothing else in the step may
+    mention it, by variable or by literal path, and neither the export nor an
+    install that reads it may redirect, so no redirect, copy or second
+    assignment can swap or truncate the file. This reads commands, so it cannot
+    see a loop header that rebinds the variable; the staging steps' text count
+    in ``test_verification_site_packages_lock.py`` does.
+    """
+    words = invocation.command.words
+    if invocation.subcommand != "pip install":
+        return False
+    if invocation.options.count("--build-constraints") != 1:
+        return False
+    if words.count("--build-constraints") != 1:
+        return False  # spelled -b or --build-constraints=FILE
+    index = words.index("--build-constraints")
+    if words[index + 1 : index + 2] != ("$build_constraints",):
+        return False
+    positions = {id(command): position for position, command in enumerate(step)}
+    install = positions[id(invocation.command)]
+    assignments = [
+        position
+        for position, command in enumerate(step)
+        if any(
+            assignment.partition("=")[0] == "build_constraints"
+            for assignment in command.assignments
+        )
+    ]
+    exports = [
+        position
+        for position, command in enumerate(step)
+        if command.words == LOCKED_BUILD_CONSTRAINTS_EXPORT
+    ]
+    if len(assignments) != 1 or len(exports) != 1:
+        return False
+    [assigned] = assignments
+    if step[assigned].words or step[assigned].assignments != (
+        LOCKED_BUILD_CONSTRAINTS_ASSIGNMENT,
+    ):
+        return False
+    if not assigned < exports[0] < install:
+        return False
+    literal = LOCKED_BUILD_CONSTRAINTS_ASSIGNMENT.rpartition("/")[2]
+    for command in step:
+        if "build_constraints" not in command.line and literal not in command.line:
+            continue
+        if command is step[assigned]:
+            continue
+        # `> "$RUNNER_TEMP/axiom-verification-build-constraints.txt"` on any
+        # command, this one included, would empty the file before uv reads it.
+        if re.search(r"[<>]", command.line) or literal in command.line:
+            return False
+        if command.words == LOCKED_BUILD_CONSTRAINTS_EXPORT:
+            continue
+        uv = workflow_shell.uv_invocation(command, UV_OPTIONS)
+        if uv is None or uv.subcommand != "pip install":
+            return False
+        if command.line.count("build_constraints") != 1:
+            return False
+        if command.words.count("--build-constraints") != 1:
+            return False
+        at = command.words.index("--build-constraints")
+        if command.words[at + 1 : at + 2] != ("$build_constraints",):
+            return False
+    return True
+
+
 def test_every_uv_sync_run_export_and_lock_stays_on_the_lock():
+    step_commands: dict[str, tuple[Command, ...]] = {}
+    for name, job, index, step in _steps():
+        # The same cached commands _uv_invocations reads, so the install's
+        # position in its step can be found by identity.
+        step_commands[f"{name}:{job}[{index}]"] = _script_commands(
+            step.get("run", ""), name, job
+        )
     offenders = []
     for where, invocation in _uv_invocations():
         options = set(invocation.options)
         text = f"{where} {invocation.command.line}"
-        if options & LOCK_OVERRIDES:
+        overrides = options & LOCK_OVERRIDES
+        if overrides == {"--build-constraints"} and (
+            _takes_the_locked_build_constraints(invocation, step_commands[where])
+        ):
+            overrides = set()
+        if overrides:
             offenders.append(text)
         elif invocation.subcommand in {"sync", "run", "export"}:
             if not options & {"--locked", "--frozen"}:
@@ -1065,6 +1241,168 @@ def test_every_uv_sync_run_export_and_lock_stays_on_the_lock():
             if not options & {"--check", "--dry-run", "--offline"}:
                 offenders.append(text)
     assert offenders == []
+
+
+LOCKED_BUILD_STEP = """\
+build_constraints="$RUNNER_TEMP/axiom-verification-build-constraints.txt"
+uv export --no-config --locked --only-group build --no-emit-project \\
+  --format requirements-txt --output-file "$build_constraints"
+uv pip install --no-config --python .venv/bin/python --target "$site_packages" \\
+  --no-cache --build-constraints "$build_constraints" --no-deps .
+"""
+_INSTALL = (
+    'uv pip install --no-config --python .venv/bin/python --target "$site_packages"'
+)
+_EXPORT = (
+    "uv export --no-config --locked --only-group build --no-emit-project"
+    ' --format requirements-txt --output-file "$build_constraints"'
+)
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                '"$build_constraints" --no-deps', '"$o" --no-deps'
+            ),
+            id="another-file",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace("--only-group build", "--only-group dev"),
+            id="another-group",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace("--no-config --locked", "--no-config --frozen"),
+            id="unchecked-export",
+        ),
+        pytest.param(
+            'build_constraints="$RUNNER_TEMP/axiom-verification-build-constraints.txt"\n'
+            f'{_INSTALL} --build-constraints "$build_constraints" --no-deps .\n'
+            f"{_EXPORT}\n",
+            id="export-after-install",
+        ),
+        pytest.param(
+            'build_constraints="$RUNNER_TEMP/axiom-verification-build-constraints.txt"\n'
+            f'{_INSTALL} --build-constraints "$build_constraints" --no-deps .\n',
+            id="no-export",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace("--build-constraints", "-b"),
+            id="short-option",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                '--build-constraints "$build_constraints"',
+                '--build-constraints="$build_constraints"',
+            ),
+            id="attached-value",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                f"{_INSTALL}",
+                'echo "hatchling" > "$build_constraints"\n' + _INSTALL,
+            ),
+            id="overwritten",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                f"{_INSTALL}",
+                'build_constraints="$RUNNER_TEMP/other.txt"\n' + _INSTALL,
+            ),
+            id="reassigned",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                '"$RUNNER_TEMP/axiom-verification-build-constraints.txt"',
+                '"$GITHUB_WORKSPACE/build-constraints.txt"',
+            ),
+            id="checked-in-path",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP
+            + 'uv pip compile --build-constraints "$build_constraints" r.in\n',
+            id="not-an-install",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                "--no-deps .",
+                '--no-deps . > "$RUNNER_TEMP/axiom-verification-build-constraints.txt"',
+            ),
+            id="install-truncates-the-literal-path",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                _INSTALL,
+                ': > "$RUNNER_TEMP/axiom-verification-build-constraints.txt"\n'
+                + _INSTALL,
+            ),
+            id="truncated-by-literal-path",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                _INSTALL,
+                "cp /tmp/hatchling.txt "
+                "$RUNNER_TEMP/axiom-verification-build-constraints.txt\n" + _INSTALL,
+            ),
+            id="copied-over-by-literal-path",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                '--output-file "$build_constraints"',
+                '--output-file "$build_constraints" > "$build_constraints"',
+            ),
+            id="export-redirects",
+        ),
+        # A line that only redirects truncates the file too; the reader keeps
+        # it as a command with no words.
+        *(
+            pytest.param(
+                LOCKED_BUILD_STEP.replace(_INSTALL, f"{line}\n{_INSTALL}"),
+                id=form,
+            )
+            for form, line in {
+                "exec-redirect-variable": 'exec 3> "$build_constraints"',
+                "exec-redirect-literal": (
+                    'exec 3> "$RUNNER_TEMP/axiom-verification-build-constraints.txt"'
+                ),
+                "bare-redirect-variable": '> "$build_constraints"',
+                "bare-redirect-literal": (
+                    '> "$RUNNER_TEMP/axiom-verification-build-constraints.txt"'
+                ),
+                "aliased": 'other="$build_constraints"',
+                "guarded-expansion": ': > "${build_constraints:?}"',
+                "guarded-expansion-copy": 'cp -f /etc/hosts "${build_constraints:?}"',
+                "guarded-expansion-alias": 'other="${build_constraints:?}"',
+                "export": "export build_constraints=/etc/hosts",
+                "declare": "declare build_constraints=/etc/hosts",
+                "readonly": "readonly build_constraints=/etc/hosts",
+                "append-assignment": "build_constraints+=.bak",
+                "read": "read -r build_constraints < /etc/hosts",
+                "printf-v": "printf -v build_constraints %s /etc/hosts",
+            }.items()
+        ),
+    ],
+)
+def test_only_the_locked_build_export_may_constrain_builds(monkeypatch, script):
+    workflows = copy.deepcopy(_workflows())
+    dict(workflows)["ci.yml"]["jobs"]["lint"]["steps"].append({"run": script})
+    monkeypatch.setattr(
+        "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
+    )
+    with pytest.raises(AssertionError):
+        test_every_uv_sync_run_export_and_lock_stays_on_the_lock()
+
+
+def test_the_locked_build_export_constrains_builds(monkeypatch):
+    workflows = copy.deepcopy(_workflows())
+    dict(workflows)["ci.yml"]["jobs"]["lint"]["steps"].append(
+        {"run": LOCKED_BUILD_STEP}
+    )
+    monkeypatch.setattr(
+        "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
+    )
+    test_every_uv_sync_run_export_and_lock_stays_on_the_lock()
 
 
 def test_no_workflow_runs_an_unpinned_uv_tool_or_edits_the_dependencies():
@@ -1344,14 +1682,146 @@ def test_the_test_environment_is_exactly_the_locked_set():
 
 def test_setup_uv_takes_only_a_version():
     # Its other inputs export UV_* variables (python-version sets UV_PYTHON,
-    # tool-dir sets UV_TOOL_DIR, ...) that later uv calls would honour.
+    # tool-dir sets UV_TOOL_DIR, ...) that later uv calls would honour. The one
+    # exception is enable-cache, and only to turn the cache off.
     inputs = [
-        f"{name}:{job}[{index}] {sorted(step.get('with') or {})}"
+        f"{name}:{job}[{index}] {(step.get('with') or {})}"
         for name, job, index, step in _action_steps()
         if step["uses"].startswith("astral-sh/setup-uv@")
-        and set(step.get("with") or {}) != {"version"}
+        and not (
+            set(step.get("with") or {}) == {"version"}
+            or (
+                set(step.get("with") or {}) == {"version", "enable-cache"}
+                and step["with"]["enable-cache"] == "false"
+            )
+        )
     ]
     assert inputs == []
+
+
+def _environment_jobs():
+    for name, workflow in _workflows():
+        for job_name, job in workflow["jobs"].items():
+            if job.get("environment") is not None:
+                yield name, job_name, job
+
+
+def test_key_bearing_jobs_never_use_the_uv_cache():
+    # A job that selects an environment can read that environment's secrets
+    # (the apply key, the repository token). setup-uv's default enable-cache,
+    # "auto", restores and saves the uv cache on hosted runners, and an entry
+    # under the same key can be written by any run on main, including test
+    # code an ordinary PR merged. Such a job must not restore one: its setup-uv
+    # turns the cache off, setup-go (whose cache defaults to true) does too, and
+    # no other step uses an Actions cache: no cache action (actions/cache,
+    # Swatinem/rust-cache, anything named for caching) and no action told to
+    # cache through a ``cache`` input (setup-python, setup-node, ...).
+    # Jobs that hold secrets without an environment are out of this check.
+    offenders = []
+    for name, job_name, job in _environment_jobs():
+        for index, step in enumerate(job.get("steps", [])):
+            uses = step.get("uses", "")
+            action = uses.split("@")[0]
+            inputs = step.get("with") or {}
+            where = f"{name}:{job_name}[{index}]"
+            if not uses:
+                continue
+            if action == "astral-sh/setup-uv":
+                if inputs.get("enable-cache") != "false":
+                    offenders.append(f"{where} setup-uv without enable-cache false")
+            elif action == "actions/setup-go":
+                if inputs.get("cache") not in (False, "false"):
+                    offenders.append(f"{where} setup-go without cache false")
+            elif "cache" in action.lower():
+                offenders.append(f"{where} {action}")
+            elif inputs.get("cache") not in (None, "", False, "false"):
+                offenders.append(f"{where} {action} cache {inputs['cache']!r}")
+    assert offenders == []
+
+
+def test_key_bearing_jobs_are_found():
+    # The cache check is not vacuous: both signing-side workflows are seen.
+    jobs = {(name, job_name) for name, job_name, _ in _environment_jobs()}
+    assert ("targeted-signed-reencode.yml", "encode") in jobs
+    assert any(name == "finalize-signed-snap-queue.yml" for name, _ in jobs)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "drop",
+        "true",
+        "auto",
+        "cache-action",
+        "setup-go-cache",
+        "setup-go-default",
+        "setup-python-cache",
+        "setup-node-cache",
+        "rust-cache",
+        "cache-restore",
+    ],
+)
+def test_a_key_bearing_job_using_a_cache_is_caught(monkeypatch, mutation):
+    workflows = copy.deepcopy(_workflows())
+    steps = dict(workflows)["targeted-signed-reencode.yml"]["jobs"]["encode"]["steps"]
+    setup_uv = next(
+        step for step in steps if step.get("uses", "").startswith("astral-sh/setup-uv@")
+    )
+    if mutation == "drop":
+        del setup_uv["with"]["enable-cache"]
+    elif mutation in ("true", "auto"):
+        setup_uv["with"]["enable-cache"] = mutation
+    elif mutation == "cache-action":
+        steps.insert(
+            0, {"uses": "actions/cache@" + "0" * 40, "with": {"path": "~/.cache/uv"}}
+        )
+    elif mutation == "setup-go-default":
+        step = next(
+            s for s in steps if s.get("uses", "").startswith("actions/setup-go@")
+        )
+        del step["with"]["cache"]
+    elif mutation == "setup-go-cache":
+        step = next(
+            s for s in steps if s.get("uses", "").startswith("actions/setup-go@")
+        )
+        step["with"]["cache"] = True
+    else:
+        # The job installs Python with uv and Rust without caching; these steps are new.
+        steps.insert(
+            0,
+            {
+                "setup-python-cache": {
+                    "uses": "actions/setup-python@" + "0" * 40,
+                    "with": {"python-version": "3.13", "cache": "pip"},
+                },
+                "setup-node-cache": {
+                    "uses": "actions/setup-node@" + "0" * 40,
+                    "with": {"node-version": "22", "cache": "npm"},
+                },
+                "rust-cache": {"uses": "Swatinem/rust-cache@" + "0" * 40},
+                "cache-restore": {
+                    "uses": "actions/cache/restore@" + "0" * 40,
+                    "with": {"path": "~/.cache/uv", "key": "uv"},
+                },
+            }[mutation],
+        )
+    monkeypatch.setattr(
+        "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
+    )
+    with pytest.raises(AssertionError):
+        test_key_bearing_jobs_never_use_the_uv_cache()
+
+
+def test_setup_uv_enable_cache_other_than_false_is_caught(monkeypatch):
+    workflows = copy.deepcopy(_workflows())
+    for step in dict(workflows)["ci.yml"]["jobs"]["lint"]["steps"]:
+        if step.get("uses", "").startswith("astral-sh/setup-uv@"):
+            step["with"]["enable-cache"] = "true"
+    monkeypatch.setattr(
+        "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
+    )
+    with pytest.raises(AssertionError):
+        test_setup_uv_takes_only_a_version()
 
 
 def test_setup_python_takes_only_a_python_version():

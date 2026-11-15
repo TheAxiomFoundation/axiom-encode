@@ -667,8 +667,11 @@ def test_infra_issue_script_emits_the_envelope(tmp_path):
     )
     assert completed.returncode == 0
     assert completed.stderr == ""
+    # The bracketed id leads the annotation text: a log reader takes the check
+    # id from the message, as it does for validator issues.
     assert completed.stdout.startswith(
         "::error title=infra%3Avalidate-atomic-source-inputs::"
+        "[infra:validate-atomic-source-inputs] "
     )
     assert "%0AFix: " in completed.stdout
     record = json.loads(issues_file.read_text(encoding="utf-8"))
@@ -678,6 +681,74 @@ def test_infra_issue_script_emits_the_envelope(tmp_path):
     assert record["run"] == {"run_id": "123"}
     assert record["fix"] == checks.get_check("infra:validate-atomic-source-inputs").fix
     assert "Fix:" in summary.read_text(encoding="utf-8")
+
+
+#: Steps of the ``attempt_budget`` and ``encode`` jobs with no step check. The
+#: encode step and its signature slots report typed encoder issues of their
+#: own; the others cannot refuse a run or only run after it failed.
+STEP_CHECK_EXEMPT_STEPS = frozenset(
+    {
+        "Encode, review, validate, and apply",
+        "Complete signed encode checkpoints",
+        "Record model-free signing transaction",
+        "Record completed model-capable generation",
+        "Summarize model spend",
+        "Package failed re-encode diagnostics",
+        "Upload failed re-encode diagnostics",
+    }
+)
+_SIGNATURE_SLOT_STEP = re.compile(r"(Prepare apply|Apply prepared) signature [0-9]+")
+
+
+def test_every_pre_model_and_publish_step_has_a_step_check():
+    import yaml
+
+    from axiom_encode import infra_checks
+
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    steps = [
+        step["name"]
+        for job in ("attempt_budget", "encode")
+        for step in workflow["jobs"][job]["steps"]
+    ]
+    prefix = f"{infra_checks._WORKFLOW}:"
+    definitions = (
+        *infra_checks.INFRA_CHECK_DEFINITIONS,
+        *infra_checks.STEP_CHECK_DEFINITIONS,
+    )
+    sites = [definition["site"].removeprefix(prefix) for definition in definitions]
+    # One check per step: the step name alone selects the check.
+    assert len(sites) == len(set(sites))
+    assert all(definition["site"].startswith(prefix) for definition in definitions)
+    in_scope = {
+        step
+        for step in steps
+        if step not in STEP_CHECK_EXEMPT_STEPS
+        and not _SIGNATURE_SLOT_STEP.fullmatch(step)
+    }
+    assert in_scope - set(sites) == set(), (
+        "Declare a step check in axiom_encode.infra_checks._STEP_CHECKS for each "
+        "new step, or add the step to STEP_CHECK_EXEMPT_STEPS with a reason."
+    )
+    assert set(sites) - in_scope == set(), "a step check names a step that is gone"
+    assert STEP_CHECK_EXEMPT_STEPS <= set(steps)
+    for definition in infra_checks.STEP_CHECK_DEFINITIONS:
+        step = definition["site"].removeprefix(prefix)
+        assert definition["id"] == infra_checks.step_check_id(step)
+        assert load_checks()[definition["id"]].site == definition["site"]
+    # The published registry carries the same map, so a reader needs no code.
+    registry = json.loads(
+        (SRC / checks.COMMITTED_REGISTRY_PATH).read_text(encoding="utf-8")
+    )
+    published = {
+        check["site"].removeprefix(prefix): check["id"]
+        for check in registry["checks"]
+        if check["id"].startswith("infra:")
+    }
+    assert published == {
+        definition["site"].removeprefix(prefix): definition["id"]
+        for definition in definitions
+    }
 
 
 def test_infra_issue_script_rejects_unknown_usage():

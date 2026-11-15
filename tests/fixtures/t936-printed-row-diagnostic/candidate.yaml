@@ -1,0 +1,2861 @@
+format: rulespec/v1
+imports: []
+module:
+  summary: Complete-parent T9362025 diagnostic copy; no signed/native/publication
+    claim. Explicit source-category facts; historical forms are copied, not retrospectively
+    recomputed.
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+    source_sha256: 796503a6838cb17679a0051fe8b20b95a115febc7d034f67ca340c0a0b3eabdc
+units:
+- name: CAD
+  kind: currency
+  minor_units: 2
+inputs:
+- name: schedule_3_line_19900
+  entity: Person
+  dtype: Money
+  period: Year
+  description: 'Explicit completed 2025 source-line amount: schedule_3_line_19900.
+    No upstream recalculation or eligibility inference.'
+  unit: CAD
+- name: t2048_line_17215
+  entity: Person
+  dtype: Money
+  period: Year
+  description: 'Explicit completed 2025 source-line amount: t2048_line_17215. No upstream
+    recalculation or eligibility inference.'
+  unit: CAD
+- name: schedule_3_line_10700
+  entity: Person
+  dtype: Money
+  period: Year
+  description: 'Explicit completed 2025 source-line amount: schedule_3_line_10700.
+    No upstream recalculation or eligibility inference.'
+  unit: CAD
+- name: schedule_3_line_11000
+  entity: Person
+  dtype: Money
+  period: Year
+  description: 'Explicit completed 2025 source-line amount: schedule_3_line_11000.
+    No upstream recalculation or eligibility inference.'
+  unit: CAD
+- name: schedule_3_line_12400
+  entity: Person
+  dtype: Money
+  period: Year
+  description: 'Explicit completed 2025 source-line amount: schedule_3_line_12400.
+    No upstream recalculation or eligibility inference.'
+  unit: CAD
+- name: t2017_line_13_reserves_qffp_qsbcs
+  entity: Person
+  dtype: Money
+  period: Year
+  description: 'Explicit completed 2025 source-line amount: t2017_line_13_reserves_qffp_qsbcs.
+    No upstream recalculation or eligibility inference.'
+  unit: CAD
+- name: t2048_line_17216
+  entity: Person
+  dtype: Money
+  period: Year
+  description: 'Explicit completed 2025 source-line amount: t2048_line_17216. No upstream
+    recalculation or eligibility inference.'
+  unit: CAD
+- name: t3_box_21_capital_gains
+  entity: Person
+  dtype: Money
+  period: Year
+  description: 'Explicit completed 2025 source-line amount: t3_box_21_capital_gains.
+    No upstream recalculation or eligibility inference.'
+  unit: CAD
+- name: t3_box_30_capital_gains_eligible_for_deduction
+  entity: Person
+  dtype: Money
+  period: Year
+  description: 'Explicit completed 2025 source-line amount: t3_box_30_capital_gains_eligible_for_deduction.
+    No upstream recalculation or eligibility inference.'
+  unit: CAD
+- name: t1_line_25300_net_capital_losses_of_other_years
+  entity: Person
+  dtype: Money
+  period: Year
+  description: 'Explicit completed 2025 source-line amount: t1_line_25300_net_capital_losses_of_other_years.
+    No upstream recalculation or eligibility inference.'
+  unit: CAD
+- name: carrying_charges_and_interest_expenses_line_22100
+  entity: Person
+  dtype: Money
+  period: Year
+  description: 'Explicit completed 2025 source-line amount: carrying_charges_and_interest_expenses_line_22100.
+    No upstream recalculation or eligibility inference.'
+  unit: CAD
+- name: net_rental_losses_line_12600
+  entity: Person
+  dtype: Money
+  period: Year
+  description: 'Explicit completed 2025 source-line amount: net_rental_losses_line_12600.
+    No upstream recalculation or eligibility inference.'
+  unit: CAD
+- name: limited_or_non_active_partnership_losses_line_12200
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Completed line12200 limited/non-active partnership losses OTHER THAN
+    allowable capital losses.
+  unit: CAD
+- name: limited_partnership_losses_of_other_years_line_25100
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Completed line25100 limited partnership losses of other years AFTER1985;
+    no additional capital-loss exclusion imposed.
+  unit: CAD
+- name: investment_income_lines_12000_and_12100
+  entity: Person
+  dtype: Money
+  period: Year
+  description: 'Explicit completed 2025 source-line amount: investment_income_lines_12000_and_12100.
+    No upstream recalculation or eligibility inference.'
+  unit: CAD
+- name: net_rental_income_line_12600
+  entity: Person
+  dtype: Money
+  period: Year
+  description: 'Explicit completed 2025 source-line amount: net_rental_income_line_12600.
+    No upstream recalculation or eligibility inference.'
+  unit: CAD
+- name: limited_or_non_active_partnership_income_line_12200
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Completed line12200 limited/non-active partnership net income OTHER
+    THAN taxable capital gains.
+  unit: CAD
+- name: t2048_2024_to_2025_line_17218
+  entity: Person
+  dtype: Money
+  period: Year
+  description: 'Explicit completed 2025 source-line amount: t2048_2024_to_2025_line_17218.
+    No upstream recalculation or eligibility inference.'
+  unit: CAD
+- name: exploration_and_development_expenses_line_22400
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Full line22400 expenses before T936 50% computation.
+  unit: CAD
+- name: recovery_of_exploration_and_development_expenses_line_13000
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Full recovery income before T936 50% computation.
+  unit: CAD
+- name: t936_chart_a_completed
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Chart A was completed, separate from required-to-complete duty.
+- name: schedule_3_line_19200_reported
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: An amount was reported on Schedule3 line19200, including an explicitly
+    reported zero.
+- name: t936_chart_a_line_14_includes_t3
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Line14 includes a T3-slip amount; source-specific membership fact,
+    not aggregate eligibility.
+- name: t936_completed_2024
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: A completed2024 T936 is available for the source-stated copying route.
+- name: t936_had_investment_income_2025
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Had investment income in2025.
+- name: t936_had_investment_expenses_2025
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Had investment expenses in2025.
+- name: t936_other_than_qffp_qsbcs_gains_2025
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Had2025 capital gains other than the two source-excluded property classes.
+- name: t936_claiming_capital_gains_deduction_2025
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Claiming capital gains deduction on2025 return.
+- name: t936_repaid_inducements
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Repayments of inducements. Completed property-income deduction category.
+    Excludes business-income expenses,20(1)(j) loan repayments, and interest for income-averaging
+    annuity/RRSP/RPP/DPSP uses as listed by source.
+  unit: CAD
+- name: t936_repaid_refund_interest
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Repayments of refund interest. Completed property-income deduction
+    category. Excludes business-income expenses,20(1)(j) loan repayments, and interest
+    for income-averaging annuity/RRSP/RPP/DPSP uses as listed by source.
+  unit: CAD
+- name: t936_prior_proceeds_sale_agreement_mortgage_claim
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Sale of agreement for sale or mortgage/hypothecary claim included in
+    proceeds in a previous year under20(5); completed category amount, not locally
+    reconstructed prior sale. Completed property-income deduction category. Excludes
+    business-income expenses,20(1)(j) loan repayments, and interest for income-averaging
+    annuity/RRSP/RPP/DPSP uses as listed by source.
+  unit: CAD
+- name: t936_foreign_nonbusiness_tax_20_11_12
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Foreign nonbusiness tax under20(11)/(12). Completed property-income
+    deduction category. Excludes business-income expenses,20(1)(j) loan repayments,
+    and interest for income-averaging annuity/RRSP/RPP/DPSP uses as listed by source.
+  unit: CAD
+- name: t936_life_insurance_premiums_property_income
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Life insurance premiums deducted from property income. Completed property-income
+    deduction category. Excludes business-income expenses,20(1)(j) loan repayments,
+    and interest for income-averaging annuity/RRSP/RPP/DPSP uses as listed by source.
+  unit: CAD
+- name: t936_cca_certified_films_videotapes
+  entity: Person
+  dtype: Money
+  period: Year
+  description: CCA claimed on certified films/videotapes. Completed property-income
+    deduction category. Excludes business-income expenses,20(1)(j) loan repayments,
+    and interest for income-averaging annuity/RRSP/RPP/DPSP uses as listed by source.
+  unit: CAD
+- name: t936_farming_fishing_losses_nonactive_limited_partner
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Farming/fishing losses claimed by nonactive/limited partner. Completed
+    property-income deduction category. Excludes business-income expenses,20(1)(j)
+    loan repayments, and interest for income-averaging annuity/RRSP/RPP/DPSP uses
+    as listed by source.
+  unit: CAD
+- name: t936_asset_uncollectible_portion
+  entity: SourceEntry
+  dtype: Money
+  period: Year
+  description: Entered uncollectible portion of proceeds of this depreciable-property
+    disposition; not computed from an invented recovery formula.
+  unit: CAD
+- name: t936_asset_acquisition_cost
+  entity: SourceEntry
+  dtype: Money
+  period: Year
+  description: Acquisition cost used solely for stated passenger-vehicle threshold.
+  unit: CAD
+- name: t936_asset_acquisition_date
+  entity: SourceEntry
+  dtype: Date
+  period: Year
+  description: Actual acquisition calendar date, not disposition or claim date.
+- name: t936_asset_is_timber_resource
+  entity: SourceEntry
+  dtype: Boolean
+  period: Year
+  description: Source classification timber resource.
+- name: t936_asset_is_ordinary_passenger_vehicle
+  entity: SourceEntry
+  dtype: Boolean
+  period: Year
+  description: Passenger vehicle other than the separately treated ZEPV class.
+- name: t936_asset_is_zero_emission_passenger_vehicle
+  entity: SourceEntry
+  dtype: Boolean
+  period: Year
+  description: Separately stated ZEPV classification; no claim the source defines
+    historical category admission.
+- name: t936_insurance_recapture_not_already_line9
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Completed source category insurance_recapture_not_already_line9. Excludes
+    business income, income-averaging/DPSP-purchased annuities, and15(2) shareholder
+    loans. Insurance recapture specifically excludes amounts already in line9.
+  unit: CAD
+- name: t936_home_insulation_energy_conversion_grants_12_1_u
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Completed source category home_insulation_energy_conversion_grants_12_1_u.
+    Excludes business income, income-averaging/DPSP-purchased annuities, and15(2)
+    shareholder loans. Insurance recapture specifically excludes amounts already in
+    line9.
+  unit: CAD
+- name: t936_inducement_reimbursement
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Completed source category inducement_reimbursement. Excludes business
+    income, income-averaging/DPSP-purchased annuities, and15(2) shareholder loans.
+    Insurance recapture specifically excludes amounts already in line9.
+  unit: CAD
+- name: t936_shareholder_property_appropriation
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Completed source category shareholder_property_appropriation. Excludes
+    business income, income-averaging/DPSP-purchased annuities, and15(2) shareholder
+    loans. Insurance recapture specifically excludes amounts already in line9.
+  unit: CAD
+- name: t936_nonactive_limited_partner_farming_fishing
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Completed source category nonactive_limited_partner_farming_fishing.
+    Excludes business income, income-averaging/DPSP-purchased annuities, and15(2)
+    shareholder loans. Insurance recapture specifically excludes amounts already in
+    line9.
+  unit: CAD
+- name: t936_other_trust_income
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Completed source category other_trust_income. Excludes business income,
+    income-averaging/DPSP-purchased annuities, and15(2) shareholder loans. Insurance
+    recapture specifically excludes amounts already in line9.
+  unit: CAD
+- name: t936_allowable_capital_losses_prior_partnership_losses_after1985
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Completed source category allowable_capital_losses_prior_partnership_losses_after1985.
+    Excludes business income, income-averaging/DPSP-purchased annuities, and15(2)
+    shareholder loans. Insurance recapture specifically excludes amounts already in
+    line9.
+  unit: CAD
+- name: t936_agriinvest_fund2_withdrawals
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Completed source category agriinvest_fund2_withdrawals. Excludes business
+    income, income-averaging/DPSP-purchased annuities, and15(2) shareholder loans.
+    Insurance recapture specifically excludes amounts already in line9.
+  unit: CAD
+- name: t936_cpp_qpp_death_benefits
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Completed source category cpp_qpp_death_benefits. Excludes business
+    income, income-averaging/DPSP-purchased annuities, and15(2) shareholder loans.
+    Insurance recapture specifically excludes amounts already in line9.
+  unit: CAD
+- name: t936_annuity_taxable_56_1_d
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Annuity payment taxable under56(1)(d), excluding the source-listed
+    annuity classes.
+  unit: CAD
+- name: t936_annuity_capital_deduction_60_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Capital portion deducted under60(a) for the included annuity payment.
+  unit: CAD
+- name: t936_completed_1988_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1988 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules. Source note omits
+    line7/13 for1988..1991.
+  unit: CAD
+- name: t936_completed_1989_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1989 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules. Source note omits
+    line7/13 for1988..1991.
+  unit: CAD
+- name: t936_completed_1990_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1990 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules. Source note omits
+    line7/13 for1988..1991.
+  unit: CAD
+- name: t936_completed_1991_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1991 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules. Source note omits
+    line7/13 for1988..1991.
+  unit: CAD
+- name: t936_completed_1992_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1992 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_1993_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1993 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_1994_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1994 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_1995_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1995 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_1996_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1996 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_1997_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1997 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_1998_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1998 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_1999_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1999 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2000_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2000 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2001_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2001 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2002_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2002 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2003_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2003 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2004_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2004 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2005_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2005 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2006_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2006 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2007_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2007 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2008_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2008 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2009_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2009 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2010_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2010 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2011_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2011 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2012_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2012 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2013_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2013 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2014_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2014 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2015_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2015 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2016_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2016 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2017_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2017 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2018_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2018 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2019_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2019 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2020_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2020 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2021_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2021 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2022_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2022 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2023_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2023 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2024_part_a
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2024 PartA total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_2024_part3_line_16
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Exact literal prior2024 Part3 line16 copied as the source directs;
+    no silent line correction.
+  unit: CAD
+- name: t936_completed_1988_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1988 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules. Source note omits
+    line7/13 for1988..1991.
+  unit: CAD
+- name: t936_completed_1989_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1989 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules. Source note omits
+    line7/13 for1988..1991.
+  unit: CAD
+- name: t936_completed_1990_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1990 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules. Source note omits
+    line7/13 for1988..1991.
+  unit: CAD
+- name: t936_completed_1991_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1991 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules. Source note omits
+    line7/13 for1988..1991.
+  unit: CAD
+- name: t936_completed_1992_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1992 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_1993_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1993 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_1994_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1994 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_1995_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1995 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_1996_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1996 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_1997_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1997 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_1998_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1998 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_1999_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed1999 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2000_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2000 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2001_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2001 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2002_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2002 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2003_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2003 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2004_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2004 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2005_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2005 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2006_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2006 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2007_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2007 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2008_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2008 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2009_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2009 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2010_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2010 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2011_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2011 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2012_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2012 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2013_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2013 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2014_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2014 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2015_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2015 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2016_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2016 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2017_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2017 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2018_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2018 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2019_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2019 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2020_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2020 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2021_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2021 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2022_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2022 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2023_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2023 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_completed_2024_part_b
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Explicit completed2024 PartB total. Zero must be supplied when no amount;
+    no default. Historical law is not recomputed using2025 rules.
+  unit: CAD
+- name: t936_2024_part3_line_19
+  entity: Person
+  dtype: Money
+  period: Year
+  description: Exact literal prior2024 Part3 line19 copied as the source directs;
+    no silent line correction.
+  unit: CAD
+rules:
+- name: federal_2025_t936_chart_a_inclusion_rate
+  kind: parameter
+  dtype: Rate
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: '0.50'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: Inclusion rate × 50% 10
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: Inclusion rate × 50% 18
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 50% of exploration and development expenses (line 22400) + 5
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 50% of income from the recovery of exploration and development
+            expenses (line 13000) 68110 + 12
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: federal_2025_t936_chart_a_line_3
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_3_line_19900 - t2048_line_17215
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: Line 1 minus line 2 = 3
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: federal_2025_t936_chart_a_line_7
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_3_line_10700 + schedule_3_line_11000 + schedule_3_line_12400
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Amount from line 10700 of Schedule 3 4
+
+            Amount from line 11000 of Schedule 3 + 5
+
+            Amount from line 12400 of Schedule 3 + 6
+
+            Add lines 4 to 6 (if negative, show in brackets). = 7
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_chart_a_line_8
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if schedule_3_line_19200_reported:\n  t2017_line_13_reserves_qffp_qsbcs\n\
+      else:\n  0"
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'If you reported an amount on line 19200 of Schedule 3, enter the
+            amount
+
+            from line 13 of Form T2017, Summary of Reserves on Dispositions of
+
+            Capital Property (if negative, show in brackets). + 8
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: federal_2025_t936_chart_a_line_9
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: federal_2025_t936_chart_a_line_7 + t936_chart_a_line_8
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: Line 7 plus line 8 (if negative, show in brackets) = 9
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: federal_2025_t936_chart_a_line_11
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: max(0, federal_2025_t936_chart_a_line_9 * federal_2025_t936_chart_a_inclusion_rate)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Line 9 multiplied by the percentage on line 10
+
+            (if negative, enter "0") = 11
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: federal_2025_t936_chart_a_line_13
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: federal_2025_t936_chart_a_line_11 - t2048_line_17216
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: Line 11 minus line 12 = (cid:379) – 13
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_chart_a_line_14_non_eligible_taxable_capital_gains
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: max(0, federal_2025_t936_chart_a_line_3 - federal_2025_t936_chart_a_line_13)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: Line 3 minus line 13 (if negative, enter "0") = 14
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: federal_2025_t936_chart_a_line_17
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: t3_box_21_capital_gains - t3_box_30_capital_gains_eligible_for_deduction
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Enter the amount from box 21 of all 2025 T3 slips. 68140 15
+
+            Enter the amount from box 30 of all 2025 T3 slips. – 16
+
+            Line 15 minus line 16 68150 = 17
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: federal_2025_t936_chart_a_line_19
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if t936_chart_a_line_14_includes_t3:\n  federal_2025_t936_chart_a_line_17\
+      \ * federal_2025_t936_chart_a_inclusion_rate\nelse:\n  0"
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'If the total from line 14 includes an amount from a T3 slip, complete
+            lines 15 to 19 below.
+
+            Otherwise, enter "0" on line 19 and continue at line 20.
+
+            '
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Inclusion rate × 50% 18
+
+            Line 17 multiplied by the percentage on line 18 = (cid:379) – 19
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: federal_2025_t936_chart_a_additional_investment_income_line_20
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if schedule_3_line_19900 == 0:\n  0\nelif t936_chart_a_line_14_non_eligible_taxable_capital_gains\
+      \ == 0:\n  0\nelse:\n  max(0, t936_chart_a_line_14_non_eligible_taxable_capital_gains\
+      \ - federal_2025_t936_chart_a_line_19)"
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: If the amount is "0", do not complete lines 2 to 17, and enter
+            "0" on line 20. 1
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: If the total from line 14 is "0", do not complete lines 15 to 19,
+            and enter "0" on line 20.
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: Line 14 minus line 19 (if negative, enter "0") Additional investment
+            income = 20
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: federal_2025_t936_additional_expenses_line_7
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if t936_chart_a_completed:\n  min(federal_2025_t936_chart_a_additional_investment_income_line_20,\
+      \ t1_line_25300_net_capital_losses_of_other_years)\nelse:\n  0"
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Additional investment expenses: if you did not complete Chart
+            A on page 4 of this form, enter "0".
+
+            Otherwise, enter whichever is less: line 20 in Chart A or line 25300 of
+            your return. + 7
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: federal_2025_t936_additional_income_line_13
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if t936_chart_a_completed:\n  federal_2025_t936_chart_a_additional_investment_income_line_20\n\
+      else:\n  0"
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Additional investment income: if you did not complete Chart A
+            on page 4 of this form, enter "0".
+
+            Otherwise, enter the amount from line 20 in Chart A. + 13
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_depreciable_disposition_for_return
+  kind: data_relation
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  data_relation:
+    arity: 2
+    arguments:
+    - SourceEntry
+    - Person
+  metadata:
+    proof:
+      atoms:
+      - path: data_relation
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'the uncollectible portion of proceeds from dispositions of depreciable
+            property (except timber resources, passenger vehicles
+
+            that cost more than $30,000 for vehicles acquired prior to 2022, $34,000
+            for vehicles acquired in 2022, $36,000 for vehicles
+
+            acquired in 2023, $37,000 for vehicles acquired in 2024, and $38,000 for
+            vehicles acquired in 2025, and zero-emission
+
+            passenger vehicles (ZEPV) that cost more than $55,000 for ZEPV acquired
+            after March 18, 2019, $59,000 for ZEPV acquired
+
+            in 2022, and $61,000 for ZEPV acquired after 2022)
+
+            '
+- name: t936_source_year
+  kind: parameter
+  dtype: Integer
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: '2025'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_march_18_2019
+  kind: parameter
+  dtype: Date
+  indexed_by: t936_source_year
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    values:
+      2025: '2019-03-18'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'the uncollectible portion of proceeds from dispositions of depreciable
+            property (except timber resources, passenger vehicles
+
+            that cost more than $30,000 for vehicles acquired prior to 2022, $34,000
+            for vehicles acquired in 2022, $36,000 for vehicles
+
+            acquired in 2023, $37,000 for vehicles acquired in 2024, and $38,000 for
+            vehicles acquired in 2025, and zero-emission
+
+            passenger vehicles (ZEPV) that cost more than $55,000 for ZEPV acquired
+            after March 18, 2019, $59,000 for ZEPV acquired
+
+            in 2022, and $61,000 for ZEPV acquired after 2022)
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_start_2022
+  kind: parameter
+  dtype: Date
+  indexed_by: t936_source_year
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    values:
+      2025: '2022-01-01'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'the uncollectible portion of proceeds from dispositions of depreciable
+            property (except timber resources, passenger vehicles
+
+            that cost more than $30,000 for vehicles acquired prior to 2022, $34,000
+            for vehicles acquired in 2022, $36,000 for vehicles
+
+            acquired in 2023, $37,000 for vehicles acquired in 2024, and $38,000 for
+            vehicles acquired in 2025, and zero-emission
+
+            passenger vehicles (ZEPV) that cost more than $55,000 for ZEPV acquired
+            after March 18, 2019, $59,000 for ZEPV acquired
+
+            in 2022, and $61,000 for ZEPV acquired after 2022)
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_start_2023
+  kind: parameter
+  dtype: Date
+  indexed_by: t936_source_year
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    values:
+      2025: '2023-01-01'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'the uncollectible portion of proceeds from dispositions of depreciable
+            property (except timber resources, passenger vehicles
+
+            that cost more than $30,000 for vehicles acquired prior to 2022, $34,000
+            for vehicles acquired in 2022, $36,000 for vehicles
+
+            acquired in 2023, $37,000 for vehicles acquired in 2024, and $38,000 for
+            vehicles acquired in 2025, and zero-emission
+
+            passenger vehicles (ZEPV) that cost more than $55,000 for ZEPV acquired
+            after March 18, 2019, $59,000 for ZEPV acquired
+
+            in 2022, and $61,000 for ZEPV acquired after 2022)
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_start_2024
+  kind: parameter
+  dtype: Date
+  indexed_by: t936_source_year
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    values:
+      2025: '2024-01-01'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'the uncollectible portion of proceeds from dispositions of depreciable
+            property (except timber resources, passenger vehicles
+
+            that cost more than $30,000 for vehicles acquired prior to 2022, $34,000
+            for vehicles acquired in 2022, $36,000 for vehicles
+
+            acquired in 2023, $37,000 for vehicles acquired in 2024, and $38,000 for
+            vehicles acquired in 2025, and zero-emission
+
+            passenger vehicles (ZEPV) that cost more than $55,000 for ZEPV acquired
+            after March 18, 2019, $59,000 for ZEPV acquired
+
+            in 2022, and $61,000 for ZEPV acquired after 2022)
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_start_2025
+  kind: parameter
+  dtype: Date
+  indexed_by: t936_source_year
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    values:
+      2025: '2025-01-01'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'the uncollectible portion of proceeds from dispositions of depreciable
+            property (except timber resources, passenger vehicles
+
+            that cost more than $30,000 for vehicles acquired prior to 2022, $34,000
+            for vehicles acquired in 2022, $36,000 for vehicles
+
+            acquired in 2023, $37,000 for vehicles acquired in 2024, and $38,000 for
+            vehicles acquired in 2025, and zero-emission
+
+            passenger vehicles (ZEPV) that cost more than $55,000 for ZEPV acquired
+            after March 18, 2019, $59,000 for ZEPV acquired
+
+            in 2022, and $61,000 for ZEPV acquired after 2022)
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_start_2026
+  kind: parameter
+  dtype: Date
+  indexed_by: t936_source_year
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    values:
+      2025: '2026-01-01'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'the uncollectible portion of proceeds from dispositions of depreciable
+            property (except timber resources, passenger vehicles
+
+            that cost more than $30,000 for vehicles acquired prior to 2022, $34,000
+            for vehicles acquired in 2022, $36,000 for vehicles
+
+            acquired in 2023, $37,000 for vehicles acquired in 2024, and $38,000 for
+            vehicles acquired in 2025, and zero-emission
+
+            passenger vehicles (ZEPV) that cost more than $55,000 for ZEPV acquired
+            after March 18, 2019, $59,000 for ZEPV acquired
+
+            in 2022, and $61,000 for ZEPV acquired after 2022)
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_vehicle_cost_30000
+  kind: parameter
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: '30000'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: $30,000 for vehicles acquired prior to 2022
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_vehicle_cost_34000
+  kind: parameter
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: '34000'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: $34,000 for vehicles acquired in 2022
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_vehicle_cost_36000
+  kind: parameter
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: '36000'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: '$36,000 for vehicles
+
+            acquired in 2023'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_vehicle_cost_37000
+  kind: parameter
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: '37000'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: $37,000 for vehicles acquired in 2024
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_vehicle_cost_38000
+  kind: parameter
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: '38000'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: $38,000 for vehicles acquired in 2025
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_vehicle_cost_55000
+  kind: parameter
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: '55000'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: $55,000 for ZEPV acquired after March 18, 2019
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_vehicle_cost_59000
+  kind: parameter
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: '59000'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: '$59,000 for ZEPV acquired
+
+            in 2022'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_vehicle_cost_61000
+  kind: parameter
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: '61000'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: $61,000 for ZEPV acquired after 2022
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_ordinary_vehicle_cost_excluded
+  kind: derived
+  dtype: Boolean
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: SourceEntry
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if t936_asset_acquisition_date < t936_start_2022[t936_source_year]:\n\
+      \  if t936_asset_acquisition_cost > t936_vehicle_cost_30000:\n    true\n  else:\n\
+      \    false\nelif t936_asset_acquisition_date < t936_start_2023[t936_source_year]:\n\
+      \  if t936_asset_acquisition_cost > t936_vehicle_cost_34000:\n    true\n  else:\n\
+      \    false\nelif t936_asset_acquisition_date < t936_start_2024[t936_source_year]:\n\
+      \  if t936_asset_acquisition_cost > t936_vehicle_cost_36000:\n    true\n  else:\n\
+      \    false\nelif t936_asset_acquisition_date < t936_start_2025[t936_source_year]:\n\
+      \  if t936_asset_acquisition_cost > t936_vehicle_cost_37000:\n    true\n  else:\n\
+      \    false\nelif t936_asset_acquisition_date < t936_start_2026[t936_source_year]:\n\
+      \  if t936_asset_acquisition_cost > t936_vehicle_cost_38000:\n    true\n  else:\n\
+      \    false\nelse:\n  false"
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'the uncollectible portion of proceeds from dispositions of depreciable
+            property (except timber resources, passenger vehicles
+
+            that cost more than $30,000 for vehicles acquired prior to 2022, $34,000
+            for vehicles acquired in 2022, $36,000 for vehicles
+
+            acquired in 2023, $37,000 for vehicles acquired in 2024, and $38,000 for
+            vehicles acquired in 2025, '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_zepv_cost_excluded
+  kind: derived
+  dtype: Boolean
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: SourceEntry
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if t936_asset_acquisition_date >= t936_start_2023[t936_source_year]:\n\
+      \  if t936_asset_acquisition_cost > t936_vehicle_cost_61000:\n    true\n  else:\n\
+      \    false\nelif t936_asset_acquisition_date >= t936_start_2022[t936_source_year]:\n\
+      \  if t936_asset_acquisition_cost > t936_vehicle_cost_59000:\n    true\n  else:\n\
+      \    false\nelif t936_asset_acquisition_date > t936_march_18_2019[t936_source_year]:\n\
+      \  if t936_asset_acquisition_cost > t936_vehicle_cost_55000:\n    true\n  else:\n\
+      \    false\nelse:\n  false"
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'zero-emission
+
+            passenger vehicles (ZEPV) that cost more than $55,000 for ZEPV acquired
+            after March 18, 2019, $59,000 for ZEPV acquired
+
+            in 2022, and $61,000 for ZEPV acquired after 2022)
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_asset_included_uncollectible_portion
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: SourceEntry
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if t936_asset_is_timber_resource:\n  0\nelif t936_asset_is_zero_emission_passenger_vehicle\
+      \ and t936_zepv_cost_excluded == true:\n  0\nelif t936_asset_is_ordinary_passenger_vehicle\
+      \ and t936_ordinary_vehicle_cost_excluded == true:\n  0\nelse:\n  t936_asset_uncollectible_portion"
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'the uncollectible portion of proceeds from dispositions of depreciable
+            property (except timber resources, passenger vehicles
+
+            that cost more than $30,000 for vehicles acquired prior to 2022, $34,000
+            for vehicles acquired in 2022, $36,000 for vehicles
+
+            acquired in 2023, $37,000 for vehicles acquired in 2024, and $38,000 for
+            vehicles acquired in 2025, and zero-emission
+
+            passenger vehicles (ZEPV) that cost more than $55,000 for ZEPV acquired
+            after March 18, 2019, $59,000 for ZEPV acquired
+
+            in 2022, and $61,000 for ZEPV acquired after 2022)
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_uncollectible_dispositions_total
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: sum(t936_depreciable_disposition_for_return.t936_asset_included_uncollectible_portion)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'the uncollectible portion of proceeds from dispositions of depreciable
+            property (except timber resources, passenger vehicles
+
+            that cost more than $30,000 for vehicles acquired prior to 2022, $34,000
+            for vehicles acquired in 2022, $36,000 for vehicles
+
+            acquired in 2023, $37,000 for vehicles acquired in 2024, and $38,000 for
+            vehicles acquired in 2025, and zero-emission
+
+            passenger vehicles (ZEPV) that cost more than $55,000 for ZEPV acquired
+            after March 18, 2019, $59,000 for ZEPV acquired
+
+            in 2022, and $61,000 for ZEPV acquired after 2022)
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: other_investment_expenses_line_68080
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: t936_repaid_inducements + t936_repaid_refund_interest + t936_prior_proceeds_sale_agreement_mortgage_claim
+      + t936_foreign_nonbusiness_tax_20_11_12 + t936_life_insurance_premiums_property_income
+      + t936_cca_certified_films_videotapes + t936_farming_fishing_losses_nonactive_limited_partner
+      + t936_uncollectible_dispositions_total
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Any other investment expenses claimed in 2025 to earn property
+            income
+
+            (see the list "Other investment expenses" on the next page) 68080 + 6
+
+            '
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Other investment expenses
+
+            Include:
+
+            (cid:129) repayments of inducements
+
+            (cid:129) repayments of refund interest
+
+            (cid:129) sale of agreement for sale, or mortgage or hypothecary claim
+            included in proceeds of disposition in a previous year under
+
+            subsection 20(5)
+
+            (cid:129) foreign non-business tax under subsections 20(11) and 20(12)
+
+            (cid:129) life insurance premiums deducted from property income
+
+            (cid:129) capital cost allowance claimed on certified films and videotapes
+
+            (cid:129) farming or fishing losses claimed by a non-active partner or
+            a limited partner
+
+            (cid:129) the uncollectible portion of proceeds from dispositions of depreciable
+            property (except timber resources, passenger vehicles
+
+            that cost more than $30,000 for vehicles acquired prior to 2022, $34,000
+            for vehicles acquired in 2022, $36,000 for vehicles
+
+            acquired in 2023, $37,000 for vehicles acquired in 2024, and $38,000 for
+            vehicles acquired in 2025, and zero-emission
+
+            passenger vehicles (ZEPV) that cost more than $55,000 for ZEPV acquired
+            after March 18, 2019, $59,000 for ZEPV acquired
+
+            in 2022, and $61,000 for ZEPV acquired after 2022)
+
+            Do not include:
+
+            (cid:129) expenses incurred to earn business income
+
+            (cid:129) repayment of shareholders'' loans deducted under paragraph 20(1)(j)
+
+            (cid:129) interest paid on money borrowed to:
+
+            – buy an income averaging annuity contract
+
+            – pay a premium under a registered retirement savings plan
+
+            – make a contribution to a registered pension plan
+
+            – make a contribution to a deferred profit-sharing plan
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: other_property_income_line_68100
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: t936_insurance_recapture_not_already_line9 + t936_home_insulation_energy_conversion_grants_12_1_u
+      + t936_inducement_reimbursement + t936_shareholder_property_appropriation +
+      t936_nonactive_limited_partner_farming_fishing + t936_other_trust_income + t936_allowable_capital_losses_prior_partnership_losses_after1985
+      + t936_agriinvest_fund2_withdrawals + t936_cpp_qpp_death_benefits + t936_annuity_taxable_56_1_d
+      - t936_annuity_capital_deduction_60_a
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Any other property income reported in 2025 (see the list "Other
+            property income" on the next page)
+
+            including annuity payments taxable under paragraph 56(1)(d) minus the
+            capital portion deducted
+
+            under paragraph 60(a) 68100 + 11
+
+            '
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Other property income
+
+            Include:
+
+            (cid:129) amounts from insurance proceeds for the recapture of capital
+            cost allowance
+
+            (other than amounts already included on line 9)
+
+            (cid:129) home insulation or energy conversion grants under paragraph
+            12(1)(u)
+
+            (cid:129) payments received as an inducement or reimbursement
+
+            (cid:129) income from the appropriation of property to a shareholder
+
+            (cid:129) farming and fishing income reported by a non-active or a limited
+            partner
+
+            (cid:129) other income from a trust
+
+            (cid:129) allowable capital losses included in partnership losses of other
+            years after 1985
+
+            (cid:129) amounts withdrawn from AgriInvest Fund 2
+
+            (cid:129) Canada Pension Plan (CPP) or Quebec Pension Plan (QPP) death
+            benefit payments reported on your
+
+            income tax and benefit return
+
+            Do not include:
+
+            (cid:129) income amounts that relate to business income
+
+            (cid:129) payments received from an income averaging annuity contract
+
+            (cid:129) payments received from an annuity contract bought under a deferred
+            profit-sharing plan
+
+            (cid:129) shareholders'' loans included in income under subsection 15(2)
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: federal_2025_t936_total_investment_expenses_line_a
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: carrying_charges_and_interest_expenses_line_22100 + net_rental_losses_line_12600
+      + limited_or_non_active_partnership_losses_line_12200 + limited_partnership_losses_of_other_years_line_25100
+      + exploration_and_development_expenses_line_22400 * federal_2025_t936_chart_a_inclusion_rate
+      + other_investment_expenses_line_68080 + federal_2025_t936_additional_expenses_line_7
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Carrying charges and interest expenses (line 22100) 1
+
+            Net rental losses (line 12600) + 2
+
+            Limited or non-active partnership losses (line 12200) other than allowable
+            capital losses + 3
+
+            Limited partnership losses of other years after 1985 (line 25100) + 4
+
+            50% of exploration and development expenses (line 22400) + 5
+
+            Any other investment expenses claimed in 2025 to earn property income
+
+            (see the list "Other investment expenses" on the next page) 68080 + 6
+
+            '
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: Add lines 1 to 7. Total investment expenses claimed in 2025 = A
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: federal_2025_t936_total_investment_income_line_b
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: investment_income_lines_12000_and_12100 + net_rental_income_line_12600
+      + limited_or_non_active_partnership_income_line_12200 + other_property_income_line_68100
+      + recovery_of_exploration_and_development_expenses_line_13000 * federal_2025_t936_chart_a_inclusion_rate
+      + federal_2025_t936_additional_income_line_13
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Investment income (lines 12000 and 12100) 8
+
+            Net rental income, including recaptured capital cost allowance (line 12600)
+            + 9
+
+            Net income from limited or non-active partnership (line 12200) other than
+            taxable capital gains + 10
+
+            Any other property income reported in 2025 (see the list "Other property
+            income" on the next page)
+
+            including annuity payments taxable under paragraph 56(1)(d) minus the
+            capital portion deducted
+
+            under paragraph 60(a) 68100 + 11
+
+            50% of income from the recovery of exploration and development expenses
+            (line 13000) 68110 + 12
+
+            '
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: Add lines 8 to 13. Total investment income reported in 2025 = B
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_previous_a
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if t936_completed_2024:\n  t936_2024_part3_line_16\nelse:\n  t936_completed_1988_part_a\
+      \ + t936_completed_1989_part_a + t936_completed_1990_part_a + t936_completed_1991_part_a\
+      \ + t936_completed_1992_part_a + t936_completed_1993_part_a + t936_completed_1994_part_a\
+      \ + t936_completed_1995_part_a + t936_completed_1996_part_a + t936_completed_1997_part_a\
+      \ + t936_completed_1998_part_a + t936_completed_1999_part_a + t936_completed_2000_part_a\
+      \ + t936_completed_2001_part_a + t936_completed_2002_part_a + t936_completed_2003_part_a\
+      \ + t936_completed_2004_part_a + t936_completed_2005_part_a + t936_completed_2006_part_a\
+      \ + t936_completed_2007_part_a + t936_completed_2008_part_a + t936_completed_2009_part_a\
+      \ + t936_completed_2010_part_a + t936_completed_2011_part_a + t936_completed_2012_part_a\
+      \ + t936_completed_2013_part_a + t936_completed_2014_part_a + t936_completed_2015_part_a\
+      \ + t936_completed_2016_part_a + t936_completed_2017_part_a + t936_completed_2018_part_a\
+      \ + t936_completed_2019_part_a + t936_completed_2020_part_a + t936_completed_2021_part_a\
+      \ + t936_completed_2022_part_a + t936_completed_2023_part_a + t936_completed_2024_part_a"
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Amount from line 16 in Part 3 of Form T936 for 2024 (if you did
+            not
+
+            complete Form T936 for 2024, see note (1)) + 15
+
+            '
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: '(1) To calculate your total investment expenses from previous
+            years, complete Part 1 of Form T936 for each year from
+
+            1988 to 2024 in which you had investment expenses (do not complete line
+            7 for 1988 to 1991). Add the amounts from
+
+            line A and enter the total on line 15 above.
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_previous_b
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if t936_completed_2024:\n  t936_2024_part3_line_19\nelse:\n  t936_completed_1988_part_b\
+      \ + t936_completed_1989_part_b + t936_completed_1990_part_b + t936_completed_1991_part_b\
+      \ + t936_completed_1992_part_b + t936_completed_1993_part_b + t936_completed_1994_part_b\
+      \ + t936_completed_1995_part_b + t936_completed_1996_part_b + t936_completed_1997_part_b\
+      \ + t936_completed_1998_part_b + t936_completed_1999_part_b + t936_completed_2000_part_b\
+      \ + t936_completed_2001_part_b + t936_completed_2002_part_b + t936_completed_2003_part_b\
+      \ + t936_completed_2004_part_b + t936_completed_2005_part_b + t936_completed_2006_part_b\
+      \ + t936_completed_2007_part_b + t936_completed_2008_part_b + t936_completed_2009_part_b\
+      \ + t936_completed_2010_part_b + t936_completed_2011_part_b + t936_completed_2012_part_b\
+      \ + t936_completed_2013_part_b + t936_completed_2014_part_b + t936_completed_2015_part_b\
+      \ + t936_completed_2016_part_b + t936_completed_2017_part_b + t936_completed_2018_part_b\
+      \ + t936_completed_2019_part_b + t936_completed_2020_part_b + t936_completed_2021_part_b\
+      \ + t936_completed_2022_part_b + t936_completed_2023_part_b + t936_completed_2024_part_b"
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Amount from line 19 of Part 3 of Form T936 for 2024. (if you did
+            not
+
+            complete Form T936 for 2024, see note (2)) + 20
+
+            '
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: '(2) To calculate your total investment income from previous years,
+            complete Part 2 of Form T936 for each year from
+
+            1988 to 2024 in which you had investment income (do not complete line
+            13 for 1988 to 1991). Add the amounts from
+
+            line B and enter the total on line 20 above.
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: federal_2025_t936_total_expenses_after_1987_line_16
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: federal_2025_t936_total_investment_expenses_line_a + t936_previous_a
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: Line 14 plus line 15 = 16
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: federal_2025_t936_cumulative_investment_expenses_line_18
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: federal_2025_t936_total_expenses_after_1987_line_16 - t2048_2024_to_2025_line_17218
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Amount from line 17218 of Form T2048 for 2024 to 2025 – 17
+
+            Cumulative investment expenses (line 16 minus line 17) = (cid:379) 18
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: federal_2025_t936_cumulative_investment_income_line_21
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: federal_2025_t936_total_investment_income_line_b + t936_previous_b
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Total investment income reported in 2025 (line B of Part 2) 19
+
+            Total investment income reported in previous years after 1987:
+
+            Amount from line 19 of Part 3 of Form T936 for 2024. (if you did not
+
+            complete Form T936 for 2024, see note (2)) + 20
+
+            Cumulative investment income (total of lines 19 and 20) = (cid:379) –
+            21
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: cumulative_net_investment_loss_t936_part_3_line_c
+  kind: derived
+  dtype: Money
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: max(0, federal_2025_t936_cumulative_investment_expenses_line_18 - federal_2025_t936_cumulative_investment_income_line_21)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: Line 18 minus line 21 (if negative, enter "0") CNIL to December
+            31, 2025 = C
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_should_complete_form
+  kind: derived
+  dtype: Judgment
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: t936_had_investment_income_2025 or t936_had_investment_expenses_2025
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: Use this form if you had any investment income or investment expenses
+            for 2025.
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Even if you are not claiming a capital gains deduction in 2025,
+            you should still complete this form if you had any investment
+
+            income or expenses in 2025.
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_should_keep_copy
+  kind: derived
+  dtype: Judgment
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: t936_should_complete_form
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: Use this form if you had any investment income or investment expenses
+            for 2025.
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'The balance in your CNIL account represents a cumulative total,
+            so you may need this information in a future year. Keep a
+
+            copy for your records and attach another copy to your return.
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_should_attach_copy
+  kind: derived
+  dtype: Judgment
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: t936_should_complete_form
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: Use this form if you had any investment income or investment expenses
+            for 2025.
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'The balance in your CNIL account represents a cumulative total,
+            so you may need this information in a future year. Keep a
+
+            copy for your records and attach another copy to your return.
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_should_first_complete_chart_a
+  kind: derived
+  dtype: Judgment
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: t936_other_than_qffp_qsbcs_gains_2025
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'Note: If, in 2025, you have capital gains other than from the
+            disposition of qualified farm or fishing property or qualified small
+
+            business corporation shares, first complete Chart A on page 4 of this
+            form to determine if you have additional investment
+
+            income to include when you calculate your CNIL.'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_should_report_cnil_to_t657
+  kind: derived
+  dtype: Judgment
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: t936_claiming_capital_gains_deduction_2025
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: 'If you are claiming a capital gains deduction on your 2025 return,
+            report the amount from line C on line 16 of Step 2
+
+            of Form T657.
+
+            '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_chart_a_skip_lines_2_to_17
+  kind: derived
+  dtype: Judgment
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_3_line_19900 == 0
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: If the amount is "0", do not complete lines 2 to 17, and enter
+            "0" on line 20. 1
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+- name: t936_chart_a_skip_lines_15_to_19
+  kind: derived
+  dtype: Judgment
+  source: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+  entity: Person
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: t936_chart_a_line_14_non_eligible_taxable_capital_gains == 0
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: If the total from line 14 is "0", do not complete lines 15 to 19,
+            and enter "0" on line 20.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/cumulative-net-investment-loss
+          excerpt: CRA Form T936 2025 Calculation of Cumulative Net Investment Loss

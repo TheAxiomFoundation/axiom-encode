@@ -153,10 +153,7 @@ func parseRunOptions(arguments []string) (runOptions, error) {
 	if *trustRoots == "" {
 		return runOptions{}, fmt.Errorf("--trusted-signing-roots is required")
 	}
-	if (*codexAuth == "") != (*codexOutbox == "") || (*codexAuth == "") != (*codexConfig == "") {
-		return runOptions{}, fmt.Errorf("Codex subscription auth requires --codex-subscription-auth, --codex-auth-outbox, and --trusted-codex-cli-config together")
-	}
-	return runOptions{
+	parsed := runOptions{
 		scope:              *scope,
 		keyEnv:             *keyEnv,
 		supervisor:         *supervisor,
@@ -175,5 +172,9 @@ func parseRunOptions(arguments []string) (runOptions, error) {
 			allowLocalDev: false,
 		},
 		command: command,
-	}, nil
+	}
+	if err := parsed.validateCodexSubscription(); err != nil {
+		return runOptions{}, err
+	}
+	return parsed, nil
 }

@@ -1,0 +1,63 @@
+name: PR linkage
+
+# Every pull request body names the encodings it fixes and the runs that showed
+# the defect (Encoding-Target: / Fixes-Run:, or an explicit `none`), so an
+# encoder fix links to its encodings exactly rather than by guesswork.
+# src/axiom_encode/pr_linkage.py holds the format and the checks.
+on:
+  # pull_request_target runs this file and the checker as they are on the base
+  # branch, so a pull request cannot edit the check that judges it, and a
+  # conflicted pull request (no merge ref) is still checked. It is safe here:
+  # no step checks out or runs the pull request's code, the token is
+  # read-only, and the body is read from the event payload as data.
+  pull_request_target:
+    branches: [main]
+    # `edited` reruns the check when the body changes (also when the base
+    # branch changes, which is how a stacked pull request reaches main).
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+  # If branch protection requires this check, the merge queue
+  # (axiom-encode#2048) needs it reported on the queue's temporary branch. The
+  # body was checked on the pull request; the queue run only reports success.
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request_target' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
+
+jobs:
+  linkage:
+    name: PR linkage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The base branch's current tip (github.sha under pull_request_target),
+      # the commit this workflow file comes from; never the pull request's
+      # head or merge ref. Not pull_request.base.sha: that is main as of the
+      # pull request's last push, which can predate this checker or a later
+      # tightening of it.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: github.event_name == 'pull_request_target'
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: src/axiom_encode/pr_linkage.py
+          sparse-checkout-cone-mode: false
+
+      # The module is standard-library only, so nothing is installed.
+      - name: Check Encoding-Target and Fixes-Run
+        if: github.event_name == 'pull_request_target'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I src/axiom_encode/pr_linkage.py \
+            --event "$GITHUB_EVENT_PATH" --repository "$GITHUB_REPOSITORY" \
+            --verify-runs
+
+      - name: Report the pull request's check for the merge queue
+        if: github.event_name == 'merge_group'
+        run: echo "The linkage lines were checked on the pull request."

@@ -1,0 +1,739 @@
+format: rulespec/v1
+module:
+  summary: 'Existing NB(S12) parent repair diagnostic: per-claimant entered-form calculation and explicit
+    reporting/medical exception duties. No general eligibility, household allocation or filing-compliance
+    claim.'
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+    source_sha256: 379be48dbb691c24d89f966c85bb3facd095ad59850f945bbf71e3dc9a92ffbe
+units:
+- name: CAD
+  kind: currency
+  minor_units: 2
+inputs:
+- name: nb_s12_home_renovation_total_eligible_expenses_line_1
+  dtype: Money
+  entity: Person
+  period: Year
+  description: Entered total eligible expenses from the sales slips and contracts in this claimant form;
+    no eligibility computation or inferred table aggregation.
+  unit: CAD
+- name: nb_s12_government_assistance_line_2
+  dtype: Money
+  entity: Person
+  period: Year
+  description: Government assistance received or receivable included in this claimant line1 amount.
+  unit: CAD
+- name: nb_s12_expenses_claimed_by_other_eligible_individuals_line_4
+  dtype: Money
+  entity: Person
+  period: Year
+  description: Expenses included in this claimant capped line3 being claimed by other eligible individuals;
+    not a household ownership inference.
+  unit: CAD
+- name: is_completing_home_renovation_schedule
+  dtype: Boolean
+  entity: Person
+  period: Year
+  description: This individual is completing this schedule; does not assert eligibility or completion
+    compliance.
+- name: is_filing_paper_return
+  dtype: Boolean
+  entity: Person
+  period: Year
+  description: This individual is filing a paper return.
+- name: needs_additional_space
+  dtype: Boolean
+  entity: Person
+  period: Year
+  description: The individual completing this form needs more space for its entries.
+- name: has_eligible_home_renovation_expenses
+  dtype: Boolean
+  entity: Person
+  period: Year
+  description: The individual has eligible home renovation expenses as an externally supplied form premise,
+    not derived from positive amount or age.
+- name: expenses_relate_to_return_page_one_residence
+  dtype: Boolean
+  entity: Person
+  period: Year
+  description: The claimant answers whether expenses on line1 relate to residence address entered on return
+    page1; no address equality inferred.
+- name: has_spouse_or_common_law_partner_at_reference_date
+  dtype: Boolean
+  entity: Person
+  period: Year
+  description: The claimant has the explicitly identified spouse/common-law partner at the medical reference
+    date. Reciprocal fixture descriptions identify two distinct claimants; no engine relation is inferred.
+- name: occupied_separate_principal_residences_at_reference_date
+  dtype: Boolean
+  entity: Person
+  period: Year
+  description: Claimant and identified spouse/common-law partner occupied separate principal residences
+    on the explicit reference date.
+- name: principal_residence_separation_was_for_medical_reasons
+  dtype: Boolean
+  entity: Person
+  period: Year
+  description: The stated separate principal residences at the reference date were for medical reasons.
+- name: medical_separation_reference_date
+  dtype: Date
+  entity: Person
+  period: Year
+  description: Date at which all three medical-separation premise facts are asserted; not the date of
+    this execution.
+- name: gst_hst_number_is_applicable
+  dtype: Boolean
+  entity: SourceEntry
+  period: Year
+  description: For this explicitly identified sales-slip/contract entry, GST/HST number is applicable;
+    no claimant-entry ownership or complete table inferred.
+rules:
+- name: nb_s12_2025_home_renovation_expense_cap
+  kind: parameter
+  dtype: Money
+  source: 'Line 3: Line 1 minus line 2 (maximum $10,000) = ^'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 10000
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: 'Line 3: Line 1 minus line 2 (maximum $10,000) = ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: nb_s12_2025_home_renovation_rate
+  kind: parameter
+  dtype: Rate
+  source: 'Line 6: Applicable rate 10%'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 0.1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: 'Line 6: Applicable rate 10%'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: entered_total_eligible_home_renovation_expenses
+  kind: derived
+  dtype: Money
+  source: 'Line 1: Total amount paid from all sales slips and contracts included in the
+
+    table above Total eligible expenses = ^'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: nb_s12_home_renovation_total_eligible_expenses_line_1
+  entity: Person
+  period: Year
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: 'Line 1: Total amount paid from all sales slips and contracts included in the
+
+            table above Total eligible expenses = ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: entered_home_renovation_assistance
+  kind: derived
+  dtype: Money
+  source: 'Line 2: Amount of government assistance received or receivable included in
+
+    the amount on line 1 ^'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: nb_s12_government_assistance_line_2
+  entity: Person
+  period: Year
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: 'Line 2: Amount of government assistance received or receivable included in
+
+            the amount on line 1 ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: entered_home_renovation_other_claims
+  kind: derived
+  dtype: Money
+  source: 'Line 4: Amount of eligible expenses included on line 3 being claimed by other
+
+    eligible individuals ^'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: nb_s12_expenses_claimed_by_other_eligible_individuals_line_4
+  entity: Person
+  period: Year
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: 'Line 4: Amount of eligible expenses included on line 3 being claimed by other
+
+            eligible individuals ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: nb_s12_net_home_renovation_expenses_line_3
+  kind: derived
+  dtype: Money
+  source: 'Line 1: Total amount paid from all sales slips and contracts included in the
+
+    table above Total eligible expenses = ^
+
+
+    Line 2: Amount of government assistance received or receivable included in
+
+    the amount on line 1 ^
+
+
+    Line 3: Line 1 minus line 2 (maximum $10,000) = ^'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: min(nb_s12_2025_home_renovation_expense_cap, entered_total_eligible_home_renovation_expenses
+      - entered_home_renovation_assistance)
+  entity: Person
+  period: Year
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: 'Line 1: Total amount paid from all sales slips and contracts included in the
+
+            table above Total eligible expenses = ^
+
+
+            Line 2: Amount of government assistance received or receivable included in
+
+            the amount on line 1 ^
+
+
+            Line 3: Line 1 minus line 2 (maximum $10,000) = ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: nb_s12_home_renovation_expenses_line_60360
+  kind: derived
+  dtype: Money
+  source: 'Line 3: Line 1 minus line 2 (maximum $10,000) = ^
+
+
+    Line 4: Amount of eligible expenses included on line 3 being claimed by other
+
+    eligible individuals ^
+
+
+    Line 5 and line 60360: Line 3 minus line 4 Home renovation expenses = ^'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: nb_s12_net_home_renovation_expenses_line_3 - entered_home_renovation_other_claims
+  entity: Person
+  period: Year
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: 'Line 3: Line 1 minus line 2 (maximum $10,000) = ^
+
+
+            Line 4: Amount of eligible expenses included on line 3 being claimed by other
+
+            eligible individuals ^
+
+
+            Line 5 and line 60360: Line 3 minus line 4 Home renovation expenses = ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: new_brunswick_seniors_home_renovation_tax_credit_line_47900
+  kind: derived
+  dtype: Money
+  source: 'Line 5 and line 60360: Line 3 minus line 4 Home renovation expenses = ^
+
+
+    Line 6: Applicable rate 10%
+
+
+    Line 7: Line 5 multiplied by the percentage from line 6 Enter this amount on
+
+    line 47900 of your return. New Brunswick seniors'' home renovation tax credit
+
+    = ^'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: nb_s12_home_renovation_expenses_line_60360 * nb_s12_2025_home_renovation_rate
+  entity: Person
+  period: Year
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: 'Line 5 and line 60360: Line 3 minus line 4 Home renovation expenses = ^
+
+
+            Line 6: Applicable rate 10%
+
+
+            Line 7: Line 5 multiplied by the percentage from line 6 Enter this amount on
+
+            line 47900 of your return. New Brunswick seniors'' home renovation tax credit
+
+            = ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: home_renovation_schedule_completion_required
+  kind: derived
+  dtype: Judgment
+  source: Complete this schedule if you have eligible home renovation expenses.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: has_eligible_home_renovation_expenses
+  entity: Person
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: Complete this schedule if you have eligible home renovation expenses.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: paper_return_schedule_attachment_required
+  kind: derived
+  dtype: Judgment
+  source: 'Attach a copy of this schedule to your paper return. Do not include your
+
+    receipts, but keep them in case the Canada Revenue Agency asks to see them
+
+    later.'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: is_completing_home_renovation_schedule and is_filing_paper_return
+  entity: Person
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: 'Attach a copy of this schedule to your paper return. Do not include your
+
+            receipts, but keep them in case the Canada Revenue Agency asks to see them
+
+            later.'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: receipts_exclusion_from_submission_required
+  kind: derived
+  dtype: Judgment
+  source: 'Attach a copy of this schedule to your paper return. Do not include your
+
+    receipts, but keep them in case the Canada Revenue Agency asks to see them
+
+    later.'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: is_completing_home_renovation_schedule
+  entity: Person
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: 'Attach a copy of this schedule to your paper return. Do not include your
+
+            receipts, but keep them in case the Canada Revenue Agency asks to see them
+
+            later.'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: receipt_retention_required
+  kind: derived
+  dtype: Judgment
+  source: 'Attach a copy of this schedule to your paper return. Do not include your
+
+    receipts, but keep them in case the Canada Revenue Agency asks to see them
+
+    later.'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: is_completing_home_renovation_schedule
+  entity: Person
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: 'Attach a copy of this schedule to your paper return. Do not include your
+
+            receipts, but keep them in case the Canada Revenue Agency asks to see them
+
+            later.'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: additional_sheet_attachment_required
+  kind: derived
+  dtype: Judgment
+  source: If you need more space, attach an additional sheet of paper.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: needs_additional_space
+  entity: Person
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: If you need more space, attach an additional sheet of paper.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: return_residence_yes_checkbox_required
+  kind: derived
+  dtype: Judgment
+  source: 'Do the expenses on line 1 relate to the residence located at the address you
+
+    entered on page 1 of your return? If yes, tick this box. ^
+
+
+    If not, enter the address of the residence they relate to: ^'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: expenses_relate_to_return_page_one_residence
+  entity: Person
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: 'Do the expenses on line 1 relate to the residence located at the address you
+
+            entered on page 1 of your return? If yes, tick this box. ^
+
+
+            If not, enter the address of the residence they relate to: ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: renovation_residence_address_reporting_required
+  kind: derived
+  dtype: Judgment
+  source: 'Do the expenses on line 1 relate to the residence located at the address you
+
+    entered on page 1 of your return? If yes, tick this box. ^
+
+
+    If not, enter the address of the residence they relate to: ^'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: not expenses_relate_to_return_page_one_residence
+  entity: Person
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: 'Do the expenses on line 1 relate to the residence located at the address you
+
+            entered on page 1 of your return? If yes, tick this box. ^
+
+
+            If not, enter the address of the residence they relate to: ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: medical_separation_claim_permission_applies
+  kind: derived
+  dtype: Judgment
+  source: 'Line 60890: If, on December 31, 2025, you and your spouse or common-law
+
+    partner occupied separate principal residences for medical reasons, you can
+
+    both claim the seniors'' home renovation tax credit. Enter your spouse''s or
+
+    common-law partner''s address on line 60890. ^'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: has_spouse_or_common_law_partner_at_reference_date and occupied_separate_principal_residences_at_reference_date
+      and principal_residence_separation_was_for_medical_reasons and medical_separation_reference_date
+      == period_end
+  entity: Person
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: 'Line 60890: If, on December 31, 2025, you and your spouse or common-law
+
+            partner occupied separate principal residences for medical reasons, you can
+
+            both claim the seniors'' home renovation tax credit. Enter your spouse''s or
+
+            common-law partner''s address on line 60890. ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: spouse_residence_address_reporting_required
+  kind: derived
+  dtype: Judgment
+  source: 'Line 60890: If, on December 31, 2025, you and your spouse or common-law
+
+    partner occupied separate principal residences for medical reasons, you can
+
+    both claim the seniors'' home renovation tax credit. Enter your spouse''s or
+
+    common-law partner''s address on line 60890. ^'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: medical_separation_claim_permission_applies
+  entity: Person
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: 'Line 60890: If, on December 31, 2025, you and your spouse or common-law
+
+            partner occupied separate principal residences for medical reasons, you can
+
+            both claim the seniors'' home renovation tax credit. Enter your spouse''s or
+
+            common-law partner''s address on line 60890. ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+- name: supplier_gst_hst_number_reporting_required
+  kind: derived
+  dtype: Judgment
+  source: Supplier or contractor - GST/HST Number (if applicable) ^
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: gst_hst_number_is_applicable
+  entity: SourceEntry
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: Supplier or contractor - GST/HST Number (if applicable) ^
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit
+          excerpt: '2025'

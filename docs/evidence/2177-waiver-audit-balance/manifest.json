@@ -1,0 +1,77 @@
+{
+ "scope": "Author-produced diagnostic evidence for axiom-encode PR 2177: GitHub records of rulespec-us runs 40055102080 and 41819980907, local timings of one module at three encoders, and simulator outputs. Not signed attestations.",
+ "runs": {
+  "40055102080": "https://github.com/TheAxiomFoundation/rulespec-us/actions/runs/40055102080",
+  "41819980907": "https://github.com/TheAxiomFoundation/rulespec-us/actions/runs/41819980907"
+ },
+ "files": {
+  "README.md": {
+   "sha256": "a9b2186cfb21baf42fdb85ced40cf69f962d05c58d3377a3748c5858967eaa39",
+   "bytes": 9265
+  },
+  "jobs-41819980907.json.gz": {
+   "sha256": "938ba01fe6d9346fce29859b76a5d9e62eb99295531ec6be86cd489719bdffed",
+   "bytes": 27374,
+   "decompressed_sha256": "958cf27eeec380aac3165caa99a615015752e98d012252761b0da0efa878d5ab",
+   "decompressed_bytes": 655206
+  },
+  "leg_durations.py.txt": {
+   "sha256": "e2585caac97b58c7d2664e7948f415f32e20691e2fc5f16d4550291c02ca41c2",
+   "bytes": 1985
+  },
+  "module-timings-41819980907.json.gz": {
+   "sha256": "16c51ad9f554910b53a3a9b0ce0ec729650613e048aa8de5ba478875718fe966",
+   "bytes": 21661,
+   "decompressed_sha256": "698d2bbc56ac7aab212ccecf384152abfc48bcd3bf16b3dd521f233605f2f281",
+   "decompressed_bytes": 119540
+  },
+  "note20-local-encode-2bdc3b42.json": {
+   "sha256": "de6a45bea2bd69b044840c146f84e3c38fe01d55cba93f6f2e722f1e3a3ce467",
+   "bytes": 2211
+  },
+  "note20-local-encode-4df4b0cd9.json": {
+   "sha256": "9d0f66d660bd84da4ffbb7661ea46ac23cc6c0ad1ab77430a6b717af0671db23",
+   "bytes": 2532
+  },
+  "note20-local-encode-4df4b0cd9p.json": {
+   "sha256": "2542f1ab536521fb6fb13183cc67bdb041e5fd44cb4c7cd6184698e39523727f",
+   "bytes": 2218
+  },
+  "replay-encoder-assignment-41819980907.txt": {
+   "sha256": "4cee597aec43e371b6c66a0ef6c4dc4f2101539a748a0a2e78b47465a7ccf1d9",
+   "bytes": 440
+  },
+  "replay_encoder_assignment.py.txt": {
+   "sha256": "a69779794125c65885a10541a9886ce6653ebfec14ce5a9d3cdf0e03645e134d",
+   "bytes": 3794
+  },
+  "simulate-41819980907.txt": {
+   "sha256": "f9091f1448e479bc609fe71fd5cc663ff9823a5380d34a7412d514747981ef48",
+   "bytes": 924
+  },
+  "simulate.py.txt": {
+   "sha256": "9b3d17a974345cb8443cadb607f6e23e776e9d5241c7f050b0b46f89da6a9054",
+   "bytes": 3842
+  },
+  "sizes-6fd18c0b.tsv.gz": {
+   "sha256": "9e1e6895778bc38753f0802ac1a4dcf3837641642be5eb56621fd4b00e7d7700",
+   "bytes": 95952,
+   "decompressed_sha256": "a02e218e7f7551a4dbfe198ae90ec8127f22f998dcc2b2c695e426c6f90ebba2",
+   "decompressed_bytes": 960325
+  },
+  "time_module.py.txt": {
+   "sha256": "c9e33a96c2e18b997cbcfd58cbfccad348b21de82acd2385e065cfabd2f844b6",
+   "bytes": 5423
+  },
+  "us-mo-40055102080-ratchet-excerpt.log": {
+   "sha256": "7256c574fc2135fc3278ac3f70263ee0fbb64c4553e7be737c3d16048a8b68f1",
+   "bytes": 6849
+  },
+  "validation-waiver-audit-costs-41819980907.json.gz": {
+   "sha256": "36f8eaae3c68ba8ec33418a08137efaf0b391f8478fc2c6c89c04ee4acabc0f9",
+   "bytes": 20247,
+   "decompressed_sha256": "58e6c34ba2004802ce466ec54f5ae39682f4ba8efd99aa8a1497162eee8f6456",
+   "decompressed_bytes": 122492
+  }
+ }
+}

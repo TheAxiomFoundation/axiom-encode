@@ -1,0 +1,181 @@
+- name: standard_deductions_size_1
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 1
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_48_states_dc: 209
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction: 209
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_alaska: 358
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_guam: 420
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_hawaii: 295
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_virgin_islands: 184
+- name: standard_deductions_size_2
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 2
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_48_states_dc: 209
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction: 209
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_alaska: 358
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_guam: 420
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_hawaii: 295
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_virgin_islands: 184
+- name: standard_deductions_size_3
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 3
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_48_states_dc: 209
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction: 209
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_alaska: 358
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_guam: 420
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_hawaii: 295
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_virgin_islands: 185
+- name: standard_deductions_size_4
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 4
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_48_states_dc: 223
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction: 223
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_alaska: 358
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_guam: 445
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_hawaii: 295
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_virgin_islands: 223
+- name: standard_deductions_size_5
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 5
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_48_states_dc: 261
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction: 261
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_alaska: 358
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_guam: 522
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_hawaii: 300
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_virgin_islands: 261
+- name: standard_deductions_size_6
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 6
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_48_states_dc: 299
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction: 299
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_alaska: 374
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_guam: 598
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_hawaii: 344
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_virgin_islands: 299
+- name: standard_deductions_size_above_6
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 7
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_48_states_dc: 299
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction: 299
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_alaska: 374
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_guam: 598
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_hawaii: 344
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_virgin_islands: 299
+- name: homeless_shelter_deduction_amount
+  period: 2026-05
+  input: {}
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_homeless_shelter_deduction_amount: 198.99
+- name: asset_limit_for_household_with_elderly_or_disabled_member
+  period: 2026-06
+  input:
+    us:statutes/7/2012/j#relation.member_of_household:
+    - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: true
+  output:
+    us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: holds
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_asset_limit: 4500
+- name: asset_limit_for_other_households
+  period: 2026-06
+  input:
+    us:statutes/7/2012/j#relation.member_of_household: []
+  output:
+    us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: not_holds
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_asset_limit: 3000
+- name: standard_deduction_size_1
+  period: 2025-10
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 1
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_48_states_dc: 209
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction: 209
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_alaska: 358
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_guam: 420
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_hawaii: 295
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_virgin_islands: 184
+- name: standard_deduction_size_2
+  period: 2025-10
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 2
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_48_states_dc: 209
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_alaska: 358
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_guam: 420
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_hawaii: 295
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_virgin_islands: 184
+- name: standard_deduction_size_3
+  period: 2025-10
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 3
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_48_states_dc: 209
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction: 209
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_alaska: 358
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_guam: 420
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_hawaii: 295
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_virgin_islands: 185
+- name: standard_deduction_size_4
+  period: 2025-10
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 4
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_48_states_dc: 223
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_alaska: 358
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_guam: 445
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_hawaii: 295
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_virgin_islands: 223
+- name: standard_deduction_size_5
+  period: 2025-10
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 5
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_48_states_dc: 261
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_alaska: 358
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_guam: 522
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_hawaii: 300
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_virgin_islands: 261
+- name: standard_deduction_size_6
+  period: 2025-10
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 6
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_48_states_dc: 299
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_alaska: 374
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_guam: 598
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_hawaii: 344
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_virgin_islands: 299
+- name: standard_deduction_size_above_6
+  period: 2025-10
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 7
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_48_states_dc: 299
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_alaska: 374
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_guam: 598
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_hawaii: 344
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction_virgin_islands: 299
+- name: shelter_caps_and_homeless_shelter_deduction
+  period: 2025-10
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 1
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction: 209
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_maximum_excess_shelter_deduction_48_states_dc: 744
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_maximum_excess_shelter_deduction_alaska: 1189
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_maximum_excess_shelter_deduction_guam: 873
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_maximum_excess_shelter_deduction_hawaii: 1003
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_maximum_excess_shelter_deduction_virgin_islands: 586
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_homeless_shelter_deduction: 198.99

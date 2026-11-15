@@ -71,6 +71,9 @@ jobs:
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: "0.11.7"
+          # A key-bearing job never restores or saves the uv cache: any main-branch
+          # run can write an entry under its key (tests/test_workflow_toolchain_pins.py).
+          enable-cache: "false"
 
       - name: Fetch live finalization evidence
         env:
@@ -333,7 +336,10 @@ jobs:
             "RuleSpec tip: \`${NEW_RULESPEC_REF}\`" \
             "Finalizer run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             '' \
-            'This draft records merged queue items and activates the next bounded tranche. Run the required independent review-fix cycle before merge.')"
+            'This draft records merged queue items and activates the next bounded tranche. Run the required independent review-fix cycle before merge.' \
+            '' \
+            'Encoding-Target: none' \
+            'Fixes-Run: none')"
           gh api --method POST "repos/$GITHUB_REPOSITORY/pulls" \
             -f title="Finalize protected SNAP queue tranche" \
             -f head="TheAxiomFoundation:${BRANCH}" \

@@ -1,3 +1,151 @@
+## 0.2.2375
+
+- Add a switched-off reader for applied-rulespec/v6 promotion manifests (inactive, #2172) (#2230)
+- State the unpaired (ii) limit in the roman-item changelog fragment (#2250)
+
+## 0.2.2374
+
+- Preserve authenticated companion assertions during constrained repairs (#2203)
+- Correct the promotion-order decision status (#2246)
+- Use constructed modules in declared-dtype and repair tests (#2247)
+
+## 0.2.2373
+
+- Read (i) under paragraph (h) as a roman item when (ii) follows at its level (#2115)
+
+## 0.2.2372
+
+- Register reviewed Nova Scotia NS479 repair (#2244)
+
+## 0.2.2371
+
+- Register reviewed T2036 full-artifact repair (#2241)
+
+## 0.2.2370
+
+- fix: scope T2036 country evidence to its asserted cases (#2232)
+- Register reviewed NL479 and NB Schedule 12 source-binding repairs (#2236)
+- fix: load reviewed repair packages through protected Git (#2233)
+
+## 0.2.2369
+
+- fix: validate complete retirement transfer execution (#2105)
+- Register the reviewed Schedule 2 repair with all original expectations (#2228)
+
+## 0.2.2368
+
+- Register exact Schedule M repair preserving all companion cases (#2223)
+
+## 0.2.2367
+
+- Lock the build backends and build every locked source against them (#1887)
+- Balance waiver audit shards by measured cost and print progress (#2177)
+- Say Microcosm in prose, help text and private names (#2183)
+- Protected reviewer runtime: supervisor Codex home, signer subscription options, reprovisioning and source-lane replay (#2037)
+- Align proof excerpts to the printed source text; fix imports pruning (0.2.2349) (#1900)
+- Apply exact registered repairs through protected validation (#1963)
+- Publish signed RuleSpec PRs onto a main tip that moved only through plumbing (#1892)
+- Require Encoding-Target and Fixes-Run lines in every PR body (#2156)
+- Add content-bound merge guard evaluator (inactive, #2172) (#2204)
+- Declare the validation effect in automated version-bump PRs (#2197)
+
+## 0.2.2366
+
+- Bind Canadian form and Schedule M obligations to observed execution (#2083)
+
+## 0.2.2365
+
+- Add failure classes and a pre-encode gate that stops empty and repealed targets before a model call (#1997)
+- Count only listed values in numeric-recall retry feedback (#2209)
+
+## 0.2.2364
+
+- Bind complete form source evidence to verified execution (#2139)
+- Add immutable complete T936 producer guidance reference (#2208)
+
+## 0.2.2363
+
+- fix: bind copied return categories to source projections (#2129)
+
+## 0.2.2362
+
+- fix: bind Schedule 2 document request evidence to its source duty (#2128)
+
+## 0.2.2361
+
+- Verify actual same-page Schedule 2 floor evidence (#2127)
+
+## 0.2.2360
+
+- Verify with encoder main: producer floor, verifier record, RuleSpec admissions registry (#2093, #2095; replaces #2101) (#2194)
+- Avoid treating complete informational URL referrals as computations (#2068)
+- Scope the session-law deferral reader to statute self-references (#1930)
+- Keep nonfiler return instructions out of factual gate counts (#2122)
+- Allow complete GPT-6 authoring output and reject incomplete responses (#2117)
+- Send the Codex prompt on stdin instead of argv (#1205) (#2184)
+- Record the terminal outcome of a live encode run (#2189)
+- Rewrite the US replay snapshot for the located numeric-recall message (main is red) (#2195)
+
+## 0.2.2359
+
+- fix: retain strict proof requirements in partial repairs (#2089)
+
+## 0.2.2358
+
+- Bind validation waivers per covered file in signed manifests (#2092) (#2097)
+
+## 0.2.2357
+
+- Show every missing numeric-recall value, located and grouped, in retry feedback (#1934)
+- Recognize detached Schedule 2 source rows without changing private consumers (#2125)
+- Implement enrolled Codex and deterministic producers with notary admission (#1662)
+- Make the offline replay benchmark a required CI gate over 45 public fixtures (#1891)
+- Propose approving promoted RuleSpec PRs after validation and signing (#2172, docs only) (#2173)
+
+## 0.2.2356
+
+- Fix locked runtime setup for reviewed promotion preflight (#2185)
+
+## 0.2.2355
+
+- Record a dispatch record and typed step checks for signed re-encode runs (#2181)
+- Record the GitHub Actions run and live encode phase in encoder telemetry (#1750)
+- fix: provision and verify the required Codex tool host (#2104)
+- Treat a missing workflow toolchain as no axiom-compose pin in targeted re-encodes (0.2.2336) (#2099)
+
+## 0.2.2354
+
+- Stop false complete-source demands from `falls`, reference titles, mixed percentages and whole Money values (#2152)
+
+## 0.2.2353
+
+- Keep the whitespace patterns on the interval parser's path linear in a space run (#2158)
+
+## 0.2.2352
+
+- Admit reviewed RuleSpec PRs without per-candidate encoder records (#2084)
+
+## 0.2.2351
+
+- Steer complete-source generation and repairs to encode omitted branches first (#1966)
+- Keep US bibliographic locators out of complete-source numeric recall (#1898)
+- Demand every source-stated threshold of a conjoined condition as a companion-test boundary (#1937)
+- Ground decimal rates from flattened percentage tables (#1648)
+- Label U.S. branches in English, drop German sentence markers in U.S. text, and read U.S. citation ranges (#1896)
+- Keep titled reference lists out of complete-source numeric recall (#2149)
+
+## 0.2.2350
+
+- Harden optional retired-manifest inventory reconciliation (#1566)
+- Stop key-bearing jobs from restoring the uv cache (#1950)
+- Define each corpus read refusal message once (#2108)
+
+## 0.2.2349
+
+- Stage the verification supervisor's site-packages from uv.lock (#1712)
+- Forward the validated waiver audit worker setting through the signing supervisor (#2011)
+- Assign the encoder version after merge, not in each pull request (0.2.2348) (#2051)
+
 ## 0.2.2348
 
 - Assign the encoder version after merge, not in each pull request (#2048). The new `Encoder version bump` workflow runs on every push to `main`. When encoder-affecting files changed after the latest bump, it writes the next version into `pyproject.toml`, `src/axiom_encode/__init__.py` and `uv.lock`, adds a `CHANGELOG.md` header that lists the pull requests merged since the previous bump by title (it leaves out bump pull requests), and opens a bump pull request with auto-merge on. It leaves the towncrier fragments in `changelog.d/` alone. The workflow opens the pull request with a token of the `axiom-encoder-version-bump` GitHub App, made on each run from the `ENCODER_VERSION_BUMP_APP_CLIENT_ID` variable and the `ENCODER_VERSION_BUMP_APP_KEY` secret of the `encoder-version-bump` environment, whose branch rule allows only `main`. It closes, holds for or auto-merges only this repository's pull requests that the App opened, never a fork's or a person's pull request with the same branch name, and it auto-merges only the bump commit it built or verified (`--match-head-commit`).

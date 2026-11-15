@@ -22,6 +22,15 @@ DEFAULT_OPENAI_MODEL = "gpt-6-luna"
 DEFAULT_OPENAI_ESCALATION_MODEL = "gpt-6-sol"
 DEFAULT_OPENAI_ESCALATE_AFTER = 2
 
+# Documented Responses output ceilings for these exact authoring model IDs.
+# https://developers.openai.com/api/docs/models/gpt-6-luna
+# https://developers.openai.com/api/docs/models/gpt-6-sol
+# Includes reasoning tokens; this does not change attempt or time budgets.
+OPENAI_AUTHORING_OUTPUT_LIMITS = {
+    "gpt-6-luna": 128_000,
+    "gpt-6-sol": 128_000,
+}
+
 # LLM judge models (maximum-traceability part 2). Cross-family by design: the
 # generator is a GPT model, so judges run on a Claude-family model. Volume runs
 # on Sonnet 5.5; low-confidence verdicts escalate to Opus 5.5. Both are

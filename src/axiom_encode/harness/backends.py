@@ -456,14 +456,23 @@ class CodexCLIBackend(EncoderBackend):
             str(execution_root),
             "--sandbox",
             self.sandbox,
+            # The prompt carries the whole source text. As an argv element it
+            # hits the kernel's argument limits (131,072 bytes per argument on
+            # Linux, ARG_MAX in total on macOS) and exec fails with E2BIG
+            # before Codex starts. "-" makes Codex read it from stdin.
+            "-",
         ]
-        cmd.append(prompt)
 
         try:
             result = subprocess.run(
                 cmd,
+                input=prompt,
                 capture_output=True,
                 text=True,
+                # Explicit, so the prompt bytes do not depend on the locale.
+                # surrogateescape keeps what argv transport accepted on POSIX.
+                encoding="utf-8",
+                errors="surrogateescape",
                 timeout=timeout,
                 cwd=execution_root,
                 env=scrub_attestation_signing_keys(),

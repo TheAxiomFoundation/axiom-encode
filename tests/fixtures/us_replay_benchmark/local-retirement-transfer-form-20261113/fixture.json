@@ -1,0 +1,43 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "origin": "local-diagnostic",
+  "run_id": "local-retirement-transfer-form-20261113",
+  "citation": "ca/policy/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer",
+  "module_path": "ca/policies/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer.yaml",
+  "policy_prefix": "ca",
+  "split": "visible",
+  "recorded_verdict": "rejected",
+  "encoder_commit": "7d6016a548f1db9c907c70c84526f7a9f89d3e84",
+  "encoder_tree": "bc3d2cdc2480758908f6fa4168e9ac09f56563de",
+  "encoder_version": "0.2.2363",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --jobs 1 --out /tmp/axiom-2105-local-diagnostics.json",
+  "input_origins": {
+    "candidate.yaml": "tests/fixtures/retirement_transfer/policy.yaml",
+    "candidate.test.yaml": "tests/fixtures/retirement_transfer/policy.test.yaml",
+    "source.txt": "tests/fixtures/retirement_transfer/source.txt"
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "input_exports": {
+    "candidate.test.yaml": {
+      "origin_json": "tests/fixtures/retirement_transfer/observed-graph.json",
+      "json_pointer": "/companion_raw",
+      "encoding": "decoded-json-string-utf8",
+      "origin_json_sha256": "8709b131aa09cbc5cf5018e2597e084c88acb2cafe31b5588e7664c4895d8e4f",
+      "origin_git_blob_sha1": "72beabcd73b0a0d35da242198bf2d99024962c44",
+      "export_sha256": "37d877c01418f276bbe65f599a792a702dc7ac62dcc1e5f62ba880af9864c1a0"
+    }
+  },
+  "recorded_rules": [
+    "complete-source-unit:numeric-recall",
+    "complete-source-unit:source-explicit-conditions",
+    "complete-source-unit:tests"
+  ],
+  "files": {
+    "candidate.yaml": "dd74d84b47aa6d369d432c62acb179c9781c1dc585ab550a3ccef531a9895d7b",
+    "candidate.test.yaml": "37d877c01418f276bbe65f599a792a702dc7ac62dcc1e5f62ba880af9864c1a0",
+    "source.txt": "e7a0bbfd4382c5329fd53a6174e2bdc94f86e8aacf64259a6763bb811d19317b",
+    "issues.json": "0ea5c3296817336593dbd1a638ed7757621752f1fabb8ee5e82e57102188377a"
+  }
+}

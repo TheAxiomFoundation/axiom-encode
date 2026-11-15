@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2025-12-23",
+    "generation_input_sha256": "50bedd5792c29e7c43c32151a09508c781ca1aa73819d56ecbe646813f150e14",
+    "provision_file": "data/corpus/provisions/us-dc/statute/2026-07-16-pit-east-title-47.jsonl",
+    "provision_file_sha256": "b30b2f8bad51b1499e9368330d9ac9a2186ae6c0418590a4bcd0ca090d415c97",
+    "requested_corpus_citation_path": "us-dc/statute/47/47-1807.02",
+    "resolved_corpus_citation_path": "us-dc/statute/47/47-1807.02",
+    "resolved_text_sha256": "50bedd5792c29e7c43c32151a09508c781ca1aa73819d56ecbe646813f150e14",
+    "row": {
+      "body_sha256": "50bedd5792c29e7c43c32151a09508c781ca1aa73819d56ecbe646813f150e14",
+      "citation_path": "us-dc/statute/47/47-1807.02",
+      "document_class": "statute",
+      "expression_date": "2025-12-23",
+      "jurisdiction": "us-dc",
+      "line_number": 1060,
+      "provision_file": "data/corpus/provisions/us-dc/statute/2026-07-16-pit-east-title-47.jsonl",
+      "provision_file_sha256": "b30b2f8bad51b1499e9368330d9ac9a2186ae6c0418590a4bcd0ca090d415c97",
+      "record_id": "64381dbc-afba-5680-ada8-38c6a58ae6ab",
+      "source_as_of": "2025-12-23",
+      "source_path": "sources/us-dc/statute/2026-07-16-pit-east-title-47/dc-law-xml/titles/47/sections/47-1807.02.xml",
+      "version": "2026-07-16-pit-east-title-47"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us-dc",
+    "source_as_of": "2025-12-23",
+    "source_sha256": "50bedd5792c29e7c43c32151a09508c781ca1aa73819d56ecbe646813f150e14"
+  }
+}

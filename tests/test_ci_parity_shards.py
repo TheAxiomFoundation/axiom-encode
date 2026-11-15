@@ -835,7 +835,7 @@ def test_waiver_audit_runs_only_for_exactly_spelled_keys(
         simulation=SimpleNamespace(base_sha="a" * 40, github_sha="b" * 40),
         caller=SimpleNamespace(inputs={"validation-waiver-bootstrap-sha256": ""}),
         temp=root,
-        workflow=SimpleNamespace(python=lambda *_: "# no ratchet changes"),
+        workflow=ci_parity.PinnedWorkflow(workflow_gates.PIN_0EFFA6A5),
         paths={"corpus": root / "corpus", "engine": root / "engine"},
         plan=workflow_gates._plan("us"),
         jobs=1,

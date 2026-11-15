@@ -255,10 +255,17 @@ class Command:
     # NAME=value words that set the command's environment, as written,
     # including those inherited from a caller such as `A=1 bash -c '...'`.
     assignments: tuple[str, ...] = ()
+    # Each redirection as (operator, target), as written, including those of a
+    # caller such as `bash -c '...' > log`. An operator drops its file
+    # descriptor (`3>` reads as `>`), and a heredoc's target is the placeholder
+    # that stands for its body. A line that only redirects (`> "$f"`,
+    # `exec 3> "$f"`) is a command with no words.
+    redirects: tuple[tuple[str, str], ...] = ()
 
     @property
     def program(self) -> str:
-        """The program's file name, or "" for a line that only assigns."""
+        """The program's file name, or "" for a line that only assigns or
+        redirects."""
         return self.words[0].rsplit("/", 1)[-1] if self.words else ""
 
 
@@ -270,6 +277,12 @@ class UvInvocation:
     command: Command
     # The command `uv run`, `uv tool run` or `uvx` runs, if any.
     runs: tuple[str, ...] = ()
+    # Each option as (long name, value), in order, global options included;
+    # a flag's value is "".
+    values: tuple[tuple[str, str], ...] = ()
+    # The subcommand's arguments that are not options; for `uv run`, `uv tool
+    # run` and `uvx`, what they launch is in `runs` instead.
+    positionals: tuple[str, ...] = ()
 
 
 @dataclass
@@ -954,6 +967,7 @@ def _commands_in(
 ) -> list[Command]:
     found: list[Command] = []
     words: list[str] = []
+    redirects: list[tuple[str, str]] = []
     line = ""
     in_header = False  # between `case` and `in`
     in_pattern = False  # a case pattern, up to its `)`
@@ -973,9 +987,10 @@ def _commands_in(
         return all(word in _KEYWORDS for word in words)
 
     def finish() -> None:
-        nonlocal words
+        nonlocal words, redirects
         for word in words:
             run(word)
+        emitted = False
         for item in _unwrap(words):
             if isinstance(item, _Script):
                 for command in commands(item.text):
@@ -984,14 +999,27 @@ def _commands_in(
                             command.words,
                             command.line,
                             (*inherited, *item.assignments, *command.assignments),
+                            (*command.redirects, *redirects),
                         )
                     )
+                    emitted = True
             else:
                 program, assignments = item
                 found.append(
-                    Command(tuple(program), line.strip(), (*inherited, *assignments))
+                    Command(
+                        tuple(program),
+                        line.strip(),
+                        (*inherited, *assignments),
+                        tuple(redirects),
+                    )
                 )
+                emitted = True
+        if redirects and not emitted:
+            # `> "$f"` and `exec 3> "$f"` run nothing, but bash still opens
+            # (and for `>`, truncates) the file.
+            found.append(Command((), line.strip(), inherited, tuple(redirects)))
         words = []
+        redirects = []
 
     for line in lines:
         tokens = _tokens(line)
@@ -1019,6 +1047,7 @@ def _commands_in(
                 # A redirection: its target is data, but may hold a substitution.
                 if index < len(tokens) and not tokens[index].operator:
                     run(tokens[index].text)
+                    redirects.append((token.text, tokens[index].text))
                     index += 1
             elif (
                 token.operator
@@ -1070,20 +1099,31 @@ def expand(found: list[Command], table: dict) -> list[Command]:
             if "--module" in invocation.options:
                 runs = ("python", "-m", *runs)
             inner = [
-                Command(c.words, command.line, (*command.assignments, *c.assignments))
+                Command(
+                    c.words,
+                    command.line,
+                    (*command.assignments, *c.assignments),
+                    (*command.redirects, *c.redirects),
+                )
                 for c in commands(shlex.join(runs))
             ]
             expanded.extend(expand(inner, table))
     return expanded
 
 
-def python_module(words: tuple[str, ...]) -> str | None:
-    """The module ``python ... -m MODULE`` runs, or None for a script or -c."""
+def python_program(words: tuple[str, ...]) -> tuple[str, int, bool] | None:
+    """What ``python ...`` runs, as (its name, the index of its first argument,
+    whether it is a module), or None for ``-c``, stdin or no program."""
     index = 1
     while index < len(words):
         arg = words[index]
-        if arg == "--" or not arg.startswith("-") or arg == "-":
+        if arg == "-":
             return None
+        if arg == "--" or not arg.startswith("-"):
+            script = index + 1 if arg == "--" else index
+            if script >= len(words) or words[script] == "-":
+                return None  # no program, or stdin
+            return words[script], script + 1, False
         if arg.startswith("--"):
             index += 2 if arg == "--check-hash-based-pycs" else 1
             continue
@@ -1093,13 +1133,23 @@ def python_module(words: tuple[str, ...]) -> str | None:
                 return None
             if letter == "m":
                 if rest:
-                    return rest
-                return words[index + 1] if index + 1 < len(words) else None
+                    return rest, index + 1, True
+                return (
+                    (words[index + 1], index + 2, True)
+                    if index + 1 < len(words)
+                    else None
+                )
             if letter in "WX":
                 index += 0 if rest else 1  # its value is the rest or the next word
                 break
         index += 1
     return None
+
+
+def python_module(words: tuple[str, ...]) -> str | None:
+    """The module ``python ... -m MODULE`` runs, or None for a script or -c."""
+    program = python_program(words)
+    return program[0] if program is not None and program[2] else None
 
 
 def load_uv_options() -> dict:
@@ -1160,19 +1210,26 @@ def uv_option_table(uv: str = "uv") -> dict:
 
 
 def _read_option(
-    args: tuple[str, ...], index: int, table: dict, options: list[str], where: str
+    args: tuple[str, ...],
+    index: int,
+    table: dict,
+    options: list[str],
+    where: str,
+    values: list[tuple[str, str]],
 ) -> int:
     arg = args[index]
     if arg.startswith("--"):
-        name, has_value, _ = arg.partition("=")
+        name, has_value, value = arg.partition("=")
         name = table.get("aliases", {}).get(name, name)
         if name in table["valued"]:
             if not has_value and index + 1 >= len(args):
                 raise UnanalyzableScript(f"uv option {arg!r} needs a value: {where!r}")
             options.append(name)
+            values.append((name, value if has_value else args[index + 1]))
             return index + (1 if has_value else 2)
         if name in table["flags"] and not has_value:
             options.append(name)
+            values.append((name, ""))
             return index + 1
         raise UnanalyzableScript(
             f"unknown uv option {arg!r} in {where!r}; if the pinned uv accepts "
@@ -1187,6 +1244,9 @@ def _read_option(
             if not attached and index + 1 >= len(args):
                 raise UnanalyzableScript(f"uv option {name!r} needs a value: {where!r}")
             options.append(canonical)
+            values.append(
+                (canonical, arg[offset + 1 :] if attached else args[index + 1])
+            )
             return index + (1 if attached else 2)
         if name not in table["flags"]:
             raise UnanalyzableScript(
@@ -1194,6 +1254,7 @@ def _read_option(
                 f"accepts it, add it to UV_HIDDEN_OPTIONS and {_REGENERATE}"
             )
         options.append(canonical)
+        values.append((canonical, ""))
     return index + 1
 
 
@@ -1202,6 +1263,7 @@ def uv_invocation(command: Command, table: dict) -> UvInvocation | None:
     tables = table["commands"]
     args = command.words[1:]
     options: list[str] = []
+    values: list[tuple[str, str]] = []
     index = 0
     if command.program == "uvx":
         # `uvx` is `uv tool run`.
@@ -1209,14 +1271,18 @@ def uv_invocation(command: Command, table: dict) -> UvInvocation | None:
             if args[index] == "--":
                 index += 1
                 break
-            index = _read_option(args, index, tables["tool run"], options, command.line)
-        return UvInvocation("uvx", tuple(options), command, tuple(args[index:]))
+            index = _read_option(
+                args, index, tables["tool run"], options, command.line, values
+            )
+        return UvInvocation(
+            "uvx", tuple(options), command, tuple(args[index:]), tuple(values)
+        )
     if command.program != "uv":
         return None
     while index < len(args) and args[index].startswith("-"):
-        index = _read_option(args, index, tables[""], options, command.line)
+        index = _read_option(args, index, tables[""], options, command.line, values)
     if index == len(args):
-        return UvInvocation("", tuple(options), command)
+        return UvInvocation("", tuple(options), command, values=tuple(values))
     subcommand = args[index]
     index += 1
     if subcommand in _UV_GROUPS and index < len(args):
@@ -1228,20 +1294,28 @@ def uv_invocation(command: Command, table: dict) -> UvInvocation | None:
             f"add it to UV_COMMANDS and {_REGENERATE}"
         )
     runs: tuple[str, ...] = ()
+    positionals: list[str] = []
     while index < len(args):
         arg = args[index]
         if arg == "--":
             if subcommand in {"run", "tool run"}:
                 runs = tuple(args[index + 1 :])
+            else:
+                positionals.extend(args[index + 1 :])
             break
         if arg.startswith("-") and arg != "-":
-            index = _read_option(args, index, tables[subcommand], options, command.line)
+            index = _read_option(
+                args, index, tables[subcommand], options, command.line, values
+            )
         elif subcommand in {"run", "tool run"}:
             runs = tuple(args[index:])  # the command uv runs, with its arguments
             break
         else:
+            positionals.append(arg)
             index += 1
-    return UvInvocation(subcommand, tuple(options), command, runs)
+    return UvInvocation(
+        subcommand, tuple(options), command, runs, tuple(values), tuple(positionals)
+    )
 
 
 if __name__ == "__main__":

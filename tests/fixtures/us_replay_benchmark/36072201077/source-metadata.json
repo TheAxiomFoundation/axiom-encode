@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2026-01-01",
+    "generation_input_sha256": "d1c89e5b0c0c35d49d16a245a15f126c267fcd8903610e64f4cc65343a31e18f",
+    "provision_file": "data/corpus/provisions/us/guidance/2026-05-02-irs-rev-proc-2025-32-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "5c8d241ad0bf3e64787958b17c5a2124f9aa5d4fe8cd73c09fd202a84a70d184",
+    "requested_corpus_citation_path": "us/guidance/irs/rev-proc-2025-32/page-18",
+    "resolved_corpus_citation_path": "us/guidance/irs/rev-proc-2025-32/page-18",
+    "resolved_text_sha256": "d1c89e5b0c0c35d49d16a245a15f126c267fcd8903610e64f4cc65343a31e18f",
+    "row": {
+      "body_sha256": "d1c89e5b0c0c35d49d16a245a15f126c267fcd8903610e64f4cc65343a31e18f",
+      "citation_path": "us/guidance/irs/rev-proc-2025-32/page-18",
+      "document_class": "guidance",
+      "expression_date": "2026-01-01",
+      "jurisdiction": "us",
+      "line_number": 19,
+      "provision_file": "data/corpus/provisions/us/guidance/2026-05-02-irs-rev-proc-2025-32-r2026-07-15-self-contained.jsonl",
+      "provision_file_sha256": "5c8d241ad0bf3e64787958b17c5a2124f9aa5d4fe8cd73c09fd202a84a70d184",
+      "record_id": "229d5117-ab80-57cd-973e-a0cd3f467b93",
+      "source_as_of": "2025-10-17",
+      "source_path": "sources/us/guidance/2026-05-02-irs-rev-proc-2025-32-r2026-07-15-self-contained/official-documents/rp-25-32.pdf",
+      "version": "2026-05-02-irs-rev-proc-2025-32-r2026-07-15-self-contained"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us",
+    "source_as_of": "2025-10-17",
+    "source_sha256": "d1c89e5b0c0c35d49d16a245a15f126c267fcd8903610e64f4cc65343a31e18f"
+  }
+}

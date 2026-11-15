@@ -66,6 +66,8 @@ from axiom_encode.checks import (
     map_issue_text,
 )
 from axiom_encode.codex_cli import (
+    codex_auth_secrets,
+    redact_codex_auth_secrets,
     resolve_codex_cli,
     with_codex_model_availability_hint,
 )
@@ -151,6 +153,7 @@ from axiom_encode.repo_routing import (
     monorepo_checkout_name,
 )
 from axiom_encode.rules_engine_compat import run_rulespec_compile
+from axiom_encode.signing_broker import supervisor_codex_home
 from axiom_encode.statute import (
     citation_to_citation_path,
     normalize_rulespec_path_segment,
@@ -197,6 +200,7 @@ from .same_case_execution import (
 )
 from .source_completeness import (
     _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
+    _LINE_BREAK_CHARS,
     _is_us_manual_citation_path,
     _nested_outline_marker_spans,
     _qualified_parenthesized_legal_outline_markers,
@@ -815,12 +819,26 @@ def _run_codex_reviewer_cli(
                 ),
             ),
         )
+        # The read-only sandbox still lets the reviewer read auth.json in its
+        # home. Collect the credential strings before and after the run (a
+        # refresh can rotate them) and strip them from everything kept.
+        if local_environment is None:
+            codex_home = supervisor_codex_home()
+        else:
+            codex_home = local_environment.get("CODEX_HOME") or os.path.join(
+                local_environment["HOME"], ".codex"
+            )
+        secrets = codex_auth_secrets(codex_home)
         if local_environment is None:
             result = _run_subprocess_with_idle_timeout(
                 cmd,
                 timeout=timeout,
                 idle_timeout=idle_timeout,
                 cwd=cwd,
+                # Codex cannot initialize without a home directory. Under the
+                # signing supervisor only its captured, isolated home is
+                # forwarded; the sandbox above keeps the review read-only.
+                include_supervisor_codex_home=True,
             )
         else:
             result = _run_subprocess_with_idle_timeout(
@@ -831,7 +849,11 @@ def _run_codex_reviewer_cli(
                 env=local_environment,
                 env_is_final=True,
             )
-        return _extract_codex_text_output(result.output), result.returncode
+        secrets |= codex_auth_secrets(codex_home)
+        text = _extract_codex_text_output(
+            redact_codex_auth_secrets(result.output, secrets)
+        )
+        return redact_codex_auth_secrets(text, secrets), result.returncode
     except subprocess.TimeoutExpired:
         return f"Timeout after {timeout}s", 1
     except FileNotFoundError:
@@ -866,6 +888,7 @@ def _run_subprocess_with_idle_timeout(
     idle_timeout: int,
     cwd: Optional[Path] = None,
     env: Mapping[str, str] | None = None,
+    include_supervisor_codex_home: bool = False,
     env_is_final: bool = False,
     poll_interval: float = 0.5,
 ) -> _SubprocessRunResult:
@@ -899,9 +922,12 @@ def _run_subprocess_with_idle_timeout(
                     env=(
                         dict(env)
                         if env_is_final and env is not None
-                        else scrub_attestation_signing_keys()
-                        if env is None
-                        else scrub_attestation_signing_keys(env)
+                        else scrub_attestation_signing_keys(
+                            env,
+                            include_supervisor_codex_home=(
+                                include_supervisor_codex_home
+                            ),
+                        )
                     ),
                 )
 
@@ -1561,9 +1587,15 @@ _STRUCTURAL_SOURCE_LINE_PATTERN = re.compile(
     r"^(?!\d+[A-Za-z]?$)[\(\[]?(?:\d+[A-Za-z]?|[ivxlcdm]+|[a-z])[\)\].]?$",
     re.IGNORECASE,
 )
+# Here and in the step reference and schedule row patterns below, an optional
+# item takes the whitespace after it into its own group (``\s*(?:-\s*)?``, not
+# ``\s*-?\s*``): two whitespace runs side by side split a run of n spaces
+# n + 1 ways, so a line that fails after the run backtracks through every
+# split. The two-line table row key and the value-bearing table row avoid the
+# split in other ways, each noted where it appears.
 _STRUCTURAL_SOURCE_HEADING_PATTERN = re.compile(
     r"^(?:(?:PART|CHAPTER|SCHEDULE|REGULATION)\b|"
-    r"ARTICLE\b\s*(?:\d+[A-Za-z]?)?\s*$)",
+    r"ARTICLE\b\s*(?:\d+[A-Za-z]?\s*)?$)",
     re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_CITATION_PATTERN = re.compile(
@@ -1760,7 +1792,8 @@ _SOURCE_REFERENCE_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(
-        rf"\b(?:step|steps)\s+{_SOURCE_REFERENCE_SEQUENCE_PATTERN}(?:\s*,?\s*(?:above|below))?",
+        rf"\b(?:step|steps)\s+{_SOURCE_REFERENCE_SEQUENCE_PATTERN}"
+        r"(?:\s*(?:,\s*)?(?:above|below))?",
         re.IGNORECASE,
     ),
     re.compile(
@@ -1790,8 +1823,6 @@ _MONTH_NAME_BODY = (
     r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
     r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?"
 )
-# Every separator `str.splitlines` treats as a line boundary, not only `\n`.
-_LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
 _LINE_BREAK_CLASS = rf"[{_LINE_BREAK_CHARS}]"
 # Indentation the standalone-month guard recognises before a header line.
 _MAX_MONTH_HEADER_INDENT = 16
@@ -1924,18 +1955,19 @@ _ORDINAL_WORD_PATTERN = re.compile(
 )
 _SCHEDULE_BLOCK_HEADING_PATTERN = re.compile(r"^[A-Z][A-Z0-9_ ]+:\s*$")
 _SCHEDULE_SIZE_ROW_PATTERN = re.compile(
-    r"^\s*[-*]?\s*(?:size|household size|unit size)(?:\s+\d+(?:\s+or\s+more)?)?\s*:\s*"
+    r"^\s*(?:[-*]\s*)?(?:size|household size|unit size)"
+    r"(?:\s+\d+(?:\s+or\s+more)?)?\s*:\s*"
     r"(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
     re.IGNORECASE,
 )
 _SCHEDULE_PIPE_ROW_PATTERN = re.compile(
-    r"^\s*[-*]?\s*(?:\d+(?:\s+or\s+more)?|size\s+\d+(?:\s+or\s+more)?|"
+    r"^\s*(?:[-*]\s*)?(?:\d+(?:\s+or\s+more)?|size\s+\d+(?:\s+or\s+more)?|"
     r"household size\s+\d+(?:\s+or\s+more)?|unit size\s+\d+(?:\s+or\s+more)?)\s*\|\s*"
     r"(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
     re.IGNORECASE,
 )
 _SCHEDULE_ARROW_ROW_PATTERN = re.compile(
-    r"^\s*[-*]?\s*(?:\d+(?:\s+or\s+more)?|size\s+\d+(?:\s+or\s+more)?|"
+    r"^\s*(?:[-*]\s*)?(?:\d+(?:\s+or\s+more)?|size\s+\d+(?:\s+or\s+more)?|"
     r"household size\s+\d+(?:\s+or\s+more)?|unit size\s+\d+(?:\s+or\s+more)?)\s*"
     r"(?:=>|->|=)\s*(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
     re.IGNORECASE,
@@ -1957,17 +1989,22 @@ _TWO_LINE_TABLE_CONTEXT_PATTERN = re.compile(
     r"rate|standard|standards|threshold)\b",
     re.IGNORECASE,
 )
+# The label's last character is a letter or hyphen, so its trailing spaces
+# belong to ``\s*`` alone.
 _TWO_LINE_TABLE_ROW_KEY_PATTERN = re.compile(
     r"^\s*(?:\d{1,3}|"
     r"(?:(?:\d{1,3}(?:st|nd|rd|th)|first|second|third|fourth|fifth|sixth|"
-    r"seventh|eighth|ninth|tenth)\s+[A-Za-z][A-Za-z -]*))\s*$",
+    r"seventh|eighth|ninth|tenth)\s+[A-Za-z](?:[A-Za-z -]*[A-Za-z-])?))\s*$",
     re.IGNORECASE,
 )
 _SOURCE_SUBDIVISION_LINE_PATTERN = re.compile(
     r"^\s*\((?:\d+[A-Za-z]?|[a-z]|[ivxlcdm]+)\)\s*", re.IGNORECASE
 )
+# ``[^:]+`` already takes a row's indent and list bullet. Spelling them out
+# in front of it as ``^\s*[-*]?\s*`` put three whitespace runs side by side, so
+# an indented line with no colon backtracked cubically in its indent.
 _VALUE_BEARING_TABLE_ROW_PATTERN = re.compile(
-    r"^\s*[-*]?\s*[^:]+:\s*(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
+    r"^[^:]+:\s*(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
     re.IGNORECASE,
 )
 _SUBPOUND_MONEY_PATTERN = re.compile(
@@ -7959,9 +7996,11 @@ _GERMAN_MONTH_YEAR_PATTERN = re.compile(
     rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
+# The optional comma takes the spaces after it into its own group, as in
+# `_STRUCTURAL_SOURCE_HEADING_PATTERN`.
 _ENGLISH_MONTH_DAY_YEAR_PATTERN = re.compile(
     rf"\b{_MONTH_NAME_BODY}\s+(?P<day>0?[1-9]|[12]\d|3[01])"
-    rf"(?:st|nd|rd|th)?\s*,?\s*(?P<year>{_TEMPORAL_YEAR_BODY})"
+    rf"(?:st|nd|rd|th)?\s*(?:,\s*)?(?P<year>{_TEMPORAL_YEAR_BODY})"
     rf"{_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
@@ -9150,11 +9189,16 @@ _HEBREW_GREGORIAN_MONTH_PATTERN = re.compile(
 # own line and table cell. Elsewhere a homograph may be speaking: "הסובל מאי
 # ספיקת לב" (National Health Insurance Law, schedule 2) is "suffering from
 # heart failure", "במאי" is also a director and "מרץ" vigour.
+# In the next two patterns, as in the structural heading pattern, an optional
+# separator or comma takes the spaces after it into its own group. The first
+# runs between each pair of adjacent month names, the second after the last
+# name of a group. Written as ``[^\S\n]*,?[^\S\n]*``, two runs split one run
+# of spaces between them, quadratic in the run when nothing after it matches.
 _HEBREW_MONTH_LIST_GAP_PATTERN = re.compile(
-    "[^\\S\\n]*(?:,|;|[\u05be\u2013\u2014-]|עד|ועד|או)?[^\\S\\n]*"
+    "[^\\S\\n]*(?:(?:,|;|[\u05be\u2013\u2014-]|עד|ועד|או)[^\\S\\n]*)?"
 )
 _HEBREW_MONTH_YEAR_AFTER_PATTERN = re.compile(
-    rf"[^\S\n]*,?[^\S\n]*(?:(?:ב|של[^\S\n]+)?שנת[^\S\n]+)?"
+    rf"[^\S\n]*(?:,[^\S\n]*)?(?:(?:ב|של[^\S\n]+)?שנת[^\S\n]+)?"
     rf"{_TEMPORAL_YEAR_BODY}{_TEMPORAL_YEAR_END}"
 )
 _HEBREW_MONTH_YEAR_OF_AFTER_PATTERN = re.compile(
@@ -14918,6 +14962,128 @@ def _danish_grouped_scalar_has_context(
     )
 
 
+def _inline_pipe_table_rate_cell_spans(
+    line: str,
+    *,
+    profile: str,
+) -> tuple[tuple[tuple[int, int], ...], frozenset[int], int | None] | None:
+    """Read flattened Markdown rows without changing their source offsets.
+
+    A separator row and an immediately preceding, equally wide header are
+    required. Adjacent rows retain their distinct closing/opening pipes.
+    Prose between rows ends the table instead of inheriting its column units.
+    """
+    rate_cells: list[tuple[int, int]] = []
+    recognized = False
+    previous_table_end = 0
+    separator_pattern = re.compile(r"\|(?:[ \t]*:?-{3,}:?[ \t]*\|){2,}")
+    continuation_columns: frozenset[int] = frozenset()
+    continuation_width: int | None = None
+    for separator in separator_pattern.finditer(line):
+        width = separator.group().count("|") - 1
+        header_end = separator.start()
+        while header_end and line[header_end - 1].isspace():
+            header_end -= 1
+        if not header_end or line[header_end - 1] != "|":
+            continue
+        # Only a validated header marks the line as an inline table. A header
+        # that fails validation (for example a blank stub-column cell, which a
+        # flattened row boundary makes ambiguous) keeps the bordered-table path.
+        continuation_columns = frozenset()
+        continuation_width = None
+        header_pipes = [
+            match.start()
+            for match in re.compile(r"\|").finditer(
+                line, previous_table_end, header_end
+            )
+        ]
+        # A flattened row starts after a closing/opening pipe pair. Do not
+        # silently discard an extra header cell to match the separator width.
+        # The previous separator or accepted row also bounds the search:
+        # intervening prose may precede a new header on this same source line.
+        header_start = 0
+        for index in range(len(header_pipes) - 1):
+            if not line[header_pipes[index] + 1 : header_pipes[index + 1]].strip():
+                header_start = index + 1
+        header_pipes = header_pipes[header_start:]
+        # A later header lies after this separator. Bounding the next search
+        # here keeps one long flattened line linear in its table count.
+        previous_table_end = separator.end()
+        if len(header_pipes) != width + 1:
+            continue
+        headers = [
+            line[left + 1 : right]
+            for left, right in zip(header_pipes, header_pipes[1:])
+        ]
+        if any(not cell.strip() for cell in headers):
+            continue
+        recognized = True
+        columns = {
+            index
+            for index, cell in enumerate(headers)
+            if _table_rate_header_matches(cell, profile=profile)
+        }
+        cursor = separator.end()
+        while cursor < len(line):
+            while cursor < len(line) and line[cursor].isspace():
+                cursor += 1
+            if cursor >= len(line) or line[cursor] != "|":
+                break
+            row_cells: list[tuple[int, int]] = []
+            cursor += 1
+            for _ in range(width):
+                end = line.find("|", cursor)
+                if end < 0 or not line[cursor:end].strip():
+                    break
+                row_cells.append((cursor, end))
+                cursor = end + 1
+            if len(row_cells) != width:
+                break
+            if all(
+                re.fullmatch(r"[ \t]*:?-{3,}:?[ \t]*", line[start:end])
+                for start, end in row_cells
+            ):
+                break
+            # A further nonempty cell would make this row wider than its
+            # header. Only a row boundary or the end of the table is valid.
+            tail = cursor
+            while tail < len(line) and line[tail].isspace():
+                tail += 1
+            if separator_pattern.match(line, tail):
+                break
+            if tail < len(line) and line[tail] != "|":
+                next_pipe = line.find("|", tail)
+                # Prose between tables has words and punctuation, and the pipe
+                # after it opens a new header. A decimal or "(iv)" cell, or any
+                # text closed by a row-ending pipe, is an extra cell instead,
+                # which makes the row wider than its header. Trailing text
+                # without a closing pipe must still contain words: a bare
+                # "7.65" or "(a)" there is an unclosed extra cell.
+                if next_pipe < 0:
+                    if not re.search(r"[^\W\d_]{2,}", line[tail:]):
+                        break
+                else:
+                    gap = line[tail:next_pipe]
+                    after = next_pipe + 1
+                    while after < len(line) and line[after].isspace():
+                        after += 1
+                    if (
+                        after >= len(line)
+                        or line[after] == "|"
+                        or not re.search(r"[.!?()]", gap)
+                        or not re.search(r"[^\W\d_]{2,}", gap)
+                    ):
+                        break
+            rate_cells.extend(row_cells[column] for column in sorted(columns))
+            previous_table_end = cursor
+        if cursor >= len(line):
+            continuation_columns = frozenset(columns)
+            continuation_width = width
+    if not recognized:
+        return None
+    return tuple(rate_cells), continuation_columns, continuation_width
+
+
 def _pipe_table_rate_cell_spans(
     text: str,
     *,
@@ -14927,18 +15093,35 @@ def _pipe_table_rate_cell_spans(
     rate_cells: list[tuple[int, int]] = []
     rate_columns: set[int] = set()
     width: int | None = None
+    inline_width: int | None = None
     line_offset = 0
     for line_with_ending in text.splitlines(keepends=True):
         line = line_with_ending.rstrip("\r\n")
         if "|" not in line:
             rate_columns.clear()
             width = None
+            inline_width = None
+            line_offset += len(line_with_ending)
+            continue
+
+        inline_cells = _inline_pipe_table_rate_cell_spans(line, profile=profile)
+        if inline_cells is not None:
+            spans, continuation_columns, inline_width = inline_cells
+            rate_columns = set(continuation_columns)
+            rate_cells.extend(
+                (line_offset + start, line_offset + end) for start, end in spans
+            )
+            # Rows that continue a flattened Markdown table are bordered.
+            width = 0
             line_offset += len(line_with_ending)
             continue
 
         width = _pipe_table_next_width(line, width)
         cells = _pipe_table_line_cells(line, width)
 
+        if inline_width is not None and len(cells) != inline_width:
+            rate_columns.clear()
+            inline_width = None
         for column, (start, end) in enumerate(cells):
             if _table_rate_header_matches(line[start:end], profile=profile):
                 rate_columns.add(column)
@@ -24086,10 +24269,65 @@ def _mask_person_resource_type_description(text: str) -> str:
     return "".join(characters)
 
 
+_TABLE_INSTRUCTION_SPACE = r"(?:[ \t]|\r?\n(?![ \t]*\r?\n))+"
+_FAMILY_EXPENSE_TABLE_INSTRUCTION = re.compile(
+    r"(?:\A|(?<=\n\n)|(?<=\r\n\r\n))"
+    + _TABLE_INSTRUCTION_SPACE.join(
+        (
+            "If",
+            "applicable,",
+            "complete",
+            "the",
+            "following",
+            "table",
+            "and",
+            "include",
+            "all",
+            "of",
+            "your",
+            r"(?P<modifier>family)'s",
+            "eligible",
+            "physical",
+            "activity",
+            r"expenses\.",
+        )
+    )
+    + r"(?=[ \t]*(?:\Z|\r?\n[ \t]*\r?\n))",
+    flags=re.IGNORECASE,
+)
+
+
+def _mask_family_expense_table_instruction(text: str) -> str:
+    """Distinguish the expenses' family from an eligibility test's subject.
+
+    Only the complete instruction paragraph is recognized, and only when it is
+    not colon-led and the following text does not open with a listed
+    qualifier or condition word. Qualifying prose that opens otherwise is not
+    detected here; it stays in the text for condition analysis. This removes a
+    false scope inference; it does not assign a Person actor or establish
+    applicability, eligibility, or compliance with the instruction.
+    """
+    characters = list(text)
+    for match in _FAMILY_EXPENSE_TABLE_INSTRUCTION.finditer(text):
+        # Blank lines do not sever a colon-led instruction or its qualification.
+        if text[: match.start()].rstrip().endswith(":") or re.match(
+            r"(?:unless|except|provided|providing|subject\s+to|but|however|only|if|when"
+            r"|once|until|assuming"
+            r"|where|on\s+condition|conditional|as\s+long\s+as|so\s+long\s+as"
+            r"|in\s+the\s+event|to\s+the\s+extent)\b",
+            text[match.end() :].lstrip(),
+            flags=re.IGNORECASE,
+        ):
+            continue
+        start, end = match.span("modifier")
+        characters[start:end] = " " * (end - start)
+    return "".join(characters)
+
+
 def _classify_source_scope(text: str) -> str | None:
     """Return a clear source scope, or None when the text is mixed/vague."""
     classification_text = _mask_person_resource_type_description(
-        _mask_household_filing_statuses(text)
+        _mask_family_expense_table_instruction(_mask_household_filing_statuses(text))
     )
     person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(classification_text) is not None
     unit_scoped = (
@@ -24106,7 +24344,7 @@ def _classify_source_scope(text: str) -> str | None:
 def _classify_source_unit_entity(text: str) -> str | None:
     """Return a clear unit entity from source text, or None when generic/mixed."""
     classification_text = _mask_person_resource_type_description(
-        _mask_household_filing_statuses(text)
+        _mask_family_expense_table_instruction(_mask_household_filing_statuses(text))
     )
     if _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(classification_text):
         return "taxunit"
@@ -36873,6 +37111,7 @@ class ValidatorPipeline:
         rules_file: Path | None = None,
         proof_source_texts: Mapping[str, str | None] | None = None,
         execution_evidence: SameCaseEvidence | None = None,
+        local_relation_context: object | None = None,
     ) -> list[str]:
         """Apply opt-in completeness checks to the resolver-owned corpus body."""
 
@@ -36937,6 +37176,7 @@ class ValidatorPipeline:
             content,
             authoritative_source_text or "",
             execution_evidence=execution_evidence,
+            local_relation_context=local_relation_context,
             referral_context=collect_referral_context(
                 self, content, rules_file, proof_source_texts
             )
@@ -37580,6 +37820,7 @@ class ValidatorPipeline:
             cwd=self.axiom_rules_path if self.axiom_rules_path.exists() else None,
             env=self._rulespec_engine_env(),
             composed=is_composition,
+            _execution_owner=self,
         )
         if result.returncode != 0:
             return result, None
@@ -38879,8 +39120,13 @@ class ValidatorPipeline:
         }
         command = [str(binary), "run-compiled", "--artifact", str(compiled_path)]
         try:
-            result = subprocess.run(
+            from .local_case_custody import run_observed_case
+
+            result = run_observed_case(
                 command,
+                pipeline=self,
+                case=case,
+                ordinal=case_index,
                 input=json.dumps(request),
                 capture_output=True,
                 text=True,
@@ -39386,9 +39632,16 @@ class ValidatorPipeline:
         self._register_validation_temporary_root(tmpdir)
         try:
             compiled_path = tmpdir / "compiled.json"
-            compile_result, payload = execution_pipeline._compile_rulespec_to_artifact(
-                execution_file, compiled_path
-            )
+            from .local_compile_custody import compile_scope
+
+            with compile_scope(
+                execution_capture, execution_pipeline, execution_file, compiled_path
+            ):
+                compile_result, payload = (
+                    execution_pipeline._compile_rulespec_to_artifact(
+                        execution_file, compiled_path
+                    )
+                )
             raw_output = compile_result.stdout + compile_result.stderr
             if compile_result.returncode != 0:
                 detail = compile_result.stderr.strip() or compile_result.stdout.strip()
@@ -39642,7 +39895,10 @@ class ValidatorPipeline:
         if strict_layout_checks:
             issues.extend(find_rule_source_metadata_issues(content))
 
-        test_path = self._rulespec_test_path(rules_file)
+        # Compile and execute one captured closure. Reading the original
+        # companion here could execute a transient edit that is reverted
+        # before the capture's freshness check.
+        test_path = execution_pipeline._rulespec_test_path(execution_file)
         if test_path.exists():
             try:
                 payload = _safe_load_unique_keys(test_path.read_text())
@@ -39695,8 +39951,17 @@ class ValidatorPipeline:
                         find_zero_branch_test_coverage_issues(content, payload)
                     )
                     if len(issues) == pre_test_issue_count:
-                        issues.extend(
-                            execution_pipeline._run_rulespec_test_cases(
+                        from .local_case_custody import suite_scope
+
+                        with suite_scope(
+                            execution_capture,
+                            execution_pipeline,
+                            execution_file,
+                            compiled_path,
+                            compiled_payload,
+                            payload,
+                        ) as observed_suite:
+                            case_issues = execution_pipeline._run_rulespec_test_cases(
                                 rules_file=execution_file,
                                 compiled_path=compiled_path,
                                 compiled_payload=compiled_payload,
@@ -39707,22 +39972,38 @@ class ValidatorPipeline:
                                     else {}
                                 ),
                             )
-                        )
+                            if observed_suite is not None:
+                                observed_suite.finish(case_issues)
+                            issues.extend(case_issues)
         elif not issues and not self._is_nonassertable_rulespec_artifact(rules_file):
             issues.append("No tests found.")
 
-        issues.extend(
-            self._complete_source_unit_issues(
-                content,
-                validation_source_texts=validation_source_texts,
-                proof_source_texts=proof_source_texts,
-                test_cases=complete_source_unit_test_cases,
-                execution_evidence=execution_capture.evidence()
-                if execution_capture
-                else None,
-                rules_file=rules_file,
+        from .local_relation_source_evidence import local_relation_source_scope
+
+        with local_relation_source_scope(
+            execution_capture,
+            execution_pipeline,
+            content,
+            complete_source_unit_test_cases,
+            proof_source_texts,
+        ) as local_context:
+            issues.extend(
+                self._complete_source_unit_issues(
+                    content,
+                    validation_source_texts=validation_source_texts,
+                    proof_source_texts=proof_source_texts,
+                    test_cases=complete_source_unit_test_cases,
+                    execution_evidence=execution_capture.evidence()
+                    if execution_capture
+                    else None,
+                    rules_file=rules_file,
+                    **(
+                        {"local_relation_context": local_context}
+                        if local_context is not None
+                        else {}
+                    ),
+                )
             )
-        )
         manual_advice = self._manual_outcome_exception_advice(
             content,
             validation_source_texts=validation_source_texts,
@@ -42578,9 +42859,9 @@ Output ONLY valid JSON:
         year: int = 2024,
         sample_size: int | None = None,
     ) -> ValidationResult:
-        """Benchmark RuleSpec encoding against PolicyEngine using Populace.
+        """Benchmark RuleSpec encoding against PolicyEngine using Microcosm.
 
-        Runs PE Microsimulation on Populace, extracts the target
+        Runs PE Microsimulation on Microcosm, extracts the target
         variable for all tax units, and reports the benchmark. This establishes
         the PE baseline that RuleSpec must match as inputs get wired up.
 

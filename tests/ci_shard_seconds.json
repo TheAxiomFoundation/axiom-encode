@@ -300,6 +300,7 @@
 "tests/test_system_one_review.py": 0.0,
 "tests/test_targeted_repo_token_boundary.py": 2.0,
 "tests/test_toolchain.py": 20.8,
+"tests/test_us_replay_benchmark.py": 2.8,
 "tests/test_validation_waiver_audit_cli.py": 0.4,
 "tests/test_validation_waiver_audit_parallel.py": 1.8,
 "tests/test_validation_waiver_audit_scheduling.py": 0.5,

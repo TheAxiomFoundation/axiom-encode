@@ -1,0 +1,12 @@
+{
+  "attempt_count": 4,
+  "citation": "us-az/manual/des/faa5/na-categorical-eligibility/block-5",
+  "encoder_version": "0.2.2266",
+  "issues": [
+    "policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation.yaml: ci: [complete-source-unit:tests] Companion tests do not exercise every source-stated boundary input; missing: source unit formula clause 3=2, source unit formula clause 4=2."
+  ],
+  "path": "policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation.yaml",
+  "rulespec_sha256": "3ae7c04190206af4c45f60cbdc7e7ee3f973c9f5a95e7467d94c475295591d3e",
+  "schema": "axiom-encode/failed-encode-candidate/v1",
+  "tests_sha256": "0c6f03da1b9ac8753d1c7bbc139ad677f98945f7bef59d7e1a88967c3a73bd85"
+}

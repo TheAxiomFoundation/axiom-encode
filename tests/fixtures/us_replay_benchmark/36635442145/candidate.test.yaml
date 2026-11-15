@@ -1,0 +1,12 @@
+- name: subpart_applies_to_separate_child_health_program
+  period: 2026-08
+  input:
+    us:regulations/42-cfr/457/800#input.program_is_separate_child_health_program: true
+  output:
+    us:regulations/42-cfr/457/800#substitution_subpart_applies: holds
+- name: subpart_does_not_apply_to_other_program
+  period: 2026-08
+  input:
+    us:regulations/42-cfr/457/800#input.program_is_separate_child_health_program: false
+  output:
+    us:regulations/42-cfr/457/800#substitution_subpart_applies: not_holds

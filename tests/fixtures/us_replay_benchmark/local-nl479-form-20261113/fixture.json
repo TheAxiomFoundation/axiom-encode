@@ -1,0 +1,32 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "origin": "local-diagnostic",
+  "run_id": "local-nl479-form-20261113",
+  "citation": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+  "module_path": "ca/policies/cra/t1-2025/nl479-credits/primary-document.yaml",
+  "policy_prefix": "ca",
+  "split": "visible",
+  "recorded_verdict": "rejected",
+  "encoder_commit": "7d6016a548f1db9c907c70c84526f7a9f89d3e84",
+  "encoder_tree": "bc3d2cdc2480758908f6fa4168e9ac09f56563de",
+  "encoder_version": "0.2.2363",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --jobs 1 --out /tmp/axiom-2105-local-diagnostics.json",
+  "input_origins": {
+    "candidate.yaml": "tests/fixtures/bound_form_operands/diagnostic.yaml",
+    "candidate.test.yaml": "tests/fixtures/bound_form_operands/diagnostic.test.yaml",
+    "source.txt": "tests/fixtures/informational_referral/source.txt"
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "recorded_rules": [
+    "complete-source-unit:numeric-recall",
+    "complete-source-unit:tests"
+  ],
+  "files": {
+    "candidate.yaml": "7b90c8b5a7f5d3cf982f47287bf274bc3b00507af5f5e35d23b95b1d8c083570",
+    "candidate.test.yaml": "eccab05e924e2127506b87e6376b6486b6cc2efddac1035f5c7e3a1d28fb4bab",
+    "source.txt": "9e88b12d0ddafe64504fb8b3fdb28d62e5a57bb371fd7c6b50aec19491a8c5a2",
+    "issues.json": "e7a6922cedb1dd6a8869d198b625faf622efc4a0625522cedbb2c7254f231627"
+  }
+}

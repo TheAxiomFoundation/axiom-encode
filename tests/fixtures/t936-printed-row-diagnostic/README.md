@@ -1,0 +1,1 @@
+Exact retained public T936 source-only diagnostic inputs. These are unsigned diagnostic copies, not a native publication. The replay fixture records current offline findings without private execution evidence or authenticated resolver context.

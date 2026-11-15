@@ -1,0 +1,15 @@
+{
+  "attempt_count": 4,
+  "citation": "us-ut/manual/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm",
+  "encoder_version": "0.2.2079",
+  "issues": [
+    "policies/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm.yaml: ci: [complete-source-unit:formula-output] Source-stated control source unit in us-ut/manual/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm [source unit] has no principal derived/relation output (`derived` or `derived_relation`) and is not precisely deferred; parameter-only representation is invalid.",
+    "policies/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm.yaml: ci: [complete-source-unit:numeric-recall] Authoritative corpus numeric value 2 has no named scalar representation. `module.summary` is not consulted.",
+    "policies/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm.yaml: ci: [complete-source-unit:numeric-recall] Authoritative corpus numeric value 3 has no named scalar representation. `module.summary` is not consulted.",
+    "policies/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm.yaml: ci: [complete-source-unit:numeric-recall] Authoritative corpus numeric value 770 has no named scalar representation. `module.summary` is not consulted."
+  ],
+  "path": "policies/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm.yaml",
+  "rulespec_sha256": "c3f638cf43ac0fd3d3e3b15ac9bc84a83d72cac65583b7e526d362370cf5d456",
+  "schema": "axiom-encode/failed-encode-candidate/v1",
+  "tests_sha256": "b36a9f997fb98dfcb28fc239385dcf745314b22294cc18beda04c6a7a24b020e"
+}

@@ -1,0 +1,1258 @@
+{
+  "provenance": "Historical actual ordinarya691/895 diagnostic; test wrapper synthetic, not new runtime or signature",
+  "content": "format: rulespec/v1\nmodule:\n  summary: CRA Form NL479 2025 calculates the physical activity credit from eligible\n    expenses and adds the completed Form T1129 line 6 amount.\n  proof_validation:\n    required: true\n  source_verification:\n    corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n    source_sha256: 9e88b12d0ddafe64504fb8b3fdb28d62e5a57bb371fd7c6b50aec19491a8c5a2\nunits:\n- name: CAD\n  kind: currency\n  minor_units: 2\ninputs:\n- name: nl479_physical_activity_total_eligible_expenses_line_1\n  dtype: Money\n  unit: CAD\n  entity: Family\n  period: Year\n- name: nl479_physical_activity_assistance_line_2\n  dtype: Money\n  unit: CAD\n  entity: Family\n  period: Year\n- name: nl479_physical_activity_amount_claimed_by_other_individuals_line_4\n  dtype: Money\n  unit: CAD\n  entity: Family\n  period: Year\n- name: nl479_research_and_development_tax_credit_t1129_line_6\n  dtype: Money\n  unit: CAD\n  entity: Family\n  period: Year\n- name: needs_additional_space\n  dtype: Boolean\n  entity: Person\n  period: Year\n  description: The individual completing this form needs more space for its entries.\nrules:\n- name: nl479_2025_physical_activity_expense_cap\n  kind: parameter\n  dtype: Money\n  source: 'CRA Form NL479 2025: Line 3: Line 1 minus line 2 (maximum $2,000) = ^'\n  unit: CAD\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: 2000\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: 'Line 3: Line 1 minus line 2 (maximum $2,000) = ^'\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n- name: nl479_2025_physical_activity_rate\n  kind: parameter\n  dtype: Rate\n  source: 'CRA Form NL479 2025: Line 6: Applicable rate 17.4%'\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: 0.174\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: 'Line 6: Applicable rate 17.4%'\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n- name: nl479_physical_activity_net_expenses_line_3\n  kind: derived\n  dtype: Money\n  source: 'CRA Form NL479 2025: Line 3: Line 1 minus line 2 (maximum $2,000) = ^'\n  unit: CAD\n  entity: Family\n  period: Year\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: min(nl479_2025_physical_activity_expense_cap, nl479_entered_total_eligible_expenses_line_1\n      - nl479_entered_assistance_line_2)\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: 'Line 3: Line 1 minus line 2 (maximum $2,000) = ^'\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n- name: nl479_physical_activity_expenses_line_62000\n  kind: derived\n  dtype: Money\n  source: 'CRA Form NL479 2025: Line 5 and line 62000: Line 3 minus line 4 Physical\n    activity expenses = ^'\n  unit: CAD\n  entity: Family\n  period: Year\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: nl479_physical_activity_net_expenses_line_3 - nl479_entered_other_claimed_line_4\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: 'Line 5 and line 62000: Line 3 minus line 4 Physical activity expenses\n            = ^'\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n- name: nl479_physical_activity_tax_credit_line_7\n  kind: derived\n  dtype: Money\n  source: 'CRA Form NL479 2025: Line 7: Line 5 multiplied by the percentage from line\n    6 Physical activity tax\n\n    credit = ^'\n  unit: CAD\n  entity: Family\n  period: Year\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: nl479_physical_activity_expenses_line_62000 * nl479_2025_physical_activity_rate\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: 'Line 7: Line 5 multiplied by the percentage from line 6 Physical\n            activity tax\n\n            credit = ^'\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n- name: newfoundland_and_labrador_credits_line_47900\n  kind: derived\n  dtype: Money\n  source: 'CRA Form NL479 2025: Line 9: Line 7 plus line 8 Enter this amount online\n    47900of your return.\n\n    Newfoundland and Labrador credits = ^'\n  unit: CAD\n  entity: Family\n  period: Year\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: nl479_physical_activity_tax_credit_line_7 + nl479_entered_research_credit_line_8\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: 'Line 9: Line 7 plus line 8 Enter this amount online 47900of your\n            return.\n\n            Newfoundland and Labrador credits = ^'\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n- name: nl479_entered_total_eligible_expenses_line_1\n  kind: derived\n  dtype: Money\n  source: Entered amount on printed line 1\n  unit: CAD\n  entity: Family\n  period: Year\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: nl479_physical_activity_total_eligible_expenses_line_1\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: 'Line 1: Total amount paid from all receipts included in the table\n            above Total\n\n            eligible expenses = ^'\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n- name: nl479_entered_assistance_line_2\n  kind: derived\n  dtype: Money\n  source: Entered amount on printed line 2\n  unit: CAD\n  entity: Family\n  period: Year\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: nl479_physical_activity_assistance_line_2\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: 'Line 2: Amount of assistance received or receivable included in\n            the amount on\n\n            line 1 ^'\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n- name: nl479_entered_other_claimed_line_4\n  kind: derived\n  dtype: Money\n  source: Entered amount on printed line 4\n  unit: CAD\n  entity: Family\n  period: Year\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: nl479_physical_activity_amount_claimed_by_other_individuals_line_4\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: 'Line 4: Amount from line 3 being claimed by other eligible individuals\n            ^'\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n- name: nl479_entered_research_credit_line_8\n  kind: derived\n  dtype: Money\n  source: Entered amount on printed line 8\n  unit: CAD\n  entity: Family\n  period: Year\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: nl479_research_and_development_tax_credit_t1129_line_6\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: 'Line 8: Enter the tax credit amount from line 6 of your Form T1129.\n            ^'\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n- name: additional_sheet_attachment_required\n  kind: derived\n  dtype: Judgment\n  entity: Person\n  period: Year\n  source: If you need more space, attach an additional sheet of paper.\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: If you need more space, attach an additional sheet of paper.\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/cra/t1-2025/nl479-credits/primary-document\n          excerpt: '2025'\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: needs_additional_space\n",
+  "cases": [
+    {
+      "name": "existing_valid_cap_and_rd",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_total_eligible_expenses_line_1": 3000,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_assistance_line_2": 500,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4": 300,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_research_and_development_tax_credit_t1129_line_6": 100
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_total_eligible_expenses_line_1": 3000,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_assistance_line_2": 500,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_other_claimed_line_4": 300,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_research_credit_line_8": 100,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_net_expenses_line_3": 2000.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_expenses_line_62000": 1700.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_tax_credit_line_7": 295.8,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#newfoundland_and_labrador_credits_line_47900": 395.8
+      }
+    },
+    {
+      "name": "source_cap_below",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_total_eligible_expenses_line_1": 2090,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_assistance_line_2": 100,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4": 0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_research_and_development_tax_credit_t1129_line_6": 0
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_net_expenses_line_3": 1990.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_expenses_line_62000": 1990.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_tax_credit_line_7": 346.26,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#newfoundland_and_labrador_credits_line_47900": 346.26
+      }
+    },
+    {
+      "name": "source_cap_equal",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_total_eligible_expenses_line_1": 2100,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_assistance_line_2": 100,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4": 0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_research_and_development_tax_credit_t1129_line_6": 0
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_net_expenses_line_3": 2000.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_expenses_line_62000": 2000.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_tax_credit_line_7": 348.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#newfoundland_and_labrador_credits_line_47900": 348.0
+      }
+    },
+    {
+      "name": "source_cap_above",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_total_eligible_expenses_line_1": 2110,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_assistance_line_2": 100,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4": 0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_research_and_development_tax_credit_t1129_line_6": 0
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_net_expenses_line_3": 2000.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_expenses_line_62000": 2000.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_tax_credit_line_7": 348.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#newfoundland_and_labrador_credits_line_47900": 348.0
+      }
+    },
+    {
+      "name": "included_other_claims_equal_line3",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_total_eligible_expenses_line_1": 500,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_assistance_line_2": 100,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4": 400,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_research_and_development_tax_credit_t1129_line_6": 0
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_net_expenses_line_3": 400.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_expenses_line_62000": 0.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_tax_credit_line_7": 0.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#newfoundland_and_labrador_credits_line_47900": 0.0
+      }
+    },
+    {
+      "name": "completed_t1129_passthrough",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_total_eligible_expenses_line_1": 0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_assistance_line_2": 0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4": 0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_research_and_development_tax_credit_t1129_line_6": 125
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_net_expenses_line_3": 0.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_expenses_line_62000": 0.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_tax_credit_line_7": 0.0,
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#newfoundland_and_labrador_credits_line_47900": 125.0
+      }
+    },
+    {
+      "name": "sheet_requirement_false",
+      "entity_id": "filer-document-case",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.needs_additional_space": false
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#additional_sheet_attachment_required": "not_holds"
+      }
+    },
+    {
+      "name": "sheet_requirement_true",
+      "entity_id": "filer-document-case",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.needs_additional_space": true
+      },
+      "output": {
+        "ca:policies/cra/t1-2025/nl479-credits/primary-document#additional_sheet_attachment_required": "holds"
+      }
+    }
+  ],
+  "artifact": {
+    "artifact_format_version": 2,
+    "engine_version": "0.2.2",
+    "program": {
+      "module": {
+        "summary": "CRA Form NL479 2025 calculates the physical activity credit from eligible expenses and adds the completed Form T1129 line 6 amount.",
+        "source_verification": {
+          "corpus_citation_path": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+          "source_sha256": "9e88b12d0ddafe64504fb8b3fdb28d62e5a57bb371fd7c6b50aec19491a8c5a2"
+        }
+      },
+      "units": [
+        {
+          "name": "GBP",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "USD",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "EUR",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "CHF",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "NOK",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "GHS",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "GHp",
+          "kind": "currency",
+          "minor_units": 0
+        },
+        {
+          "name": "NGN",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "UGX",
+          "kind": "currency",
+          "minor_units": 0
+        },
+        {
+          "name": "ZMW",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "ETB",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "RWF",
+          "kind": "currency",
+          "minor_units": 0
+        },
+        {
+          "name": "TZS",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "DKK",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "AMD",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "ILS",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "count",
+          "kind": "count"
+        },
+        {
+          "name": "person",
+          "kind": "count"
+        },
+        {
+          "name": "ratio",
+          "kind": "ratio"
+        },
+        {
+          "name": "status",
+          "kind": "custom",
+          "label": "judgment"
+        },
+        {
+          "name": "CAD",
+          "kind": "currency",
+          "minor_units": 2
+        }
+      ],
+      "relations": [],
+      "parameters": [
+        {
+          "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_2025_physical_activity_expense_cap",
+          "name": "nl479_2025_physical_activity_expense_cap",
+          "unit": "CAD",
+          "indexed_by": null,
+          "source": "CRA Form NL479 2025: Line 3: Line 1 minus line 2 (maximum $2,000) = ^",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "values": {
+                "0": {
+                  "kind": "integer",
+                  "value": 2000
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_2025_physical_activity_rate",
+          "name": "nl479_2025_physical_activity_rate",
+          "unit": null,
+          "indexed_by": null,
+          "source": "CRA Form NL479 2025: Line 6: Applicable rate 17.4%",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "values": {
+                "0": {
+                  "kind": "decimal",
+                  "value": "0.174"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "derived": [
+        {
+          "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_net_expenses_line_3",
+          "name": "nl479_physical_activity_net_expenses_line_3",
+          "entity": "Family",
+          "dtype": "decimal",
+          "unit": "CAD",
+          "period": "Year",
+          "source": "CRA Form NL479 2025: Line 3: Line 1 minus line 2 (maximum $2,000) = ^",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+          "semantics": "scalar",
+          "expr": {
+            "kind": "min",
+            "items": [
+              {
+                "kind": "parameter_lookup",
+                "parameter": "nl479_2025_physical_activity_expense_cap",
+                "index": {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "integer",
+                    "value": 0
+                  }
+                }
+              },
+              {
+                "kind": "sub",
+                "left": {
+                  "kind": "derived",
+                  "name": "nl479_entered_total_eligible_expenses_line_1"
+                },
+                "right": {
+                  "kind": "derived",
+                  "name": "nl479_entered_assistance_line_2"
+                }
+              }
+            ]
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "scalar",
+              "expr": {
+                "kind": "min",
+                "items": [
+                  {
+                    "kind": "parameter_lookup",
+                    "parameter": "nl479_2025_physical_activity_expense_cap",
+                    "index": {
+                      "kind": "literal",
+                      "value": {
+                        "kind": "integer",
+                        "value": 0
+                      }
+                    }
+                  },
+                  {
+                    "kind": "sub",
+                    "left": {
+                      "kind": "derived",
+                      "name": "nl479_entered_total_eligible_expenses_line_1"
+                    },
+                    "right": {
+                      "kind": "derived",
+                      "name": "nl479_entered_assistance_line_2"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_expenses_line_62000",
+          "name": "nl479_physical_activity_expenses_line_62000",
+          "entity": "Family",
+          "dtype": "decimal",
+          "unit": "CAD",
+          "period": "Year",
+          "source": "CRA Form NL479 2025: Line 5 and line 62000: Line 3 minus line 4 Physical activity expenses = ^",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+          "semantics": "scalar",
+          "expr": {
+            "kind": "sub",
+            "left": {
+              "kind": "derived",
+              "name": "nl479_physical_activity_net_expenses_line_3"
+            },
+            "right": {
+              "kind": "derived",
+              "name": "nl479_entered_other_claimed_line_4"
+            }
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "scalar",
+              "expr": {
+                "kind": "sub",
+                "left": {
+                  "kind": "derived",
+                  "name": "nl479_physical_activity_net_expenses_line_3"
+                },
+                "right": {
+                  "kind": "derived",
+                  "name": "nl479_entered_other_claimed_line_4"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_tax_credit_line_7",
+          "name": "nl479_physical_activity_tax_credit_line_7",
+          "entity": "Family",
+          "dtype": "decimal",
+          "unit": "CAD",
+          "period": "Year",
+          "source": "CRA Form NL479 2025: Line 7: Line 5 multiplied by the percentage from line 6 Physical activity tax\ncredit = ^",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+          "semantics": "scalar",
+          "expr": {
+            "kind": "mul",
+            "left": {
+              "kind": "derived",
+              "name": "nl479_physical_activity_expenses_line_62000"
+            },
+            "right": {
+              "kind": "parameter_lookup",
+              "parameter": "nl479_2025_physical_activity_rate",
+              "index": {
+                "kind": "literal",
+                "value": {
+                  "kind": "integer",
+                  "value": 0
+                }
+              }
+            }
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "scalar",
+              "expr": {
+                "kind": "mul",
+                "left": {
+                  "kind": "derived",
+                  "name": "nl479_physical_activity_expenses_line_62000"
+                },
+                "right": {
+                  "kind": "parameter_lookup",
+                  "parameter": "nl479_2025_physical_activity_rate",
+                  "index": {
+                    "kind": "literal",
+                    "value": {
+                      "kind": "integer",
+                      "value": 0
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#newfoundland_and_labrador_credits_line_47900",
+          "name": "newfoundland_and_labrador_credits_line_47900",
+          "entity": "Family",
+          "dtype": "decimal",
+          "unit": "CAD",
+          "period": "Year",
+          "source": "CRA Form NL479 2025: Line 9: Line 7 plus line 8 Enter this amount online 47900of your return.\nNewfoundland and Labrador credits = ^",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+          "semantics": "scalar",
+          "expr": {
+            "kind": "add",
+            "items": [
+              {
+                "kind": "derived",
+                "name": "nl479_physical_activity_tax_credit_line_7"
+              },
+              {
+                "kind": "derived",
+                "name": "nl479_entered_research_credit_line_8"
+              }
+            ]
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "scalar",
+              "expr": {
+                "kind": "add",
+                "items": [
+                  {
+                    "kind": "derived",
+                    "name": "nl479_physical_activity_tax_credit_line_7"
+                  },
+                  {
+                    "kind": "derived",
+                    "name": "nl479_entered_research_credit_line_8"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_total_eligible_expenses_line_1",
+          "name": "nl479_entered_total_eligible_expenses_line_1",
+          "entity": "Family",
+          "dtype": "decimal",
+          "unit": "CAD",
+          "period": "Year",
+          "source": "Entered amount on printed line 1",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+          "semantics": "scalar",
+          "expr": {
+            "kind": "input",
+            "name": "nl479_physical_activity_total_eligible_expenses_line_1"
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "scalar",
+              "expr": {
+                "kind": "input",
+                "name": "nl479_physical_activity_total_eligible_expenses_line_1"
+              }
+            }
+          ]
+        },
+        {
+          "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_assistance_line_2",
+          "name": "nl479_entered_assistance_line_2",
+          "entity": "Family",
+          "dtype": "decimal",
+          "unit": "CAD",
+          "period": "Year",
+          "source": "Entered amount on printed line 2",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+          "semantics": "scalar",
+          "expr": {
+            "kind": "input",
+            "name": "nl479_physical_activity_assistance_line_2"
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "scalar",
+              "expr": {
+                "kind": "input",
+                "name": "nl479_physical_activity_assistance_line_2"
+              }
+            }
+          ]
+        },
+        {
+          "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_other_claimed_line_4",
+          "name": "nl479_entered_other_claimed_line_4",
+          "entity": "Family",
+          "dtype": "decimal",
+          "unit": "CAD",
+          "period": "Year",
+          "source": "Entered amount on printed line 4",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+          "semantics": "scalar",
+          "expr": {
+            "kind": "input",
+            "name": "nl479_physical_activity_amount_claimed_by_other_individuals_line_4"
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "scalar",
+              "expr": {
+                "kind": "input",
+                "name": "nl479_physical_activity_amount_claimed_by_other_individuals_line_4"
+              }
+            }
+          ]
+        },
+        {
+          "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_research_credit_line_8",
+          "name": "nl479_entered_research_credit_line_8",
+          "entity": "Family",
+          "dtype": "decimal",
+          "unit": "CAD",
+          "period": "Year",
+          "source": "Entered amount on printed line 8",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+          "semantics": "scalar",
+          "expr": {
+            "kind": "input",
+            "name": "nl479_research_and_development_tax_credit_t1129_line_6"
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "scalar",
+              "expr": {
+                "kind": "input",
+                "name": "nl479_research_and_development_tax_credit_t1129_line_6"
+              }
+            }
+          ]
+        },
+        {
+          "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#additional_sheet_attachment_required",
+          "name": "additional_sheet_attachment_required",
+          "entity": "Person",
+          "dtype": "judgment",
+          "unit": null,
+          "period": "Year",
+          "source": "If you need more space, attach an additional sheet of paper.",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+          "semantics": "judgment",
+          "expr": {
+            "kind": "comparison",
+            "left": {
+              "kind": "input",
+              "name": "needs_additional_space"
+            },
+            "op": "eq",
+            "right": {
+              "kind": "literal",
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            }
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "judgment",
+              "expr": {
+                "kind": "comparison",
+                "left": {
+                  "kind": "input",
+                  "name": "needs_additional_space"
+                },
+                "op": "eq",
+                "right": {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "bool",
+                    "value": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "metadata": {
+      "evaluation_order": [
+        "additional_sheet_attachment_required",
+        "nl479_entered_assistance_line_2",
+        "nl479_entered_other_claimed_line_4",
+        "nl479_entered_research_credit_line_8",
+        "nl479_entered_total_eligible_expenses_line_1",
+        "nl479_physical_activity_net_expenses_line_3",
+        "nl479_physical_activity_expenses_line_62000",
+        "nl479_physical_activity_tax_credit_line_7",
+        "newfoundland_and_labrador_credits_line_47900"
+      ],
+      "fast_path": {
+        "strategy": "generic_bulk",
+        "compatible": true,
+        "blockers": []
+      },
+      "input_catalog": [
+        {
+          "slot": "needs_additional_space",
+          "canonical_request_name": "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.needs_additional_space",
+          "request_names": [
+            "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.needs_additional_space"
+          ]
+        },
+        {
+          "slot": "nl479_physical_activity_amount_claimed_by_other_individuals_line_4",
+          "canonical_request_name": "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4",
+          "request_names": [
+            "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4"
+          ]
+        },
+        {
+          "slot": "nl479_physical_activity_assistance_line_2",
+          "canonical_request_name": "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_assistance_line_2",
+          "request_names": [
+            "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_assistance_line_2"
+          ]
+        },
+        {
+          "slot": "nl479_physical_activity_total_eligible_expenses_line_1",
+          "canonical_request_name": "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_total_eligible_expenses_line_1",
+          "request_names": [
+            "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_total_eligible_expenses_line_1"
+          ]
+        },
+        {
+          "slot": "nl479_research_and_development_tax_credit_t1129_line_6",
+          "canonical_request_name": "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_research_and_development_tax_credit_t1129_line_6",
+          "request_names": [
+            "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_research_and_development_tax_credit_t1129_line_6"
+          ]
+        }
+      ]
+    }
+  },
+  "records": [
+    {
+      "case_index": 1,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_total_eligible_expenses_line_1",
+              "entity": "Family",
+              "entity_id": "case-1",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 3000
+              }
+            },
+            {
+              "name": "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_assistance_line_2",
+              "entity": "Family",
+              "entity_id": "case-1",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 500
+              }
+            },
+            {
+              "name": "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_physical_activity_amount_claimed_by_other_individuals_line_4",
+              "entity": "Family",
+              "entity_id": "case-1",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 300
+              }
+            },
+            {
+              "name": "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.nl479_research_and_development_tax_credit_t1129_line_6",
+              "entity": "Family",
+              "entity_id": "case-1",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 100
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-1",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_total_eligible_expenses_line_1",
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_assistance_line_2",
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_other_claimed_line_4",
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_research_credit_line_8",
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_net_expenses_line_3",
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_expenses_line_62000",
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_tax_credit_line_7",
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#newfoundland_and_labrador_credits_line_47900"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-1",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#newfoundland_and_labrador_credits_line_47900": {
+                "kind": "scalar",
+                "name": "newfoundland_and_labrador_credits_line_47900",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#newfoundland_and_labrador_credits_line_47900",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "395.8"
+                }
+              },
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_assistance_line_2": {
+                "kind": "scalar",
+                "name": "nl479_entered_assistance_line_2",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_assistance_line_2",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 500
+                }
+              },
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_other_claimed_line_4": {
+                "kind": "scalar",
+                "name": "nl479_entered_other_claimed_line_4",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_other_claimed_line_4",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 300
+                }
+              },
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_research_credit_line_8": {
+                "kind": "scalar",
+                "name": "nl479_entered_research_credit_line_8",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_research_credit_line_8",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 100
+                }
+              },
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_total_eligible_expenses_line_1": {
+                "kind": "scalar",
+                "name": "nl479_entered_total_eligible_expenses_line_1",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_total_eligible_expenses_line_1",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 3000
+                }
+              },
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_expenses_line_62000": {
+                "kind": "scalar",
+                "name": "nl479_physical_activity_expenses_line_62000",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_expenses_line_62000",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "1700"
+                }
+              },
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_net_expenses_line_3": {
+                "kind": "scalar",
+                "name": "nl479_physical_activity_net_expenses_line_3",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_net_expenses_line_3",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "2000"
+                }
+              },
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_tax_credit_line_7": {
+                "kind": "scalar",
+                "name": "nl479_physical_activity_tax_credit_line_7",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_tax_credit_line_7",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "295.8"
+                }
+              }
+            },
+            "trace": {
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#newfoundland_and_labrador_credits_line_47900": {
+                "kind": "scalar",
+                "name": "newfoundland_and_labrador_credits_line_47900",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#newfoundland_and_labrador_credits_line_47900",
+                "entity_id": "case-1",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "395.8"
+                },
+                "source": "CRA Form NL479 2025: Line 9: Line 7 plus line 8 Enter this amount online 47900of your return.\nNewfoundland and Labrador credits = ^",
+                "executed_expression": "(ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_tax_credit_line_7 + ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_research_credit_line_8)",
+                "dependencies": [
+                  "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_tax_credit_line_7",
+                  "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_research_credit_line_8"
+                ]
+              },
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_assistance_line_2": {
+                "kind": "scalar",
+                "name": "nl479_entered_assistance_line_2",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_assistance_line_2",
+                "entity_id": "case-1",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 500
+                },
+                "source": "Entered amount on printed line 2",
+                "executed_expression": "input(\"nl479_physical_activity_assistance_line_2\")",
+                "dependencies": []
+              },
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_other_claimed_line_4": {
+                "kind": "scalar",
+                "name": "nl479_entered_other_claimed_line_4",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_other_claimed_line_4",
+                "entity_id": "case-1",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 300
+                },
+                "source": "Entered amount on printed line 4",
+                "executed_expression": "input(\"nl479_physical_activity_amount_claimed_by_other_individuals_line_4\")",
+                "dependencies": []
+              },
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_research_credit_line_8": {
+                "kind": "scalar",
+                "name": "nl479_entered_research_credit_line_8",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_research_credit_line_8",
+                "entity_id": "case-1",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 100
+                },
+                "source": "Entered amount on printed line 8",
+                "executed_expression": "input(\"nl479_research_and_development_tax_credit_t1129_line_6\")",
+                "dependencies": []
+              },
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_total_eligible_expenses_line_1": {
+                "kind": "scalar",
+                "name": "nl479_entered_total_eligible_expenses_line_1",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_total_eligible_expenses_line_1",
+                "entity_id": "case-1",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 3000
+                },
+                "source": "Entered amount on printed line 1",
+                "executed_expression": "input(\"nl479_physical_activity_total_eligible_expenses_line_1\")",
+                "dependencies": []
+              },
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_expenses_line_62000": {
+                "kind": "scalar",
+                "name": "nl479_physical_activity_expenses_line_62000",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_expenses_line_62000",
+                "entity_id": "case-1",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "1700"
+                },
+                "source": "CRA Form NL479 2025: Line 5 and line 62000: Line 3 minus line 4 Physical activity expenses = ^",
+                "executed_expression": "(ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_net_expenses_line_3 - ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_other_claimed_line_4)",
+                "dependencies": [
+                  "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_net_expenses_line_3",
+                  "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_other_claimed_line_4"
+                ]
+              },
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_net_expenses_line_3": {
+                "kind": "scalar",
+                "name": "nl479_physical_activity_net_expenses_line_3",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_net_expenses_line_3",
+                "entity_id": "case-1",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "2000"
+                },
+                "source": "CRA Form NL479 2025: Line 3: Line 1 minus line 2 (maximum $2,000) = ^",
+                "executed_expression": "min(ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_2025_physical_activity_expense_cap[0], (ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_total_eligible_expenses_line_1 - ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_assistance_line_2))",
+                "parameter_reads": [
+                  {
+                    "parameter": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_2025_physical_activity_expense_cap",
+                    "name": "nl479_2025_physical_activity_expense_cap",
+                    "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_2025_physical_activity_expense_cap",
+                    "index": 0,
+                    "value": {
+                      "kind": "integer",
+                      "value": 2000
+                    },
+                    "unit": "CAD",
+                    "effective_from": "2025-01-01",
+                    "effective_to": "2025-12-31",
+                    "source": "CRA Form NL479 2025: Line 3: Line 1 minus line 2 (maximum $2,000) = ^"
+                  }
+                ],
+                "dependencies": [
+                  "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_total_eligible_expenses_line_1",
+                  "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_entered_assistance_line_2"
+                ]
+              },
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_tax_credit_line_7": {
+                "kind": "scalar",
+                "name": "nl479_physical_activity_tax_credit_line_7",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_tax_credit_line_7",
+                "entity_id": "case-1",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "295.8"
+                },
+                "source": "CRA Form NL479 2025: Line 7: Line 5 multiplied by the percentage from line 6 Physical activity tax\ncredit = ^",
+                "executed_expression": "(ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_expenses_line_62000 * ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_2025_physical_activity_rate[0])",
+                "parameter_reads": [
+                  {
+                    "parameter": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_2025_physical_activity_rate",
+                    "name": "nl479_2025_physical_activity_rate",
+                    "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_2025_physical_activity_rate",
+                    "index": 0,
+                    "value": {
+                      "kind": "decimal",
+                      "value": "0.174"
+                    },
+                    "effective_from": "2025-01-01",
+                    "effective_to": "2025-12-31",
+                    "source": "CRA Form NL479 2025: Line 6: Applicable rate 17.4%"
+                  }
+                ],
+                "dependencies": [
+                  "ca:policies/cra/t1-2025/nl479-credits/primary-document#nl479_physical_activity_expenses_line_62000"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case_index": 7,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.needs_additional_space",
+              "entity": "Person",
+              "entity_id": "filer-document-case",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": false
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "filer-document-case",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#additional_sheet_attachment_required"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "filer-document-case",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#additional_sheet_attachment_required": {
+                "kind": "judgment",
+                "name": "additional_sheet_attachment_required",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#additional_sheet_attachment_required",
+                "unit": null,
+                "outcome": "not_holds"
+              }
+            },
+            "trace": {
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#additional_sheet_attachment_required": {
+                "kind": "judgment",
+                "name": "additional_sheet_attachment_required",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#additional_sheet_attachment_required",
+                "entity_id": "filer-document-case",
+                "unit": null,
+                "outcome": "not_holds",
+                "source": "If you need more space, attach an additional sheet of paper.",
+                "executed_expression": "(input(\"needs_additional_space\") == true)",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case_index": 8,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/cra/t1-2025/nl479-credits/primary-document#input.needs_additional_space",
+              "entity": "Person",
+              "entity_id": "filer-document-case",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "filer-document-case",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#additional_sheet_attachment_required"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "filer-document-case",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#additional_sheet_attachment_required": {
+                "kind": "judgment",
+                "name": "additional_sheet_attachment_required",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#additional_sheet_attachment_required",
+                "unit": null,
+                "outcome": "holds"
+              }
+            },
+            "trace": {
+              "ca:policies/cra/t1-2025/nl479-credits/primary-document#additional_sheet_attachment_required": {
+                "kind": "judgment",
+                "name": "additional_sheet_attachment_required",
+                "id": "ca:policies/cra/t1-2025/nl479-credits/primary-document#additional_sheet_attachment_required",
+                "entity_id": "filer-document-case",
+                "unit": null,
+                "outcome": "holds",
+                "source": "If you need more space, attach an additional sheet of paper.",
+                "executed_expression": "(input(\"needs_additional_space\") == true)",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
