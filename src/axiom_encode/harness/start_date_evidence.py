@@ -403,6 +403,11 @@ def _version_starts(
 
     for rule in _mappings(payload.get("rules")):
         versions = rule.get("versions", [])
+        # serde_yaml reads a blank/comment-only scalar as an empty Vec. The
+        # explicit null spellings also load as None here, but compile refuses
+        # those independently rather than supplying an implicit start.
+        if versions is None:
+            versions = []
         if not isinstance(versions, list):
             continue
         if versions:
@@ -426,6 +431,42 @@ def _version_starts(
 
 
 _SYMBOL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+class _EngineStartLoader(yaml.SafeLoader):
+    """Project raw keys without YAML merge inheritance, as serde structs do."""
+
+    def flatten_mapping(self, node):
+        # The engine ignores the unknown << field on RuleDefinition and
+        # RuleVersion. Filter the raw nodes before SafeLoader can inherit
+        # versions or an alias date that the engine never consumes.
+        node.value = [
+            (key, value)
+            for key, value in node.value
+            if key.tag != "tag:yaml.org,2002:merge"
+        ]
+        super().flatten_mapping(node)
+
+    def construct_mapping(self, node, deep=False):
+        payload = super().construct_mapping(node, deep=deep)
+        for key, value in node.value:
+            if (
+                key.value == "versions"
+                and value.tag == "tag:yaml.org,2002:null"
+                and value.value
+            ):
+                # Unlike an empty scalar, explicit null/~ is not an engine
+                # Vec. Keep it non-list so an invalid imported provider
+                # cannot lend its unused rule-level start as evidence.
+                payload["versions"] = value.value
+        return payload
+
+
+def _engine_start_payload(content: str) -> Mapping[str, Any]:
+    payload = yaml.load(content, Loader=_EngineStartLoader)
+    if not isinstance(payload, Mapping):
+        raise ValueError("RuleSpec start-date input is not a mapping")
+    return payload
 
 
 def _import_symbols(imports: object) -> set[str]:
@@ -477,7 +518,7 @@ def imported_export_starts(
             continue
         for content in providers.get(symbol, ()):
             try:
-                provider = yaml.safe_load(content)
+                provider = _engine_start_payload(content)
             except (yaml.YAMLError, TypeError, ValueError):
                 continue
             if not isinstance(provider, Mapping):
@@ -523,6 +564,7 @@ def date_silent_start_issues(
     corpus_citation_path: str,
     evidence: StartDateEvidence,
     imported_symbol_contents: Sequence[tuple[str, str]] = (),
+    raw_content: str | None = None,
 ) -> list[ValidationIssue]:
     """Refuse an unsupported start date of a date-silent manual unit.
 
@@ -540,12 +582,18 @@ def date_silent_start_issues(
         or text_prints_any_date(source_text)
     ):
         return []
+    # The analyzer's ordinary mapping may already contain PyYAML-expanded
+    # merges. Select starts from raw fields; keep its authenticated proof
+    # excerpts as the existing evidence channel.
+    start_payload = (
+        _engine_start_payload(raw_content) if raw_content is not None else payload
+    )
     supported = evidence.supported_corpus_dates | imported_export_starts(
-        payload, imported_symbol_contents
+        start_payload, imported_symbol_contents
     )
     excerpts = proof_excerpts(payload)
     refused: dict[str, list[tuple[str, str]]] = {}
-    for rule_name, field, start in _version_starts(payload):
+    for rule_name, field, start in _version_starts(start_payload):
         if isinstance(start, date):
             if start in supported:
                 continue

@@ -7,6 +7,7 @@ correctness or protected generation provenance.
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 from datetime import date
@@ -16,8 +17,10 @@ import yaml
 
 from axiom_encode.harness import start_date_evidence as sde
 from tests.test_start_date_evidence import (
+    CITATION,
     EVIDENCE,
     IMPORT,
+    SOURCE,
     import_issues,
     issues,
     module,
@@ -236,3 +239,245 @@ def test_real_engine_nonempty_versions_replace_rule_level_start(
     assert completed.returncode == 0, completed.stderr or completed.stdout
     [parameter] = json.loads(output.read_text())["program"]["parameters"]
     assert parameter["versions"][0]["effective_from"] == "2026-08-01"
+
+
+RAW_SHAPES = ["blank-versions", "comment-versions", "merged-rule", "merged-version"]
+
+
+def raw_start_module(
+    start,
+    shape,
+    field="effective_from",
+    *,
+    baseline_start="2026-08-01",
+    both_aliases=False,
+    null_start=False,
+):
+    """Keep the exact blank scalar and merge syntax that safe_dump erases."""
+
+    literal = json.dumps(start) if start is not None else "null" if null_start else None
+    prefix = "format: rulespec/v1\nrules:\n"
+    base = (
+        "  - &base_rule\n"
+        "    name: baseline\n"
+        "    kind: parameter\n"
+        "    dtype: Count\n"
+        "    versions:\n"
+        "      - &base_version\n"
+        f"        effective_from: {json.dumps(baseline_start)}\n"
+        "        formula: '1'\n"
+    )
+    other = "from" if field == "effective_from" else "effective_from"
+
+    def starts(indent):
+        text = f"{indent}{field}: {literal}\n" if literal is not None else ""
+        if both_aliases:
+            text += f"{indent}{other}: '2025-10-01'\n"
+        return text
+
+    amount = "    name: amount\n    kind: parameter\n    dtype: Count\n"
+    if shape == "merged-version":
+        return (
+            prefix
+            + base
+            + "  -\n"
+            + amount
+            + "    versions:\n      - <<: *base_version\n"
+            + starts("        ")
+            + "        formula: '1'\n"
+        )
+    if shape == "merged-rule":
+        return (
+            prefix
+            + base
+            + "  - <<: *base_rule\n"
+            + amount
+            + starts("    ")
+            + "    formula: '1'\n"
+        )
+    versions = "versions:" if shape == "blank-versions" else "versions: # none yet"
+    return (
+        prefix
+        + "  -\n"
+        + amount
+        + starts("    ")
+        + f"    formula: '1'\n    {versions}\n"
+    )
+
+
+def raw_start_issues(content):
+    return sde.date_silent_start_issues(
+        yaml.safe_load(content),
+        SOURCE,
+        corpus_citation_path=CITATION,
+        evidence=EVIDENCE,
+        raw_content=content,
+    )
+
+
+@pytest.mark.parametrize("shape", RAW_SHAPES)
+@pytest.mark.parametrize("field", ["effective_from", "from"])
+@pytest.mark.parametrize("start", ["2025-10-01", "2026-08-01", "0001-01-01"])
+def test_raw_engine_start_shapes_check_the_date_the_engine_consumes(
+    shape, field, start
+):
+    found = raw_start_issues(raw_start_module(start, shape, field))
+    if start == "2025-10-01":
+        [issue] = found
+        assert issue.found == start
+        assert issue.subject.rule == "amount"
+        assert issue.subject.field == (
+            f"versions[0].{field}" if shape == "merged-version" else field
+        )
+    else:
+        assert found == []
+
+
+@pytest.mark.parametrize("shape", RAW_SHAPES)
+@pytest.mark.parametrize("field", ["effective_from", "from"])
+@pytest.mark.parametrize("null_start", [False, True], ids=["missing", "null"])
+def test_raw_empty_or_merged_shape_does_not_invent_a_start(shape, field, null_start):
+    content = raw_start_module(None, shape, field, null_start=null_start)
+    assert raw_start_issues(content) == []
+    assert not any(
+        name == "amount"
+        for name, _field, _start in sde._version_starts(
+            sde._engine_start_payload(content)
+        )
+    )
+
+
+@pytest.mark.parametrize("shape", RAW_SHAPES)
+@pytest.mark.parametrize("field", ["effective_from", "from"])
+def test_raw_own_alias_duplicates_still_refuse_in_either_order(shape, field):
+    [issue] = raw_start_issues(
+        raw_start_module("2026-08-01", shape, field, both_aliases=True)
+    )
+    assert issue.found == "duplicate effective_from/from fields"
+
+
+@pytest.mark.parametrize("shape", RAW_SHAPES)
+@pytest.mark.parametrize("field", ["effective_from", "from"])
+def test_imported_raw_provider_uses_its_actual_explicit_or_implicit_start(shape, field):
+    content = raw_start_module("2025-10-01", shape, field)
+    assert import_issues("2025-10-01", [("amount", content)]) == []
+    assert sde.imported_export_starts(
+        module("2025-10-01", imports=[IMPORT]), [("amount", content)]
+    ) == frozenset({date(2025, 10, 1)})
+
+
+def test_provider_does_not_lend_the_versions_that_only_pyyaml_inherits():
+    content = raw_start_module("2026-08-01", "merged-rule", baseline_start="2025-10-01")
+    assert len(import_issues("2025-10-01", [("amount", content)])) == 1
+
+
+@pytest.mark.parametrize("field", ["effective_from", "from"])
+@pytest.mark.parametrize("start", ["2025-10-01", "2026-08-01"])
+def test_analyzer_propagates_raw_merge_fields_to_the_actual_start_gate(field, start):
+    from axiom_encode.harness import source_completeness as sc
+    from axiom_encode.harness import validator_pipeline as vp
+
+    content = raw_start_module(start, "merged-rule", field)
+    analysis = sc.analyze_complete_source_unit(
+        content,
+        SOURCE,
+        corpus_citation_path=CITATION,
+        test_cases=[],
+        extract_numeric_occurrences=functools.partial(
+            vp.extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
+        ),
+        extract_named_scalars=vp.extract_named_scalar_occurrences,
+        numeric_value_is_grounded=vp.numeric_value_is_grounded,
+        start_date_evidence=EVIDENCE,
+    )
+    found = [
+        issue
+        for issue in analysis.issues
+        if getattr(issue, "check", None) == sde.CHECK_START_UNSUPPORTED.id
+    ]
+    assert len(found) == (1 if start == "2025-10-01" else 0)
+
+
+def compile_raw_control(real_engine, tmp_path, content):
+    from axiom_encode.rules_engine_compat import run_rulespec_compile
+
+    checkout = tmp_path / "rulespec-us"
+    path = checkout / "us-az/policies/test/raw-start-date.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(content)
+    output = tmp_path / "compiled.json"
+    completed = run_rulespec_compile(
+        binary=real_engine.binary,
+        program=path,
+        rulespec_roots=[checkout],
+        output=output,
+        cwd=real_engine.root,
+        env=os.environ.copy(),
+    )
+    return completed, output
+
+
+@pytest.mark.parametrize("shape", RAW_SHAPES)
+@pytest.mark.parametrize("field", ["effective_from", "from"])
+@pytest.mark.parametrize("start", ["2025-10-01", "2026-08-01", "0001-01-01"])
+def test_real_engine_raw_start_shape_controls(
+    real_engine, tmp_path, shape, field, start
+):
+    content = raw_start_module(start, shape, field)
+    assert bool(raw_start_issues(content)) is (start == "2025-10-01")
+    completed, output = compile_raw_control(real_engine, tmp_path, content)
+    assert completed.returncode == 0, completed.stderr or completed.stdout
+    amount = next(
+        item
+        for item in json.loads(output.read_text())["program"]["parameters"]
+        if item["name"] == "amount"
+    )
+    assert amount["versions"][0]["effective_from"] == start
+
+
+@pytest.mark.parametrize("shape", RAW_SHAPES)
+@pytest.mark.parametrize("field", ["effective_from", "from"])
+@pytest.mark.parametrize("null_start", [False, True], ids=["missing", "null"])
+def test_real_engine_raw_shapes_have_no_default_start(
+    real_engine, tmp_path, shape, field, null_start
+):
+    completed, _output = compile_raw_control(
+        real_engine,
+        tmp_path,
+        raw_start_module(None, shape, field, null_start=null_start),
+    )
+    assert completed.returncode != 0
+    assert "without effective_from" in completed.stderr
+
+
+@pytest.mark.parametrize("shape", RAW_SHAPES)
+@pytest.mark.parametrize("field", ["effective_from", "from"])
+def test_real_engine_raw_shapes_refuse_own_duplicate_aliases(
+    real_engine, tmp_path, shape, field
+):
+    completed, _output = compile_raw_control(
+        real_engine,
+        tmp_path,
+        raw_start_module("2026-08-01", shape, field, both_aliases=True),
+    )
+    assert completed.returncode != 0
+    assert "duplicate field" in completed.stderr
+
+
+@pytest.mark.parametrize("spelling", ["null", "~"])
+def test_real_engine_explicit_null_versions_are_not_blank_vectors(
+    real_engine, tmp_path, spelling
+):
+    content = raw_start_module("2025-10-01", "blank-versions").replace(
+        "    versions:\n", f"    versions: {spelling}\n"
+    )
+    # Invalid providers cannot lend an implicit date through this container.
+    assert (
+        sde.imported_export_starts(
+            module("2025-10-01", imports=[IMPORT]), [("amount", content)]
+        )
+        == frozenset()
+    )
+    completed, _output = compile_raw_control(real_engine, tmp_path, content)
+    assert completed.returncode != 0
+    assert "expected a sequence" in completed.stderr

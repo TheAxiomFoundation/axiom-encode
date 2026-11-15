@@ -6440,6 +6440,7 @@ def analyze_complete_source_unit(
                 corpus_citation_path=corpus_citation_path,
                 evidence=start_date_evidence,
                 imported_symbol_contents=imported_symbol_contents,
+                raw_content=content,
             )
             return (
                 replace(analysis, issues=(*analysis.issues, *start_issues))
