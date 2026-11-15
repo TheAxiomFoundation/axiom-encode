@@ -1,3 +1,15 @@
+## 0.2.2373
+
+- Read (i) under paragraph (h) as a roman item when (ii) follows at its level (#2115)
+
+## 0.2.2372
+
+- Register reviewed Nova Scotia NS479 repair (#2244)
+
+## 0.2.2371
+
+- Register reviewed T2036 full-artifact repair (#2241)
+
 ## 0.2.2370
 
 - fix: scope T2036 country evidence to its asserted cases (#2232)
