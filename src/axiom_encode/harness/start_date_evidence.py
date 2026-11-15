@@ -4,8 +4,9 @@ A source unit that prints no date gives no start date for its rules. This
 module holds the one rule for such a unit, shared by the encoder prompt and by
 the ``complete-source-unit:effective-date/start-unsupported`` check:
 
-    An ``effective_from`` is *supported* when it is printed in the unit text
-    or in a proof excerpt, equals the corpus ``expression_date`` or
+    An ``effective_from`` (including its ``from`` alias) is *supported* when
+    it is printed in the unit text or in a proof excerpt, equals the corpus
+    ``expression_date`` or
     ``source_as_of``, equals the evidence floor, or is the ``0001-01-01``
     scaffold. A date copied from a neighbouring module is not support.
 
@@ -28,6 +29,8 @@ imports passes (whether such a date is support is an open decision of #2212).
 An import that cannot be verified contributes nothing.
 
 ``effective_to``, ``values`` keys and companion test periods are not examined.
+Rule-level starts are examined when the engine uses an implicit version: the
+``versions`` list is absent or empty and the rule has a formula or start.
 """
 
 from __future__ import annotations
@@ -277,6 +280,7 @@ CHECK_START_UNSUPPORTED = declare_check(
     title="Start date of a date-silent unit has no support in its own evidence",
     requires=(
         f"In a manual source unit that prints no date, every `{_START_FIELD}` "
+        "(including its `from` alias and rule-level implicit versions) "
         "is the `0001-01-01` scaffold, the corpus `expression_date` or "
         "`source_as_of`, the evidence floor (the first day of the first full "
         "calendar month on or after `source_as_of`), or a date printed in a "
@@ -296,7 +300,8 @@ CHECK_START_UNSUPPORTED = declare_check(
         "`expression_date` or `source_as_of`, the evidence floor, or the "
         "`0001-01-01` scaffold. Do not copy the start date of a neighbouring "
         "module. The evidence floor is an evidence-coverage floor, not a "
-        "claimed legal commencement date."
+        "claimed legal commencement date. The same rule applies to a `from` "
+        "alias and to the start on a rule with absent or empty `versions`."
     ),
     cause="encoder_output",
     gate="ci",
@@ -346,17 +351,29 @@ def proof_excerpts(payload: Mapping[str, Any]) -> tuple[str, ...]:
 _LENIENT_ISO_DATE = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})")
 
 
+def _version_start_field(version: Mapping[str, Any]) -> str:
+    """Name the stated field, including a duplicate alias pair."""
+
+    fields = (name for name in ("effective_from", "from") if name in version)
+    return "/".join(fields) or "effective_from"
+
+
 def _version_start(version: Mapping[str, Any]) -> date | str | None:
     """The start of one version: a date, an unreadable text, or ``None``.
 
-    ``None`` means that the version states no start. The engine also compiles
+    ``from`` is a serde alias of ``effective_from`` at the CI engine pin;
+    supplying both is a duplicate field, not a precedence rule. ``None``
+    means that the version states no start: the compiler refuses a missing
+    start rather than supplying a default. The engine also compiles
     a start without zero padding (``2025-10-1``), and YAML reads an unquoted
     timestamp as a ``datetime``; both are read as their calendar day. Any
     other non-null value is returned as text: the caller cannot show that it
     is a supported date.
     """
 
-    raw = version.get("effective_from")
+    if "effective_from" in version and "from" in version:
+        return "duplicate effective_from/from fields"
+    raw = version.get("effective_from", version.get("from"))
     if raw is None:
         return None
     if isinstance(raw, datetime):
@@ -375,14 +392,37 @@ def _version_start(version: Mapping[str, Any]) -> date | str | None:
 
 def _version_starts(
     payload: Mapping[str, Any],
-) -> Iterator[tuple[str, int, date | str]]:
-    """``(rule name, version index, start)`` for every stated version start."""
+) -> Iterator[tuple[str, str, date | str]]:
+    """``(rule name, field path, start)`` for the engine's effective versions.
+
+    Mirror ``RuleDefinition.effective_versions`` at the CI engine pin:
+    nonempty versions replace rule-level fields; absent or empty versions
+    use the rule's formula and start as one implicit version. Malformed
+    version containers remain the compiler's responsibility.
+    """
 
     for rule in _mappings(payload.get("rules")):
-        for index, version in enumerate(_mappings(rule.get("versions"))):
+        versions = rule.get("versions", [])
+        if not isinstance(versions, list):
+            continue
+        if versions:
+            selected = (
+                (version, f"versions[{index}].{_version_start_field(version)}")
+                for index, version in enumerate(versions)
+                if isinstance(version, Mapping)
+            )
+        elif (
+            rule.get("formula") is not None
+            or rule.get("effective_from") is not None
+            or rule.get("from") is not None
+        ):
+            selected = ((rule, _version_start_field(rule)),)
+        else:
+            continue
+        for version, field in selected:
             start = _version_start(version)
             if start is not None:
-                yield str(rule.get("name") or "").strip(), index, start
+                yield str(rule.get("name") or "").strip(), field, start
 
 
 _SYMBOL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -453,7 +493,7 @@ def imported_export_starts(
                 continue
             starts.update(
                 start
-                for _name, _index, start in _version_starts({"rules": exports})
+                for _name, _field, start in _version_starts({"rules": exports})
                 if isinstance(start, date)
             )
     return frozenset(starts)
@@ -504,8 +544,8 @@ def date_silent_start_issues(
         payload, imported_symbol_contents
     )
     excerpts = proof_excerpts(payload)
-    refused: dict[str, list[tuple[str, int]]] = {}
-    for rule_name, index, start in _version_starts(payload):
+    refused: dict[str, list[tuple[str, str]]] = {}
+    for rule_name, field, start in _version_starts(payload):
         if isinstance(start, date):
             if start in supported:
                 continue
@@ -513,12 +553,12 @@ def date_silent_start_issues(
                 continue
             start = start.isoformat()
         # A start that is not a readable date cannot be shown to be supported.
-        refused.setdefault(start, []).append((rule_name, index))
+        refused.setdefault(start, []).append((rule_name, field))
     issues: list[ValidationIssue] = []
     permitted = _permitted_dates_text(evidence)
     for start, sites in sorted(refused.items()):
-        first_rule, first_index = sites[0]
-        named = ", ".join(f"`{name}`" for name, _index in sites[:5] if name)
+        first_rule, first_field = sites[0]
+        named = ", ".join(f"`{name}`" for name, _field in sites[:5] if name)
         more = f" and {len(sites) - 5} more" if len(sites) > 5 else ""
         if evidence.source_as_of is not None:
             reason = (
@@ -547,7 +587,7 @@ def date_silent_start_issues(
                 subject=IssueSubject(
                     citation=corpus_citation_path or None,
                     rule=first_rule or None,
-                    field=f"versions[{first_index}].effective_from",
+                    field=first_field,
                 ),
                 expected=permitted,
                 found=start,
