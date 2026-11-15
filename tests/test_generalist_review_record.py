@@ -1321,6 +1321,33 @@ def test_reviewer_output_that_cannot_be_read_never_records_a_pass(
     assert review_requirement_refusal(record) is not None
 
 
+@pytest.mark.parametrize(
+    "output",
+    [
+        '{"score":9,"passed":false,"passed":true,'
+        '"blocking_issues":["bad"],"blocking_issues":[]}',
+        '{"passed":true,"score":1,"score":9}',
+        '{"passed":true,"score":9,"blocking_issues":["bad"],"blocking_issues":[],}',
+    ],
+)
+def test_duplicate_verdict_keys_cannot_satisfy_required_review(
+    tmp_path, monkeypatch, output
+):
+    rule = _candidate(tmp_path)
+    monkeypatch.setattr(
+        validator_pipeline, "run_claude_code", lambda *_a, **_k: (output, 0)
+    )
+
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+    record = _record_for(result, rule, required=True)
+
+    assert result.passed is False
+    assert "reviewer_parse_failed" in result.issues
+    assert record["required"] is True
+    assert record["status"] == "unavailable"
+    assert review_requirement_refusal(record) is not None
+
+
 def test_reviewer_exception_never_records_a_pass(tmp_path, monkeypatch):
     rule = _candidate(tmp_path)
 

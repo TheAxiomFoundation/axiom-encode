@@ -1,4 +1,4 @@
-"""The generalist review record of one encode (#2146).
+"""The generalist review record for one model-manifest unit (#2146).
 
 An encode runs one generalist model review of its candidate. Until this
 record existed, a review that could not start, could not be read or was
@@ -9,7 +9,7 @@ The record states what happened, in one of five statuses:
 
 ``passed``
     The reviewer ran, its output was read, it passed with a finite score of
-    at least 7.0, and every file the encode applies was reviewed in full.
+    at least 7.0, and it reviewed every applied file listed by this record in full.
 ``partial``
     The reviewer passed the candidate it read, but that is not everything
     that is applied: another file is applied that it never read, or its
@@ -27,10 +27,17 @@ The record states what happened, in one of five statuses:
 Only ``passed`` satisfies ``encode --apply --require-review``. No code path
 here turns a missing or unreadable value into ``passed``.
 
+Legacy replacement transactions can also rewrite exact dependents outside the
+model manifest's planned files. In record-only mode this record describes the
+model-manifest unit, not that whole transaction; dependent migration manifests
+carry no generalist-review record. The CLI and direct apply entrypoint refuse
+that migration path when the caller requires review.
+
 "The same content" is decided by a content digest, not by file bytes. Between
-the review and the apply, ``encode --apply`` always rewrites the candidate
-once: it stamps ``module.source_verification`` with the resolver's attested
-corpus path and source hash and dumps the YAML again. That rewrite can change
+the review and the apply, ``encode --apply`` stamps
+``module.source_verification`` with the resolver's attested corpus path and
+source hash and dumps the YAML again. A canonical stamp may preserve the bytes;
+other stamps can change
 scalar values as well as file bytes. The content digest is the SHA-256 of the YAML
 node tree (each scalar with its resolved type and its exact text), with those
 two stamped keys left out. Key order, harmless quoting and comments do not

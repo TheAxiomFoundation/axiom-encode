@@ -1045,6 +1045,15 @@ def _strip_trailing_json_commas(text: str) -> str:
     return re.sub(r",(\s*[}\]])", r"\1", text)
 
 
+def _unique_reviewer_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate JSON object key in reviewer output")
+        result[key] = value
+    return result
+
+
 def _decode_json_object_candidate(text: str) -> dict[str, Any] | None:
     """Decode a JSON object candidate with strict and reviewer-friendly modes."""
     cleaned = text.strip().replace("\u3000", " ")
@@ -1059,12 +1068,16 @@ def _decode_json_object_candidate(text: str) -> dict[str, Any] | None:
     for variant in variants:
         for strict in (True, False):
             with contextlib.suppress(json.JSONDecodeError):
-                data = json.loads(variant, strict=strict)
+                data = json.loads(
+                    variant, strict=strict, object_pairs_hook=_unique_reviewer_json_keys
+                )
                 if isinstance(data, dict):
                     return data
 
         for strict in (True, False):
-            decoder = json.JSONDecoder(strict=strict)
+            decoder = json.JSONDecoder(
+                strict=strict, object_pairs_hook=_unique_reviewer_json_keys
+            )
             with contextlib.suppress(json.JSONDecodeError):
                 data, _ = decoder.raw_decode(variant)
                 if isinstance(data, dict):

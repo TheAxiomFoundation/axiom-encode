@@ -37966,6 +37966,69 @@ def test_extract_json_object_refuses_a_second_explicit_nested_verdict(payload):
         _extract_json_object(json.dumps(payload))
 
 
+@pytest.mark.parametrize(
+    "field,first,second",
+    [
+        ("passed", False, True),
+        ("passed", True, False),
+        ("score", 1, 9),
+        ("score", 9, 1),
+        ("blocking_issues", ["bad"], []),
+    ],
+)
+@pytest.mark.parametrize("form", ["plain", "fenced", "comma", "brace", "loose"])
+def test_reviewer_duplicate_keys_fail_closed_in_repaired_objects(
+    field, first, second, form
+):
+    fields = {
+        "passed": True,
+        "score": 9,
+        "blocking_issues": [],
+    }
+    fields.pop(field)
+    items = [f"{json.dumps(key)}: {json.dumps(value)}" for key, value in fields.items()]
+    items.extend(
+        [f"{json.dumps(field)}: {json.dumps(value)}" for value in (first, second)]
+    )
+    output = "{" + ", ".join(items) + "}"
+    if form == "fenced":
+        output = f"```json\n{output}\n```"
+    elif form == "comma":
+        output = output[:-1] + ",}"
+    elif form == "brace":
+        output = output[:-1]
+    elif form == "loose":
+        output = '{"reasoning": "first\nsecond", ' + output[1:]
+
+    with pytest.raises(ValueError, match="Duplicate JSON object key"):
+        _extract_json_object(output)
+
+
+@pytest.mark.parametrize("suffix", ["", " trailing prose"])
+def test_duplicate_decoded_keys_are_refused_even_in_raw_decode_fallback(suffix):
+    escaped_key = '"pa' + chr(92) + 'u0073sed"'
+    output = '{"passed": false, ' + escaped_key + ': true, "score": 9}' + suffix
+
+    with pytest.raises(ValueError, match="Duplicate JSON object key"):
+        validator_pipeline._decode_json_object_candidate(output)
+
+
+def test_duplicate_nested_metadata_keys_cannot_be_silently_overwritten():
+    with pytest.raises(ValueError, match="Duplicate JSON object key"):
+        _extract_json_object(
+            '{"passed": true, "score": 9, "metadata": {"detail": 1, "detail": 2}}'
+        )
+
+
+def test_equal_keys_in_distinct_metadata_objects_remain_valid():
+    payload = {
+        "passed": True,
+        "score": 9,
+        "metadata": {"score": 1, "nested": {"score": 2}},
+    }
+    assert _extract_json_object(json.dumps(payload)) == payload
+
+
 @pytest.mark.parametrize("first", [True, False])
 def test_reviewer_multiple_verdicts_fail_closed_as_parse_failure(
     monkeypatch, tmp_path, first

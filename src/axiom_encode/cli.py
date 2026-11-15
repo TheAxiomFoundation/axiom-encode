@@ -35768,6 +35768,23 @@ def _result_legacy_replacement_contract(result: object) -> object | None:
     return state.get(_LEGACY_REPLACEMENT_ATTR)
 
 
+def _exact_dependent_review_refusal(result: object, *, required: bool) -> str | None:
+    """Refuse required review until finalized migration files are reviewed."""
+
+    contract = _result_legacy_replacement_contract(result)
+    if (
+        required
+        and isinstance(contract, _LegacyReplacementContract)
+        and contract.exact_dependents
+    ):
+        return (
+            "encode --require-review cannot apply a legacy replacement with "
+            "rewritten exact dependents: their finalized files are not covered "
+            "by the generalist review"
+        )
+    return None
+
+
 def _result_replacement_overlay_scope(result: object) -> bool:
     """Return the internal marker for an authenticated replacement target."""
 
@@ -42451,7 +42468,10 @@ def _run_encode_attempt(
                         + (" required=yes" if review_state.required else "")
                     )
                     review_refusal = (
-                        review_requirement_refusal(review_record)
+                        _exact_dependent_review_refusal(
+                            result, required=review_state.required
+                        )
+                        or review_requirement_refusal(review_record)
                         if review_state.required
                         else None
                     )
@@ -64919,6 +64939,13 @@ def _apply_generated_encoding_result(
     relative_output = _relative_generated_output_path(result, output_root=output_root)
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
     checkout_root = _rulespec_checkout_root(content_root)
+    review_state = vars(result).get(_GENERALIST_REVIEW_STATE_ATTR)
+    if isinstance(review_state, GeneralistReviewState):
+        review_refusal = _exact_dependent_review_refusal(
+            result, required=review_state.required
+        )
+        if review_refusal is not None:
+            raise ReviewRequirementRefused(review_refusal)
     # Direct internal callers receive the same killed-process recovery ordering
     # as the public encode --apply entrypoint.
     _recover_apply_transaction(checkout_root)

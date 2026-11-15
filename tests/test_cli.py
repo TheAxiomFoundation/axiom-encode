@@ -23476,6 +23476,7 @@ rules: []
         change_after_review=None,
         supplemental_files=None,
         apply_side_effect=None,
+        environment_overrides=None,
     ):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
@@ -23555,6 +23556,7 @@ rules: []
                 os.environ,
                 {
                     APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64,
+                    **dict(environment_overrides or {}),
                 },
                 clear=True,
             ),
@@ -23741,12 +23743,14 @@ rules: []
         assert "generalist_review_record=passed required=yes" in run.output
         assert vars(run.result)["_axiom_generalist_review_state"].required is True
 
-    def test_review_gate_environment_variable_is_not_a_switch(
-        self, tmp_path, capsys, monkeypatch
-    ):
+    def test_review_gate_environment_variable_is_not_a_switch(self, tmp_path, capsys):
         # The signing supervisor drops the environment; only the flag counts.
-        monkeypatch.setenv("AXIOM_ENCODE_REQUIRE_REVIEW", "1")
-        run = self._run_review_gate(tmp_path, capsys, review=self._REVIEW_UNAVAILABLE)
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_UNAVAILABLE,
+            environment_overrides={"AXIOM_ENCODE_REQUIRE_REVIEW": "1"},
+        )
 
         assert run.code == 0
         run.apply.assert_called_once()
