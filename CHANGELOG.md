@@ -1,3 +1,7 @@
+## 0.2.2376
+
+- Recommended three-class lane (content / control plane / infrastructure), off (#2172) (#2231)
+
 ## 0.2.2375
 
 - Add a switched-off reader for applied-rulespec/v6 promotion manifests (inactive, #2172) (#2230)
