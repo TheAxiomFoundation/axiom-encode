@@ -181,9 +181,11 @@ def test_block_16_attempt_1_copied_precedent_date_is_refused():
         "`rules[].versions[].effective_from` is `2025-10-01`",
         "it is not the evidence floor `2026-08-01`, the corpus `source_as_of` "
         "`2026-07-17` or the corpus `expression_date`",
-        "no proof-atom excerpt prints it",
+        "no `effective_period` proof atom of the same rule prints it",
         "A date copied from a neighbouring module is not support",
-        "a date printed in the unit text or in a proof-atom excerpt you cite",
+        "a date printed in the unit text; a date printed in the evidence text "
+        "of a proof atom of the same rule with `kind: effective_period` (a "
+        "date quoted by any other proof atom is not support)",
         "the corpus `expression_date` `2026-07-17`",
         "the corpus `source_as_of` `2026-07-17`",
         "the evidence floor `2026-08-01`",
@@ -477,9 +479,8 @@ def test_only_proof_atom_excerpts_count():
     payload["excerpt"] = "Effective 10/01/2025"
     payload["rules"][0]["summary"] = {"excerpt": "Effective 10/01/2025"}
     assert len(issues(payload)) == 1
-    assert sde.proof_excerpts(module("2025-10-01", excerpt="Effective 10/01/2025")) == (
-        "Effective 10/01/2025",
-    )
+    [rule] = module("2025-10-01", excerpt="Effective 10/01/2025")["rules"]
+    assert sde.start_date_proof_texts(rule) == ("Effective 10/01/2025",)
 
 
 @pytest.mark.parametrize(
@@ -963,7 +964,11 @@ def test_prompt_guidance_states_the_rule_with_the_computed_floor():
     text = _guidance(SNAPSHOT, SNAPSHOT)
     for needle in (
         "when `./source.txt` prints no effective date for a rule",
-        "1. a date printed in `./source.txt`, or printed in a proof-atom excerpt",
+        "1. a date printed in `./source.txt`, or printed in the excerpt of a "
+        "proof atom that you attach to the same rule with `kind: "
+        "effective_period`, quoting supplied corpus context",
+        "A date quoted by any other proof atom (another kind, or an atom of "
+        "another rule) is not support;",
         "2. the evidence floor `2026-08-01`: the first day of the first full "
         "calendar month that starts on or after the corpus `source_as_of` "
         "(`2026-07-17`)",

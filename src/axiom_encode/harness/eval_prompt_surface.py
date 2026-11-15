@@ -197,9 +197,12 @@ def render_date_silent_start_guidance(
     the same rule for the same units.
     """
     supported = [
-        "a date printed in `./source.txt`, or printed in a proof-atom excerpt "
-        "that you cite from supplied corpus context (for example a change "
-        "notice)"
+        "a date printed in `./source.txt`, or printed in the excerpt of a "
+        "proof atom that you attach to the same rule with `kind: "
+        "effective_period`, quoting supplied corpus context that states when "
+        "this rule starts (for example a change notice). A date quoted by any "
+        "other proof atom (another kind, or an atom of another rule) is not "
+        "support"
     ]
     if source_as_of is not None and evidence_floor is not None:
         supported.append(

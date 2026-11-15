@@ -227,9 +227,14 @@ issue #2212) covers a corpus `manual` unit that prints no date. The encoder
 prompt states the same rule for the same units, with the dates computed in
 code; every other document class keeps its earlier prompt text.
 
-- An `effective_from` is supported when it is printed in the unit text or in a
-  proof-atom excerpt, equals the corpus `expression_date` or `source_as_of`,
-  equals the evidence floor, or is the `0001-01-01` scaffold.
+- An `effective_from` is supported when it is printed in the unit text or in
+  the start-date proof evidence of its own rule, equals the corpus
+  `expression_date` or `source_as_of`, equals the evidence floor, or is the
+  `0001-01-01` scaffold.
+- Start-date proof evidence is the evidence text of a proof atom of the same
+  rule with `kind: effective_period`. A date quoted by an atom of another kind
+  (for example an `amount` atom that quotes a sibling provision) or by an atom
+  of another rule is not support.
 - The evidence floor is the first day of the first full calendar month that
   starts on or after `source_as_of` (2026-07-17 gives 2026-08-01; 2026-07-01
   gives 2026-07-01). It is an evidence-coverage floor, not a claimed legal
@@ -245,11 +250,24 @@ code; every other document class keeps its earlier prompt text.
 | The unit text prints any date, month-year, fiscal year or bare year | not examined |
 | The run binds amendment or commencement documents | not examined |
 | `effective_from` is `0001-01-01`, `expression_date`, `source_as_of` or the evidence floor | passes |
-| `effective_from` is printed in a `rules[].metadata.proof.atoms[].source.excerpt` of the module | passes |
+| `effective_from` is printed in the evidence text of an `effective_period` proof atom of the same rule | passes |
+| `effective_from` is printed only in a proof atom of another kind or of another rule | refused |
 | `effective_from` equals a version start of an export the module verifiably imports: a `path#symbol` item whose supplied provider declares exactly one rule of that name | passes |
 | Any other `effective_from`, also one after the snapshot | refused, one issue per distinct date |
 
 `effective_to`, `values` keys and companion test periods are not examined.
+
+The proof atoms are read with the proof validator's reader
+(`rule_proof_atoms` and `proof_source_evidence_texts` in
+[`harness/proof_validator.py`](../src/axiom_encode/harness/proof_validator.py)),
+so each spelling that proof validation authenticates gives the same outcome:
+`rules[].metadata.proof.atoms`, or `rules[].proof.atoms` when the rule has no
+`metadata.proof`, and `source.excerpt` or `source.quote`. The atom's `path` is
+not examined. Public candidates anchor an `effective_period` atom at
+`versions[i].formula` (replay control `41648809989-control`), and a rule that
+required `versions[i].effective_from` would refuse them. The atom may cite any
+corpus provision that the proof validator resolves, for example a change
+notice; the check does not require a commencement document.
 
 An import can only add supported dates; it never takes a module out of the
 check. An import that cannot be verified (no `#symbol`, a provider that the

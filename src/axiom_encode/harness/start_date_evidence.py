@@ -5,10 +5,10 @@ module holds the one rule for such a unit, shared by the encoder prompt and by
 the ``complete-source-unit:effective-date/start-unsupported`` check:
 
     An ``effective_from`` (including its ``from`` alias) is *supported* when
-    it is printed in the unit text or in a proof excerpt, equals the corpus
-    ``expression_date`` or
-    ``source_as_of``, equals the evidence floor, or is the ``0001-01-01``
-    scaffold. A date copied from a neighbouring module is not support.
+    it is printed in the unit text or in the start-date proof evidence of its
+    own version, equals the corpus ``expression_date`` or ``source_as_of``,
+    equals the evidence floor, or is the ``0001-01-01`` scaffold. A date
+    copied from a neighbouring module is not support.
 
 The *evidence floor* is the first day of the first full calendar month that
 starts on or after ``source_as_of``. It is an evidence-coverage floor ("the
@@ -19,9 +19,21 @@ The check is the narrow form of that rule, to keep false refusals low. It
 looks only at a unit that is all of: a corpus ``manual`` document, date-silent
 and without amendment context. There every start date must be one of the
 supported dates above: the scaffold, the ``expression_date``, ``source_as_of``,
-the evidence floor, or a date printed in an excerpt of a proof atom
-(``rules[].metadata.proof.atoms[].source.excerpt``). Any other start is
-refused, also one that lies after the snapshot.
+the evidence floor, or a date printed in the start-date proof evidence of
+that version. Any other start is refused, also one that lies after the
+snapshot.
+
+*Start-date proof evidence* of a version is the evidence text of a proof atom
+that belongs to the same rule and has ``kind: effective_period``. A date quoted
+by any other atom (another kind, or an atom of another rule) is not support:
+such an atom proves something else, for example an amount of a sibling
+provision. The atom's ``path`` is not examined: public candidates anchor their
+``effective_period`` atoms at ``versions[i].formula`` (replay control
+``41648809989-control``), and a path rule would refuse them. The printed date
+itself ties the atom to the version that starts on it. The atoms and evidence
+texts are read with the proof validator's own reader, so every spelling that
+proof validation authenticates (``metadata.proof`` or ``proof``;
+``source.excerpt`` or ``source.quote``) is read here.
 
 Imports can only add supported dates; they never take a module out of the
 check. A start that equals a version start of an export the module verifiably
@@ -45,6 +57,10 @@ from typing import Any
 import yaml
 
 from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check
+from axiom_encode.harness.proof_validator import (
+    proof_source_evidence_texts,
+    rule_proof_atoms,
+)
 
 SCAFFOLD_START = date(1, 1, 1)
 MANUAL_DOCUMENT_CLASS = "manual"
@@ -283,8 +299,8 @@ CHECK_START_UNSUPPORTED = declare_check(
         "(including its `from` alias and rule-level implicit versions) "
         "is the `0001-01-01` scaffold, the corpus `expression_date` or "
         "`source_as_of`, the evidence floor (the first day of the first full "
-        "calendar month on or after `source_as_of`), or a date printed in a "
-        "proof-atom excerpt of the module."
+        "calendar month on or after `source_as_of`), or a date printed in the "
+        "evidence text of an `effective_period` proof atom of the same rule."
     ),
     why=(
         "A start date that nothing in the unit supports was copied from a "
@@ -296,9 +312,11 @@ CHECK_START_UNSUPPORTED = declare_check(
     fix=(
         f"Change `{_START_FIELD}` (and the companion test periods that depend "
         "on it) to a date the unit's own evidence supports: a date printed in "
-        "`./source.txt` or in a proof-atom excerpt you cite, the corpus "
-        "`expression_date` or `source_as_of`, the evidence floor, or the "
-        "`0001-01-01` scaffold. Do not copy the start date of a neighbouring "
+        "`./source.txt`, a date printed in the evidence text of a proof atom "
+        "of the same rule with `kind: effective_period`, the "
+        "corpus `expression_date` or `source_as_of`, the evidence floor, or "
+        "the `0001-01-01` scaffold. A date quoted by any other proof atom is "
+        "not support. Do not copy the start date of a neighbouring "
         "module. The evidence floor is an evidence-coverage floor, not a "
         "claimed legal commencement date. The same rule applies to a `from` "
         "alias and to the start on a rule with absent or empty `versions`."
@@ -328,24 +346,29 @@ def _mappings(node: object) -> Iterator[Mapping[str, Any]]:
             yield item
 
 
-def proof_excerpts(payload: Mapping[str, Any]) -> tuple[str, ...]:
-    """Each ``rules[].metadata.proof.atoms[].source.excerpt`` string.
+START_DATE_PROOF_KIND = "effective_period"
 
-    An ``excerpt`` key anywhere else is not a proof excerpt: the proof
-    validator authenticates only these against the corpus.
+
+def start_date_proof_texts(rule: Mapping[str, Any]) -> tuple[str, ...]:
+    """The start-date proof evidence of ``rule``.
+
+    Each evidence text of a rule-level proof atom of this rule with ``kind:
+    effective_period``. Atoms of another kind and atoms of another rule are
+    not start-date evidence. The ``path`` is not examined (module docstring).
+
+    The atoms and their texts come from the proof validator's reader. It reads
+    ``rules[].metadata.proof.atoms``, or ``rules[].proof.atoms`` when the rule
+    has no ``metadata.proof``, and both ``source.excerpt`` and
+    ``source.quote``; proof validation authenticates exactly those texts
+    against the corpus. An ``excerpt`` anywhere else is not proof evidence.
     """
 
-    excerpts: list[str] = []
-    for rule in _mappings(payload.get("rules")):
-        metadata = rule.get("metadata")
-        proof = metadata.get("proof") if isinstance(metadata, Mapping) else None
-        atoms = proof.get("atoms") if isinstance(proof, Mapping) else None
-        for atom in _mappings(atoms):
-            source = atom.get("source")
-            excerpt = source.get("excerpt") if isinstance(source, Mapping) else None
-            if isinstance(excerpt, str):
-                excerpts.append(excerpt)
-    return tuple(excerpts)
+    return tuple(
+        text
+        for atom in rule_proof_atoms(rule)
+        if str(atom.get("kind") or "").strip() == START_DATE_PROOF_KIND
+        for _field, text in proof_source_evidence_texts(atom.get("source"))
+    )
 
 
 _LENIENT_ISO_DATE = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})")
@@ -390,10 +413,28 @@ def _version_start(version: Mapping[str, Any]) -> date | str | None:
     return repr(raw) if not isinstance(raw, str) else raw
 
 
-def _version_starts(
-    payload: Mapping[str, Any],
-) -> Iterator[tuple[str, str, date | str]]:
-    """``(rule name, field path, start)`` for the engine's effective versions.
+@dataclass(frozen=True)
+class _StatedStart:
+    """One stated start of an effective version, and where it stands."""
+
+    rule: Mapping[str, Any]
+    rule_index: int
+    field: str
+    start: date | str
+
+    @property
+    def rule_name(self) -> str:
+        return str(self.rule.get("name") or "").strip()
+
+    @property
+    def rule_label(self) -> str:
+        """The rule name, or its position when the rule has no name."""
+
+        return self.rule_name or f"rules[{self.rule_index}]"
+
+
+def _stated_starts(payload: Mapping[str, Any]) -> Iterator[_StatedStart]:
+    """Each stated start of the engine's effective versions.
 
     Mirror ``RuleDefinition.effective_versions`` at the CI engine pin:
     nonempty versions replace rule-level fields; absent or empty versions
@@ -401,7 +442,10 @@ def _version_starts(
     version containers remain the compiler's responsibility.
     """
 
-    for rule in _mappings(payload.get("rules")):
+    rules = payload.get("rules")
+    for rule_index, rule in enumerate(rules if isinstance(rules, list) else ()):
+        if not isinstance(rule, Mapping):
+            continue
         versions = rule.get("versions", [])
         # serde_yaml reads a blank/comment-only scalar as an empty Vec. The
         # explicit null spellings also load as None here, but compile refuses
@@ -410,6 +454,7 @@ def _version_starts(
             versions = []
         if not isinstance(versions, list):
             continue
+        selected: Iterator[tuple[Mapping[str, Any], str]]
         if versions:
             selected = (
                 (version, f"versions[{index}].{_version_start_field(version)}")
@@ -421,13 +466,22 @@ def _version_starts(
             or rule.get("effective_from") is not None
             or rule.get("from") is not None
         ):
-            selected = ((rule, _version_start_field(rule)),)
+            selected = iter(((rule, _version_start_field(rule)),))
         else:
             continue
         for version, field in selected:
             start = _version_start(version)
             if start is not None:
-                yield str(rule.get("name") or "").strip(), field, start
+                yield _StatedStart(rule, rule_index, field, start)
+
+
+def _version_starts(
+    payload: Mapping[str, Any],
+) -> Iterator[tuple[str, str, date | str]]:
+    """``(rule name, field path, start)`` for the engine's effective versions."""
+
+    for stated in _stated_starts(payload):
+        yield stated.rule_name, stated.field, stated.start
 
 
 _SYMBOL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -542,7 +596,10 @@ def imported_export_starts(
 
 def _permitted_dates_text(evidence: StartDateEvidence) -> str:
     parts = [
-        "a date printed in the unit text or in a proof-atom excerpt you cite",
+        "a date printed in the unit text",
+        "a date printed in the evidence text of a proof atom of the same rule "
+        f"with `kind: {START_DATE_PROOF_KIND}` (a date quoted by any other "
+        "proof atom is not support)",
     ]
     if evidence.expression_date is not None:
         parts.append(f"the corpus `expression_date` `{evidence.expression_date}`")
@@ -573,7 +630,9 @@ def date_silent_start_issues(
     refused date. When ``source_as_of`` is missing or unreadable there is no
     snapshot date and no evidence floor, so only the scaffold, a readable
     ``expression_date`` or a printed date pass: missing metadata never counts
-    as support.
+    as support. A printed date is support for the rule that proves it only:
+    the date must stand in the start-date proof evidence of that rule
+    (:func:`start_date_proof_texts`).
     """
 
     if (
@@ -591,37 +650,50 @@ def date_silent_start_issues(
     supported = evidence.supported_corpus_dates | imported_export_starts(
         start_payload, imported_symbol_contents
     )
-    excerpts = proof_excerpts(payload)
-    refused: dict[str, list[tuple[str, str]]] = {}
-    for rule_name, field, start in _version_starts(start_payload):
+    # Proof atoms come from the analyzer's mapping, which proof validation
+    # authenticates; the rule list has the same order in both readings.
+    proof_rules = payload.get("rules")
+    proof_rules = proof_rules if isinstance(proof_rules, list) else []
+    refused: dict[str, list[_StatedStart]] = {}
+    for stated in _stated_starts(start_payload):
+        start = stated.start
         if isinstance(start, date):
             if start in supported:
                 continue
-            if any(text_prints_date(excerpt, start) for excerpt in excerpts):
+            proof_rule = (
+                proof_rules[stated.rule_index]
+                if stated.rule_index < len(proof_rules)
+                else None
+            )
+            if isinstance(proof_rule, Mapping) and any(
+                text_prints_date(text, start)
+                for text in start_date_proof_texts(proof_rule)
+            ):
                 continue
             start = start.isoformat()
         # A start that is not a readable date cannot be shown to be supported.
-        refused.setdefault(start, []).append((rule_name, field))
+        refused.setdefault(start, []).append(stated)
     issues: list[ValidationIssue] = []
     permitted = _permitted_dates_text(evidence)
+    no_proof = f"no `{START_DATE_PROOF_KIND}` proof atom of the same rule prints it"
     for start, sites in sorted(refused.items()):
-        first_rule, first_field = sites[0]
-        named = ", ".join(f"`{name}`" for name, _field in sites[:5] if name)
+        first = sites[0]
+        # A rule without a name is named by its position (`rules[2]`).
+        named = ", ".join(f"`{site.rule_label}`" for site in sites[:5])
         more = f" and {len(sites) - 5} more" if len(sites) > 5 else ""
         if evidence.source_as_of is not None:
             reason = (
                 "it is not the evidence floor "
                 f"`{evidence.evidence_floor}`, the corpus `source_as_of` "
                 f"`{evidence.source_as_of}` or the corpus `expression_date`, "
-                "and no proof-atom excerpt prints it"
+                f"and {no_proof}"
             )
         else:
             reason = (
                 "the corpus `source_as_of` is unavailable ("
                 + "; ".join(evidence.problems or ("source_as_of is missing",))
                 + "), so there is no snapshot date and no evidence floor to "
-                "equal, it is not the corpus `expression_date`, and no "
-                "proof-atom excerpt prints it"
+                f"equal, it is not the corpus `expression_date`, and {no_proof}"
             )
         issues.append(
             ValidationIssue(
@@ -634,8 +706,8 @@ def date_silent_start_issues(
                 check=CHECK_START_UNSUPPORTED,
                 subject=IssueSubject(
                     citation=corpus_citation_path or None,
-                    rule=first_rule or None,
-                    field=first_field,
+                    rule=first.rule_name or None,
+                    field=first.field,
                 ),
                 expected=permitted,
                 found=start,

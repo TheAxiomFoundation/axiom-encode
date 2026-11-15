@@ -75,10 +75,10 @@
     {
       "category": "complete-source-unit:effective-date",
       "cause": "encoder_output",
-      "fix": "Change `rules[].versions[].effective_from` (and the companion test periods that depend on it) to a date the unit's own evidence supports: a date printed in `./source.txt` or in a proof-atom excerpt you cite, the corpus `expression_date` or `source_as_of`, the evidence floor, or the `0001-01-01` scaffold. Do not copy the start date of a neighbouring module. The evidence floor is an evidence-coverage floor, not a claimed legal commencement date. The same rule applies to a `from` alias and to the start on a rule with absent or empty `versions`.",
+      "fix": "Change `rules[].versions[].effective_from` (and the companion test periods that depend on it) to a date the unit's own evidence supports: a date printed in `./source.txt`, a date printed in the evidence text of a proof atom of the same rule with `kind: effective_period`, the corpus `expression_date` or `source_as_of`, the evidence floor, or the `0001-01-01` scaffold. A date quoted by any other proof atom is not support. Do not copy the start date of a neighbouring module. The evidence floor is an evidence-coverage floor, not a claimed legal commencement date. The same rule applies to a `from` alias and to the start on a rule with absent or empty `versions`.",
       "gate": "ci",
       "id": "complete-source-unit:effective-date/start-unsupported",
-      "requires": "In a manual source unit that prints no date, every `rules[].versions[].effective_from` (including its `from` alias and rule-level implicit versions) is the `0001-01-01` scaffold, the corpus `expression_date` or `source_as_of`, the evidence floor (the first day of the first full calendar month on or after `source_as_of`), or a date printed in a proof-atom excerpt of the module.",
+      "requires": "In a manual source unit that prints no date, every `rules[].versions[].effective_from` (including its `from` alias and rule-level implicit versions) is the `0001-01-01` scaffold, the corpus `expression_date` or `source_as_of`, the evidence floor (the first day of the first full calendar month on or after `source_as_of`), or a date printed in the evidence text of an `effective_period` proof atom of the same rule.",
       "severity": "important",
       "site": "axiom_encode/harness/start_date_evidence.py:date_silent_start_issues",
       "title": "Start date of a date-silent unit has no support in its own evidence",
@@ -1081,6 +1081,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "20f55913b868f0878749ce179cb63876c665802beee50b7417c74d8833b6a3e3",
+  "registry_sha256": "4586d515b0a9f2cbf9ec74bfdb440bb42ccc3efdd3fef7496cbc930fddbeb24e",
   "schema": "axiom-encode/check-registry/v1"
 }
