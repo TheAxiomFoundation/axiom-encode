@@ -154,8 +154,13 @@ def test_an_owner_review_names_a_code_owner_and_a_past_date():
     owners = registry.registry_code_owners(codeowners)
     assert owners == {"@PavelMakarchuk", "@MaxGhenis"}
     today = datetime.date(2026, 11, 14)
-    pending = registry.load_reviewed_alternative_lists()[0]
-    assert pending.reviewer == registry.PENDING_REVIEWER
+    # Build the pending form explicitly, so the test holds before and after an
+    # owner signs the committed entries.
+    pending = dataclasses.replace(
+        registry.load_reviewed_alternative_lists()[0],
+        reviewer=registry.PENDING_REVIEWER,
+        reviewed_at=None,
+    )
 
     def problems(entry, *, required=True, text=codeowners):
         return registry.owner_review_problems(
@@ -392,11 +397,15 @@ MALFORMED = {
     "missing author": _drop(("author",)),
     "blank author": _set(("author",), " "),
     "reviewer is free text": _set(("reviewer",), "an owner"),
-    "reviewer login without a date": _set(("reviewer",), "@PavelMakarchuk"),
+    "reviewer login without a date": lambda entry: entry.update(
+        reviewer="@PavelMakarchuk", reviewed_at=None
+    ),
     "reviewer login with a bad name": lambda entry: entry.update(
         reviewer="@not a login", reviewed_at="2026-11-13"
     ),
-    "pending review with a date": _set(("reviewed_at",), "2026-11-13"),
+    "pending review with a date": lambda entry: entry.update(
+        reviewer="pending-owner-review", reviewed_at="2026-11-13"
+    ),
     "outside line before the list": lambda entry: entry["lines"][0].__setitem__(
         "reading", "outside_condition"
     ),
