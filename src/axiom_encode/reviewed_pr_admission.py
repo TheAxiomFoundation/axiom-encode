@@ -52,7 +52,7 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 #    revalidation. It refuses unless ``main`` of the RuleSpec repository
 #    requires the check ``GUARD_CHECK_NAME`` from exactly ``GUARD_APP_ID``,
 #    for administrators too. So an open switch does not help while the guard
-#    is not a required check (decision D2d).
+#    is not a required check (proposed constraint D2d).
 #
 # OPERATOR PRECONDITION, not checkable here: the read of lock 3 proves the
 # requirement at admission and before signing. A repository administrator can
@@ -399,7 +399,7 @@ def require_guard_enforced(
 
 
 def _enrolled_dispatcher(run: dict, selector: PromotionSelector) -> dict:
-    """The run's triggering actor, by numeric id, enrolled (decision D3)."""
+    """The run's triggering actor, by numeric id, enrolled (proposed constraint D3)."""
 
     actor = _object(run.get("triggering_actor"), "triggering actor")
     identity, login = actor.get("id"), actor.get("login")

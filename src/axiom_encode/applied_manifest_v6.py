@@ -1,7 +1,8 @@
 """Reader contract for ``applied-rulespec/v6`` promotion manifests. INACTIVE.
 
 This is change 2 of ``docs/content-bound-merge-guard.md`` section 8: the
-verifier side of maintainer decision 1 ("the signing service may sign
+verifier side of proposed constraint D1 (agent-proposed answer 1 in
+``docs/reviewed-pr-promotion-order-proposal.md``: "the signing service may sign
 validated, unreviewed candidate bytes when a versioned signed manifest
 explicitly records that scope; verifiers must distinguish validation from
 owner approval"). Tracking issue: #2172.
@@ -9,8 +10,8 @@ owner approval"). Tracking issue: #2172.
 Nothing here is active:
 
 - ``V6_READER_ENABLED`` is ``False``. While it is ``False`` every verifier
-  treats a manifest labelled v6 exactly as before this module existed: it is
-  not an encoder apply manifest.
+  refuses a manifest labelled v6. The nested and historical readers now check
+  this label too.
 - The one writer, ``as_v6_candidate_payload``, is switched off by its own
   constant (``reviewed_pr_admission.V6_WRITER_ENABLED``) and by two further
   locks there, so no signed v6 manifest exists. The reader switch is an
