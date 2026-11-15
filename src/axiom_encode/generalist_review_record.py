@@ -220,7 +220,12 @@ class _ReviewContentLoader(yaml.SafeLoader):
     def compose_scalar_node(self, anchor):
         event = self.peek_event()
         node = super().compose_scalar_node(anchor)
-        node._review_implicit_plain = event.implicit[0]
+        styled_nonspecific = event.tag == "!" and event.style is not None
+        if styled_nonspecific:
+            # PyYAML marks even quoted/block `!` scalars implicit and resolves
+            # them as plain values. Their source type is explicitly string.
+            node.tag = _STR_TAG
+        node._review_implicit_plain = event.implicit[0] and not styled_nonspecific
         return node
 
 

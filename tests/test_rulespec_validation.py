@@ -37924,6 +37924,88 @@ def test_extract_json_object_refuses_a_second_malformed_verdict(
         _extract_json_object(output)
 
 
+@pytest.mark.parametrize("fenced", [False, True])
+@pytest.mark.parametrize("first", [True, False])
+@pytest.mark.parametrize(
+    "prefix,between",
+    [
+        ("The YAML flow map `{` is never closed.\n", 'Wait, I misread "rate.\n'),
+        (
+            "",
+            "Line 14 reads `source: {corpus_citation_path: us/statute/26/24, "
+            "excerpt: \"based on the taxpayer's` (truncated).\n",
+        ),
+        ('The flow map `{` and note "rate.\n', 'On reflection the "rate is fine.\n'),
+        # A plausible JSON prefix also must not hide a later object when its
+        # own value is malformed. Ignoring prose braces alone cannot fix this.
+        ('{"note": "unfinished\n', 'The quoted "rate is wrong.\n'),
+    ],
+)
+def test_extract_json_object_resynchronizes_after_malformed_prose(
+    prefix, between, first, fenced
+):
+    def verdict(passed):
+        value = json.dumps({"passed": passed, "score": 9 if passed else 2})
+        return f"```json\n{value}\n```" if fenced else value
+
+    output = prefix + verdict(first) + between + verdict(not first)
+    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+        _extract_json_object(output)
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    [
+        '{"score": 2, "reasoning": "bad"',
+        '{"score": "unterminated prose\n',
+        '{"sc' + chr(92) + 'u006fre" \n : 2',
+    ],
+)
+@pytest.mark.parametrize("fragment_first", [False, True])
+def test_extract_json_object_counts_score_only_malformed_fragments(
+    fragment, fragment_first
+):
+    valid = '{"passed": true, "score": 9}'
+    values = [fragment, valid] if fragment_first else [valid, fragment]
+    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+        _extract_json_object("\n".join(values))
+
+
+@pytest.mark.parametrize("fenced_first", [False, True])
+def test_extract_json_object_refuses_fenced_and_unfenced_verdicts(fenced_first):
+    values = ['{"passed": true, "score": 9}', '{"passed": false, "score": 2}']
+    index = 0 if fenced_first else 1
+    values[index] = f"```json\n{values[index]}\n```"
+    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+        _extract_json_object("\n".join(values))
+
+
+def test_extract_json_object_refuses_array_verdicts_with_escaped_keys():
+    escaped_key = '"pa' + chr(92) + 'u0073sed"'
+    output = '[{"passed": true, "score": 9}, {' + escaped_key + " \n : false}]"
+    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+        _extract_json_object(output)
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ['Stray `{` with a 5" note.\n', '{"note": "unfinished prose\n'],
+)
+def test_extract_json_object_finds_one_verdict_after_unrelated_malformed_prose(prefix):
+    payload = {"passed": True, "score": 9}
+    assert _extract_json_object(prefix + json.dumps(payload)) == payload
+
+
+def test_extract_json_object_preserves_strings_with_braces_and_repairs_fenced_end():
+    payload = {
+        "passed": True,
+        "score": 9,
+        "reasoning": 'Examples {} and {  } and {"passed": false}; slash \\ then {}.',
+    }
+    output = "```json\n" + json.dumps(payload)[:-1] + "\n```"
+    assert _extract_json_object(output) == payload
+
+
 def test_extract_json_object_counts_fenced_repaired_payload_only_once():
     output = '```json\n{"passed": true, "score": 9, "issues": [],}\n```'
 

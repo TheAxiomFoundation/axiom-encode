@@ -1098,10 +1098,11 @@ def _review_json_object_spans(output: str) -> list[_ReviewJsonObjectSpan]:
     """Locate physical objects and review keys, including malformed fragments.
 
     One lexical pass gives a fenced/balanced/repaired view of the same object
-    one identity. Quotes outside objects are prose; quotes within objects hide
-    braces and escaped JSON examples. A recognized review key still counts if
-    the object's value or closing brace is malformed, so a valid verdict cannot
-    silently supersede an undecodable conflicting fragment.
+    one identity. Only a plausible JSON object opens a context. A quoted key
+    after a brace also resynchronizes a malformed string: valid JSON strings
+    must escape that quote. Escaped JSON examples and empty braces in strings
+    stay within their string. A recognized review key still counts if its
+    value or closing brace is malformed, so a later verdict cannot supersede it.
     """
     spans: list[_ReviewJsonObjectSpan] = []
     stack: list[_ReviewJsonObjectSpan] = []
@@ -1109,6 +1110,20 @@ def _review_json_object_spans(output: str) -> list[_ReviewJsonObjectSpan]:
     string_owner: _ReviewJsonObjectSpan | None = None
     escaped = False
     for index, current in enumerate(output):
+        if current == "{":
+            following = index + 1
+            while following < len(output) and output[following].isspace():
+                following += 1
+            quoted_key = following < len(output) and output[following] == '"'
+            empty_object = following < len(output) and output[following] == "}"
+            if quoted_key or (empty_object and string_start is None):
+                span = _ReviewJsonObjectSpan(index)
+                spans.append(span)
+                stack.append(span)
+                string_start = None
+                string_owner = None
+                escaped = False
+                continue
         if string_start is not None:
             if escaped:
                 escaped = False
@@ -1132,11 +1147,7 @@ def _review_json_object_spans(output: str) -> list[_ReviewJsonObjectSpan]:
                 string_start = None
                 string_owner = None
             continue
-        if current == "{":
-            span = _ReviewJsonObjectSpan(index)
-            spans.append(span)
-            stack.append(span)
-        elif current == "}" and stack:
+        if current == "}" and stack:
             stack.pop().end = index + 1
         elif current == '"' and stack:
             string_start = index

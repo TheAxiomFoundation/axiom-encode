@@ -1348,6 +1348,43 @@ def test_duplicate_verdict_keys_cannot_satisfy_required_review(
     assert review_requirement_refusal(record) is not None
 
 
+@pytest.mark.parametrize(
+    "prefix,between",
+    [
+        ("The flow map `{` is never closed.\n", 'Wait, I misread "rate.\n'),
+        (
+            "",
+            "The source has `source: {excerpt: \"based on the taxpayer's`\n",
+        ),
+        ('The flow map `{` and note "rate.\n', 'The "rate is fine.\n'),
+        ('{"note": "unfinished\n', 'The quoted "rate is wrong.\n'),
+    ],
+)
+@pytest.mark.parametrize("first", [True, False])
+def test_desynchronized_verdicts_cannot_satisfy_required_review(
+    tmp_path, monkeypatch, prefix, between, first
+):
+    rule = _candidate(tmp_path)
+    verdicts = [
+        json.dumps({"passed": p, "score": 9 if p else 2}) for p in [first, not first]
+    ]
+    output = prefix + verdicts[0] + between + verdicts[1]
+    monkeypatch.setattr(
+        validator_pipeline, "run_claude_code", lambda *_a, **_k: (output, 0)
+    )
+
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+    record = _record_for(result, rule, required=True)
+
+    assert result.passed is False
+    assert result.score is None
+    assert "reviewer_parse_failed" in result.issues
+    assert record["required"] is True
+    assert record["status"] == "unavailable"
+    assert record["verdict"]["passed"] is None
+    assert review_requirement_refusal(record) is not None
+
+
 def test_reviewer_exception_never_records_a_pass(tmp_path, monkeypatch):
     rule = _candidate(tmp_path)
 
@@ -2248,6 +2285,122 @@ def test_reader_refuses_a_forged_alternate_dump_binding():
     record["reviewed"]["rulespec_content_sha256"] = OTHER_SHA
     record["reviewed"]["rulespec_dumped_content_sha256"] = PAIR.rulespec_content_sha256
     assert any("differs" in issue for issue in _issues(record))
+
+
+def test_reader_refuses_only_a_forged_dump_digest():
+    record = _build(required=True)
+    assert _issues(record) == []
+    record["reviewed"]["rulespec_dumped_content_sha256"] = OTHER_SHA
+
+    assert _issues(record) == [
+        "generalist_review dump digest differs from reviewed content"
+    ]
+
+
+def test_builder_discards_only_a_forged_evidence_dump_digest():
+    evidence = _evidence()
+    evidence["reviewed_rulespec_dumped_content_sha256"] = OTHER_SHA
+    record = _build(evidence=evidence, required=True)
+
+    assert record["status"] == "passed"
+    assert record["reviewed"]["rulespec_dumped_content_sha256"] is None
+    assert _issues(record) == []
+    # Every field except the diagnostic dump digest retains the good record.
+    expected = _build(required=True)
+    expected["reviewed"]["rulespec_dumped_content_sha256"] = None
+    assert record == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        '! "10"',
+        "! '10'",
+        '! "true"',
+        "! 'false'",
+        '! ""',
+        "! ''",
+        "! |-\n      true",
+        "! >-\n      10",
+    ],
+)
+def test_styled_nonspecific_tag_type_change_cannot_bind(value, tmp_path):
+    reviewed = _rule(value)
+    rule = tmp_path / "rule.yaml"
+    rule.write_bytes(reviewed)
+    attestation = {
+        "requested_corpus_citation_path": "us/statute/26/24",
+        "resolved_corpus_citation_path": "us/statute/26/24",
+        "source_sha256": "5" * 64,
+    }
+    with (
+        patch.object(
+            cli, "_generated_result_source_attestation", return_value=attestation
+        ),
+        patch.object(cli, "_source_attestation_structure_issues", return_value=[]),
+    ):
+        cli._stamp_generated_source_attestation_for_apply(
+            SimpleNamespace(backend="openai"), rule
+        )
+    applied = rule.read_bytes()
+    assert applied == _as_apply_rewrites(reviewed)
+    assert review_content_sha256(reviewed, rulespec=True) is not None
+    assert dumped_review_content_sha256(reviewed) is None
+    assert review_content_sha256(reviewed, rulespec=True) != review_content_sha256(
+        applied, rulespec=True
+    )
+
+    record = _build(
+        applied=[applied_pair(applied, TEST_BYTES)],
+        evidence=_evidence(rulespec=reviewed),
+        required=True,
+    )
+    assert (record["status"], record["reason"]) == (
+        "unavailable",
+        "reviewed_content_not_applied",
+    )
+    assert review_requirement_refusal(record) is not None
+
+
+@pytest.mark.parametrize("key", ['! "10"', "! 'true'"])
+def test_styled_nonspecific_mapping_key_cannot_bind_after_type_change(key):
+    reviewed = RULE_BYTES + f"extra: {{{key}: first}}\n".encode()
+    applied = _as_apply_rewrites(reviewed)
+    record = _build(
+        applied=[applied_pair(applied, TEST_BYTES)],
+        evidence=_evidence(rulespec=reviewed),
+        required=True,
+    )
+    assert record["status"] == "unavailable"
+    assert record["reason"] == "reviewed_content_not_applied"
+    assert review_requirement_refusal(record) is not None
+
+
+def test_styled_nonspecific_tag_cannot_hide_duplicate_string_keys():
+    reviewed = RULE_BYTES + b"extra: {'1': first, ! '1': second}\n"
+    assert review_content_sha256(reviewed, rulespec=True) is None
+    record = _build(
+        applied=[applied_pair(_as_apply_rewrites(reviewed), TEST_BYTES)],
+        evidence=_evidence(rulespec=reviewed),
+        required=True,
+    )
+    assert record["status"] == "unavailable"
+    assert record["reason"] == "unreadable_review_result"
+    assert review_requirement_refusal(record) is not None
+
+
+@pytest.mark.parametrize("value", ["! 10", "! true", "10", "true", "'10'", "''"])
+def test_plain_nonspecific_and_ordinary_scalar_bindings_still_pass(value):
+    reviewed = _rule(value)
+    applied = _as_apply_rewrites(reviewed)
+    record = _build(
+        applied=[applied_pair(applied, TEST_BYTES)],
+        evidence=_evidence(rulespec=reviewed),
+        required=True,
+    )
+    assert record["status"] == "passed"
+    assert review_requirement_refusal(record) is None
+    assert _issues(record) == []
 
 
 def test_oversized_integer_score_fails_closed_in_producer_and_reader():
