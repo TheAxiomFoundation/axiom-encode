@@ -1,1 +1,1 @@
-Credit `max(0, input)` companion evidence only when the case executes that call. Preserve exact decimal comparisons when tracing Boolean short circuits.
+Credit `max(0, input)` companion evidence only when the case's reduced formula path reaches that call; nested RuleSpec `if` expressions reduce before this check, so it does not establish their original short-circuit execution. Preserve exact decimal comparisons when tracing Boolean short circuits.
