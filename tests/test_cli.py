@@ -8584,7 +8584,7 @@ rules:
         formula: |-
           1 / premium_assistance_annual_income_month_count
 
-  - name: direct_parent_alias_consumer
+  - name: direct_parent_alias_reader
     kind: derived
     entity: TaxUnit
     dtype: Judgment
@@ -8641,20 +8641,20 @@ rules:
         ]
         payload = yaml.safe_load(rules_file.read_text())
         assert [rule["name"] for rule in payload["rules"]] == [
-            "direct_parent_alias_consumer",
+            "direct_parent_alias_reader",
             "applicable_taxpayer_minimum_household_income_poverty_line_ratio",
         ]
-        consumer = payload["rules"][0]
+        reader = payload["rules"][0]
         assert (
-            consumer["versions"][0]["formula"]
+            reader["versions"][0]["formula"]
             == "household_income <= required_contribution_monthly_fraction"
         )
         assert (
-            consumer["metadata"]["proof"]["atoms"][0]["import"]["target"]
+            reader["metadata"]["proof"]["atoms"][0]["import"]["target"]
             == "us:statutes/26/36B/b#required_contribution_monthly_fraction"
         )
         assert (
-            consumer["metadata"]["proof"]["atoms"][0]["import"]["output"]
+            reader["metadata"]["proof"]["atoms"][0]["import"]["output"]
             == "required_contribution_monthly_fraction"
         )
         assert payload["module"]["deferred_outputs"][0]["source_values"] == [
@@ -31115,10 +31115,10 @@ rules:
         us:statutes/7/2014/e/6/A#input.snap_net_income 2026-05-28.
         """
         repo = tmp_path / "rulespec-us" / "us"
-        consumer_file = repo / "statutes/7/2014/c.yaml"
-        consumer_test_file = repo / "statutes/7/2014/c.test.yaml"
+        importer_file = repo / "statutes/7/2014/c.yaml"
+        importer_test_file = repo / "statutes/7/2014/c.test.yaml"
         producer_file = repo / "statutes/7/2014/e/6/A.yaml"
-        consumer_file.parent.mkdir(parents=True)
+        importer_file.parent.mkdir(parents=True)
         producer_file.parent.mkdir(parents=True)
         producer_file.write_text(
             """format: rulespec/v1
@@ -31133,7 +31133,7 @@ rules:
         formula: "0"
 """
         )
-        consumer_file.write_text(
+        importer_file.write_text(
             """format: rulespec/v1
 imports:
   - us:statutes/7/2014/e/6/A#snap_net_income
@@ -31148,7 +31148,7 @@ rules:
         formula: "snap_net_income > 0"
 """
         )
-        consumer_test_file.write_text(
+        importer_test_file.write_text(
             """- name: override_imported_output
   period: 2024-10
   input:
@@ -31164,7 +31164,7 @@ rules:
         ]
 
         rewritten = _rewrite_import_output_test_input_refs(
-            test_file=consumer_test_file,
+            test_file=importer_test_file,
             repo_path=repo,
             issues=issues,
         )
@@ -31173,7 +31173,7 @@ rules:
             "us:statutes/7/2014/e/6/A#input.snap_net_income"
             " -> us:statutes/7/2014/e/6/A#snap_net_income"
         ]
-        repaired = yaml.safe_load(consumer_test_file.read_text())
+        repaired = yaml.safe_load(importer_test_file.read_text())
         assert repaired[0]["input"] == {
             "us:statutes/7/2014/e/6/A#snap_net_income": 1500
         }
@@ -31277,24 +31277,25 @@ rules:
         self, tmp_path
     ):
         # The name carries no numeric word, so the name guess alone says false.
+        # A constructed module in a made-up 7 CFR part.
         repo = tmp_path / "rulespec-us" / "us"
-        target_file = repo / "regulations/12-cfr/1005/6.yaml"
-        dependent_file = repo / "regulations/12-cfr/1005/11.yaml"
-        test_file = repo / "regulations/12-cfr/1005/11.test.yaml"
+        target_file = repo / "regulations/7-cfr/9990/6.yaml"
+        dependent_file = repo / "regulations/7-cfr/9990/11.yaml"
+        test_file = repo / "regulations/7-cfr/9990/11.test.yaml"
         target_file.parent.mkdir(parents=True)
         target_file.write_text(
             """format: rulespec/v1
 inputs:
-  - name: state_law_or_agreement_imposes_less_liability
+  - name: state_plan_sets_a_lower_payment
     entity: Person
     dtype: Boolean
     period: Month
-  - name: liability_under_this_section
+  - name: payment_under_this_part
     entity: Person
     dtype: Money
     period: Month
 rules:
-  - name: state_law_or_agreement_liability
+  - name: state_plan_payment
     kind: derived
     entity: Person
     dtype: Money
@@ -31302,22 +31303,22 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: |-
-          if state_law_or_agreement_imposes_less_liability: min(50, liability_under_this_section) else: liability_under_this_section
+          if state_plan_sets_a_lower_payment: min(75, payment_under_this_part) else: payment_under_this_part
 """
         )
         dependent_file.write_text(
             """format: rulespec/v1
 imports:
-  - us:regulations/12-cfr/1005/6#state_law_or_agreement_liability
+  - us:regulations/7-cfr/9990/6#state_plan_payment
 rules: []
 """
         )
         test_file.write_text(
             """- name: dependent_case
   input:
-    us:regulations/12-cfr/1005/6#input.state_law_or_agreement_imposes_less_liability: false
+    us:regulations/7-cfr/9990/6#input.state_plan_sets_a_lower_payment: false
   output:
-    us:regulations/12-cfr/1005/11#provisional_credit: 0
+    us:regulations/7-cfr/9990/11#supplemental_payment_amount: 0
 """
         )
         validation = SimpleNamespace(
@@ -31325,7 +31326,7 @@ rules: []
                 "ci": SimpleNamespace(
                     error=(
                         "Test case `dependent_case` execution failed: missing input "
-                        "`liability_under_this_section` for entity `case-1` over "
+                        "`payment_under_this_part` for entity `case-1` over "
                         "2026-10-01..2026-10-31"
                     )
                 )
@@ -31334,17 +31335,16 @@ rules: []
 
         changed = _complete_missing_dependent_test_inputs(
             overlay_repo=repo,
-            relative_output=Path("regulations/12-cfr/1005/6.yaml"),
+            relative_output=Path("regulations/7-cfr/9990/6.yaml"),
             validations=[(dependent_file, validation)],
         )
 
         assert changed == [test_file]
         repaired = test_file.read_text()
         assert (
-            "us:regulations/12-cfr/1005/6#input.liability_under_this_section: 0"
-            in repaired
+            "us:regulations/7-cfr/9990/6#input.payment_under_this_part: 0" in repaired
         )
-        assert "liability_under_this_section: false" not in repaired
+        assert "payment_under_this_part: false" not in repaired
 
     def test_complete_missing_dependent_test_inputs_uses_dependent_import_ref(
         self, tmp_path
@@ -33970,9 +33970,9 @@ rules:
     def test_encode_apply_wrong_typed_repair_keeps_declared_money_values(
         self, capsys, tmp_path
     ):
-        # A 12 CFR 1005.6 shape: the generated case's `false` triggers the
+        # A constructed module: the generated case's `false` triggers the
         # repair, which must turn it into 0 and leave the model's numbers
-        # alone. `transfers_that_were_preventable` reads as boolean to the name
+        # alone. `payments_that_were_withheld` reads as boolean to the name
         # guess, so only its Money declaration keeps the model's 200.
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
@@ -33988,20 +33988,20 @@ module:
   proof_validation:
     required: true
 inputs:
-  - name: consumer_notified_within_two_business_days
+  - name: application_filed_during_open_season
     entity: Person
     dtype: Boolean
     period: Month
-  - name: unauthorized_transfers_before_notice
+  - name: fuel_bills_before_application
     entity: Person
     dtype: Money
     period: Month
-  - name: transfers_that_were_preventable
+  - name: payments_that_were_withheld
     entity: Person
     dtype: Money
     period: Month
 rules:
-  - name: timely_notice_liability
+  - name: open_season_payment
     kind: derived
     entity: Person
     dtype: Money
@@ -34009,30 +34009,30 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: |-
-          if consumer_notified_within_two_business_days:
-            min(50, unauthorized_transfers_before_notice)
+          if application_filed_during_open_season:
+            min(75, fuel_bills_before_application)
           else:
-            min(500, min(50, unauthorized_transfers_before_notice) + transfers_that_were_preventable)
+            min(300, min(75, fuel_bills_before_application) + payments_that_were_withheld)
 """
         )
         test_file = output_file.with_name("151.test.yaml")
         test_file.write_text(
-            """- name: timely_notice_limits_transfers
+            """- name: open_season_caps_the_payment
   period: 2026-10
   input:
-    us:statutes/26/151#input.consumer_notified_within_two_business_days: true
-    us:statutes/26/151#input.unauthorized_transfers_before_notice: 100
-    us:statutes/26/151#input.transfers_that_were_preventable: 200
+    us:statutes/26/151#input.application_filed_during_open_season: true
+    us:statutes/26/151#input.fuel_bills_before_application: 100
+    us:statutes/26/151#input.payments_that_were_withheld: 200
   output:
-    us:statutes/26/151#timely_notice_liability: 50
-- name: auto_zero_timely_notice_liability
+    us:statutes/26/151#open_season_payment: 75
+- name: auto_zero_open_season_payment
   period: 2026-10
   input:
-    us:statutes/26/151#input.consumer_notified_within_two_business_days: false
-    us:statutes/26/151#input.unauthorized_transfers_before_notice: false
-    us:statutes/26/151#input.transfers_that_were_preventable: false
+    us:statutes/26/151#input.application_filed_during_open_season: false
+    us:statutes/26/151#input.fuel_bills_before_application: false
+    us:statutes/26/151#input.payments_that_were_withheld: false
   output:
-    us:statutes/26/151#timely_notice_liability: 0
+    us:statutes/26/151#open_season_payment: 0
 """
         )
         result.output_file = str(output_file)
@@ -34047,7 +34047,7 @@ rules:
                         False,
                         [
                             "statutes/26/151.yaml: ci: Test case "
-                            "`auto_zero_timely_notice_liability` execution failed: "
+                            "`auto_zero_open_season_payment` execution failed: "
                             "type mismatch: expected numeric scalar"
                         ],
                         {},
@@ -34066,19 +34066,18 @@ rules:
 
         assert exc_info.value.code == 0
         test_payload = yaml.safe_load(test_file.read_text())
-        transfers = "us:statutes/26/151#input.unauthorized_transfers_before_notice"
-        preventable = "us:statutes/26/151#input.transfers_that_were_preventable"
-        notified = "us:statutes/26/151#input.consumer_notified_within_two_business_days"
-        for ref, model_number in ((transfers, 100), (preventable, 200)):
+        bills = "us:statutes/26/151#input.fuel_bills_before_application"
+        withheld = "us:statutes/26/151#input.payments_that_were_withheld"
+        filed = "us:statutes/26/151#input.application_filed_during_open_season"
+        for ref, model_number in ((bills, 100), (withheld, 200)):
             model_value = test_payload[0]["input"][ref]
             repaired_value = test_payload[1]["input"][ref]
             assert model_value == model_number and not isinstance(model_value, bool)
             assert repaired_value == 0 and not isinstance(repaired_value, bool)
-        assert test_payload[1]["input"][notified] is False
+        assert test_payload[1]["input"][filed] is False
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
         assert sorted(run.outcome["auto_repaired_wrong_typed_test_inputs"]) == sorted(
-            f"auto_zero_timely_notice_liability:{ref}"
-            for ref in (transfers, preventable)
+            f"auto_zero_open_season_payment:{ref}" for ref in (bills, withheld)
         )
         assert run.outcome["status"] == "apply_applied"
 
@@ -45401,7 +45400,7 @@ class TestGuardGenerated:
             for issue in issues
         )
         assert any(expected_issue in issue for issue in issues), issues
-        # Prefixing the refusal must retain its declared identity for consumers.
+        # Prefixing the refusal must retain its declared identity for callers.
         assert all(isinstance(issue, ValidationIssue) for issue in issues)
         expected_check = {
             "added_entry": "new-entry",
@@ -49105,25 +49104,26 @@ rules: []
         self, tmp_path
     ):
         # The name carries no numeric word, so the name guess alone says false.
+        # A constructed module in a made-up 7 CFR part.
         policy_repo = tmp_path / "rulespec-us" / "us"
-        imported = policy_repo / "regulations/12-cfr/1005/6.yaml"
-        dependent = policy_repo / "regulations/12-cfr/1005/11.yaml"
-        dependent_test = policy_repo / "regulations/12-cfr/1005/11.test.yaml"
+        imported = policy_repo / "regulations/7-cfr/9990/6.yaml"
+        dependent = policy_repo / "regulations/7-cfr/9990/11.yaml"
+        dependent_test = policy_repo / "regulations/7-cfr/9990/11.test.yaml"
         imported.parent.mkdir(parents=True)
         _write_test_rulespec_toolchain(policy_repo)
         imported.write_text(
             """format: rulespec/v1
 inputs:
-  - name: consumer_notified_within_two_business_days
+  - name: application_filed_during_open_season
     entity: Person
     dtype: Boolean
     period: Month
-  - name: unauthorized_transfers_before_notice
+  - name: fuel_bills_before_application
     entity: Person
     dtype: Money
     period: Month
 rules:
-  - name: timely_notice_liability
+  - name: open_season_payment
     kind: derived
     entity: Person
     dtype: Money
@@ -49131,24 +49131,24 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: |-
-          if consumer_notified_within_two_business_days:
-            min(50, unauthorized_transfers_before_notice)
+          if application_filed_during_open_season:
+            min(75, fuel_bills_before_application)
           else: 0
 """
         )
         dependent.write_text(
             """format: rulespec/v1
 imports:
-  - us:regulations/12-cfr/1005/6#timely_notice_liability
+  - us:regulations/7-cfr/9990/6#open_season_payment
 rules: []
 """
         )
         dependent_test.write_text(
             """- name: case_one
   input:
-    us:regulations/12-cfr/1005/6#input.consumer_notified_within_two_business_days: true
+    us:regulations/7-cfr/9990/6#input.application_filed_during_open_season: true
   output:
-    us:regulations/12-cfr/1005/11#provisional_credit: 0
+    us:regulations/7-cfr/9990/11#supplemental_payment_amount: 0
 """
         )
         validation = SimpleNamespace(
@@ -49156,7 +49156,7 @@ rules: []
                 "ci": SimpleNamespace(
                     error=(
                         "Test case `case_one` execution failed: "
-                        "missing input `unauthorized_transfers_before_notice`"
+                        "missing input `fuel_bills_before_application`"
                     )
                 )
             }
@@ -49172,10 +49172,10 @@ rules: []
         assert changed is True
         updated = dependent_test.read_text()
         assert (
-            "us:regulations/12-cfr/1005/6#input.unauthorized_transfers_before_notice: 0"
+            "us:regulations/7-cfr/9990/6#input.fuel_bills_before_application: 0"
             in updated
         )
-        assert "unauthorized_transfers_before_notice: false" not in updated
+        assert "fuel_bills_before_application: false" not in updated
 
     def test_complete_missing_imported_test_inputs_adds_deferred_import_defaults(
         self, tmp_path
