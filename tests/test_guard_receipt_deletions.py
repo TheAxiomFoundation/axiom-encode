@@ -254,6 +254,7 @@ class TestGuardReceiptDeletions:
                 fixture_root,
                 publication_mutation=None,
                 has_target_waiver=False,
+                owner_layout="canonical",
             )
         checkout = fixture_root / "rulespec-us"
 
