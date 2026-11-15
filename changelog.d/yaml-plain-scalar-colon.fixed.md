@@ -1,0 +1,1 @@
+Quote a generated `source:` or `excerpt:` value whose `:` ends the line (for example "one of the following:") in the eval-time artifact repair, not only at `--apply`, so a local encode no longer fails its YAML parse on a list lead-in. The repair adds quotes only, refuses multi-line or non-plain values, and writes only when each quoted line reads back as its exact text.

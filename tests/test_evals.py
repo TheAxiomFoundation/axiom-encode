@@ -9900,6 +9900,130 @@ rules: []
             for call in mock_repair.call_args_list
         )
 
+    # Run 2b708c06 (encoder 0.2.2371) recorded this issue for its candidate.
+    _TRAILING_COLON_PARSE_ISSUE = (
+        "block-13.yaml YAML parse failed: mapping values are not allowed here\n"
+        '  in "<unicode string>", line 102, column 128:\n'
+        "     ... ll of the following requirements:\n"
+        "                                         ^"
+    )
+    _TRAILING_COLON_FIXTURE = (
+        Path(__file__).parent
+        / "fixtures"
+        / "generated_yaml_scanner"
+        / "az_faa5_medical_block13_run2b708c06_rejected.yaml"
+    )
+
+    def test_generated_eval_repairs_quote_a_trailing_colon_excerpt(self, tmp_path):
+        rulespec_file = tmp_path / "block-13.yaml"
+        original = self._TRAILING_COLON_FIXTURE.read_text()
+        rulespec_file.write_text(original)
+
+        repairs = evals_module._apply_generated_eval_repairs(
+            rulespec_file=rulespec_file,
+            policy_repo_root=tmp_path / "rulespec-us",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            issues=[self._TRAILING_COLON_PARSE_ISSUE],
+            local_corpus_release=object(),
+        )
+
+        assert repairs == ["source_scalar_quote:excerpt:102"]
+        repaired = rulespec_file.read_text()
+        assert repaired == original.replace(
+            "excerpt: Discuss and document the case file(g) whether the service "
+            "animal meets all of the following requirements:\n",
+            "excerpt: 'Discuss and document the case file(g) whether the service "
+            "animal meets all of the following requirements:'\n",
+        )
+        assert yaml.safe_load(repaired)["format"] == "rulespec/v1"
+
+    @pytest.mark.parametrize(
+        "issue",
+        (
+            # The parse issue of another file, here the companion tests.
+            _TRAILING_COLON_PARSE_ISSUE.replace("block-13.yaml", "block-13.test.yaml"),
+            # Another parse problem.
+            "block-13.yaml YAML parse failed: found duplicate key 'rules'",
+        ),
+    )
+    def test_generated_eval_repairs_quote_only_for_the_rulespec_colon_issue(
+        self, issue, tmp_path
+    ):
+        rulespec_file = tmp_path / "block-13.yaml"
+        original = self._TRAILING_COLON_FIXTURE.read_text()
+        rulespec_file.write_text(original)
+
+        repairs = evals_module._apply_generated_eval_repairs(
+            rulespec_file=rulespec_file,
+            policy_repo_root=tmp_path / "rulespec-us",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            issues=[issue],
+            local_corpus_release=object(),
+        )
+
+        assert repairs == []
+        assert rulespec_file.read_text() == original
+
+    def test_generated_eval_repairs_leave_a_refused_colon_line_unchanged(
+        self, tmp_path
+    ):
+        rulespec_file = tmp_path / "block-13.yaml"
+        original = "format: rulespec/v1\nrules:\n  - header: The tax is:\n"
+        rulespec_file.write_text(original)
+
+        repairs = evals_module._apply_generated_eval_repairs(
+            rulespec_file=rulespec_file,
+            policy_repo_root=tmp_path / "rulespec-us",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            issues=[
+                "block-13.yaml YAML parse failed: mapping values are not "
+                'allowed here\n  in "<unicode string>", line 3, column 25:'
+            ],
+            local_corpus_release=object(),
+        )
+
+        assert repairs == []
+        assert rulespec_file.read_text() == original
+
+    def test_generated_eval_rescores_after_quoting_a_trailing_colon_excerpt(
+        self, tmp_path
+    ):
+        rulespec_file = tmp_path / "block-13.yaml"
+        rulespec_file.write_text(self._TRAILING_COLON_FIXTURE.read_text())
+        rejected = SimpleNamespace(
+            compile_pass=False,
+            compile_issues=[self._TRAILING_COLON_PARSE_ISSUE],
+            ci_pass=False,
+            ci_issues=[self._TRAILING_COLON_PARSE_ISSUE],
+        )
+        parsed = SimpleNamespace(
+            compile_pass=True, compile_issues=[], ci_pass=True, ci_issues=[]
+        )
+        seen_parseable = []
+
+        def evaluate(**kwargs):
+            try:
+                yaml.safe_load(kwargs["rulespec_file"].read_text())
+            except yaml.YAMLError:
+                seen_parseable.append(False)
+                return rejected
+            seen_parseable.append(True)
+            return parsed
+
+        with patch(
+            "axiom_encode.harness.evals.evaluate_artifact", side_effect=evaluate
+        ):
+            result = _evaluate_generated_artifact_with_repairs(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path / "rulespec-us",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                source_text="Source body",
+                local_corpus_release=object(),
+            )
+
+        assert result is parsed
+        assert seen_parseable == [False, True]
+
     def test_generated_eval_repair_rounds_are_bounded(self, tmp_path):
         rulespec_file = tmp_path / "artifact.yaml"
         rulespec_file.write_text("initial\n")

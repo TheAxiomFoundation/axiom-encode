@@ -9384,13 +9384,28 @@ def _apply_generated_eval_repairs(
     rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[str]:
     """Apply deterministic generated-artifact repairs before final eval scoring."""
+    cli_helpers = None
+    unquoted_colon_issue = (
+        f"{rulespec_file.name} YAML parse failed: mapping values are not allowed here"
+    )
+    if any(str(issue).startswith(unquoted_colon_issue) for issue in issues):
+        # Import lazily to avoid the startup cycle: cli imports this module.
+        from axiom_encode import cli as cli_helpers
+
+        quoted_scalars = cli_helpers._quote_unquoted_source_scalars(
+            rules_file=rulespec_file
+        )
+        print("  auto_quoted_source_scalars:" + (",".join(quoted_scalars) or "none"))
+        if quoted_scalars:
+            # Score the now-parseable artifact before a repair that reads it.
+            return [f"source_scalar_quote:{item}" for item in quoted_scalars]
+
     repairs: list[str] = []
     proof_repairs = _remove_unreferenced_proof_import_atoms(rulespec_file, issues)
     repairs.extend(f"proof_import:{name}" for name in proof_repairs)
     unused_import_repairs = _prune_unused_imports_from_file(rulespec_file, issues)
     repairs.extend(f"unused_import:{name}" for name in unused_import_repairs)
 
-    cli_helpers = None
     if any("Proof source evidence not found:" in str(issue) for issue in issues):
         # Import lazily to avoid the startup cycle: cli imports this module.
         from axiom_encode import cli as cli_helpers

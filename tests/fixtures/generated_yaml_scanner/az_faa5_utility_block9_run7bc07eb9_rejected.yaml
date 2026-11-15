@@ -1,0 +1,196 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-9
+    source_sha256: c161fbf9f347ec582d0c34efb8d0519d7485b96abef6a34d06156831539f27f9
+  summary: |-
+    Participants may have some or all of their utilities paid with Energy Assistance, previously known as negative rent, when one of the following applies:
+    Energy Assistance payments are either paid to the participant or directly to the utility company as a vendor payment.
+    The payment is $20 or more annually.
+    Is received in the application month or any of the 12 months before the application month.
+# The evidence coverage floor is 2026-08-01, not a legal commencement date.
+# Branch inventory: three housing bullets, three elderly/disability payment
+# bullets, and three other-unit bullets are encoded below.
+imports:
+  - us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#liheap_minimum_annual_payment_amount
+  - us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#liheap_application_month_lookback_months
+inputs:
+  - name: lives_in_public_housing
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: rent_is_zero
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: lives_in_section_8_project_based_rental_housing
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: receives_section_8_housing_choice_voucher
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: has_elderly_or_disabled_participant
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: receives_energy_assistance_payment
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: energy_assistance_program
+    entity: Household
+    dtype: String
+    period: Month
+  - name: annual_energy_assistance_payment
+    entity: Household
+    dtype: Money
+    unit: USD
+    period: Month
+  - name: payment_receipt_months_before_application
+    entity: Household
+    dtype: Integer
+    period: Month
+  - name: can_provide_proof_of_heating_or_cooling_expense
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: incurred_heating_or_cooling_expense
+    entity: Household
+    dtype: Money
+    unit: USD
+    period: Month
+  - name: energy_assistance_payment
+    entity: Household
+    dtype: Money
+    unit: USD
+    period: Month
+rules:
+  - name: energy_assistance_housing_condition
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Utility Expenses and Allowances, block 9, housing conditions
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-9
+              excerpt: Participants may have some or all of their utilities paid with Energy Assistance, previously known as negative rent, when one of the following applies:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-9
+              excerpt: They live in public housing, and their rent is zero
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-9
+              excerpt: They live in Section 8 Project based Rental Housing
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-9
+              excerpt: They are recipients of a Section 8 Housing Choice Voucher
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          (lives_in_public_housing and rent_is_zero)
+          or lives_in_section_8_project_based_rental_housing
+          or receives_section_8_housing_choice_voucher
+  - name: elderly_or_disabled_energy_assistance_sua_condition
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Utility Expenses and Allowances, block 9, elderly or disabled participant SUA branch
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-9
+              excerpt: Budgetary units that receive energy assistance payments and have a participant who is elderly or has a disability are eligible for SUA when the payment meets all of the following:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-9
+              excerpt: Is from the Low-Income Home Energy Assistance Program (LIHEAP), Power AZ or any similar energy assistance program.
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-9
+              excerpt: Is received in the application month or any of the 12 months before the application month.
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#liheap_minimum_annual_payment_amount
+              output: liheap_minimum_annual_payment_amount
+              hash: sha256:26aee41fb081c7eb7c51d897df0199ffa0eb50428137e4007acf0ca4ad956e26
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#liheap_application_month_lookback_months
+              output: liheap_application_month_lookback_months
+              hash: sha256:26aee41fb081c7eb7c51d897df0199ffa0eb50428137e4007acf0ca4ad956e26
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          has_elderly_or_disabled_participant
+          and receives_energy_assistance_payment
+          and (
+            energy_assistance_program == "LIHEAP"
+            or energy_assistance_program == "Power AZ"
+            or energy_assistance_program == "similar energy assistance program"
+          )
+          and annual_energy_assistance_payment >= liheap_minimum_annual_payment_amount
+          and payment_receipt_months_before_application >= 0
+          and payment_receipt_months_before_application <= liheap_application_month_lookback_months
+  - name: other_unit_energy_assistance_sua_condition
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Utility Expenses and Allowances, block 9, units without elderly or disabled participants
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-9
+              excerpt: Budgetary units without a participant who is elderly or has a disability may still be eligible for SUA when the budgetary unit meets all of the following:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-9
+              excerpt: Can provide proof of their heating or cooling expense.
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-9
+              excerpt: Is receiving a payment from the LIHEAP, Power AZ or any similar energy assistance program.
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-9
+              excerpt: Incurs a heating or cooling expense that is more than the energy assistance payment.
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          not has_elderly_or_disabled_participant
+          and can_provide_proof_of_heating_or_cooling_expense
+          and receives_energy_assistance_payment
+          and (
+            energy_assistance_program == "LIHEAP"
+            or energy_assistance_program == "Power AZ"
+            or energy_assistance_program == "similar energy assistance program"
+          )
+          and incurred_heating_or_cooling_expense > energy_assistance_payment
