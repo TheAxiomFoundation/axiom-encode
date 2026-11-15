@@ -1771,6 +1771,23 @@ for _set_name, _per_file_name in (
     )
 _EXPECTED_DESCRIPTIVE_FIELDS = frozenset({"reason", "run_id", "runner", "model"})
 _SCAN_SCHEMAS = {name: getattr(cli, name) for name in _SCAN_SCHEMA_NAMES}
+# Explicit opt-in model variants: the entire preservation record is scanned,
+# never classified as descriptive text or allowed to conceal a covered path.
+for _model_name in (
+    "_MODEL_APPLY_MANIFEST_FIELDS",
+    "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
+    "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+    "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+):
+    _preserved_name = _model_name + "_WITH_COMPANION_PRESERVATION"
+    _SCAN_SCHEMAS[_preserved_name] = _SCAN_SCHEMAS[_model_name] | {
+        "repair_companion_preservation"
+    }
+    _EXPECTED_MANIFEST_CLASSES[_preserved_name] = (
+        _EXPECTED_MANIFEST_CLASSES[_model_name][0],
+        _EXPECTED_MANIFEST_CLASSES[_model_name][1] | {"repair_companion_preservation"},
+    )
+    _SCAN_SCHEMA_NAMES += (_preserved_name,)
 _SCAN_PATH = "us/policies/council/second.yaml"
 _SCAN_NESTED_POSITIONS = (
     ("_RETIRE_APPLY_MANIFEST_FIELDS", "retired_manifest"),
@@ -1952,11 +1969,13 @@ def test_manifest_scan_recognition_matches_direct_schema_admission(schema_name):
             )
         )
         assert admitted == (keys in recognized), (schema_name, sorted(keys))
+    # Opt-in preservation leaves the existing backend/provenance contract intact.
+    base_schema_name = schema_name.removesuffix("_WITH_COMPANION_PRESERVATION")
     for backend in backends:
         assert (
             not _admission_shape_issues(schema, schema_name, backend)
             or (
-                schema_name
+                base_schema_name
                 in {
                     "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
                     "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
@@ -1966,7 +1985,7 @@ def test_manifest_scan_recognition_matches_direct_schema_admission(schema_name):
             or (
                 # A per-file Codex manifest must carry CLI provenance; only
                 # historical set-digest Codex receipts may omit it.
-                schema_name == "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS"
+                base_schema_name == "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS"
                 and backend == "codex"
             )
         )
