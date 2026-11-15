@@ -32990,11 +32990,20 @@ def _branch_boundary_test_witnesses(
                 dependency_environment=dependency_environment,
                 formula_environment=formula_environment or {},
             ):
-                # A capped amount (`min(amount, cap)`) is a boundary selector
-                # too: `_formula_expression_has_boundary_clamp` reads the cap.
-                selector_names = _rule_numeric_selector_names(
-                    controller_rule
-                ) | _rule_minimum_operand_names(controller_rule)
+                if controller_rule is rule and _case_reaches_minimum_cap(
+                    rule,
+                    case,
+                    boundary,
+                    execution=execution,
+                    execution_environment=execution_environment,
+                    principal_rules=principal_rules,
+                    dependency_names=set(dependency_environment),
+                    formula_environment=formula_environment or {},
+                    numeric_value_is_grounded=numeric_value_is_grounded,
+                ):
+                    witnesses.add((rule_name, f"case:{id(case)}"))
+                    break
+                selector_names = _rule_numeric_selector_names(controller_rule)
                 if selector_names and any(
                     numeric_value_is_grounded(value, (boundary,))
                     and _formula_execution_references_names(
@@ -35374,37 +35383,130 @@ def _rule_numeric_selector_names(rule: dict[str, Any]) -> set[str]:
     return names
 
 
-def _rule_minimum_operand_names(rule: dict[str, Any]) -> set[str]:
-    """Return the names inside each two-argument ``min`` of a rule's formulas.
+def _case_reaches_minimum_cap(
+    rule: dict[str, Any],
+    case: dict[str, Any],
+    boundary: NumericOccurrenceLike,
+    *,
+    execution: _FormulaExecution,
+    execution_environment: dict[str, Any],
+    principal_rules: dict[str, dict[str, Any]],
+    dependency_names: set[str],
+    formula_environment: dict[str, Any],
+    numeric_value_is_grounded: NumericGroundingPredicate,
+) -> bool:
+    """Witness a source cap that the executed leaf applies as ``min(amount, cap)``.
 
     `_rule_numeric_selector_names` reads comparisons and ``max`` forms, and it
     falls back to every identifier only when it finds neither. So in a rule
     that is gated by a comparison and caps an amount, as in
-    ``if miles > threshold: min(max(0, cost), cap) else: 0``, the capped
-    ``cost`` is not a selector, and no case can reach the cap reader
-    (`_formula_expression_has_boundary_clamp`). A boundary case still has to
-    set the capped input to the source value and change the asserted output.
+    ``if miles > threshold: min(max(0, cost), cap) else: 0``, the capped cost
+    is never a selector. This reads the cap from the executed leaf only (not
+    from the selectors that chose it) and needs a kink at the case: an input
+    set to the source value makes the capped amount equal the cap, which
+    evaluates to the source value and uses no case input, and the principal
+    output changes one step below that input value and stays the same one step
+    above it.
     """
 
-    names: set[str] = set()
-    for operands_text in _balanced_call_operands(_rule_formula_text(rule), "min"):
-        expression = _parse_formula_expression(f"min({operands_text})")
+    inputs = case.get("input")
+    expression = _parse_formula_expression(execution.leaf)
+    if not isinstance(inputs, dict) or expression is None:
+        return False
+    root_value = _formula_execution_runtime_value(execution)
+    if root_value is _UNRESOLVED_CONDITION_VALUE:
+        return False
+    numeric_inputs = {
+        key: float(value)
+        for key, value in inputs.items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    }
+    case_names = {
+        name for key in inputs for name in _input_key_names(key)
+    } | dependency_names
+    environment = {**formula_environment, **execution_environment}
+    for node in ast.walk(expression):
         if not (
-            isinstance(expression, ast.Call)
-            and len(expression.args) == 2
-            and not expression.keywords
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "min"
+            and len(node.args) == 2
+            and not node.keywords
         ):
             continue
-        called = {
-            id(node.func) for node in ast.walk(expression) if isinstance(node, ast.Call)
-        }
-        names.update(
-            node.id
-            for argument in expression.args
-            for node in ast.walk(argument)
-            if isinstance(node, ast.Name) and id(node) not in called
+        for amount, cap in ((node.args[0], node.args[1]), (node.args[1], node.args[0])):
+            if _formula_node_references_names(cap, case_names):
+                continue
+            cap_value = _rulespec_runtime_decimal(
+                _evaluate_condition_expression(cap, environment)
+            )
+            amount_value = _rulespec_runtime_decimal(
+                _evaluate_condition_expression(amount, environment)
+            )
+            if (
+                cap_value is None
+                or amount_value != cap_value
+                or not numeric_value_is_grounded(float(cap_value), (boundary,))
+            ):
+                continue
+            for key, value in numeric_inputs.items():
+                if (
+                    numeric_value_is_grounded(value, (boundary,))
+                    and _formula_node_references_names(amount, _input_key_names(key))
+                    and _input_step_kinks_output(
+                        rule,
+                        case,
+                        input_key=key,
+                        value=value,
+                        root_value=root_value,
+                        principal_rules=principal_rules,
+                        dependency_names=dependency_names,
+                        formula_environment=formula_environment,
+                    )
+                ):
+                    return True
+    return False
+
+
+def _input_step_kinks_output(
+    rule: dict[str, Any],
+    case: dict[str, Any],
+    *,
+    input_key: object,
+    value: float,
+    root_value: Any,
+    principal_rules: dict[str, dict[str, Any]],
+    dependency_names: set[str],
+    formula_environment: dict[str, Any],
+) -> bool:
+    """Whether the output changes one step below `value` and not one step above."""
+
+    step = 1.0 if value.is_integer() else max(abs(value) * 1e-6, 1e-9)
+    outputs = []
+    for candidate in (value - step, value + step):
+        candidate_case = {**case, "input": {**case["input"], input_key: candidate}}
+        candidate_execution = _case_formula_execution(
+            rule,
+            candidate_case,
+            formula_environment=formula_environment,
+            dependency_environment=_case_dependency_environment(
+                principal_rules,
+                candidate_case,
+                formula_environment=formula_environment,
+                require_asserted_value=False,
+                allowed_names=dependency_names,
+            ),
         )
-    return names
+        if candidate_execution is None:
+            return False
+        output = _formula_execution_runtime_value(candidate_execution)
+        if output is _UNRESOLVED_CONDITION_VALUE:
+            return False
+        outputs.append(output)
+    below, above = outputs
+    return not _formula_runtime_values_equal(
+        below, root_value
+    ) and _formula_runtime_values_equal(above, root_value)
 
 
 def _case_numeric_selector_values(

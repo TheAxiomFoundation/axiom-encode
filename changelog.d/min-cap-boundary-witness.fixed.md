@@ -1,1 +1,1 @@
-Credit a companion case at a source-stated cap written as `min(amount, cap)` when the rule is also gated by a comparison, so a boundary-tested cap is no longer refused as `boundary-unexercised`.
+Credit a companion case at a source-stated cap written as `min(amount, cap)` in a rule that is also gated by a comparison, when the case puts the capped amount exactly at the cap and the output kinks there; such a boundary-tested cap is no longer refused as `boundary-unexercised`.

@@ -12,6 +12,7 @@ no case could reach the cap reader.
 
 from __future__ import annotations
 
+import copy
 import functools
 import hashlib
 import json
@@ -135,16 +136,90 @@ def test_a_cap_on_another_value_is_still_refused():
     assert _boundary_refused(_issues(candidate))
 
 
-def test_minimum_operand_names_skip_called_functions():
-    rule = {
-        "versions": [
-            {
-                "formula": (
-                    "if miles > threshold:\n"
-                    "  min(max(0, cost), cap)\n"
-                    "else: min(a, b, c)"
-                )
-            }
-        ]
-    }
-    assert sc._rule_minimum_operand_names(rule) == {"cost", "cap"}
+CAP_FORMULA = "min(max(0, daily_lodging_cost), medical_lodging_daily_cap)"
+GATE = "travel_distance_miles > medical_lodging_travel_distance_threshold:"
+
+
+def _with_outputs(cases: list[dict], outputs: dict[str, float]) -> list[dict]:
+    cases = copy.deepcopy(cases)
+    for case in cases:
+        if case["name"] in outputs:
+            case["output"][OUTPUT] = outputs[case["name"]]
+    return cases
+
+
+def _with_reimbursement_input(candidate: str) -> str:
+    return candidate.replace(
+        "rules:\n",
+        "  - name: reimbursement\n    entity: Person\n    dtype: Money\n"
+        "    unit: USD\n    period: Day\nrules:\n",
+        1,
+    )
+
+
+def _scaled_amount_never_reaches_the_cap():
+    candidate = CANDIDATE.replace(
+        CAP_FORMULA, "min(max(0, daily_lodging_cost) * 0.5, medical_lodging_daily_cap)"
+    )
+    cases = _with_outputs(
+        CASES,
+        {
+            "qualifying_lodging_below_daily_cap": 15,
+            CAP_CASE: 20,
+            "qualifying_lodging_above_daily_cap": 30,
+        },
+    )
+    return candidate, cases
+
+
+def _net_amount_never_reaches_the_cap():
+    candidate = _with_reimbursement_input(CANDIDATE).replace(
+        CAP_FORMULA,
+        "min(daily_lodging_cost - reimbursement, medical_lodging_daily_cap)",
+    )
+    cases = []
+    for case in copy.deepcopy(CASES):
+        if case["name"] == "qualifying_lodging_above_daily_cap":
+            continue
+        if COST in case["input"]:
+            case["input"][f"{PREFIX}#input.reimbursement"] = 0
+        if case["name"] == CAP_CASE:
+            case["input"][f"{PREFIX}#input.reimbursement"] = 10
+            case["output"][OUTPUT] = 30
+        cases.append(case)
+    return candidate, cases
+
+
+def _cap_only_in_the_gate():
+    candidate = CANDIDATE.replace(
+        GATE,
+        GATE[:-1] + " and min(daily_lodging_cost, medical_lodging_daily_cap) > 0:",
+    ).replace(CAP_FORMULA, "max(0, daily_lodging_cost)")
+    cases = _with_outputs(CASES, {"qualifying_lodging_above_daily_cap": 60})
+    return candidate, cases
+
+
+def _cap_term_multiplied_by_zero():
+    candidate = CANDIDATE.replace(
+        CAP_FORMULA,
+        "max(0, daily_lodging_cost)"
+        " + 0 * min(daily_lodging_cost, medical_lodging_daily_cap)",
+    )
+    cases = _with_outputs(CASES, {"qualifying_lodging_above_daily_cap": 60})
+    return candidate, cases
+
+
+@pytest.mark.parametrize(
+    "mutant",
+    [
+        _scaled_amount_never_reaches_the_cap,
+        _net_amount_never_reaches_the_cap,
+        _cap_only_in_the_gate,
+        _cap_term_multiplied_by_zero,
+    ],
+)
+def test_a_case_at_40_that_does_not_reach_an_applied_cap_is_still_refused(mutant):
+    candidate, cases = mutant()
+    assert candidate != CANDIDATE
+    assert any(case["input"].get(COST) == 40 for case in cases)
+    assert _boundary_refused(_issues(candidate, cases))
