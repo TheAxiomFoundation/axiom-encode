@@ -11559,26 +11559,30 @@ def _complete_source_deferral_anchor(corpus_citation_path: str | None) -> str:
     if not anchors:
         return "<module path>"
     anchor = anchors[-1]
-    if anchor.partition(":")[2].partition("/")[0] in RULESPEC_ATOMIC_MODULE_ROOTS:
+    if not _is_manual_or_form_unit(corpus_citation_path):
         return anchor
     # A manual or form unit's corpus-shaped anchor (`us-az:manuals/...`) is no
     # RuleSpec module root, and the target check refuses any output under it.
     # Name the module's own target (`us-az:policies/...`) instead.
     try:
         relative = _source_identifier_to_relative_rulespec_path(corpus_citation_path)
-    except ValueError:  # pragma: no cover - guidance must never block a prompt
-        return "<module path>"
+    except ValueError:
+        return anchor
     jurisdiction = corpus_citation_path.strip("/").split("/", 1)[0]
     return f"{jurisdiction}:{relative.with_suffix('').as_posix()}"
+
+
+def _is_manual_or_form_unit(corpus_citation_path: str | None) -> bool:
+    """Whether a corpus unit is a manual or form, encoded under `policies/`."""
+
+    parts = (corpus_citation_path or "").strip("/").split("/")
+    return len(parts) >= 3 and parts[1] in {"manual", "form"}
 
 
 def _unmarked_prose_deferral_note(corpus_citation_path: str | None) -> str:
     """Tell a manual or form unit not to invent branch markers from prose."""
 
-    if not corpus_citation_path:
-        return ""
-    parts = corpus_citation_path.strip("/").split("/")
-    if len(parts) < 3 or parts[1] not in {"manual", "form"}:
+    if not _is_manual_or_form_unit(corpus_citation_path):
         return ""
     anchor = _complete_source_deferral_anchor(corpus_citation_path)
     return f"""- A manual or form paragraph without a printed marker is not a branch.

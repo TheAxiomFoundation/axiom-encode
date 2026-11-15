@@ -271,3 +271,42 @@ def test_unmarked_prose_note_is_only_in_complete_manual_and_form_prompts(
 ):
     prompt = _eval_prompt(tmp_path, citation, complete=complete)
     assert "never invent a marker" not in prompt
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "uk/legislation/ukpga/2007/3/35",
+        "de/statute/estg/32a",
+        "us/statute/26/2/a",
+        "us-nc/statute/108a/25",
+        "us/regulation/7/273/9",
+        "us/guidance/usda/fns/snap/cola",
+    ],
+)
+def test_other_classes_keep_the_validators_anchor(tmp_path, citation):
+    assert (
+        evals._complete_source_deferral_anchor(citation)
+        == sc._deferral_anchor_bases(citation)[-1]
+    )
+    assert "never invent a marker" not in _eval_prompt(tmp_path, citation)
+
+
+def test_uk_prompt_anchor_is_unchanged(tmp_path):
+    citation = "uk/legislation/ukpga/2007/3/35"
+    assert evals._complete_source_deferral_anchor(citation) == (
+        "uk:legislations/ukpga/2007/3/35"
+    )
+    assert "`uk:legislations/ukpga/2007/3/35/<marker>/<marker>#<name>`" in (
+        _eval_prompt(tmp_path, citation)
+    )
+
+
+def test_form_prompt_names_the_policies_anchor_and_no_invented_markers(tmp_path):
+    prompt = _eval_prompt(tmp_path, "us-ks/form/department-of-revenue/k-40es")
+    assert "us-ks:forms/" not in prompt
+    assert "`us-ks:policies/department-of-revenue/k-40es/<marker>/<marker>#<name>`" in (
+        prompt
+    )
+    assert "own target `us-ks:policies/department-of-revenue/k-40es#<name>`" in prompt
+    assert "never invent a marker" in prompt
