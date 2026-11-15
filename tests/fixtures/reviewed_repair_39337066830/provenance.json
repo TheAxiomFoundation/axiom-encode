@@ -1,0 +1,28 @@
+{
+  "run": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/39337066830",
+  "seed": {
+    "archive_sha256": "fe5b18159b319659f5808066fcee721522d3ff5e53bb25f8ca2d5496103b4d12",
+    "encoder_commit": "be9222fbf78d378cf2efc0acb884a31af0a10fee",
+    "issues_sha256": "90d0ec3f8361dae770b31288987e75cb1e34ceb39027de68efcddb6c90d37be5",
+    "rulespec_sha256": "1f5d4e039e8faa3205c7e813712708ec911c3492e9ba7c4e93bcd547aceab0ca",
+    "run_attempt": "1",
+    "run_id": "39337066830",
+    "tests_sha256": "908316734ce9a164e75135cf7c53d4a006f445065ca1369a3865e78171e6f0b1"
+  },
+  "source": {
+    "body_sha256": "7637ab494fc385b938e9e3ce4d5f3b1af8bc331ad644fe3cedefaee8434028ee",
+    "corpus_ref": "d24cbde7e6d125a6f859f43c188b0ffbd115b835",
+    "release_name": "ca-rulespec-2026-07-21-oracle-complete-v2",
+    "release_sha256": "5acdb15ce948857a13baf9088c2179951716edd47a0327c078b4e97be6eb0ef4",
+    "requested_citation": "ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit",
+    "resolved_citation": "ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit"
+  },
+  "expected_postimage": {
+    "rulespec_object_sha256": "aa86ca330ce7fab29ac69e97b30ad774d7403565b4d5086f4e2b3e9990778d0d",
+    "rulespec_sha256": "e857b1b909cf7546b7366f0a235349bac58d8f40d5c34083d894178659a5c830",
+    "tests_object_sha256": "016ff56f77745ee35f1a66723dfd26856a1678a33d0936ae889eebd9489b0964",
+    "tests_sha256": "1f071c6763514db637daf525892af23476703dc16be30def3715239938470157"
+  },
+  "reuse_fixture": "tests/fixtures/t2036_country_case_selection",
+  "scope": "Authenticated public failed candidate; exact reviewed full-artifact reconstruction. Not a signing receipt or publication authorization."
+}
