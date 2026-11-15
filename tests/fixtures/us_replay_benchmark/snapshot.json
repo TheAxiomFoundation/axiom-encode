@@ -2,8 +2,8 @@
  "schema": "axiom-encode/us-replay-snapshot/v2",
  "context": "workspace",
  "totals": {
-  "cases": 55,
-  "clean": 13,
+  "cases": 56,
+  "clean": 14,
   "issues": 3345,
   "rules": {
    "complete-source-unit:declaration-collision": 2,
@@ -3856,6 +3856,14 @@
     "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 15 at ca/policy/cra/t1-2025/ns479-credits [source unit]. Exact source computation (characters 1601:2240): `Column F: Column D minus column E. *** Column A Child's name (one child per line) ^ Column B All eligible expenses per child for the year ^ Column C Assistance received or receivable for amount in column B ^ Column D Column B minus colu ... : Line 2 multiplied by the percentage from line 3 Children's sports and arts tax credit = ^ Line 5: Line 1 plus line 4.`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. The best-effort unbound-formula diagnostic scan was capped at 32 rules and 8 cases per rule; additional matching principal formulas may exist beyond the reported names. The best-effort dependency-corroboration diagnostic scan was capped at 32 rules and 8 cases per rule; additional missing dependency assertions may exist beyond the reported names. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
     "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: ca/policy/cra/t1-2025/ns479-credits [source unit] [change]: `If the total of these credits is more than the amount of taxes you have to pay, you may get a refund for the difference.`; ca/policy/cra/t1-2025/ns479-credits [source unit] [change]: `Volunteer firefighters and ground search and rescue tax credit Line 1 and line 62400: Volunteer firefighters and ground search and rescue tax c ... cultural, recreational, or developmental activity or physical activity.`; ca/policy/cra/t1-2025/ns479-credits [source unit] [change]: `If you need more space, attach an additional sheet of paper.`; ca/policy/cra/t1-2025/ns479-credits [source unit] [change]: `Line 1 and line 62400: Volunteer firefighters and ground search and rescue tax credit Claim $500 ^`; ca/policy/cra/t1-2025/ns479-credits [source unit] [change]: `Complete the calculations that apply to you and attach a copy of this form to your paper return.`; ca/policy/cra/t1-2025/ns479-credits [source unit] [change]: `Do not include your receipts but keep them in case you are asked to provide them later.`. The evaluator recognized 14 directional formula-toggle witnesses from 5 distinct case pairs, but these do not cover every listed source condition. Check affected rule/path, source-selector relevance, active orientation, required effect, and distinct-condition witness allocation before adding cases. Recognized test pairs alone do not establish source coverage."
    ]
+  },
+  "local-date-proof-alias-41648809989": {
+   "citation": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+   "control": false,
+   "issues": 0,
+   "rules": {},
+   "error": null,
+   "findings": []
   },
   "local-date-silent-merge-41088317595": {
    "citation": "us-az/manual/des/faa5/na-categorical-eligibility/block-5",

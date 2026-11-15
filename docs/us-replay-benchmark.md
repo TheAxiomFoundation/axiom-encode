@@ -7,9 +7,10 @@ or corpus checkout. The `replay benchmark` CI job runs it as a required check.
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 55 committed
-fixtures in `tests/fixtures/us_replay_benchmark/`. Each hosted fixture copies a
-real candidate from the `targeted-reencode-failure` artifact of a signed run:
+(the `[complete-source-unit:*]` rules of the CI validator) over 56 committed
+fixtures in `tests/fixtures/us_replay_benchmark/`. For each hosted fixture,
+`extract` copies a real candidate from the `targeted-reencode-failure` artifact
+of a `targeted-signed-reencode.yml` run:
 
 - `candidate.yaml` and `candidate.test.yaml`: the final candidate and its
   companion tests. For a rejected candidate, their hashes match the bundle
@@ -19,8 +20,9 @@ real candidate from the `targeted-reencode-failure` artifact of a signed run:
 - `issues.json`: the issues that the pipeline recorded for that run.
 - `context/`: only the workspace context modules that the candidate imports or
   names as a deferral provider (`blocked_by`).
-- `providers/`: a module that the candidate needs and the workspace context
-  lacks, copied from the RuleSpec repository at the run's `rulespec_ref`.
+- `providers/`: a module that `extract` copies from the RuleSpec repository
+  at the run's `rulespec_ref` when the candidate needs it and the workspace
+  context lacks it.
 - `fixture.json`: the run id and URL, citation, lane, runner, encoder commit and
   version, corpus and RuleSpec refs, the failure classes that the run recorded,
   the origin of each context module and the SHA-256 of every file. It may also
@@ -78,6 +80,29 @@ reported none on the parent. The current analyzer reports no finding on either,
 so the snapshot pins the fixture clean. The fixture tests validator and engine
 behavior on retained public inputs and does not track current Arizona law.
 
+The `local-date-proof-alias-41648809989` fixture mutates the proof fields of
+public `41648809989-control`. It moves `metadata.proof` to `proof` on
+`expanded_categorical_eligibility_fpl_limit_rate` and changes that rule's
+`effective_period` atom from `source.excerpt` to `source.quote`. Reversing
+these two aliases recovers every parsed value and type in the parent
+candidate. The source, source metadata and companion retain the parent's
+exact bytes; neither fixture supplies imported context. `fixture.json`
+identifies a local diagnostic mutation and records its raw recipe and input
+origins. `tests/fixtures/date_silent_proof_alias/candidate.yaml` holds the same
+candidate bytes.
+
+Its `issues.json` records one unsupported `2026-03-01` start from the official
+replay CLI at encoder commit `e85c629eb`. The analyzer at `b89c050a` reports no
+finding on either the mutation or its parent, so the snapshot pins the
+mutation clean. Separate controls at engine commit `363c6a6c` compile both
+candidates to identical 19,982-byte outputs, and both unchanged 15-case
+companions pass. Separate proof-validator controls also give both candidates
+the same result. The proof validator accepts all 20 atoms structurally and
+reports four unresolved-source findings with the retained source-text map for
+`us-az/manual/des/archived-policy/2026-03-23-whats-changed`. The fixture lacks
+that change-notice body, so these results do not establish full release-bound
+proof authentication.
+
 The T2036 country-case-selection fixture retains an unsigned local repair
 candidate and its complete 45-case companion. Unrelated table cases must not
 disable evidence that the country-condition cases supply. Offline replay still
@@ -104,18 +129,23 @@ context, because a fixture records no amendment documents.
 
 The set has 45 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, eight Canadian citations
-and one Israeli statute. Its 55 fixtures include one Arizona control that passed
-validation and then failed a provenance guard. The current snapshot pins 13
+and one Israeli statute. Its 56 fixtures include one Arizona control that passed
+validation and then failed a provenance guard. The current snapshot pins 14
 clean fixtures and 42 fixtures with 3,345 findings between them, and it records
-no replay error and no `allowed_regressions` entry. The child-credit and
-retirement-transfer diagnostics retain six and 19 findings; the section 219(g)
+no replay error and no `allowed_regressions` entry. The proof-alias fixture
+adds one clean row; all 55 earlier rows keep their exact findings. The
+child-credit and retirement-transfer diagnostics retain six and 19 findings;
+the section 219(g)
 diagnostic retains 33. Read clean counts and per-fixture changes, not only the
 total.
 
-`tests/test_us_replay_benchmark.py` caps the committed fixtures at 5 MiB plus
-a 64 KiB allowance that only the `local-date-silent-merge-41088317595` fixture
-may use. That fixture takes 61,524 bytes. The test requires it to fit in
-64 KiB on its own and every other fixture together to fit in 5 MiB.
+`tests/test_us_replay_benchmark.py` caps every other fixture together at
+5 MiB and each of these named cases separately at 64 KiB:
+
+- `local-date-silent-merge-41088317595`: 61,524 bytes;
+- `local-date-proof-alias-41648809989`: 38,278 bytes.
+
+The budget counts files inside each fixture directory.
 
 ## Public fixtures and the private held-out set
 
@@ -187,8 +217,8 @@ a new regression nor fails other PRs.
 
 `snapshot --check` reports drift without writing.
 
-Two PRs that both change findings conflict in `snapshot.json` (at least in
-`totals`). Merge `main` into the second one and rerun `snapshot`.
+Two PRs that both change findings can conflict in `snapshot.json`. Merge
+`main` into the second one and rerun `snapshot`.
 
 ## Rule for false-positive fix PRs
 
