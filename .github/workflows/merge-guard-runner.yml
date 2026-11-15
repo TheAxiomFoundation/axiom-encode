@@ -1,32 +1,59 @@
 name: Merge guard runner (shadow)
 
-# Change 3 of docs/content-bound-merge-guard.md section 8: run the
-# content-bound merge guard from encoder main on RuleSpec pull requests and
-# report the verdict. SHADOW ONLY. Nothing here can block a merge.
+# Run the content-bound merge guard on RuleSpec pull requests and report
+# shadow verdicts, under change 3 of docs/content-bound-merge-guard.md section 8.
+# Only workflow_dispatch starts this workflow; merging it starts no run.
+# A recurring sweep needs a later reviewed trigger change.
 #
-# INERT BY DEFAULT. Merging this file starts nothing:
-#   - the only trigger is workflow_dispatch (no schedule, no push, no
-#     pull_request), so it runs only when a person dispatches it;
-#   - the first job refuses unless the dispatch is on main AND the repository
-#     variable MERGE_GUARD_RUNNER_ENABLED is exactly 'true' (unset today);
-#   - the second job refuses unless the merge-guard environment holds the guard
-#     App's client ID (variable MERGE_GUARD_APP_CLIENT_ID) and private key
-#     (secret MERGE_GUARD_APP_KEY). The App does not exist yet.
-# The recurring sweep of the design (a schedule trigger) is a later reviewed
-# change to this file.
+# The gate job requires refs/heads/main and the value 'true' from
+# vars.MERGE_GUARD_RUNNER_ENABLED. The vars context can supply organization
+# values; the gate checks no repository-only origin. The gate has no
+# environment. The run job requires the guard App's client ID through
+# MERGE_GUARD_APP_CLIENT_ID and private key through MERGE_GUARD_APP_KEY, using
+# the merge-guard environment. It relies on needs: gate without repeating
+# the ref or switch checks.
 #
-# Modes. dry-run (default) prints verdicts and writes nothing: its token has
-# no write permission. shadow also writes one check run per judged head, named
-# "content-bound-merge-guard (shadow)", always with conclusion neutral. That
-# check must never be made a required check: neutral satisfies a required
-# check, so requiring it would require nothing. There is no enforcing mode.
+# A rerun of only the run job can reuse the earlier gate result. Rollback
+# requires both unsetting MERGE_GUARD_RUNNER_ENABLED and disabling this
+# workflow. GitHub blocks reruns while the workflow stays disabled; unsetting
+# the switch alone does not stop a rerun that reuses a successful gate.
+# Actual same-name variable configuration and variable resolution during
+# reruns remain unverified.
 #
-# The App's client ID and key live in the merge-guard environment, whose
-# deployment branch rule must allow only main: a workflow on any pushed branch
-# can read repository secrets. The first job has no environment, so a refused
-# dispatch does not create one. Each run mints a token that lasts one hour, is
-# limited to the one RuleSpec repository and the permissions below, and is
-# revoked when the job ends.
+# dry-run, the default, prints verdicts without publishing check runs. Its
+# token requests read access to checks. shadow can publish checks named
+# "content-bound-merge-guard (shadow)", always with conclusion neutral.
+# Keep that check out of required checks: GitHub accepts neutral as satisfying
+# a required check. The runner offers no enforcing mode.
+#
+# Before anyone stores the guard App key or changes the runner switch,
+# including for shadow mode, checklist step 1 requires Max to choose a
+# mechanism and any complement, maintainers to implement the choice, and a
+# fresh independent review to verify the whole key-exposure boundary.
+# Options (a), (b) and (c), and any complement, remain unchosen. Options (a)
+# and (b) need separate protection that prevents other workflows from
+# selecting the key-bearing environment. Recording these prerequisites does
+# not implement that protection or supply its evidence. Agents must not
+# approve environment or signing gates.
+#
+# Restricting an environment to main limits refs, not which workflow or job
+# selects it. The key-exposure boundary covers every job in any workflow
+# that can select the environment, including new, replaced or modified
+# workflows, dynamic selectors and who can land those workflows. It covers
+# all pre-token steps and persistence, builds, installation, dependencies
+# and their hooks, interpreter startup, __init__.py, the console entry point,
+# signing_broker startup, the import closure and any code those steps leave
+# on the runner. A write filter constrains its caller, not other code in the
+# same job.
+#
+# The token action requests a token for one RuleSpec repository with the
+# permissions below. Installation tokens expire after one hour. When it
+# holds an unexpired token, the action's post-job cleanup attempts to revoke
+# it. Requested scope, expiry and revocation limit that token. A holder of a
+# valid App private key can mint tokens for any installation of that App,
+# within each installation's granted repositories and permissions, while
+# the key remains valid. One requested token does not restrict tokens the
+# key holder mints independently.
 
 on:
   workflow_dispatch:
