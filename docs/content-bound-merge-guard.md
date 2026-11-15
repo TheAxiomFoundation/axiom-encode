@@ -63,7 +63,7 @@ Verified against `main` at `eb98f8d7` (after #2194).
 | D2e | "An approval is retained across base-only updates only when the approved content and the permitted scope stay unchanged." | §3 step 5 |
 | D2f | "The final approver is independent of both the candidate author and the authenticated dispatcher." | §3 step 6 |
 | D3 | "enrolled identities at first. An author may dispatch their own candidate. A different enrolled owner gives the final approval." | §3 step 6; §5 |
-| Seq. | "The merge gate of decision 2 is built and passes adversarial tests." | §7, §8 |
+| Seq. | "Build the merge gate of proposed answer 2 and pass its adversarial tests." | §7, §8 |
 
 ## 3. Binding an approval to content
 
