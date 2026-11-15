@@ -130,6 +130,7 @@ def inventory(repo: Path, base: str, candidate: str) -> dict[str, object]:
         owner_paths = (
             f".axiom/encoding-manifests/{parts[0]}/{tail}",
             f"{parts[0]}/.axiom/encoding-manifests/{tail}",
+            f".axiom/encoding-manifests/{tail}",
         )
         owners = []
         for owner in owner_paths:

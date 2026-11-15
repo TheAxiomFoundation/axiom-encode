@@ -16,16 +16,16 @@ PRIMARY = "us-az/policies/example.yaml"
 COMPANION = "us-az/policies/example.test.yaml"
 
 
-@pytest.fixture(params=["root", "nested"])
+@pytest.fixture(params=["root", "nested", "historical-root"])
 def candidate(tmp_path, request):
     git(tmp_path, "init", "-q")
     git(tmp_path, "config", "user.name", "Test")
     git(tmp_path, "config", "user.email", "test@example.invalid")
-    owner = (
-        ".axiom/encoding-manifests/us-az/policies/example.json"
-        if request.param == "root"
-        else "us-az/.axiom/encoding-manifests/policies/example.json"
-    )
+    owner = {
+        "root": ".axiom/encoding-manifests/us-az/policies/example.json",
+        "nested": "us-az/.axiom/encoding-manifests/policies/example.json",
+        "historical-root": ".axiom/encoding-manifests/policies/example.json",
+    }[request.param]
     for name, content in [
         (PRIMARY, "old"),
         (COMPANION, "test"),
@@ -186,4 +186,48 @@ def test_inventory_ignores_local_git_replacement_refs(candidate):
     assert (
         result["replacements"][0]["candidate_rulespec_sha256"]
         == hashlib.sha256(b"new").hexdigest()
+    )
+
+
+@pytest.mark.parametrize("layouts", [(0, 1), (0, 2), (1, 2), (0, 1, 2)])
+def test_all_owner_layout_ambiguities_refuse_even_invalid_claimant(tmp_path, layouts):
+    from pathlib import Path
+
+    from axiom_encode.cli import _legacy_replacement_base_manifest_path
+
+    owners = [
+        ".axiom/encoding-manifests/us-az/policies/example.json",
+        "us-az/.axiom/encoding-manifests/policies/example.json",
+        ".axiom/encoding-manifests/policies/example.json",
+    ]
+    git(tmp_path, "init", "-q")
+    git(tmp_path, "config", "user.name", "Test")
+    git(tmp_path, "config", "user.email", "test@example.invalid")
+    for name, content in [
+        (PRIMARY, "old"),
+        (COMPANION, "test"),
+        *[(owners[i], "invalid JSON claimant") for i in layouts],
+    ]:
+        p = tmp_path / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content)
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "-qm", "ambiguous base")
+    base = git(tmp_path, "rev-parse", "HEAD")
+    with pytest.raises(RuntimeError, match="exactly one"):
+        _legacy_replacement_base_manifest_path(tmp_path, base, Path(PRIMARY))
+    (tmp_path / PRIMARY).write_text("new")
+    git(tmp_path, "commit", "-qam", "candidate")
+    with pytest.raises(ValueError, match="exactly one predecessor"):
+        inventory(tmp_path, base, git(tmp_path, "rev-parse", "HEAD"))
+
+
+def test_discovery_returns_exact_unique_historical_location(candidate):
+    from pathlib import Path
+
+    from axiom_encode.cli import _legacy_replacement_base_manifest_path
+
+    repo, base, _, owner = candidate
+    assert _legacy_replacement_base_manifest_path(repo, base, Path(PRIMARY)) == Path(
+        owner
     )
