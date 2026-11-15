@@ -1998,7 +1998,8 @@ def test_changed_manifests_beyond_the_read_bound_fail(monkeypatch):
 
 @pytest.mark.skip(
     reason="Case 15 needs the publisher binding: branch protection must require "
-    "the guard App's app_id. No App, workflow or check-run writer exists yet."
+    "the guard App's app_id. The shadow runner's neutral check cannot test that "
+    "binding, and no live run with the App has verified it."
 )
 def test_case_15_imitated_check_name_from_a_pr_workflow():
     raise AssertionError("not decidable by the single-PR evaluator")
@@ -2027,7 +2028,8 @@ def test_constants_follow_the_live_encoder_contract():
     assert cli._applied_encoding_manifest_path(Path(P)).as_posix() == M
     assert cli.APPLIED_ENCODING_MANIFEST_DIR.as_posix() == guard.MANIFEST_DIR
     assert guard.PROMOTION_TOOL == cli.APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
-    # No reader or writer knows v6 yet: this module must not make it live.
+    # The v6 reader is off by default and no writer emits v6: the encoder's
+    # current schema stays v5, and this module must not make v6 live.
     assert cli.APPLIED_ENCODING_MANIFEST_SCHEMA == V5
     assert guard.EARLIER_MANIFEST_SCHEMAS == {cli.APPLIED_ENCODING_MANIFEST_SCHEMA}
     assert guard.MANIFEST_SCHEMA_V6 == "axiom-encode/applied-rulespec/v6"

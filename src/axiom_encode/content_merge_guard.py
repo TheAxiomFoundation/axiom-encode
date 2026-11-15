@@ -1,8 +1,14 @@
 """Content-bound merge guard: evaluate one RuleSpec pull request.
 
-INACTIVE. Nothing in the encoder, a workflow or a RuleSpec repository calls
-this module, no check run is written, and the manifest schema it reads is not
-emitted by any writer. See ``docs/content-bound-merge-guard.md``.
+Not a gate. The ``merge-guard`` CLI command and the inert shadow runner
+(``merge_guard_runner``, dispatched only through
+``.github/workflows/merge-guard-runner.yml``) call this module. The runner
+refuses to start until a repository variable switches it on and the guard
+App's credentials exist, and in shadow mode it writes only a neutral check run
+that must never become a required check. No RuleSpec repository calls this
+module. The v6 reader in ``applied_manifest_v6`` is present behind
+``V6_READER_ENABLED = False``, and no writer emits the v6 manifest this module
+parses. See ``docs/content-bound-merge-guard.md``.
 
 The guard stands aside (``not_applicable``) in two cases only:
 
@@ -56,8 +62,9 @@ from axiom_encode.reviewed_pr_admission import (
     github_json,
 )
 
-# Schemas. The v6 manifest and its attestation scope do not exist yet; the
-# evaluator accepts exactly the shape below and nothing else.
+# Schemas. The design (section 5) proposes the v6 manifest and its attestation
+# scope, and no writer emits them yet. The evaluator accepts exactly the shape
+# below and nothing else.
 VERDICT_SCHEMA = "axiom-encode/content-bound-merge-guard-verdict/v1"
 MERGE_REQUIREMENT = "axiom-encode/content-bound-merge-guard/v1"
 MANIFEST_SCHEMA_V6 = "axiom-encode/applied-rulespec/v6"

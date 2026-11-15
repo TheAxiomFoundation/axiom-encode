@@ -2,14 +2,18 @@
 
 Status: **design, not decided; nothing is active.** This document and the
 evaluator in `src/axiom_encode/content_merge_guard.py` implement no gate. No
-check run is written, no GitHub App exists, no branch protection changes, and
+enabled code writes a check run, this design changes no branch protection, and
 no manifest writer knows the schema the evaluator parses. A runner workflow
 exists (`.github/workflows/merge-guard-runner.yml`, change 3 of §8) and is
 inert: it has no trigger but a manual dispatch, and it refuses unless the
 repository variable `MERGE_GUARD_RUNNER_ENABLED` is `true` and the guard App's
-credentials exist. Neither is the case. A reader for that schema exists
+credentials exist. A read-only review on 2026-11-15 found no guard App, no such
+credentials and no such variable. The runner job would hand the App's token to
+encoder code that CODEOWNERS mostly does not cover (§4), so nobody may store
+the key or set the variable, shadow mode included, until the precondition of
+checklist step 1 (§8) holds. A reader for that schema exists
 (`src/axiom_encode/applied_manifest_v6.py`, change 2 of §8) and is switched
-off: `V6_READER_ENABLED` is `False`, so every verifier still refuses a v6
+off: `V6_READER_ENABLED` is `False`, so every verifier refuses a v6
 manifest. Every promotion still uses the order in
 `docs/reviewed-pr-promotion.md`. Tracking issue: #2172.
 
@@ -69,7 +73,7 @@ Verified against `main` at `eb98f8d7` (after #2194).
 | D2e | "An approval is retained across base-only updates only when the approved content and the permitted scope stay unchanged." | §3 step 5 |
 | D2f | "The final approver is independent of both the candidate author and the authenticated dispatcher." | §3 step 6 |
 | D3 | "enrolled identities at first. An author may dispatch their own candidate. A different enrolled owner gives the final approval." | §3 step 6; §5 |
-| Seq. | "The merge gate of decision 2 is built and passes adversarial tests." | §7, §8 |
+| Seq. | "Build the merge gate of proposed answer 2 and pass its adversarial tests." | §7, §8 |
 
 ## 3. Binding an approval to content
 
@@ -362,25 +366,48 @@ The code at `main` wins where the two disagree.
 
 ## 4. Where the guard would run and why it would be trusted
 
-The App, the environment and the required check do not exist. The runner of
-change 3 exists and is inert; "Runner as built" below says what it does.
+A read-only review on 2026-11-15 found no guard App, no `merge-guard`
+environment and no required guard check. The runner of change 3 exists and is
+inert; "Runner as built" below says what it does. Maintainers can trust the
+guard's check only when the runner job executes nothing but reviewed code;
+checklist step 1 of §8 requires a mechanism for that before anyone stores the
+App key.
 
 - **Code**: `src/axiom_encode/content_merge_guard.py` and the CLI command
   `merge-guard`, with CODEOWNERS entries like those for the admission files.
+  Those entries cover the evaluator, the runner module, its workflow and
+  `cli.py`, and they leave most of what the runner job executes uncovered. The
+  job installs the whole encoder package with `uv sync --locked` and starts it
+  through the package CLI. It runs `src/axiom_encode/__init__.py`, the modules
+  that it and `cli.py` import, the build and dependencies that `pyproject.toml`
+  and `uv.lock` select, and their start-up hooks, all on the runner that holds
+  the App's token. A write collaborator on axiom-encode can change most of
+  that without a code-owner review. Proposed constraint D2a holds for the
+  runner only once one reviewed mechanism covers that whole set (checklist
+  step 1 of §8).
 - **Identities**: the existing `TRUSTED_SIGNING_REVIEWERS` on encoder main. A
   RuleSpec PR cannot change it.
 - **Runner**: a new workflow in axiom-encode that refuses to run unless
   `github.ref == refs/heads/main`, with an environment restricted to branch
-  `main` that holds the guard App's private key.
+  `main` that holds the guard App's private key. The branch rule decides which
+  ref can read the key, not which code on that ref the job executes. Code the
+  job executes can read and use the token: the workflow's steps, the build,
+  dependencies and start-up hooks that `uv sync` installs, the modules the CLI
+  imports, and any file an earlier step leaves on the same runner.
 - **Publisher binding**: a dedicated GitHub App installed on `rulespec-*` with
   `checks: write`, `pull_requests: read`, `contents: read`, `actions: read`.
   Branch protection requires the guard's check with that App's `app_id`.
   Workflows in `rulespec-us` publish as app 15368 and cannot satisfy it.
+  The binding keeps other publishers out. Code running inside the guard's own
+  job holds the App's token and publishes as the App, so the binding protects
+  the check only together with checklist step 1 of §8.
 - **Triggers**: `schedule` (a sweep over open PRs to `main`) and
   `workflow_dispatch` (country and PR number). No trigger carries authority. An
   evaluation always reads live state, so a forged trigger yields an honest
   verdict, and a missing one leaves the required check absent, which blocks the
-  merge.
+  merge. The verdict stays honest only while the job runs reviewed code alone
+  (checklist step 1 of §8). Unreviewed code in the job needs no forged
+  trigger: it already holds the token and can publish any verdict.
 - **Why not run it in `rulespec-us`**: under `pull_request` the PR controls the
   workflow file. Under `pull_request_target` the file is trusted, but its check
   still publishes as app 15368, which any PR workflow can imitate.
@@ -396,7 +423,7 @@ change 3 exists and is inert; "Runner as built" below says what it does.
 | Item | Value |
 |---|---|
 | Trigger | `workflow_dispatch` only (inputs `country`, `pr`, `mode`). No `schedule`: the sweep on a timer is a later reviewed change to the workflow file |
-| Switch | Repository variable `MERGE_GUARD_RUNNER_ENABLED` must be exactly `true`. It is unset. The gate job also requires `github.ref == refs/heads/main` |
+| Switch | Repository variable `MERGE_GUARD_RUNNER_ENABLED` must be exactly `true`. A read-only review found it unset on 2026-11-15. The gate job also requires `github.ref == refs/heads/main` |
 | Environment | `merge-guard`, deployment branch rule: `main` only. The gate job has no environment, so a refused dispatch does not create one |
 | App client ID | Environment variable `MERGE_GUARD_APP_CLIENT_ID` |
 | App private key | Environment secret `MERGE_GUARD_APP_KEY` |
@@ -418,6 +445,19 @@ change 3 exists and is inert; "Runner as built" below says what it does.
   error. The run's exit code is about the run; verdicts are in the report.
 - **No authority in the list.** The open pull request list is a work list.
   Each verdict comes from the evaluator's own live reads.
+- **The write filter does not isolate the token.** The runner's writer refuses
+  every request except a completed neutral shadow check, and the token's
+  permissions rule out merges, statuses and dispatches. The writer's filter
+  binds only code that calls it. The `run` job checks out the dispatched
+  `main` commit, installs it with
+  `uv sync --no-config --locked --python 3.13 --extra api --no-dev`, mints the
+  token and passes it in `MERGE_GUARD_TOKEN` to
+  `.venv/bin/axiom-encode merge-guard-run`, which imports the encoder package
+  before it reaches the runner. Code anywhere in that chain, including a
+  dependency or a file an earlier step leaves on the runner, can read the
+  token and use its permissions directly, and in `shadow` mode those include
+  writing any check run on `rulespec-<country>`. Change 3 adds no mechanism
+  that closes the chain, and checklist step 1 of §8 makes one a precondition.
 - **Not verified.** Whether an installation token limited to `rulespec-<country>`
   can read the public signing run in `axiom-encode` (step 6; reached only for
   a v6 unit, and none exists). The request volume of a timed sweep: about 49
@@ -641,8 +681,25 @@ Steps marked **M** need repository or organisation settings. Only a maintainer
 can do them. Maintainers must accept the proposed promotion order before
 activation.
 
-1. **M** Create the guard App, install it on `rulespec-us`, and store its key in
-   an axiom-encode environment restricted to branch `main`: environment
+1. **M** Hard precondition, before anyone stores the App key or sets
+   `MERGE_GUARD_RUNNER_ENABLED`, shadow mode included: Max selects one
+   mechanism that covers everything the `run` job executes, a review checks the
+   mechanism against that set, and the change that adopts it records the
+   evidence. The set includes the workflow, `src/axiom_encode/__init__.py` and
+   every module the CLI imports, `pyproject.toml`, `uv.lock`, the dependencies
+   with their build and start-up hooks, and every earlier step on the same
+   runner. The candidates, none of them chosen:
+   - (a) enforced code-owner review of that whole set, including review of any
+     change to the set itself;
+   - (b) a separately reviewed, pinned and immutable guard build, which the job
+     runs without installing or starting unreviewed code;
+   - (c) required human reviewers on the `merge-guard` environment, who approve
+     each run that releases the key, with no agent session approving for them.
+
+   The `main`-only branch rule alone does not meet this precondition.
+   Recording the precondition in this design does not meet it either. Once it
+   holds, create the guard App, install it on `rulespec-us`, and store its key
+   in an axiom-encode environment restricted to branch `main`: environment
    `merge-guard`, variable `MERGE_GUARD_APP_CLIENT_ID`, secret
    `MERGE_GUARD_APP_KEY`. Then set the repository variable
    `MERGE_GUARD_RUNNER_ENABLED` to `true`.
@@ -651,7 +708,9 @@ activation.
    Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request.
 3. Run cases 15-18 live on a throwaway PR and confirm every verdict.
 4. **M** Add the guard's check with the guard App's `app_id` to the required
-   checks on `rulespec-us` main. Hard preconditions: change 3b is on `main`
+   checks on `rulespec-us` main. Hard preconditions: the step 1 mechanism
+   covers everything the enforcing runner of change 3b executes, with fresh
+   evidence for that runner; change 3b is on `main`
    and reports `content-bound-merge-guard` on every open pull request head,
    and question 0 of §10 is decided (under the current classifier most
    maintenance PRs get `fail`).
@@ -663,7 +722,9 @@ activation.
 5. Run the current-order canary (rulespec-us#2045) to completion.
 6. Merge change 5 with the switch off.
 7. Merge change 6. The first promotion in the new order is the pilot.
-8. **M**, optional hardening: enforce code-owner review for `/.github/` (§9).
+8. **M**, optional hardening: enforce code-owner review for `/.github/` in
+   `rulespec-us` (§9). That protects the RuleSpec workflows. It does not cover
+   the encoder code that runs with the App token, which step 1 governs.
 9. **M**, before the merge queue (rulespec-us#2160): confirm the guard reports
    on group SHAs in a test repository.
 
@@ -682,14 +743,15 @@ requirement of D2d.
 
 | Adversary | Defended? | How |
 |---|---|---|
-| Write collaborator, not enrolled | Yes for a v6 unit; through CI for a v5 lane; blocked otherwise | Cannot dispatch, cannot give a counting approval, cannot publish as the guard App. A v6 unit refuses every extra file. A v5 lane needs this PR's own green run. Any other guarded change has no lane |
+| Write collaborator on a RuleSpec repository, not enrolled | Yes for a v6 unit; through CI for a v5 lane; blocked otherwise | Cannot dispatch, cannot give a counting approval, and cannot publish as the guard App from a RuleSpec workflow. A v6 unit refuses every extra file. A v5 lane needs this PR's own green run. Any other guarded change has no lane |
+| Write collaborator on axiom-encode, not enrolled | Not yet; checklist step 1 must close this before anyone stores the key | Can land, without a code-owner review, a change to code the runner job executes: `src/axiom_encode/__init__.py`, a module the CLI imports, `pyproject.toml`, `uv.lock` or a dependency. With the key stored, that code holds the App token and can publish any check as the guard App: misleading output in shadow mode, and a forged required check once step 4 requires `content-bound-merge-guard`. The 2026-11-15 review found no key stored and the runner inert |
 | PR that edits workflow files, pins, ledgers or `.axiom/` configuration | Yes, by refusal | No lane claims it: `fail`. This also blocks legitimate changes (§10, question 1) |
 | PR that relabels or hides its manifest, or uses a root the encoder does not name | Yes | The guard stands aside only on the five-file allowlist or on the v5 lane, which needs this PR's green CI (step 3) |
 | PR that changes `CLAUDE.md`, `.claude/` or `.gitattributes` | Yes, by refusal | Instruction and settings files steer the agents that hold the enrolled identities; Git attributes change the bytes CI validates. Both are guarded with no lane |
 | Hand-written v5 manifest | Through CI | The guard does not verify the signature. The lane's scope keeps the PR from changing the workflow and the pin, and the PR's own `validate / validate` run must be green |
 | `validate / validate` produced by a run that is not this PR's `pull_request` run | Yes | Step 7 |
 | Forged or unsigned v6 manifest | Partly | Current-head CI verifies the signature; the guard does not (open question 3) |
-| Second workflow imitating the check name | Yes, once the App binding exists | `app_id` binding |
+| Second workflow imitating the check name | Yes, once the App binding exists | `app_id` binding. It keeps other publishers out, and it cannot tell the guard's own code from unreviewed code that runs in the guard's job with the App token (row above) |
 | Stale approval after a content change | Yes | Blob equality |
 | Push racing an approval | Yes | The verdict belongs to one head and is computed from that head's tree |
 | Dismissal just after a pass | Partly | The check stays green until the next sweep |
@@ -727,6 +789,7 @@ signed approval (option c in §3) or a separate approver account.
 | 13 | A signed v5 PR that also changes a receipt, pin, ledger or test (rulespec-us#1470) has no lane. Widen the v5 lane, or split such PRs? | Split, or give the extra files the lane of question 0 |
 | 14 | Add `run_attempt` to `attestation_scope`? | Yes, in the change that defines the v6 writer |
 | 15 | The approver may not be the author or committer of any commit, so the approver cannot click "Update branch". Acceptable? | Yes for the pilot |
+| 16 | Which mechanism closes the runner job's execution boundary: (a), (b) or (c) of checklist step 1? | None; Max chooses. Every activation step waits on the choice and its evidence |
 
 ## 11. What was not verified
 
@@ -767,5 +830,9 @@ Not verified:
 - Whether `pr.base.sha` follows the `main` tip. The evaluator does not use it.
 - Tree size: a recursive tree that GitHub truncates gives `fail` for every PR
   of that repository.
-- The guard App does not exist; its id, installation and key custody are
-  assumptions.
+- The guard App: the 2026-11-15 review found none, so its id, installation
+  and key custody are assumptions.
+- The full set of code the runner job executes. A review-time trace listed the
+  encoder modules that `merge-guard-run` imports, and CODEOWNERS covered few of
+  them. The trace does not cover dependencies, build hooks or interpreter
+  start-up.
