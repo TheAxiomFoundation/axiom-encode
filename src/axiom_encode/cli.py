@@ -3799,14 +3799,17 @@ def main():
         "--require-review",
         action="store_true",
         help=(
-            "With --apply, refuse to apply unless the generalist reviewer ran, "
-            "its result was read, it passed, and its prompt showed it the whole "
-            "content of every file being applied (the source stamp that apply "
-            "writes afterwards does not count as a change). A reviewer that "
-            "cannot start, an unreadable or failed review, a file changed or "
-            "added after the review, or a file longer than the review prompt "
-            "shows ends the encode unsuccessfully with nothing applied. This "
-            "flag is the only switch. Off by default."
+            "Requires --apply and conflicts with --skip-reviewers. Refuse to apply "
+            "unless the generalist reviewer passed, saw every file of the model "
+            "manifest whole, and read content whose canonical digest matches the "
+            "applied content. The digest skips only the two source_verification keys "
+            "that apply stamps; if the stamp's dump respells a scalar or collapses a "
+            "key, the digest changes and the encode refuses. A reviewer that cannot "
+            "start, unreadable or failed output, or a file that changes or appears "
+            "after the review also ends the encode before it applies anything. The flag "
+            "also refuses a legacy replacement that would rewrite exact dependents, "
+            "because the review cannot cover them. Off by default; no other switch "
+            "turns it on."
         ),
     )
     encode_parser.add_argument(
