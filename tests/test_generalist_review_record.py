@@ -1936,21 +1936,28 @@ def test_reader_admits_the_record_and_still_admits_manifests_without_it(tmp_path
     )
 
 
-def test_reader_variants_only_gained_the_record_shapes():
+def test_reader_variants_combine_review_and_companion_preservation():
     variants = cli._APPLIED_MANIFEST_SCHEMA_VARIANTS
     record = {GENERALIST_REVIEW_FIELD}
-    assert variants["model"] == (
+    model_shapes = (
         cli._MODEL_APPLY_MANIFEST_FIELDS,
         cli._MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
         cli._MODEL_APPLY_MANIFEST_FIELDS | record,
         cli._MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS | record,
     )
-    assert variants["codex model"] == (
+    codex_shapes = (
         cli._MODEL_APPLY_MANIFEST_FIELDS,
         cli._MODEL_CODEX_APPLY_MANIFEST_FIELDS,
         cli._MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
         cli._MODEL_CODEX_APPLY_MANIFEST_FIELDS | record,
         cli._MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS | record,
+    )
+    preservation = {"repair_companion_preservation"}
+    assert variants["model"] == model_shapes + tuple(
+        shape | preservation for shape in model_shapes
+    )
+    assert variants["codex model"] == codex_shapes + tuple(
+        shape | preservation for shape in codex_shapes
     )
     # No other contract admits the field.
     for contract, shapes in variants.items():
