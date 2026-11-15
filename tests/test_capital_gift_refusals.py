@@ -15,10 +15,11 @@ from axiom_encode.harness.capital_gift_execution import (
     _record,
     direct_refusal_pairs,
 )
+from tests.t1170_contract_projection import projected_execution, projected_static
 
 F = Path(__file__).parent / "fixtures"
-STATIC = json.loads((F / "t1170-static.json").read_text())
-EXECUTION = json.loads((F / "t1170-execution.json").read_text())
+STATIC = projected_static()
+EXECUTION = projected_execution()
 REFUSALS = json.loads((F / "t1170-direct-refusals.json").read_text())
 
 

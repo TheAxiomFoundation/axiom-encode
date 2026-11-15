@@ -121,7 +121,7 @@ def test_historical_direct_only_capture_cannot_certify_provider_or_new_principal
 
 @pytest.fixture
 def complete(tmp_path, monkeypatch):
-    """All124 actual records in original order, synthetic custody only."""
+    """Projected and unchanged historical records, synthetic custody only."""
     from axiom_encode.harness import capital_gift_capture as capture
     from axiom_encode.harness import same_case_execution as execution
     from tests.test_capital_gift_execution_capture import ACTUAL, CASES, ENGINE_PIN
@@ -188,7 +188,7 @@ def complete(tmp_path, monkeypatch):
     return cap, cases
 
 
-def test_complete_actual_records_mint_only_through_private_source_factory(complete):
+def test_projected_records_mint_only_through_private_source_factory(complete):
     cap, cases = complete
     evidence = cap.evidence()
     context = certify_capital_gift(
@@ -423,6 +423,14 @@ def test_whole_analyzer_requires_private_complete_source_ownership(
     for absent in (None, replace(evidence)):
         refused = analyze(absent, cases)
         assert any("t1170-evidence" in issue for issue in refused.issues)
+    from tests.t1170_contract_projection import historical
+
+    refused_historical_contract = analyze(
+        evidence, cases, content=historical("t1170-static.json")["policy_yaml"]
+    )
+    assert any(
+        "t1170-evidence" in issue for issue in refused_historical_contract.issues
+    )
     changed = SOURCE + " Do not claim the amount."
     assert any(
         "t1170-evidence" in issue

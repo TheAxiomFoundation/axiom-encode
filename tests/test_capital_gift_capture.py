@@ -1,4 +1,4 @@
-"""Actual unsigned82-call fixture; standalone validation only, no capture grant."""
+"""Projected 82-call validator inputs; no fresh execution or capture grant."""
 
 import copy
 import json
@@ -15,10 +15,11 @@ from axiom_encode.harness.capital_gift_execution import (
     _record,
     capital_gift_case_key,
 )
+from tests.t1170_contract_projection import projected_execution, projected_static
 
 F = Path(__file__).parent / "fixtures"
-STATIC = json.loads((F / "t1170-static.json").read_text())
-EXECUTION = json.loads((F / "t1170-execution.json").read_text())
+STATIC = projected_static()
+EXECUTION = projected_execution()
 CASES = yaml.safe_load(EXECUTION["companion_yaml"])
 CASES = CASES["cases"] if isinstance(CASES, dict) else CASES
 
@@ -34,8 +35,16 @@ def bound():
     return b, *_compiled(b, EXECUTION["artifact"], ENGINE_PIN)
 
 
+def test_historical_66_rule_artifact_cannot_bind_projected_source(bound):
+    from tests.t1170_contract_projection import historical
+
+    b, _, _ = bound
+    with pytest.raises(ValueError, match="declaration partition"):
+        _compiled(b, historical("t1170-execution.json")["artifact"], ENGINE_PIN)
+
+
 @pytest.mark.parametrize("index", range(82))
-def test_actual_typed_record_and_provider_closure(bound, index):
+def test_projected_typed_record_and_provider_closure(bound, index):
     b, derived, parameters = bound
     record = _record(b, derived, parameters, CASES[index], EXECUTION["calls"][index])
     assert len(record.outputs) == len(CASES[index]["output"])
@@ -257,7 +266,7 @@ def test_complete_positive_observation_keeps_refusal_gap_explicit(bound):
     result = observation(bound)
     assert result is not None
     assert len(result.records) == 82
-    assert sum(len(r.outputs) for r in result.records) == 361
+    assert sum(len(r.outputs) for r in result.records) == 353
     assert len(result.root_role_pairs) == 42
     assert result.pending_refusal_contract == (
         "direct_gift_principal",

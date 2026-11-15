@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import json
 from pathlib import Path
 
 import pytest
@@ -16,7 +15,13 @@ from axiom_encode.harness.bound_capital_gift_operands import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
-FIXTURE = json.loads((FIXTURES / "t1170-static.json").read_text())
+from tests.t1170_contract_projection import (
+    REMOVED_RULES,
+    historical,
+    projected_static,
+)
+
+FIXTURE = projected_static()
 SOURCE = (FIXTURES / "t1170-authenticated-body.txt").read_text()
 POLICY = yaml.safe_load(FIXTURE["policy_yaml"])
 GUIDE = FIXTURE["p113_body"]
@@ -40,11 +45,11 @@ def formula(value, name, old, new):
     item["formula"] = item["formula"].replace(old, new)
 
 
-def test_actual_whole_model_has_complete_static_partition():
+def test_printed_table_model_has_complete_static_partition():
     result = bind_capital_gift(FIXTURE["policy_yaml"], SOURCE, GUIDE)
     assert isinstance(result, CapitalGiftBinding)
     assert len(result.inputs) == 42
-    assert len(result.rules) == 66
+    assert len(result.rules) == 64
     assert len(result.source.records) == 16
     assert len(result.guide_spans) == 6
     assert result.bound(FIXTURE["policy_yaml"], SOURCE, GUIDE)
@@ -53,18 +58,44 @@ def test_actual_whole_model_has_complete_static_partition():
     assert gain.entity == "SourceEntry"
     assert gain.expression[0] == "match_true"
     assert "t1170_gift_within_form_scope" in gain.dependencies
-    total = by_name["federal_2025_t1170_total_gain_eligible_zero_inclusion"]
-    assert total.entity == "Person"
-    assert total.dependencies == (
-        "t1170_bonds_other_zero_inclusion_line_68250",
+    assert REMOVED_RULES.isdisjoint(by_name)
+    for name in (
         "t1170_shares_units_zero_inclusion_line_68230",
-    )
+        "t1170_bonds_other_zero_inclusion_line_68250",
+        "t1170_ecological_land_zero_inclusion_line_68252",
+        "federal_2025_t1170_shares_and_units_schedule_3_line_13200",
+        "federal_2025_t1170_bonds_debentures_and_other_properties_schedule_3_line_15300",
+        "federal_2025_t1170_ecological_land_schedule_3_line_13800",
+    ):
+        assert by_name[name].entity == "Person"
     assert by_name["t1170_form_year_start"].expression == (
         "date",
         2025,
         "2025-01-01",
         "t1170_form_year",
     )
+
+
+def test_historical_two_table_aggregates_are_not_a_source_contract():
+    old = historical("t1170-static.json")
+    assert bind_capital_gift(old["policy_yaml"], SOURCE, GUIDE) is None
+
+
+@pytest.mark.parametrize("name", sorted(REMOVED_RULES))
+@pytest.mark.parametrize("include_land", [False, True])
+def test_unprinted_aggregate_is_not_required_or_allowed(name, include_land):
+    value = payload()
+    old = yaml.safe_load(historical("t1170-static.json")["policy_yaml"])
+    extra = copy.deepcopy(rule(old, name))
+    if include_land:
+        land = (
+            "t1170_ecological_land_zero_inclusion_line_68252"
+            if name.endswith("eligible_zero_inclusion")
+            else "federal_2025_t1170_ecological_land_schedule_3_line_13800"
+        )
+        extra["versions"][0]["formula"] += " + " + land
+    value["rules"].append(extra)
+    assert bind(value) is None
 
 
 def test_binds_semantics_not_arbitrary_fixture_bytes_or_order():
@@ -187,11 +218,6 @@ def test_every_declaration_and_source_owner_is_required(name, mutation):
         ),
         ("t1170_partnership_special_capital_gain_per_entry", "min(", "max("),
         ("t1170_partnership_special_capital_gain_per_entry", "max(", "min("),
-        (
-            "federal_2025_t1170_total_gain_eligible_zero_inclusion",
-            "t1170_bonds_other_zero_inclusion_line_68250",
-            "t1170_ecological_land_zero_inclusion_line_68252",
-        ),
         (
             "t1170_partnership_gain_for_schedule3_line17400",
             "t1170_partnership_special_capital_gain_per_entry",

@@ -2,18 +2,18 @@
  "schema": "axiom-encode/us-replay-snapshot/v2",
  "context": "workspace",
  "totals": {
-  "cases": 56,
+  "cases": 57,
   "clean": 12,
-  "issues": 3428,
+  "issues": 3463,
   "rules": {
    "complete-source-unit:declaration-collision": 2,
    "complete-source-unit:deferral": 177,
    "complete-source-unit:formula-output": 764,
-   "complete-source-unit:numeric-recall": 392,
+   "complete-source-unit:numeric-recall": 412,
    "complete-source-unit:schedule-n-evidence": 19,
-   "complete-source-unit:source-explicit-conditions": 12,
+   "complete-source-unit:source-explicit-conditions": 13,
    "complete-source-unit:structure": 1844,
-   "complete-source-unit:t1170-evidence": 14,
+   "complete-source-unit:t1170-evidence": 28,
    "complete-source-unit:tests": 204
   }
  },
@@ -4019,6 +4019,54 @@
     "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 4 at ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit]. Exact source computation (characters 226:386): `Also complete this schedule if, for 2024, you calculated an amount for interest paid on a student loan and decided to carry the amount forward to a future year.`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. The best-effort unbound-formula diagnostic scan was capped at 32 rules and 8 cases per rule; additional matching principal formulas may exist beyond the reported names. The best-effort dependency-corroboration diagnostic scan was capped at 32 rules and 8 cases per rule; additional missing dependency assertions may exist beyond the reported names. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
     "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 5 at ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit]. Exact source computation (characters 387:720): `If interest was paid on your student loan after 1997, but in 2024 you did not calculate the amount that could be carried forward, enter the result of the following calculation on line 46: interest paid for 1998 through 2024 minus the interest already used to calculate a credit for interest paid on a student loan for previous years.`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. The best-effort unbound-formula diagnostic scan was capped at 32 rules and 8 cases per rule; additional matching principal formulas may exist beyond the reported names. The best-effort dependency-corroboration diagnostic scan was capped at 32 rules and 8 cases per rule; additional missing dependency assertions may exist beyond the reported names. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
     "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit] [change]: `M -V (2025-12) T Interest Paid on a Student Loan SCHEDULE M Complete this schedule if interest was paid in 2025 on a student loan granted to you.`; ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit] [change]: `Also complete this schedule if, for 2024, you calculated an amount for interest paid on a student loan and decided to carry the amount forward to a future year.`; ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit] [change]: `If interest was paid on your student loan after 1997, but in 2024 you did not calculate the amount that could be carried forward, enter the res ... lculate a credit for interest paid on a student loan for previous years.`; ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit] [change]: `If you want to keep a copy for your records, see the guide.`; ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest [source unit] [change]: `Enclose this schedule with your return.`. The evaluator recognized 30 directional formula-toggle witnesses from 10 distinct case pairs, but these do not cover every listed source condition. Check affected rule/path, source-selector relevance, active orientation, required effect, and distinct-condition witness allocation before adding cases. Recognized test pairs alone do not establish source coverage."
+   ]
+  },
+  "local-t1170-printed-tables-20261115": {
+   "citation": "ca/policy/cra/t1-2025/capital-gains-on-gifts",
+   "control": false,
+   "issues": 35,
+   "rules": {
+    "complete-source-unit:numeric-recall": 20,
+    "complete-source-unit:source-explicit-conditions": 1,
+    "complete-source-unit:t1170-evidence": 14
+   },
+   "error": null,
+   "findings": [
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 0.3 has no named scalar representation. `module.summary` is not consulted. First source location of 0.3: character (code point) offsets 3126:3128 in source.txt, ca/policy/cra/t1-2025/capital-gains-on-gifts [source unit]: `.3`. All 20 values of this source without a named scalar, grouped by source branch, with character (code point) offsets in source.txt. Represent each of the 20 listed first in this attempt with a named scalar whose proof excerpt is copied verbatim from `source.txt`, or precisely defer the branch that states it. Displayed text is only a bounded locator. In ca/policy/cra/t1-2025/capital-gains-on-gifts [source unit]: 5202 at 2581:2585: `5202`; 5 at 2803:2804: `5`; 6 at 2931:2932: `6`; 1 at 3100:3101: `1`; 3286 at 3102:3107: `03286`; 2286 at 3114:3119: `02286`; 0.3 at 3126:3128: `.3`; 231 at 3151:3156: `00231`; 8 at 3165:3166: `8`; 2 at 3668:3669: `2`; 5286 at 3670:3675: `05286`; 4286 at 3682:3687: `04286`; 351 at 3719:3724: `00351`; 3 at 4310:4311: `3`; 25286 at 4312:4317: `25286`; 15286 at 4324:4329: `15286`; 831 at 4361:4366: `00831`; 4 at 4572:4573: `4`; 13286 at 4574:4579: `13286`; 52 at 4629:4631: `52`;",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 1 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 13286 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 15286 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 2 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 2286 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 231 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 25286 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 3 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 3286 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 351 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 4 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 4286 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 5 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 52 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 5202 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 5286 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 6 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 8 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 831 has no named scalar representation. `module.summary` is not consulted.",
+    "[complete-source-unit:source-explicit-conditions] Derived formula version(s) delegate multiple conjunctive factual gates stated in their exact authoritative source clause to too few terminal local inputs or canonical imports: `federal_2025_t1170_gift_capital_gain_column_5` versions[0] (`t1170_disposition_date`, `t1170_gift_within_form_scope`, `t1170_property_instrument_kind`, `t1170_property_source_class`, `t1170_qualified_donee` for 3 source gates); `federal_2025_t1170_taxable_capital_gain_from_gift` versions[0] (no resolved fact selectors for 3 source gates); `t1170_bonds_other_table_other_gain` versions[0] (`t1170_bonds_other_row_within_table_scope`, `t1170_disposition_date`, `t1170_property_instrument_kind`, `t1170_property_source_class`, `t1170_qualified_donee` for 3 source gates); `t1170_bonds_other_table_proceeds` versions[0] (`t1170_bonds_other_row_within_table_scope`, `t1170_disposition_date`, `t1170_property_instrument_kind`, `t1170_property_source_class`, `t1170_qualified_donee` for 3 source gates); `t1170_bonds_other_table_zero_inclusion` versions[0] (`t1170_bonds_other_row_within_table_scope`, `t1170_disposition_date`, `t1170_property_instrument_kind`, `t1170_property_source_class`, `t1170_qualified_donee` for 3 source gates); `t1170_ecological_land_table_other_gain` versions[0] (`t1170_disposition_date`, `t1170_ecological_land_row_within_table_scope`, `t1170_property_instrument_kind`, `t1170_property_source_class`, `t1170_qualified_donee` for 3 source gates); `t1170_ecological_land_table_proceeds` versions[0] (`t1170_disposition_date`, `t1170_ecological_land_row_within_table_scope`, `t1170_property_instrument_kind`, `t1170_property_source_class`, `t1170_qualified_donee` for 3 source gates); `t1170_ecological_land_table_zero_inclusion` versions[0] (`t1170_disposition_date`, `t1170_ecological_land_row_within_table_scope`, `t1170_property_instrument_kind`, `t1170_property_source_class`, `t1170_qualified_donee` for 3 source gates); ... (5 additional formula versions omitted). Encode the source-stated facts as distinct local inputs or canonical imports, declare every local fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`), combine them in a source-proved derived Judgment, and test each gate. Reserve aggregate boundary statuses for source-atomic or externally determined conditions.",
+    "[complete-source-unit:t1170-evidence] Complete private T1170 source-role, typed principal and direct/provider refusal evidence is required; generic witnesses cannot replace absent or stale owned evidence.",
+    "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned control occurrence at 0:899; private principal evidence cannot be replaced by generic fallback.",
+    "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned control occurrence at 1014:1063; private principal evidence cannot be replaced by generic fallback.",
+    "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned control occurrence at 1064:1328; private principal evidence cannot be replaced by generic fallback.",
+    "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned control occurrence at 1329:1510; private principal evidence cannot be replaced by generic fallback.",
+    "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned control occurrence at 1850:2028; private principal evidence cannot be replaced by generic fallback.",
+    "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned control occurrence at 900:1013; private principal evidence cannot be replaced by generic fallback.",
+    "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned exception-clause occurrence at 0:899; private principal evidence cannot be replaced by generic fallback.",
+    "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned exception-clause occurrence at 1014:1063; private principal evidence cannot be replaced by generic fallback.",
+    "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned exception-clause occurrence at 1064:1328; private principal evidence cannot be replaced by generic fallback.",
+    "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned exception-clause occurrence at 1329:1510; private principal evidence cannot be replaced by generic fallback.",
+    "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned exception-clause occurrence at 1850:2028; private principal evidence cannot be replaced by generic fallback.",
+    "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned exception-clause occurrence at 900:1013; private principal evidence cannot be replaced by generic fallback.",
+    "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned formula-clause occurrence at 1850:2028; private principal evidence cannot be replaced by generic fallback."
    ]
   },
   "local-t1170-source-20261113": {

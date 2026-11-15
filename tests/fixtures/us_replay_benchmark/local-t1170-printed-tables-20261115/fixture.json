@@ -1,0 +1,85 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "origin": "local-diagnostic",
+  "run_id": "local-t1170-printed-tables-20261115",
+  "citation": "ca/policy/cra/t1-2025/capital-gains-on-gifts",
+  "module_path": "ca/policies/cra/t1-2025/capital-gains-on-gifts.yaml",
+  "policy_prefix": "ca",
+  "split": "visible",
+  "recorded_verdict": "rejected",
+  "encoder_commit": "d4292fb5e7aa78af75912ff97fcd34c0ff535c0a",
+  "encoder_tree": "2cac58179187a5753fa2a90f61edaca5ceaded4d",
+  "encoder_version": "0.2.2373",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures /Users/maxghenis/reviews/pavel-axiom-2026-11-13/runs/dm-1716-followup/2110-P1-public-projection-fixture-prototype --jobs 1 --out /Users/maxghenis/reviews/pavel-axiom-2026-11-13/runs/dm-1716-followup/2110-P1-derived64-old-d429-replay.json",
+  "input_origins": {
+    "candidate.yaml": "tests/fixtures/t1170-printed-table-diagnostic/candidate.yaml",
+    "candidate.test.yaml": "tests/fixtures/t1170-printed-table-diagnostic/candidate.test.yaml",
+    "source.txt": "tests/fixtures/t1170-authenticated-body.txt"
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "derivation": {
+    "kind": "printed-table-contract-projection",
+    "not_historical_encoder_output": true,
+    "base_commit": "d4292fb5e7aa78af75912ff97fcd34c0ff535c0a",
+    "base_inputs": {
+      "t1170-static.json": {
+        "path": "tests/fixtures/t1170-static.json",
+        "sha256": "d46a1ce4b7fef96942979662ed3ab26ffb7572beee2b5ba1631f260e51883b43",
+        "git_blob_sha1": "9721ea4b1d393f685a802fafde69805a04dc7227"
+      },
+      "t1170-execution.json": {
+        "path": "tests/fixtures/t1170-execution.json",
+        "sha256": "26b5c90256b488a75068decd4c51df94502a32e50bc5add4766850e5ed24ff78",
+        "git_blob_sha1": "1156396e5222ea8e17d2fd381b2eef99dcb2009c"
+      },
+      "t1170-direct-refusals.json": {
+        "path": "tests/fixtures/t1170-direct-refusals.json",
+        "sha256": "9507d9401d2d01cc119b90dcf41f9be474869a5c2650a43f6dbdf96d272b440f",
+        "git_blob_sha1": "0e5e0338e93d14aff39f93afad6669978c97a1ae"
+      },
+      "t1170-phase-c-additions.json": {
+        "path": "tests/fixtures/t1170-phase-c-additions.json",
+        "sha256": "e91a60a7e5d2d79eac452e6b7af01e90a0a3e402af57d012ce2f2a289af11cb6",
+        "git_blob_sha1": "ad6a81778c6ddc82b4c8b1b93f9ad0c125abadf3"
+      }
+    },
+    "removed_rule_names": [
+      "federal_2025_t1170_total_gain_eligible_zero_inclusion",
+      "federal_2025_t1170_total_gain_subject_to_50_percent_inclusion"
+    ],
+    "candidate_recipe": "Decode t1170-static.json /policy_yaml; parse YAML; remove exactly the two named rules; serialize with yaml.safe_dump(sort_keys=False).",
+    "companion_recipe": "Decode t1170-execution.json /companion_yaml; parse its82cases; remove only the two named expected output keys; append t1170-direct-refusals.json /separately_executed_positive then /cases, then t1170-phase-c-additions.json /cases; serialize with yaml.safe_dump(sort_keys=False).",
+    "expected_case_inventory": {
+      "cases": 124,
+      "positive": 91,
+      "expected_refusal": 33
+    },
+    "runtime_input_identity": "Same candidate and full companion bytes used by test_capital_gift_real_engine.py at its supported89571 profile; public fixture contains no runtime observations or signing authority.",
+    "actual_request_count": "unknown; no historical request count carried forward"
+  },
+  "supplemental_public_sources": {
+    "public-source-context/p113.txt": {
+      "origin": "tests/fixtures/t1170-static.json",
+      "json_pointer": "/p113_body",
+      "origin_sha256": "d46a1ce4b7fef96942979662ed3ab26ffb7572beee2b5ba1631f260e51883b43",
+      "export": "UTF-8 string bytes with no added newline",
+      "citation": "ca/policy/cra/t1-2025/federal-donations-and-gifts/p113",
+      "offline_replay_input": false
+    }
+  },
+  "offline_scope": "Completeness replay supplies primary source and companion only. It carries no private execution evidence or authenticated release; the retained P113 text is public reproduction context, not a source-authority grant.",
+  "recorded_rules": [
+    "complete-source-unit:numeric-recall",
+    "complete-source-unit:source-explicit-conditions",
+    "complete-source-unit:t1170-evidence"
+  ],
+  "files": {
+    "candidate.test.yaml": "a226e31629755fd2a0ec9ac335beabea61467f0a5f3c8d80a77afbbed5ea35d7",
+    "candidate.yaml": "0e316ffd5646274e17ca11e38a3b28abbe87fea464aaefcc1efc832a8b4b582c",
+    "issues.json": "d161ea26b3940db232505bb5b01c28cec87387e877fe63f8ff4150b0b0332cec",
+    "public-source-context/p113.txt": "bdc817872594a6da5785539d68370aa62f9c8dcd71e6d81d234958d1c8f417f7",
+    "source.txt": "26bca8d19acdc5f045f1d8317cf8e7a504b07c3496cfffcec34a82232f72b8b0"
+  }
+}

@@ -41,6 +41,7 @@ from scripts.replay_us_failure_bundles import (
     _read_inside,
     analyzer_module_paths,
     build_report,
+    case_is_control,
     compare_reports,
     discover_bundle_modules,
     extract_fixture,
@@ -79,7 +80,12 @@ RECORDED_FAILURE_CLASSES = COMPLETENESS_RULES | {
     "proof:excerpt-not-found",
     "tests:wrong-expected-value",
 }
-MAX_FIXTURE_BYTES = 5 * 1024 * 1024
+BASE_MAX_FIXTURE_BYTES = 5 * 1024 * 1024
+# The complete public printed-table regression is 762,124 bytes. This named
+# allowance rounds its size up to 64 KiB blocks; other fixtures keep their cap.
+PRINTED_TABLE_FIXTURE = "local-t1170-printed-tables-20261115"
+PRINTED_TABLE_FIXTURE_ALLOWANCE = 12 * 64 * 1024
+MAX_FIXTURE_BYTES = BASE_MAX_FIXTURE_BYTES + PRINTED_TABLE_FIXTURE_ALLOWANCE
 LABEL_KEYS = ("expected_class", "expected_subclass", "class_evidence", "class_source")
 # Private corpus: never committed (see docs/us-replay-benchmark.md).
 PRIVATE_CITATION_PREFIXES = ("us/regulation/12/1005", "us/regulation/12/1006")
@@ -246,6 +252,58 @@ def test_fixtures_carry_provenance_and_stay_small():
         )
 
     assert total <= MAX_FIXTURE_BYTES
+    printed_table_bytes = sum(
+        path.stat().st_size
+        for path in (FIXTURES / PRINTED_TABLE_FIXTURE).rglob("*")
+        if path.is_file()
+    )
+    assert 0 < printed_table_bytes <= PRINTED_TABLE_FIXTURE_ALLOWANCE
+    assert total - printed_table_bytes <= BASE_MAX_FIXTURE_BYTES
+
+
+def test_printed_table_fixture_keeps_its_derived_runtime_input_origin():
+    import yaml
+
+    from axiom_encode.harness.bound_capital_gift_operands import bind_capital_gift
+    from tests.t1170_contract_projection import (
+        REMOVED_RULES,
+        historical,
+        projected_static,
+    )
+    from tests.test_capital_gift_real_engine import _cases
+
+    directory = FIXTURES / PRINTED_TABLE_FIXTURE
+    case = load_fixture(directory)
+    metadata = case.provenance
+    static = projected_static()
+    assert metadata["derivation"]["not_historical_encoder_output"] is True
+    repository = Path(__file__).resolve().parents[1]
+    for origin in metadata["derivation"]["base_inputs"].values():
+        raw = (repository / origin["path"]).read_bytes()
+        assert hashlib.sha256(raw).hexdigest() == origin["sha256"]
+        assert (
+            hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+            == origin["git_blob_sha1"]
+        )
+    assert case.candidate == static["policy_yaml"]
+    assert case.tests == yaml.safe_dump(_cases(True), sort_keys=False)
+    assert len(yaml.safe_load(case.tests)) == 124
+    guide = (directory / "public-source-context/p113.txt").read_text()
+    assert guide == historical("t1170-static.json")["p113_body"]
+    assert (
+        metadata["supplemental_public_sources"]["public-source-context/p113.txt"][
+            "offline_replay_input"
+        ]
+        is False
+    )
+    binding = bind_capital_gift(case.candidate, case.source, guide)
+    assert binding is not None and len(binding.rules) == 64
+    assert REMOVED_RULES.isdisjoint(rule.name for rule in binding.rules)
+    # The capture test executes these same bytes; an offline replay does not
+    # acquire that test's private observations or become an accepted control.
+    assert case_is_control(case) is False
+    report = json.loads((directory / "issues.json").read_text())
+    assert any("t1170-evidence" in issue for issue in report["issues"])
 
 
 @pytest.mark.parametrize(

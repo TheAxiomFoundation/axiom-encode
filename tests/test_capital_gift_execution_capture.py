@@ -1,4 +1,4 @@
-"""Synthetic snapshot construction around immutable actual82 records.
+"""Synthetic snapshot construction around projected 82-call validator inputs.
 
 These tests mock source resolution, not a signature or trusted runtime claim.
 The ordinary genuine-checkout replay remains a separate integration requirement.
@@ -22,10 +22,11 @@ from axiom_encode.harness.same_case_execution import (
     ExecutionCapture,
     digest,
 )
+from tests.t1170_contract_projection import projected_execution, projected_static
 
 F = Path(__file__).parent / "fixtures"
-STATIC = json.loads((F / "t1170-static.json").read_text())
-ACTUAL = json.loads((F / "t1170-execution.json").read_text())
+STATIC = projected_static()
+ACTUAL = projected_execution()
 CASES = yaml.safe_load(ACTUAL["companion_yaml"])
 if isinstance(CASES, dict):
     CASES = CASES["cases"]
@@ -94,7 +95,7 @@ def stage(cap, index):
     )
 
 
-def test_actual82_private_capture_and_actual_consumer(capture):
+def test_projected82_private_capture_and_consumer(capture):
     for i in range(82):
         stage(capture, i)
     evidence = capture.evidence()
@@ -102,7 +103,7 @@ def test_actual82_private_capture_and_actual_consumer(capture):
     assert evidence.values(CASES[0], STATIC["policy_yaml"]) is None
     observed = c.observation(evidence, STATIC["policy_yaml"])
     assert observed is not None
-    assert sum(len(r.outputs) for r in observed.records) == 361
+    assert sum(len(r.outputs) for r in observed.records) == 353
     # Actual consumer refuses equal caller-created evidence, not just bad hashes.
     assert c.observation(replace(evidence), STATIC["policy_yaml"]) is None
 

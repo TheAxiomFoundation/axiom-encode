@@ -103,7 +103,7 @@ def test_private_mixed_ordinals_keep_refusals_out_of_successful_records(mixed):
     assert observed is not None
     assert len(observed.refusals) == 18
     assert len(observed.positive.records) == 83
-    assert sum(len(r.outputs) for r in observed.positive.records) == 362
+    assert sum(len(r.outputs) for r in observed.positive.records) == 354
     assert (
         c.observation(replace(evidence), positive_fixture.STATIC["policy_yaml"]) is None
     )

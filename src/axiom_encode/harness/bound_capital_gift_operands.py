@@ -414,18 +414,6 @@ def _contracts() -> tuple[_Rule, ...]:
             )
             add(export, f"sum({relation}.{provider})", (role,), entity="Person")
     add(
-        "federal_2025_t1170_total_gain_eligible_zero_inclusion",
-        "t1170_shares_units_zero_inclusion_line_68230 + t1170_bonds_other_zero_inclusion_line_68250",
-        tables[:2],
-        entity="Person",
-    )
-    add(
-        "federal_2025_t1170_total_gain_subject_to_50_percent_inclusion",
-        f"{categories[0][2]} + {categories[1][2]}",
-        tables[:2],
-        entity="Person",
-    )
-    add(
         "t1170_fts_gain_for_t691_part1_line25",
         guarded(
             "t1170_fts_schedule3_additional_gain_applies",
