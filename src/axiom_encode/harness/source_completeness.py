@@ -35434,7 +35434,9 @@ def _case_reaches_minimum_cap(
             and not node.keywords
         ):
             continue
-        for amount, cap in ((node.args[0], node.args[1]), (node.args[1], node.args[0])):
+        for cap_index, (amount, cap) in enumerate(
+            ((node.args[0], node.args[1]), (node.args[1], node.args[0]))
+        ):
             if _formula_node_references_names(cap, case_names):
                 continue
             cap_value = _rulespec_runtime_decimal(
@@ -35447,6 +35449,13 @@ def _case_reaches_minimum_cap(
                 cap_value is None
                 or amount_value != cap_value
                 or not numeric_value_is_grounded(float(cap_value), (boundary,))
+                or not _lower_cap_changes_leaf(
+                    expression,
+                    node,
+                    1 - cap_index,
+                    cap_value=cap_value,
+                    environment=environment,
+                )
             ):
                 continue
             for key, value in numeric_inputs.items():
@@ -35466,6 +35475,49 @@ def _case_reaches_minimum_cap(
                 ):
                     return True
     return False
+
+
+def _lower_cap_changes_leaf(
+    expression: ast.expr,
+    call: ast.Call,
+    cap_index: int,
+    *,
+    cap_value: Decimal,
+    environment: dict[str, Any],
+) -> bool:
+    """Whether lowering this `min` call's cap by one step changes the leaf value.
+
+    This keeps a plateau that some other limit causes, as in
+    ``min(cost, cap) * 0 + min(cost, budget)``, from counting as the cap. A
+    named cap is lowered wherever the leaf uses it; another cap expression is
+    lowered in this call only.
+    """
+
+    step = (
+        Decimal(1)
+        if cap_value == cap_value.to_integral_value()
+        else Decimal(str(max(abs(float(cap_value)) * 1e-6, 1e-9)))
+    )
+    original = call.args[cap_index]
+    if isinstance(original, ast.Name) and original.id in environment:
+        lowered = _evaluate_condition_expression(
+            expression, {**environment, original.id: cap_value - step}
+        )
+    else:
+        probe_name = "__axiom_cap_probe__"
+        call.args[cap_index] = ast.Name(id=probe_name, ctx=ast.Load())
+        try:
+            lowered = _evaluate_condition_expression(
+                expression, {**environment, probe_name: cap_value - step}
+            )
+        finally:
+            call.args[cap_index] = original
+    baseline = _evaluate_condition_expression(expression, environment)
+    return (
+        lowered is not _UNRESOLVED_CONDITION_VALUE
+        and baseline is not _UNRESOLVED_CONDITION_VALUE
+        and not _formula_runtime_values_equal(lowered, baseline)
+    )
 
 
 def _input_step_kinks_output(

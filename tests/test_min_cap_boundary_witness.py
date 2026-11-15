@@ -223,3 +223,108 @@ def test_a_case_at_40_that_does_not_reach_an_applied_cap_is_still_refused(mutant
     assert candidate != CANDIDATE
     assert any(case["input"].get(COST) == 40 for case in cases)
     assert _boundary_refused(_issues(candidate, cases))
+
+
+def _with_input(candidate: str, name: str, dtype: str = "Money") -> str:
+    return candidate.replace(
+        "rules:\n",
+        f"  - name: {name}\n    entity: Person\n    dtype: {dtype}\n"
+        "    unit: USD\n    period: Day\nrules:\n",
+        1,
+    )
+
+
+def _with_input_value(cases: list[dict], name: str, value: float) -> list[dict]:
+    cases = copy.deepcopy(cases)
+    for case in cases:
+        if COST in case["input"]:
+            case["input"][f"{PREFIX}#input.{name}"] = value
+    return cases
+
+
+def _cap_from_an_input():
+    """The cap uses a case input, not the source-bound parameter."""
+
+    candidate = _with_input(CANDIDATE, "daily_cap_input").replace(
+        CAP_FORMULA, "min(max(0, daily_lodging_cost), daily_cap_input)"
+    )
+    return candidate, _with_input_value(CASES, "daily_cap_input", 40)
+
+
+def _amount_just_above_the_cap():
+    """The capped amount is 40.000001, not the cap."""
+
+    cases = copy.deepcopy(CASES)
+    _cap_case_of(cases)["input"][COST] = 40.000001
+    return CANDIDATE, cases
+
+
+def _boundary_value_only_after_scaling():
+    """The amount reaches 40 only as 20 * 2; no input is at the source value."""
+
+    candidate = _with_input(CANDIDATE, "share", "Decimal").replace(
+        CAP_FORMULA,
+        "min(max(0, daily_lodging_cost) * share, medical_lodging_daily_cap)",
+    )
+    cases = _with_input_value(CASES, "share", 1)
+    cap_case = _cap_case_of(cases)
+    cap_case["input"][f"{PREFIX}#input.share"] = 2
+    cap_case["input"][COST] = 20
+    return candidate, cases
+
+
+def _outer_plateau_below_the_cap():
+    """An outer `min(..., 30)` makes the output flat below the cap."""
+
+    candidate = CANDIDATE.replace(
+        CAP_FORMULA,
+        "min(min(max(0, daily_lodging_cost), medical_lodging_daily_cap), 30)",
+    )
+    cases = _with_outputs(
+        CASES, {CAP_CASE: 30, "qualifying_lodging_above_daily_cap": 30}
+    )
+    return candidate, cases
+
+
+def _flat_just_below_the_cap():
+    """The output is already at the cap at 39, so 40 is no kink."""
+
+    candidate = CANDIDATE.replace(
+        CAP_FORMULA,
+        "max(min(max(0, daily_lodging_cost), medical_lodging_daily_cap),"
+        " min(max(0, daily_lodging_cost) + 1, medical_lodging_daily_cap))",
+    )
+    cases = _with_outputs(CASES, {"qualifying_lodging_below_daily_cap": 31})
+    return candidate, cases
+
+
+def _plateau_from_an_input_limit():
+    """The cap term is zeroed; an input limit of 40 makes the plateau."""
+
+    candidate = _with_input(CANDIDATE, "budget_limit").replace(
+        CAP_FORMULA,
+        "min(max(0, daily_lodging_cost), medical_lodging_daily_cap) * 0"
+        " + min(max(0, daily_lodging_cost), budget_limit)",
+    )
+    return candidate, _with_input_value(CASES, "budget_limit", 40)
+
+
+def _cap_case_of(cases: list[dict]) -> dict:
+    return next(case for case in cases if case["name"] == CAP_CASE)
+
+
+@pytest.mark.parametrize(
+    "mutant",
+    [
+        _cap_from_an_input,
+        _amount_just_above_the_cap,
+        _boundary_value_only_after_scaling,
+        _outer_plateau_below_the_cap,
+        _flat_just_below_the_cap,
+        _plateau_from_an_input_limit,
+    ],
+)
+def test_each_cap_witness_condition_is_required(mutant):
+    candidate, cases = mutant()
+    assert candidate != CANDIDATE or cases != CASES
+    assert _boundary_refused(_issues(candidate, cases))
