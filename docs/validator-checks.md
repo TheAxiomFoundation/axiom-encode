@@ -223,84 +223,163 @@ reclassified, and generated candidates are not manually rewritten to fit it.
 
 `complete-source-unit:effective-date/start-unsupported`
 ([`harness/start_date_evidence.py`](../src/axiom_encode/harness/start_date_evidence.py),
-issue #2212) covers a corpus `manual` unit that prints no date. The encoder
-prompt states the same rule for the same units, with the dates computed in
-code; every other document class keeps its earlier prompt text.
+issue #2212) checks the start dates of a corpus `manual` unit that prints no
+date, in a run without amendment context. For the same units, the encoder gets
+the rule in its prompt, with dates that code computes from the corpus
+metadata; encodes of other document classes get the earlier prompt text. The
+prompt asks the encoder to prefer a date that the unit text prints, then the
+evidence floor, or the `expression_date` when that date falls after the floor.
 
-- An `effective_from` is supported when it is printed in the unit text or in
-  the start-date proof evidence of its own rule, equals the corpus
-  `expression_date` or `source_as_of`, equals the evidence floor, or is the
-  `0001-01-01` scaffold.
-- Start-date proof evidence is the evidence text of a proof atom of the same
-  rule with `kind: effective_period`. A date quoted by an atom of another kind
-  (for example an `amount` atom that quotes a sibling provision) or by an atom
-  of another rule is not support.
-- The evidence floor is the first day of the first full calendar month that
+The maintainer has not decided the six design choices that issue #2212 lists:
+
+- the evidence floor or the scaffold as the default start;
+- whether an imported start counts as support;
+- how to treat existing modules;
+- the manual-only scope;
+- whether any year that the detector recognizes takes the unit out of scope; and
+- how to treat unreadable metadata.
+
+The check leaves a unit alone when:
+
+- the citation's document class (second path segment) differs from `manual`;
+- the run binds amendment or commencement documents;
+- the pipeline has no corpus date channel; or
+- the unit text prints a date that the check's detector recognizes: a full
+  date, a month and year, a fiscal year such as `FY26`, or a bare year from
+  1900 to 2099 outside a dollar amount or a percentage.
+
+The detector matches a fixed set of spellings, so a unit that prints a date
+only in another spelling stays in scope.
+
+In a unit that it examines, the check accepts a start that equals one of these
+dates:
+
+- the `0001-01-01` scaffold;
+- the corpus `expression_date` or `source_as_of`;
+- the evidence floor, the first day of the first full calendar month that
   starts on or after `source_as_of` (2026-07-17 gives 2026-08-01; 2026-07-01
-  gives 2026-07-01). It is an evidence-coverage floor, not a claimed legal
-  commencement date: the corpus holds the text from that date, and earlier
-  coverage is unproven.
-- A date copied from a neighbouring module is not support.
-- The prompt prefers a printed date, then the evidence floor, or the
-  `expression_date` when that is later than the floor.
+  gives 2026-07-01);
+- a date that the evidence text of a proof atom of the same rule with
+  `kind: effective_period` prints; or
+- a version start of an export that the module verifiably imports.
 
-| Condition | Effect |
-| --- | --- |
-| The citation's document class (second path segment) is not `manual` | not examined |
-| The unit text prints any date, month-year, fiscal year or bare year | not examined |
-| The run binds amendment or commencement documents | not examined |
-| `effective_from` is `0001-01-01`, `expression_date`, `source_as_of` or the evidence floor | passes |
-| `effective_from` is printed in the evidence text of an `effective_period` proof atom of the same rule | passes |
-| `effective_from` is printed only in a proof atom of another kind or of another rule | refused |
-| `effective_from` equals a version start of an export the module verifiably imports: a `path#symbol` item whose supplied provider declares exactly one rule of that name | passes |
-| Any other `effective_from`, also one after the snapshot | refused, one issue per distinct date |
+The check uses the floor as a proposed calendar convention. Its calculation
+establishes no legal commencement, first corpus custody or text continuity,
+and the other channels can support earlier starts. Copying another module's
+start adds no support on its own.
 
-`effective_to`, `values` keys and companion test periods are not examined.
-
-The proof atoms are read with the proof validator's reader
-(`rule_proof_atoms` and `proof_source_evidence_texts` in
+Only a rule's own `effective_period` atoms support its starts. A date that an
+atom of another kind quotes (for example an `amount` atom that quotes a
+sibling provision) or that an atom of another rule quotes is not support. The
+check reads the atoms with the proof validator's reader (`rule_proof_atoms`
+and `proof_source_evidence_texts` in
 [`harness/proof_validator.py`](../src/axiom_encode/harness/proof_validator.py)),
-so each spelling that proof validation authenticates gives the same outcome:
+so every spelling that proof validation authenticates gives one outcome:
 `rules[].metadata.proof.atoms`, or `rules[].proof.atoms` when the rule has no
-`metadata.proof`, and `source.excerpt` or `source.quote`. The atom's `path` is
-not examined. Public candidates anchor an `effective_period` atom at
-`versions[i].formula` (replay control `41648809989-control`), and a rule that
-required `versions[i].effective_from` would refuse them. The atom may cite any
-corpus provision that the proof validator resolves, for example a change
-notice; the check does not require a commencement document.
+`metadata.proof`, and `source.excerpt` or `source.quote`. The check does not
+examine the atom's `path`: public candidates anchor an `effective_period` atom
+at `versions[i].formula` (replay control `41648809989-control`).
 
-An import can only add supported dates; it never takes a module out of the
-check. An import that cannot be verified (no `#symbol`, a provider that the
-validator was not given or cannot read, no rule or several rules of that name,
-an item that is not a string) contributes nothing, so a start that only such
-an import would justify is refused. The import row leaves decision 2 of #2212
-open (whether an imported date is support); the issue message and the check's
-`fix` text do not mention it. A start without zero padding (`2025-10-1`) and a
-`datetime` are read as their calendar day; any other non-null start is refused.
+The check refuses every other start, including one after the snapshot, with
+one issue for each distinct value it refuses. It does not examine
+`effective_to`, `values` keys or companion test periods.
 
-Missing metadata never counts as support. When the resolver attestation has no
-`source_as_of`, or the value is not a `YYYY-MM-DD` date, or its two copies
-differ, there is no snapshot date and no floor: only the scaffold, a readable
-`expression_date` or a printed date pass, and the message names the unreadable
-field. This follows the sibling evidence readers (same-act aliases, referral
-sources), which grant nothing without authenticated metadata.
+Each issue names up to five rules that use the value. Its message and its
+`expected` field list the scaffold and, when the check can read them, the
+corpus `expression_date`, `source_as_of` and the evidence floor. They mention
+dates in the unit text or in an `effective_period` proof atom of the same
+rule only as a kind and name no imported start. The check's `fix` text names no import either. The message gives the
+field as `rules[].versions[].effective_from` at every site; the issue's
+`subject.field` names the first actual site, such as `versions[0].from` or a
+rule-level `effective_from`.
 
-Where the dates come from:
+### Which start the check reads
+
+For start selection, the check follows the explicit and implicit version
+forms at the CI engine pin:
+
+- A nonempty `versions` list replaces the rule-level fields, so the check
+  reads each version's start and ignores a rule-level start.
+- When a rule sets a formula or a start, the engine can build an implicit
+  version from the rule-level fields. It does so when the rule has no
+  `versions` key, or its `versions` holds `[]`, a blank value or only a
+  comment. The check then reads the rule-level start.
+- The check skips a rule whose `versions` holds some other non-list value,
+  such as a mapping, and leaves that error to the compiler.
+- `from` works as an alias of `effective_from`, in a version and at rule
+  level. A mapping that sets both carries a duplicate field, not a precedence
+  order. The check refuses it: the issue shows
+  `duplicate effective_from/from fields` as the value, with the explanation it
+  gives an unsupported date, and `subject.field` ends in
+  `effective_from/from`.
+- The check supplies no default for a missing start; the compiler reports the
+  missing start.
+- The check reads a start without zero padding (`2025-10-1`) and a YAML
+  timestamp as their calendar day, without deciding whether the compiler
+  accepts that spelling. It refuses any other non-null value that it cannot
+  read as a date.
+
+The analyzer passes the raw candidate text to the check as `raw_content`. The
+check parses that text without YAML merge inheritance, because the engine
+ignores a `<<` key on rules and versions. When a `<<` mapping would supply a
+version list or a start under PyYAML, the check ignores it, as the engine
+does. An explicit `versions: null` or `versions: ~` differs from a blank
+value: the engine refuses it, and the check reads no start from that rule.
+The check parses imported providers the same way, so a provider's `<<`
+mapping or explicit null `versions` cannot lend a start that the engine would
+not compile. The check still takes proof atoms from the analyzer's parsed
+mapping, from the rule at the same position. A direct caller that passes only a parsed mapping hands the check
+PyYAML's reading, in which PyYAML has already expanded merges, and the check
+then treats an explicit null like a blank value.
+
+### Imported starts
+
+An import can only add dates that the check accepts; it never takes a module
+out of the check. A `path#symbol` item adds the version starts of its export
+when the validator received a provider for that symbol and the check can
+parse it. The check requires that provider to declare exactly one rule of
+that name and import no symbol that this module declares. The check matches a
+provider by symbol name, and the module does not have to use the export.
+These items add nothing:
+
+- a file-level import without `#symbol`;
+- a symbol outside identifier syntax, or one that the module declares itself;
+- a provider that the validator did not receive or that the check cannot
+  parse;
+- a provider with no rule or several rules of that name; and
+- a non-string item.
+
+The check refuses a start that only such an import would support.
+
+### Corpus dates
+
+Missing metadata never supports a start. The check reads `source_as_of` and
+`expression_date` from the resolver attestation, which carries each field at
+its top level and under `row`. The check reads non-null copies as strict
+`YYYY-MM-DD` dates and accepts one valid copy when the other supplies no
+value. A malformed copy or two conflicting copies remove support from that
+field. Without a readable `source_as_of`, the check has no snapshot date and
+no evidence floor. The scaffold, a readable `expression_date`, a date that an
+`effective_period` proof atom of the same rule prints and an imported start that the check accepts still pass.
+When it reports an unsupported start without a snapshot date, the check names
+the metadata problems in its message.
+
+The corpus dates reach the check this way:
 
 - An encode passes the resolver attestation as `source_metadata`.
 - `axiom-encode validate --require-complete-source-unit` passes no
-  `source_metadata`; the pipeline then reads the unit's row from the bound
-  corpus release. A citation that release does not resolve counts as
-  unreadable metadata.
-- A pipeline with neither `source_metadata` nor a bound corpus release has no
-  corpus date channel, and the check does not run.
+  `source_metadata`, so the pipeline reads the unit's row from its corpus
+  release. When that release does not resolve the citation, the check treats
+  the metadata as unreadable.
+- A pipeline with neither `source_metadata` nor a corpus release has no corpus
+  date channel, and the check does not run.
 
-The check runs where the other complete-source checks run: in
-`--require-complete-source-unit` mode (the targeted re-encode workflow and
-reviewed-candidate promotion). `axiom-encode validate` and the waiver audit in
-the RuleSpec repositories do not set that mode, so modules that are already on
-a RuleSpec `main` are not examined. The replay benchmark passes each fixture's
-attestation dates, its resolved import providers and no amendment context.
+The check runs inside the complete-source analysis, which the pipeline applies
+only in `--require-complete-source-unit` mode. The targeted re-encode workflow
+adds that flag when its `require_complete_source_unit` setting holds `true`,
+and `axiom-encode validate` without the flag skips the check. The replay
+benchmark passes each fixture's attestation dates and import providers, and
+no amendment context.
 
 ## Publish the registry
 
