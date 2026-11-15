@@ -25665,18 +25665,20 @@ _NUMERIC_DERIVED_DTYPES = {
     "number",
     "rate",
 }
-# Corpus document classes whose modules live under `policies/` with the same
-# path tail (`evals._RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN`). A deferral that
-# copies the class, as `us-az:manuals/...` for `us-az/manual/...`, names no
-# module; `us-az:policies/...` does.
-_DEFERRED_OUTPUT_ROOT_BY_SOURCE_CLASS = {
-    "form": "policies",
-    "forms": "policies",
-    "guidance": "policies",
-    "manual": "policies",
-    "manuals": "policies",
-    "policy": "policies",
-}
+# Corpus document class names that a deferral can copy into its target root
+# (`us-az:manuals/...` for `us-az/manual/...`); none is a RuleSpec module root.
+_CORPUS_CLASS_ROOT_TOKENS = frozenset(
+    {
+        "form",
+        "forms",
+        "guidance",
+        "manual",
+        "manuals",
+        "policy",
+        "regulation",
+        "statute",
+    }
+)
 CHECK_DEFERRED_OUTPUT_TARGET_NOT_ABSOLUTE = declare_check(
     "deferred-outputs/target-not-absolute",
     title="Deferred output is not an absolute RuleSpec output target",
@@ -25702,21 +25704,39 @@ CHECK_DEFERRED_OUTPUT_TARGET_NOT_ABSOLUTE = declare_check(
 )
 
 
-def _deferred_output_with_module_root(
+def _deferred_output_module_target(
     output: str,
-) -> tuple[str, str, str] | None:
-    """Return the corpus class root, its module root and the corrected output."""
+    module: Mapping[str, Any],
+) -> tuple[str, str] | None:
+    """Return the copied corpus class root and this module's own deferral target.
 
-    prefix, separator, path = output.partition(":")
-    root, slash, tail = path.partition("/")
-    module_root = _DEFERRED_OUTPUT_ROOT_BY_SOURCE_CLASS.get(root)
-    if not (separator and slash and module_root):
+    The target comes from `module.source_verification.corpus_citation_path`,
+    as the complete-source prompt renders it, so it carries no branch segment
+    that the source does not print.
+    """
+
+    root = output.partition(":")[2].partition("/")[0]
+    symbol = output.partition("#")[2].strip()
+    source_verification = module.get("source_verification")
+    corpus_citation_path = (
+        source_verification.get("corpus_citation_path")
+        if isinstance(source_verification, dict)
+        else None
+    )
+    if (
+        root not in _CORPUS_CLASS_ROOT_TOKENS
+        or not symbol
+        or not isinstance(corpus_citation_path, str)
+    ):
         return None
-    corrected = f"{prefix}:{module_root}/{tail}"
-    corrected_ref = _parse_rulespec_target(corrected)
-    if corrected_ref is None or corrected_ref.symbol is None:
+    # Imported here: evals imports this module.
+    from axiom_encode.harness.evals import _complete_source_deferral_anchor
+
+    target = f"{_complete_source_deferral_anchor(corpus_citation_path)}#{symbol}"
+    target_ref = _parse_rulespec_target(target)
+    if target_ref is None or target_ref.symbol is None:
         return None
-    return root, module_root, corrected
+    return root, target
 
 
 def find_deferred_output_issues(content: str) -> list[str]:
@@ -25750,11 +25770,11 @@ def find_deferred_output_issues(content: str) -> list[str]:
         output = str(record.get("output") or "").strip()
         output_ref = _parse_rulespec_target(output) if output else None
         if output_ref is None or output_ref.symbol is None:
-            corrected = _deferred_output_with_module_root(output)
+            corrected = _deferred_output_module_target(output, module)
             root_hint = (
                 f" `{corrected[0]}/` is a corpus document class, not a RuleSpec "
-                f"module root; its modules are under `{corrected[1]}/`. Use the "
-                f"module's own target, for example `{corrected[2]}`."
+                f"module root. Use this module's own target `{corrected[1]}`, and "
+                "add a branch segment only for a marker that the source prints."
                 if corrected
                 else ""
             )
@@ -25765,7 +25785,7 @@ def find_deferred_output_issues(content: str) -> list[str]:
                     check=CHECK_DEFERRED_OUTPUT_TARGET_NOT_ABSOLUTE,
                     subject=IssueSubject(field=f"{label}.output"),
                     expected=(
-                        corrected[2]
+                        corrected[1]
                         if corrected
                         else "<jurisdiction>:<root>/<path>#<output>"
                     ),
