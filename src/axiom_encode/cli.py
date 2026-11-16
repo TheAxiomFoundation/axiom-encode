@@ -71157,7 +71157,9 @@ def _initial_encode_outcome(result, *, apply_requested: bool) -> dict:
         result, "auto_repaired_unquoted_source_scalars", None
     )
     if isinstance(quoted_source_scalars, list) and quoted_source_scalars:
-        # The eval-time repair changed the model's bytes before validation.
+        # The eval-time repair changed the model's bytes before validation in
+        # this attempt. The record covers that attempt only: the outcome has no
+        # entry for a repair in an earlier attempt or an earlier command.
         outcome["auto_repaired_unquoted_source_scalars"] = list(quoted_source_scalars)
         outcome["generated_output_repaired_by_encoder"] = True
     metrics = getattr(result, "metrics", None)
