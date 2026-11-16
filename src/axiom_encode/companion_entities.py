@@ -127,20 +127,23 @@ def require_distinct_entity_ids(occupied_entity_ids: dict[str, set[str]]) -> Non
 def assign_generated_fixture_ids(
     rows: Iterable[tuple[str, list[str], int, list[dict[str, Any]]]],
     occupied_entity_ids: dict[str, set[str]],
+    *,
+    distinct_rows: bool = False,
 ) -> None:
     """Allocate generated fixture rows after every explicit ID is reserved.
 
     Each row carries its entity, shared ID container, allocated slot and fact
     records. The container is a relation tuple or a table row's ID list, so
     updating it also updates relation aliases and row-ordered queries.
-    Same-kind aliases keep their IDs; foreign-kind collisions get fresh IDs.
+    Explicit graph fixtures reserve every occupied ID for anonymous rows.
+    Other fixtures retain their historical same-kind aliases.
     """
     for entity, entity_ids, allocated_slot, inputs in rows:
         preferred = entity_ids[allocated_slot]
         reserved = {
             entity_id
             for entity_id, entities in occupied_entity_ids.items()
-            if entities - {entity}
+            if distinct_rows or entities - {entity}
         }
         entity_id = (
             _available_entity_id(f"{preferred}:entity:{entity}", reserved)
@@ -151,6 +154,32 @@ def assign_generated_fixture_ids(
         for record in inputs:
             record["entity_id"] = entity_id
         occupied_entity_ids.setdefault(entity_id, set()).add(entity)
+
+
+def companion_output_queries(
+    entity_ids: list[str],
+    root_id: str,
+    period: dict,
+    outputs: list[str],
+    row_outputs: set[str],
+    *,
+    explicit_graph: bool,
+) -> list[dict]:
+    """Preserve table order and query mixed graph scalars separately on the root."""
+    scalar_outputs = [output for output in outputs if output not in row_outputs]
+    split = explicit_graph and row_outputs and scalar_outputs
+    per_row = (
+        [output for output in outputs if output in row_outputs] if split else outputs
+    )
+    queries = [
+        {"entity_id": entity_id, "period": period, "outputs": per_row}
+        for entity_id in entity_ids
+    ]
+    if split:
+        queries.append(
+            {"entity_id": root_id, "period": period, "outputs": scalar_outputs}
+        )
+    return queries
 
 
 def cross_entity_input_findings(

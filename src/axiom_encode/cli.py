@@ -102,8 +102,13 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 from axiom_encode import __version__
+from axiom_encode.companion_edges import (
+    explicit_companion_relations,
+    explicit_relation_root,
+)
 from axiom_encode.companion_entities import (
     assign_generated_fixture_ids,
+    companion_output_queries,
     cross_entity_input_findings,
     declared_input_entities,
     flat_input_entity_id,
@@ -6739,13 +6744,15 @@ def _execute_rulespec_test_case(
     failures: list[dict[str, str | None]] = []
     period = _rulespec_period_spec(case.get("period", "2026-01"))
     interval = {"start": period["start"], "end": period["end"]}
-    root_entity_id = "case"
+    root_entity_id = explicit_relation_root(case) if "relations" in case else "case"
     expected = case.get("output") or {}
     expected_entities = {
         str(derived_by_id[str(output)].get("entity") or "Case")
         for output in expected
         if str(output) in derived_by_id
     }
+    if "relations" in case and not expected_entities:
+        raise ValueError("relations requires a derived query output")
     if len(expected_entities) > 1:
         raise ValueError(
             "mixes derived output entities "
@@ -6973,9 +6980,25 @@ def _execute_rulespec_test_case(
                     )
             table_rows_by_entity[table_entity] = resolved_rows
 
+    if "relations" in case:
+        relations.extend(
+            explicit_companion_relations(
+                case["relations"],
+                tables=tables,
+                root_id=root_entity_id,
+                root_entity=query_entity,
+                compiled_relations=compiled_relations,
+                interval=interval,
+            )
+        )
+
     require_distinct_entity_ids(occupied_entity_ids)
-    assign_generated_fixture_ids(generated_table_rows, occupied_entity_ids)
-    assign_generated_fixture_ids(generated_relation_rows, occupied_entity_ids)
+    assign_generated_fixture_ids(
+        generated_table_rows, occupied_entity_ids, distinct_rows="relations" in case
+    )
+    assign_generated_fixture_ids(
+        generated_relation_rows, occupied_entity_ids, distinct_rows="relations" in case
+    )
     flat_entity_ids: dict[str, str] = {}
     for record in flat_input_records:
         input_entity = record["entity"]
@@ -6987,7 +7010,7 @@ def _execute_rulespec_test_case(
                 reserved_entity_ids=(
                     entity_id
                     for entity_id, entities in occupied_entity_ids.items()
-                    if entities - {input_entity}
+                    if "relations" in case or entities - {input_entity}
                 ),
             )
             flat_entity_ids[input_entity] = entity_id
@@ -7072,7 +7095,7 @@ def _execute_rulespec_test_case(
         return failures
     table_rows = table_rows_by_entity.get(query_entity, [])
     query_entity_ids = [root_entity_id]
-    if table_rows:
+    if table_rows and (list_outputs or "relations" not in case):
         query_entity_ids = [row_ids[0] for row_ids, _row in table_rows]
         for output in list_outputs:
             expected_value = derived_expected[output]
@@ -7108,14 +7131,14 @@ def _execute_rulespec_test_case(
     request = {
         "mode": "explain",
         "dataset": {"inputs": inputs, "relations": relations},
-        "queries": [
-            {
-                "entity_id": entity_id,
-                "period": period,
-                "outputs": list(runtime_output_by_expected.values()),
-            }
-            for entity_id in query_entity_ids
-        ],
+        "queries": companion_output_queries(
+            query_entity_ids,
+            root_entity_id,
+            period,
+            list(runtime_output_by_expected.values()),
+            {runtime_output_by_expected[output] for output in list_outputs},
+            explicit_graph="relations" in case,
+        ),
     }
     if request_only:
         if failures:
@@ -7190,7 +7213,7 @@ def _execute_rulespec_test_case(
                         }
                     )
             continue
-        outputs = results[0]["outputs"]
+        outputs = results[-1 if "relations" in case else 0]["outputs"]
         runtime_output = runtime_output_by_expected[output]
         actual = outputs.get(output) or outputs.get(runtime_output)
         if actual is None:
