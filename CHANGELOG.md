@@ -1,3 +1,8 @@
+## 0.2.2379
+
+- Close the follow-up findings of the #2051 version-rule review (#2151)
+- Propose guard App key protection: stdlib bundle plus owner review of .github/ (needs Max's choice, #2257) (#2267)
+
 ## 0.2.2378
 
 - Name the policies/ root for manual-unit deferrals and type the target refusal (#2260)
