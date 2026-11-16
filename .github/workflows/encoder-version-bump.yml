@@ -114,7 +114,9 @@ jobs:
           # bump pull requests. `gh pr list --head` matches the branch name
           # alone, so a fork's pull request (or anyone's) can carry the same
           # name; the App must never close, hold for or auto-merge one of those.
-          # gh reports the App's login as app/<slug>; GraphQL as the bare slug.
+          # gh reports the App's login as app/<slug>; GraphQL as the bare slug,
+          # which a user account could also register, so GraphQL also needs
+          # the author to be a Bot.
           own='(.isCrossRepository | not) and .author.login == "app/axiom-encoder-version-bump"'
           # A bump pull request already in the merge queue stays there: closing
           # it would restart its wait each time main moves. Its merge pushes to
@@ -123,15 +125,15 @@ jobs:
           # of this workflow opens a new one.
           queued="$(gh api graphql \
             -f owner="${GITHUB_REPOSITORY%%/*}" -f name="${GITHUB_REPOSITORY#*/}" \
-            -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { mergeQueue(branch: "main") { entries(first: 100) { nodes { pullRequest { headRefName isCrossRepository author { login } } } } } } }' \
-            --jq '[.data.repository.mergeQueue.entries.nodes[]?.pullRequest // empty | select(.isCrossRepository == false and (.author.login // "") == "axiom-encoder-version-bump" and ((.headRefName // "") | startswith("automation/encoder-version-")))] | length')"
+            -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { mergeQueue(branch: "main") { entries(first: 100) { nodes { pullRequest { headRefName isCrossRepository author { __typename login } } } } } } }' \
+            --jq '[.data.repository.mergeQueue.entries.nodes[]?.pullRequest // empty | select(.isCrossRepository == false and (.author.__typename // "") == "Bot" and (.author.login // "") == "axiom-encoder-version-bump" and ((.headRefName // "") | startswith("automation/encoder-version-")))] | length')"
           if [ "$queued" != "0" ]; then
             echo "::notice::An encoder version bump pull request is in the merge queue; its merge runs this workflow again."
             exit 0
           fi
           # A newer main supersedes any other bump pull request still open: this
           # one covers every commit since the last bump, so close the older ones.
-          gh pr list --repo "$GITHUB_REPOSITORY" --state open \
+          gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 500 \
             --json number,headRefName,isCrossRepository,author \
             --jq ".[] | select(${own} and (.headRefName | startswith(\"automation/encoder-version-\"))) | \"\(.number) \(.headRefName)\"" |
             while read -r number head; do
