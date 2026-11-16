@@ -35552,11 +35552,13 @@ def _case_reaches_minimum_cap(
     for amount, cap in ((first, second), (second, first)):
         if _formula_node_references_names(cap, case_names):
             continue
+        # Both operands use the arithmetic that executes the formula. A float
+        # evaluator can make a different cap, for example through ``floor``.
         cap_value = _rulespec_runtime_decimal(
-            _evaluate_condition_expression(cap, environment)
+            _evaluate_rulespec_expression(cap, environment)
         )
         amount_value = _rulespec_runtime_decimal(
-            _evaluate_condition_expression(amount, environment)
+            _evaluate_rulespec_expression(amount, environment)
         )
         if (
             cap_value is None

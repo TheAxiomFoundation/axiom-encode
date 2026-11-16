@@ -578,3 +578,63 @@ def test_another_branch_one_step_above_the_cap_is_not_a_kink():
         "[complete-source-unit:tests] Companion tests do not exercise every"
         f" source-stated boundary input; {BOUNDARY_FINDING}."
     ]
+
+
+def test_the_cap_is_measured_with_the_arithmetic_that_executes_the_formula():
+    """A float evaluator reads this cap as $40; the formula executes $45."""
+
+    shift = "5 * (1 + floor(0.3 - 0.1 - 0.2))"
+    candidate = CANDIDATE.replace(
+        CAP_FORMULA,
+        f"min(max(0, daily_lodging_cost + {shift}), "
+        f"medical_lodging_daily_cap + {shift})",
+    )
+    assert candidate != CANDIDATE
+    cases = _with_outputs(
+        CASES,
+        {
+            "qualifying_lodging_below_daily_cap": 35,
+            CAP_CASE: 45,
+            "qualifying_lodging_above_daily_cap": 45,
+        },
+    )
+    issues = _issues(candidate, cases)
+    assert len(issues) == 1 and BOUNDARY_FINDING in issues[0]
+
+
+_FLOAT_ZERO = "5 * floor(0.3 - 0.1 - 0.2)"
+
+
+@pytest.mark.parametrize(
+    ("leaf", "outputs"),
+    [
+        pytest.param(
+            f"min((daily_lodging_cost - 39) * (45 + {_FLOAT_ZERO}),"
+            " medical_lodging_daily_cap)",
+            (-405, 40, 40),
+            id="amount-only",
+        ),
+        pytest.param(
+            "min(min(max(0, daily_lodging_cost), medical_lodging_daily_cap),"
+            f" medical_lodging_daily_cap + 5 + {_FLOAT_ZERO})",
+            (30, 40, 40),
+            id="cap-only",
+        ),
+    ],
+)
+def test_each_operand_is_measured_with_the_executing_arithmetic(leaf, outputs):
+    """One operand alone read in float arithmetic would credit these leaves."""
+
+    candidate = CANDIDATE.replace(CAP_FORMULA, leaf)
+    assert candidate != CANDIDATE
+    below, at, above = outputs
+    cases = _with_outputs(
+        CASES,
+        {
+            "qualifying_lodging_below_daily_cap": below,
+            CAP_CASE: at,
+            "qualifying_lodging_above_daily_cap": above,
+        },
+    )
+    issues = _issues(candidate, cases)
+    assert len(issues) == 1 and BOUNDARY_FINDING in issues[0]
