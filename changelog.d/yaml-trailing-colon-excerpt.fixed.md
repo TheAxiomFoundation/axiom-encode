@@ -1,0 +1,1 @@
+Quote a generated `source:` or `excerpt:` value whose YAML-significant colon ends the line (for example "one of the following:"), not only a colon followed by a space, so the deterministic repair no longer leaves the attempt unparseable.
