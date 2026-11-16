@@ -32,6 +32,13 @@
 /data/reviewed-rulespec-refs/ @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/corpus_artifact_transport.py @PavelMakarchuk @MaxGhenis
 
+# The citation-to-path rule that signing, the eval harness and the merge guard
+# share, and the citation helpers it imports. Both files are standard-library
+# only; the proposed guard bundle runs them without the encoder package (#2257).
+/src/axiom_encode/rulespec_citation_paths.py @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/statute.py @PavelMakarchuk @MaxGhenis
+/tests/test_rulespec_citation_paths.py @PavelMakarchuk @MaxGhenis
+
 # The signer, the signing supervisor, the broker and the trust bootstrap.
 /cmd/axiom-encode-apply-signer/ @PavelMakarchuk @MaxGhenis
 /cmd/axiom-encode-signing-supervisor/ @PavelMakarchuk @MaxGhenis
