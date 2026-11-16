@@ -1,0 +1,1 @@
+Added `validation-waivers audit --verifier-restate` and the matching guard rule: a change that switches the RuleSpec repository's verifier mode may restate active waiver fingerprints for the new verifier and remove active-only entries of modules that now pass, and nothing else.

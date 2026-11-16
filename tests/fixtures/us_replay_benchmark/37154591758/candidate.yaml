@@ -1,0 +1,390 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/911/f
+    source_sha256: 414dedd3d4cd3fe84f1476577a36f4a40a8f92bab7e5472276886cd6cd12654b
+  summary: Section 911(f)(1) determines the section 1 and section 55 tax computations
+    by adding the reduced section 911(a) exclusion to the relevant tax base and subtracting
+    the tax on the exclusion amount alone. Section 911(f)(2) adjusts the capital-gain
+    computations for the capital-gain excess.
+imports:
+- us:statutes/26/911/a#section_911_amount_excluded_from_gross_income
+- us:statutes/26/911/d/6#section_911_disallowed_deductions_and_exclusions
+- us:statutes/26/1/h#net_capital_gain
+- us:statutes/26/1/h#qualified_dividend_income
+- us:statutes/26/1/h#unrecaptured_section_1250_gain
+- us:statutes/26/1/h#capital_gains_28_percent_rate
+rules:
+- name: section_911_f_excluded_amount
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: 26 USC 911(f)(1), last sentence
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/26/911/a#section_911_amount_excluded_from_gross_income
+          output: section_911_amount_excluded_from_gross_income
+          hash: sha256:b128d251a0f74fc46a27e516e864e53c8d25442f5b419c7bb3bb4b607542d725
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/26/911/d/6#section_911_disallowed_deductions_and_exclusions
+          output: section_911_disallowed_deductions_and_exclusions
+          hash: sha256:ee94dfb18b7d04d16aefa2afbe70213feee3fcd04f4f80e7a26763e2ac841f30
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: the amount excluded under subsection (a) shall be reduced by the
+            aggregate amount of any deductions or exclusions disallowed under subsection
+            (d)(6) with respect to such excluded amount
+  versions:
+  - effective_from: '1990-01-01'
+    formula: "max(\n    0,\n    section_911_amount_excluded_from_gross_income\n  \
+      \  - section_911_disallowed_deductions_and_exclusions\n)"
+- name: taxable_income_increased_by_section_911_exclusion
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: 26 USC 911(f)(1)(A)(i)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: if the taxpayer’s taxable income were increased by the amount excluded
+            under subsection (a) for such taxable year
+  versions:
+  - effective_from: '1990-01-01'
+    formula: taxable_income + section_911_f_excluded_amount
+- name: section_911_capital_gain_excess
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: 26 USC 911(f)(2)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: the taxpayer’s net capital gain exceeds taxable income
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: without regard to this subsection
+  versions:
+  - effective_from: '1990-01-01'
+    formula: 'if section_911_f_excluded_amount > 0: max(0, net_capital_gain - taxable_income)
+      else: 0'
+- name: section_911_net_capital_gain
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: 26 USC 911(f)(2)(A)(i)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: the taxpayer’s net capital gain (determined without regard to section
+            1(h)(11)) shall be reduced (but not below zero) by such capital gain excess
+  versions:
+  - effective_from: '1990-01-01'
+    formula: "max(\n    0,\n    net_capital_gain\n    - qualified_dividend_income\n\
+      \    - section_911_capital_gain_excess\n)\n+ section_911_qualified_dividend_income"
+- name: section_911_qualified_dividend_income
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: 26 USC 911(f)(2)(A)(ii)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: the taxpayer’s qualified dividend income shall be reduced by so
+            much of such capital gain excess as exceeds the taxpayer’s net capital
+            gain
+  versions:
+  - effective_from: '1990-01-01'
+    formula: "max(\n    0,\n    qualified_dividend_income\n    - max(\n        0,\n\
+      \        section_911_capital_gain_excess\n        - max(0, net_capital_gain\
+      \ - qualified_dividend_income)\n    )\n)"
+- name: section_911_28_percent_rate_gain
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: 26 USC 911(f)(2)(A)(iii)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: adjusted net capital gain, unrecaptured section 1250 gain, and
+            28-percent rate gain shall each be determined after increasing the amount
+            described in section 1(h)(4)(B) by such capital gain excess
+  versions:
+  - effective_from: '1990-01-01'
+    formula: max(0, capital_gains_28_percent_rate - section_911_capital_gain_excess)
+- name: section_911_unrecaptured_section_1250_gain
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: 26 USC 911(f)(2)(A)(iii)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: unrecaptured section 1250 gain, and 28-percent rate gain shall
+            each be determined after increasing the amount described in section 1(h)(4)(B)
+            by such capital gain excess
+  versions:
+  - effective_from: '1990-01-01'
+    formula: "max(\n    0,\n    unrecaptured_section_1250_gain\n    - max(\n     \
+      \   0,\n        section_911_capital_gain_excess\n        - capital_gains_28_percent_rate\n\
+      \    )\n)"
+- name: section_911_adjusted_net_capital_gain
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: 26 USC 911(f)(2)(A)(iii)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: adjusted net capital gain, unrecaptured section 1250 gain, and
+            28-percent rate gain shall each be determined after increasing the amount
+            described in section 1(h)(4)(B) by such capital gain excess
+  versions:
+  - effective_from: '1990-01-01'
+    formula: "max(\n    0,\n    section_911_net_capital_gain\n    - (\n        section_911_unrecaptured_section_1250_gain\n\
+      \        + section_911_28_percent_rate_gain\n    )\n)\n+ section_911_qualified_dividend_income"
+- name: section_911_f_applies_to_section_1_tax
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Year
+  source: 26 USC 911(f)(1)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: If, for any taxable year, any amount is excluded from gross income
+            of a taxpayer under subsection (a)
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: if such taxpayer has taxable income for such taxable year
+  versions:
+  - effective_from: '1990-01-01'
+    formula: section_911_f_excluded_amount > 0 and taxable_income > 0
+- name: amt_taxable_excess_increased_by_section_911_exclusion
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: 26 USC 911(f)(1)(B)(i)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: if the taxpayer’s taxable excess (as so defined) were increased
+            by the amount excluded under subsection (a)
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: if such taxpayer has a taxable excess (as defined in section 55(b)(1)(B))
+  versions:
+  - effective_from: '1990-01-01'
+    formula: 'if taxable_excess > 0: taxable_excess + section_911_f_excluded_amount
+      else: taxable_excess'
+- name: amt_section_911_capital_gain_excess
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: 26 USC 911(f)(2)(B)(i)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: the taxpayer’s net capital gain exceeds the taxable excess (as
+            defined in section 55(b)(1)(B))
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: without regard to this subsection
+  versions:
+  - effective_from: '1990-01-01'
+    formula: 'if section_911_f_excluded_amount > 0: max(0, net_capital_gain - taxable_excess)
+      else: 0'
+- name: amt_section_911_net_capital_gain
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: 26 USC 911(f)(2)(B)(i), incorporating (A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: the rules of subparagraph (A) shall apply, except that such subparagraph
+            shall be applied by substituting “the taxable excess (as defined in section
+            55(b)(1)(B))” for “taxable income”
+  versions:
+  - effective_from: '1990-01-01'
+    formula: "max(\n    0,\n    net_capital_gain\n    - qualified_dividend_income\n\
+      \    - amt_section_911_capital_gain_excess\n)\n+ amt_section_911_qualified_dividend_income"
+- name: amt_section_911_qualified_dividend_income
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: 26 USC 911(f)(2)(B)(i), incorporating (A)(ii)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: the rules of subparagraph (A) shall apply, except that such subparagraph
+            shall be applied by substituting “the taxable excess (as defined in section
+            55(b)(1)(B))” for “taxable income”
+  versions:
+  - effective_from: '1990-01-01'
+    formula: "max(\n    0,\n    qualified_dividend_income\n    - max(\n        0,\n\
+      \        amt_section_911_capital_gain_excess\n        - max(0, net_capital_gain\
+      \ - qualified_dividend_income)\n    )\n)"
+- name: amt_section_911_28_percent_rate_gain
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: 26 USC 911(f)(2)(B)(i), incorporating (A)(iii)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: the rules of subparagraph (A) shall apply
+  versions:
+  - effective_from: '1990-01-01'
+    formula: max(0, capital_gains_28_percent_rate - amt_section_911_capital_gain_excess)
+- name: amt_section_911_unrecaptured_section_1250_gain
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: 26 USC 911(f)(2)(B)(i), incorporating (A)(iii)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: unrecaptured section 1250 gain, and 28-percent rate gain shall
+            each be determined after increasing the amount described in section 1(h)(4)(B)
+            by such capital gain excess
+  versions:
+  - effective_from: '1990-01-01'
+    formula: "max(\n    0,\n    unrecaptured_section_1250_gain\n    - max(\n     \
+      \   0,\n        amt_section_911_capital_gain_excess\n        - capital_gains_28_percent_rate\n\
+      \    )\n)"
+- name: amt_section_911_adjusted_net_capital_gain
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: 26 USC 911(f)(2)(B)(i), incorporating (A)(iii)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/26/911/f
+          excerpt: the rules of subparagraph (A) shall apply
+  versions:
+  - effective_from: '1990-01-01'
+    formula: "max(\n    0,\n    amt_section_911_net_capital_gain\n    - (\n      \
+      \  amt_section_911_unrecaptured_section_1250_gain\n        + amt_section_911_28_percent_rate_gain\n\
+      \    )\n)\n+ amt_section_911_qualified_dividend_income"
+inputs:
+- name: taxable_income
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  description: Taxable income determined without regard to section 911(f).
+- name: taxable_excess
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  description: Taxable excess as defined in section 55(b)(1)(B), determined without
+    regard to section 911(f).

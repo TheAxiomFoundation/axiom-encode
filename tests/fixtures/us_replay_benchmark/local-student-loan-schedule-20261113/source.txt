@@ -1,0 +1,42 @@
+Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan
+
+T P -1. D. M -V (2025-12)
+T
+
+Interest Paid on a Student Loan
+
+SCHEDULE
+
+M
+
+Complete this schedule if interest was paid in 2025 on a student loan granted to you.
+Also complete this schedule if, for 2024, you calculated an amount for interest paid on a student loan and decided to carry the amount forward
+to a future year.
+If interest was paid on your student loan after 1997, but in 2024 you did not calculate the amount that could be carried forward, enter the result
+of the following calculation on line 46: interest paid for 1998 through 2024 minus the interest already used to calculate a credit for interest paid
+on a student loan for previous years.
+Unused portion of the interest paid on a student loan (line 62 of Schedule M for 2024
+or the amount shown in this respect on your 2024 notice of assessment)
+Interest paid in 2025 on a student loan
++
+Add lines 46 and 48.
+Carry all or part of this amount to line 385 of your return.
+Interest paid on a student loan =
+Amount carried to line 385 of your 2025 return
+–
+Subtract line 60 from line 52.
+
+Amount that can be carried forward to a future year =
+
+Enclose this schedule with your return.
+If you want to keep a copy for your records, see the guide.
+
+Y4M1 ZZ 89527749
+
+46
+48
+52
+60
+62
+
+M

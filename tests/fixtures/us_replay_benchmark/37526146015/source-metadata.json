@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2025-10-01",
+    "generation_input_sha256": "383fb23991e51f62a2a649ee5970254c06cea7091e7b63ebb17530d838880148",
+    "provision_file": "data/corpus/provisions/us/guidance/2026-05-01-snap-fy2026-cola-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "83eb59832a53d979e0927327f49f99ccd95551335818af505077047033e1ebf3",
+    "requested_corpus_citation_path": "us/guidance/usda/fns/snap-fy2026-cola/page-2",
+    "resolved_corpus_citation_path": "us/guidance/usda/fns/snap-fy2026-cola/page-2",
+    "resolved_text_sha256": "383fb23991e51f62a2a649ee5970254c06cea7091e7b63ebb17530d838880148",
+    "row": {
+      "body_sha256": "383fb23991e51f62a2a649ee5970254c06cea7091e7b63ebb17530d838880148",
+      "citation_path": "us/guidance/usda/fns/snap-fy2026-cola/page-2",
+      "document_class": "guidance",
+      "expression_date": "2025-10-01",
+      "jurisdiction": "us",
+      "line_number": 3,
+      "provision_file": "data/corpus/provisions/us/guidance/2026-05-01-snap-fy2026-cola-r2026-07-15-self-contained.jsonl",
+      "provision_file_sha256": "83eb59832a53d979e0927327f49f99ccd95551335818af505077047033e1ebf3",
+      "record_id": "df5904f1-fa77-53e1-a19a-847cf461c619",
+      "source_as_of": "2025-08-14",
+      "source_path": "sources/us/guidance/2026-05-01-snap-fy2026-cola-r2026-07-15-self-contained/official-documents/release-scope-us-guidance-2026-05-01-snap-fy2026-cola-r2026-07-15-self-contained",
+      "version": "2026-05-01-snap-fy2026-cola-r2026-07-15-self-contained"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us",
+    "source_as_of": "2025-08-14",
+    "source_sha256": "383fb23991e51f62a2a649ee5970254c06cea7091e7b63ebb17530d838880148"
+  }
+}

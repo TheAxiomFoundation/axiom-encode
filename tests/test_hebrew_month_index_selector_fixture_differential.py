@@ -8,8 +8,9 @@ them on and off, and require the set of changed verdicts to equal an explicit
 list:
 
 * over each RuleSpec fixture in the repository (and its ``provision.txt``
-  source where one exists), where the expected list is empty because no
-  fixture carries a Hebrew date or a non-band-named index selector;
+  source where one exists), where the expected list names the one fixture
+  that carries a non-band-named index selector (the replay of the Israeli
+  Part D birth-cohort run) and no other fixture changes;
 * over three synthetic control modules, one per behaviour, so that each
   recognizer has something to detect and the test fails if it stops working
   or widens.
@@ -43,9 +44,18 @@ from tests.test_hebrew_month_and_index_selector_grounding import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOTS = ("tests/fixtures", "benchmarks")
 
-# Every (fixture, verdict) the recognizers change. Empty: no repository
-# fixture carries Hebrew month dates or a non-band-named index selector.
-EXPECTED_CHANGED_FIXTURE_VERDICTS: dict[str, list[str]] = {}
+# Every (fixture, verdict) the recognizers change. The only entry is the
+# replay of the failed Israeli Part D encode (schedule A1, sign 4): its private
+# ``old_age_pension_woman_birth_cohort`` selector is read only as a table
+# subscript, so its row labels stop being grounding values and embedded
+# scalars. Its source is ``source.txt``, not ``provision.txt``, so no
+# ``ungrounded`` verdict is computed for it here.
+EXPECTED_CHANGED_FIXTURE_VERDICTS: dict[str, list[str]] = {
+    "tests/fixtures/us_replay_benchmark/42022127722/candidate.yaml": [
+        "embedded_scalars",
+        "grounding_values",
+    ],
+}
 
 # One synthetic module per behaviour, with the verdicts it must change.
 CONTROL_CASES: dict[str, tuple[str, str]] = {

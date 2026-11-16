@@ -1,0 +1,227 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-az/manual/des/faa5/na-categorical-eligibility/block-4
+    source_sha256: 0075187d9085d36c53e41a46c19ebdfeb4ccd1f93f263b97181e6fc8a9449c28
+  summary: '“Gross income does not exceed 200% of the current federal poverty level
+    (FPL).”
+
+    ECE also requires that the unit not meet BCE requirements, that resources
+
+    of participants with certain disqualifications not exceed the NA resource
+
+    limit, and that no participant have a disqualification. AZTECS considers
+
+    ECE units to have met resources and gross and net income tests.'
+rules:
+- name: expanded_categorical_eligibility_fpl_limit_rate
+  kind: parameter
+  dtype: Rate
+  source: Arizona DES FAA5 NA Categorical Eligibility, ECE gross-income limit
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-az/manual/des/archived-policy/2026-03-23-whats-changed/document-1
+          excerpt: The gross income limit for the NA ECE has changed from 185% of
+            the FPL to 200% of the FPL.
+      - path: versions[1].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-az/manual/des/archived-policy/2026-03-23-whats-changed/document-1
+          excerpt: The gross income limit for the NA ECE has changed from 185% of
+            the FPL to 200% of the FPL.
+      - path: versions[1].formula
+        kind: effective_period
+        source:
+          corpus_citation_path: us-az/manual/des/archived-policy/2026-03-23-whats-changed/document-1
+          excerpt: For the benefit month of 03/2026 and ongoing
+  versions:
+  - effective_from: '0001-01-01'
+    formula: "1.85"
+  - effective_from: '2026-03-01'
+    formula: "2.0"
+- name: gross_income_within_expanded_categorical_eligibility_fpl_limit
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Arizona DES FAA5 NA Categorical Eligibility, ECE gross-income condition
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-az/manual/des/faa5/na-categorical-eligibility/block-4
+          excerpt: Gross income does not exceed 200% of the current federal poverty
+            level (FPL)
+  versions:
+  - effective_from: '0001-01-01'
+    formula: gross_income <= expanded_categorical_eligibility_fpl_limit_rate * current_federal_poverty_level_amount
+- name: budgetary_unit_does_not_meet_basic_categorical_eligibility_requirements
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Arizona DES FAA5 NA Categorical Eligibility, BCE condition
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-az/manual/des/faa5/na-categorical-eligibility/block-4
+          excerpt: The NA budgetary unit does not meet basic categorical eligibility
+            (BCE) requirements
+  versions:
+  - effective_from: '0001-01-01'
+    formula: not budgetary_unit_meets_basic_categorical_eligibility_requirements
+- name: disqualified_participant_resources_not_over_na_resource_limit
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Arizona DES FAA5 NA Categorical Eligibility, disqualified-participant resources
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-az/manual/des/faa5/na-categorical-eligibility/block-4
+          excerpt: The resources of participants with certain disqualifications are
+            not over the NA resource limit
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: us-az/manual/des/faa5/na-categorical-eligibility/block-4
+          excerpt: Resources from certain disqualified participants are counted in
+            full.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: resources_of_participants_with_certain_disqualifications_are_not_over_na_resource_limit
+- name: no_participant_has_disqualification_that_blocks_expanded_categorical_eligibility
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Arizona DES FAA5 NA Categorical Eligibility, participant-disqualification
+    condition
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: us-az/manual/des/faa5/na-categorical-eligibility/block-4
+          excerpt: the budgetary unit does not have a participant who has a disqualification
+  versions:
+  - effective_from: '0001-01-01'
+    formula: not budgetary_unit_has_participant_with_disqualification
+- name: na_expanded_categorical_eligibility
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Arizona DES FAA5 NA Categorical Eligibility, ECE eligibility
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-az/manual/des/faa5/na-categorical-eligibility/block-4
+          excerpt: 'Expanded categorical eligibility (ECE) exists when all of the
+            following apply to the budgetary unit:'
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-az/manual/des/faa5/na-categorical-eligibility/block-4
+          excerpt: ECE eligibility exists when the budgetary unit meets all of the
+            above and the budgetary unit does not have a participant who has a disqualification.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'gross_income_within_expanded_categorical_eligibility_fpl_limit
+
+      and budgetary_unit_does_not_meet_basic_categorical_eligibility_requirements
+
+      and disqualified_participant_resources_not_over_na_resource_limit
+
+      and no_participant_has_disqualification_that_blocks_expanded_categorical_eligibility'
+- name: expanded_categorical_eligibility_deems_resources_met
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Arizona DES FAA5 NA Categorical Eligibility, AZTECS resource deeming
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-az/manual/des/faa5/na-categorical-eligibility/block-4
+          excerpt: Resources
+  versions:
+  - effective_from: '0001-01-01'
+    formula: na_expanded_categorical_eligibility
+- name: expanded_categorical_eligibility_deems_gross_income_test_met
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Arizona DES FAA5 NA Categorical Eligibility, AZTECS gross-income deeming
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-az/manual/des/faa5/na-categorical-eligibility/block-4
+          excerpt: Gross and net income tests
+  versions:
+  - effective_from: '0001-01-01'
+    formula: na_expanded_categorical_eligibility
+- name: expanded_categorical_eligibility_deems_net_income_test_met
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Arizona DES FAA5 NA Categorical Eligibility, AZTECS net-income deeming
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-az/manual/des/faa5/na-categorical-eligibility/block-4
+          excerpt: Gross and net income tests
+  versions:
+  - effective_from: '0001-01-01'
+    formula: na_expanded_categorical_eligibility
+inputs:
+- name: gross_income
+  entity: Household
+  dtype: Money
+  period: Month
+- name: current_federal_poverty_level_amount
+  entity: Household
+  dtype: Money
+  period: Month
+- name: budgetary_unit_meets_basic_categorical_eligibility_requirements
+  entity: Household
+  dtype: Judgment
+  period: Month
+- name: resources_of_participants_with_certain_disqualifications_are_not_over_na_resource_limit
+  entity: Household
+  dtype: Judgment
+  period: Month
+- name: budgetary_unit_has_participant_with_disqualification
+  entity: Household
+  dtype: Judgment
+  period: Month

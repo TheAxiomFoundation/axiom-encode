@@ -1,0 +1,286 @@
+{
+  "scope": "Extracted static role-binding fixture, not a compilation or runtime capability",
+  "policy_sha256": "d28b5ce8622a8d64ac1b82d717c04ea927794a82b7227e56726937fd4458b517",
+  "policy": {
+    "inputs": [
+      {
+        "name": "exploration_and_development_expenses_line_22400",
+        "entity": "Person",
+        "dtype": "Money",
+        "period": "Year",
+        "description": "Full line22400 expenses before T936 50% computation.",
+        "unit": "CAD"
+      },
+      {
+        "name": "recovery_of_exploration_and_development_expenses_line_13000",
+        "entity": "Person",
+        "dtype": "Money",
+        "period": "Year",
+        "description": "Full recovery income before T936 50% computation.",
+        "unit": "CAD"
+      }
+    ],
+    "rules": [
+      {
+        "name": "federal_2025_t936_chart_a_inclusion_rate",
+        "kind": "parameter",
+        "dtype": "Rate",
+        "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "formula": "0.50"
+          }
+        ],
+        "metadata": {
+          "proof": {
+            "atoms": [
+              {
+                "path": "versions[0].formula",
+                "kind": "parameter",
+                "source": {
+                  "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+                  "excerpt": "Inclusion rate \u00d7 50% 10"
+                }
+              },
+              {
+                "path": "versions[0].formula",
+                "kind": "parameter",
+                "source": {
+                  "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+                  "excerpt": "Inclusion rate \u00d7 50% 18"
+                }
+              },
+              {
+                "path": "versions[0].formula",
+                "kind": "parameter",
+                "source": {
+                  "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+                  "excerpt": "50% of exploration and development expenses (line 22400) + 5"
+                }
+              },
+              {
+                "path": "versions[0].formula",
+                "kind": "parameter",
+                "source": {
+                  "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+                  "excerpt": "50% of income from the recovery of exploration and development expenses (line 13000) 68110 + 12"
+                }
+              },
+              {
+                "path": "versions[0].effective_from",
+                "kind": "effective_period",
+                "source": {
+                  "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+                  "excerpt": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss"
+                }
+              },
+              {
+                "path": "versions[0].effective_to",
+                "kind": "effective_period",
+                "source": {
+                  "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+                  "excerpt": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "federal_2025_t936_total_investment_expenses_line_a",
+        "kind": "derived",
+        "dtype": "Money",
+        "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+        "entity": "Person",
+        "period": "Year",
+        "unit": "CAD",
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "formula": "carrying_charges_and_interest_expenses_line_22100 + net_rental_losses_line_12600 + limited_or_non_active_partnership_losses_line_12200 + limited_partnership_losses_of_other_years_line_25100 + exploration_and_development_expenses_line_22400 * federal_2025_t936_chart_a_inclusion_rate + other_investment_expenses_line_68080 + federal_2025_t936_additional_expenses_line_7"
+          }
+        ],
+        "metadata": {
+          "proof": {
+            "atoms": [
+              {
+                "path": "versions[0].formula",
+                "kind": "formula",
+                "source": {
+                  "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+                  "excerpt": "Carrying charges and interest expenses (line 22100) 1\nNet rental losses (line 12600) + 2\nLimited or non-active partnership losses (line 12200) other than allowable capital losses + 3\nLimited partnership losses of other years after 1985 (line 25100) + 4\n50% of exploration and development expenses (line 22400) + 5\nAny other investment expenses claimed in 2025 to earn property income\n(see the list \"Other investment expenses\" on the next page) 68080 + 6\n"
+                }
+              },
+              {
+                "path": "versions[0].formula",
+                "kind": "formula",
+                "source": {
+                  "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+                  "excerpt": "Add lines 1 to 7. Total investment expenses claimed in 2025 = A"
+                }
+              },
+              {
+                "path": "versions[0].effective_from",
+                "kind": "effective_period",
+                "source": {
+                  "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+                  "excerpt": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss"
+                }
+              },
+              {
+                "path": "versions[0].effective_to",
+                "kind": "effective_period",
+                "source": {
+                  "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+                  "excerpt": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "federal_2025_t936_total_investment_income_line_b",
+        "kind": "derived",
+        "dtype": "Money",
+        "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+        "entity": "Person",
+        "period": "Year",
+        "unit": "CAD",
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "formula": "investment_income_lines_12000_and_12100 + net_rental_income_line_12600 + limited_or_non_active_partnership_income_line_12200 + other_property_income_line_68100 + recovery_of_exploration_and_development_expenses_line_13000 * federal_2025_t936_chart_a_inclusion_rate + federal_2025_t936_additional_income_line_13"
+          }
+        ],
+        "metadata": {
+          "proof": {
+            "atoms": [
+              {
+                "path": "versions[0].formula",
+                "kind": "formula",
+                "source": {
+                  "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+                  "excerpt": "Investment income (lines 12000 and 12100) 8\nNet rental income, including recaptured capital cost allowance (line 12600) + 9\nNet income from limited or non-active partnership (line 12200) other than taxable capital gains + 10\nAny other property income reported in 2025 (see the list \"Other property income\" on the next page)\nincluding annuity payments taxable under paragraph 56(1)(d) minus the capital portion deducted\nunder paragraph 60(a) 68100 + 11\n50% of income from the recovery of exploration and development expenses (line 13000) 68110 + 12\n"
+                }
+              },
+              {
+                "path": "versions[0].formula",
+                "kind": "formula",
+                "source": {
+                  "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+                  "excerpt": "Add lines 8 to 13. Total investment income reported in 2025 = B"
+                }
+              },
+              {
+                "path": "versions[0].effective_from",
+                "kind": "effective_period",
+                "source": {
+                  "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+                  "excerpt": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss"
+                }
+              },
+              {
+                "path": "versions[0].effective_to",
+                "kind": "effective_period",
+                "source": {
+                  "corpus_citation_path": "ca/policy/cra/t1-2025/cumulative-net-investment-loss",
+                  "excerpt": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "case": {
+    "period": {
+      "period_kind": "tax_year",
+      "start": "2025-01-01",
+      "end": "2025-12-31"
+    }
+  },
+  "traces": {
+    "federal_2025_t936_total_investment_expenses_line_a": {
+      "kind": "scalar",
+      "name": "federal_2025_t936_total_investment_expenses_line_a",
+      "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_total_investment_expenses_line_a",
+      "entity_id": "t936-illustrative-person",
+      "dtype": "decimal",
+      "unit": "CAD",
+      "value": {
+        "kind": "decimal",
+        "value": "258"
+      },
+      "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+      "executed_expression": "((((((input(\"carrying_charges_and_interest_expenses_line_22100\") + input(\"net_rental_losses_line_12600\")) + input(\"limited_or_non_active_partnership_losses_line_12200\")) + input(\"limited_partnership_losses_of_other_years_line_25100\")) + (input(\"exploration_and_development_expenses_line_22400\") * ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_inclusion_rate[0])) + ca:policies/cra/t1-2025/cumulative-net-investment-loss#other_investment_expenses_line_68080) + ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_expenses_line_7)",
+      "parameter_reads": [
+        {
+          "parameter": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_inclusion_rate",
+          "name": "federal_2025_t936_chart_a_inclusion_rate",
+          "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_inclusion_rate",
+          "index": 0,
+          "value": {
+            "kind": "decimal",
+            "value": "0.5"
+          },
+          "effective_from": "2025-01-01",
+          "effective_to": "2025-12-31",
+          "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss"
+        }
+      ],
+      "dependencies": [
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#other_investment_expenses_line_68080",
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_expenses_line_7"
+      ]
+    },
+    "federal_2025_t936_total_investment_income_line_b": {
+      "kind": "scalar",
+      "name": "federal_2025_t936_total_investment_income_line_b",
+      "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_total_investment_income_line_b",
+      "entity_id": "t936-illustrative-person",
+      "dtype": "decimal",
+      "unit": "CAD",
+      "value": {
+        "kind": "decimal",
+        "value": "190"
+      },
+      "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+      "executed_expression": "(((((input(\"investment_income_lines_12000_and_12100\") + input(\"net_rental_income_line_12600\")) + input(\"limited_or_non_active_partnership_income_line_12200\")) + ca:policies/cra/t1-2025/cumulative-net-investment-loss#other_property_income_line_68100) + (input(\"recovery_of_exploration_and_development_expenses_line_13000\") * ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_inclusion_rate[0])) + ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_income_line_13)",
+      "parameter_reads": [
+        {
+          "parameter": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_inclusion_rate",
+          "name": "federal_2025_t936_chart_a_inclusion_rate",
+          "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_chart_a_inclusion_rate",
+          "index": 0,
+          "value": {
+            "kind": "decimal",
+            "value": "0.5"
+          },
+          "effective_from": "2025-01-01",
+          "effective_to": "2025-12-31",
+          "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss"
+        }
+      ],
+      "dependencies": [
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#other_property_income_line_68100",
+        "ca:policies/cra/t1-2025/cumulative-net-investment-loss#federal_2025_t936_additional_income_line_13"
+      ]
+    }
+  },
+  "facts": {
+    "exploration_and_development_expenses_line_22400": {
+      "kind": "integer",
+      "value": 20
+    },
+    "recovery_of_exploration_and_development_expenses_line_13000": {
+      "kind": "integer",
+      "value": 20
+    }
+  }
+}

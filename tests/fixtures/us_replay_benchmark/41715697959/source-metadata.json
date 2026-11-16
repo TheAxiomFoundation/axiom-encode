@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-10-29-ecfr-section-text",
+    "corpus_release_content_sha256": "063457c68fec0dbcc2c35cd58c633e7a48e130b119926c70492f831f2ab2aacf",
+    "corpus_release_selector_sha256": "444c008bdf2afeb149d9f392f0ad64d86f460f2ba69aebc8861f37d87bd48bcb",
+    "corpus_source": "local",
+    "expression_date": "2026-04-29",
+    "generation_input_sha256": "952a224251d50fcb5c69fc765cb1b671ef797021bf00131426f93610a100ccad",
+    "provision_file": "data/corpus/provisions/us/regulation/2026-05-10-snap-7-cfr-273-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "de25d2b32f261e92405a553f65dfc90b47b032a4d1a80b1b585857b7fd342d1e",
+    "requested_corpus_citation_path": "us/regulation/7/273/7",
+    "resolved_corpus_citation_path": "us/regulation/7/273/7",
+    "resolved_text_sha256": "952a224251d50fcb5c69fc765cb1b671ef797021bf00131426f93610a100ccad",
+    "row": {
+      "body_sha256": "952a224251d50fcb5c69fc765cb1b671ef797021bf00131426f93610a100ccad",
+      "citation_path": "us/regulation/7/273/7",
+      "document_class": "regulation",
+      "expression_date": "2026-04-29",
+      "jurisdiction": "us",
+      "line_number": 12,
+      "provision_file": "data/corpus/provisions/us/regulation/2026-05-10-snap-7-cfr-273-r2026-07-15-self-contained.jsonl",
+      "provision_file_sha256": "de25d2b32f261e92405a553f65dfc90b47b032a4d1a80b1b585857b7fd342d1e",
+      "record_id": "bf3f4fb2-8068-5e85-be02-e0772cd4e764",
+      "source_as_of": "2026-04-29",
+      "source_path": "sources/us/regulation/2026-05-10-snap-7-cfr-273-r2026-07-15-self-contained/official-documents/release-scope-us-regulation-2026-05-10-snap-7-cfr-273-r2026-07-15-self-contained",
+      "version": "2026-05-10-snap-7-cfr-273-r2026-07-15-self-contained"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us",
+    "source_as_of": "2026-04-29",
+    "source_sha256": "952a224251d50fcb5c69fc765cb1b671ef797021bf00131426f93610a100ccad"
+  }
+}

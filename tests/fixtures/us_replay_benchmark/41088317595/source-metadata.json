@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-10-29-ecfr-section-text",
+    "corpus_release_content_sha256": "063457c68fec0dbcc2c35cd58c633e7a48e130b119926c70492f831f2ab2aacf",
+    "corpus_release_selector_sha256": "444c008bdf2afeb149d9f392f0ad64d86f460f2ba69aebc8861f37d87bd48bcb",
+    "corpus_source": "local",
+    "expression_date": "2026-07-17",
+    "generation_input_sha256": "62caf66435f0dcda390414df5f4ce1810c359726c51335cd5cdd30f07057fd4f",
+    "provision_file": "data/corpus/provisions/us-az/manual/2026-07-17-faa5-recovery.jsonl",
+    "provision_file_sha256": "8175940d284808c43222bc1a90328344f39fcb42f38b29581c162994535fc932",
+    "requested_corpus_citation_path": "us-az/manual/des/faa5/na-categorical-eligibility/block-5",
+    "resolved_corpus_citation_path": "us-az/manual/des/faa5/na-categorical-eligibility/block-5",
+    "resolved_text_sha256": "62caf66435f0dcda390414df5f4ce1810c359726c51335cd5cdd30f07057fd4f",
+    "row": {
+      "body_sha256": "62caf66435f0dcda390414df5f4ce1810c359726c51335cd5cdd30f07057fd4f",
+      "citation_path": "us-az/manual/des/faa5/na-categorical-eligibility/block-5",
+      "document_class": "manual",
+      "expression_date": "2026-07-17",
+      "jurisdiction": "us-az",
+      "line_number": 55,
+      "provision_file": "data/corpus/provisions/us-az/manual/2026-07-17-faa5-recovery.jsonl",
+      "provision_file_sha256": "8175940d284808c43222bc1a90328344f39fcb42f38b29581c162994535fc932",
+      "record_id": "7ba2f725-f7e6-53bd-8ecc-0a06da2dccca",
+      "source_as_of": "2026-07-17",
+      "source_path": "sources/us-az/manual/2026-07-17-faa5-recovery/official-documents/na-categorical-eligibility.html",
+      "version": "2026-07-17-faa5-recovery"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us-az",
+    "source_as_of": "2026-07-17",
+    "source_sha256": "62caf66435f0dcda390414df5f4ce1810c359726c51335cd5cdd30f07057fd4f"
+  }
+}

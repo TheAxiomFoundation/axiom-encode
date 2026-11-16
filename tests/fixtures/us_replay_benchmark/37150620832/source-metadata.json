@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2026-07-17",
+    "generation_input_sha256": "8c6be9a385937493796a80db196d04ad53a54eb5437e383d6e6115f5ec46e15e",
+    "provision_file": "data/corpus/provisions/us-az/manual/2026-07-17-faa5-recovery.jsonl",
+    "provision_file_sha256": "8175940d284808c43222bc1a90328344f39fcb42f38b29581c162994535fc932",
+    "requested_corpus_citation_path": "us-az/manual/des/faa5/na-eligibility-and-benefit-determination/block-9",
+    "resolved_corpus_citation_path": "us-az/manual/des/faa5/na-eligibility-and-benefit-determination/block-9",
+    "resolved_text_sha256": "8c6be9a385937493796a80db196d04ad53a54eb5437e383d6e6115f5ec46e15e",
+    "row": {
+      "body_sha256": "8c6be9a385937493796a80db196d04ad53a54eb5437e383d6e6115f5ec46e15e",
+      "citation_path": "us-az/manual/des/faa5/na-eligibility-and-benefit-determination/block-9",
+      "document_class": "manual",
+      "expression_date": "2026-07-17",
+      "jurisdiction": "us-az",
+      "line_number": 74,
+      "provision_file": "data/corpus/provisions/us-az/manual/2026-07-17-faa5-recovery.jsonl",
+      "provision_file_sha256": "8175940d284808c43222bc1a90328344f39fcb42f38b29581c162994535fc932",
+      "record_id": "4cd4605d-924e-586f-8c55-1e5cb3be2fda",
+      "source_as_of": "2026-07-17",
+      "source_path": "sources/us-az/manual/2026-07-17-faa5-recovery/official-documents/na-eligibility-and-benefit-determination.html",
+      "version": "2026-07-17-faa5-recovery"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us-az",
+    "source_as_of": "2026-07-17",
+    "source_sha256": "8c6be9a385937493796a80db196d04ad53a54eb5437e383d6e6115f5ec46e15e"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2025-11-03",
+    "generation_input_sha256": "18418d2057512ec336b4de2e07772308e9ea80320426c7fe8d8c9ffc63fbd6b3",
+    "provision_file": "data/corpus/provisions/us-ri/guidance/2026-07-23-ri-pit-adv-2025-22.jsonl",
+    "provision_file_sha256": "a17f13201e4a0dcc4c174694897720fbf749405ecc2ac67151a70867c4654f59",
+    "requested_corpus_citation_path": "us-ri/guidance/tax/adv-2025-22/page-2",
+    "resolved_corpus_citation_path": "us-ri/guidance/tax/adv-2025-22/page-2",
+    "resolved_text_sha256": "18418d2057512ec336b4de2e07772308e9ea80320426c7fe8d8c9ffc63fbd6b3",
+    "row": {
+      "body_sha256": "18418d2057512ec336b4de2e07772308e9ea80320426c7fe8d8c9ffc63fbd6b3",
+      "citation_path": "us-ri/guidance/tax/adv-2025-22/page-2",
+      "document_class": "guidance",
+      "expression_date": "2025-11-03",
+      "jurisdiction": "us-ri",
+      "line_number": 3,
+      "provision_file": "data/corpus/provisions/us-ri/guidance/2026-07-23-ri-pit-adv-2025-22.jsonl",
+      "provision_file_sha256": "a17f13201e4a0dcc4c174694897720fbf749405ecc2ac67151a70867c4654f59",
+      "record_id": "a53f85dd-3e11-57e6-a92a-8df8a17d5821",
+      "source_as_of": "2026-07-23",
+      "source_path": "sources/us-ri/guidance/2026-07-23-ri-pit-adv-2025-22/official-documents/us-ri-tax-adv-2025-22-inflation-adjustments.pdf",
+      "version": "2026-07-23-ri-pit-adv-2025-22"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us-ri",
+    "source_as_of": "2026-07-23",
+    "source_sha256": "18418d2057512ec336b4de2e07772308e9ea80320426c7fe8d8c9ffc63fbd6b3"
+  }
+}

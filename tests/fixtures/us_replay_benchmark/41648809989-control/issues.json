@@ -1,0 +1,1 @@
+{"schema": "replay-bench/validated-control/v1", "path": "policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility.yaml", "issues": [], "note": "validators passed; run failed later at a provenance guard"}

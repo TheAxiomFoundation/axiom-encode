@@ -1,1 +1,1 @@
-Replace ECPS/EFRS validation commands and readiness reporting with Populace-backed PolicyEngine population validation.
+Replace ECPS/EFRS validation commands and readiness reporting with Microcosm-backed PolicyEngine population validation.

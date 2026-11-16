@@ -7,13 +7,26 @@ import pytest
 
 from axiom_encode.harness import source_completeness as s
 from axiom_encode.harness.reporting_route_evidence import ReportingRouteCoverage
-from tests.test_measurement_role_evidence import current_material, issues
+from tests.test_measurement_role_evidence import (
+    assert_partial_schedule_is_not_complete,
+    current_material,
+    issues,
+    scoped_evidence,
+)
 
 
 def test_actual_six_sparse_routes_have_full_source_coverage_without_filler():
+    """Historical test name: component coverage does not clear the whole source."""
     doc, cases, source = current_material()
     old = copy.deepcopy(cases)
-    assert issues(doc, cases, source) == ()
+    _, routes = scoped_evidence(doc, cases, source)
+    assert routes is not None
+    assert routes.clauses == (
+        (140, 225, "current"),
+        (226, 386, "prior"),
+        (387, 720, "history"),
+    )
+    assert_partial_schedule_is_not_complete(doc, cases, source)
     assert cases == old
     assert not any("paid_1998" in k for k in cases[0]["input"])
     assert not any(
@@ -126,6 +139,7 @@ def test_incomplete_reporting_evidence_keeps_specific_conditions(mutation):
     )
     if mutation in {"zero_prior", "current_pair_second_fact"}:
         assert_all_four_outputs_replay(doc, cases)
+    assert scoped_evidence(doc, cases, source)[1] is None
     assert any(
         "paired positive/blocking" in item for item in issues(doc, cases, source)
     )
@@ -155,6 +169,19 @@ def test_unrecognized_source_conditions_are_not_reported_as_covered(mutation):
             clause, clause[:-1] + "; retain eligibility for the credit."
         )
     assert source != before
+    _, routes = scoped_evidence(doc, cases, source)
+    if mutation == "unknown":
+        # Existing component routes may remain valid; the added obligation
+        # must not inherit their evidence.
+        assert routes is not None
+        text = "If the applicant is eligible, pay the credit."
+        start = source.index(text)
+        branch = s.SourceStructureBranch(
+            (), "condition", "unknown", text, start, start + len(text)
+        )
+        assert routes.unmatched((branch,)) == (branch,)
+    else:
+        assert routes is None
     assert any(
         "paired positive/blocking" in item for item in issues(doc, cases, source)
     )
@@ -230,6 +257,7 @@ def test_reporting_certificate_requires_own_canonical_fact_identity(mutation):
                 else key.replace("#input.", "#")
             )
             case["input"][replacement] = case["input"].pop(key)
+    assert scoped_evidence(doc, cases, source)[1] is None
     assert any(
         "paired positive/blocking" in item for item in issues(doc, cases, source)
     )
@@ -244,6 +272,7 @@ def test_reporting_consumer_refuses_listed_assertions_from_another_row():
         paid = next(k for k in row if "paid_2025_line_48" in k)
         row[paid] += 1
         case["tables"] = {"Person": [row]}
+    assert scoped_evidence(doc, cases, source)[1] is None
     assert any(
         "paired positive/blocking" in item for item in issues(doc, cases, source)
     )

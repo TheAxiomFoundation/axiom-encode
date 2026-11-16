@@ -40,6 +40,8 @@ from axiom_encode.checks import (
 from axiom_encode.codex_cli import (
     DEFAULT_CODEX_REASONING_EFFORT,
     codex_auth_error,
+    codex_auth_secrets,
+    redact_codex_auth_secrets,
     resolve_codex_cli,
     validate_codex_reasoning_effort,
     with_codex_model_availability_hint,
@@ -51,6 +53,7 @@ from axiom_encode.concepts.registry import (
     load_concept_registry,
 )
 from axiom_encode.constants import (
+    OPENAI_AUTHORING_OUTPUT_LIMITS,
     RULESPEC_ATOMIC_MODULE_ROOTS,
     RULESPEC_COMPOSITION_SPEC_ROOT,
     RULESPEC_FILE_SUFFIX,
@@ -78,6 +81,16 @@ from axiom_encode.legacy_replacement_overlay import (
     replacement_excluded_jurisdictions,
     scope_canonical_replacement_overlay,
     stage_legacy_replacement_overlay,
+)
+from axiom_encode.live_run_telemetry import (
+    PHASE_GENERATE,
+    PHASE_REVIEW,
+    PHASE_VALIDATE,
+    report_phase,
+)
+from axiom_encode.producer_review_guidance import (
+    MAX_GUIDANCE_BYTES,
+    ProducerReviewGuidance,
 )
 from axiom_encode.prompts.encoder import (
     INTERPRETATIONS_PROTOCOL,
@@ -831,28 +844,51 @@ def _prune_unused_imports(content: str) -> tuple[str, list[str]]:
     imports_indent = 0
     removed: list[str] = []
 
+    # Per `imports:` block: its header line index, how many items it lost,
+    # and whether any other content (a kept item or a nested key) remains.
+    import_headers: list[int] = []
+    import_removals: list[int] = []
+    import_retained: list[bool] = []
+
     for line in content.splitlines(keepends=True):
         imports_match = re.match(r"^(\s*)imports:\s*$", line)
         if imports_match:
             in_imports = True
             imports_indent = len(imports_match.group(1))
+            import_headers.append(len(repaired_lines))
+            import_removals.append(0)
+            import_retained.append(False)
             repaired_lines.append(line)
             continue
 
         if in_imports:
             stripped = line.strip()
-            if stripped:
+            # A comment line neither ends the block nor counts as content.
+            if stripped and not stripped.startswith("#"):
                 indent = len(line) - len(line.lstrip())
                 item_match = re.match(r"^\s*-\s+(.+?)\s*$", line)
                 if item_match and indent >= imports_indent:
                     item = _strip_yaml_scalar_quotes(item_match.group(1).strip())
                     if item in unused:
                         removed.append(item)
+                        import_removals[-1] += 1
                         continue
+                    import_retained[-1] = True
                 elif indent <= imports_indent:
                     in_imports = False
+                else:
+                    import_retained[-1] = True
 
         repaired_lines.append(line)
+
+    # Pruning every item of a block must drop its header too: a bare
+    # `imports:` loads as null, which the rules engine rejects ("expected a
+    # sequence"). A block that lost nothing, or keeps any content, stays.
+    for header_index, removal_count, retained in reversed(
+        list(zip(import_headers, import_removals, import_retained, strict=True))
+    ):
+        if removal_count and not retained:
+            del repaired_lines[header_index]
 
     return "".join(repaired_lines), removed
 
@@ -1771,8 +1807,22 @@ def run_model_eval(
     accept_valid_retry_candidate: bool = False,
     codex_reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
     axiom_rules_engine_ref: str | None = None,
+    producer_review_guidance: ProducerReviewGuidance | None = None,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
+    if producer_review_guidance is not None:
+        if (
+            len(citations) != 1
+            or len(runner_specs) != 1
+            or review_findings_paths
+            or not require_complete_source_unit
+            or legacy_replacement is not None
+            or repair_candidate_tests_only
+            or accept_valid_retry_candidate
+        ):
+            raise ValueError(
+                "producer guidance requires a single ordinary full-source target"
+            )
     validate_codex_reasoning_effort(codex_reasoning_effort)
     _validate_eval_oracle_runtime(oracle, policyengine_runtime, policy_path)
     if target_relative_output is not None and len(citations) != 1:
@@ -1849,6 +1899,11 @@ def run_model_eval(
                         source_unit=source_unit,
                         rulespec_dependency_roots=rulespec_dependency_roots,
                         review_findings_paths=review_findings_paths or [],
+                        **(
+                            {"producer_review_guidance": producer_review_guidance}
+                            if producer_review_guidance is not None
+                            else {}
+                        ),
                         require_complete_source_unit=require_complete_source_unit,
                         target_relative_output=target_relative_output,
                         validation_retry_feedback=validation_retry_feedback,
@@ -6983,8 +7038,42 @@ def prepare_eval_workspace(
     review_findings_paths: list[Path] | None = None,
     target_relative_output: Path | None = None,
     review_contract: Mapping[str, object] | None = None,
+    producer_review_guidance: ProducerReviewGuidance | None = None,
 ) -> EvalWorkspace:
     """Create an isolated workspace bundle for a single eval."""
+    if producer_review_guidance is not None:
+        if review_findings_paths:
+            raise ValueError(
+                "producer guidance and review findings are mutually exclusive"
+            )
+        guidance = producer_review_guidance
+        if (
+            not isinstance(guidance.content, bytes)
+            or not 0 < len(guidance.content) <= MAX_GUIDANCE_BYTES
+        ):
+            raise ValueError("producer guidance content size is invalid")
+        try:
+            guidance_text = guidance.content.decode("utf-8", errors="strict")
+        except UnicodeError as exc:
+            raise ValueError("producer guidance content is not UTF-8") from exc
+        if (
+            guidance_text.startswith("\ufeff")
+            or not guidance_text.endswith("\n")
+            or guidance_text.endswith("\n\n")
+            or not guidance_text.strip()
+            or any(
+                (ord(c) < 32 and c not in "\n\t") or ord(c) == 127
+                for c in guidance_text
+            )
+        ):
+            raise ValueError("producer guidance content is not normalized")
+        source_digest = hashlib.sha256(
+            source_text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+        ).hexdigest()
+        if guidance.citation != citation or guidance.source_sha256 != source_digest:
+            raise ValueError("producer guidance does not match the workspace source")
+        if hashlib.sha256(guidance.content).hexdigest() != guidance.content_sha256:
+            raise ValueError("producer guidance content digest mismatch")
     slug = _slugify(citation)
     workspace_root = (
         Path(output_root) / "_eval_workspaces" / runner.name / slug / "workspace"
@@ -7076,6 +7165,28 @@ def prepare_eval_workspace(
                 "sha256": hashlib.sha256(
                     normalized_findings_text.encode("utf-8")
                 ).hexdigest(),
+            }
+        )
+
+    if producer_review_guidance is not None:
+        guidance = producer_review_guidance
+        workspace_relative_path = Path("review-findings/01-producer-guidance.txt")
+        workspace_path = workspace_root / workspace_relative_path
+        workspace_path.parent.mkdir(parents=True, exist_ok=True)
+        workspace_path.write_bytes(guidance.content)
+        context_file = EvalContextFile(
+            source_path=f"git:{guidance.producer_commit}:{guidance.path}",
+            workspace_path=str(workspace_relative_path),
+            import_path=str(workspace_relative_path),
+            kind="mandatory_review_findings",
+            label="producer-guidance.txt",
+        )
+        review_findings_files.append(context_file)
+        review_findings_evidence.append(
+            {
+                **asdict(context_file),
+                "content": guidance_text,
+                "sha256": guidance.content_sha256,
             }
         )
 
@@ -7216,6 +7327,17 @@ def prepare_eval_workspace(
         ],
         "review_findings_files": review_findings_evidence,
     }
+    if producer_review_guidance is not None:
+        guidance = producer_review_guidance
+        manifest_payload["producer_review_guidance"] = {
+            "producer_commit": guidance.producer_commit,
+            "path": guidance.path,
+            "blob_sha256": guidance.blob_sha256,
+            "size_bytes": guidance.size_bytes,
+            "citation": guidance.citation,
+            "source_sha256": guidance.source_sha256,
+            "content_sha256": guidance.content_sha256,
+        }
     if review_contract is not None:
         manifest_payload["review_contract"] = dict(review_contract)
     if rendered_context.dropped_amendment_documents:
@@ -8799,6 +8921,7 @@ def _evaluate_artifact_in_scope(
             },
             existing_target_oracle_contract=existing_target_oracle_contract,
         )
+        report_phase(PHASE_VALIDATE)
         compile_result = pipeline._run_compile_check(validation_file)
         timing_issues = amendment_timing_issues(
             validation_file.read_text(), amendment_documents
@@ -8868,6 +8991,7 @@ def _evaluate_artifact_in_scope(
                 issues=[],
             )
         else:
+            report_phase(PHASE_REVIEW)
             try:
                 generalist_review_result = pipeline._run_reviewer(
                     "generalist-reviewer",
@@ -10230,6 +10354,7 @@ def _run_single_eval(
     accept_valid_retry_candidate: bool = False,
     axiom_compose_path: Path | None = None,
     axiom_rules_engine_ref: str | None = None,
+    producer_review_guidance: ProducerReviewGuidance | None = None,
 ) -> EvalResult:
     if (
         accept_valid_retry_candidate
@@ -10302,6 +10427,11 @@ def _run_single_eval(
         amendment_documents=source_unit.amendment_documents,
         extra_context_paths=extra_context_paths,
         review_findings_paths=review_findings_paths,
+        **(
+            {"producer_review_guidance": producer_review_guidance}
+            if producer_review_guidance is not None
+            else {}
+        ),
         target_relative_output=target_relative_output,
         review_contract=review_contract,
     )
@@ -10481,6 +10611,7 @@ def _run_single_eval(
             _clear_eval_target_artifacts(output_file, artifact_root)
 
     if not retained_candidate_accepted:
+        report_phase(PHASE_GENERATE)
         mark_encode_phase(PHASE_MODEL_CALL)
         response, wrote_artifact, retry_count, materialized_paths = (
             _run_prompt_eval_with_empty_artifact_retry(
@@ -11893,6 +12024,8 @@ Existing canonical replacement baseline (not a rejected generated candidate):
   restores omitted named objects from this baseline before normal validation.
   Re-emitting a name replaces that entire object: preserve its other formulas,
   dates, proof atoms and expectations unless the requested repair requires it.
+- A retained `module.proof_validation.required: true` is preserved when omitted
+  and cannot be disabled by the replacement.
 - Do not regenerate a shortened substitute. All normal source, proof, runtime,
   completeness and signature requirements still apply. Existing validity never
   skips generation or validates the repaired result.
@@ -11931,7 +12064,9 @@ companion test file required by the task and deterministic validation.
             "- Return syntactically complete RuleSpec and companion test YAML, but "
             "you may omit unchanged named units, named inputs, named rules, imports, deferred "
             "outputs, and named companion cases. The encoder overlays those "
-            "omitted items from the hash-bound candidate before validation. Re-emit "
+            "omitted items from the hash-bound candidate before validation. "
+            "A retained `module.proof_validation.required: true` is restored when "
+            "omitted and cannot be disabled by the repair. Re-emit "
             "the complete item only when changing or replacing it. To remove an "
             "obsolete named unit, input, rule, or companion case from this rejected "
             "candidate, emit an exact YAML item containing only "
@@ -16753,7 +16888,9 @@ def _run_codex_prompt_eval(
         str(workspace.root),
         "-s",
         "read-only",
-        prompt,
+        # The prompt goes on stdin ("-"), not argv: a large source text as one
+        # argument fails exec with E2BIG before Codex starts.
+        "-",
     ]
 
     start = time.time()
@@ -16763,18 +16900,29 @@ def _run_codex_prompt_eval(
     timeout_reason = None
     triggering_timeout_seconds: float | None = None
     with (
+        # A seekable file, not a pipe: nothing has to feed the child while the
+        # wait loop below polls it, so a full pipe cannot block the timeouts.
+        tempfile.TemporaryFile(
+            mode="w+", encoding="utf-8", errors="surrogateescape"
+        ) as prompt_stdin,
         tempfile.TemporaryDirectory(prefix="axiom-codex-home-") as codex_home_dir,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stdout_file,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,
     ):
         codex_home = _prepare_codex_eval_home(Path(codex_home_dir))
+        # auth.json is readable from the read-only sandbox. Record its
+        # credential strings now and after the run, and keep none of them.
+        auth_secrets = codex_auth_secrets(codex_home)
         codex_env = scrub_attestation_signing_keys()
         codex_env["CODEX_HOME"] = str(codex_home)
         stdout_path = Path(stdout_file.name)
         stderr_path = Path(stderr_file.name)
+        prompt_stdin.write(prompt)
+        prompt_stdin.flush()
+        prompt_stdin.seek(0)
         process = subprocess.Popen(
             cmd,
-            stdin=subprocess.DEVNULL,
+            stdin=prompt_stdin,
             stdout=stdout_file,
             stderr=stderr_file,
             text=True,
@@ -16820,8 +16968,10 @@ def _run_codex_prompt_eval(
                     process.kill()
                     process.wait()
 
-    stdout_text = stdout_path.read_text()
-    stderr_text = stderr_path.read_text()
+        auth_secrets |= codex_auth_secrets(codex_home)
+
+    stdout_text = redact_codex_auth_secrets(stdout_path.read_text(), auth_secrets)
+    stderr_text = redact_codex_auth_secrets(stderr_path.read_text(), auth_secrets)
     stdout_path.unlink(missing_ok=True)
     stderr_path.unlink(missing_ok=True)
     duration_ms = int((time.time() - start) * 1000)
@@ -16831,6 +16981,7 @@ def _run_codex_prompt_eval(
     usage_payload: dict | None = None
     unexpected_accesses: list[str] = []
     error = None
+    runtime_initialization_error = None
 
     for line in (stdout_text + stderr_text).splitlines():
         stripped = line.strip()
@@ -16844,6 +16995,15 @@ def _run_codex_prompt_eval(
         events.append(payload)
         if payload.get("type") == "item.completed":
             item = payload.get("item", {}) or {}
+            # Codex can exit zero and emit a final answer after its tool runtime
+            # failed to start. This is not an ordinary recoverable tool error:
+            # workspace evidence was unavailable, so do not accept that answer.
+            if item.get("type") == "error":
+                message = item.get("message")
+                if isinstance(message, str) and message.startswith(
+                    "Code Mode is unavailable because "
+                ):
+                    runtime_initialization_error = message
             if item.get("type") == "agent_message" and item.get("text"):
                 assistant_messages.append(item["text"])
             if item.get("type") == "command_execution":
@@ -16878,9 +17038,21 @@ def _run_codex_prompt_eval(
 
     final_text = "\n".join(assistant_messages).strip()
     if last_message_file.exists():
-        file_text = last_message_file.read_text().strip()
+        # The raw file holds the child's unredacted text inside the workspace
+        # under --output, which failure diagnostics upload. Nothing reads it
+        # after this point, so remove it whether or not the read succeeds.
+        try:
+            file_text = redact_codex_auth_secrets(
+                last_message_file.read_text(), auth_secrets
+            ).strip()
+        finally:
+            last_message_file.unlink(missing_ok=True)
         if file_text:
             final_text = file_text
+
+    if runtime_initialization_error:
+        final_text = ""
+        error = "Codex runtime initialization failed: " + runtime_initialization_error
 
     if timeout_stage == "case_budget":
         final_text = ""
@@ -17219,6 +17391,8 @@ def _extract_openai_response_text(payload: dict) -> str:
 
 
 def _openai_prompt_max_output_tokens(model: str) -> int:
+    if model in OPENAI_AUTHORING_OUTPUT_LIMITS:
+        return OPENAI_AUTHORING_OUTPUT_LIMITS[model]
     if any(
         model == prefix or model.startswith(f"{prefix}-")
         for prefix in _OPENAI_EXTENDED_OUTPUT_MODEL_PREFIXES
@@ -17708,8 +17882,18 @@ def _run_openai_prompt_eval(
         ((usage.get("output_tokens_details") or {}).get("reasoning_tokens", 0) or 0)
     )
 
+    incomplete = payload.get("status") == "incomplete"
+    incomplete_details = payload.get("incomplete_details") or {}
+    incomplete_reason = (
+        incomplete_details.get("reason", "unspecified")
+        if isinstance(incomplete_details, dict)
+        else "unspecified"
+    )
     return EvalPromptResponse(
-        text=_extract_openai_response_text(payload),
+        text="" if incomplete else _extract_openai_response_text(payload),
+        error=(
+            f"OpenAI response incomplete: {incomplete_reason}" if incomplete else None
+        ),
         duration_ms=duration_ms,
         tokens=tokens,
         estimated_cost_usd=estimate_usage_cost_usd(runner.model, tokens),
@@ -19747,6 +19931,44 @@ def _repair_overlay_candidate_base_issue(
     return None
 
 
+def _preserve_repair_proof_requirement(
+    generated: dict, preserved: dict
+) -> tuple[str, ...]:
+    """Keep an integrity-bound strict-proof requirement through partial repairs."""
+    retained_module = preserved.get("module")
+    if (
+        not isinstance(retained_module, dict)
+        or "proof_validation" not in retained_module
+    ):
+        return ()
+    retained_proof = retained_module["proof_validation"]
+    if not isinstance(retained_proof, dict) or (
+        "required" in retained_proof and type(retained_proof["required"]) is not bool
+    ):
+        raise _PreservedRepairOverlayError(
+            "preserved repair module.proof_validation must be a mapping with a Boolean required value"
+        )
+    if retained_proof.get("required") is not True:
+        return ()
+
+    module = generated.get("module", {})
+    if not isinstance(module, dict):
+        raise ValueError(
+            "repair cannot replace a strict-proof module with a nonmapping"
+        )
+    proof = module.get("proof_validation", {})
+    if not isinstance(proof, dict) or (
+        "required" in proof and proof["required"] is not True
+    ):
+        raise ValueError(
+            "repair cannot disable retained module.proof_validation.required"
+        )
+    if proof.get("required") is True:
+        return ()
+    generated["module"] = {**module, "proof_validation": {**proof, "required": True}}
+    return ("module:proof_validation.required",)
+
+
 @timed_phase(PHASE_REPAIR_OVERLAY)
 def _overlay_validation_retry_candidate(
     rulespec_file: Path,
@@ -19794,7 +20016,7 @@ def _overlay_validation_retry_candidate(
             "preserved repair overlay RuleSpec must be a YAML mapping"
         )
 
-    repairs: list[str] = []
+    repairs: list[str] = list(_preserve_repair_proof_requirement(generated, preserved))
     generated_imports = generated.get("imports", [])
     preserved_imports = preserved.get("imports", [])
     if not isinstance(generated_imports, list) or not isinstance(

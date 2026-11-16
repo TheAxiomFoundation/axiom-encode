@@ -21,6 +21,7 @@ def run_rulespec_compile(
     env: Mapping[str, str],
     timeout: int = 60,
     composed: bool = False,
+    _execution_owner: object | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Compile with the current root contract or its prior exclusive form.
 
@@ -46,8 +47,12 @@ def run_rulespec_compile(
     clean_env = dict(env)
     clean_env.pop("AXIOM_RULESPEC_REPO_ROOTS", None)
     clean_env.pop("AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE", None)
-    result = subprocess.run(
+    from .harness.local_compile_custody import run_observed_compile
+
+    result = run_observed_compile(
         current_command,
+        execution_owner=_execution_owner,
+        composed=composed,
         capture_output=True,
         text=True,
         timeout=timeout,

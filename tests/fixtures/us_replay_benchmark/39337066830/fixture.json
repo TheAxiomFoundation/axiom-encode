@@ -1,0 +1,38 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "39337066830",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/39337066830",
+  "bundle_citation": "ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit",
+  "citation": "ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit",
+  "lane": "target",
+  "runner": "openai-gpt-6-luna",
+  "module_path": "policies/cra/t1-2025/provincial-territorial-foreign-tax-credit.yaml",
+  "policy_prefix": "ca",
+  "encoder_commit": "be9222fbf78d378cf2efc0acb884a31af0a10fee",
+  "encoder_version": "0.2.2225",
+  "attempt_count": 4,
+  "corpus_ref": "d24cbde7e6d125a6f859f43c188b0ffbd115b835",
+  "rulespec_ref": "09327ea52b2c09d20ce5f826fe61dceb33253abc",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:source-explicit-conditions": 1,
+    "complete-source-unit:structure": 1,
+    "complete-source-unit:tests": 5,
+    "other": 4
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "files": {
+    "candidate.test.yaml": "908316734ce9a164e75135cf7c53d4a006f445065ca1369a3865e78171e6f0b1",
+    "candidate.yaml": "1f5d4e039e8faa3205c7e813712708ec911c3492e9ba7c4e93bcd547aceab0ca",
+    "issues.json": "90d0ec3f8361dae770b31288987e75cb1e34ceb39027de68efcddb6c90d37be5",
+    "source-metadata.json": "9d967432cb825d1601b46c0d888b19c51ff0ffb24cc210d9960628b95d25dcb4",
+    "source.txt": "7637ab494fc385b938e9e3ce4d5f3b1af8bc331ad644fe3cedefaee8434028ee"
+  }
+}

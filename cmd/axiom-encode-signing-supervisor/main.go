@@ -98,6 +98,14 @@ var parentOnlyEnvironmentNames = []string{
 	"GITHUB_ACTIONS",
 	"GITHUB_SHA",
 	"GITHUB_WORKSPACE",
+	// Non-secret workflow-run identity, recorded by encoder telemetry so a run
+	// row joins to the Actions run that produced it. Not read by any trust
+	// decision in the encoder.
+	"GITHUB_REPOSITORY",
+	"GITHUB_RUN_ATTEMPT",
+	"GITHUB_RUN_ID",
+	"GITHUB_SERVER_URL",
+	"GITHUB_WORKFLOW",
 	"OTEL_EXPORTER_OTLP_ENDPOINT",
 	"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
 	"OTEL_EXPORTER_OTLP_HEADERS",
@@ -124,10 +132,12 @@ type options struct {
 }
 
 type trustedCodexCLI struct {
-	Schema  string `json:"schema"`
-	Version string `json:"version"`
-	SHA256  string `json:"sha256"`
-	Path    string `json:"path"`
+	Schema             string `json:"schema"`
+	Version            string `json:"version"`
+	SHA256             string `json:"sha256"`
+	Path               string `json:"path"`
+	CodeModeHostSHA256 string `json:"code_mode_host_sha256"`
+	CodeModeHostPath   string `json:"code_mode_host_path"`
 }
 
 type brokerOptions struct {
@@ -753,8 +763,10 @@ func loadTrustedCodexCLI(path string) (trustedCodexCLI, error) {
 	if err := json.Unmarshal(raw, &config); err != nil {
 		return trustedCodexCLI{}, fmt.Errorf("Codex CLI config is malformed: %w", err)
 	}
-	if config.Schema != "axiom-encode/trusted-codex-cli/v1" || config.Version == "" ||
-		len(config.SHA256) != 64 || !filepath.IsAbs(config.Path) {
+	if config.Schema != "axiom-encode/trusted-codex-cli/v2" || config.Version == "" ||
+		len(config.SHA256) != 64 || !filepath.IsAbs(config.Path) ||
+		len(config.CodeModeHostSHA256) != 64 || !filepath.IsAbs(config.CodeModeHostPath) ||
+		config.CodeModeHostPath != filepath.Join(filepath.Dir(config.Path), "codex-code-mode-host") {
 		return trustedCodexCLI{}, errors.New("Codex CLI config has invalid fields")
 	}
 	trustedPath, binary, err := inspectTrustedRegularFile(config.Path, true)
@@ -772,6 +784,24 @@ func loadTrustedCodexCLI(path string) (trustedCodexCLI, error) {
 	}
 	config.Path = trustedPath
 	config.SHA256 = actual
+	// Validate the sibling used by Codex tool execution before any subscription
+	// credential is copied or any model process can start. Legacy main-binary-only
+	// configs require reprovisioning, not an implicit unverified companion lookup.
+	hostPath, host, err := inspectTrustedRegularFile(config.CodeModeHostPath, true)
+	if err != nil {
+		return trustedCodexCLI{}, fmt.Errorf("pinned Codex Code Mode host is not protected: %w", err)
+	}
+	defer host.Close()
+	hostDigest := sha256.New()
+	if _, err := io.Copy(hostDigest, host); err != nil {
+		return trustedCodexCLI{}, fmt.Errorf("could not hash pinned Codex Code Mode host: %w", err)
+	}
+	hostActual := fmt.Sprintf("%x", hostDigest.Sum(nil))
+	if !strings.EqualFold(hostActual, config.CodeModeHostSHA256) {
+		return trustedCodexCLI{}, errors.New("pinned Codex Code Mode host sha256 mismatch")
+	}
+	config.CodeModeHostPath = hostPath
+	config.CodeModeHostSHA256 = hostActual
 	return config, nil
 }
 

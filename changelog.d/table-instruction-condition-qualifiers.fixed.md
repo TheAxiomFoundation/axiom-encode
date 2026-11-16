@@ -1,0 +1,1 @@
+Keep the family expense-table instruction unmasked when the following text opens with "only", "if", "on condition" or a similar condition word, and state the recognized qualifier boundary in the docstring.

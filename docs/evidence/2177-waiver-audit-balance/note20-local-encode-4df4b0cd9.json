@@ -1,0 +1,124 @@
+{
+ "module": "us/policies/usitc/us-tariff-incidence/generated/note20-china-301.yaml",
+ "encoder": "0.2.2276",
+ "elapsed_seconds": 783.1,
+ "finished": true,
+ "final": true,
+ "error": null,
+ "passed": false,
+ "fingerprint": "sha256:2c98317572e7d8dec881571d64387f2c899d06631530c7d7a9a9bdbda534d4de",
+ "counts": {
+  "subprocess_launches": 9,
+  "launch:git": 6,
+  "launch:axiom-rules-engine": 3,
+  "resolve_local_corpus_source_calls": 84,
+  "read_corpus_artifact_calls": 23
+ },
+ "read_corpus_artifact_bytes": 39582990,
+ "samples_by_mode": {
+  "python": 1410,
+  "child_process_wait": 27
+ },
+ "top_innermost_axiom_encode_frames": [
+  [
+   "validator_pipeline.py:_rulespec_payload",
+   464
+  ],
+  [
+   "validator_pipeline.py:extract_embedded_source_text",
+   312
+  ],
+  [
+   "validator_pipeline.py:_rulespec_executable_index_for_roots",
+   125
+  ],
+  [
+   "validator_pipeline.py:_safe_load_unique_keys",
+   59
+  ],
+  [
+   "validator_pipeline.py:_extract_source_verification_text",
+   44
+  ],
+  [
+   "rules_engine_compat.py:run_rulespec_compile",
+   28
+  ],
+  [
+   "validator_pipeline.py:_rulespec_rule_names_from_content",
+   21
+  ],
+  [
+   "validator_pipeline.py:_cited_source_texts_for_rulespec_content",
+   19
+  ],
+  [
+   "validator_pipeline.py:find_rule_source_metadata_issues",
+   18
+  ],
+  [
+   "validator_pipeline.py:find_formula_absolute_reference_issues",
+   17
+  ],
+  [
+   "validator_pipeline.py:_manual_outcome_exception_advice",
+   17
+  ],
+  [
+   "validator_pipeline.py:find_source_condition_coverage_issues",
+   16
+  ],
+  [
+   "validator_pipeline.py:find_import_shape_issues",
+   16
+  ],
+  [
+   "validator_pipeline.py:find_unused_import_issues",
+   16
+  ],
+  [
+   "validator_pipeline.py:find_local_dependency_temporal_coverage_issues",
+   15
+  ],
+  [
+   "validator_pipeline.py:find_source_verification_issues",
+   15
+  ],
+  [
+   "validator_pipeline.py:find_proof_import_reference_issues",
+   15
+  ],
+  [
+   "validator_pipeline.py:find_source_relation_issues",
+   15
+  ],
+  [
+   "validator_pipeline.py:find_deprecated_source_url_issues",
+   14
+  ],
+  [
+   "validator_pipeline.py:find_source_claim_reference_issues",
+   14
+  ],
+  [
+   "validator_pipeline.py:find_structured_scale_parameter_issue_records",
+   14
+  ],
+  [
+   "validator_pipeline.py:find_interval_table_reencoding_candidates",
+   13
+  ],
+  [
+   "validator_pipeline.py:_canonical_rulespec_target",
+   13
+  ],
+  [
+   "validator_pipeline.py:find_synthetic_source_authorized_input_issues",
+   13
+  ],
+  [
+   "proof_validator.py:validate_rulespec_proofs",
+   11
+  ]
+ ]
+}

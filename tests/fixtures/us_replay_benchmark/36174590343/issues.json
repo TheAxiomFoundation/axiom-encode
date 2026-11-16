@@ -1,0 +1,12 @@
+{
+  "attempt_count": 4,
+  "citation": "us/guidance/irs/rev-proc-2025-32/page-14",
+  "encoder_version": "0.2.2049",
+  "issues": [
+    "policies/irs/rev-proc-2025-32/child-tax-credit.yaml: ci: [complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: us/guidance/irs/rev-proc-2025-32/page-14(3) [Absatz 3] [change]: `The \"threshold phaseout amount\" is the amount of adjusted gross income (or, if greater, earned income) above which the maximum amount of the credit begins to phase out.`; us/guidance/irs/rev-proc-2025-32/page-14(3) [Absatz 3] [enable]: `The \"completed phaseout amount\" is the amount of adjusted gross income (or, if greater, earned income) at or above which no credit is allowed.`."
+  ],
+  "path": "policies/irs/rev-proc-2025-32/child-tax-credit.yaml",
+  "rulespec_sha256": "cd2a236092a8c4356b90ead8b053614d2921ecd527acf99b6a01794327843cf1",
+  "schema": "axiom-encode/failed-encode-candidate/v1",
+  "tests_sha256": "25f48526967a3d9db2d4c7bb6ac320b210f5481a82bc59085e4af84fd73a2151"
+}

@@ -1,0 +1,19 @@
+Expanded categorical eligibility (ECE) exists when all of the following apply to the budgetary unit:
+
+● Gross income does not exceed 200% of the current federal poverty level (FPL)
+
+● The NA budgetary unit does not meet basic categorical eligibility (BCE) requirements
+
+● The resources of participants with certain disqualifications are not over the NA resource limit (See Disqualified Participants )
+
+NOTE Resources from certain disqualified participants are counted in full.
+
+ECE eligibility exists when the budgetary unit meets all of the above and the budgetary unit does not have a participant who has a disqualification. (See NA and CA Disqualifications )
+
+When any participant in the budgetary unit meets the NA definition of Elderly or has a disability, the budgetary unit receives special considerations. (For information on special considerations, see Elderly or Have a Disability - NA Special Considerations )
+
+AZTECS automatically considers an NA Expanded categorically eligible budgetary unit to have met all of the following NA eligibility factors:
+
+● Resources
+
+● Gross and net income tests

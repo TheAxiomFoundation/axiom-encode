@@ -1,0 +1,68 @@
+- name: special_needs_adoption_credit
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/capital-gains#input.adoption_has_special_needs: true
+  output:
+    us:policies/irs/rev-proc-2025-32/capital-gains#adoption_credit_for_special_needs_child: 17670
+- name: other_adoption_credit_below_cap
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/capital-gains#input.qualified_adoption_expenses: 10000
+  output:
+    us:policies/irs/rev-proc-2025-32/capital-gains#adoption_credit_for_other_adoption: 10000
+- name: other_adoption_credit_at_cap
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/capital-gains#input.qualified_adoption_expenses: 20000
+  output:
+    us:policies/irs/rev-proc-2025-32/capital-gains#adoption_credit_for_other_adoption: 17670
+- name: adoption_credit_phaseout_not_started_at_threshold
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/capital-gains#input.modified_adjusted_gross_income: 265080
+  output:
+    us:policies/irs/rev-proc-2025-32/capital-gains#adoption_credit_phaseout_begins: not_holds
+    us:policies/irs/rev-proc-2025-32/capital-gains#adoption_credit_is_completely_phased_out: not_holds
+- name: adoption_credit_phaseout_started_before_complete_phaseout
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/capital-gains#input.modified_adjusted_gross_income: 265081
+  output:
+    us:policies/irs/rev-proc-2025-32/capital-gains#adoption_credit_phaseout_begins: holds
+    us:policies/irs/rev-proc-2025-32/capital-gains#adoption_credit_is_completely_phased_out: not_holds
+- name: adoption_credit_complete_phaseout_at_threshold
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/capital-gains#input.modified_adjusted_gross_income: 305080
+  output:
+    us:policies/irs/rev-proc-2025-32/capital-gains#adoption_credit_phaseout_begins: holds
+    us:policies/irs/rev-proc-2025-32/capital-gains#adoption_credit_is_completely_phased_out: holds
+- name: auto_zero_adoption_credit_for_special_needs_child
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/capital-gains#input.adoption_has_special_needs: false
+    us:policies/irs/rev-proc-2025-32/capital-gains#input.modified_adjusted_gross_income: 0
+    us:policies/irs/rev-proc-2025-32/capital-gains#input.qualified_adoption_expenses: 0
+  output:
+    us:policies/irs/rev-proc-2025-32/capital-gains#adoption_credit_for_special_needs_child: 0

@@ -1,0 +1,36 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "36880457452",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/36880457452",
+  "bundle_citation": "us-ut/manual/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm",
+  "citation": "us-ut/manual/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm",
+  "lane": "target",
+  "runner": null,
+  "module_path": "policies/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm.yaml",
+  "policy_prefix": "us-ut",
+  "encoder_commit": "b8484c727c401d823de300e457543332e93d486f",
+  "encoder_version": "0.2.2079",
+  "attempt_count": 4,
+  "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "rulespec_ref": "d8eeffe186fb7af581eeba98fd76f772e303e436",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:formula-output": 1,
+    "complete-source-unit:numeric-recall": 3
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "files": {
+    "candidate.test.yaml": "b36a9f997fb98dfcb28fc239385dcf745314b22294cc18beda04c6a7a24b020e",
+    "candidate.yaml": "c3f638cf43ac0fd3d3e3b15ac9bc84a83d72cac65583b7e526d362370cf5d456",
+    "issues.json": "8451e0647dbb8676607a060f15bf24235dae47e024ba80d5bfcd2c095e3ee0a6",
+    "source-metadata.json": "eac39dd2a0b198bc42a5c6de27be2de56ba9cfa8bdb23ad44ad64bcd51f2bf46",
+    "source.txt": "e7229d486b3a84bf4503dedfea70d93f7ba82d3752d1a2e02506dc96fa1bafe5"
+  }
+}

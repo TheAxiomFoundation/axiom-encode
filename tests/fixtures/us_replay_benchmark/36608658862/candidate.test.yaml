@@ -1,0 +1,144 @@
+- name: schedule_upper_brackets
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.expected_kansas_adjusted_gross_income: 50000
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.estimated_deductions: 0
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.estimated_exemptions: 0
+  output:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#kansas_taxable_income: 50000
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#joint_schedule_estimated_tax: 2615.2
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#other_status_schedule_estimated_tax: 2702.6
+- name: farmer_fisher_filing_exception
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.taxpayer_is_farmer_or_fisher: true
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.return_filed_by_farmer_fisher_exception_deadline: true
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.tax_fully_paid_by_farmer_fisher_exception_deadline: true
+  output:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#farmer_fisher_return_filing_exception: holds
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#farmer_fisher_estimated_payment_due: not_holds
+- name: farmer_fisher_return_not_filed
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.taxpayer_is_farmer_or_fisher: true
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.return_filed_by_farmer_fisher_exception_deadline: false
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.tax_fully_paid_by_farmer_fisher_exception_deadline: true
+  output:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#farmer_fisher_return_filing_exception: not_holds
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#farmer_fisher_estimated_payment_due: holds
+- name: farmer_fisher_tax_not_fully_paid
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.taxpayer_is_farmer_or_fisher: true
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.return_filed_by_farmer_fisher_exception_deadline: true
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.tax_fully_paid_by_farmer_fisher_exception_deadline: false
+  output:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#farmer_fisher_return_filing_exception: not_holds
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#farmer_fisher_estimated_payment_due: holds
+- name: taxpayer_not_farmer_or_fisher
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.taxpayer_is_farmer_or_fisher: false
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.return_filed_by_farmer_fisher_exception_deadline: true
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.tax_fully_paid_by_farmer_fisher_exception_deadline: true
+  output:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#farmer_fisher_return_filing_exception: not_holds
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#farmer_fisher_estimated_payment_due: not_holds
+- name: fiscal_year_payment_deadline
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-04-15'
+    end: '2026-04-15'
+  input:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.taxpayer_uses_fiscal_year: true
+    ? us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.day_is_applicable_fiscal_year_estimated_payment_deadline
+    : true
+  output:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#fiscal_year_estimated_payment_due: holds
+- name: fiscal_year_non_deadline
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-04-15'
+    end: '2026-04-15'
+  input:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.taxpayer_uses_fiscal_year: true
+    ? us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.day_is_applicable_fiscal_year_estimated_payment_deadline
+    : false
+  output:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#fiscal_year_estimated_payment_due: not_holds
+- name: calendar_year_taxpayer_on_fiscal_deadline
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-04-15'
+    end: '2026-04-15'
+  input:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.taxpayer_uses_fiscal_year: false
+    ? us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.day_is_applicable_fiscal_year_estimated_payment_deadline
+    : true
+  output:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#fiscal_year_estimated_payment_due: not_holds
+- name: taxable_income_and_joint_schedule_lower_bracket
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.expected_kansas_adjusted_gross_income: 10000
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.estimated_deductions: 1000
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.estimated_exemptions: 500
+  output:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#kansas_taxable_income: 8500
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#joint_schedule_estimated_tax: 442
+- name: payment_requirement_and_installments
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.estimated_kansas_tax_liability: 2000
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.estimated_kansas_withholding_and_credits: 1000
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.current_year_kansas_tax_liability: 2000
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.prior_year_kansas_tax_liability: 2000
+  output:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#estimated_kansas_income_tax_after_credits: 1000
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#estimated_payment_required: holds
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#first_quarter_installment_amount: 250
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#june_late_start_installment_amount: 333.3333333333333
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#september_late_start_installment_amount: 500
+- name: penalty_safe_harbors
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.total_estimated_payments_and_credits: 2000
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.current_year_kansas_tax_liability: 2000
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.prior_year_kansas_tax_liability: 2000
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.prior_year_return_covers_12_months: true
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.prior_year_return_has_tax_liability: true
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.annualized_income_tax_for_required_periods: 2000
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#input.each_estimated_payment_is_timely: true
+  output:
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#farmer_fisher_current_year_safe_harbor_met: holds
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#ordinary_current_year_safe_harbor_met: holds
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#qualifying_prior_year_safe_harbor_met: holds
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#annualized_income_safe_harbor_met: holds
+    us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#estimated_tax_penalty_not_applicable: holds

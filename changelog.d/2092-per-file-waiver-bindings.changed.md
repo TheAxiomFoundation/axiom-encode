@@ -1,0 +1,1 @@
+Signed encoding manifests now bind the validation waiver of each file they cover (`validation_waiver_bindings`) instead of the repository waiver-set digest, so a waiver change for another file no longer makes a signed manifest stale. Manifests with the old set digest still verify.

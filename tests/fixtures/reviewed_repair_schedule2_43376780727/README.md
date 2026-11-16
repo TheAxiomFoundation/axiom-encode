@@ -1,0 +1,1 @@
+Public CRA Schedule 2 failed native run 43376780727, attempt 1. Seed bytes are unchanged; transaction is the original reviewed full-artifact contract. These fixtures establish reconstruction and preservation, not protected signing or publication.

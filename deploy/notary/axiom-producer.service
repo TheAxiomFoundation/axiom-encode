@@ -1,0 +1,21 @@
+# Reference unit: dedicated enrolled Linux/systemd host; controller runs as root.
+# Worker confinement is constructed by producer_runtime.systemd_command.
+[Unit]
+Description=Axiom supervised personal-Codex producer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=axiom-producer-operators
+WorkingDirectory=/opt/axiom/producer
+ExecStart=/opt/axiom/producer/bin/python -I -m axiom_encode.notary.producer_host --config /etc/axiom-producer/config.json
+RuntimeDirectory=axiom-producer
+RuntimeDirectoryMode=0710
+UMask=0077
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,1 @@
+Reject unparsed arithmetic and selection text in printed-form captions while preserving supported display labels. Keep form evidence bound to raw companion cases and execute the companion from the compilation snapshot.
