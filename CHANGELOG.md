@@ -1,3 +1,24 @@
+## 0.2.2379
+
+- Close the follow-up findings of the #2051 version-rule review (#2151)
+- Propose guard App key protection: stdlib bundle plus owner review of .github/ (needs Max's choice, #2257) (#2267)
+
+## 0.2.2378
+
+- Name the policies/ root for manual-unit deferrals and type the target refusal (#2260)
+
+## 0.2.2377
+
+- Bind large primary review guidance to immutable producer evidence (#2140)
+
+## 0.2.2376
+
+- Preserve authenticated policy bytes during manifest refresh (#2225)
+- Fix anonymous companion row identities across CLI relations (#2107)
+- fix: replace historical root ownership receipts through verified transactions (#2078)
+- Preserve verified engine and checkout origin for registered repairs (#2243)
+- Recommended three-class lane (content / control plane / infrastructure), off (#2172) (#2231)
+
 ## 0.2.2375
 
 - Add a switched-off reader for applied-rulespec/v6 promotion manifests (inactive, #2172) (#2230)

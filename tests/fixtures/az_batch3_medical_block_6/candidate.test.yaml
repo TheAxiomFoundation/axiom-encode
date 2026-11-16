@@ -1,0 +1,152 @@
+- name: attendant_employment_cost
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.cost_is_for_employing_assistant: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistant_role: Attendant
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#assistant_employment_cost_allowable_as_medical:
+    - holds
+- name: attendant_without_employment_cost
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.cost_is_for_employing_assistant: false
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistant_role: Attendant
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#assistant_employment_cost_allowable_as_medical:
+    - not_holds
+- name: dependent_care_service
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.cost_is_for_employing_assistant: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistant_role: Dependent
+        care service
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#assistant_employment_cost_allowable_as_medical:
+    - holds
+- name: homemaker
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.cost_is_for_employing_assistant: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistant_role: Homemaker
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#assistant_employment_cost_allowable_as_medical:
+    - holds
+- name: home_health_aide
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.cost_is_for_employing_assistant: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistant_role: Home
+        health aide
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#assistant_employment_cost_allowable_as_medical:
+    - holds
+- name: housekeeper
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.cost_is_for_employing_assistant: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistant_role: Housekeeper
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#assistant_employment_cost_allowable_as_medical:
+    - holds
+- name: nurse
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.cost_is_for_employing_assistant: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistant_role: Nurse
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#assistant_employment_cost_allowable_as_medical:
+    - holds
+- name: unlisted_role
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.cost_is_for_employing_assistant: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistant_role: Gardener
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#assistant_employment_cost_allowable_as_medical:
+    - not_holds
+- name: one_daily_meal
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.participant_provided_assistant_daily_meals: 1
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#assistant_meals_allowance_meal_condition_met: not_holds
+- name: two_daily_meals
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.participant_provided_assistant_daily_meals: 2
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#assistant_meals_allowance_meal_condition_met: holds
+- name: three_daily_meals
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.participant_provided_assistant_daily_meals: 3
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#assistant_meals_allowance_meal_condition_met: holds
+- name: dual_qualifying_care_cost_medical_priority
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.budgetary_unit_has_this_assistance_care_cost: true
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistance_care_cost_could_qualify_as_medical_expense
+      : true
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistance_care_cost_could_qualify_as_dependent_care_expense
+      : true
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#dual_qualifying_assistance_care_cost_allowed_as_medical:
+    - holds
+- name: no_assistance_care_cost
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.budgetary_unit_has_this_assistance_care_cost: false
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistance_care_cost_could_qualify_as_medical_expense
+      : true
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistance_care_cost_could_qualify_as_dependent_care_expense
+      : true
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#dual_qualifying_assistance_care_cost_allowed_as_medical:
+    - not_holds
+- name: dependent_care_only
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.budgetary_unit_has_this_assistance_care_cost: true
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistance_care_cost_could_qualify_as_medical_expense
+      : false
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistance_care_cost_could_qualify_as_dependent_care_expense
+      : true
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#dual_qualifying_assistance_care_cost_allowed_as_medical:
+    - not_holds
+- name: medical_only
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.budgetary_unit_has_this_assistance_care_cost: true
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistance_care_cost_could_qualify_as_medical_expense
+      : true
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#input.assistance_care_cost_could_qualify_as_dependent_care_expense
+      : false
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-6#dual_qualifying_assistance_care_cost_allowed_as_medical:
+    - not_holds
