@@ -1,3 +1,7 @@
+## 0.2.2380
+
+- Fold structure findings behind an imprecise deferral into its finding and use a U.S. retry example (#1932)
+
 ## 0.2.2379
 
 - Close the follow-up findings of the #2051 version-rule review (#2151)
