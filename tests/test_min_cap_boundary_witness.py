@@ -289,8 +289,8 @@ def _outer_plateau_below_the_cap():
 def _flat_just_below_the_cap():
     """The output is already at the cap at 39, so 40 is no kink.
 
-    The cap is lowered in one `min` call at a time, and the other call keeps the
-    output at 40, so the lowered-cap condition also refuses this shape.
+    The leaf is a `max` of two `min` calls, so the whole-leaf rule also refuses
+    it.
     """
 
     candidate = CANDIDATE.replace(
@@ -303,7 +303,7 @@ def _flat_just_below_the_cap():
 
 
 def _output_still_rising_above_the_cap():
-    """The clamp applies, but the output changes one step above 40 too."""
+    """The clamp applies inside a larger leaf; the output rises above 40 too."""
 
     candidate = CANDIDATE.replace(
         CAP_FORMULA,
@@ -320,7 +320,7 @@ def _output_still_rising_above_the_cap():
 
 
 def _output_flat_on_both_sides_of_the_cap():
-    """The clamp applies, but the output is 40 one step below 40 too."""
+    """The clamp applies inside a larger leaf; the output is 40 at 39 too."""
 
     candidate = CANDIDATE.replace(
         CAP_FORMULA,
@@ -344,8 +344,9 @@ def _plateau_from_an_input_limit():
 def _plateau_from_an_input_limit_with_another_cap_use():
     """As above, plus ``+ cap - 40``, which is zero at the cap.
 
-    Lowering the cap wherever the parameter appears would change this unrelated
-    term, so the zeroed clamp would look like the cause of the plateau.
+    Lowering the cap wherever the parameter appears changes this unrelated
+    term, so a check that lowers it there takes the zeroed clamp for the cause
+    of the plateau.
     """
 
     candidate, cases = _plateau_from_an_input_limit()
@@ -355,6 +356,30 @@ def _plateau_from_an_input_limit_with_another_cap_use():
         ),
         cases,
     )
+
+
+def _output_flat_on_both_sides_of_a_whole_leaf_cap():
+    """The leaf is the `min`, but its amount is 40 or more at 39 and at 41."""
+
+    candidate = CANDIDATE.replace(
+        CAP_FORMULA,
+        "min(max(daily_lodging_cost, 2 * medical_lodging_daily_cap"
+        " - daily_lodging_cost), medical_lodging_daily_cap)",
+    )
+    cases = _with_outputs(CASES, {"qualifying_lodging_below_daily_cap": 40})
+    return candidate, cases
+
+
+def _output_falling_above_a_whole_leaf_cap():
+    """The leaf is the `min`, but its amount is 39 at 39 and at 41."""
+
+    candidate = CANDIDATE.replace(
+        CAP_FORMULA,
+        "min(min(daily_lodging_cost, 2 * medical_lodging_daily_cap"
+        " - daily_lodging_cost), medical_lodging_daily_cap)",
+    )
+    cases = _with_outputs(CASES, {"qualifying_lodging_above_daily_cap": 20})
+    return candidate, cases
 
 
 def _cap_case_of(cases: list[dict]) -> dict:
@@ -371,6 +396,8 @@ def _cap_case_of(cases: list[dict]) -> dict:
         _flat_just_below_the_cap,
         _output_still_rising_above_the_cap,
         _output_flat_on_both_sides_of_the_cap,
+        _output_flat_on_both_sides_of_a_whole_leaf_cap,
+        _output_falling_above_a_whole_leaf_cap,
         _plateau_from_an_input_limit,
         _plateau_from_an_input_limit_with_another_cap_use,
     ],
@@ -388,3 +415,92 @@ def test_another_use_of_the_cap_does_not_make_a_zeroed_clamp_the_cause():
         "[complete-source-unit:tests] Companion tests do not exercise every"
         f" source-stated boundary input; {BOUNDARY_FINDING}."
     ]
+
+
+AMOUNT = "max(0, daily_lodging_cost)"
+CLAMP = f"min({AMOUNT}, medical_lodging_daily_cap)"
+BUDGET = f"min({AMOUNT}, budget_limit)"
+PRINCIPAL_RULE = "  - name: allowable_daily_medical_lodging_cost\n"
+
+
+def _with_parameter(candidate: str, name: str, formula: str) -> str:
+    assert PRINCIPAL_RULE in candidate
+    return candidate.replace(
+        PRINCIPAL_RULE,
+        f"  - name: {name}\n    kind: parameter\n    dtype: Money\n"
+        "    period: Day\n    unit: USD\n    versions:\n"
+        "      - effective_from: '2026-08-01'\n        formula: |-\n"
+        f"          {formula}\n" + PRINCIPAL_RULE,
+        1,
+    )
+
+
+def _budget_leaf(leaf: str, parameter: tuple[str, str] | None = None):
+    """A leaf that adds an input limit of 40 to a term that is zero for every cost."""
+
+    candidate = _with_input(CANDIDATE, "budget_limit").replace(CAP_FORMULA, leaf)
+    if parameter is not None:
+        candidate = _with_parameter(candidate, *parameter)
+    return candidate, _with_input_value(CASES, "budget_limit", 40)
+
+
+@pytest.mark.parametrize(
+    ("leaf", "parameter"),
+    [
+        pytest.param(f"{CLAMP} - {CLAMP} + {BUDGET}", None, id="m1-same-clamp-cancels"),
+        pytest.param(
+            f"{CLAMP} + max({AMOUNT}, medical_lodging_daily_cap)"
+            f" - {AMOUNT} - medical_lodging_daily_cap + {BUDGET}",
+            None,
+            id="m2-min-plus-max-identity",
+        ),
+        pytest.param(
+            f"max({CLAMP}, 0) - {CLAMP} + {BUDGET}", None, id="m9-cancel-inside-max"
+        ),
+        pytest.param(
+            f"2 * {CLAMP} - {CLAMP} - {CLAMP} + {BUDGET}",
+            None,
+            id="m10-doubled-and-halved",
+        ),
+        pytest.param(
+            f"{CLAMP} - min({AMOUNT}, cap_alias) + {BUDGET}",
+            ("cap_alias", "medical_lodging_daily_cap"),
+            id="m4b-alias-parameter-cancels",
+        ),
+        pytest.param(
+            f"{CLAMP} - min({AMOUNT}, other_forty) + {BUDGET}",
+            ("other_forty", "40"),
+            id="m5-second-parameter-cancels",
+        ),
+        pytest.param(
+            f"{CLAMP} - min({AMOUNT}, 40) + {BUDGET}", None, id="m6-literal-cancels"
+        ),
+    ],
+)
+def test_a_cancelled_clamp_inside_a_larger_leaf_is_not_credited(leaf, parameter):
+    """The cap clamp is cancelled for every cost; the input limit makes the plateau.
+
+    Lowering the cap in the credited `min` call alone still changes these
+    leaves, because the cancelling term keeps its value. So only a leaf that is
+    the `min` call itself is credited.
+    """
+
+    candidate, cases = _budget_leaf(leaf, parameter)
+    assert CLAMP in candidate
+    assert _issues(candidate, cases) == [
+        "[complete-source-unit:tests] Companion tests do not exercise every"
+        f" source-stated boundary input; {BOUNDARY_FINDING}."
+    ]
+
+
+@pytest.mark.parametrize(
+    "leaf",
+    [f"max({CAP_FORMULA}, {CAP_FORMULA})", f"{CAP_FORMULA} * 1"],
+    ids=["duplicate-clamp-in-max", "clamp-times-one"],
+)
+def test_a_cap_clamp_inside_a_larger_leaf_fails_closed(leaf):
+    """Accepted trade-off: only a leaf that is the `min` call itself is credited."""
+
+    candidate = CANDIDATE.replace(CAP_FORMULA, leaf)
+    assert candidate != CANDIDATE
+    assert _boundary_refused(_issues(candidate))

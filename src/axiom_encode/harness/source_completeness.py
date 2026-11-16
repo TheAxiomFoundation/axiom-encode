@@ -35395,7 +35395,7 @@ def _case_reaches_minimum_cap(
     formula_environment: dict[str, Any],
     numeric_value_is_grounded: NumericGroundingPredicate,
 ) -> bool:
-    """Witness a source cap that the executed leaf applies as ``min(amount, cap)``.
+    """Witness a source cap when the executed leaf is ``min(amount, cap)``.
 
     `_rule_numeric_selector_names` reads comparisons and ``max`` forms, and it
     falls back to every identifier only when it finds neither. So in a rule
@@ -35407,11 +35407,26 @@ def _case_reaches_minimum_cap(
     evaluates to the source value and uses no case input, and the principal
     output changes one step below that input value and stays the same one step
     above it.
+
+    The ``min`` call must be the whole leaf. Then the cap alone sets the output
+    at the case, so the plateau comes from the cap. A ``min`` inside a larger
+    leaf can be zeroed or cancelled by the other terms while another limit
+    makes the plateau, as in ``min(cost, cap) - min(cost, cap) + min(cost,
+    budget)``, so such a leaf fails closed here. A leaf such as
+    ``max(min(cost, cap), min(cost, cap))`` or ``min(cost, cap) * n`` is also
+    not credited by this path.
     """
 
     inputs = case.get("input")
     expression = _parse_formula_expression(execution.leaf)
-    if not isinstance(inputs, dict) or expression is None:
+    if not (
+        isinstance(inputs, dict)
+        and isinstance(expression, ast.Call)
+        and isinstance(expression.func, ast.Name)
+        and expression.func.id == "min"
+        and len(expression.args) == 2
+        and not expression.keywords
+    ):
         return False
     root_value = _formula_execution_runtime_value(execution)
     if root_value is _UNRESOLVED_CONDITION_VALUE:
@@ -35425,96 +35440,39 @@ def _case_reaches_minimum_cap(
         name for key in inputs for name in _input_key_names(key)
     } | dependency_names
     environment = {**formula_environment, **execution_environment}
-    for node in ast.walk(expression):
-        if not (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "min"
-            and len(node.args) == 2
-            and not node.keywords
+    first, second = expression.args
+    for amount, cap in ((first, second), (second, first)):
+        if _formula_node_references_names(cap, case_names):
+            continue
+        cap_value = _rulespec_runtime_decimal(
+            _evaluate_condition_expression(cap, environment)
+        )
+        amount_value = _rulespec_runtime_decimal(
+            _evaluate_condition_expression(amount, environment)
+        )
+        if (
+            cap_value is None
+            or amount_value != cap_value
+            or not numeric_value_is_grounded(float(cap_value), (boundary,))
         ):
             continue
-        for cap_index, (amount, cap) in enumerate(
-            ((node.args[0], node.args[1]), (node.args[1], node.args[0]))
-        ):
-            if _formula_node_references_names(cap, case_names):
-                continue
-            cap_value = _rulespec_runtime_decimal(
-                _evaluate_condition_expression(cap, environment)
-            )
-            amount_value = _rulespec_runtime_decimal(
-                _evaluate_condition_expression(amount, environment)
-            )
+        for key, value in numeric_inputs.items():
             if (
-                cap_value is None
-                or amount_value != cap_value
-                or not numeric_value_is_grounded(float(cap_value), (boundary,))
-                or not _lower_cap_changes_leaf(
-                    expression,
-                    node,
-                    1 - cap_index,
-                    cap_value=cap_value,
-                    environment=environment,
+                numeric_value_is_grounded(value, (boundary,))
+                and _formula_node_references_names(amount, _input_key_names(key))
+                and _input_step_kinks_output(
+                    rule,
+                    case,
+                    input_key=key,
+                    value=value,
+                    root_value=root_value,
+                    principal_rules=principal_rules,
+                    dependency_names=dependency_names,
+                    formula_environment=formula_environment,
                 )
             ):
-                continue
-            for key, value in numeric_inputs.items():
-                if (
-                    numeric_value_is_grounded(value, (boundary,))
-                    and _formula_node_references_names(amount, _input_key_names(key))
-                    and _input_step_kinks_output(
-                        rule,
-                        case,
-                        input_key=key,
-                        value=value,
-                        root_value=root_value,
-                        principal_rules=principal_rules,
-                        dependency_names=dependency_names,
-                        formula_environment=formula_environment,
-                    )
-                ):
-                    return True
+                return True
     return False
-
-
-def _lower_cap_changes_leaf(
-    expression: ast.expr,
-    call: ast.Call,
-    cap_index: int,
-    *,
-    cap_value: Decimal,
-    environment: dict[str, Any],
-) -> bool:
-    """Whether lowering this `min` call's cap by one step changes the leaf value.
-
-    This keeps a plateau that some other limit causes, as in
-    ``min(cost, cap) * 0 + min(cost, budget)``, from counting as the cap. The
-    cap is lowered in this call only, also when it is a named parameter: any
-    other use of that parameter keeps its value. Otherwise a term such as
-    ``+ cap - 40``, which is zero at the cap, would change when the cap is
-    lowered and make a clamp that contributes nothing look like the cause.
-    """
-
-    step = (
-        Decimal(1)
-        if cap_value == cap_value.to_integral_value()
-        else Decimal(str(max(abs(float(cap_value)) * 1e-6, 1e-9)))
-    )
-    original = call.args[cap_index]
-    probe_name = "__axiom_cap_probe__"
-    call.args[cap_index] = ast.Name(id=probe_name, ctx=ast.Load())
-    try:
-        lowered = _evaluate_condition_expression(
-            expression, {**environment, probe_name: cap_value - step}
-        )
-    finally:
-        call.args[cap_index] = original
-    baseline = _evaluate_condition_expression(expression, environment)
-    return (
-        lowered is not _UNRESOLVED_CONDITION_VALUE
-        and baseline is not _UNRESOLVED_CONDITION_VALUE
-        and not _formula_runtime_values_equal(lowered, baseline)
-    )
 
 
 def _input_step_kinks_output(
