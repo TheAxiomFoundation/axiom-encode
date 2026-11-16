@@ -562,7 +562,11 @@ errors as before the lane existed, and the promotion writes v5.
 
 The evidence step calls
 `candidate_promotion_evidence.require_candidate_promotion_evidence` for a
-changed manifest labelled v6, and for nothing else. It refuses unless every
+changed top-level manifest labelled v6, and for nothing else. It decides this
+once, on the top-level manifest: the ref field and the evidence record follow
+the paths that the call admitted. A v6 label nested in a legacy-replacement
+manifest is refused by name, before any lock is read, as the reader's nested
+readers refuse it. It refuses unless every
 lock of the writer is open, checked first with the writer's own functions:
 `require_candidate_writer` (lock 1 and `V6_READER_ENABLED`), then
 `require_guard_enforced` for this run's repository (locks 2 and 3). It has no
