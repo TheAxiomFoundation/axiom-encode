@@ -3581,6 +3581,7 @@ jobs:
           LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          COUNTRY: ${{ inputs.country }}
         run: |
           set -euo pipefail
           workflow_python=(/opt/axiom-verification/python/bin/python -I)
@@ -3647,6 +3648,10 @@ jobs:
           from axiom_encode.rulespec_path_migration import (
               canonical_destination,
               rewrite_exact_references,
+          )
+          from axiom_encode.applied_manifest_v6 import (
+              CANDIDATE_REF_FIELD,
+              is_v6_labelled,
           )
 
           def git_paths(*args):
@@ -3951,6 +3956,35 @@ jobs:
                           "legacy replacement omits nested model manifest"
                       )
               citation = effective.get("citation")
+              if is_v6_labelled(payload):
+                  # The v6 promotion manifest (#2172, change 5b) is evidence
+                  # only while every lock of the v6 writer is open. With the
+                  # committed locks every v6 manifest is refused here. A
+                  # manifest without the v6 label never enters this branch.
+                  from axiom_encode.candidate_promotion_evidence import (
+                      EVIDENCE_SCHEMA as CANDIDATE_PROMOTION_EVIDENCE_SCHEMA,
+                      require_candidate_promotion_evidence,
+                  )
+
+                  try:
+                      require_candidate_promotion_evidence(
+                          payload,
+                          atomic_source_json=(
+                              os.environ.get("ATOMIC_SOURCE_JSON") or "[]"
+                          ),
+                          country=os.environ.get("COUNTRY", ""),
+                          citation=os.environ.get("CITATION", ""),
+                          rulespec_ref=os.environ.get("RULESPEC_REF", ""),
+                      )
+                  except ValueError as exc:
+                      raise SystemExit(
+                          f"v6 manifest {relative_path.as_posix()} is not "
+                          f"promotion evidence: {exc}"
+                      ) from exc
+                  matches.setdefault(citation, []).append(
+                      (relative_path, payload, effective)
+                  )
+                  continue
               if (
                   payload.get("schema_version")
                   == "axiom-encode/applied-rulespec/v5"
@@ -4770,7 +4804,11 @@ jobs:
                   if reviewed_candidate_promotion and (
                       evidence_manifest.get("tool")
                       != "axiom-encode promote-reviewed-candidate"
-                      or evidence_manifest.get("reviewed_rulespec_ref")
+                      or evidence_manifest.get(
+                          CANDIDATE_REF_FIELD
+                          if is_v6_labelled(evidence_manifest)
+                          else "reviewed_rulespec_ref"
+                      )
                       != os.environ["RULESPEC_REF"]
                   ):
                       raise SystemExit(
@@ -4781,7 +4819,9 @@ jobs:
                       json.dumps(
                           {
                               "schema": (
-                                  "axiom-encode/reviewed-candidate-promotion-evidence/v1"
+                                  CANDIDATE_PROMOTION_EVIDENCE_SCHEMA
+                                  if is_v6_labelled(evidence_manifest)
+                                  else "axiom-encode/reviewed-candidate-promotion-evidence/v1"
                                   if reviewed_candidate_promotion
                                   else "axiom-encode/manifest-only-refresh-evidence/v1"
                               ),
