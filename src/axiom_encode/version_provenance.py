@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -57,7 +58,8 @@ def _git_environment() -> dict[str, str]:
     ``repo`` itself would do the same: ``git replace --graft`` can drop a
     commit's parents, so an unversioned commit looks like its own bump. Every
     read here therefore sees the stored objects only, as ``reviewed_replacement``
-    and ``retired_apply`` do.
+    and ``retired_apply`` do. ``log.showSignature`` stays off, so a repository's
+    ``gpg.program`` never runs on a read here.
     """
     environment = {
         name: value for name, value in os.environ.items() if not name.startswith("GIT_")
@@ -68,21 +70,33 @@ def _git_environment() -> dict[str, str]:
         GIT_NO_LAZY_FETCH="1",
         GIT_CONFIG_GLOBAL=os.devnull,
         GIT_CONFIG_NOSYSTEM="1",
-        GIT_CONFIG_COUNT="1",
+        GIT_CONFIG_COUNT="2",
         GIT_CONFIG_KEY_0="core.commitGraph",
         GIT_CONFIG_VALUE_0="false",
+        GIT_CONFIG_KEY_1="log.showSignature",
+        GIT_CONFIG_VALUE_1="false",
         GIT_TERMINAL_PROMPT="0",
     )
     return environment
 
 
-def _git(repo: Path, *args: str) -> str:
+def _git_binary() -> str:
+    """git from the caller's PATH: a scrubbed environment may have none."""
+    return shutil.which("git") or "git"
+
+
+def _git(repo: Path, *args: str, environment: dict[str, str] | None = None) -> str:
+    """Run git at ``repo`` under ``environment`` (default: ``_git_environment``).
+
+    A caller with a stricter environment, such as the ``--apply`` guard's
+    ``_read_only_git_environment``, passes its own.
+    """
     return subprocess.run(
-        ["git", "-C", str(repo), *args],
+        [_git_binary(), "-C", str(repo), *args],
         capture_output=True,
         check=True,
         text=True,
-        env=_git_environment(),
+        env=environment if environment is not None else _git_environment(),
     ).stdout
 
 
@@ -164,16 +178,18 @@ def latest_version_commit(repo: Path, ref: str = "HEAD") -> str | None:
     return fallback
 
 
-def _pyproject_versions(repo: Path, commits: list[str]) -> list[str | None]:
+def _pyproject_versions(
+    repo: Path, commits: list[str], environment: dict[str, str] | None = None
+) -> list[str | None]:
     """The pyproject version at each commit, read in one ``git cat-file`` run."""
     if not commits:
         return []
     completed = subprocess.run(
-        ["git", "-C", str(repo), "cat-file", "--batch"],
+        [_git_binary(), "-C", str(repo), "cat-file", "--batch"],
         input="".join(f"{commit}:pyproject.toml\n" for commit in commits).encode(),
         capture_output=True,
         check=True,
-        env=_git_environment(),
+        env=environment if environment is not None else _git_environment(),
     )
     data, offset, versions = completed.stdout, 0, []
     for _ in commits:
@@ -194,7 +210,7 @@ def _pyproject_versions(repo: Path, commits: list[str]) -> list[str | None]:
 
 
 def first_parent_versions(
-    repo: Path, ref: str = "HEAD"
+    repo: Path, ref: str = "HEAD", environment: dict[str, str] | None = None
 ) -> list[tuple[str, str | None]]:
     """``(commit, version)`` for each first-parent commit of ``ref`` that changed
     pyproject.toml against its first parent, newest first.
@@ -204,9 +220,16 @@ def first_parent_versions(
     that ``main`` declares.
     """
     commits = _git(
-        repo, "log", "--first-parent", "--format=%H", ref, "--", "pyproject.toml"
+        repo,
+        "log",
+        "--first-parent",
+        "--format=%H",
+        ref,
+        "--",
+        "pyproject.toml",
+        environment=environment,
     ).split()
-    return list(zip(commits, _pyproject_versions(repo, commits)))
+    return list(zip(commits, _pyproject_versions(repo, commits, environment)))
 
 
 def _highest(versions: list[str | None]) -> str | None:
@@ -217,9 +240,13 @@ def _highest(versions: list[str | None]) -> str | None:
 def _first_parent_arrival(
     history: list[tuple[str, str | None]], version: str
 ) -> str | None:
-    """The newest first-parent commit at which ``main`` came to declare
-    ``version``: the commits after it run under that version."""
-    for index, (commit, declared) in enumerate(history):
+    """The oldest first-parent commit at which ``main`` came to declare
+    ``version``: every commit after it runs under that version, also when
+    ``main`` left the version and declared it again later.
+
+    ``history`` is newest first, so this walks it from the end.
+    """
+    for index, (commit, declared) in reversed(list(enumerate(history))):
         if declared != version:
             continue
         older = history[index + 1][1] if index + 1 < len(history) else None
@@ -257,7 +284,14 @@ def unversioned_changes(repo: Path, ref: str = "HEAD") -> list[str]:
     return sorted(changed)
 
 
-def main_history_changes(repo: Path, ref: str, bump: str, version: str) -> set[str]:
+def main_history_changes(
+    repo: Path,
+    ref: str,
+    bump: str,
+    version: str,
+    *,
+    environment: dict[str, str] | None = None,
+) -> set[str]:
     """What else needs a bump, judged on ``ref``'s first-parent history.
 
     One version must name one encoder state on main as well (axiom-encode#2051
@@ -268,23 +302,28 @@ def main_history_changes(repo: Path, ref: str, bump: str, version: str) -> set[s
     1. The head declares a version below one that main already declared, for
        example a merge that kept a pull request's older hand bump. Its number
        may already name another state: the version files need a bump.
-    2. Main reached this version at another commit than ``bump``, for example
-       the bump workflow's commit when a merged branch carries its own hand
-       bump to the same number. Encoder changes after that commit run under a
-       number that already names the commit's state.
+    2. Main first reached this version at another commit than ``bump``, for
+       example the bump workflow's commit when a merged branch carries its own
+       hand bump to the same number. Encoder changes after that commit run
+       under a number that already names the commit's state.
+
+    A head version that is not numeric reads as below every numeric one, so
+    rule 1 asks for a bump.
     """
     changed: set[str] = set()
-    history = first_parent_versions(repo, ref)
+    history = first_parent_versions(repo, ref, environment)
     highest = _highest([declared for _, declared in history])
     if highest is not None and _numeric(highest) > (_numeric(version) or ()):
         changed.update(VERSION_FILES)
     arrival = _first_parent_arrival(history, version)
     if arrival is not None and arrival != bump:
-        changed.update(_changed_since(repo, arrival, ref))
+        changed.update(_changed_since(repo, arrival, ref, environment))
     return changed
 
 
-def _changed_since(repo: Path, base: str, ref: str) -> list[str]:
+def _changed_since(
+    repo: Path, base: str, ref: str, environment: dict[str, str] | None = None
+) -> list[str]:
     changed = _git(
         repo,
         "diff",
@@ -294,6 +333,7 @@ def _changed_since(repo: Path, base: str, ref: str) -> list[str]:
         "-z",
         base,
         ref,
+        environment=environment,
     ).split("\0")
     return [path for path in changed if path and is_versioned_path(path)]
 
@@ -314,7 +354,23 @@ def hand_picked_version(
     of ``base`` as they are: a hand bump can land below or beside a number the
     workflow already used. The author decides, not the branch name, which
     anyone can choose; a fork's pull request never counts as the App's.
+
+    Raises ``ValueError`` when ``base`` or ``ref`` does not name a commit, so a
+    checkout that cannot read the base refuses instead of passing as a base
+    without the bump workflow.
     """
+    for commit in (base, ref):
+        try:
+            _git(
+                repo,
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                "--end-of-options",
+                f"{commit}^{{commit}}",
+            )
+        except subprocess.CalledProcessError:
+            raise ValueError(f"{commit} does not name a commit in {repo}") from None
     if show_file(repo, base, BUMP_WORKFLOW) is None:
         return None  # Before axiom-encode#2048 lands, pull requests still bump.
     if author == BUMP_APP_LOGIN and head_repository == repository:
@@ -429,14 +485,17 @@ def main(argv: list[str] | None = None) -> int:
         print(bump(args.repo, args.ref))
         return 0
     if args.command == "pull-request":
-        reason = hand_picked_version(
-            args.repo,
-            args.base,
-            args.ref,
-            author=args.author,
-            head_repository=args.head_repository,
-            repository=args.repository,
-        )
+        try:
+            reason = hand_picked_version(
+                args.repo,
+                args.base,
+                args.ref,
+                author=args.author,
+                head_repository=args.head_repository,
+                repository=args.repository,
+            )
+        except ValueError as exc:
+            reason = str(exc)
         if reason:
             print(f"encoder version provenance: {reason}", file=sys.stderr)
             return 1

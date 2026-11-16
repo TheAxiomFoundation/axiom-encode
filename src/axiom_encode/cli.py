@@ -116,6 +116,7 @@ from axiom_encode.yaml_serialization import (
     safe_dump_yaml,
 )
 
+from . import applied_manifest_v6 as _manifest_v6
 from . import validation_waiver_partition as _waiver_partition
 from . import validation_waivers as _validation_waivers
 from . import version_provenance as _version_provenance
@@ -494,6 +495,12 @@ from .oracles.policyengine.pending import (
     sync_repo_pending,
 )
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
+from .producer_review_guidance import (
+    GUIDANCE_MANIFEST_BINDING_CHECK,
+    GUIDANCE_PRIMARY_MANIFEST_CHECK,
+    ProducerGuidanceVerificationRequest,
+    verify_guidance_for_verified_manifest,
+)
 from .program_scope import ProgramScopeError, sync_program_scope
 from .proof_hash_migration import (
     apply_proof_hash_cascade,
@@ -873,6 +880,26 @@ for _model_contract in ("model", "codex model"):
         for fields in _APPLIED_MANIFEST_SCHEMA_VARIANTS[_model_contract]
     )
 del _model_contract
+
+# applied-rulespec/v6 (#2172): the promotion contract with the reviewed ref
+# renamed and the attestation scope added. Read only by the top-level verified
+# loader and the immutable-base claim reader, and only while
+# the reader switch of the v6 reader module is on (it is off). No writer
+# emits it. A manifest without the v6 label takes none of these paths.
+_REVIEWED_CANDIDATE_V6_MANIFEST_VARIANTS = _manifest_v6.v6_field_variants(
+    _APPLIED_MANIFEST_SCHEMA_VARIANTS["reviewed candidate promotion"],
+    v5_ref_field="reviewed_rulespec_ref",
+)
+
+
+def _apply_manifest_schema_admitted(payload: Mapping[str, object]) -> bool:
+    """Admit the v5 label, or an admissible v6 promotion label (off today)."""
+
+    return payload.get(
+        "schema_version"
+    ) == APPLIED_ENCODING_MANIFEST_SCHEMA or _manifest_v6.v6_admissible(payload)
+
+
 # Descriptive strings do not establish file coverage; snapshot integrity checks
 # may still read them. Every other value, including descriptive containers, scans.
 _UNRECEIPTED_RETIREMENT_COMMON_SCANNED_FIELDS = frozenset(
@@ -2982,6 +3009,11 @@ def main():
     guard_generated_parser.add_argument(
         "--json", action="store_true", help="Output guard result as JSON"
     )
+    guard_generated_parser.add_argument("--producer-review-guidance-ref")
+    guard_generated_parser.add_argument("--producer-review-guidance-citation")
+    guard_generated_parser.add_argument(
+        "--producer-review-guidance-context-root", type=Path
+    )
     guard_generated_parser.add_argument(
         "--preserved-repair-companion",
         nargs=3,
@@ -3653,6 +3685,15 @@ def main():
             "Independent-review findings that the generated encoding must address "
             "without narrowing unaffected source-backed behavior (repeatable)"
         ),
+    )
+    encode_parser.add_argument(
+        "--producer-review-guidance-ref",
+        help="Closed immutable producer guidance descriptor, bound to the full authenticated source",
+    )
+    encode_parser.add_argument(
+        "--producer-review-guidance-checkout",
+        type=Path,
+        help="Explicit encoder checkout matching the protected running producer identity",
     )
     encode_parser.add_argument(
         "--review-contract-json",
@@ -6760,6 +6801,7 @@ def _execute_rulespec_test_case(
         ),
     )
 
+    related_row_index = 0
     for key, value in (case.get("input") or {}).items():
         key = str(key)
         flat_inputs[key] = value
@@ -6813,8 +6855,9 @@ def _execute_rulespec_test_case(
                 current_slot, executable_entity = direction
                 if executable_entity is not None:
                     related_entity = executable_entity
-            for row_index, row in enumerate(value):
-                related_id = f"related_{row_index}"
+            for row in value:
+                related_id = f"related_{related_row_index}"
+                related_row_index += 1
                 relation_tuple = [related_id, root_entity_id]
                 if current_slot == 0:
                     relation_tuple.reverse()
@@ -9029,6 +9072,48 @@ def cmd_guard_generated(args):
             )
         if not args.json:
             print(json.dumps(candidate_status, indent=2, sort_keys=True), flush=True)
+    guidance_request = None
+    guidance_records: list[dict[str, object]] = []
+    descriptor = getattr(args, "producer_review_guidance_ref", None)
+    guidance_citation = getattr(args, "producer_review_guidance_citation", None)
+    context_root = getattr(args, "producer_review_guidance_context_root", None)
+    if any(
+        value is not None for value in (descriptor, guidance_citation, context_root)
+    ):
+        if (
+            not descriptor
+            or not guidance_citation
+            or context_root is None
+            or getattr(args, "expected_encoder_checkout", None) is None
+            or not args.json
+            or all_files
+            or getattr(args, "retrospective", False)
+            or args.head_ref != "HEAD"
+        ):
+            raise ValueError(
+                "guidance verification requires a complete ordinary current guard request"
+            )
+        require_canonical_corpus_citation_path(guidance_citation)
+        running = _current_guard_encoder_execution_identity()
+        checkout = _read_only_guard_encoder_execution_identity(
+            args.expected_encoder_checkout
+        )
+        if any(
+            running.get(field) != checkout.get(field)
+            for field in ("repository", "commit", "version")
+        ):
+            raise ValueError(
+                "guidance guard checkout does not match the running producer"
+            )
+        guidance_request = ProducerGuidanceVerificationRequest(
+            descriptor_text=descriptor,
+            encoder_checkout=Path(args.expected_encoder_checkout),
+            producer_commit=running["commit"],
+            citation=guidance_citation,
+            context_root=_resolve_explicit_existing_directory(
+                context_root, label="guidance context root"
+            ),
+        )
     issues = guard_generated_change_issues(
         repo_path,
         corpus_path=Path(args.corpus_path),
@@ -9038,11 +9123,27 @@ def cmd_guard_generated(args):
         all_files=all_files,
         retrospective=bool(getattr(args, "retrospective", False)),
         expected_encoder_checkout=getattr(args, "expected_encoder_checkout", None),
+        **(
+            {
+                "producer_guidance_request": guidance_request,
+                "producer_guidance_records": guidance_records,
+            }
+            if guidance_request is not None
+            else {}
+        ),
     )
+    if guidance_request is not None and not issues and len(guidance_records) != 1:
+        issues.append(
+            ValidationIssue(
+                "producer guidance requires exactly one verified primary manifest",
+                check=GUIDANCE_PRIMARY_MANIFEST_CHECK,
+                expected=1,
+                found=len(guidance_records),
+            )
+        )
     preservation = None
     expectation = getattr(args, "preserved_repair_companion", None)
     if expectation is not None and not issues:
-        from .checks import ValidationIssue
         from .repair_companion import PRESERVATION_CHECK, guard_preservation_evidence
 
         try:
@@ -9059,6 +9160,8 @@ def cmd_guard_generated(args):
     payload = {"repo": str(repo_path), "passed": not issues, "issues": issues}
     if preservation is not None and not issues:
         payload["repair_companion_preservation"] = preservation
+    if guidance_request is not None and not issues:
+        payload["producer_review_guidance"] = guidance_records[0]
     if candidate_status is not None and args.json:
         payload["candidate_status"] = candidate_status
     if args.json:
@@ -25160,6 +25263,8 @@ def guard_generated_change_issues(
     all_files: bool = False,
     retrospective: bool = False,
     expected_encoder_checkout: Path | None = None,
+    producer_guidance_request: ProducerGuidanceVerificationRequest | None = None,
+    producer_guidance_records: list[dict[str, object]] | None = None,
 ) -> list[str]:
     """Return issues for changes not bound to the signed local release.
 
@@ -25168,6 +25273,12 @@ def guard_generated_change_issues(
     An unreceipted retirement whose receipt or deleted paths change must prove
     exact unowned bytes at this change's base, not just its recorded base.
     """
+    if (producer_guidance_request is None) != (producer_guidance_records is None):
+        return ["producer guidance request and result sink must be paired"]
+    if producer_guidance_request is not None and (
+        all_files or retrospective or head_ref != "HEAD"
+    ):
+        return ["producer guidance requires the current ordinary changed-file guard"]
     repo_path = Path(repo_path).resolve()
     try:
         base_ref, head_ref = _resolve_guard_git_refs(
@@ -25409,6 +25520,14 @@ def guard_generated_change_issues(
         retirement_changed_paths=retirement_changed_paths,
         retirement_base_ref=base_ref or head_ref,
         base_tree_cache=base_tree_cache,
+        **(
+            {
+                "producer_guidance_request": producer_guidance_request,
+                "producer_guidance_records": producer_guidance_records,
+            }
+            if producer_guidance_request is not None
+            else {}
+        ),
     )
     manifest_issues.extend(
         _guard_changed_manifest_coverage_issues(
@@ -26122,10 +26241,7 @@ def _guard_base_manifest_claims(
         payload = json.loads(raw.decode("utf-8"))
     except (UnicodeError, json.JSONDecodeError, RecursionError):
         return set(), [f"{label} is not valid JSON"]
-    if (
-        not isinstance(payload, dict)
-        or payload.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA
-    ):
+    if not isinstance(payload, dict) or not _apply_manifest_schema_admitted(payload):
         return set(), [f"{label} is not an encoder apply manifest"]
     backend = payload.get("backend")
     tool = payload.get("tool")
@@ -26148,7 +26264,9 @@ def _guard_base_manifest_claims(
     ):
         return set(), [f"{label} has no allowlisted tool/backend contract"]
     try:
-        issues = _applied_manifest_exact_schema_issues(payload, manifest_label=label)
+        issues = _applied_manifest_exact_schema_issues(
+            payload, manifest_label=label, admit_v6=True
+        )
     except (TypeError, ValueError):
         return set(), [f"{label} does not match an exact encoder receipt schema"]
     # An immutable predecessor proves obligations only. The distinct empty
@@ -28866,7 +28984,11 @@ def _applied_manifest_tool_execution_issues(
         check_producer("reviewed repair")
         return issues
     if backend is None and tool == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL:
-        reviewed_ref = payload.get("reviewed_rulespec_ref")
+        reviewed_ref = payload.get(
+            _manifest_v6.CANDIDATE_REF_FIELD
+            if _manifest_v6.is_v6_labelled(payload)
+            else "reviewed_rulespec_ref"
+        )
         if (
             not isinstance(reviewed_ref, str)
             or re.fullmatch(r"[0-9a-f]{40}", reviewed_ref) is None
@@ -29108,11 +29230,23 @@ def _applied_manifest_exact_schema_issues(
     payload: Mapping[str, object],
     *,
     manifest_label: str,
+    admit_v6: bool = False,
 ) -> list[str]:
-    """Reject every field outside the model or retirement v5 contract."""
+    """Reject every field outside the model or retirement v5 contract.
+
+    A v6 label is refused here unless the caller reads a top-level manifest
+    (``admit_v6``) and the v6 reader admits it. Only the verified loader and
+    the immutable-base claim reader pass it. The readers of a manifest nested
+    in a retirement, migration or replacement receipt and the historical
+    refresh reader do not, so a v6 manifest cannot stand in for a model
+    manifest there.
+    """
 
     backend = payload.get("backend")
     tool = payload.get("tool")
+    v6 = _manifest_v6.is_v6_labelled(payload)
+    if v6 and not (admit_v6 and _manifest_v6.v6_admissible(payload)):
+        return [f"{manifest_label} is not an encoder apply manifest"]
     if isinstance(backend, str) and backend in APPLIED_ENCODING_ENCODER_BACKENDS:
         expected_fields = _MODEL_APPLY_MANIFEST_FIELDS
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
@@ -29196,8 +29330,17 @@ def _applied_manifest_exact_schema_issues(
     variants = _APPLIED_MANIFEST_SCHEMA_VARIANTS[
         "codex model" if backend == "codex" else contract
     ]
+    if v6:
+        # v6_admissible already proved the promotion tool and no backend.
+        issues.extend(
+            _manifest_v6.contract_issues(
+                payload,
+                manifest_label=manifest_label,
+                field_variants=_REVIEWED_CANDIDATE_V6_MANIFEST_VARIANTS,
+            )
+        )
     admitted_fields = frozenset().union(*variants)
-    if frozenset(payload) not in variants:
+    if not v6 and frozenset(payload) not in variants:
         if VALIDATION_WAIVER_BINDINGS_FIELD in payload and contract in {
             "model",
             "reviewed candidate promotion",
@@ -32788,7 +32931,7 @@ def _load_verified_applied_encoding_manifest_payload(
             manifest_sha256,
             [f"{manifest_label} is not a JSON object"],
         )
-    if payload.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA:
+    if not _apply_manifest_schema_admitted(payload):
         return (
             None,
             root_prefix,
@@ -32836,6 +32979,7 @@ def _load_verified_applied_encoding_manifest_payload(
         _applied_manifest_exact_schema_issues(
             payload,
             manifest_label=manifest_label,
+            admit_v6=True,
         )
     )
     if expected_encoder_identity is None:
@@ -33188,6 +33332,8 @@ def _load_applied_encoding_manifest_entries(
     retirement_changed_paths: set[str] | None = None,
     retirement_base_ref: str | None = None,
     base_tree_cache: dict[str, _GuardBaseReceiptTree] | None = None,
+    producer_guidance_request: ProducerGuidanceVerificationRequest | None = None,
+    producer_guidance_records: list[dict[str, object]] | None = None,
 ) -> tuple[dict[str, set[str]], list[str]]:
     entries: dict[str, set[str]] = defaultdict(set)
     issues: list[str] = []
@@ -33220,6 +33366,16 @@ def _load_applied_encoding_manifest_entries(
     if path_migration_receipt_proof_cache is None:
         path_migration_receipt_proof_cache = {}
 
+    if producer_guidance_request is not None and (
+        producer_guidance_records is None
+        or local_corpus_release is None
+        or expected_encoder_identity.get("commit")
+        != producer_guidance_request.producer_commit
+    ):
+        return entries, [
+            "producer guidance lacks the exact verified producer/source context"
+        ]
+
     for manifest_path in manifest_paths:
         payload, root_prefix, _manifest_sha256, manifest_issues = (
             _load_verified_applied_encoding_manifest_payload(
@@ -33243,6 +33399,33 @@ def _load_applied_encoding_manifest_entries(
         issues.extend(manifest_issues)
         if payload is None or root_prefix is None:
             continue
+        if (
+            producer_guidance_request is not None
+            and payload.get("citation") == producer_guidance_request.citation
+        ):
+            try:
+                if manifest_issues or _manifest_sha256 is None:
+                    raise ValueError(
+                        "guidance manifest has unresolved verification issues"
+                    )
+                record = verify_guidance_for_verified_manifest(
+                    producer_guidance_request,
+                    manifest_path=manifest_path,
+                    manifest_sha256=_manifest_sha256,
+                    verified_payload=payload,
+                )
+            except (ValueError, RuntimeError, OSError) as exc:
+                issues.append(
+                    ValidationIssue(
+                        f"{manifest_path} producer guidance verification failed: {exc}",
+                        check=GUIDANCE_MANIFEST_BINDING_CHECK,
+                        expected="exact verified guidance binding",
+                        found=str(exc),
+                    )
+                )
+            else:
+                assert producer_guidance_records is not None
+                producer_guidance_records.append(record)
         applied_files = payload["applied_files"]
         assert isinstance(applied_files, list)
         if (
@@ -33703,17 +33886,29 @@ def _require_axiom_encode_version_provenance(
         version_commit,
         "HEAD",
     )
+    # A version below one that main declared, or changes after main first
+    # reached this version at another commit (axiom-encode#2051 review), read
+    # under the same scrubbed environment as the guard's own git calls.
+    try:
+        main_history_changes = _version_provenance.main_history_changes(
+            repo,
+            "HEAD",
+            version_commit,
+            pyproject_version,
+            environment=_read_only_git_environment(),
+        )
+    except (OSError, subprocess.CalledProcessError, ValueError) as exc:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: could not read the first-parent "
+            f"encoder version history: {exc}"
+        ) from exc
     unversioned_encoder_changes = sorted(
         {
             path
             for path in changed_since_version
             if _is_axiom_encode_versioned_path(path)
         }
-        # A version below one that main declared, or changes after main first
-        # reached this version at another commit (axiom-encode#2051 review).
-        | _version_provenance.main_history_changes(
-            repo, "HEAD", version_commit, pyproject_version
-        )
+        | main_history_changes
     )
     if unversioned_encoder_changes:
         display = ", ".join(f"`{path}`" for path in unversioned_encoder_changes[:8])
@@ -34571,8 +34766,93 @@ def cmd_encode(args):
         return _cmd_encode_under_current_trust(args)
 
 
+def _validate_encode_producer_guidance_request(args) -> None:
+    descriptor = getattr(args, "producer_review_guidance_ref", None)
+    checkout = getattr(args, "producer_review_guidance_checkout", None)
+    if descriptor is None and checkout is None:
+        return
+    if not descriptor or checkout is None:
+        raise ValueError(
+            "producer guidance descriptor and checkout must be supplied together"
+        )
+    if (
+        getattr(args, "apply", False) is not True
+        or getattr(args, "require_complete_source_unit", False) is not True
+        or getattr(args, "backend", None) != "openai"
+        or any(
+            getattr(args, field, None)
+            for field in (
+                "review_findings",
+                "repair_candidate_root",
+                "repair_candidate_path",
+                "repair_candidate_rulespec_sha256",
+                "repair_candidate_tests_sha256",
+                "repair_candidate_tests_only",
+                "preserve_repair_companion",
+                "replace_legacy_rulespec_path",
+                "legacy_dependent_rulespec_path",
+                "legacy_exact_dependent_rulespec_path",
+                "legacy_retained_successor_rulespec_path",
+                "scheduled_dependent_rulespec_path",
+                "apply_target_only",
+                "skip_reviewers",
+            )
+        )
+    ):
+        raise ValueError(
+            "producer guidance requires ordinary full-source protected generation"
+        )
+
+
+def _resolve_encode_producer_review_guidance(
+    descriptor_text: str,
+    *,
+    encoder_checkout: Path,
+    citation: str,
+    source_unit,
+    corpus_release: LocalCorpusRelease,
+):
+    """Bind guidance to the existing protected producer and source checks.
+
+    This helper cannot make an arbitrary checkout or source object authoritative.
+    Both identities are independently checked before the immutable blob is read.
+    """
+    from .corpus_resolver import require_canonical_corpus_citation_path
+    from .harness.evals import _validate_corpus_source_unit
+    from .producer_review_guidance import read_producer_review_guidance
+
+    running = _current_guard_encoder_execution_identity()
+    checkout = _read_only_guard_encoder_execution_identity(encoder_checkout)
+    fields = ("repository", "commit", "version")
+    if any(running.get(field) != checkout.get(field) for field in fields):
+        raise ValueError(
+            "guidance checkout does not match the running protected producer"
+        )
+    _validate_corpus_source_unit(
+        source_unit, corpus_release, target_identifier=citation
+    )
+    require_canonical_corpus_citation_path(citation)
+    if source_unit.requested != citation or source_unit.citation_path != citation:
+        raise ValueError(
+            "producer guidance requires an exact source citation without fallback"
+        )
+    if source_unit.amendment_request:
+        raise ValueError("producer guidance does not support amendment requests")
+    source_bytes = (
+        source_unit.body.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+    )
+    return read_producer_review_guidance(
+        descriptor_text,
+        encoder_repo=encoder_checkout,
+        expected_producer_sha=running["commit"],
+        citation=citation,
+        authenticated_source_sha256=hashlib.sha256(source_bytes).hexdigest(),
+    )
+
+
 def _cmd_encode_under_current_trust(args):
     """Encode with the exact caller-authorized RuleSpec dependency roots."""
+    _validate_encode_producer_guidance_request(args)
     engine_ref = getattr(args, "axiom_rules_engine_ref", None)
     if engine_ref is not None:
         require_engine_ref_sha(engine_ref, description="axiom_rules_engine_ref")
@@ -39311,6 +39591,23 @@ def _run_encode_attempt(
             ),
         )
 
+    _validate_encode_producer_guidance_request(args)
+    producer_review_guidance = None
+    if getattr(args, "producer_review_guidance_ref", None) is not None:
+        if (
+            replacement_target is not None
+            and replacement_target.retired_source_admission is not None
+        ):
+            raise ValueError(
+                "producer guidance does not support retired-source replacement"
+            )
+        producer_review_guidance = _resolve_encode_producer_review_guidance(
+            args.producer_review_guidance_ref,
+            encoder_checkout=args.producer_review_guidance_checkout,
+            citation=args.citation,
+            source_unit=source_unit,
+            corpus_release=corpus_release,
+        )
     skip_reviewers = bool(getattr(args, "skip_reviewers", False))
     policyengine_rule_hint = getattr(args, "policyengine_rule_hint", None)
     review_findings_paths = [
@@ -39354,6 +39651,11 @@ def _run_encode_attempt(
         mode=args.mode,
         extra_context_paths=extra_context_paths,
         review_findings_paths=review_findings_paths,
+        **(
+            {"producer_review_guidance": producer_review_guidance}
+            if producer_review_guidance is not None
+            else {}
+        ),
         include_tests=True,
         skip_reviewers=skip_reviewers,
         reviewers_require_deterministic_pass=True,
@@ -39454,7 +39756,7 @@ def _run_encode_attempt(
             result.context_manifest_file,
             expected_manifest_sha256=result.context_manifest_sha256,
         )
-        if review_findings_paths
+        if review_findings_paths or producer_review_guidance is not None
         else set()
     )
     print(f"Output root: {args.output}")
@@ -61307,6 +61609,27 @@ def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> 
             "corpus path(s) not bound by resolver source_attestation: "
             + ", ".join(sorted(unattested_paths))
         )
+    if vars(result).get(_MANIFEST_ONLY_REFRESH_ATTR) is True:
+        expected = vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR)
+        if (
+            not isinstance(expected, str)
+            or re.fullmatch(r"[0-9a-f]{64}", expected) is None
+        ):
+            raise RuntimeError("Manifest refresh requires an immutable RuleSpec digest")
+        immutable_issue = _immutable_rulespec_digest_issue(result, output_file)
+        if immutable_issue:
+            raise RuntimeError(immutable_issue)
+        binding_issues = _source_attestation_binding_issues(
+            attestation, source_verification
+        )
+        if binding_issues:
+            raise RuntimeError(
+                "Cannot refresh manifest with unbound source verification: "
+                + "; ".join(binding_issues)
+            )
+        # Refresh revalidates historical bytes; even a semantically identical
+        # YAML reserialization would invalidate their original digest.
+        return
     if vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is True:
         binding_issues = _source_attestation_binding_issues(
             attestation,
@@ -63839,6 +64162,18 @@ def _is_canonical_apply_transaction_target(
         return True
     if historical_manifest_deletion:
         parts = relative.parts
+        prefix = APPLIED_ENCODING_MANIFEST_DIR.parts
+        tail = parts[len(prefix) :]
+        if (
+            parts[: len(prefix)] == prefix
+            and len(tail) >= 2
+            and tail[0] in RULESPEC_ATOMIC_MODULE_ROOTS
+            and relative.suffix == ".json"
+            and not relative.name.endswith(".test.json")
+            and not any(part in {"", ".", ".."} for part in tail)
+            and is_rulespec_source_checkout_root(checkout_root)
+        ):
+            return True
         if (
             len(parts) >= 5
             and parts[1 : 1 + len(APPLIED_ENCODING_MANIFEST_DIR.parts)]
@@ -64342,6 +64677,23 @@ def _install_apply_transaction(
         Path(os.path.abspath(Path(target).expanduser())): digest
         for target, digest in (expected_originals or {}).items()
     }
+    for target, raw in normalized_files:
+        relative = Path(_apply_transaction_relative_path(checkout_root, target))
+        if not _is_canonical_apply_transaction_target(
+            checkout_root, relative
+        ) and _is_canonical_apply_transaction_target(
+            checkout_root, relative, historical_manifest_deletion=True
+        ):
+            digest = normalized_expected.get(target)
+            if (
+                raw is not None
+                or target not in historical_manifest_deletions
+                or not isinstance(digest, str)
+                or _SHA256_HEX_PATTERN.fullmatch(digest) is None
+            ):
+                raise RuntimeError(
+                    "Historical manifest deletion requires its exact expected old hash"
+                )
     relative_targets = {
         target: _apply_transaction_target_relative_path(
             checkout_root,
@@ -65603,7 +65955,7 @@ def _require_applied_manifest_not_shrunk(
 def _legacy_replacement_base_manifest_path(
     repo_path: Path, base_commit: str, source: Path
 ) -> Path:
-    """Find the sole Git-bound v1 owner in either historical manifest layout."""
+    """Find the sole Git-bound v1 owner across the historical manifest layouts."""
 
     if (
         len(source.parts) < 3
@@ -65616,9 +65968,12 @@ def _legacy_replacement_base_manifest_path(
     jurisdiction = (
         Path(source.parts[0]) / APPLIED_ENCODING_MANIFEST_DIR / Path(*source.parts[1:])
     ).with_suffix(".json")
+    historical_root = (
+        APPLIED_ENCODING_MANIFEST_DIR / Path(*source.parts[1:])
+    ).with_suffix(".json")
     present = [
         candidate
-        for candidate in (canonical, jurisdiction)
+        for candidate in (canonical, jurisdiction, historical_root)
         if _rulespec_migration_git_bytes(
             repo_path,
             "ls-tree",
@@ -65794,6 +66149,78 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
         validation_observer=validation_observer,
         record_apply_snapshot=True,
     )
+
+
+def _verified_registered_repair_overlay_origin(
+    result,
+    *,
+    policy_content_root: Path,
+    relative_output: Path,
+    output_file: Path,
+    output_test: Path,
+    generated_root: Path,
+    local_corpus_release: LocalCorpusRelease,
+    expected_engine_binding: dict[str, str] | None,
+):
+    """Bind only reconstructed registered repairs to their genuine base checkout."""
+    from .reviewed_repair_patch import (
+        MAX_MEMBER_BYTES,
+        ReviewedRepairResult,
+        sha256,
+        verify_predecessor,
+        verify_repair_binding,
+    )
+
+    if type(result) is not ReviewedRepairResult:
+        return None
+    package, postimage = verify_repair_binding(result.review_binding)
+    declared = package.manifest
+    if (
+        declared["rulespec_path"]
+        != (Path(policy_content_root.name) / relative_output).as_posix()
+        or result.citation != declared["citation"]
+        or expected_engine_binding is None
+        or expected_engine_binding["ref"] != declared["engine_ref"]
+    ):
+        raise ValueError("Registered repair overlay target or engine differs")
+    actual = tuple(
+        read_bounded_regular_file(
+            generated_root,
+            path,
+            label="registered repair overlay",
+            max_bytes=MAX_MEMBER_BYTES,
+        )
+        for path in (output_file, output_test)
+    )
+    if actual != postimage:
+        raise ValueError("Registered repair overlay differs from exact postimage")
+    source = resolve_corpus_source_unit(declared["citation"], local_corpus_release)
+    source_binding = {
+        "corpus_ref": subprocess.check_output(
+            ["git", "-C", str(local_corpus_release.root), "rev-parse", "HEAD"],
+            text=True,
+        ).strip(),
+        "release_name": local_corpus_release.name,
+        "release_sha256": local_corpus_release.content_sha256,
+        "requested_citation": source.requested,
+        "resolved_citation": source.citation_path,
+        "body_sha256": sha256(source.body.encode()),
+    }
+    expected_attestation = {
+        **source.source_attestation,
+        "generation_input_sha256": source_binding["body_sha256"],
+        "rulespec_root": f"{policy_content_root.parent.name}/{policy_content_root.name}",
+    }
+    if (
+        source_binding != declared["source"]
+        or result.source_attestation != expected_attestation
+    ):
+        raise ValueError("Registered repair overlay source binding differs")
+    verify_predecessor(policy_content_root.parent, package)
+    origin = capture_execution_git_origin(policy_content_root)
+    if origin is None:
+        raise ValueError("Registered repair overlay lacks a genuine checkout origin")
+    return origin
 
 
 def _generated_artifact_guard_issue(
@@ -66084,6 +66511,24 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
             and not rulespec_dependency_roots
             else None
         )
+        registered_execution_origin = None
+        if (
+            require_complete_source_unit
+            and replacement_overlay_scope
+            and legacy_replacement is None
+            and not rulespec_dependency_roots
+            and retired_source_admission is None
+        ):
+            registered_execution_origin = _verified_registered_repair_overlay_origin(
+                result,
+                policy_content_root=policy_content_root,
+                relative_output=relative_output,
+                output_file=output_file,
+                output_test=output_test,
+                generated_root=generated_root,
+                local_corpus_release=local_corpus_release,
+                expected_engine_binding=expected_engine_binding,
+            )
         overlay_repo_name = policy_checkout_path.name
         staged_dependency_roots = _stage_apply_overlay_dependency_roots(
             overlay_parent=overlay_parent,
@@ -66207,10 +66652,14 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
             policy_repo_path=overlay_content_root,
             execution_overlay_origin=(
                 bind_execution_overlay_origin(
-                    execution_git_origin, overlay_content_root
+                    registered_execution_origin or execution_git_origin,
+                    overlay_content_root,
                 )
                 if legacy_replacement is None
-                and not replacement_overlay_scope
+                and (
+                    not replacement_overlay_scope
+                    or registered_execution_origin is not None
+                )
                 and not staged_dependency_roots
                 else None
             ),

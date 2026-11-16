@@ -1,0 +1,140 @@
+- name: listed_medical_purposes_and_open_list
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - &id001
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: doctor_visit
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: dental_visit
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: medical_supplies
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: prescriptions
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: eyeglasses
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: dentures
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: hearing_aids
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: sickroom_equipment
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: physical_therapy
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : true
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#snap_medical_transportation_component_allowable:
+    - holds
+    - holds
+    - holds
+    - holds
+    - holds
+    - holds
+    - holds
+    - holds
+    - holds
+- name: transportation_cost_gate
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - *id001
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: false
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: doctor_visit
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#snap_medical_transportation_component_allowable:
+    - holds
+    - not_holds
+- name: unlisted_purpose_requires_medical_treatment_or_services
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: other
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : true
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: other
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#snap_medical_transportation_component_allowable:
+    - holds
+    - not_holds
+- name: actual_fares_and_public_branch_boundaries
+  period: 2026-08
+  input: {}
+  tables:
+    Payment:
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: doctor_visit
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_mode: public_transportation
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.actual_fare_cost: 18.5
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: doctor_visit
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_mode: common_carrier
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.actual_fare_cost: 42
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: doctor_visit
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_mode: public_transportation
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.actual_fare_cost: 0
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: false
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: doctor_visit
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_mode: public_transportation
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.actual_fare_cost: 18.5
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: grocery_shopping
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_mode: public_transportation
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.actual_fare_cost: 18.5
+    - us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.component_is_transportation_cost: true
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_purpose: doctor_visit
+      ? us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_obtains_other_medical_treatment_or_services
+      : false
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.transportation_mode: private_vehicle
+      us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#input.actual_fare_cost: 18.5
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#snap_medical_transportation_component_allowable:
+    - holds
+    - holds
+    - holds
+    - not_holds
+    - not_holds
+    - holds
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/block-10#snap_medical_public_transportation_amount:
+    - 18.5
+    - 42
+    - 0
+    - 0
+    - 0
+    - 0

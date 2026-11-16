@@ -89,6 +89,10 @@ from axiom_encode.live_run_telemetry import (
     PHASE_VALIDATE,
     report_phase,
 )
+from axiom_encode.producer_review_guidance import (
+    MAX_GUIDANCE_BYTES,
+    ProducerReviewGuidance,
+)
 from axiom_encode.prompts.encoder import (
     INTERPRETATIONS_PROTOCOL,
     SOURCE_SCOPE_PROTOCOL,
@@ -1804,8 +1808,22 @@ def run_model_eval(
     accept_valid_retry_candidate: bool = False,
     codex_reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
     axiom_rules_engine_ref: str | None = None,
+    producer_review_guidance: ProducerReviewGuidance | None = None,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
+    if producer_review_guidance is not None:
+        if (
+            len(citations) != 1
+            or len(runner_specs) != 1
+            or review_findings_paths
+            or not require_complete_source_unit
+            or legacy_replacement is not None
+            or repair_candidate_tests_only
+            or accept_valid_retry_candidate
+        ):
+            raise ValueError(
+                "producer guidance requires a single ordinary full-source target"
+            )
     validate_codex_reasoning_effort(codex_reasoning_effort)
     _validate_eval_oracle_runtime(oracle, policyengine_runtime, policy_path)
     if target_relative_output is not None and len(citations) != 1:
@@ -1882,6 +1900,11 @@ def run_model_eval(
                         source_unit=source_unit,
                         rulespec_dependency_roots=rulespec_dependency_roots,
                         review_findings_paths=review_findings_paths or [],
+                        **(
+                            {"producer_review_guidance": producer_review_guidance}
+                            if producer_review_guidance is not None
+                            else {}
+                        ),
                         require_complete_source_unit=require_complete_source_unit,
                         target_relative_output=target_relative_output,
                         validation_retry_feedback=validation_retry_feedback,
@@ -4385,13 +4408,16 @@ def _read_only_git_environment() -> dict[str, str]:
         GIT_CONFIG_GLOBAL=os.devnull,
         GIT_CONFIG_SYSTEM=os.devnull,
         GIT_CONFIG_NOSYSTEM="1",
-        GIT_CONFIG_COUNT="2",
+        GIT_CONFIG_COUNT="3",
         GIT_CONFIG_KEY_0="core.commitGraph",
         GIT_CONFIG_VALUE_0="false",
         # GIT_GRAFT_FILE=/dev/null is itself a readable graft file, so without
         # this Git advises on stderr whenever a query here parses a commit.
         GIT_CONFIG_KEY_1="advice.graftFileDeprecated",
         GIT_CONFIG_VALUE_1="false",
+        # A repository's log.showSignature would run its gpg.program on a read.
+        GIT_CONFIG_KEY_2="log.showSignature",
+        GIT_CONFIG_VALUE_2="false",
         GIT_TERMINAL_PROMPT="0",
     )
     return environment
@@ -7016,8 +7042,42 @@ def prepare_eval_workspace(
     review_findings_paths: list[Path] | None = None,
     target_relative_output: Path | None = None,
     review_contract: Mapping[str, object] | None = None,
+    producer_review_guidance: ProducerReviewGuidance | None = None,
 ) -> EvalWorkspace:
     """Create an isolated workspace bundle for a single eval."""
+    if producer_review_guidance is not None:
+        if review_findings_paths:
+            raise ValueError(
+                "producer guidance and review findings are mutually exclusive"
+            )
+        guidance = producer_review_guidance
+        if (
+            not isinstance(guidance.content, bytes)
+            or not 0 < len(guidance.content) <= MAX_GUIDANCE_BYTES
+        ):
+            raise ValueError("producer guidance content size is invalid")
+        try:
+            guidance_text = guidance.content.decode("utf-8", errors="strict")
+        except UnicodeError as exc:
+            raise ValueError("producer guidance content is not UTF-8") from exc
+        if (
+            guidance_text.startswith("\ufeff")
+            or not guidance_text.endswith("\n")
+            or guidance_text.endswith("\n\n")
+            or not guidance_text.strip()
+            or any(
+                (ord(c) < 32 and c not in "\n\t") or ord(c) == 127
+                for c in guidance_text
+            )
+        ):
+            raise ValueError("producer guidance content is not normalized")
+        source_digest = hashlib.sha256(
+            source_text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+        ).hexdigest()
+        if guidance.citation != citation or guidance.source_sha256 != source_digest:
+            raise ValueError("producer guidance does not match the workspace source")
+        if hashlib.sha256(guidance.content).hexdigest() != guidance.content_sha256:
+            raise ValueError("producer guidance content digest mismatch")
     slug = _slugify(citation)
     workspace_root = (
         Path(output_root) / "_eval_workspaces" / runner.name / slug / "workspace"
@@ -7109,6 +7169,28 @@ def prepare_eval_workspace(
                 "sha256": hashlib.sha256(
                     normalized_findings_text.encode("utf-8")
                 ).hexdigest(),
+            }
+        )
+
+    if producer_review_guidance is not None:
+        guidance = producer_review_guidance
+        workspace_relative_path = Path("review-findings/01-producer-guidance.txt")
+        workspace_path = workspace_root / workspace_relative_path
+        workspace_path.parent.mkdir(parents=True, exist_ok=True)
+        workspace_path.write_bytes(guidance.content)
+        context_file = EvalContextFile(
+            source_path=f"git:{guidance.producer_commit}:{guidance.path}",
+            workspace_path=str(workspace_relative_path),
+            import_path=str(workspace_relative_path),
+            kind="mandatory_review_findings",
+            label="producer-guidance.txt",
+        )
+        review_findings_files.append(context_file)
+        review_findings_evidence.append(
+            {
+                **asdict(context_file),
+                "content": guidance_text,
+                "sha256": guidance.content_sha256,
             }
         )
 
@@ -7249,6 +7331,17 @@ def prepare_eval_workspace(
         ],
         "review_findings_files": review_findings_evidence,
     }
+    if producer_review_guidance is not None:
+        guidance = producer_review_guidance
+        manifest_payload["producer_review_guidance"] = {
+            "producer_commit": guidance.producer_commit,
+            "path": guidance.path,
+            "blob_sha256": guidance.blob_sha256,
+            "size_bytes": guidance.size_bytes,
+            "citation": guidance.citation,
+            "source_sha256": guidance.source_sha256,
+            "content_sha256": guidance.content_sha256,
+        }
     if review_contract is not None:
         manifest_payload["review_contract"] = dict(review_contract)
     if rendered_context.dropped_amendment_documents:
@@ -10338,6 +10431,7 @@ def _run_single_eval(
     accept_valid_retry_candidate: bool = False,
     axiom_compose_path: Path | None = None,
     axiom_rules_engine_ref: str | None = None,
+    producer_review_guidance: ProducerReviewGuidance | None = None,
 ) -> EvalResult:
     if (
         accept_valid_retry_candidate
@@ -10410,6 +10504,11 @@ def _run_single_eval(
         amendment_documents=source_unit.amendment_documents,
         extra_context_paths=extra_context_paths,
         review_findings_paths=review_findings_paths,
+        **(
+            {"producer_review_guidance": producer_review_guidance}
+            if producer_review_guidance is not None
+            else {}
+        ),
         target_relative_output=target_relative_output,
         review_contract=review_contract,
     )
@@ -11630,7 +11729,40 @@ def _complete_source_deferral_anchor(corpus_citation_path: str | None) -> str:
         anchors = _deferral_anchor_bases(corpus_citation_path)
     except Exception:  # pragma: no cover - guidance must never block a prompt
         return "<module path>"
-    return anchors[-1] if anchors else "<module path>"
+    if not anchors:
+        return "<module path>"
+    anchor = anchors[-1]
+    if not _is_manual_or_form_unit(corpus_citation_path):
+        return anchor
+    # A manual or form unit's corpus-shaped anchor (`us-az:manuals/...`) is no
+    # RuleSpec module root, and the target check refuses any output under it.
+    # Name the module's own target (`us-az:policies/...`) instead.
+    try:
+        relative = _source_identifier_to_relative_rulespec_path(corpus_citation_path)
+    except ValueError:
+        return anchor
+    jurisdiction = corpus_citation_path.strip("/").split("/", 1)[0]
+    return f"{jurisdiction}:{relative.with_suffix('').as_posix()}"
+
+
+def _is_manual_or_form_unit(corpus_citation_path: str | None) -> bool:
+    """Whether a corpus unit is a manual or form, encoded under `policies/`."""
+
+    parts = (corpus_citation_path or "").strip("/").split("/")
+    return len(parts) >= 3 and parts[1] in {"manual", "form"}
+
+
+def _unmarked_prose_deferral_note(corpus_citation_path: str | None) -> str:
+    """Tell a manual or form unit not to invent branch markers from prose."""
+
+    if not _is_manual_or_form_unit(corpus_citation_path):
+        return ""
+    anchor = _complete_source_deferral_anchor(corpus_citation_path)
+    return f"""- A manual or form paragraph without a printed marker is not a branch.
+  Defer its output at the module's own target `{anchor}#<name>` and quote its
+  source sentence and missing value in `reason`; never invent a marker from
+  its words, such as `/private-vehicles`.
+"""
 
 
 # Typed completeness checks whose declared fix offers "encode or defer" (or
@@ -12821,6 +12953,7 @@ Complete-source-unit mode is enabled for this request:
   Never guess a blocker target.
 """
             + _format_branch_coverage_plan(deferral_anchor)
+            + _unmarked_prose_deferral_note(corpus_citation_path)
             + """- A child-branch `source:` citation does not cover a distinct parent chapeau.
   When a parent chapeau states applicability, temporal scope, or a shared
   computation, bind one consuming executable rule to that exact parent path
