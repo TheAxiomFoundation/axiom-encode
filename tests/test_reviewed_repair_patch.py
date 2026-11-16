@@ -202,7 +202,7 @@ def test_full_measured_context_required(registered):
         patch.verify_bindings(package, actual)
 
 
-def overlay_fixture(tmp_path):
+def overlay_fixture(tmp_path, *, date_index_dtype=None):
     import yaml
 
     from axiom_encode.harness.evals import (
@@ -214,6 +214,13 @@ def overlay_fixture(tmp_path):
     tests = b"- name: original\n  period: '2025-01-01'\n  input: {}\n  output: {changed: 2}\n"
     rule_patch = b"format: rulespec/v1\nrules:\n- name: changed\n  kind: derived\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: '2'\n"
     tests_patch = b"[]\n"
+    if date_index_dtype is not None:
+        seed += (
+            "- name: source_year\n  kind: parameter\n"
+            f"  dtype: {date_index_dtype}\n  versions:\n"
+            "  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: '2025'\n"
+        ).encode()
+        rule_patch += indexed_date_patch().split(b"rules:\n", 1)[1]
     target = tmp_path / "reference.yaml"
     target.write_bytes(rule_patch)
     target.with_suffix(".test.yaml").write_bytes(tests_patch)
@@ -227,11 +234,13 @@ def overlay_fixture(tmp_path):
     value["seed"]["rulespec_sha256"] = patch.sha256(seed)
     value["seed"]["tests_sha256"] = patch.sha256(tests)
     value["changes"]["rules"]["replaced"] = ["changed"]
+    if date_index_dtype is not None:
+        value["changes"]["rules"]["added"] = ["threshold_date"]
     value["expected_postimage"] = {
         "rulespec_sha256": patch.sha256(expected[0]),
         "tests_sha256": patch.sha256(expected[1]),
-        "rulespec_object_sha256": patch.sha256(
-            patch.canonical_json(yaml.safe_load(expected[0]))
+        "rulespec_object_sha256": patch.policy_object_sha256(
+            yaml.safe_load(expected[0])
         ),
         "tests_object_sha256": patch.sha256(
             patch.canonical_json(yaml.safe_load(expected[1]))
@@ -385,12 +394,21 @@ def test_explicit_non_model_context_and_metadata_are_bound(tmp_path, monkeypatch
         _apply_result_metadata(result)
 
 
-def lineage_fixture(tmp_path, monkeypatch, jurisdiction="ca", origin_suffix=".git"):
+def lineage_fixture(
+    tmp_path,
+    monkeypatch,
+    jurisdiction="ca",
+    origin_suffix=".git",
+    *,
+    date_index_dtype=None,
+):
     from dataclasses import replace
 
     workspace = tmp_path / "overlay"
     workspace.mkdir()
-    package, seed, tests, expected = overlay_fixture(workspace)
+    package, seed, tests, expected = overlay_fixture(
+        workspace, date_index_dtype=date_index_dtype
+    )
     country = jurisdiction.split("-", 1)[0]
     repo = tmp_path / f"rulespec-{country}"
     repo.mkdir()
@@ -547,8 +565,10 @@ def test_command_preserves_validation_and_transaction_boundaries(
 
         original_overlay = overlay_fixture
 
-        def blocked_overlay(path):
-            package, seed, tests, expected = original_overlay(path)
+        def blocked_overlay(path, *, date_index_dtype=None):
+            package, seed, tests, expected = original_overlay(
+                path, date_index_dtype=date_index_dtype
+            )
 
             def rename(raw):
                 return raw.replace(b"changed", b"snap_gross_monthly_income")
@@ -1641,3 +1661,98 @@ def test_invalid_repair_binding_emits_declared_issue_without_losing_refusal():
         issue_record(refused[0], gate="manifest")["check"]
         == "manifest:reviewed-repair/binding"
     )
+
+
+def indexed_date_patch(entries="2025: '2019-03-18'", kind="parameter"):
+    return (
+        "format: rulespec/v1\nrules:\n- name: threshold_date\n"
+        f"  kind: {kind}\n  dtype: Date\n  indexed_by: source_year\n"
+        "  versions:\n  - effective_from: '2025-01-01'\n"
+        f"    values: {{{entries}}}\n"
+    ).encode()
+
+
+@pytest.mark.parametrize(
+    "entries",
+    [
+        "2025: '2019-03-18', '2026': '2019-03-18'",
+        "2025: '2019-03-18', 2025: '2019-03-18'",
+        "02025: '2019-03-18'",
+        "0x7e9: '2019-03-18'",
+        "-0: '2019-03-18'",
+        "9223372036854775808: '2019-03-18'",
+        "-9223372036854775809: '2019-03-18'",
+        "true: '2019-03-18'",
+        "!!bool wrong: '2025-01-01'",
+        "!!timestamp wrong: '2025-01-01'",
+        "1.5: '2019-03-18'",
+        "2025: '2019-02-29'",
+        "2025: 2019-03-18",
+        "2025: !!timestamp invalid",
+        "2025: !!bool invalid",
+        "2025: !!int '' ",
+    ],
+)
+def test_indexed_date_table_requires_unique_i64_keys_and_iso_date_strings(entries):
+    with pytest.raises(ValueError):
+        patch.strict_yaml(indexed_date_patch(entries), tests=False)
+
+
+@pytest.mark.parametrize(
+    "raw,tests",
+    [
+        (indexed_date_patch(kind="derived"), False),
+        (indexed_date_patch().replace(b"  indexed_by: source_year\n", b""), False),
+        (indexed_date_patch().replace(b"    values:", b"    value:"), False),
+        (indexed_date_patch().replace(b"  dtype: Date", b"  dtype: Money"), False),
+        (b"- name: example\n  input: {2025: '2019-03-18'}", True),
+    ],
+)
+def test_integer_keys_stay_scoped_to_indexed_date_parameters(raw, tests):
+    with pytest.raises(ValueError):
+        patch.strict_yaml(raw, tests=tests)
+
+
+def test_integer_date_policy_digest_preserves_key_types_and_legacy_hash():
+    integer = patch.strict_yaml(indexed_date_patch(), tests=False)
+    quoted = patch.strict_yaml(indexed_date_patch("'2025': '2019-03-18'"), tests=False)
+    assert patch.canonical_json(integer) == patch.canonical_json(quoted)
+    assert patch.policy_object_sha256(integer) != patch.policy_object_sha256(quoted)
+    assert patch.policy_object_sha256(quoted) == patch.sha256(
+        patch.canonical_json(quoted)
+    )
+    a, b = "-9223372036854775808: '2024-02-29'", "9223372036854775807: '2025-01-01'"
+    assert patch.policy_object_sha256(
+        patch.strict_yaml(indexed_date_patch(f"{a}, {b}"), tests=False)
+    ) == patch.policy_object_sha256(
+        patch.strict_yaml(indexed_date_patch(f"{b}, {a}"), tests=False)
+    )
+
+
+def test_indexed_date_partial_patch_reconstructs_with_inherited_integer_selector(
+    tmp_path, monkeypatch
+):
+    repo, _, payload, path = lineage_fixture(
+        tmp_path, monkeypatch, date_index_dtype="Integer"
+    )
+    patch.verify_manifest_reconstruction(payload, repo, path)
+    payload["applied_files"][0]["sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="differ from postimage"):
+        patch.verify_manifest_reconstruction(payload, repo, path)
+
+
+def test_indexed_date_partial_patch_rejects_wrong_inherited_selector(tmp_path):
+    package, seed, tests, _ = overlay_fixture(tmp_path, date_index_dtype="Date")
+    with pytest.raises(ValueError, match="unique Integer parameter"):
+        patch.reconstruct_postimage(package, rulespec=seed, tests=tests)
+
+
+@pytest.mark.parametrize("tag", ["!!omap", "!!pairs", "!!set"])
+@pytest.mark.parametrize("tests", [False, True])
+def test_alternate_yaml_collections_cannot_hide_integer_keys(tag, tests):
+    value = "{2025: null}" if tag == "!!set" else "[{2025: 1}]"
+    root = (
+        "- name: case\n  input:" if tests else "format: rulespec/v1\nrules: []\nmodule:"
+    )
+    with pytest.raises(ValueError, match="ordinary maps and sequences"):
+        patch.strict_yaml(f"{root} {tag} {value}".encode(), tests=tests)
