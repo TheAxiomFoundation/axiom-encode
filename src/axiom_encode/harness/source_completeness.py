@@ -35488,9 +35488,11 @@ def _lower_cap_changes_leaf(
     """Whether lowering this `min` call's cap by one step changes the leaf value.
 
     This keeps a plateau that some other limit causes, as in
-    ``min(cost, cap) * 0 + min(cost, budget)``, from counting as the cap. A
-    named cap is lowered wherever the leaf uses it; another cap expression is
-    lowered in this call only.
+    ``min(cost, cap) * 0 + min(cost, budget)``, from counting as the cap. The
+    cap is lowered in this call only, also when it is a named parameter: any
+    other use of that parameter keeps its value. Otherwise a term such as
+    ``+ cap - 40``, which is zero at the cap, would change when the cap is
+    lowered and make a clamp that contributes nothing look like the cause.
     """
 
     step = (
@@ -35499,19 +35501,14 @@ def _lower_cap_changes_leaf(
         else Decimal(str(max(abs(float(cap_value)) * 1e-6, 1e-9)))
     )
     original = call.args[cap_index]
-    if isinstance(original, ast.Name) and original.id in environment:
+    probe_name = "__axiom_cap_probe__"
+    call.args[cap_index] = ast.Name(id=probe_name, ctx=ast.Load())
+    try:
         lowered = _evaluate_condition_expression(
-            expression, {**environment, original.id: cap_value - step}
+            expression, {**environment, probe_name: cap_value - step}
         )
-    else:
-        probe_name = "__axiom_cap_probe__"
-        call.args[cap_index] = ast.Name(id=probe_name, ctx=ast.Load())
-        try:
-            lowered = _evaluate_condition_expression(
-                expression, {**environment, probe_name: cap_value - step}
-            )
-        finally:
-            call.args[cap_index] = original
+    finally:
+        call.args[cap_index] = original
     baseline = _evaluate_condition_expression(expression, environment)
     return (
         lowered is not _UNRESOLVED_CONDITION_VALUE

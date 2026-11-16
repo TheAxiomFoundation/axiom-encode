@@ -287,7 +287,11 @@ def _outer_plateau_below_the_cap():
 
 
 def _flat_just_below_the_cap():
-    """The output is already at the cap at 39, so 40 is no kink."""
+    """The output is already at the cap at 39, so 40 is no kink.
+
+    The cap is lowered in one `min` call at a time, and the other call keeps the
+    output at 40, so the lowered-cap condition also refuses this shape.
+    """
 
     candidate = CANDIDATE.replace(
         CAP_FORMULA,
@@ -295,6 +299,34 @@ def _flat_just_below_the_cap():
         " min(max(0, daily_lodging_cost) + 1, medical_lodging_daily_cap))",
     )
     cases = _with_outputs(CASES, {"qualifying_lodging_below_daily_cap": 31})
+    return candidate, cases
+
+
+def _output_still_rising_above_the_cap():
+    """The clamp applies, but the output changes one step above 40 too."""
+
+    candidate = CANDIDATE.replace(
+        CAP_FORMULA,
+        f"{CAP_FORMULA} + max(0, daily_lodging_cost) - medical_lodging_daily_cap",
+    )
+    cases = _with_outputs(
+        CASES,
+        {
+            "qualifying_lodging_below_daily_cap": 20,
+            "qualifying_lodging_above_daily_cap": 60,
+        },
+    )
+    return candidate, cases
+
+
+def _output_flat_on_both_sides_of_the_cap():
+    """The clamp applies, but the output is 40 one step below 40 too."""
+
+    candidate = CANDIDATE.replace(
+        CAP_FORMULA,
+        f"{CAP_FORMULA} + max(0, medical_lodging_daily_cap - daily_lodging_cost)",
+    )
+    cases = _with_outputs(CASES, {"qualifying_lodging_below_daily_cap": 40})
     return candidate, cases
 
 
@@ -309,6 +341,22 @@ def _plateau_from_an_input_limit():
     return candidate, _with_input_value(CASES, "budget_limit", 40)
 
 
+def _plateau_from_an_input_limit_with_another_cap_use():
+    """As above, plus ``+ cap - 40``, which is zero at the cap.
+
+    Lowering the cap wherever the parameter appears would change this unrelated
+    term, so the zeroed clamp would look like the cause of the plateau.
+    """
+
+    candidate, cases = _plateau_from_an_input_limit()
+    return (
+        candidate.replace(
+            "budget_limit)", "budget_limit) + medical_lodging_daily_cap - 40"
+        ),
+        cases,
+    )
+
+
 def _cap_case_of(cases: list[dict]) -> dict:
     return next(case for case in cases if case["name"] == CAP_CASE)
 
@@ -321,10 +369,22 @@ def _cap_case_of(cases: list[dict]) -> dict:
         _boundary_value_only_after_scaling,
         _outer_plateau_below_the_cap,
         _flat_just_below_the_cap,
+        _output_still_rising_above_the_cap,
+        _output_flat_on_both_sides_of_the_cap,
         _plateau_from_an_input_limit,
+        _plateau_from_an_input_limit_with_another_cap_use,
     ],
 )
 def test_each_cap_witness_condition_is_required(mutant):
     candidate, cases = mutant()
     assert candidate != CANDIDATE or cases != CASES
     assert _boundary_refused(_issues(candidate, cases))
+
+
+def test_another_use_of_the_cap_does_not_make_a_zeroed_clamp_the_cause():
+    candidate, cases = _plateau_from_an_input_limit_with_another_cap_use()
+    assert "budget_limit) + medical_lodging_daily_cap - 40" in candidate
+    assert _issues(candidate, cases) == [
+        "[complete-source-unit:tests] Companion tests do not exercise every"
+        f" source-stated boundary input; {BOUNDARY_FINDING}."
+    ]
