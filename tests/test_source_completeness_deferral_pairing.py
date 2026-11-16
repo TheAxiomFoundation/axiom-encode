@@ -96,12 +96,17 @@ def _structure_paths(result) -> set[str]:
     paths = set()
     for issue in _findings(result, "structure"):
         labels = re.search(r"\[([^\]]+)\] is neither", issue).group(1)
-        paths.add(
-            "/".join(
-                component.strip().rsplit(maxsplit=1)[-1]
-                for component in labels.split(",")
+        parenthesized = re.findall(r"\(([^)]+)\)", labels)
+        if parenthesized:
+            # U.S. citations read `[paragraph (a)(1)]`.
+            paths.add("/".join(parenthesized))
+        else:
+            paths.add(
+                "/".join(
+                    component.strip().rsplit(maxsplit=1)[-1]
+                    for component in labels.split(",")
+                )
             )
-        )
     return paths
 
 
