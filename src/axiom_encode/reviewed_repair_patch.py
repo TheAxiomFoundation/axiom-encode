@@ -88,6 +88,26 @@ REVIEWED_REPAIR_PATCHES = MappingProxyType(
                 ),
             ),
         ),
+        "issue233-ca-t936-2025-43812124952": ReviewedPatchRegistration(
+            commit="73b0aea73199934250911dafd3f43e9dde6377c2",
+            members=(
+                (
+                    "e3fa2f1ec7dcae83d0dd2bcb918e1b6510bebbca",
+                    "7f820c4128567bd776f9f53b270d11ac23815a86e1f6b1a4326b329871f62e77",
+                    11375,
+                ),
+                (
+                    "73cbf57108b77318b788a27a5a36a6d5221acead",
+                    "7f1875e3f870e006add61220e73d4d23276eb4feb7c16f24d19f1b79182c555f",
+                    114916,
+                ),
+                (
+                    "f3260e7dd215a60cb07a3023d3e54fd5ebb9400b",
+                    "406d263cc769ce5f87f0e02808866827e02bebcb6e1617da306efc460aec827f",
+                    164496,
+                ),
+            ),
+        ),
         "issue233-ca-t2036-2025-39337066830": ReviewedPatchRegistration(
             commit="cdb71fff53a581b5e520e7fa74abdf8f798a9895",
             members=(
