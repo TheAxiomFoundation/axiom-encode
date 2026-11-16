@@ -1,0 +1,1 @@
+Track external dependencies of deferred RuleSpec outputs with canonical corpus provision IDs in optional `blocked_by_provisions` metadata. The encoder validates these IDs without changing source-completeness requirements.
