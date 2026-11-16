@@ -55,6 +55,11 @@ STATUTE_IMPORTS = frozenset(
 # Modules that load other code by name or by path at run time. A static
 # import check cannot see what they load, so the bundle files may not use them.
 DYNAMIC_LOADERS = frozenset({"importlib", "imp", "pkgutil", "runpy", "zipimport"})
+# Builtins that run or load code a static import check cannot see.
+DYNAMIC_BUILTINS = frozenset({"__import__", "compile", "eval", "exec"})
+# The exact standard-library modules the two new bundle files may import.
+STATUTE_STDLIB = frozenset({"__future__", "dataclasses", "pathlib", "re"})
+PATH_MODULE_STDLIB = frozenset({"__future__", "pathlib", "re", "typing"})
 
 # What harness/evals.py defined before the move: the resolver, its 12 helper
 # functions and its 8 constants.
@@ -127,18 +132,29 @@ def _imports(module: str) -> list[tuple[int, int, str, tuple[str, ...]]]:
     return found
 
 
-def import_problems(module: str, *, allowed_package_imports: dict) -> list[str]:
+def import_problems(
+    module: str,
+    *,
+    allowed_package_imports: dict,
+    stdlib: frozenset[str] | None = None,
+) -> list[str]:
     """Return every import of ``module`` that leaves the standard library.
 
     ``allowed_package_imports`` maps an ``axiom_encode`` module name to the
     names that may be imported from it (``None`` allows any name).
+    ``from axiom_encode import <module>`` gives every name of that module, so
+    it needs a ``None`` entry. With ``stdlib``, a standard-library import must
+    also be one of those modules. The dynamic builtins and loaders are
+    refused for every file.
     """
 
     problems = []
     tree = ast.parse((PACKAGE / f"{module}.py").read_text(encoding="utf-8"))
     for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id == "__import__":
-            problems.append(f"{module}.py:{node.lineno}: calls __import__")
+        if isinstance(node, ast.Name) and node.id in DYNAMIC_BUILTINS:
+            problems.append(f"{module}.py:{node.lineno}: uses {node.id}")
+        elif isinstance(node, ast.Attribute) and node.attr == "__import__":
+            problems.append(f"{module}.py:{node.lineno}: uses __import__")
     for line, level, name, names in _imports(module):
         where = f"{module}.py:{line}"
         top = name.split(".")[0]
@@ -146,6 +162,15 @@ def import_problems(module: str, *, allowed_package_imports: dict) -> list[str]:
             problems.append(f"{where}: relative import of {name or '.'!r}")
         elif top in DYNAMIC_LOADERS:
             problems.append(f"{where}: imports the dynamic loader {name!r}")
+        elif name == "axiom_encode" and names:
+            # ``from axiom_encode import a, b``: each name is a module.
+            for target in names:
+                if target not in allowed_package_imports:
+                    problems.append(
+                        f"{where}: imports 'axiom_encode.{target}', outside the bundle"
+                    )
+                elif allowed_package_imports[target] is not None:
+                    problems.append(f"{where}: imports all of 'axiom_encode.{target}'")
         elif top == "axiom_encode":
             if not names:
                 problems.append(f"{where}: plain import of {name!r}")
@@ -160,20 +185,33 @@ def import_problems(module: str, *, allowed_package_imports: dict) -> list[str]:
                 problems.append(f"{where}: imports {extra} from {name!r}")
         elif top not in sys.stdlib_module_names:
             problems.append(f"{where}: imports {name!r}, not standard library")
+        elif stdlib is not None and name not in stdlib:
+            problems.append(f"{where}: imports {name!r}, not on the allowlist")
     return problems
 
 
 def test_the_statute_helpers_import_only_the_standard_library():
-    assert import_problems(STATUTE_MODULE, allowed_package_imports={}) == []
+    assert (
+        import_problems(
+            STATUTE_MODULE, allowed_package_imports={}, stdlib=STATUTE_STDLIB
+        )
+        == []
+    )
+    used = {name for _line, _level, name, _names in _imports(STATUTE_MODULE)}
+    assert used == STATUTE_STDLIB
 
 
 def test_the_path_module_imports_the_standard_library_and_two_statute_functions():
     assert (
         import_problems(
-            PATH_MODULE, allowed_package_imports={STATUTE_MODULE: STATUTE_IMPORTS}
+            PATH_MODULE,
+            allowed_package_imports={STATUTE_MODULE: STATUTE_IMPORTS},
+            stdlib=PATH_MODULE_STDLIB,
         )
         == []
     )
+    used = {name for _line, _level, name, _names in _imports(PATH_MODULE)}
+    assert used == PATH_MODULE_STDLIB | {"axiom_encode.statute"}
     package_imports = [
         (name, set(names))
         for _line, _level, name, names in _imports(PATH_MODULE)
@@ -186,6 +224,54 @@ def test_the_path_module_imports_the_standard_library_and_two_statute_functions(
 def test_the_guard_files_on_main_import_nothing_outside_the_bundle(module):
     allowed = {name: None for name in BUNDLE_MODULES}
     assert import_problems(module, allowed_package_imports=allowed) == []
+
+
+@pytest.mark.parametrize(
+    ("source", "problems"),
+    [
+        pytest.param(
+            "from axiom_encode import reviewed_pr_admission as _admission\n",
+            0,
+            id="a-bundle-module-from-the-package",
+        ),
+        pytest.param(
+            "from axiom_encode import content_merge_guard as guard\n",
+            0,
+            id="the-guard-from-the-package",
+        ),
+        pytest.param(
+            "from axiom_encode import statute, applied_manifest_v6\n",
+            0,
+            id="two-bundle-modules-from-the-package",
+        ),
+        pytest.param(
+            "from axiom_encode import prepare_signed_backfill\n",
+            1,
+            id="the-backfill-helpers-from-the-package",
+        ),
+        pytest.param(
+            "from axiom_encode import statute, cli, harness\n",
+            2,
+            id="one-inside-two-outside",
+        ),
+        pytest.param(
+            "def f():\n    from axiom_encode import harness\n",
+            1,
+            id="outside-the-bundle-in-a-function",
+        ),
+    ],
+)
+def test_the_import_check_reads_modules_imported_from_the_package(
+    monkeypatch, tmp_path, source, problems
+):
+    """``from axiom_encode import <module>`` names a module, not the package."""
+
+    (tmp_path / "probe.py").write_text(source, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "PACKAGE", tmp_path)
+    allowed = {name: None for name in BUNDLE_MODULES}
+    found = import_problems("probe", allowed_package_imports=allowed)
+    assert len(found) == problems, found
+    assert all("outside the bundle" in problem for problem in found)
 
 
 def test_the_guard_takes_the_path_rule_from_the_path_module():
@@ -243,7 +329,7 @@ def test_the_guard_takes_the_path_rule_from_the_path_module():
         pytest.param("import runpy\n", "dynamic loader", id="runpy"),
         pytest.param(
             "def f():\n    return __import__('yaml')\n",
-            "__import__",
+            "uses __import__",
             id="dunder-import",
         ),
         pytest.param(
@@ -251,6 +337,30 @@ def test_the_guard_takes_the_path_rule_from_the_path_module():
             "not standard library",
             id="guarded-third-party",
         ),
+        pytest.param(
+            "import re\n\nload = re.__builtins__.__import__\n",
+            "uses __import__",
+            id="dunder-import-attribute",
+        ),
+        pytest.param("x = eval('1')\n", "uses eval", id="eval"),
+        pytest.param("def f():\n    exec('import yaml')\n", "uses exec", id="exec"),
+        pytest.param(
+            "code = compile('1', 'x', 'eval')\n", "uses compile", id="compile"
+        ),
+        pytest.param("run = exec\n", "uses exec", id="exec-by-reference"),
+        pytest.param(
+            "from axiom_encode import statute\n",
+            "imports all of 'axiom_encode.statute'",
+            id="the-whole-statute-module",
+        ),
+        pytest.param("import subprocess\n", "not on the allowlist", id="subprocess"),
+        pytest.param(
+            "def f():\n    import os\n", "not on the allowlist", id="os-in-a-function"
+        ),
+        pytest.param(
+            "from urllib import request\n", "not on the allowlist", id="urllib"
+        ),
+        pytest.param("import ctypes\n", "not on the allowlist", id="ctypes"),
     ],
 )
 def test_the_import_check_reports_each_way_out_of_the_bundle(
@@ -259,9 +369,30 @@ def test_the_import_check_reports_each_way_out_of_the_bundle(
     (tmp_path / "probe.py").write_text(source, encoding="utf-8")
     monkeypatch.setattr(sys.modules[__name__], "PACKAGE", tmp_path)
     problems = import_problems(
-        "probe", allowed_package_imports={STATUTE_MODULE: STATUTE_IMPORTS}
+        "probe",
+        allowed_package_imports={STATUTE_MODULE: STATUTE_IMPORTS},
+        stdlib=PATH_MODULE_STDLIB,
     )
     assert len(problems) == 1 and problem in problems[0], problems
+
+
+def test_the_import_check_accepts_the_allowed_forms(monkeypatch, tmp_path):
+    (tmp_path / "probe.py").write_text(
+        "from __future__ import annotations\n\nimport re\n"
+        "from pathlib import Path\nfrom typing import Callable\n\n"
+        "from axiom_encode.statute import citation_to_citation_path\n\n"
+        "PATTERN = re.compile('x')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(sys.modules[__name__], "PACKAGE", tmp_path)
+    assert (
+        import_problems(
+            "probe",
+            allowed_package_imports={STATUTE_MODULE: STATUTE_IMPORTS},
+            stdlib=PATH_MODULE_STDLIB,
+        )
+        == []
+    )
 
 
 def _isolated_bundle(tmp_path: Path, modules: tuple[str, ...]) -> Path:
@@ -425,6 +556,50 @@ def test_the_path_rule_refuses_what_it_refused_before_the_move(citation, message
             resolve(citation)
 
 
+def _outcome(resolve, citation: str) -> tuple[str, str]:
+    try:
+        return ("path", str(resolve(citation)))
+    except Exception as error:  # noqa: BLE001 - the error is the outcome
+        return (type(error).__name__, str(error))
+
+
+def test_the_two_copies_agree_on_a_generated_corpus():
+    """Every head, source token and tail shape, accepted or refused."""
+
+    heads = (
+        "us", "us-co", "us-la", "us-az", "uk", "", "US", "us:statutes",
+        "us:policy", "statutes", "policies", "rulemaking", "..",
+    )  # fmt: skip
+    tokens = (
+        "statute", "statutes", "regulation", "regulations", "policy",
+        "policies", "manual", "manuals", "form", "forms", "guidance",
+        "rulemaking", "legislation", "programs", "Statute", "", ".", "..",
+    )  # fmt: skip
+    tails = (
+        "", "26/1", "26/1/a/2/B", "7/273/9", "47:294", "47::294", "47:294:1",
+        "26/26-2-703.5", "10-ccr-2506-1/4.207.2", "mpp/63-503.132",
+        "rulemaking/x", "Rulemaking/x.y", "legislation.gov.uk/ukpga/2012/5/section/4",
+        "uksi/2013/376/regulation/22", "a/../b", "a/./b", "a//b", ".hidden",
+        "trailing.", "x.yaml", "a b", "26/1\u20132", "/abs", "a/b/",
+    )  # fmt: skip
+    corpus = [
+        "/".join(part for part in (head, token, tail) if part or part is head)
+        for head in heads
+        for token in tokens
+        for tail in tails
+    ]
+    corpus += ["26 USC 32(a)", "42 CFR 435.119", "42 C.F.R. § 435.119(b)(5)", "x"]
+    assert len(set(corpus)) > 4000
+    outcomes = set()
+    for citation in corpus:
+        ours = _outcome(paths.citation_rulespec_path, citation)
+        theirs = _outcome(prepare_signed_backfill.citation_rulespec_path, citation)
+        assert ours == theirs, citation
+        assert ours[0] in {"path", "ValueError"}, (citation, ours)
+        outcomes.add(ours[0])
+    assert outcomes == {"path", "ValueError"}
+
+
 @pytest.mark.parametrize("name", MOVED_FROM_EVALS)
 def test_evals_re_exports_the_same_object(name):
     assert getattr(evals, name) is getattr(paths, name)
@@ -468,24 +643,133 @@ def test_the_moved_names_are_the_resolver_twelve_helpers_and_eight_constants():
     }
 
 
-def _definition(module: str, name: str) -> ast.AST:
-    """Return the one module-level definition of ``name`` in ``module``."""
+def definition_problems(source: str, name: str) -> list[str]:
+    """Return every reason ``name`` is not bound exactly once, at module level.
 
-    tree = ast.parse((PACKAGE / f"{module}.py").read_text(encoding="utf-8"))
-    found = [
+    A comparison of the module-level definition proves nothing if the name is
+    bound again later: in a nested scope with ``global``, by an import, by a
+    second assignment, or through ``globals()[...]`` or ``setattr`` with the
+    name as a string. So every other binding, and every string equal to the
+    name, is a problem.
+    """
+
+    tree = ast.parse(source)
+    top = [
         node
         for node in tree.body
         if (isinstance(node, ast.FunctionDef) and node.name == name)
         or (
             isinstance(node, ast.Assign)
-            and any(
-                isinstance(target, ast.Name) and target.id == name
-                for target in node.targets
-            )
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
         )
     ]
-    assert len(found) == 1, (module, name)
-    return found[0]
+    problems = []
+    if len(top) != 1:
+        problems.append(f"{name}: {len(top)} plain module-level definitions")
+    bindings = 0
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bindings += node.name == name
+        elif isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            bindings += node.id == name
+        elif isinstance(node, ast.alias):
+            bindings += (node.asname or node.name.split(".")[0]) == name
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            bindings += name in node.names
+        elif isinstance(node, ast.arg):
+            bindings += node.arg == name
+        elif isinstance(node, ast.ExceptHandler):
+            bindings += node.name == name
+        elif isinstance(node, ast.Constant) and node.value == name:
+            problems.append(f"{name}: named by a string on line {node.lineno}")
+    if bindings != 1:
+        problems.append(f"{name}: bound {bindings} times")
+    return problems
+
+
+def _definition(module: str, name: str) -> ast.AST:
+    """Return the one definition of ``name`` in ``module``."""
+
+    source = (PACKAGE / f"{module}.py").read_text(encoding="utf-8")
+    assert definition_problems(source, name) == [], module
+    return next(
+        node
+        for node in ast.parse(source).body
+        if (isinstance(node, ast.FunctionDef) and node.name == name)
+        or (isinstance(node, ast.Assign) and node.targets[0].id == name)
+    )
+
+
+COPIED_NAMES = (
+    "RULESPEC_ATOMIC_ROOTS",
+    "_citation_rulespec_path",
+    "citation_rulespec_path",
+)
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        pytest.param(
+            "\n\ndef citation_rulespec_path(citation):\n    return 1\n", id="second-def"
+        ),
+        pytest.param("\n\ncitation_rulespec_path = len\n", id="reassignment"),
+        pytest.param(
+            "\n\ndef swap():\n    global citation_rulespec_path\n"
+            "    citation_rulespec_path = len\n",
+            id="nested-global-rebinding",
+        ),
+        pytest.param(
+            "\n\nglobals()['citation_rulespec_path'] = len\n", id="globals-rebinding"
+        ),
+        pytest.param(
+            "\n\nimport sys\nsetattr(sys.modules[__name__], "
+            "'citation_rulespec_path', len)\n",
+            id="setattr-rebinding",
+        ),
+        pytest.param(
+            "\n\nfrom os.path import basename as citation_rulespec_path\n",
+            id="import-rebinding",
+        ),
+        pytest.param(
+            "\n\nclass citation_rulespec_path:\n    pass\n", id="class-rebinding"
+        ),
+        pytest.param(
+            "\n\nif True:\n    def citation_rulespec_path(citation):\n"
+            "        return 1\n",
+            id="conditional-def",
+        ),
+        pytest.param(
+            "\n\nfor citation_rulespec_path in ():\n    pass\n", id="loop-target"
+        ),
+        pytest.param(
+            "\n\ncitation_rulespec_path: object = len\n", id="annotated-assignment"
+        ),
+    ],
+)
+def test_the_copy_comparison_refuses_a_name_that_is_bound_again(tail):
+    source = "def citation_rulespec_path(citation):\n    return citation\n"
+    assert definition_problems(source, "citation_rulespec_path") == []
+    assert definition_problems(source + tail, "citation_rulespec_path") != []
+
+
+def test_the_copy_comparison_refuses_a_missing_or_decorated_name():
+    assert definition_problems("x = 1\n", "citation_rulespec_path") != []
+    assert (
+        definition_problems(
+            "a = RULESPEC_ATOMIC_ROOTS = frozenset()\n", "RULESPEC_ATOMIC_ROOTS"
+        )
+        != []
+    )
+
+
+@pytest.mark.parametrize("module", ["prepare_signed_backfill", PATH_MODULE])
+@pytest.mark.parametrize("name", COPIED_NAMES)
+def test_each_copied_name_is_bound_once_in_each_file(module, name):
+    source = (PACKAGE / f"{module}.py").read_text(encoding="utf-8")
+    assert definition_problems(source, name) == []
 
 
 def test_the_backfill_helpers_and_the_path_module_hold_the_same_rule():
@@ -512,6 +796,12 @@ def test_the_backfill_helpers_and_the_path_module_hold_the_same_rule():
     assert [ast.dump(node) for node in rest] == [ast.dump(node) for node in ours.body]
     assert ast.dump(theirs.args) == ast.dump(ours.args)
     assert ast.unparse(theirs.returns) == ast.unparse(ours.returns)
+    for name in ("_citation_rulespec_path", "citation_rulespec_path"):
+        for module in ("prepare_signed_backfill", PATH_MODULE):
+            definition = _definition(module, name)
+            assert isinstance(definition, ast.FunctionDef)
+            assert definition.decorator_list == [], (module, name)
+            assert definition.type_params == [], (module, name)
     assert evals._resolve_eval_output_path is paths._resolve_eval_output_path
     assert (
         prepare_signed_backfill.RULESPEC_ATOMIC_ROOTS
@@ -570,22 +860,67 @@ def test_the_backfill_helpers_still_load_without_the_package():
     assert (completed.returncode, completed.stdout) == (0, "us\n"), completed.stderr
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
-        "/src/axiom_encode/rulespec_citation_paths.py",
-        "/src/axiom_encode/statute.py",
-        "/tests/test_rulespec_citation_paths.py",
-    ],
+def code_owners_of(text: str, path: str) -> tuple[str, ...] | None:
+    """Return the owners of ``path``: the last matching pattern wins.
+
+    Reads root-anchored literal patterns only (a file, or a directory with a
+    trailing ``/``), which is every pattern in this ``CODEOWNERS``. Returns
+    ``None`` when the file has a pattern of another form, because such a
+    pattern could match ``path`` and this check cannot evaluate it.
+    """
+
+    owners: tuple[str, ...] = ()
+    for line in text.split("\n"):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        pattern, *rule_owners = line.split()
+        if not pattern.startswith("/") or any(mark in pattern for mark in "*?[]!\\"):
+            return None
+        body = pattern[1:]
+        target = path.lstrip("/")
+        if (
+            target.startswith(body)
+            if body.endswith("/")
+            else target == body or target.startswith(body + "/")
+        ):
+            owners = tuple(rule_owners)
+    return owners
+
+
+OWNED_PATHS = (
+    "/src/axiom_encode/rulespec_citation_paths.py",
+    "/src/axiom_encode/statute.py",
+    "/tests/test_rulespec_citation_paths.py",
 )
+
+
+@pytest.mark.parametrize("path", OWNED_PATHS)
 def test_code_owners_own_the_path_module_the_statute_helpers_and_this_file(path):
     assert (ROOT / path.lstrip("/")).is_file()
-    entries = [
-        line.split()
-        for line in (ROOT / ".github" / "CODEOWNERS")
-        .read_text(encoding="utf-8")
-        .splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
-    owners = [tuple(entry[1:]) for entry in entries if entry[0] == path]
-    assert owners == [CODE_OWNERS]
+    text = (ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
+    assert f"{path} {' '.join(CODE_OWNERS)}" in text.split("\n")
+    assert code_owners_of(text, path) == CODE_OWNERS
+
+
+BOTH_OWNERS = " ".join(CODE_OWNERS)
+
+
+@pytest.mark.parametrize(
+    "later",
+    [
+        pytest.param("/src/axiom_encode/statute.py @someone-else", id="same-path"),
+        pytest.param("/src/axiom_encode/statute.py", id="same-path-no-owner"),
+        pytest.param("/src/ @someone-else", id="a-parent-directory"),
+        pytest.param("/src/axiom_encode/ @PavelMakarchuk", id="one-owner"),
+        pytest.param("/src/axiom_encode @someone-else", id="directory-without-slash"),
+        pytest.param("*.py @someone-else", id="a-wildcard-this-check-cannot-read"),
+        pytest.param("src/ @someone-else", id="an-unanchored-pattern"),
+    ],
+)
+def test_a_later_code_owners_entry_takes_the_file(later):
+    path = "/src/axiom_encode/statute.py"
+    entry = f"{path} {BOTH_OWNERS}"
+    assert code_owners_of(f"# c\n\n{entry}\n", path) == CODE_OWNERS
+    assert code_owners_of(f"/src/ @someone-else\n{entry}\n", path) == CODE_OWNERS
+    assert code_owners_of(f"{entry}\n/tests/ @someone-else\n", path) == CODE_OWNERS
+    assert code_owners_of(f"{entry}\n{later}\n", path) != CODE_OWNERS
