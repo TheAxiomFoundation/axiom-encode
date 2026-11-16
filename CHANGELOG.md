@@ -1,3 +1,7 @@
+## 0.2.2378
+
+- Name the policies/ root for manual-unit deferrals and type the target refusal (#2260)
+
 ## 0.2.2377
 
 - Bind large primary review guidance to immutable producer evidence (#2140)
