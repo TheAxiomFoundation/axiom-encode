@@ -339,7 +339,8 @@ example `excerpt:102`, the line number when the encoder quoted it) and
 `generated_output_repaired_by_encoder` is `true`. The two fields are set
 together, and both are absent when the repair did not run.
 `generated_output_sha256` is then the digest of the repaired file. The encode
-outcome (`encoding_runs.outcome`) copies both fields. The `--apply` repair of
+outcome (`encoding_runs.outcome_json` in the local database, `outcome` in the
+synced table) copies both fields. The `--apply` repair of
 the same class writes its own lines under the same outcome key, without the
 flag. Signed eval-suite verdict evidence includes both fields of the eval
 result, so a persisted result whose record was deleted or changed fails suite
@@ -349,7 +350,9 @@ The record covers the edits of one invocation only. It does not follow the
 file. A retry that keeps or overlays an earlier attempt's RuleSpec file (a
 tests-only repair, an accepted `--repair-candidate-root` candidate, a repair
 overlay) starts with no entries, although the file can hold quotes that the
-earlier attempt added. An eval suite never retains a candidate, so the record
+earlier attempt added. A repair-overlay retry parses the model's new output
+before this repair runs, so there the repair does not quote that output: an
+unquoted `:` fails the overlay and the retained candidate is restored. An eval suite never retains a candidate, so the record
 of a suite result covers every quote that this repair added to its file. Absent
 fields mean only that this repair did not run; other deterministic repairs do
 not set them. The result keeps no copy of the text before the repair. The
