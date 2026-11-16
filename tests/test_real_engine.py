@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ast
 import itertools
+import json
 import os
 import subprocess
 import sys
@@ -395,12 +396,24 @@ def _unreceipted(root: Path, breakage: str) -> real_engine.RealEngine:
         binary.write_text(FAKE_ENGINE + "# rebuilt\n")
     elif breakage == "malformed receipt":
         engine_binding_receipt_path(binary).write_text("[]\n")
+    elif breakage == "receipt without a full commit":
+        # Right bytes, but no full commit sha for the control to pin.
+        write_engine_binding_receipt(binary, "a" * 40, "release")
+        path = engine_binding_receipt_path(binary)
+        receipt = json.loads(path.read_text())
+        receipt["engine_commit"] = "abc"
+        path.write_text(json.dumps(receipt))
     elif breakage != "no receipt":
         raise AssertionError(breakage)
     return _resolved(root)
 
 
-UNRECEIPTED = ["no receipt", "receipt for other bytes", "malformed receipt"]
+UNRECEIPTED = [
+    "no receipt",
+    "receipt for other bytes",
+    "malformed receipt",
+    "receipt without a full commit",
+]
 
 
 @pytest.mark.parametrize("breakage", UNRECEIPTED)

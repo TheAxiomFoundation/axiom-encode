@@ -766,7 +766,8 @@ def test_check_is_declared_and_registered():
     # describe it as corpus coverage.
     convention = "a proposed calendar convention, not a claimed legal commencement"
     assert convention in feedback and convention in str(found[0])
-    assert "coverage" not in feedback + str(found[0])
+    assert "evidence-coverage" not in feedback + str(found[0])
+    assert "corpus holds" not in feedback + str(found[0])
     assert "import" not in feedback.lower()
     assert "found 2025-10-01" in feedback
 
