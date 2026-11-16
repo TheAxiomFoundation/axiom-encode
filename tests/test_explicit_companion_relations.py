@@ -288,6 +288,7 @@ def test_relations_survive_normalization_and_bind_case_identity():
     [
         "positive",
         "mixed_outputs",
+        "mixed_outputs_root_first",
         "duplicate",
         "missing_fact",
         "null_relations",
@@ -344,6 +345,9 @@ def test_two_level_graph_executes(tmp_path, real_engine, executor, control):
     if control == "mixed_outputs":
         case["tables"]["Person"] = [{"id": "person-B"}, {"id": "person-A"}]
         case["output"][PREFIX + "row_total"] = [0, 350]
+    if control == "mixed_outputs_root_first":
+        case["tables"]["Person"] = [{"id": "person-A"}, {"id": "person-B"}]
+        case["output"][PREFIX + "row_total"] = [350, 0]
     if control == "duplicate":
         case["relations"].append(copy.deepcopy(case["relations"][2]))
     if control == "missing_fact":
@@ -407,7 +411,7 @@ def test_two_level_graph_executes(tmp_path, real_engine, executor, control):
             cases=[case],
             execution_capture=capture,
         )
-        if control == "mixed_outputs":
+        if control in {"mixed_outputs", "mixed_outputs_root_first"}:
             capture.stage.assert_not_called()
         elif not expected_failure:
             captured_case, request = capture.stage.call_args.args[:2]
