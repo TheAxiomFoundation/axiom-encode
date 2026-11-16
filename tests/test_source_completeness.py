@@ -9696,6 +9696,75 @@ def test_parenthesized_cfr_outline_deduplicates_repeated_attached_ancestors():
     assert "Fourth" in by_path[("b",)].text
 
 
+def test_numeric_root_parenthesized_outline_resumes_printed_ancestry():
+    source = """\
+(1) Definitions:
+(1)(a)
+(1)(a)(i) Included income.
+(1)(a)(ii) Excluded income:
+(1)(a)(ii)(A) First exclusion.
+(1)(a)(ii)(B) Second exclusion.
+(1)(a)(ii)(C) Third exclusion.
+(1)(b) Another definition.
+(2) Calculation:
+(2)(a) The rate.
+(2)(b) The base.
+(3) Restrictions:
+(3)(a) First restriction.
+(3)(b) Second restriction.
+"""
+    branches = recognize_source_structure(
+        source, corpus_citation_path="us-ut/statute/59-10-1043"
+    )
+
+    assert [branch.display_path for branch in branches] == [
+        ("1",),
+        ("1", "a"),
+        ("1", "a", "i"),
+        ("1", "a", "ii"),
+        ("1", "a", "ii", "A"),
+        ("1", "a", "ii", "B"),
+        ("1", "a", "ii", "C"),
+        ("1", "b"),
+        ("2",),
+        ("2", "a"),
+        ("2", "b"),
+        ("3",),
+        ("3", "a"),
+        ("3", "b"),
+    ]
+    by_path = {branch.path: branch for branch in branches}
+    exclusions = by_path[("1", "a", "ii")]
+    assert exclusions.end == source.index("(1)(b)")
+    assert by_path[("1", "a", "ii", "b")].text == "(1)(a)(ii)(B) Second exclusion."
+
+
+def test_numeric_root_parenthesized_outline_preserves_relative_roman_children():
+    source = """\
+(1) Definitions:
+(1)(a) The first definition:
+(i) Conditions:
+(A) First group:
+(1)(i) First condition.
+(ii) Second condition.
+(1)(b) Another definition.
+(2) Calculation.
+"""
+    branches = recognize_source_structure(source)
+
+    assert [branch.display_path for branch in branches] == [
+        ("1",),
+        ("1", "a"),
+        ("1", "a", "i"),
+        ("1", "a", "i", "A"),
+        ("1", "a", "i", "A", "1"),
+        ("1", "a", "i", "A", "1", "i"),
+        ("1", "a", "i", "A", "1", "ii"),
+        ("1", "b"),
+        ("2",),
+    ]
+
+
 def test_parenthesized_letters_nest_under_active_numeric_paragraph():
     source = "A. Outer.\n(1) Numeric.\n(a) First.\n(b) Second.\n(2) Other.\nB. End."
 

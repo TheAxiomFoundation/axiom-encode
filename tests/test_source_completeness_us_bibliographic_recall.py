@@ -69,7 +69,7 @@ def _values(text: str, citation: str) -> set[float]:
 
 
 def _main_occurrences(text: str, citation: str):
-    """The same pipeline with the four new locator masks disabled."""
+    """The same pipeline with the bibliographic locators disabled."""
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(completeness, NEW_LOCATORS, ())
@@ -140,6 +140,39 @@ PIA_TITLES = (
     "Disability Amendments of 1980. The amount shall be $11.50 for each year of "
     "coverage in excess of 10, and not exceeding 30 years."
 )
+UTAH_CREDIT = "us-ut/statute/59-10-1043"
+UTAH_US_CODE_CROSS_REFERENCES = (
+    '(1)(a)(i) "Military retirement pay" means retirement pay, including '
+    "survivor benefits, that relates to service in the armed forces or the "
+    "reserve components, as described in 10 U.S.C. Sec. 10101.\n"
+    '(1)(b) "Survivor benefits" means the retired pay portion of the benefits '
+    "described in 10 U.S.C. Secs. 1447 through 1455."
+)
+
+
+def test_utah_explicit_us_code_sections_are_locators():
+    assert _demanded(UTAH_US_CODE_CROSS_REFERENCES, UTAH_CREDIT) == set()
+
+
+def test_explicit_us_code_locator_does_not_hide_a_same_value_threshold():
+    source = (
+        UTAH_US_CODE_CROSS_REFERENCES + " The claimant must have 10 years of service."
+    )
+    assert _demanded(source, UTAH_CREDIT) == {"10"}
+    assert [value for value, *_ in _occurrences(source, UTAH_CREDIT)] == [10]
+
+
+@pytest.mark.parametrize(
+    ("source", "value"),
+    (
+        ("Pay an amount of $10 U.S.C. Sec. 10101.", 10),
+        ("The payment is $10 U.S.C. Secs. 1447 through 1455.", 10),
+        ("Under 10 U.S.C. Secs. 1447 through 1455, 20 percent applies.", 0.2),
+        ("See 10 U.S.C. Secs. 1447 through 1455 and 5 dollars applies.", 5),
+    ),
+)
+def test_ambiguous_us_code_reference_preserves_operative_amount(source, value):
+    assert value in _values(source, UTAH_CREDIT)
 
 
 @pytest.mark.parametrize(
