@@ -1509,7 +1509,10 @@ def test_repair_candidate_overlay_normalizes_destination_root_deferrals(tmp_path
 
 
 def test_run_model_eval_appends_repair_parameters_after_existing_public_parameters():
-    parameters = list(inspect.signature(run_model_eval).parameters)
+    signature = inspect.signature(run_model_eval)
+    parameters = list(signature.parameters)
+    assert parameters.pop() == "producer_review_guidance"
+    assert signature.parameters["producer_review_guidance"].default is None
 
     assert parameters[-8:-1] == [
         "required_import_targets",

@@ -1,3 +1,11 @@
+## 0.2.2376
+
+- Preserve authenticated policy bytes during manifest refresh (#2225)
+- Fix anonymous companion row identities across CLI relations (#2107)
+- fix: replace historical root ownership receipts through verified transactions (#2078)
+- Preserve verified engine and checkout origin for registered repairs (#2243)
+- Recommended three-class lane (content / control plane / infrastructure), off (#2172) (#2231)
+
 ## 0.2.2375
 
 - Add a switched-off reader for applied-rulespec/v6 promotion manifests (inactive, #2172) (#2230)
