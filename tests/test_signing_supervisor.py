@@ -67,6 +67,23 @@ PUBLIC_ENV_NAMES = (
 SIGNATURE_DOMAIN = b"axiom-encode/external-signer-sign/v2\0"
 
 
+def _run_targeted_inline_package(*args, **kwargs):
+    """Give legacy packaging fixtures the workflow event present on a real runner."""
+    env = dict(kwargs["env"])
+    event_path = Path(kwargs["cwd"]) / "original-inline-workflow-event.json"
+    inputs = {
+        "citation": env["CITATION"],
+        "review_finding": env.get("REVIEW_FINDING", ""),
+    }
+    assert not inputs["review_finding"].startswith(
+        "axiom-producer-review-guidance-ref:"
+    )
+    event_path.write_text(json.dumps({"inputs": inputs}), encoding="utf-8")
+    env["GITHUB_EVENT_PATH"] = str(event_path)
+    env["GITHUB_SHA"] = "a" * 40
+    return subprocess.run(*args, **{**kwargs, "env": env})
+
+
 def _keypair(seed: bytes) -> tuple[str, Ed25519PrivateKey]:
     private_key = Ed25519PrivateKey.from_private_bytes(seed)
     public_key = private_key.public_key().public_bytes(
@@ -6982,7 +6999,7 @@ def test_targeted_artifact_packages_signed_review_context(
     packaged_context = tmp_path / "artifact" / "context-manifest.json"
     packaged_inventory = tmp_path / "artifact" / "apply-manifests.json"
     packaged_context.parent.mkdir()
-    completed = subprocess.run(
+    completed = _run_targeted_inline_package(
         [sys.executable, "-", str(packaged_context), str(packaged_inventory)],
         cwd=tmp_path,
         input=script,
@@ -7332,7 +7349,7 @@ def test_targeted_artifact_enforces_exact_canonical_refresh_inventory(
     artifact.mkdir()
     packaged_context = artifact / "context-manifest.json"
     packaged_inventory = artifact / "apply-manifests.json"
-    completed = subprocess.run(
+    completed = _run_targeted_inline_package(
         [sys.executable, "-", str(packaged_context), str(packaged_inventory)],
         cwd=tmp_path,
         input=script,
@@ -7760,7 +7777,7 @@ def test_targeted_artifact_packages_replacement_closure(
     packaged_context = tmp_path / "artifact/context-manifest.json"
     packaged_inventory = tmp_path / "artifact/apply-manifests.json"
     packaged_context.parent.mkdir()
-    completed = subprocess.run(
+    completed = _run_targeted_inline_package(
         [sys.executable, "-", str(packaged_context), str(packaged_inventory)],
         cwd=tmp_path,
         input=script,
@@ -7886,7 +7903,7 @@ def test_targeted_artifact_preserves_pre_v4_replacement_receipts(
     (tmp_path / "canonical-refresh-bundle.json").write_text("[]\n")
     artifact = tmp_path / "artifact"
     artifact.mkdir()
-    completed = subprocess.run(
+    completed = _run_targeted_inline_package(
         [
             sys.executable,
             "-",
@@ -8038,7 +8055,7 @@ def test_targeted_artifact_packages_historical_in_place_owner(
     (tmp_path / "canonical-refresh-bundle.json").write_text("[]\n")
     artifact = tmp_path / "artifact"
     artifact.mkdir()
-    completed = subprocess.run(
+    completed = _run_targeted_inline_package(
         [
             sys.executable,
             "-",
@@ -8208,7 +8225,7 @@ def test_targeted_artifact_enforces_target_and_dependent_context_lanes(
     artifact.mkdir()
     packaged_target = artifact / "context-manifest.json"
     packaged_inventory = artifact / "apply-manifests.json"
-    completed = subprocess.run(
+    completed = _run_targeted_inline_package(
         [sys.executable, "-", str(packaged_target), str(packaged_inventory)],
         cwd=tmp_path,
         input=script,
