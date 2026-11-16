@@ -139,13 +139,12 @@ The set has 45 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, eight Canadian citations
 and one Israeli statute. Its 56 fixtures include one Arizona control that passed
 validation and then failed a provenance guard. The current snapshot pins 14
-clean fixtures and 42 fixtures with 3,345 findings between them, and it records
-no replay error and no `allowed_regressions` entry. The proof-alias fixture
-adds one clean row; all 55 earlier rows keep their exact findings. The
-child-credit and retirement-transfer diagnostics retain six and 19 findings;
-the section 219(g)
-diagnostic retains 33. Read clean counts and per-fixture changes, not only the
-total.
+clean fixtures and 42 refused fixtures with 2,590 findings between them, and it
+records no replay error and no `allowed_regressions` entry. The date-silent
+merge and proof-alias fixtures add two clean rows; all 54 rows on main keep
+their exact findings. The child-credit and retirement-transfer diagnostics
+retain six and 19 findings; the section 219(g) diagnostic retains 33. Read
+clean counts and per-fixture changes, not only the total.
 
 `tests/test_us_replay_benchmark.py` caps every other fixture together at
 5 MiB and each of these named cases separately at 64 KiB:
