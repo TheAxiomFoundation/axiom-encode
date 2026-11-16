@@ -1398,11 +1398,37 @@ class EvalResult:
     verdict_sha256: str | None = None
     require_complete_source_unit: bool = False
     amendment_request: str | None = None
+    # The record of the eval-time quote repair in this invocation. Each entry
+    # (`excerpt:102`) names one `source:` or `excerpt:` line whose value the
+    # encoder put in quotes after generation so the YAML parses. The number is
+    # the line in the file when the encoder quoted it.
+    # The two fields are set together, or both are absent. When they are set,
+    # the encoder changed the model's bytes in this invocation and
+    # generated_output_sha256 is the digest of the repaired file. Signed
+    # verdict evidence includes both fields.
+    # The record covers this invocation's edits only. It does not follow the
+    # file. A retry that keeps or overlays an earlier attempt's main file (a
+    # tests-only repair, an accepted retained candidate, a repair overlay)
+    # starts with no entries, although the file can hold quotes that the
+    # earlier attempt added. An eval suite never retains a candidate, so for a
+    # suite result the record covers every quote this repair added to the file.
+    # Absent fields mean only that this repair did not run. They do not mean
+    # that the file holds the model's bytes unchanged.
+    # The result keeps no copy of the pre-repair text. The `claude` and
+    # `openai` traces hold the model's response text and the `codex` trace
+    # holds its event stream. The `claude-api` trace is metadata only, so a
+    # `claude-api` run keeps no pre-repair text.
+    auto_repaired_unquoted_source_scalars: list[str] = field(default_factory=list)
+    generated_output_repaired_by_encoder: bool = False
 
     def to_dict(self) -> dict:
         data = asdict(self)
         if self.amendment_request is None:
             data.pop("amendment_request", None)
+        if not self.auto_repaired_unquoted_source_scalars:
+            data.pop("auto_repaired_unquoted_source_scalars", None)
+        if not self.generated_output_repaired_by_encoder:
+            data.pop("generated_output_repaired_by_encoder", None)
         if not self.require_complete_source_unit:
             data.pop("require_complete_source_unit", None)
         if self.admission_score is None:
@@ -4055,6 +4081,57 @@ def _validate_eval_result_payload_binding(
         )
 
 
+_ENCODER_QUOTE_REPAIR_LINES_FIELD = "auto_repaired_unquoted_source_scalars"
+_ENCODER_QUOTE_REPAIR_FLAG_FIELD = "generated_output_repaired_by_encoder"
+#: One entry of the record: the quoted key and its 1-based line number.
+_ENCODER_QUOTED_SOURCE_SCALAR_PATTERN = re.compile(r"(?:source|excerpt):[1-9][0-9]*")
+
+
+def _eval_result_encoder_quote_repair_record(
+    result_payload: Mapping[str, object],
+    *,
+    artifact_name: str = "Eval result",
+) -> dict[str, object]:
+    """Return the validated encoder quote-repair record, or an empty mapping.
+
+    A result payload has both fields or neither. With both, the lines are a
+    nonempty list of `source:<line>` or `excerpt:<line>` entries, the flag is
+    exactly true, and the result binds a generated RuleSpec. A payload with
+    neither field returns an empty mapping, so evidence that was signed before
+    these fields existed keeps the exact bytes that were signed.
+    """
+
+    has_lines = _ENCODER_QUOTE_REPAIR_LINES_FIELD in result_payload
+    has_flag = _ENCODER_QUOTE_REPAIR_FLAG_FIELD in result_payload
+    if not has_lines and not has_flag:
+        return {}
+    lines = result_payload.get(_ENCODER_QUOTE_REPAIR_LINES_FIELD)
+    if (
+        not has_lines
+        or not has_flag
+        or result_payload[_ENCODER_QUOTE_REPAIR_FLAG_FIELD] is not True
+        or not isinstance(lines, list)
+        or not lines
+        or any(
+            not isinstance(item, str)
+            or _ENCODER_QUOTED_SOURCE_SCALAR_PATTERN.fullmatch(item) is None
+            for item in lines
+        )
+        or not result_payload.get("generated_output_sha256")
+    ):
+        raise ValueError(
+            f"{artifact_name} has an inconsistent encoder quote-repair record: "
+            f"'{_ENCODER_QUOTE_REPAIR_LINES_FIELD}' must be a nonempty list of "
+            "`source:<line>` or `excerpt:<line>` entries, "
+            f"'{_ENCODER_QUOTE_REPAIR_FLAG_FIELD}' must be true, and the result "
+            "must bind a generated RuleSpec"
+        )
+    return {
+        _ENCODER_QUOTE_REPAIR_LINES_FIELD: list(lines),
+        _ENCODER_QUOTE_REPAIR_FLAG_FIELD: True,
+    }
+
+
 def _eval_result_verdict_evidence_payload(
     result: EvalResult,
     admission_context: dict[str, object],
@@ -4099,6 +4176,9 @@ def _eval_result_verdict_evidence_payload(
             "retry_count": result_payload.get("retry_count"),
             "retrieved_files": result_payload.get("retrieved_files"),
             "unexpected_accesses": result_payload.get("unexpected_accesses"),
+            # Present only when the encoder quoted source text in the output.
+            # A result without the record signs the same bytes as before.
+            **_eval_result_encoder_quote_repair_record(result_payload),
         },
         "source_attestation": result_payload.get("source_attestation"),
         "validation": {
@@ -6370,6 +6450,10 @@ def _eval_result_from_payload(
         raise ValueError(
             f"{artifact_name} is missing its signed suite admission context"
         )
+    quote_repair_record = _eval_result_encoder_quote_repair_record(
+        payload,
+        artifact_name=artifact_name,
+    )
     metrics_payload = payload.get("metrics")
     metrics = None
     if isinstance(metrics_payload, dict):
@@ -6497,6 +6581,12 @@ def _eval_result_from_payload(
         timeout_attempts=int(payload.get("timeout_attempts", 0) or 0),
         retry_count=int(payload.get("retry_count", 0) or 0),
         amendment_request=payload.get("amendment_request"),
+        auto_repaired_unquoted_source_scalars=list(
+            quote_repair_record.get(_ENCODER_QUOTE_REPAIR_LINES_FIELD, [])
+        ),
+        generated_output_repaired_by_encoder=(
+            _ENCODER_QUOTE_REPAIR_FLAG_FIELD in quote_repair_record
+        ),
         source_attestation=(
             dict(payload["source_attestation"])
             if isinstance(payload.get("source_attestation"), dict)
@@ -9297,6 +9387,7 @@ def _evaluate_generated_artifact_with_repairs(
     allow_artifact_repairs: bool = True,
     axiom_compose_path: Path | None = None,
     axiom_rules_engine_ref: str | None = None,
+    repair_log: list[str] | None = None,
 ) -> EvalArtifactMetrics | None:
     evaluated_states: set[tuple[bytes | None, bytes | None]] = set()
     for _repair_round in range(_GENERATED_EVAL_REPAIR_LIMIT + 1):
@@ -9350,6 +9441,15 @@ def _evaluate_generated_artifact_with_repairs(
         )
         if not repairs:
             return metrics
+        if repair_log is not None:
+            repair_log.extend(repairs)
+
+
+def _quoted_source_scalar_repairs(repairs: Sequence[str]) -> list[str]:
+    """Return the source-text lines an eval repair quoted (`excerpt:102`)."""
+
+    prefix = "source_scalar_quote:"
+    return [repair[len(prefix) :] for repair in repairs if repair.startswith(prefix)]
 
 
 def _rebind_retained_candidate_proof_import_hashes(
@@ -9477,13 +9577,28 @@ def _apply_generated_eval_repairs(
     rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[str]:
     """Apply deterministic generated-artifact repairs before final eval scoring."""
+    cli_helpers = None
+    unquoted_colon_issue = (
+        f"{rulespec_file.name} YAML parse failed: mapping values are not allowed here"
+    )
+    if any(str(issue).startswith(unquoted_colon_issue) for issue in issues):
+        # Import lazily to avoid the startup cycle: cli imports this module.
+        from axiom_encode import cli as cli_helpers
+
+        quoted_scalars = cli_helpers._quote_unquoted_source_scalars(
+            rules_file=rulespec_file
+        )
+        print("  auto_quoted_source_scalars:" + (",".join(quoted_scalars) or "none"))
+        if quoted_scalars:
+            # Score the now-parseable artifact before a repair that reads it.
+            return [f"source_scalar_quote:{item}" for item in quoted_scalars]
+
     repairs: list[str] = []
     proof_repairs = _remove_unreferenced_proof_import_atoms(rulespec_file, issues)
     repairs.extend(f"proof_import:{name}" for name in proof_repairs)
     unused_import_repairs = _prune_unused_imports_from_file(rulespec_file, issues)
     repairs.extend(f"unused_import:{name}" for name in unused_import_repairs)
 
-    cli_helpers = None
     if any("Proof source evidence not found:" in str(issue) for issue in issues):
         # Import lazily to avoid the startup cycle: cli imports this module.
         from axiom_encode import cli as cli_helpers
@@ -10718,6 +10833,7 @@ def _run_single_eval(
     )
 
     metrics = retained_candidate_metrics if retained_candidate_accepted else None
+    eval_repairs: list[str] = []
     if wrote_artifact and not retained_candidate_accepted:
         mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
         metrics = _evaluate_generated_artifact_with_repairs(
@@ -10750,7 +10866,9 @@ def _run_single_eval(
             legacy_replacement=legacy_replacement,
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=not repair_candidate_tests_only,
+            repair_log=eval_repairs,
         )
+    quoted_source_scalars = _quoted_source_scalar_repairs(eval_repairs)
     mark_encode_phase(PHASE_RECORD_RESULT)
     if overlay_validation_issue is not None and metrics is not None:
         metrics.ci_pass = False
@@ -10824,6 +10942,8 @@ def _run_single_eval(
         retry_count=retry_count,
         source_attestation=_source_metadata_attestation(source_metadata_payload),
         require_complete_source_unit=require_complete_source_unit,
+        auto_repaired_unquoted_source_scalars=quoted_source_scalars,
+        generated_output_repaired_by_encoder=bool(quoted_source_scalars),
     )
     emit_eval_result(result, response.trace)
     return result
@@ -10967,6 +11087,7 @@ def _run_single_source_eval(
     )
 
     metrics = None
+    eval_repairs: list[str] = []
     if wrote_artifact:
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
@@ -10989,7 +11110,9 @@ def _run_single_source_eval(
             protected_review_excerpts=_workspace_quoted_review_finding_excerpts(
                 workspace
             ),
+            repair_log=eval_repairs,
         )
+    quoted_source_scalars = _quoted_source_scalar_repairs(eval_repairs)
     validation_error = _eval_artifact_validation_error(
         metrics,
         require_policyengine=oracle == "policyengine",
@@ -11054,6 +11177,8 @@ def _run_single_source_eval(
         retry_count=retry_count,
         source_attestation=_source_metadata_attestation(source_metadata_payload),
         require_complete_source_unit=require_complete_source_unit,
+        auto_repaired_unquoted_source_scalars=quoted_source_scalars,
+        generated_output_repaired_by_encoder=bool(quoted_source_scalars),
     )
     emit_eval_result(result, response.trace)
     return result
