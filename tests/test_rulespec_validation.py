@@ -25,6 +25,7 @@ from axiom_oracles.bridges.registry import (
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from axiom_encode.checks import ValidationIssue
 from axiom_encode.corpus_resolver import (
     PROOF_EVIDENCE_SEGMENT_SEPARATOR,
     AmbiguousCorpusSourceError,
@@ -44901,6 +44902,12 @@ def test_deferred_output_validates_provision_blocker_ids(blockers, expected_issu
         assert len(issues) == 1
         assert "blocked_by_provisions" in issues[0]
         assert expected_issue in issues[0]
+        assert isinstance(issues[0], ValidationIssue)
+        assert issues[0].check == "rulespec:deferral/provision-blocker"
+        assert issues[0].subject.citation == "us/regulation/7/273/11/c"
+        assert issues[0].subject.field.startswith(
+            "module.deferred_outputs[0].blocked_by_provisions"
+        )
 
 
 def test_deferred_output_resolves_exact_provision_blockers_in_bound_release(tmp_path):
@@ -44925,6 +44932,12 @@ rules: []
     issues = find_deferred_output_issues(missing, local_corpus_release=release)
     assert len(issues) == 1
     assert "could not resolve provision `de/statute/estg/26/2`" in issues[0]
+    assert isinstance(issues[0], ValidationIssue)
+    assert issues[0].check == "rulespec:deferral/provision-blocker"
+    assert issues[0].subject.citation == "de/statute/estg/32a"
+    assert (
+        issues[0].subject.field == "module.deferred_outputs[0].blocked_by_provisions[0]"
+    )
 
 
 def test_deferred_output_rejects_embedded_jurisdiction_blocker_path():

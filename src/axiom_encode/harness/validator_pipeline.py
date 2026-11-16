@@ -25767,6 +25767,31 @@ def find_deferred_output_issues(
     return issues
 
 
+CHECK_DEFERRED_PROVISION_BLOCKER = declare_check(
+    "rulespec:deferral/provision-blocker",
+    title="Deferred provision blockers identify available corpus provisions",
+    requires=(
+        "blocked_by_provisions is a nonempty list of distinct canonical corpus "
+        "provision IDs other than the module's own source. Each ID resolves "
+        "when a corpus release is bound."
+    ),
+    why=(
+        "The dependency report uses these exact identities to find candidate "
+        "providers. Invalid, repeated or unresolvable IDs lose or misdirect "
+        "the follow-up needed to complete a deferred output."
+    ),
+    fix=(
+        "Use distinct canonical corpus IDs for the cited blocking provisions, "
+        "verified against the selected corpus release. Correct invalid IDs "
+        "and remove the optional field when no provision ID is known. Keep "
+        "the source-grounded deferral reason and its affected output."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site="axiom_encode/harness/validator_pipeline.py:_deferred_provision_blocker_issues",
+)
+
+
 def _deferred_provision_blocker_issues(
     blockers: object,
     *,
@@ -25775,38 +25800,90 @@ def _deferred_provision_blocker_issues(
     local_corpus_release: LocalCorpusRelease | None,
 ) -> list[str]:
     """Check tracking identities without granting source coverage."""
+    citation_subject = source_path if isinstance(source_path, str) else None
     if not isinstance(blockers, list) or not blockers:
-        return [f"{label} must be a nonempty list of canonical corpus provision IDs."]
+        return [
+            ValidationIssue(
+                f"{label} must be a nonempty list of canonical corpus provision IDs.",
+                check=CHECK_DEFERRED_PROVISION_BLOCKER,
+                subject=IssueSubject(citation=citation_subject, field=label),
+                expected="nonempty list of canonical corpus provision IDs",
+                found=blockers,
+            )
+        ]
 
     issues: list[str] = []
     seen: set[str] = set()
     for index, blocker in enumerate(blockers):
         entry = f"{label}[{index}]"
+        subject = IssueSubject(citation=citation_subject, field=entry)
         if not isinstance(blocker, str):
-            issues.append(f"{entry} must be a canonical corpus provision ID string.")
+            issues.append(
+                ValidationIssue(
+                    f"{entry} must be a canonical corpus provision ID string.",
+                    check=CHECK_DEFERRED_PROVISION_BLOCKER,
+                    subject=subject,
+                    expected="canonical corpus provision ID string",
+                    found=blocker,
+                )
+            )
             continue
         try:
             citation = require_canonical_corpus_citation_path(blocker)
         except InvalidCorpusCitationError as exc:
-            issues.append(f"{entry}: {exc}")
+            issues.append(
+                ValidationIssue(
+                    f"{entry}: {exc}",
+                    check=CHECK_DEFERRED_PROVISION_BLOCKER,
+                    subject=subject,
+                    expected="canonical corpus provision ID",
+                    found=blocker,
+                )
+            )
             continue
         if citation.count("/") < 2:
             issues.append(
-                f"{entry} must include a provision path after the document class."
+                ValidationIssue(
+                    f"{entry} must include a provision path after the document class.",
+                    check=CHECK_DEFERRED_PROVISION_BLOCKER,
+                    subject=subject,
+                    expected="provision path after the document class",
+                    found=citation,
+                )
             )
         elif citation == source_path:
             issues.append(
-                f"{entry} must name a provision other than the module's source."
+                ValidationIssue(
+                    f"{entry} must name a provision other than the module's source.",
+                    check=CHECK_DEFERRED_PROVISION_BLOCKER,
+                    subject=subject,
+                    expected="provision other than the module's source",
+                    found=citation,
+                )
             )
         elif citation in seen:
-            issues.append(f"{entry} repeats corpus provision `{citation}`.")
+            issues.append(
+                ValidationIssue(
+                    f"{entry} repeats corpus provision `{citation}`.",
+                    check=CHECK_DEFERRED_PROVISION_BLOCKER,
+                    subject=subject,
+                    expected="distinct provision ID",
+                    found=citation,
+                )
+            )
         elif local_corpus_release is not None:
             try:
                 resolve_local_corpus_source(citation, local_corpus_release)
             except CorpusResolutionError as exc:
                 issues.append(
-                    f"{entry} could not resolve provision `{citation}` in the bound "
-                    f"corpus release: {exc}"
+                    ValidationIssue(
+                        f"{entry} could not resolve provision `{citation}` in the bound "
+                        f"corpus release: {exc}",
+                        check=CHECK_DEFERRED_PROVISION_BLOCKER,
+                        subject=subject,
+                        expected="provision resolvable in the bound corpus release",
+                        found=citation,
+                    )
                 )
         seen.add(citation)
     return issues

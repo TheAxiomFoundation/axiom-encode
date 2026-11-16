@@ -1069,6 +1069,18 @@
       "why": "A proof repair must not silently weaken the reviewed calculation coverage."
     },
     {
+      "category": "rulespec:deferral",
+      "cause": "encoder_output",
+      "fix": "Use distinct canonical corpus IDs for the cited blocking provisions, verified against the selected corpus release. Correct invalid IDs and remove the optional field when no provision ID is known. Keep the source-grounded deferral reason and its affected output.",
+      "gate": "ci",
+      "id": "rulespec:deferral/provision-blocker",
+      "requires": "blocked_by_provisions is a nonempty list of distinct canonical corpus provision IDs other than the module's own source. Each ID resolves when a corpus release is bound.",
+      "severity": "important",
+      "site": "axiom_encode/harness/validator_pipeline.py:_deferred_provision_blocker_issues",
+      "title": "Deferred provision blockers identify available corpus provisions",
+      "why": "The dependency report uses these exact identities to find candidate providers. Invalid, repeated or unresolvable IDs lose or misdirect the follow-up needed to complete a deferred output."
+    },
+    {
       "category": "validation-waivers:verifier-restate",
       "cause": "encoder_output",
       "fix": "Restore the protected-base entries, owner, issue, expiry and pending records. Change only active fingerprints or remove active-only entries; submit other waiver or policy changes in a separate reviewed transaction.",
@@ -1117,6 +1129,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "2e4a0915e0112889004ac89b22902cae6726d27142040330a440ffb558d1f8a1",
+  "registry_sha256": "5b5fc382dc60636b8d2c8799107c858943ddfd24995a064c2f5f1f1a4d4b4b26",
   "schema": "axiom-encode/check-registry/v1"
 }
