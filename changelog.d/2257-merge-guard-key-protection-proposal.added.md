@@ -1,0 +1,1 @@
+Add a proposal for protecting the content-bound merge guard App key (`docs/merge-guard-key-protection.md`, #2257) and a test that fails if any workflow job other than the guard runner job can select the guard key environment, selects an environment by expression, or calls a reusable workflow from another repository; it changes nothing at run time.
