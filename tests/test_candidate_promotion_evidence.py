@@ -496,6 +496,25 @@ def test_an_unreadable_or_other_lane_is_refused(on, raw):
     assert outcome(written_v6(REF), atomic_source_json=raw)[0] == "refused"
 
 
+@pytest.mark.parametrize(
+    "parsed",
+    [
+        {"reviewed_candidate_promotion": False, "rulespec_pr": PR_NUMBER},
+        {"reviewed_candidate_promotion": None, "rulespec_pr": PR_NUMBER},
+        {"reviewed_candidate_promotion": True},
+        {"reviewed_candidate_promotion": True, "rulespec_pr": 0},
+        {"reviewed_candidate_promotion": True, "rulespec_pr": True},
+        {"reviewed_candidate_promotion": True, "rulespec_pr": str(PR_NUMBER)},
+    ],
+)
+def test_the_lane_check_does_not_rely_on_the_parser_alone(on, monkeypatch, parsed):
+    """Today only the promotion wrapper yields ``rulespec_pr``; check it anyway."""
+
+    monkeypatch.setattr(evidence, "split_atomic_source_input", lambda raw: parsed)
+    with pytest.raises(ValueError, match="live candidate pull request promotion"):
+        admit(written_v6(REF))
+
+
 @pytest.mark.parametrize("value", [None, 1, ["us"]])
 def test_an_unreadable_run_input_is_refused(on, value):
     for name in ("atomic_source_json", "country", "citation", "rulespec_ref"):
@@ -841,20 +860,16 @@ V5_RUNS = (
 
 @pytest.mark.parametrize("name", V5_RUNS)
 def test_off_every_v5_run_is_the_same_as_before_this_change(tmp_path, name):
-    """Differential: the step against itself with this change reverted."""
+    """Differential: the step against itself with this change reverted.
+
+    The step's own outcome is checked first, so a change of behaviour fails
+    here even when the revert below no longer applies.
+    """
 
     repo, ref = make_run(tmp_path)
     overrides = _v5_run(name, repo, ref)
     script = _package_script()
-    before = run_step(
-        tmp_path,
-        ref,
-        script=_step_before_this_change(script),
-        artifact="before",
-        **overrides,
-    )
     after = run_step(tmp_path, ref, script=script, artifact="after", **overrides)
-    assert after == before
     accepted = {
         "promotion": REVIEWED_EVIDENCE,
         "promotion, v5 label carrying both refs": REVIEWED_EVIDENCE,
@@ -867,6 +882,14 @@ def test_off_every_v5_run_is_the_same_as_before_this_change(tmp_path, name):
     else:
         assert after["returncode"] != 0
         assert after["files"] == {}
+    before = run_step(
+        tmp_path,
+        ref,
+        script=_step_before_this_change(script),
+        artifact="before",
+        **overrides,
+    )
+    assert after == before
 
 
 def test_the_reverted_step_is_the_step_without_its_v6_names():
