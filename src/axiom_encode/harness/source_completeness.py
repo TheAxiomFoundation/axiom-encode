@@ -35406,7 +35406,7 @@ def _case_reaches_minimum_cap(
     set to the source value makes the capped amount equal the cap, which
     evaluates to the source value and uses no case input, and the principal
     output changes one step below that input value and stays the same one step
-    above it.
+    above it, with this same leaf executing at both steps.
 
     The ``min`` call must be the whole leaf. Then the cap alone sets the output
     at the case, so the plateau comes from the cap. A ``min`` inside a larger
@@ -35465,6 +35465,7 @@ def _case_reaches_minimum_cap(
                     case,
                     input_key=key,
                     value=value,
+                    leaf=execution.leaf,
                     root_value=root_value,
                     principal_rules=principal_rules,
                     dependency_names=dependency_names,
@@ -35481,12 +35482,19 @@ def _input_step_kinks_output(
     *,
     input_key: object,
     value: float,
+    leaf: str,
     root_value: Any,
     principal_rules: dict[str, dict[str, Any]],
     dependency_names: set[str],
     formula_environment: dict[str, Any],
 ) -> bool:
-    """Whether the output changes one step below `value` and not one step above."""
+    """Whether the output changes one step below `value` and not one step above.
+
+    The same leaf must execute at both steps as at the case. Otherwise another
+    branch can supply the plateau above the cap, as when a gate on
+    ``cost <= switch_point`` hands the case one step above to an input
+    ``fallback_amount`` of 40.
+    """
 
     step = 1.0 if value.is_integer() else max(abs(value) * 1e-6, 1e-9)
     outputs = []
@@ -35504,7 +35512,7 @@ def _input_step_kinks_output(
                 allowed_names=dependency_names,
             ),
         )
-        if candidate_execution is None:
+        if candidate_execution is None or candidate_execution.leaf != leaf:
             return False
         output = _formula_execution_runtime_value(candidate_execution)
         if output is _UNRESOLVED_CONDITION_VALUE:

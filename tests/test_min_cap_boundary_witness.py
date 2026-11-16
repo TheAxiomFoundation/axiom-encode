@@ -382,6 +382,28 @@ def _output_falling_above_a_whole_leaf_cap():
     return candidate, cases
 
 
+def _cap_of_45_with_the_amount_shifted_by_5():
+    """The cap is `cap + 5` = 45, which the source does not state.
+
+    The amount is `cost + 5`, so it reaches 45 at a cost of 40 and the output
+    kinks there, but a $45 cap cannot witness the $40 boundary.
+    """
+
+    candidate = CANDIDATE.replace(
+        CAP_FORMULA,
+        "min(max(0, daily_lodging_cost) + 5, medical_lodging_daily_cap + 5)",
+    )
+    cases = _with_outputs(
+        CASES,
+        {
+            "qualifying_lodging_below_daily_cap": 35,
+            CAP_CASE: 45,
+            "qualifying_lodging_above_daily_cap": 45,
+        },
+    )
+    return candidate, cases
+
+
 def _cap_case_of(cases: list[dict]) -> dict:
     return next(case for case in cases if case["name"] == CAP_CASE)
 
@@ -398,6 +420,7 @@ def _cap_case_of(cases: list[dict]) -> dict:
         _output_flat_on_both_sides_of_the_cap,
         _output_flat_on_both_sides_of_a_whole_leaf_cap,
         _output_falling_above_a_whole_leaf_cap,
+        _cap_of_45_with_the_amount_shifted_by_5,
         _plateau_from_an_input_limit,
         _plateau_from_an_input_limit_with_another_cap_use,
     ],
@@ -504,3 +527,54 @@ def test_a_cap_clamp_inside_a_larger_leaf_fails_closed(leaf):
     candidate = CANDIDATE.replace(CAP_FORMULA, leaf)
     assert candidate != CANDIDATE
     assert _boundary_refused(_issues(candidate))
+
+
+GATES = (
+    "participant_has_lodging_cost"
+    " and lodging_is_to_obtain_medical_treatment_or_services"
+    " and participant_must_travel"
+    " and travel_distance_miles > medical_lodging_travel_distance_threshold"
+)
+CAP_BRANCH = f"if {GATES}:\n            {CAP_FORMULA}\n          else: 0"
+SWITCH = f"{PREFIX}#cost_within_switch"
+
+
+def _branch_switch_one_step_above_the_cap():
+    """At a cost of 40 the leaf is the cap; at 41 another branch returns an input.
+
+    An asserted Boolean dependency `cost <= switch_point` (40) gates the cap
+    branch, and an `elif` returns the input `fallback_amount` (40). The output
+    is 39, 40, 40 at costs of 39, 40 and 41, but at 41 the plateau comes from
+    `fallback_amount`, not from the cap.
+    """
+
+    candidate = _with_input(_with_input(CANDIDATE, "switch_point"), "fallback_amount")
+    assert CAP_BRANCH in candidate
+    candidate = candidate.replace(
+        CAP_BRANCH,
+        f"if {GATES} and cost_within_switch:\n            {CAP_FORMULA}\n"
+        f"          elif {GATES}:\n            fallback_amount\n          else: 0",
+    ).replace(
+        PRINCIPAL_RULE,
+        "  - name: cost_within_switch\n    kind: derived\n    entity: Person\n"
+        "    dtype: Boolean\n    period: Day\n    versions:\n"
+        "      - effective_from: '2026-08-01'\n        formula: |-\n"
+        "          daily_lodging_cost <= switch_point\n" + PRINCIPAL_RULE,
+        1,
+    )
+    cases = _with_input_value(CASES, "switch_point", 40)
+    cases = _with_input_value(cases, "fallback_amount", 40)
+    for case in cases:
+        if COST in case["input"]:
+            case["output"][SWITCH] = case["input"][COST] <= 40
+    return candidate, cases
+
+
+def test_another_branch_one_step_above_the_cap_is_not_a_kink():
+    candidate, cases = _branch_switch_one_step_above_the_cap()
+    assert "elif" in candidate and "cost_within_switch:" in candidate
+    assert _cap_case_of(cases)["output"][SWITCH] is True
+    assert _issues(candidate, cases) == [
+        "[complete-source-unit:tests] Companion tests do not exercise every"
+        f" source-stated boundary input; {BOUNDARY_FINDING}."
+    ]
