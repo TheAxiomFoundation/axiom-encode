@@ -1,3 +1,7 @@
+## 0.2.2381
+
+- Fix receipt verification during native reviewed-repair staging (#2270)
+
 ## 0.2.2380
 
 - Fold structure findings behind an imprecise deferral into its finding and use a U.S. retry example (#1932)
