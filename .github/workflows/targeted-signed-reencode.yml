@@ -31,7 +31,7 @@ on:
         required: true
         type: string
       review_finding:
-        description: Validator or independent-review finding to address
+        description: 'Inline finding, or axiom-producer-review-guidance-ref:v1: followed by an immutable producer descriptor JSON'
         required: false
         type: string
       repair_run_id:
@@ -713,6 +713,18 @@ jobs:
           sudo chmod -R go-w /opt/axiom-compose-verification
           /opt/axiom-compose-verification/axiom-compose --help > /dev/null
 
+      - name: Validate producer guidance transport mode
+        run: |
+          set -euo pipefail
+          axiom-encode/.venv/bin/python - <<'PYGUIDANCE'
+          import json
+          import os
+          from pathlib import Path
+          from axiom_encode.producer_review_guidance import validate_workflow_guidance_input
+          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          validate_workflow_guidance_input(event["inputs"], producer_commit=os.environ["GITHUB_SHA"])
+          PYGUIDANCE
+
       - name: Resolve registered reviewed repair request
         id: reviewed_repair_request
         env:
@@ -857,6 +869,7 @@ jobs:
           repair_mode="$(jq -er '.mode' <<< "$repair_mode_json")"
           echo "tests_only=$repair_tests_only" >> "$GITHUB_OUTPUT"
           echo "mode=$repair_mode" >> "$GITHUB_OUTPUT"
+          echo "preserve_companion=$(jq -r '.preserve_repair_companion // false' <<< "$repair_mode_json")" >> "$GITHUB_OUTPUT"
           echo "execution=$(jq -c '.execution' <<< "$repair_mode_json")" \
             >> "$GITHUB_OUTPUT"
           if [ "$REPAIR_RUN_ID" = "35160240952" ]; then
@@ -1125,6 +1138,7 @@ jobs:
           CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           REPAIR_TESTS_ONLY: ${{ steps.repair_candidate.outputs.tests_only }}
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
+          PRESERVE_REPAIR_COMPANION: ${{ steps.repair_candidate.outputs.preserve_companion }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
@@ -1856,6 +1870,7 @@ jobs:
         env:
           CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
+          PRESERVE_REPAIR_COMPANION: ${{ steps.repair_candidate.outputs.preserve_companion }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
@@ -2105,6 +2120,7 @@ jobs:
         env:
           CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
+          PRESERVE_REPAIR_COMPANION: ${{ steps.repair_candidate.outputs.preserve_companion }}
           PYTHONUNBUFFERED: "1"
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
@@ -2136,6 +2152,7 @@ jobs:
         run: |
           set -euo pipefail
           : "${REPAIR_TESTS_ONLY:=false}"
+          : "${PRESERVE_REPAIR_COMPANION:=false}"
           : "${REPAIR_RUN_LANE:=target}"
           : "${REPAIR_RULESPEC_PATH:=}"
           : "${QUEUE_ID:=}"
@@ -2284,12 +2301,30 @@ jobs:
                 args+=(--required-import-rulespec-path "$required_import_path")
               done < "$RUNNER_TEMP/required-import-rulespec-paths.txt"
             fi
-            if [ -n "$review_finding" ]; then
-              review_finding_dir="$(mktemp -d "$RUNNER_TEMP/axiom-targeted-review-finding.XXXXXX")"
-              review_finding_path="$review_finding_dir/review-finding.txt"
-              printf '%s\n' "$review_finding" > "$review_finding_path"
-              args+=(--review-findings "$review_finding_path")
-            fi
+            case "$review_finding" in
+              axiom-producer-review-guidance-ref:v1:*)
+                if [ "$output_lane" != target ] || [ "$citation" != "$CITATION" ]; then
+                  echo "producer guidance requires the primary target lane" >&2
+                  /opt/axiom-verification/python/bin/python -I -m axiom_encode.infra_checks record infra:encode-producer-guidance-routing "producer guidance requires the primary target lane" || true
+                  exit 1
+                fi
+                args+=(--producer-review-guidance-ref "${review_finding#axiom-producer-review-guidance-ref:v1:}"
+                       --producer-review-guidance-checkout "$GITHUB_WORKSPACE/axiom-encode")
+                ;;
+              axiom-producer-review-guidance-ref:*)
+                echo "unsupported producer guidance input version" >&2
+                /opt/axiom-verification/python/bin/python -I -m axiom_encode.infra_checks record infra:encode-producer-guidance-routing "unsupported producer guidance input version" || true
+                exit 1
+                ;;
+              *)
+                if [ -n "$review_finding" ]; then
+                  review_finding_dir="$(mktemp -d "$RUNNER_TEMP/axiom-targeted-review-finding.XXXXXX")"
+                  review_finding_path="$review_finding_dir/review-finding.txt"
+                  printf '%s\n' "$review_finding" > "$review_finding_path"
+                  args+=(--review-findings "$review_finding_path")
+                fi
+                ;;
+            esac
             if [ "$deferred_output_contracts_json" != "[]" ] || \
                [ "$required_test_cases_json" != "[]" ]; then
               review_contract_json="$(
@@ -2360,6 +2395,9 @@ jobs:
                 --repair-candidate-tests-sha256 \
                   "$candidate_tests_sha256"
               )
+              if [ "$PRESERVE_REPAIR_COMPANION" = "true" ]; then
+                args+=(--preserve-repair-companion)
+              fi
               if [ -n "$replacement_path" ] && \
                  [ "$REPAIR_TESTS_ONLY" = "true" ]; then
                 args+=(--repair-candidate-tests-only)
@@ -2852,7 +2890,7 @@ jobs:
           signing_queue="$RUNNER_TEMP/signed-encode"
           mkdir -m 700 "$signing_queue"
           declare -p \
-            REPAIR_MODE PYTHONUNBUFFERED ATOMIC_SOURCE_JSON \
+            REPAIR_MODE PRESERVE_REPAIR_COMPANION PYTHONUNBUFFERED ATOMIC_SOURCE_JSON \
             CITATION CORPUS_REF COUNTRY REVIEW_FINDING \
             REPAIR_CANDIDATE_PATH REPAIR_CANDIDATE_ROOT \
             REPAIR_CANDIDATE_RULESPEC_SHA256 REPAIR_CANDIDATE_TESTS_SHA256 \
@@ -3429,7 +3467,27 @@ jobs:
         env:
           RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          PRESERVE_REPAIR_COMPANION: ${{ steps.repair_candidate.outputs.preserve_companion }}
+          REVIEW_FINDING: ${{ inputs.review_finding }}
+          CITATION: ${{ inputs.citation }}
+          REPAIR_CANDIDATE_RULESPEC_SHA256: ${{ steps.repair_candidate.outputs.rulespec_sha256 }}
+          REPAIR_CANDIDATE_TESTS_SHA256: ${{ steps.repair_candidate.outputs.tests_sha256 }}
         run: |
+          set -euo pipefail
+          guidance_guard_args=()
+          case "$REVIEW_FINDING" in
+            axiom-producer-review-guidance-ref:v1:*)
+              guidance_guard_args+=(--producer-review-guidance-ref "${REVIEW_FINDING#axiom-producer-review-guidance-ref:v1:}"
+                --producer-review-guidance-citation "$CITATION"
+                --producer-review-guidance-context-root "$RUNNER_TEMP/generated/target")
+              ;;
+            axiom-producer-review-guidance-ref:*) exit 1 ;;
+          esac
+          preservation_args=()
+          if [ "$PRESERVE_REPAIR_COMPANION" = true ]; then
+            preservation_args=(--preserved-repair-companion "$CITATION"
+              "$REPAIR_CANDIDATE_RULESPEC_SHA256" "$REPAIR_CANDIDATE_TESTS_SHA256")
+          fi
           set +e
           /opt/axiom-verification/axiom-encode-signing-supervisor \
             --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
@@ -3441,7 +3499,8 @@ jobs:
             --corpus-path "$GITHUB_WORKSPACE/axiom-corpus" \
             --expected-encoder-checkout "$GITHUB_WORKSPACE/axiom-encode" \
             --base-ref "$RULESPEC_REF" \
-            --json > "$RUNNER_TEMP/guard-generated.json"
+            "${preservation_args[@]}" \
+            --json "${guidance_guard_args[@]}" > "$RUNNER_TEMP/guard-generated.json"
           guard_status="$?"
           set -e
           if [ "$guard_status" -ne 0 ]; then
@@ -3551,6 +3610,7 @@ jobs:
         if: steps.retired_source_metadata_request.outputs.enabled != 'true'
         env:
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
+          PRESERVE_REPAIR_COMPANION: ${{ steps.repair_candidate.outputs.preserve_companion }}
           REPAIR_TESTS_ONLY: ${{ steps.repair_candidate.outputs.tests_only }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
@@ -3633,6 +3693,8 @@ jobs:
           from pathlib import Path
           from axiom_encode.prepare_signed_backfill import (
               immutable_atomic_source_contract,
+              split_atomic_source_input,
+              citation_rulespec_path,
           )
 
           from axiom_encode.corpus_resolver import (
@@ -3648,6 +3710,23 @@ jobs:
               canonical_destination,
               rewrite_exact_references,
           )
+
+          from axiom_encode.producer_review_guidance import (
+              validate_workflow_guidance_input,
+              verify_packaged_producer_guidance,
+          )
+          original_event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          original_guidance_inputs = original_event["inputs"]
+          primary_guidance_descriptor = validate_workflow_guidance_input(
+              original_guidance_inputs, producer_commit=os.environ["GITHUB_SHA"]
+          )
+          guidance_guard_payload = None
+          if primary_guidance_descriptor is not None:
+              guidance_guard_payload = json.loads(read_bounded_regular_file(
+                  Path(os.environ["RUNNER_TEMP"]),
+                  Path(os.environ["RUNNER_TEMP"]) / "guard-generated.json",
+                  label="protected guidance guard result", max_bytes=16 * 1024 * 1024,
+              ))
 
           def git_paths(*args):
               output = subprocess.check_output(
@@ -3931,15 +4010,17 @@ jobs:
               expected_citations.add(second_dependent_citation)
 
           matches = {}
+          initial_manifest_digests = {}
+          captured_manifests = {}
+          preservation_digests = {}
           for relative_path in sorted(manifest_paths):
-              payload = json.loads(
-                  read_bounded_regular(
-                      os.environ["RULESPEC_CHECKOUT"],
-                      relative_path,
-                      label="changed apply manifest",
-                      max_bytes=1024 * 1024,
-                  ).decode("utf-8")
+              initial_manifest_bytes = read_bounded_regular(
+                  os.environ["RULESPEC_CHECKOUT"], relative_path,
+                  label="changed apply manifest", max_bytes=1024 * 1024,
               )
+              captured_manifests[relative_path] = initial_manifest_bytes
+              initial_manifest_digests[relative_path] = hashlib.sha256(initial_manifest_bytes).hexdigest()
+              payload = json.loads(initial_manifest_bytes.decode("utf-8"))
               effective = payload
               if (
                   payload.get("tool")
@@ -4127,7 +4208,38 @@ jobs:
               relative_path, applied_manifest, evidence_manifest = (
                   citation_matches[0]
               )
+              if primary_guidance_descriptor is not None:
+                  if initial_manifest_digests[relative_path] != guidance_guard_payload["producer_review_guidance"]["manifest_sha256"]:
+                      raise SystemExit("initial apply manifest snapshot differs from protected guidance guard")
               manifest_path = Path(os.environ["RULESPEC_CHECKOUT"]) / relative_path
+              # Reconstruct the request from the original workflow input, not a
+              # generated flag or an unsigned artifact metadata claim.
+              preservation_requested = split_atomic_source_input(
+                  os.environ.get("ATOMIC_SOURCE_JSON") or "[]"
+              ).get("preserve_repair_companion") is True
+              if preservation_requested:
+                  if lane != "target":
+                      raise SystemExit("companion preservation requires one primary lane")
+                  companion = citation_rulespec_path(citation).with_suffix(".test.yaml")
+                  companion_bytes = read_bounded_regular(
+                      os.environ["RULESPEC_CHECKOUT"], companion,
+                      label="preserved repair companion", max_bytes=512 * 1024,
+                  )
+                  guard = json.loads((Path(sys.argv[1]).parent / "guard-generated.json").read_bytes())
+                  expected_preservation = {
+                      "schema": "axiom-encode/verified-repair-companion/v1",
+                      "citation": citation,
+                      "manifest_path": relative_path.as_posix(),
+                      "manifest_sha256": hashlib.sha256(captured_manifests[relative_path]).hexdigest(),
+                      "companion_path": companion.as_posix(),
+                      "original_rulespec_sha256": os.environ["REPAIR_CANDIDATE_RULESPEC_SHA256"],
+                      "original_tests_sha256": os.environ["REPAIR_CANDIDATE_TESTS_SHA256"],
+                      "final_tests_sha256": hashlib.sha256(companion_bytes).hexdigest(),
+                  }
+                  if (guard.get("passed") is not True or guard.get("issues") != []
+                      or guard.get("repair_companion_preservation") != expected_preservation):
+                      raise SystemExit("Preservation evidence does not match supervised guard and packaged bytes")
+                  preservation_digests[relative_path] = expected_preservation["manifest_sha256"]
               if canonical_refresh_items:
                   applied_files = applied_manifest.get("applied_files")
                   applied_paths = [
@@ -4809,6 +4921,23 @@ jobs:
                       }
                   )
                   continue
+              if primary_guidance_descriptor is not None:
+                  if lane != "target" or citation != original_guidance_inputs["citation"]:
+                      raise SystemExit("producer guidance packaging requires the sole primary target")
+                  guidance_content = verify_packaged_producer_guidance(
+                      original_inputs=original_guidance_inputs,
+                      producer_commit=os.environ["GITHUB_SHA"],
+                      encoder_checkout=Path(os.environ["GITHUB_WORKSPACE"]) / "axiom-encode",
+                      context_root=generated_root / "target",
+                      manifest_path=relative_path.as_posix(),
+                      manifest_bytes=read_bounded_regular_file(
+                          Path(os.environ["RULESPEC_CHECKOUT"]), manifest_path,
+                          label="packaged guidance apply manifest", max_bytes=1024 * 1024,
+                      ),
+                      guard_payload=guidance_guard_payload,
+                  )
+                  expected_review_finding = guidance_content[:-1]
+
               context_path = Path(evidence_manifest["context_manifest_file"]).resolve()
               try:
                   context_path.relative_to(generated_root / lane)
@@ -4823,6 +4952,8 @@ jobs:
                   max_bytes=16 * 1024 * 1024,
               )
               context_digest = hashlib.sha256(context_bytes).hexdigest()
+              if primary_guidance_descriptor is not None and context_digest != guidance_guard_payload["producer_review_guidance"]["context_manifest_sha256"]:
+                  raise SystemExit("packaged context bytes differ from protected guidance guard")
               if context_digest != evidence_manifest.get(
                   "context_manifest_sha256"
               ):
@@ -4921,19 +5052,21 @@ jobs:
               source_admission = package_retired_source_evidence(
                   generated_root, lane, Path(sys.argv[1]).parent
               )
+              packaged_manifest_bytes = read_bounded_regular(
+                  os.environ["RULESPEC_CHECKOUT"], relative_path,
+                  label="packaged apply manifest", max_bytes=1024 * 1024,
+              )
+              packaged_manifest_digest = hashlib.sha256(packaged_manifest_bytes).hexdigest()
+              if primary_guidance_descriptor is not None and packaged_manifest_digest != guidance_guard_payload["producer_review_guidance"]["manifest_sha256"]:
+                  raise SystemExit("apply manifest changed after protected guidance verification")
+              if relative_path in preservation_digests and packaged_manifest_bytes != captured_manifests[relative_path]:
+                  raise SystemExit("Preservation manifest changed after verification")
               applied_inventory.append(
                   {
                       "citation": citation,
                       **({"source_admission": source_admission} if source_admission is not None else {}),
                       "path": relative_path.as_posix(),
-                      "sha256": hashlib.sha256(
-                          read_bounded_regular(
-                              os.environ["RULESPEC_CHECKOUT"],
-                              relative_path,
-                              label="packaged apply manifest",
-                              max_bytes=1024 * 1024,
-                          )
-                      ).hexdigest(),
+                      "sha256": packaged_manifest_digest,
                   }
               )
           Path(sys.argv[2]).write_text(
@@ -5084,6 +5217,7 @@ jobs:
                   os.environ.get("REPAIR_RUN_ID") or "",
                   os.environ.get("REPAIR_MODE") or "",
                   os.environ.get("REPAIR_TESTS_ONLY") or "",
+                  os.environ.get("PRESERVE_REPAIR_COMPANION") or "",
               ),
               "repair_run_id": os.environ.get("REPAIR_RUN_ID") or None,
               "queue_id": os.environ.get("QUEUE_ID") or None,
@@ -5603,9 +5737,15 @@ jobs:
                   selected = json.loads(raw)
               except (ValueError, TypeError):
                   return None
-              if not isinstance(selected, dict) or set(selected) != {
-                  "requested_mode", "mode", "tests_only"
-              }:
+              if not isinstance(selected, dict) or set(selected) not in (
+                  {"requested_mode", "mode", "tests_only"},
+                  {"requested_mode", "mode", "tests_only", "preserve_repair_companion"},
+              ):
+                  return None
+              if "preserve_repair_companion" in selected and (
+                  selected["preserve_repair_companion"] is not True
+                  or selected.get("mode") != "full_artifact"
+              ):
                   return None
               mode = selected["mode"]
               if mode not in ("full_artifact", "tests_only") or (
@@ -5772,6 +5912,50 @@ jobs:
                   for index in range(1, 17)
               ],
           ]
+          def valid_guidance_diagnostic(record):
+              # Shape validation only: diagnostics grant no signature authority.
+              keys = {
+                  "schema", "manifest_path", "manifest_sha256",
+                  "context_manifest_sha256", "producer_commit", "path",
+                  "blob_sha256", "size_bytes", "citation", "source_sha256",
+                  "content_sha256",
+              }
+              if not isinstance(record, dict) or set(record) != keys:
+                  return False
+              if record["schema"] != "axiom-encode/verified-producer-guidance/v1":
+                  return False
+              for key in ("manifest_sha256", "context_manifest_sha256",
+                          "blob_sha256", "source_sha256", "content_sha256"):
+                  if not isinstance(record[key], str) or not re.fullmatch(r"[0-9a-f]{64}", record[key]):
+                      return False
+              if not isinstance(record["producer_commit"], str) or not re.fullmatch(r"[0-9a-f]{40}", record["producer_commit"]):
+                  return False
+              if type(record["size_bytes"]) is not int or not 0 < record["size_bytes"] <= 512 * 1024:
+                  return False
+              for key in ("manifest_path", "path"):
+                  value = record[key]
+                  if not isinstance(value, str) or not 0 < len(value) <= 4096:
+                      return False
+                  if "\\" in value or any(ord(char) < 32 or ord(char) == 127 for char in value):
+                      return False
+                  if any(part in {"", ".", ".."} for part in value.split("/")):
+                      return False
+                  if key == "path" and any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", part) for part in value.split("/")):
+                      return False
+              if not record["manifest_path"].endswith(".json"):
+                  return False
+              if len(record["path"]) > 256 or not record["path"].startswith("review-guidance/") or not record["path"].endswith(".json"):
+                  return False
+              value = record["citation"]
+              if not isinstance(value, str) or not 0 < len(value) <= 4096 or value != value.strip().strip("/"):
+                  return False
+              citation = value.split("/")
+              return (2 <= len(citation) <= 64
+                      and re.fullmatch(r"[a-z]{2,3}(?:-[a-z]{2,32})*", citation[0]) is not None
+                      and citation[1] in {"statute", "regulation", "policy", "guidance", "manual", "form", "district-plan", "legislation", "other", "rulemaking"}
+                      and all(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 .:\-–]*", part) is not None
+                              and part == part.strip() for part in citation[2:]))
+
           guard_inventory = []
           for guard_generated in guard_candidates:
               if not guard_generated.exists() and not guard_generated.is_symlink():
@@ -5793,11 +5977,17 @@ jobs:
                   ) from exc
               if (
                   not isinstance(parsed_guard, dict)
-                  or set(parsed_guard) != {"repo", "passed", "issues"}
+                  or not {"repo", "passed", "issues"} <= set(parsed_guard)
+                  or set(parsed_guard) - {"repo", "passed", "issues", "producer_review_guidance"}
                   or not isinstance(parsed_guard["repo"], str)
                   or not isinstance(parsed_guard["passed"], bool)
                   or not isinstance(parsed_guard["issues"], list)
                   or any(not isinstance(issue, str) for issue in parsed_guard["issues"])
+                  or (
+                      "producer_review_guidance" in parsed_guard
+                      and (parsed_guard["passed"] is not True or parsed_guard["issues"]
+                           or not valid_guidance_diagnostic(parsed_guard["producer_review_guidance"]))
+                  )
               ):
                   raise SystemExit(
                       "generated provenance guard diagnostics have invalid shape"

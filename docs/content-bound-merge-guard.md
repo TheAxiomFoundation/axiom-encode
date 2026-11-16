@@ -3,14 +3,19 @@
 Status: **design, not decided; nothing is active.** This document and the
 evaluator in `src/axiom_encode/content_merge_guard.py` implement no gate. No
 workflow runs the evaluator, no check run is written, no GitHub App exists, no
-branch protection changes, and no manifest reader or writer knows the schema the
-evaluator parses. Every promotion still uses the order in
+branch protection changes, and no manifest writer knows the schema the
+evaluator parses. A reader for that schema exists
+(`src/axiom_encode/applied_manifest_v6.py`, change 2 of §8) and is switched
+off: `V6_READER_ENABLED` is `False`, so every verifier refuses a v6
+manifest. Every promotion still uses the order in
 `docs/reviewed-pr-promotion.md`. Tracking issue: #2172.
 
-The binding requirements are the "Maintainer decisions (2026-11-12)" in
-`docs/reviewed-pr-promotion-order-proposal.md`. The design below is a proposal
-for how to meet them. Platform claims that were not confirmed are marked
-**[check docs]**.
+The design follows the agent-proposed answers in
+`docs/reviewed-pr-promotion-order-proposal.md`. An agent posted those answers
+under @MaxGhenis's account; Max has not ratified them. D1, D2a-D2f, D3 and Seq.
+identify proposed constraints throughout this design and related source
+comments, not maintainer acceptance. Platform claims that were not confirmed
+are marked **[check docs]**.
 
 ## 1. What exists today
 
@@ -47,9 +52,11 @@ Verified against `main` at `eb98f8d7` (after #2194).
   `validate / validate` satisfies app 15368, and the workflow that produces it
   runs on `pull_request`, so the pull request's own copy of the caller runs.
 
-## 2. Binding decisions and where each lands
+<a name="2-binding-decisions-and-where-each-lands"></a>
 
-| # | Decision | Design element |
+## 2. Proposed constraints and where each lands
+
+| # | Proposed constraint | Design element |
 |---|---|---|
 | D1 | "The signing service may sign validated, unreviewed candidate bytes when a versioned signed manifest explicitly records that scope. Verifiers must distinguish validation from owner approval." | §5: schema v6 with `attestation_scope` |
 | D2a | "Its code and the enrolled identities load from protected policy." | §4: guard code and identity list on encoder main |
@@ -59,7 +66,7 @@ Verified against `main` at `eb98f8d7` (after #2194).
 | D2e | "An approval is retained across base-only updates only when the approved content and the permitted scope stay unchanged." | §3 step 5 |
 | D2f | "The final approver is independent of both the candidate author and the authenticated dispatcher." | §3 step 6 |
 | D3 | "enrolled identities at first. An author may dispatch their own candidate. A different enrolled owner gives the final approval." | §3 step 6; §5 |
-| Seq. | "The merge gate of decision 2 is built and passes adversarial tests." | §7, §8 |
+| Seq. | "Build the merge gate of proposed answer 2 and pass its adversarial tests." | §7, §8 |
 
 ## 3. Binding an approval to content
 
@@ -297,6 +304,162 @@ other; the 39 of those 62 that were listed all carried the historic
 `rulespec-us` merges today. It cannot be made a required check until the
 maintainers decide which lane these changes get.
 
+### Proposed three-class lane (off; a recommendation, not a decision)
+
+`INFRASTRUCTURE_LANE_ENABLED` in `content_merge_guard.py` is `False`. While it
+is off, everything above holds unchanged. It is a constant on encoder main
+with no runtime override. This section is the proposal for question 0 of §10.
+
+**Why the control plane needs an approval.** The v5 lane trusts this PR's
+`validate / validate` run. Its scope proves that *this* PR did not change the
+workflow files, the pins or the registers of accepted failures. It proves
+nothing about an earlier PR. If such a change could land with no approval, two
+PRs would give an unreviewed landing: PR A relaxes validation and stands
+aside; PR B adds a module with a v5-labelled manifest and takes the earlier
+lane. That approval is the precondition that makes the single post-sign
+approval of the content lane meaningful.
+
+**Why `tests/`, `tools/` and `bulk/` are control plane.** The shared validate
+workflow runs `python -m pytest -q tests` from the PR head inside
+`validate / validate`, and those tests import `tools/source_conflicts.py`,
+`tools/household_choices.py` and `bulk/applied_artifacts.py`. A change or a
+deletion of `tests/test_encoding_manifests.py`, `tests/conftest.py` or
+`tools/engine_root_load.py` changes what the required check accepts
+(rulespec-us#1472 narrowed the manifest-sync guard test). The rule: anything
+that required validation executes, imports or reads from the PR head is
+control plane.
+
+`classify_path` sorts each changed path, from the path alone:
+
+| Class | Paths | Rule with the lane on |
+|---|---|---|
+| unguarded | the allowlisted root files without `.gitignore`: `README.md`, `LICENSE`, `LICENSE-CODE`, `NOTICE` | as today: `not_applicable` |
+| content | every path at or under a jurisdiction directory (on the base, or of jurisdiction shape), every path under an atomic root at the repository root, every apply-manifest directory | the v5 lane or the v6 lane must claim the whole delta; the v6 lane needs the content-bound approval |
+| control plane | `.gitignore` (a `rulespec-us` test runs `git check-ignore`; with the lane off it stays on the allowlist, as on `main`); everything under `.github/`, `.claude/`, `programs/`, `tests/`, `tools/`, `bulk/`; every `.axiom/` file that is not an apply manifest; every root file off the allowlist (`known-*.yaml`, `oracle-coverage-pending.yaml`, `household-choices.yaml`, `.gitattributes`, `CLAUDE.md`, and any new root file) | **one content-bound approval** (`pass`, `control_plane_content_bound_approval`), never "stand aside" |
+| infrastructure (stand aside) | exactly `INFRASTRUCTURE_PATHS`, which is **empty** | `not_applicable` (`infrastructure_as_today`) |
+| unknown | any other top-level directory, and any path that is not canonical | no lane: `fail` |
+
+**The stand-aside class is empty on purpose.** A path belongs in it only when
+it is positively known that required validation neither executes nor reads it.
+The candidates on `rulespec-us` are the Markdown files under `bulk/` and
+`tools/`. No test or workflow names them today, but a search is not a proof
+(a test can walk a directory), and none of the last 50 landings changed only
+such files. So nothing is listed, and the default for everything that is not
+content and not unknown is control plane.
+
+The names were checked against the `rulespec-us` tree on 2026-11-13. Its
+non-jurisdiction top-level directories are exactly `.axiom`, `.claude`,
+`.github`, `bulk`, `programs`, `tests` and `tools`.
+
+A path is not canonical, and so unknown, when it is empty, has an empty or dot
+segment, a backslash, a space, a control or non-ASCII character, or a segment
+that equals a name the classifier knows only after case folding
+(`.axiom/ENCODING-MANIFESTS/...`, `Tests/x.py`, `readme.md`).
+
+A pull request is judged as a whole. Only guarded paths are classified;
+allowlisted files ride along:
+
+- **content with anything else: refused.** Content only: the lanes of step 3,
+  unchanged;
+- **an unknown path never joins the control-plane or the stand-aside
+  lane.** Outside a content lane it is refused. Inside a v5 unit the earlier
+  lane applies its own path rules, as on `main`, and does not ask this
+  classifier: a module path that this classifier calls not canonical, such as
+  the 15 `us-nh/... He-W 704/...` paths on `rulespec-us` that hold a space,
+  still gets `not_applicable` (`earlier_lane_v5`);
+- **control plane** (with or without allowlisted files or a listed
+  stand-aside path): the whole delta is control plane. The approval covers
+  every path of the delta, the allowlisted ones too;
+- **only listed stand-aside paths:** `not_applicable`. None exists today.
+
+**The control-plane approval** uses the binding of step 5 over every path of
+the delta, with no manifest, signature or dispatcher:
+
+- the reviewer is enrolled (id, login, `type == "User"`), is not the PR
+  author, and is not the author or committer of any commit; an unattributed
+  commit fails; the commit list must be complete and hold the head;
+- the approval is on a commit `C` of the PR whose delta against its merge
+  base with `main` has the same paths as the head delta and, for each path,
+  the same blob or the same absence on **both** sides: what `C` held equals
+  what the head holds, and what `C` replaced (its merge base) equals what the
+  head replaces (the current `main` tip). A base update that touches no path
+  of the delta keeps the approval. A base update that touches a path of the
+  delta voids it, also when the head keeps the approved bytes: otherwise an
+  approved workflow or pin would silently revert a stricter one that `main`
+  received later. Any changed, added or dropped path voids it;
+- a draft PR, a blocking `CHANGES_REQUESTED`, a required check that is not
+  green from this PR's run, and any movement of the PR, `main`, the reviews or
+  CI between the two reads fail.
+
+**Limit of the independence check.** Independence is by GitHub attribution
+only. The evaluator checks the PR author and the GitHub-attributed author and
+committer of each commit. It does not read commit trailers or message text. A
+PR opened by a bot account, with commits attributed to that bot, passes with
+one enrolled approval also when that owner wrote the change. This is the
+residual risk of §9 in another form.
+
+**Limit for stacked PRs.** The binding compares against a merge base, and the merge base of the approved commit is computed when the guard evaluates, not when the review was given. If an ancestor commit `X` of the approved commit `C` lands on `main` later through a merge commit, the merge base moves to `X`. The reviewer saw `old → T`; the head now does `X → T`; the bytes that land are the approved ones, and the verdict is `pass`. The approver did not see the step `old → X` as part of this PR; it landed through its own PR and that PR's lane.
+
+**Executable files.** The leaf rule of step 3 stays: an added or modified leaf
+that is not a regular `100644` blob fails in every class. `rulespec-us` holds
+three executable tools (`bulk/compute_matrix.py`, `bulk/roots_for.py`,
+`tools/generate_hts_rate_tables.py`); a change to one of them has no lane, also
+with this lane on. None of the 50 landings below changed one. The remedy is to
+make them `100644` in `rulespec-us` first, not to loosen the leaf rule.
+
+**Known shapes without a lane.**
+
+| Shape | File pattern | Verdict with the lane on | Follow-up |
+|---|---|---|---|
+| Signed backfill (rulespec-us#1470) | module files and their manifest, together with a receipt `.axiom/legacy-replacements/<64 hex>.json`; usually also `.axiom/toolchain.toml`, a `known-*.yaml` waiver edit and a test | `fail`, `signed_backfill_has_no_lane` | The receipt, the waiver edit and the pin belong to one signed operation, so "split it" is not verified to work. A lane for this shape is a separate change; this one does not invent it |
+
+With the lane off, that shape keeps today's reason
+(`no_lane_for_guarded_change`). No other mixed shape occurs in the 50
+landings below.
+
+Evidence, read-only on 2026-11-13: the last 50 first-parent landings on
+`rulespec-us` main (from the landing of #1470 to the landing of #2045), each classified from its delta against
+its first parent.
+
+| Class of the whole landing | Landings |
+|---|---|
+| control plane (one owner approval) | 47 |
+| content only (v5 lane) | 2 (#2045, #2154) |
+| signed backfill (refused by name) | 1 (#1470) |
+| stand aside | 0 |
+| unknown path | 0 |
+
+Of the 47: 29 change `tests/`, 17 `.axiom/toolchain.toml`, 12 `.github/**`, 9
+`tools/`, 3 `bulk/`; 6 change only `tests/`, `tools/` or `bulk/`.
+
+**The load, stated plainly.** `rulespec-us` main requires 0 approvals today.
+With this lane, **47 of the last 50 landings need an enrolled owner's
+approval**: a new review requirement on almost every change that is not an
+encoding. 18 of the 50 landings touch `.axiom/toolchain.toml`, and all 18 were
+authored by the two enrolled owners (9 each), so each owner waits for the
+other on every pin bump. This proposal removes one of two reviews per encoding
+and adds one review per control-plane change. Alternative (c) below is the
+recommended follow-up to cut that load.
+
+**What this lane gives and what it does not.** With it, the guard can become a
+required check, and two things hold for an account that is not an enrolled
+owner: it cannot land a content-class path without a v5 lane or a
+content-bound approval, and it cannot change anything that required
+validation executes or reads without an enrolled owner's approval of the
+exact bytes. It does not close the residual risk of §9: agents that hold both
+enrolled identities.
+
+Alternatives considered:
+
+| Alternative | Why not recommended first |
+|---|---|
+| (a) Minimum control plane: `.github/**` and the two pins only | Leaves the registers that relax validation, and the tests and tools the required check runs, without approval; the two-PR path stays open through them |
+| (b) Stand aside for every infrastructure PR (the first version of this proposal), or for `tests/`, `tools/` and `bulk/` (the second) | No new review, or fewer, but the required check runs those files from the PR head. No guarantee |
+| (c) Exempt machine-made pin bumps by a named trusted automation identity from the approval | Recommended as a **follow-up** to cut the load (18 of 50 landings). It needs a trusted publisher for the bump and a rule for what a bump may contain; not in this change |
+| (d) Retire the v5 CI-trust lane before change 6, so every content landing needs a content-bound approval | Removes the premise the two-PR path attacks. Worth doing, but the control plane still decides what the required check runs |
+| Keep `fail` (today's classifier) | The check can never be required, so the pre-sign approval can never be removed (D2d) |
+| Decide by a label, a PR title or a file inside the PR | The PR controls all three (round 1, F1) |
+
 ### CLI
 
 `axiom-encode merge-guard --repository rulespec-us --pr <n>` prints one JSON
@@ -405,10 +568,65 @@ test pins its field sets to the live v5 promotion contract in `cli.py`. The
 shape has no run attempt; adding `run_attempt` would let the guard bind one
 (open question 13).
 
-Still to do in later changes: verifiers accept `{v5, v6}` and require the
-block's exact shape; the promotion writer emits v6. A verifier pinned before
-that change rejects v6, so no v6 manifest can pass `validate / validate` until
-`rulespec-us` bumps its encoder pin. That is a built-in ordering gate.
+### Reader (change 2, present and switched off)
+
+`applied_manifest_v6.py` holds the reader contract and one switch,
+`V6_READER_ENABLED`, which is `False`. The switch is a constant on encoder
+main. It has no environment variable, flag or repository setting, so a
+RuleSpec PR or workflow cannot turn it.
+
+Which reader does what, with the switch off and on:
+
+| Reader | Off (today) | On |
+|---|---|---|
+| `_load_verified_applied_encoding_manifest_payload`, and so its callers (19 call sites in `cli.py`, and others in reviewed repair, run-log export, telemetry sync, the regeneration judge and notary administration): validation coverage (`guard-generated`), promotion, retire, path and metadata migration, import inventory, legacy replacement, reviewed repair; with and without `historical_verification` | refuses | admits an exact signed v6 |
+| `_guard_base_manifest_claims` (a manifest on the immutable base) | refuses | admits an exact signed v6, as obligations only |
+| Readers of a nested manifest (`_retired_model_manifest_issues`, `_migrated_model_manifest_issues`, `_legacy_replacement_manifest_issues`) and `_historical_manifest_refresh_inputs` | refuse | refuse |
+| `supabase_sync.run_from_apply_manifest`, `prepare_signed_backfill.py`, the canonical-refresh selection in `targeted-signed-reencode.yml`, `_canonical_replacement_baseline` | refuse or ignore (v5 only) | refuse or ignore (v5 only) |
+
+"Exact signed v6" means: the promotion tool and no `backend` key; a valid
+signature over the whole payload; the exact v6 field set; the exact
+`attestation_scope` shape; `candidate.head_sha == candidate_rulespec_ref`; and
+`candidate.repository` equal to the repository of the manifest's attested
+`source_attestation.rulespec_root`. Producer, validation-execution, source and
+waiver checks are those of the v5 promotion contract.
+
+- **Historical verification admits v6 when the switch is on, by design.** A
+  landed v6 manifest becomes history that every later change must verify
+  (`historical_verification=True` reads the manifests of unchanged files). If
+  that reader refused v6, the first v6 landing would turn later validation
+  red. It admits v6 on the same terms as a v5 promotion manifest, and no
+  wider.
+- **The repository rule is shared.** `is_promotion_repository`
+  (`TheAxiomFoundation/rulespec-<country>`) is the one definition for the
+  reader and the evaluator. The reader binds the scope's repository to the
+  manifest's attested RuleSpec root, which the loader compares with the
+  checkout. It cannot compare the named PR, author or dispatcher with GitHub;
+  the merge guard does (§3 steps 4 and 6, case 19).
+- **Boundary:** only a manifest labelled v6 takes these paths. A change that
+  carries no manifest (workflows, pins, ledgers, tooling, ProgramSpec) reaches
+  no reader of this change, with the switch on or off.
+
+**The switch rule.** The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request.
+
+So the writer and admission change (change 5), not the reader, is what waits
+for the required check. With the reader on, `validate / validate` treats an
+exact signed v6 manifest like a reviewed v5 one: it proves validation and
+nothing about review. `owner_review_state` (`none` for v6, `before-signing`
+for the earlier lane) exists for callers to tell the two apart (D1), and it
+has no production caller yet. This was chosen over wiring a refusal into
+`validate` now: activation would have to remove it again, and the guard, not
+`validate`, is the control proposed in D2.
+
+Not read as v6 yet (last row of the table): they treat a v6 manifest as
+absent or foreign. They matter only after a v6 module is on `main`, and
+belong to change 5. The unreceipted-retirement scan has no v6 field class, so
+it scans every string of a v6 manifest, which is the conservative reading.
+
+Still to do in later changes: turn the switch on (change 2b); the promotion
+writer emits v6. A verifier pinned before change 2b rejects v6, so no v6
+manifest can pass `validate / validate` until `rulespec-us` bumps its encoder
+pin. That is a built-in ordering gate.
 
 ### Encoder (behind a switch that the activation change flips)
 
@@ -516,7 +734,8 @@ Implementation comes strictly before activation.
 | # | Repo | Change | Rollback |
 |---|---|---|---|
 | 1 | axiom-encode | This change: evaluator, `merge-guard` CLI, tests, CODEOWNERS, this document. Nothing calls it | revert |
-| 2 | axiom-encode | Verifiers admit `applied-rulespec/v6` with the attestation scope; no writer | revert; no v6 exists |
+| 2 | axiom-encode | Verifiers can read `applied-rulespec/v6` with the attestation scope, behind `V6_READER_ENABLED = False`; no writer | revert; no v6 exists |
+| 2b | axiom-encode | Set `V6_READER_ENABLED = True`. May ride with change 3. Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request. | set it back; no v6 exists |
 | 3 | axiom-encode | Workflow that runs the guard from `main` and publishes its check, with a dry-run mode | disable the workflow |
 | 4 | rulespec-us | Pin the encoder that verifies v6 | revert the pin |
 | 5 | axiom-encode | Emit v6 and admit without approval, behind a default-off switch | revert |
@@ -525,11 +744,14 @@ Implementation comes strictly before activation.
 ### Activation checklist
 
 Steps marked **M** need repository or organisation settings. Only a maintainer
-can do them.
+can do them. Maintainers must accept the proposed promotion order before
+activation.
 
 1. **M** Create the guard App, install it on `rulespec-us`, and store its key in
    an axiom-encode environment restricted to branch `main`.
-2. Merge changes 1-4. Publish the check in shadow mode: visible, not required.
+2. Merge changes 1-4, including 2b. Publish the check in shadow mode: visible,
+   not required.
+   Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request.
 3. Run cases 15-18 live on a throwaway PR and confirm every verdict.
 4. **M** Add the guard's check with the guard App's `app_id` to the required
    checks on `rulespec-us` main, only after question 0 of §10 is decided: under
@@ -542,7 +764,14 @@ can do them.
    on group SHAs in a test repository.
 
 Steps 4 and 7 are separate reviewed changes, and step 4 comes first. That
-satisfies D2d.
+preserves proposed constraint D2d.
+
+What fixes the order. D2d ("deployed and enforced before the pre-sign approval
+is removed") forces the guard App (step 1), the runner and the v6 reader pin
+(step 2) and the required check (step 4) before activation (step 7). The
+canary (step 5) follows the proposed sequence. The shadow period and
+the live cases (steps 2 and 3) are this document's own choice, not a
+requirement of D2d.
 
 ## 9. Threat model
 
@@ -576,7 +805,7 @@ signed approval (option c in §3) or a separate approver account.
 
 | # | Question | Recommendation |
 |---|---|---|
-| 0 | **First decision.** Which lane do infrastructure changes (`.github/**`, `.axiom/` pins and configuration, ledgers, tooling, `.gitattributes`, `CLAUDE.md`, `.claude/`) and ProgramSpec changes get? Today none: `fail`. 48 of the last 50 merged PRs are in this class (49 before #2045 merged) | Decide before the check is required. One option is the same enrolled-owner, content-bound approval as the v6 lane, without a manifest |
+| 0 | **First decision.** Which lane do infrastructure changes (`.github/**`, `.axiom/` pins and configuration, ledgers, tooling, `.gitattributes`, `CLAUDE.md`, `.claude/`) and ProgramSpec changes get? Today none: `fail`. 48 of the last 50 merged PRs are in this class (49 before #2045 merged) | Decide before the check is required. Recommended: three classes ("Proposed three-class lane" in §3; implemented behind `INFRASTRUCTURE_LANE_ENABLED = False`): content keeps its lanes; every other known path is control plane and needs one content-bound approval from an enrolled owner; the stand-aside class is empty; content mixed with anything else is refused. Alternatives are listed there |
 | 0b | A module under a jurisdiction that the base lacks has no lane, also with a v5 manifest. How is a new jurisdiction added? | Through the lane of question 0 |
 | 1 | App-published check or an organisation required-workflow ruleset? | The App. Switch only if the ruleset documentation confirms the capability |
 | 2 | Is a polling sweep (about 5 minutes) acceptable as the trigger? | Yes for the pilot |

@@ -1,8 +1,7 @@
 # Proposal: approve a promoted RuleSpec PR after validation, not before
 
-Status: **direction decided, not implemented.** A maintainer chose Option A
-with conditions on 2026-11-12 (see "Maintainer decisions"). Tracking issue:
-#2172. This document changes no behavior, and the new order is not active.
+Status: **proposal; maintainer acceptance pending.** Tracking issue: #2172.
+This document changes no behavior, and the new order is not active.
 `docs/reviewed-pr-promotion.md` remains the description of the live lane.
 
 ## The problem in one paragraph
@@ -51,12 +50,14 @@ Facts about this order:
   that one enrolled owner authored, the other enrolled owner is the only
   possible approver.
 
-## Option A (chosen): sign first, approve the green candidate PR
+<a name="option-a-chosen-sign-first-approve-the-green-candidate-pr"></a>
+
+## Option A (proposed): sign first, approve the green candidate PR
 
 | # | Step | Who | What a reviewer can see |
 |---|------|-----|-------------------------|
 | 1 | Local encode; open candidate PR | contributor | — |
-| 2 | Dispatch promotion | enrolled identity at first; may be the candidate author (decision 3) | — |
+| 2 | Dispatch promotion | enrolled identity at first; may be the candidate author (proposed answer 3) | — |
 | 3 | Scope preflight, `production-signing` gate, validate, sign | workflow | — |
 | 4 | Signed commit reaches the candidate branch; full CI on the candidate PR | workflow, CI | — |
 | 5 | Approve the candidate PR; merge | enrolled signing owner, neither the author nor the dispatcher | green required check, validation and CI results, the manifest |
@@ -83,11 +84,11 @@ What changes:
 3. **Manifest**: a new field in a versioned signed manifest records what the
    signature attests, for example `review: none`, `origin: local-candidate`.
    The signature means "encoder main validated these exact bytes", not "an
-   owner reviewed them". Verifiers must distinguish the two (decision 1).
+   owner reviewed them". Verifiers must distinguish the two (proposed answer 1).
 4. **A new merge gate** in the RuleSpec repository: a manifest with
    `review: none` lands only with an approval from an enrolled signing owner
    who is neither the candidate author nor the authenticated dispatcher. This
-   gate does not exist today. Decision 2 sets its form: a trusted
+   gate does not exist today. Proposed answer 2 sets its form: a trusted
    content-bound guard that branch protection requires. It binds to the
    approved content hashes over the complete final PR delta (primary,
    companion, manifest and any permitted reverse index), not to the head
@@ -132,8 +133,8 @@ goes no further.
 
 ## Questions for a maintainer decision
 
-All three are answered; see "Maintainer decisions" below. The questions stay
-here as the record of what was asked.
+Maintainer acceptance remains open on all three questions. The agent-proposed
+answers below describe one approach.
 
 1. Is a signature over validated but unreviewed bytes acceptable when the
    manifest says so and the merge needs an owner approval? If no, Option B.
@@ -145,11 +146,13 @@ here as the record of what was asked.
    enrolled identities? This sets the load on signing compute and on the
    `production-signing` gate.
 
-## Maintainer decisions (2026-11-12)
+<a name="maintainer-decisions-2026-11-12"></a>
 
-Recorded from the review by @MaxGhenis on #2173
-(`pullrequestreview-5877972088`): Option A for promotions after the current
-canary.
+## Agent-proposed answers (2026-11-12)
+
+An agent posted [these answers](https://github.com/TheAxiomFoundation/axiom-encode/pull/2173#pullrequestreview-5877972088)
+under @MaxGhenis's account on #2173. Max has not ratified them. They propose
+Option A for promotions after the current canary.
 
 1. **Signature scope (question 1): yes.** The signing service may sign
    validated, unreviewed candidate bytes when a versioned signed manifest
@@ -172,12 +175,14 @@ canary.
    approval. Broader dispatch is revisited after the pilot, with explicit
    limits on compute and on approval load.
 
-These decisions guide the implementation. They do not activate the new order.
+These proposed constraints guide implementation; maintainer acceptance remains
+open. They do not authorize activation.
 
 ## Sequence
 
 1. The first production canary (rulespec-us#2045) runs on the current order,
    so that the live lane is proven end to end before it changes.
-2. The merge gate of decision 2 is built and passes adversarial tests.
-3. The new order is activated only after that gate is enforced and holds the
-   conditions above. Until then every promotion uses the current order.
+2. Build the merge gate of proposed answer 2 and pass its adversarial tests.
+3. Activate the new order only after maintainer acceptance and after the gate
+   enforces the conditions above. Until then every promotion uses the current
+   order.

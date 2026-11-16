@@ -1,0 +1,1 @@
+Add a switched-off reader for `applied-rulespec/v6` promotion manifests, which record that the signature attests validation without owner review; verifiers still refuse v6 until the switch is turned on.

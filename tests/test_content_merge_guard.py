@@ -5,6 +5,7 @@ Every case runs over an injected ``fetch``; no test reaches the network.
 """
 
 import argparse
+import ast
 import base64
 import copy
 import hashlib
@@ -2055,7 +2056,28 @@ def test_nothing_in_the_encoder_calls_the_guard():
             or "merge-guard" in path.read_text(errors="ignore")
         )
     ]
-    assert callers == ["src/axiom_encode/cli.py"]
+    # applied_manifest_v6.py names the merge requirement a v6 manifest must
+    # carry (a string constant). It does not import or call the guard.
+    assert sorted(callers) == [
+        "src/axiom_encode/applied_manifest_v6.py",
+        "src/axiom_encode/cli.py",
+    ]
+    # By import, not by text: only the lazy import of the CLI command.
+    importers = set()
+    for path in (root / "src" / "axiom_encode").rglob("*.py"):
+        if path.name == "content_merge_guard.py":
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            names = (
+                [alias.name for alias in node.names]
+                if isinstance(node, ast.Import)
+                else [node.module or "", *(alias.name for alias in node.names)]
+                if isinstance(node, ast.ImportFrom)
+                else []
+            )
+            if any(name.split(".")[-1] == "content_merge_guard" for name in names):
+                importers.add(path.relative_to(root).as_posix())
+    assert importers == {"src/axiom_encode/cli.py"}
 
 
 # --- CLI --------------------------------------------------------------------
