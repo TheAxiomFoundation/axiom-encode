@@ -1,3 +1,7 @@
+## 0.2.2377
+
+- Bind large primary review guidance to immutable producer evidence (#2140)
+
 ## 0.2.2376
 
 - Preserve authenticated policy bytes during manifest refresh (#2225)
