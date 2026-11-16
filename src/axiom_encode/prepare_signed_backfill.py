@@ -4713,7 +4713,9 @@ def authorized_changed_paths(
                 )
         is_reviewed_repair = tool == "axiom-encode apply-reviewed-repair"
         if is_reviewed_repair:
-            from .reviewed_repair_patch import verify_manifest_reconstruction
+            from axiom_encode.reviewed_repair_patch import (
+                verify_manifest_reconstruction,
+            )
 
             if backend is not None:
                 raise ValueError("reviewed repair cannot claim a model backend")
