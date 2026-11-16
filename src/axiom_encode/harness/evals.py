@@ -12658,6 +12658,16 @@ Return ONLY raw RuleSpec YAML for `{target_file_name}`. Do not include fences or
                 rulespec_context_files,
             )
         )
+        # The start-date rule for a date-silent manual unit (#2212) puts every
+        # companion period on or after the chosen start, which can follow the
+        # example oracle periods. Other prompts keep the earlier text.
+        oracle_period_start_note = (
+            "\n  When the start-date rule for a date-silent unit applies, it "
+            "comes first: keep every such period on or after the start date "
+            "you choose, also when that start is later than these examples."
+            if manual_start_date_rule
+            else ""
+        )
         target_hint = f"""
 Preferred principal output:
 - Treat the PolicyEngine hint as an oracle-semantic hint, not as a license to
@@ -12716,7 +12726,7 @@ Preferred principal output:
   intended to supply PolicyEngine oracle evidence. Never replace or omit a
   source-required historical branch merely to make it oracle-comparable; keep
   its companion case at the legally applicable period even when it cannot
-  contribute oracle evidence.
+  contribute oracle evidence.{oracle_period_start_note}
 - If that output has a durable `jurisdiction:path#rule` id, key the test by that id rather than the friendly local name.
 - Key inputs by their resolving legal RuleSpec target too, e.g. `jurisdiction:path#input.fact`, `jurisdiction:path#relation.name`, or `jurisdiction:path#upstream_rule`.
 - If a copied downstream output with the oracle hint's local name is available, assert that canonical copied output rather than replacing it with a helper-only local test.

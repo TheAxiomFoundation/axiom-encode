@@ -351,6 +351,16 @@ These items add nothing:
 
 The check refuses a start that only such an import would support.
 
+Whether an imported start counts as support is one of the open decisions of
+issue #2212, and some results depend on it. In the replay fixture
+`37150620832` (Arizona FAA5 block 9), eight rules start on `2025-10-01`. The
+unit prints no date, and only the imported utility-allowance exports declare
+that start. With the fixture's import providers the replay reports no
+start-date finding; without them (`--no-context`) it reports one. Neither run
+reports a replay error. The benchmark totals do not show this dependence, so
+`test_replay_block_9_start_rests_on_imported_starts` in
+`tests/test_start_date_evidence.py` pins both results.
+
 ### Corpus dates
 
 Missing metadata never supports a start. The check reads `source_as_of` and
@@ -380,6 +390,17 @@ adds that flag when its `require_complete_source_unit` setting holds `true`,
 and `axiom-encode validate` without the flag skips the check. The replay
 benchmark passes each fixture's attestation dates and import providers, and
 no amendment context.
+
+Admission scoring always uses that mode. `score_admission` in
+[`harness/admission.py`](../src/axiom_encode/harness/admission.py) validates
+every candidate with `require_complete_source_unit=True`, both for
+`axiom-encode admission-score` and for the admission scores of an eval suite.
+A stored date-silent manual candidate can therefore get a different admission
+result when it is scored after this check lands: an unsupported start turns an
+admitted candidate into a refusal, and it adds a refusal to a candidate that
+other findings already refuse. The admission scorer has no category for this
+check, so it files the refusal as `unknown-prefix` and lists it in
+`unknown_issues`.
 
 ## Publish the registry
 

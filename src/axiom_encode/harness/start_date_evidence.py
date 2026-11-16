@@ -11,9 +11,10 @@ the ``complete-source-unit:effective-date/start-unsupported`` check:
     copied from a neighbouring module is not support.
 
 The *evidence floor* is the first day of the first full calendar month that
-starts on or after ``source_as_of``. It is an evidence-coverage floor ("the
-corpus holds this text from here; earlier coverage is unproven"), not a
-claimed legal commencement date.
+starts on or after ``source_as_of``. It is a proposed calendar convention, not
+a claimed legal commencement date: the calculation only rounds a date. It
+establishes no legal commencement, first corpus custody or text continuity,
+and the other supported dates can lie before it.
 
 The check is the narrow form of that rule, to keep false refusals low. It
 looks only at a unit that is all of: a corpus ``manual`` document, date-silent
@@ -70,7 +71,7 @@ _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 @dataclass(frozen=True)
 class StartDateEvidence:
-    """What the corpus says about when it holds the unit's text.
+    """The unit's corpus metadata dates, ``source_as_of`` and ``expression_date``.
 
     ``problems`` names every date field that is missing, malformed or
     contradictory. A field with a problem is ``None`` and supports nothing.
@@ -317,7 +318,7 @@ CHECK_START_UNSUPPORTED = declare_check(
         "corpus `expression_date` or `source_as_of`, the evidence floor, or "
         "the `0001-01-01` scaffold. A date quoted by any other proof atom is "
         "not support. Do not copy the start date of a neighbouring "
-        "module. The evidence floor is an evidence-coverage floor, not a "
+        "module. The evidence floor is a proposed calendar convention, not a "
         "claimed legal commencement date. The same rule applies to a `from` "
         "alias and to the start on a rule with absent or empty `versions`."
     ),
@@ -607,8 +608,9 @@ def _permitted_dates_text(evidence: StartDateEvidence) -> str:
         parts.append(f"the corpus `source_as_of` `{evidence.source_as_of}`")
         parts.append(
             f"the evidence floor `{evidence.evidence_floor}` (first day of the "
-            "first full calendar month on or after `source_as_of`; an "
-            "evidence-coverage floor, not a claimed legal commencement date)"
+            "first full calendar month on or after `source_as_of`; a "
+            "proposed calendar convention, not a claimed legal commencement "
+            "date)"
         )
     parts.append(f"the `{SCAFFOLD_START.isoformat()}` scaffold")
     return "; ".join(parts)

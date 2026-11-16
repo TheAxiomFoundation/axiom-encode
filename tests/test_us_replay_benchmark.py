@@ -65,6 +65,7 @@ from scripts.replay_us_failure_bundles import (
     snapshot_from_report,
     unneeded_allowances,
 )
+from tests.real_engine import binding_receipt
 
 FIXTURES = DEFAULT_FIXTURE_ROOT
 SNAPSHOT = FIXTURES / SNAPSHOT_FILE
@@ -385,9 +386,7 @@ def test_real_engine_public_proof_alias_preserves_program_and_companion(
     country = checkout / case.policy_prefix
     program = country / case.module_path
     program.parent.mkdir(parents=True)
-    receipt = json.loads(
-        real_engine.binary.with_name("axiom-rules-engine.provenance.json").read_text()
-    )
+    receipt = binding_receipt(real_engine)
     config = checkout / ".axiom/toolchain.toml"
     config.parent.mkdir(parents=True)
     config.write_text(

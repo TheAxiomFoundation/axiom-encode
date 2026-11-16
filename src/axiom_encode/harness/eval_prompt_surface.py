@@ -250,6 +250,6 @@ def render_date_silent_start_guidance(
 {numbered}
   {preference}
 - A date copied from a precedent module or a sibling module is not support, also when that module encodes the same manual or program. Do not reuse a neighbour's start date.
-- The evidence floor is an evidence-coverage floor, not a claimed legal commencement date: the corpus holds this text from that date, and earlier coverage is unproven. Do not call it an effective date or a commencement date in names, summaries or tests.
+- The evidence floor is a proposed calendar convention, not a claimed legal commencement date. Its calculation only rounds `source_as_of` to the start of a calendar month: it does not show when the corpus first held this text, that the text stayed unchanged, or that it was not in force earlier. Do not call it an effective date or a commencement date in names, summaries or tests.
 - Put every companion test period on or after the start date you choose.
 """

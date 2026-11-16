@@ -17,6 +17,7 @@ import pytest
 import yaml
 
 from axiom_encode.harness import start_date_evidence as sde
+from tests.real_engine import binding_receipt
 from tests.test_start_date_evidence import (
     CITATION,
     EVIDENCE,
@@ -533,9 +534,7 @@ def test_real_engine_public_raw_merge_preserves_the_program_and_companion(
         path = (country / target.split(":", 1)[1]).with_suffix(".yaml")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
-    receipt = json.loads(
-        real_engine.binary.with_name("axiom-rules-engine.provenance.json").read_text()
-    )
+    receipt = binding_receipt(real_engine)
     assert receipt["binary_sha256"] == real_engine.sha256
     config = checkout / ".axiom/toolchain.toml"
     config.parent.mkdir(parents=True)

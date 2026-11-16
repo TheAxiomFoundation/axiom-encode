@@ -94,10 +94,18 @@ candidate bytes.
 Its `issues.json` records one unsupported `2026-03-01` start from the official
 replay CLI at encoder commit `e85c629eb`. The analyzer at `b89c050a` reports no
 finding on either the mutation or its parent, so the snapshot pins the
-mutation clean. Separate controls at engine commit `363c6a6c` compile both
-candidates to identical 19,982-byte outputs, and both unchanged 15-case
-companions pass. Separate proof-validator controls also give both candidates
-the same result. The proof validator accepts all 20 atoms structurally and
+mutation clean. The real-engine control
+`test_real_engine_public_proof_alias_preserves_program_and_companion` compiles
+both candidates with the bound engine, requires identical output bytes and
+runs both unchanged 15-case companions; CI runs it at the engine pin. The
+control does not check the output size. On 2026-11-15, a local compile of
+each candidate with an engine that `axiom-encode engine-bind --pin
+363c6a6c56f7ad130996b63f7a09cfd4c3d9b021` built and bound gave identical
+19,982-byte outputs (`axiom-rules-engine compile --program <candidate>
+--rulespec-root <checkout> --output <file>`, with the checkout's
+`.axiom/toolchain.toml` set to that commit). That size is a recorded local
+measurement, not a checked value. Separate proof-validator controls also give
+both candidates the same result. The proof validator accepts all 20 atoms structurally and
 reports four unresolved-source findings with the retained source-text map for
 `us-az/manual/des/archived-policy/2026-03-23-whats-changed`. The fixture lacks
 that change-notice body, so these results do not establish full release-bound

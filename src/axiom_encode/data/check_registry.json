@@ -75,7 +75,7 @@
     {
       "category": "complete-source-unit:effective-date",
       "cause": "encoder_output",
-      "fix": "Change `rules[].versions[].effective_from` (and the companion test periods that depend on it) to a date the unit's own evidence supports: a date printed in `./source.txt`, a date printed in the evidence text of a proof atom of the same rule with `kind: effective_period`, the corpus `expression_date` or `source_as_of`, the evidence floor, or the `0001-01-01` scaffold. A date quoted by any other proof atom is not support. Do not copy the start date of a neighbouring module. The evidence floor is an evidence-coverage floor, not a claimed legal commencement date. The same rule applies to a `from` alias and to the start on a rule with absent or empty `versions`.",
+      "fix": "Change `rules[].versions[].effective_from` (and the companion test periods that depend on it) to a date the unit's own evidence supports: a date printed in `./source.txt`, a date printed in the evidence text of a proof atom of the same rule with `kind: effective_period`, the corpus `expression_date` or `source_as_of`, the evidence floor, or the `0001-01-01` scaffold. A date quoted by any other proof atom is not support. Do not copy the start date of a neighbouring module. The evidence floor is a proposed calendar convention, not a claimed legal commencement date. The same rule applies to a `from` alias and to the start on a rule with absent or empty `versions`.",
       "gate": "ci",
       "id": "complete-source-unit:effective-date/start-unsupported",
       "requires": "In a manual source unit that prints no date, every `rules[].versions[].effective_from` (including its `from` alias and rule-level implicit versions) is the `0001-01-01` scaffold, the corpus `expression_date` or `source_as_of`, the evidence floor (the first day of the first full calendar month on or after `source_as_of`), or a date printed in the evidence text of an `effective_period` proof atom of the same rule.",
@@ -1129,6 +1129,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "e5b399c8aea379e4a7dbfeb705e383fb82791b9fabd760a0df7f8851b68db9c9",
+  "registry_sha256": "395bc25a617a16670c930f6c3d5d417252da169cf3033b7fce6dcf4c07c20fd3",
   "schema": "axiom-encode/check-registry/v1"
 }

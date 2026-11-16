@@ -597,6 +597,12 @@ def test_version_without_a_start_is_left_to_other_checks():
             metadata(source_as_of=20260717),
             "source_attestation.source_as_of is not a YYYY-MM-DD date",
         ),
+        # date.fromisoformat reads the basic format on Python 3.11+; only the
+        # strict pattern keeps it out.
+        (
+            metadata(source_as_of="20260717"),
+            "source_attestation.source_as_of is not a YYYY-MM-DD date",
+        ),
         (
             metadata(row={"source_as_of": "2026-07-18"}),
             "source_attestation.source_as_of and "
@@ -752,9 +758,15 @@ def test_check_is_declared_and_registered():
     assert registered.category == "complete-source-unit:effective-date"
     assert registered.gate == "ci" and registered.cause == "encoder_output"
     assert "axiom_encode.harness.start_date_evidence" in checks.CHECK_MODULES
-    feedback = "\n".join(checks.issue_fix_feedback(issues(module("2025-10-01"))))
+    found = issues(module("2025-10-01"))
+    feedback = "\n".join(checks.issue_fix_feedback(found))
     assert f"[{CHECK_ID}]" in feedback
     assert "Do not copy the start date of a neighbouring module" in feedback
+    # The floor is a calendar convention; neither the fix nor the message may
+    # describe it as corpus coverage.
+    convention = "a proposed calendar convention, not a claimed legal commencement"
+    assert convention in feedback and convention in str(found[0])
+    assert "coverage" not in feedback + str(found[0])
     assert "import" not in feedback.lower()
     assert "found 2025-10-01" in feedback
 
@@ -915,13 +927,19 @@ def test_pipeline_passes_amendment_context(monkeypatch):
 
     monkeypatch.setattr(vp, "analyze_complete_source_unit", capture)
     content = yaml.safe_dump(module("2025-10-01"))
-    for kwargs in ({}, {"amendment_source_texts": {"us/statute/1/1": "Amended."}}):
+    for kwargs in (
+        {},
+        {"amendment_source_texts": {"us/statute/1/1": "Amended."}},
+        # Bound amendment documents alone, without their texts, are context.
+        {"amendment_documents": (SimpleNamespace(citation_path="us/statute/1/1"),)},
+    ):
         _pipeline(
             require_complete_source_unit=True, source_metadata=metadata(), **kwargs
         )._complete_source_unit_issues(
             content, validation_source_texts={CITATION: SOURCE}, test_cases=[]
         )
-    assert seen == [EVIDENCE, dataclasses.replace(EVIDENCE, amendment_context=True)]
+    in_context = dataclasses.replace(EVIDENCE, amendment_context=True)
+    assert seen == [EVIDENCE, in_context, in_context]
 
 
 def test_replay_passes_the_fixture_snapshot_dates():
@@ -943,6 +961,31 @@ def test_replay_passes_the_fixture_snapshot_dates():
     assert len(found) == 1
     assert "the evidence floor `2026-08-01`" in found[0]
     assert "the corpus `expression_date` `2026-07-01`" in found[0]
+
+
+def test_replay_block_9_start_rests_on_imported_starts():
+    from scripts.replay_us_failure_bundles import (
+        DEFAULT_FIXTURE_ROOT,
+        load_fixture,
+        replay_case,
+    )
+
+    # Arizona FAA5 block 9 (run 37150620832): date-silent, `source_as_of` and
+    # `expression_date` 2026-07-17. Eight rules start on 2025-10-01, a date that
+    # only the imported utility-allowance exports declare. The start passes
+    # with the fixture's providers and is refused without them, so the result
+    # depends on #2212's open decision on imported starts. Aggregate replay
+    # totals do not show that dependence.
+    case = load_fixture(DEFAULT_FIXTURE_ROOT / "37150620832")
+    with_imports = replay_case(case, use_context=True)
+    without_imports = replay_case(case, use_context=False)
+    assert with_imports["error"] is None and without_imports["error"] is None
+    assert with_imports["imports_unresolved"] == []
+    assert _start_issues(with_imports["issues"]) == []
+    found = _start_issues(without_imports["issues"])
+    assert len(found) == 1
+    assert "is `2025-10-01` in 8 version(s)" in found[0]
+    assert "the evidence floor `2026-08-01`" in found[0]
 
 
 # --------------------------------------------------------------------------
@@ -977,11 +1020,17 @@ def test_prompt_guidance_states_the_rule_with_the_computed_floor():
         "4. the neutral scaffold `0001-01-01`",
         "Without one, use the evidence floor `2026-08-01`.",
         "A date copied from a precedent module or a sibling module is not support",
-        "The evidence floor is an evidence-coverage floor, not a claimed legal "
-        "commencement date",
+        "The evidence floor is a proposed calendar convention, not a claimed "
+        "legal commencement date.",
+        "it does not show when the corpus first held this text, that the text "
+        "stayed unchanged, or that it was not in force earlier.",
         "Put every companion test period on or after the start date you choose.",
     ):
         assert needle in text, needle
+    # The floor only rounds a date; no wording may claim corpus coverage
+    # (docs/validator-checks.md).
+    for claim in ("evidence-coverage", "the corpus holds this text"):
+        assert claim not in text, claim
     assert "Prefer the earliest scaffold date" not in text
     assert "import" not in text.lower()
 
@@ -1067,6 +1116,7 @@ def _eval_prompt(
     *,
     precedent: bool = False,
     amendment: bool = False,
+    policyengine_rule_hint: str | None = None,
 ) -> str:
     from axiom_encode.harness import evals
     from axiom_encode.repo_routing import monorepo_checkout_name
@@ -1117,7 +1167,49 @@ def _eval_prompt(
         target_file_name="target.yaml",
         include_tests=True,
         runner_backend="codex",
+        policyengine_rule_hint=policyengine_rule_hint,
     )
+
+
+ORACLE_PERIODS = "period like `2022-01` or `2024-01`"
+ORACLE_PERIOD_START_NOTE = (
+    "When the start-date rule for a date-silent unit applies, it comes first: "
+    "keep every such period on or after the start date you choose"
+)
+
+
+def test_eval_prompt_with_an_oracle_hint_puts_manual_periods_after_the_start(
+    tmp_path,
+):
+    # The oracle guidance offers 2022-01 and 2024-01 as example periods; the
+    # block 16 floor is 2026-08-01. The start-date rule decides.
+    metadata = _attestation(CITATION, "2026-07-17", "2026-07-17")
+    manual = _eval_prompt(
+        tmp_path / "manual",
+        CITATION,
+        metadata,
+        policyengine_rule_hint="snap_telephone_utility_allowance",
+    )
+    assert ORACLE_PERIODS in manual
+    assert ORACLE_PERIOD_START_NOTE in manual
+    assert "Put every companion test period on or after the start date" in manual
+    statute = _eval_prompt(
+        tmp_path / "statute",
+        STATUTE,
+        _attestation(STATUTE, "2026-06-26", "2026-06-26"),
+        policyengine_rule_hint="snap_gross_income",
+    )
+    assert ORACLE_PERIODS in statute
+    assert ORACLE_PERIOD_START_NOTE not in statute
+    amended = _eval_prompt(
+        tmp_path / "amended",
+        CITATION,
+        metadata,
+        amendment=True,
+        policyengine_rule_hint="snap_telephone_utility_allowance",
+    )
+    assert ORACLE_PERIODS in amended
+    assert ORACLE_PERIOD_START_NOTE not in amended
 
 
 def test_eval_prompt_for_a_manual_names_the_block_16_floor(tmp_path):
