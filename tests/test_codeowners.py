@@ -51,6 +51,52 @@ FUTURE_PATHS = (
     ".github/a-new-file",
 )
 _LITERAL_PATTERN = re.compile(r"/[A-Za-z0-9._/-]+")
+# GitHub ignores a CODEOWNERS file over 3 MB. This file is a few kilobytes.
+MAX_BYTES = 64 * 1024
+# The entries on main before the directory entry: the signing workflows, the
+# signer, supervisor, broker and trust bootstrap, the scripts the signing job
+# runs, and the gates. Each must stay an entry with both owners. A pull
+# request may add entries; it may not drop one of these without a reviewed
+# change to this list.
+REQUIRED_ENTRIES = (
+    "/.github/workflows/targeted-signed-reencode.yml",
+    "/.github/workflows/encoder-version-bump.yml",
+    "/.github/workflows/ci.yml",
+    "/src/axiom_encode/version_provenance.py",
+    "/src/axiom_encode/prepare_signed_backfill.py",
+    "/src/axiom_encode/reviewed_pr_admission.py",
+    "/src/axiom_encode/content_merge_guard.py",
+    "/src/axiom_encode/applied_manifest_v6.py",
+    "/src/axiom_encode/cli.py",
+    "/scripts/prepare_reviewed_pr_promotion.py",
+    "/tests/test_reviewed_pr_admission.py",
+    "/tests/test_content_merge_guard.py",
+    "/tests/test_applied_manifest_v6.py",
+    "/tests/test_prepare_reviewed_pr_promotion.py",
+    "/tests/test_content_merge_guard_infrastructure.py",
+    "/data/reviewed-rulespec-refs/",
+    "/src/axiom_encode/corpus_artifact_transport.py",
+    "/cmd/axiom-encode-apply-signer/",
+    "/cmd/axiom-encode-signing-supervisor/",
+    "/scripts/provision_verification_supervisor.py",
+    "/src/axiom_encode/signing_broker.py",
+    "/src/axiom_encode/_trusted_signing_bootstrap.py",
+    "/go.mod",
+    "/go.sum",
+    "/scripts/prepare_signed_backfill.py",
+    "/scripts/prepare_signed_queue.py",
+    "/scripts/extract_repair_candidate.py",
+    "/scripts/verify_repair_base_advance.py",
+    "/scripts/materialize_corpus_release.py",
+    "/scripts/provision_axiom_compose_runtime.py",
+    "/scripts/prepare_retired_source_metadata.py",
+    "/.github/workflows/pr-linkage.yml",
+    "/src/axiom_encode/pr_linkage.py",
+    "/.github/CODEOWNERS",
+    "/src/axiom_encode/rulespec_admission_registry.py",
+    "/.github/workflows/validation-effect.yml",
+    "/scripts/check_validation_effect.py",
+)
 
 Rule = tuple[int, str, frozenset[str]]
 
@@ -60,11 +106,23 @@ def parse(text: str) -> tuple[list[Rule], list[str]]:
 
     rules: list[Rule] = []
     problems: list[str] = []
-    for number, line in enumerate(text.splitlines(), start=1):
-        stripped = line.strip()
+    # GitHub's own reading of other line breaks and spaces (a form feed, a
+    # lone carriage return, U+2028, a no-break space) is not documented, and
+    # Python's ``splitlines`` and ``split`` treat them as separators. So the
+    # file may hold printable ASCII and "\n" only, lines end at "\n" only,
+    # and tokens are separated by spaces only.
+    for number, line in enumerate(text.split("\n"), start=1):
+        bad = sorted({char for char in line if not " " <= char <= "~"})
+        if bad:
+            problems.append(
+                f"line {number}: characters {bad!r} are not printable ASCII; "
+                "this check cannot evaluate the line"
+            )
+            continue
+        stripped = line.strip(" ")
         if not stripped or stripped.startswith("#"):
             continue
-        pattern, *owners = stripped.split()
+        pattern, *owners = [token for token in stripped.split(" ") if token]
         if (
             _LITERAL_PATTERN.fullmatch(pattern) is None
             or "//" in pattern
@@ -115,7 +173,7 @@ def coverage_problems(text: str, paths: list[str]) -> list[str]:
     """
 
     rules, problems = parse(text)
-    if GITHUB_DIRECTORY_LINE not in text.splitlines():
+    if GITHUB_DIRECTORY_LINE not in text.split("\n"):
         problems.append(f"the line {GITHUB_DIRECTORY_LINE!r} is missing")
     directory_lines = [
         number for number, pattern, _owners in rules if pattern == GITHUB_DIRECTORY
@@ -152,8 +210,166 @@ def coverage_problems(text: str, paths: list[str]) -> list[str]:
     return problems
 
 
+def file_problems(path: Path) -> list[str]:
+    """Return why ``path`` is not a small regular file that GitHub will read."""
+
+    if path.is_symlink():
+        return [f"{path.name} is a symbolic link"]
+    if not path.is_file():
+        return [f"{path.name} is not a regular file"]
+    size = path.stat().st_size
+    if size > MAX_BYTES:
+        return [f"{path.name} has {size} bytes, more than {MAX_BYTES}"]
+    return []
+
+
+def path_problems(rules: list[Rule], root: Path) -> list[str]:
+    """Return every entry whose pattern names no existing file or directory."""
+
+    problems = []
+    for number, pattern, _owners in rules:
+        target = root / pattern.strip("/")
+        if pattern.endswith("/"):
+            exists = target.is_dir() and not target.is_symlink()
+        else:
+            exists = target.is_file() or target.is_dir()
+        if not exists:
+            problems.append(f"line {number}: {pattern!r} names no existing path")
+    return problems
+
+
+def required_entry_problems(rules: list[Rule]) -> list[str]:
+    """Return every required entry that is missing or lost an owner."""
+
+    patterns = {pattern for _number, pattern, _owners in rules}
+    problems = [
+        f"required entry {pattern!r} is missing"
+        for pattern in REQUIRED_ENTRIES
+        if pattern not in patterns
+    ]
+    for pattern in REQUIRED_ENTRIES:
+        # A directory pattern is checked through a path inside it.
+        path = pattern.strip("/") + ("/x" if pattern.endswith("/") else "")
+        if pattern in patterns and owners_of(rules, path) != CODE_OWNERS:
+            problems.append(f"required entry {pattern!r} lost an owner")
+    return problems
+
+
 def _text() -> str:
-    return CODEOWNERS.read_text(encoding="utf-8")
+    # newline="" keeps "\r" visible: the default would translate it to "\n".
+    assert file_problems(CODEOWNERS) == []
+    with CODEOWNERS.open(encoding="utf-8", newline="") as stream:
+        return stream.read()
+
+
+def test_codeowners_is_a_small_regular_file(tmp_path):
+    assert file_problems(CODEOWNERS) == []
+    real = tmp_path / "real"
+    real.write_text(GITHUB_DIRECTORY_LINE + "\n", encoding="utf-8")
+    assert file_problems(real) == []
+    link = tmp_path / "CODEOWNERS"
+    link.symlink_to(real)
+    assert file_problems(link) != []
+    assert file_problems(tmp_path / "absent") != []
+    assert file_problems(tmp_path) != []
+    large = tmp_path / "large"
+    large.write_bytes(b"#" * MAX_BYTES + b"\n")
+    assert file_problems(large) != []
+    large.write_bytes(b"#" * (MAX_BYTES - 1) + b"\n")
+    assert file_problems(large) == []
+    assert MAX_BYTES * 40 < 3 * 1024 * 1024
+
+
+def test_every_entry_names_an_existing_path(tmp_path):
+    rules, problems = parse(_text())
+    assert problems == []
+    assert path_problems(rules, ROOT) == []
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("", encoding="utf-8")
+    both = CODE_OWNERS
+    assert path_problems([(1, "/src/a.py", both), (2, "/src/", both)], tmp_path) == []
+    assert path_problems([(1, "/src", both)], tmp_path) == []
+    for pattern in ("/src/b.py", "/src/a.py/", "/SRC/A.PY/", "/srcs/", "/a.py"):
+        assert path_problems([(1, pattern, both)], tmp_path) != [], pattern
+
+
+def test_the_required_entries_are_present_with_both_owners():
+    rules, problems = parse(_text())
+    assert problems == []
+    assert len(REQUIRED_ENTRIES) == len(set(REQUIRED_ENTRIES)) == 37
+    assert required_entry_problems(rules) == []
+    kept = [rule for rule in rules if rule[1] != REQUIRED_ENTRIES[0]]
+    assert required_entry_problems(kept) != []
+    for pattern in (
+        "/.github/workflows/targeted-signed-reencode.yml",
+        "/src/axiom_encode/signing_broker.py",
+        "/cmd/axiom-encode-apply-signer/",
+        "/.github/CODEOWNERS",
+    ):
+        assert pattern in REQUIRED_ENTRIES
+        dropped = [rule for rule in rules if rule[1] != pattern]
+        assert required_entry_problems(dropped) != [], pattern
+        weakened = [
+            (
+                number,
+                name,
+                frozenset({"@PavelMakarchuk"}) if name == pattern else owners,
+            )
+            for number, name, owners in rules
+        ]
+        assert required_entry_problems(weakened) != [], pattern
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(
+            f"/.github/ {' '.join(sorted(CODE_OWNERS, reverse=True))}\x0c"
+            "/.github/workflows/x.yml\n",
+            id="form-feed-hides-an-entry-with-no-owner",
+        ),
+        pytest.param(
+            "/.github/ @PavelMakarchuk @MaxGhenis\u2028/.github/workflows/\n",
+            id="line-separator",
+        ),
+        pytest.param(
+            "/.github/ @PavelMakarchuk @MaxGhenis\r/.github/workflows/\n",
+            id="lone-carriage-return",
+        ),
+        pytest.param(
+            "/.github/ @PavelMakarchuk @MaxGhenis\r\n", id="carriage-return-line-feed"
+        ),
+        pytest.param(
+            "/.github/\u00a0@PavelMakarchuk @MaxGhenis\n", id="no-break-space"
+        ),
+        pytest.param("/.github/\t@PavelMakarchuk @MaxGhenis\n", id="tab"),
+        pytest.param("/.github/ @PavelMakarchuk @MaxGhenis\x0b\n", id="vertical-tab"),
+        pytest.param("/.github/ @PavelMakarchuk @MaxGhenis\x85\n", id="next-line"),
+        pytest.param(
+            "/.github/ @PavelMakarchuk @MaxGhenis\n\x1c/.github/workflows/\n",
+            id="file-separator",
+        ),
+        pytest.param(
+            "/.github/ @PavelMakarchuk @MaxGhenis\n# caf\u00e9\n",
+            id="non-ascii-in-a-comment",
+        ),
+        pytest.param(
+            "\ufeff/.github/ @PavelMakarchuk @MaxGhenis\n", id="byte-order-mark"
+        ),
+        pytest.param("/.github/ @PavelMakarchuk @MaxGhenis\x00\n", id="nul"),
+    ],
+)
+def test_the_tripwire_refuses_characters_it_cannot_read(text):
+    """Python would split these where GitHub may not, or the reverse."""
+
+    _rules, problems = parse(text)
+    assert problems != []
+    assert coverage_problems(text, [".github/workflows/ci.yml"]) != []
+
+
+def test_the_real_file_is_printable_ascii_with_line_feeds_only():
+    assert all(char == "\n" or " " <= char <= "~" for char in _text())
+    assert _text().endswith("\n")
 
 
 def _files_under_dot_github() -> list[str]:
@@ -172,7 +388,7 @@ def test_code_owners_own_every_file_under_dot_github_and_any_new_one():
 
 
 def test_the_line_the_admin_check_greps_for_is_present_once():
-    assert _text().splitlines().count(GITHUB_DIRECTORY_LINE) == 1
+    assert _text().split("\n").count(GITHUB_DIRECTORY_LINE) == 1
 
 
 def test_every_entry_names_both_code_owners():
