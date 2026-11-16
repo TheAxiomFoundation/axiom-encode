@@ -33,6 +33,11 @@ GUARD_WORKFLOW = "merge-guard-runner.yml"
 # (workflow file name, job id) pairs that may select a key environment.
 ALLOWED_SELECTORS = frozenset({(GUARD_WORKFLOW, "run")})
 LOCAL_REUSABLE_PREFIX = "./.github/workflows/"
+# The only trigger the guard workflow may have. A pull_request_target run
+# passes a main branch rule (environment rules evaluate it against the default
+# branch), and workflow_call lets another workflow run the key-bearing job.
+# Change 3b's schedule trigger extends this set in a reviewed change.
+GUARD_TRIGGERS = frozenset({"workflow_dispatch"})
 
 
 def _workflows() -> dict[str, object]:
@@ -47,10 +52,10 @@ def _triggers(workflow: dict) -> object:
     return workflow.get("on", workflow.get(True))
 
 
-def _declares_workflow_call(triggers: object) -> bool:
+def _trigger_names(triggers: object) -> set[object]:
     if isinstance(triggers, (dict, list)):
-        return "workflow_call" in triggers
-    return triggers == "workflow_call"
+        return set(triggers)
+    return {triggers}
 
 
 def selection_problems(workflows: dict[str, object]) -> list[str]:
@@ -61,11 +66,13 @@ def selection_problems(workflows: dict[str, object]) -> list[str]:
         if not isinstance(workflow, dict):
             problems.append(f"{name}: not a workflow mapping")
             continue
-        if name == GUARD_WORKFLOW and _declares_workflow_call(_triggers(workflow)):
-            problems.append(
-                f"{name}: declares workflow_call, so another workflow could run "
-                "its key-bearing job"
-            )
+        if name == GUARD_WORKFLOW:
+            triggers = _trigger_names(_triggers(workflow))
+            if triggers != GUARD_TRIGGERS:
+                problems.append(
+                    f"{name}: triggers {sorted(map(str, triggers))} are not exactly "
+                    f"{sorted(GUARD_TRIGGERS)}"
+                )
         jobs = workflow.get("jobs")
         if not isinstance(jobs, dict):
             problems.append(f"{name}: jobs is not a mapping")
@@ -226,6 +233,39 @@ def _job(**fields: object) -> dict:
             },
             id="guard-workflow-callable-bare-on-key",
         ),
+        pytest.param(
+            {
+                GUARD_WORKFLOW: _workflow(
+                    {"run": _job(environment="merge-guard")},
+                    on={"workflow_dispatch": None, "pull_request_target": None},
+                )
+            },
+            id="guard-workflow-pull-request-target",
+        ),
+        pytest.param(
+            {
+                GUARD_WORKFLOW: _workflow(
+                    {"run": _job(environment="merge-guard")}, on="push"
+                )
+            },
+            id="guard-workflow-push-only",
+        ),
+        pytest.param(
+            {
+                GUARD_WORKFLOW: _workflow(
+                    {"run": _job(environment="merge-guard")},
+                    on={
+                        "workflow_dispatch": None,
+                        "schedule": [{"cron": "*/5 * * * *"}],
+                    },
+                )
+            },
+            id="guard-workflow-schedule-before-3b",
+        ),
+        pytest.param(
+            {GUARD_WORKFLOW: {"jobs": {"run": _job(environment="merge-guard")}}},
+            id="guard-workflow-without-triggers",
+        ),
         pytest.param({"broken.yml": None}, id="empty-workflow-file"),
         pytest.param({"broken.yml": {"on": "push"}}, id="workflow-without-jobs"),
     ],
@@ -244,6 +284,15 @@ def test_the_tripwire_reports_each_way_to_reach_the_key(workflows):
         pytest.param(
             {GUARD_WORKFLOW: _workflow({"run": _job(environment="merge-guard-key")})},
             id="the-listed-job-with-the-new-name",
+        ),
+        pytest.param(
+            {
+                GUARD_WORKFLOW: _workflow(
+                    {"run": _job(environment="merge-guard")},
+                    on={"workflow_dispatch": {"inputs": {"mode": {"type": "choice"}}}},
+                )
+            },
+            id="the-listed-job-dispatch-with-inputs",
         ),
         pytest.param(
             {"other.yml": _workflow({"sign": _job(environment="production-signing")})},
