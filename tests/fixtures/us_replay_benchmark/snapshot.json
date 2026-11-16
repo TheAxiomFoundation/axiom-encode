@@ -2,8 +2,8 @@
  "schema": "axiom-encode/us-replay-snapshot/v2",
  "context": "workspace",
  "totals": {
-  "cases": 54,
-  "clean": 12,
+  "cases": 55,
+  "clean": 13,
   "issues": 3345,
   "rules": {
    "complete-source-unit:declaration-collision": 2,
@@ -3837,6 +3837,14 @@
     "[complete-source-unit:tests] Companion tests do not exercise every source-stated boundary input; missing: (B)=200.",
     "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: us/statute/26/219/g(1) [provision (1)] [change]: `(1) In general If (for any part of any plan year ending with or within a taxable year) an individual or the individual’s spouse is an active pa ... duced (but not below zero) by the amount determined under paragraph (2).`; us/statute/26/219/g(2)(i)(B) [provision (2)(i)(B)] [zero]: `(B) No reduction below $200 until complete phase-out No dollar limitation shall be reduced below $200 under paragraph (1) unless (without regard to this subparagraph) such limitation is reduced to zero.`; us/statute/26/219/g(6)(A) [provision (6)(A)] [exclude]: `(A) Members of reserve components Participation in a plan described in subparagraph (A)(iii) of paragraph (5) by reason of service as a member ... ys on active duty (other than active duty for training) during the year.`; us/statute/26/219/g(6)(B)(i) [provision (6)(B)(i)] [change]: `(i) who is a participant in a plan described in subparagraph (A)(iii) of paragraph (5) based on his activity as a volunteer firefighter, and (i ... f $1,800 (when expressed as a single life annuity commencing at age 65).`; us/statute/26/219/g(7) [provision (7)] [change]: `(7) Special rule for spouses who are not active participants If this subsection applies to an individual for any taxable year solely because th ... n, in applying this subsection to the individual (but not their spouse)—`."
    ]
+  },
+  "local-az-medical-block-8-20261115": {
+   "citation": "us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-8",
+   "control": false,
+   "issues": 0,
+   "rules": {},
+   "error": null,
+   "findings": []
   },
   "local-child-credit-form-20261113": {
    "citation": "ca/policy/cra/t1-2025/ns479-credits",

@@ -1,0 +1,129 @@
+format: rulespec/v1
+module:
+  summary: |-
+    Up to $40 per day for lodging is allowed when the participant must travel over 50 miles to obtain medical treatments or services.
+    NOTE The cost of food is not allowed as a deduction.
+  source_verification:
+    corpus_citation_path: us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-8
+    source_sha256: 79ceaa92daca31ced9fd61ad00d4cffe928290abd5facaa2f3152b539cc7fc1b
+  proof_validation:
+    required: true
+inputs:
+  - name: participant_has_lodging_cost
+    entity: Person
+    dtype: Boolean
+    period: Day
+  - name: lodging_is_to_obtain_medical_treatment_or_services
+    entity: Person
+    dtype: Boolean
+    period: Day
+  - name: participant_must_travel
+    entity: Person
+    dtype: Boolean
+    period: Day
+  - name: travel_distance_miles
+    entity: Person
+    dtype: Decimal
+    period: Day
+  - name: daily_lodging_cost
+    entity: Person
+    dtype: Money
+    unit: USD
+    period: Day
+rules:
+  - name: medical_lodging_daily_cap
+    kind: parameter
+    dtype: Money
+    period: Day
+    unit: USD
+    source: Arizona DES FAA5, NA Medical Expenses and Deduction, block 8
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-8
+              excerpt: "Up to $40 per day for lodging is allowed"
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          40
+  - name: medical_lodging_travel_distance_threshold
+    kind: parameter
+    dtype: Decimal
+    source: Arizona DES FAA5, NA Medical Expenses and Deduction, block 8
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-8
+              excerpt: "the participant must travel over 50 miles"
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          50
+  - name: allowable_daily_medical_lodging_cost
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Day
+    unit: USD
+    source: Arizona DES FAA5, NA Medical Expenses and Deduction, block 8
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-8
+              excerpt: "The cost of lodging to obtain medical treatment or services such as doctor or dental visits and supplies are allowable."
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-8
+              excerpt: "Up to $40 per day for lodging is allowed when the participant must travel over 50 miles to obtain medical treatments or services."
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-8
+              excerpt: |-
+                Examples of medical treatments or services include any of the following:
+
+                ● Prescriptions
+
+                ● Eyeglasses
+
+                ● Dentures
+
+                ● Hearing aids
+
+                ● Sickroom equipment
+      temporal_scope: The start date is the evidence floor following the snapshot, not a claimed legal commencement.
+      cost_scope: Daily lodging cost excludes food. Medical treatment or services includes the listed examples without limiting eligibility to those examples.
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          if participant_has_lodging_cost and lodging_is_to_obtain_medical_treatment_or_services and participant_must_travel and travel_distance_miles > medical_lodging_travel_distance_threshold:
+            min(max(0, daily_lodging_cost), medical_lodging_daily_cap)
+          else: 0
+  - name: medical_travel_food_cost_deduction_allowable
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Day
+    source: Arizona DES FAA5, NA Medical Expenses and Deduction, block 8, NOTE
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-8
+              excerpt: "NOTE The cost of food is not allowed as a deduction."
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          false

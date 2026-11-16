@@ -1,0 +1,32 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "origin": "local-diagnostic",
+  "run_id": "local-az-medical-block-8-20261115",
+  "citation": "us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-8",
+  "module_path": "policies/des/faa5/na-medical-expenses-and-deduction/block-8.yaml",
+  "policy_prefix": "us-az",
+  "split": "visible",
+  "recorded_verdict": "rejected",
+  "encoder_commit": "69bd6525f631d8386005819af11cce29237bde1b",
+  "encoder_tree": "39a80c1aaa6a4e3df0a09f6136461fb592586325",
+  "encoder_version": "0.2.2376",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --jobs 4 --out replay.json",
+  "input_origins": {
+    "candidate.yaml": "tests/fixtures/az_batch3_medical_block_8/candidate.yaml",
+    "candidate.test.yaml": "tests/fixtures/az_batch3_medical_block_8/candidate.test.yaml",
+    "source.txt": "tests/fixtures/az_batch3_medical_block_8/source.txt"
+  },
+  "recorded_issues_scope": "Actual offline replay at main 69bd6525 (before the min-cap witness), with no source_context, execution evidence or native receipt. The candidate and companion are the rejected local encode local:f61921aa (encoder 0.2.2371, 377b90e5); its recorded refusal and source origin are in tests/fixtures/az_batch3_medical_block_8/provenance.json.",
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "recorded_rules": [
+    "complete-source-unit:tests"
+  ],
+  "files": {
+    "candidate.test.yaml": "7ad8e56b92acd8dbcdde7cbb52ed240198dabf588e10682094c570aded7cf121",
+    "candidate.yaml": "179d978d18e7c0b3bd54f0cc41f236e92795569165691cbb7b7ac3d66b0ac765",
+    "issues.json": "a346769fdfcb8b4b1f5e2638ed173ac1de99a0fd932eec413a686cf0c9284660",
+    "source.txt": "79ceaa92daca31ced9fd61ad00d4cffe928290abd5facaa2f3152b539cc7fc1b"
+  }
+}

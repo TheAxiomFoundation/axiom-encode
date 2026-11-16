@@ -7,7 +7,7 @@ corpus checkout. The `replay benchmark` CI job runs it as a required check.
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 54 committed
+(the `[complete-source-unit:*]` rules of the CI validator) over 55 committed
 fixtures in `tests/fixtures/us_replay_benchmark/`. Hosted fixtures are real candidates from `targeted-reencode-failure` artifacts
 of signed runs:
 
@@ -64,6 +64,13 @@ retains three finding groups because it does not receive the authenticated
 secondary-source context used by ordinary validation; it is not a native receipt
 or a publication result.
 
+The Arizona FAA5 medical block 8 fixture retains the rejected local encode
+`local:f61921aa` (a $40 daily lodging cap applied as `min(amount, cap)` inside a
+distance-gated rule) and its companion, copied byte for byte from
+`tests/fixtures/az_batch3_medical_block_8/`. Its `issues.json` is the offline
+replay at `main` before the min-cap boundary witness, which refused it with
+`missing: source unit=40`; the current snapshot pins it clean.
+
 Five Canadian form fixtures cover NL479, the New Brunswick seniors' home
 renovation schedule, student-loan interest, child credits and retirement-income
 transfers. They copy existing public candidate and source bytes. The
@@ -78,11 +85,11 @@ the citation's numeric profile, the companion test cases, imported symbol
 contents, resolved deferral providers and same-act aliases from the source
 metadata. `--no-context` leaves out the last three.
 
-The set has 45 distinct citations: federal statutes, CFR regulations, IRS and
+The set has 46 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, eight Canadian citations
-and one Israeli statute. Its 54 fixtures include one Arizona control that passed
-validation and then failed a provenance guard. The current snapshot has 12 clean
-fixtures and 42 refused fixtures with 3,364 findings. It preserves every snapshot
+and one Israeli statute. Its 55 fixtures include one Arizona control that passed
+validation and then failed a provenance guard. The current snapshot has 13 clean
+fixtures and 42 refused fixtures with 3,345 findings. It preserves every snapshot
 row from both integration parents unchanged. The child-credit and retirement-transfer
 diagnostics retain six and 19 findings; the section 219(g) diagnostic retains 33.
 Read clean counts and per-fixture changes, not only the total.

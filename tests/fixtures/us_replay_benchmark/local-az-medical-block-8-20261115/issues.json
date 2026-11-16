@@ -1,0 +1,21 @@
+{
+  "id": "local-az-medical-block-8-20261115",
+  "run_id": "local-az-medical-block-8-20261115",
+  "citation": "us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-8",
+  "module": "policies/des/faa5/na-medical-expenses-and-deduction/block-8.yaml",
+  "imports_resolved": 0,
+  "imports_unresolved": [],
+  "deferral_providers_resolved": [],
+  "deferral_providers_unresolved": [],
+  "split": "visible",
+  "control": false,
+  "expected_class": null,
+  "expected_subclass": null,
+  "issues": [
+    "[complete-source-unit:tests] Companion tests do not exercise every source-stated boundary input; missing: source unit=40."
+  ],
+  "rules": {
+    "complete-source-unit:tests": 1
+  },
+  "error": null
+}
