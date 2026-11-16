@@ -30,9 +30,11 @@ by any other atom (another kind, or an atom of another rule) is not support:
 such an atom proves something else, for example an amount of a sibling
 provision. The atom's ``path`` is not examined: public candidates anchor their
 ``effective_period`` atoms at ``versions[i].formula`` (replay control
-``41648809989-control``), and a path rule would refuse them. The printed date
-itself ties the atom to the version that starts on it. The atoms and evidence
-texts are read with the proof validator's own reader, so every spelling that
+``41648809989-control``), and a path rule would refuse them. The check is date
+equality only: a start passes when same-rule ``effective_period`` evidence
+prints that date. It does not bind the atom to a version path, and it does not
+establish that the printed date is the commencement of that version. The atoms
+and evidence texts are read with the proof validator's own reader, so every spelling that
 proof validation authenticates (``metadata.proof`` or ``proof``;
 ``source.excerpt`` or ``source.quote``) is read here.
 
@@ -117,8 +119,9 @@ class StartDateEvidence:
 def evidence_floor(source_as_of: date) -> date:
     """First day of the first full calendar month on or after ``source_as_of``.
 
-    A snapshot taken on the first day of a month covers that whole month, so
-    the floor is that day. Any later day gives the first day of the next month.
+    This is date rounding only: the first day of a month returns itself, and
+    any later day returns the first day of the next month. It does not
+    establish that the source text stays the same through that month.
     """
 
     if source_as_of.day == 1:
@@ -144,9 +147,10 @@ def start_date_evidence_from_metadata(
 ) -> StartDateEvidence:
     """Read ``source_as_of`` and ``expression_date`` from a resolver attestation.
 
-    The attestation states each field twice (top level and ``row``). Both
-    copies must be the same strict ISO date; anything else is a problem and
-    the field supports nothing.
+    The attestation can state each field twice (top level and ``row``). A
+    field that only one copy states is read from that copy. When both copies
+    state it, they must be the same date. Every stated copy must be a strict
+    ISO date; anything else is a problem and the field supports nothing.
     """
 
     attestation = (
