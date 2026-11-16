@@ -11661,7 +11661,40 @@ def _complete_source_deferral_anchor(corpus_citation_path: str | None) -> str:
         anchors = _deferral_anchor_bases(corpus_citation_path)
     except Exception:  # pragma: no cover - guidance must never block a prompt
         return "<module path>"
-    return anchors[-1] if anchors else "<module path>"
+    if not anchors:
+        return "<module path>"
+    anchor = anchors[-1]
+    if not _is_manual_or_form_unit(corpus_citation_path):
+        return anchor
+    # A manual or form unit's corpus-shaped anchor (`us-az:manuals/...`) is no
+    # RuleSpec module root, and the target check refuses any output under it.
+    # Name the module's own target (`us-az:policies/...`) instead.
+    try:
+        relative = _source_identifier_to_relative_rulespec_path(corpus_citation_path)
+    except ValueError:
+        return anchor
+    jurisdiction = corpus_citation_path.strip("/").split("/", 1)[0]
+    return f"{jurisdiction}:{relative.with_suffix('').as_posix()}"
+
+
+def _is_manual_or_form_unit(corpus_citation_path: str | None) -> bool:
+    """Whether a corpus unit is a manual or form, encoded under `policies/`."""
+
+    parts = (corpus_citation_path or "").strip("/").split("/")
+    return len(parts) >= 3 and parts[1] in {"manual", "form"}
+
+
+def _unmarked_prose_deferral_note(corpus_citation_path: str | None) -> str:
+    """Tell a manual or form unit not to invent branch markers from prose."""
+
+    if not _is_manual_or_form_unit(corpus_citation_path):
+        return ""
+    anchor = _complete_source_deferral_anchor(corpus_citation_path)
+    return f"""- A manual or form paragraph without a printed marker is not a branch.
+  Defer its output at the module's own target `{anchor}#<name>` and quote its
+  source sentence and missing value in `reason`; never invent a marker from
+  its words, such as `/private-vehicles`.
+"""
 
 
 # Typed completeness checks whose declared fix offers "encode or defer" (or
@@ -12848,6 +12881,7 @@ Complete-source-unit mode is enabled for this request:
   Never guess a blocker target.
 """
             + _format_branch_coverage_plan(deferral_anchor)
+            + _unmarked_prose_deferral_note(corpus_citation_path)
             + """- A child-branch `source:` citation does not cover a distinct parent chapeau.
   When a parent chapeau states applicability, temporal scope, or a shared
   computation, bind one consuming executable rule to that exact parent path

@@ -265,6 +265,18 @@
       "why": "Companion tests are the executed evidence that the encoding behaves as the source says. A source-stated output, branch, boundary, exception or rounding rule without a test can be wrong without any gate noticing."
     },
     {
+      "category": "deferred-outputs",
+      "cause": "encoder_output",
+      "fix": "Write the deferred output under the module's own RuleSpec target, the prefix that its companion tests use, and add `#<output>`. Manual, guidance, policy and form sources are encoded under `policies/`, not `manuals/` or `forms/`.",
+      "gate": "ci",
+      "id": "deferred-outputs/target-not-absolute",
+      "requires": "Each `module.deferred_outputs[].output` is `<jurisdiction>:<root>/<path>#<output>` with the root `legislation`, `policies`, `regulations` or `statutes`.",
+      "severity": "important",
+      "site": "axiom_encode/harness/validator_pipeline.py:find_deferred_output_issues",
+      "title": "Deferred output is not an absolute RuleSpec output target",
+      "why": "A deferral records which output is still missing so that a later encode can supply it. A target outside the RuleSpec module roots names no module, so nobody can find or close the gap."
+    },
+    {
       "category": "infra:authenticate-corpus-export-metadata-without-repository-token",
       "cause": "infra",
       "fix": "Name a successful, unexpired export run of the pinned corpus commit, or run the export again.",
@@ -1153,6 +1165,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "c0874f8f5215faf030207a0d445ece2b073bef41d6bccdd495359335dc8219f0",
+  "registry_sha256": "190e621c69397458651ecae8d61d556e6314dc0c1efcef3cb0588e6d3579f84f",
   "schema": "axiom-encode/check-registry/v1"
 }

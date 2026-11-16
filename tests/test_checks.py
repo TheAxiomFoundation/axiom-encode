@@ -55,7 +55,7 @@ WORKFLOW = REPO / ".github" / "workflows" / "targeted-signed-reencode.yml"
 #: validator issue is a ``ValidationIssue`` from a ``declare_check`` check.
 #: (680 = 648 at this check's start plus 32 sites #1835, #1989 and #1969 added
 #: to main before it merged.)
-UNTYPED_ISSUE_APPEND_BASELINE = 680
+UNTYPED_ISSUE_APPEND_BASELINE = 679
 
 #: ``echo ... >&2`` + ``exit 1`` refusals in the targeted re-encode workflow
 #: that record no infra issue (the hardened steps after the signing supervisor
