@@ -3257,6 +3257,99 @@ def test_model_eval_uses_output_override_for_prompt_and_artifact_path(tmp_path):
     )
 
 
+@pytest.mark.parametrize(
+    ("fixture_name", "expected_quotes"),
+    (
+        ("az_faa5_medical_block13_run2b708c06_rejected.yaml", ["excerpt:102"]),
+        (None, []),
+    ),
+)
+def test_model_eval_records_encoder_quoted_source_scalars(
+    fixture_name, expected_quotes, tmp_path
+):
+    corpus_release, _source_unit = _write_test_source_unit(
+        tmp_path,
+        "Authoritative source.",
+        citation_path="us-nc/statute/105/105-153.7",
+    )
+    policy_root = _canonical_rulespec_content_root(tmp_path, "us-nc")
+    target_relative = Path("policies/des/block-13.yaml")
+    original = (
+        (
+            Path(__file__).parent / "fixtures" / "generated_yaml_scanner" / fixture_name
+        ).read_text()
+        if fixture_name
+        else "format: rulespec/v1\nrules: []\n"
+    )
+
+    def generate(**kwargs):
+        output_file = kwargs["output_file"]
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(original)
+        return (
+            EvalPromptResponse(text="generated", duration_ms=1),
+            True,
+            0,
+            frozenset({output_file}),
+        )
+
+    def evaluate(**kwargs):
+        rulespec_file = kwargs["rulespec_file"]
+        try:
+            yaml.safe_load(rulespec_file.read_text())
+        except yaml.YAMLError as exc:
+            issues = [f"{rulespec_file.name} YAML parse failed: {exc}"]
+        else:
+            issues = []
+        return EvalArtifactMetrics(
+            compile_pass=not issues,
+            compile_issues=list(issues),
+            ci_pass=not issues,
+            ci_issues=list(issues),
+            embedded_source_present=False,
+            grounded_numeric_count=0,
+            ungrounded_numeric_count=0,
+            grounding=[],
+        )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval_with_empty_artifact_retry",
+            side_effect=generate,
+        ),
+        patch("axiom_encode.harness.evals.evaluate_artifact", side_effect=evaluate),
+    ):
+        result = run_model_eval(
+            citations=["us-nc/statute/105/105-153.7"],
+            runner_specs=["openai:model-a"],
+            output_root=tmp_path / "out",
+            policy_path=policy_root,
+            runtime_axiom_rules_path=tmp_path / "engine",
+            corpus_release=corpus_release,
+            mode="repo-augmented",
+            target_relative_output=target_relative,
+        )[0]
+
+    assert result.success is True
+    assert result.auto_repaired_unquoted_source_scalars == expected_quotes
+    assert result.generated_output_repaired_by_encoder is bool(expected_quotes)
+    written = Path(result.output_file).read_bytes()
+    # The digest is of the bytes on disk, which the encoder changed.
+    assert result.generated_output_sha256 == hashlib.sha256(written).hexdigest()
+    assert (written != original.encode()) is bool(expected_quotes)
+    payload = result.to_dict()
+    restored = _eval_result_from_payload(payload)
+    assert restored.auto_repaired_unquoted_source_scalars == expected_quotes
+    assert restored.generated_output_repaired_by_encoder is bool(expected_quotes)
+    if expected_quotes:
+        assert payload["auto_repaired_unquoted_source_scalars"] == expected_quotes
+        assert payload["generated_output_repaired_by_encoder"] is True
+    else:
+        # Results without a repair keep their former payload and digest.
+        assert "auto_repaired_unquoted_source_scalars" not in payload
+        assert "generated_output_repaired_by_encoder" not in payload
+
+
 def test_model_eval_marks_each_encode_try_phase_in_order(tmp_path):
     """Inside an encode try, one generation walks prepare -> model call ->
     staging -> validation -> result recording, each a timeline phase."""

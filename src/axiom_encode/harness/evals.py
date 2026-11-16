@@ -1394,11 +1394,21 @@ class EvalResult:
     verdict_sha256: str | None = None
     require_complete_source_unit: bool = False
     amendment_request: str | None = None
+    # Source-text lines (`excerpt:102`) the encoder quoted after generation so
+    # the YAML parses. When set, the encoder changed the model's bytes, and
+    # generated_output_sha256 is the digest of the repaired file; the model's
+    # own text stays in the trace.
+    auto_repaired_unquoted_source_scalars: list[str] = field(default_factory=list)
+    generated_output_repaired_by_encoder: bool = False
 
     def to_dict(self) -> dict:
         data = asdict(self)
         if self.amendment_request is None:
             data.pop("amendment_request", None)
+        if not self.auto_repaired_unquoted_source_scalars:
+            data.pop("auto_repaired_unquoted_source_scalars", None)
+        if not self.generated_output_repaired_by_encoder:
+            data.pop("generated_output_repaired_by_encoder", None)
         if not self.require_complete_source_unit:
             data.pop("require_complete_source_unit", None)
         if self.admission_score is None:
@@ -6471,6 +6481,13 @@ def _eval_result_from_payload(
         timeout_attempts=int(payload.get("timeout_attempts", 0) or 0),
         retry_count=int(payload.get("retry_count", 0) or 0),
         amendment_request=payload.get("amendment_request"),
+        auto_repaired_unquoted_source_scalars=[
+            str(item)
+            for item in payload.get("auto_repaired_unquoted_source_scalars") or []
+        ],
+        generated_output_repaired_by_encoder=(
+            payload.get("generated_output_repaired_by_encoder") is True
+        ),
         source_attestation=(
             dict(payload["source_attestation"])
             if isinstance(payload.get("source_attestation"), dict)
@@ -9204,6 +9221,7 @@ def _evaluate_generated_artifact_with_repairs(
     allow_artifact_repairs: bool = True,
     axiom_compose_path: Path | None = None,
     axiom_rules_engine_ref: str | None = None,
+    repair_log: list[str] | None = None,
 ) -> EvalArtifactMetrics | None:
     evaluated_states: set[tuple[bytes | None, bytes | None]] = set()
     for _repair_round in range(_GENERATED_EVAL_REPAIR_LIMIT + 1):
@@ -9257,6 +9275,15 @@ def _evaluate_generated_artifact_with_repairs(
         )
         if not repairs:
             return metrics
+        if repair_log is not None:
+            repair_log.extend(repairs)
+
+
+def _quoted_source_scalar_repairs(repairs: Sequence[str]) -> list[str]:
+    """Return the source-text lines an eval repair quoted (`excerpt:102`)."""
+
+    prefix = "source_scalar_quote:"
+    return [repair[len(prefix) :] for repair in repairs if repair.startswith(prefix)]
 
 
 def _rebind_retained_candidate_proof_import_hashes(
@@ -10634,6 +10661,7 @@ def _run_single_eval(
     )
 
     metrics = retained_candidate_metrics if retained_candidate_accepted else None
+    eval_repairs: list[str] = []
     if wrote_artifact and not retained_candidate_accepted:
         mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
         metrics = _evaluate_generated_artifact_with_repairs(
@@ -10666,7 +10694,9 @@ def _run_single_eval(
             legacy_replacement=legacy_replacement,
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=not repair_candidate_tests_only,
+            repair_log=eval_repairs,
         )
+    quoted_source_scalars = _quoted_source_scalar_repairs(eval_repairs)
     mark_encode_phase(PHASE_RECORD_RESULT)
     if overlay_validation_issue is not None and metrics is not None:
         metrics.ci_pass = False
@@ -10740,6 +10770,8 @@ def _run_single_eval(
         retry_count=retry_count,
         source_attestation=_source_metadata_attestation(source_metadata_payload),
         require_complete_source_unit=require_complete_source_unit,
+        auto_repaired_unquoted_source_scalars=quoted_source_scalars,
+        generated_output_repaired_by_encoder=bool(quoted_source_scalars),
     )
     emit_eval_result(result, response.trace)
     return result
@@ -10883,6 +10915,7 @@ def _run_single_source_eval(
     )
 
     metrics = None
+    eval_repairs: list[str] = []
     if wrote_artifact:
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
@@ -10905,7 +10938,9 @@ def _run_single_source_eval(
             protected_review_excerpts=_workspace_quoted_review_finding_excerpts(
                 workspace
             ),
+            repair_log=eval_repairs,
         )
+    quoted_source_scalars = _quoted_source_scalar_repairs(eval_repairs)
     validation_error = _eval_artifact_validation_error(
         metrics,
         require_policyengine=oracle == "policyengine",
@@ -10970,6 +11005,8 @@ def _run_single_source_eval(
         retry_count=retry_count,
         source_attestation=_source_metadata_attestation(source_metadata_payload),
         require_complete_source_unit=require_complete_source_unit,
+        auto_repaired_unquoted_source_scalars=quoted_source_scalars,
+        generated_output_repaired_by_encoder=bool(quoted_source_scalars),
     )
     emit_eval_result(result, response.trace)
     return result

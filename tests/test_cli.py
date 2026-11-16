@@ -38840,26 +38840,77 @@ rules:
         assert repaired == []
         assert generated.read_text() == original
 
-    def test_generated_yaml_source_evidence_repair_preserves_inline_comments(
-        self, tmp_path
+    @pytest.mark.parametrize(
+        "original",
+        (
+            "excerpt: valid evidence # reviewer: note\n"
+            "source: changes at age: 65 # source: note\n",
+            # In source text ` #` is literal; YAML would cut the value there.
+            "source: Arizona DES FAA5: NA Medical Expenses and Deduction, "
+            "Change #02-2022, block 13\n",
+            "source:\n  excerpt: Rule 5: see Change #02-2022, which adds:\n",
+            "source:\n  excerpt: Item 4: costs\t#4 and #5\n",
+        ),
+    )
+    def test_generated_yaml_source_evidence_repair_refuses_a_space_hash(
+        self, original, tmp_path
     ):
         generated = tmp_path / "generated.yaml"
-        original = """excerpt: valid evidence # reviewer: note
-source: changes at age: 65 # source: note
-"""
         generated.write_text(original)
 
         repaired = _quote_unquoted_source_scalars(rules_file=generated)
 
-        assert repaired == ["source:2"]
-        assert generated.read_text() == (
-            "excerpt: valid evidence # reviewer: note\n"
-            "source: 'changes at age: 65' # source: note\n"
+        assert repaired == []
+        assert generated.read_text() == original
+
+    def test_generated_yaml_repair_refuses_a_run_candidate_with_a_space_hash(
+        self, tmp_path
+    ):
+        original = (
+            Path(__file__).parent
+            / "fixtures"
+            / "generated_yaml_scanner"
+            / "az_faa5_medical_block13_run69afe785_rejected.yaml"
+        ).read_text()
+        source_line = (
+            "    source: Arizona DES FAA5, NA Medical Expenses and Deduction, "
+            "block 13\n"
         )
-        assert yaml.safe_load(generated.read_text()) == {
-            "excerpt": "valid evidence",
-            "source": "changes at age: 65",
-        }
+        assert original.count(source_line) == 1
+        # The review's variant of the candidate's rule source: quoting it at
+        # the YAML comment would cut "#02-2022, block 13" from the value.
+        changed = original.replace(
+            source_line,
+            "    source: Arizona DES FAA5: NA Medical Expenses and Deduction, "
+            "Change #02-2022, block 13\n",
+        )
+        generated = tmp_path / "block-13.yaml"
+        generated.write_text(changed)
+
+        assert _quote_unquoted_source_scalars(rules_file=generated) == []
+        assert generated.read_text() == changed
+
+    @pytest.mark.parametrize(
+        ("original", "expected"),
+        (
+            (
+                b"source:\r\n  excerpt: one of the following:\r\n  path: x\r\n",
+                b"source:\r\n  excerpt: 'one of the following:'\r\n  path: x\r\n",
+            ),
+            (
+                b"source:\r\n  excerpt: age: 65 \r\n",
+                b"source:\r\n  excerpt: 'age: 65' \r\n",
+            ),
+        ),
+    )
+    def test_generated_yaml_source_evidence_repair_keeps_crlf_line_endings(
+        self, original, expected, tmp_path
+    ):
+        generated = tmp_path / "generated.yaml"
+        generated.write_bytes(original)
+
+        assert _quote_unquoted_source_scalars(rules_file=generated) == ["excerpt:2"]
+        assert generated.read_bytes() == expected
 
     @pytest.mark.parametrize(
         ("fixture_name", "fixture_sha256", "parse_error_line", "repaired_lines"),
@@ -56858,6 +56909,32 @@ def test_initial_encode_outcome_success_omits_validation_failure_keys():
     )
 
     assert not any(key.startswith("validation_failure") for key in outcome)
+
+
+def test_initial_encode_outcome_records_eval_time_source_scalar_quotes():
+    from axiom_encode.cli import _initial_encode_outcome
+
+    repaired = _initial_encode_outcome(
+        SimpleNamespace(
+            success=True,
+            error=None,
+            metrics=None,
+            auto_repaired_unquoted_source_scalars=["excerpt:96", "excerpt:106"],
+        ),
+        apply_requested=False,
+    )
+    untouched = _initial_encode_outcome(
+        SimpleNamespace(success=True, error=None, metrics=None),
+        apply_requested=False,
+    )
+
+    assert repaired["auto_repaired_unquoted_source_scalars"] == [
+        "excerpt:96",
+        "excerpt:106",
+    ]
+    assert repaired["generated_output_repaired_by_encoder"] is True
+    assert "auto_repaired_unquoted_source_scalars" not in untouched
+    assert "generated_output_repaired_by_encoder" not in untouched
 
 
 def test_initial_encode_outcome_telemetry_error_never_propagates():

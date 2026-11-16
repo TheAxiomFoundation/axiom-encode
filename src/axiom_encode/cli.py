@@ -51378,16 +51378,19 @@ def _quote_unquoted_source_scalars(*, rules_file: Path) -> list[str]:
     holds the ``:`` that PyYAML rejected: a ``:`` before a space, a tab or the
     end of the line. Such a document has no valid reading, and those keys
     hold source text, so the only reading is the line's text as a string.
-    It refuses quoted, block, flow, anchored, tagged or multi-line values and
-    every other parse error. It writes nothing unless the whole document then
-    parses and each quoted line parses to the exact text it had.
+    It refuses quoted, block, flow, anchored, tagged or multi-line values, a
+    line with `` #`` (YAML would read a comment, but in source text ``#`` is
+    literal, as in "Change #02-2022") and every other parse error. It keeps
+    every other byte, line endings included. It writes nothing unless the
+    whole document then parses and each quoted line parses to the exact text
+    it had.
     """
 
     if not rules_file.exists():
         return []
     try:
-        original = rules_file.read_text()
-    except OSError:
+        original = rules_file.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
         return []
     candidate_lines = original.splitlines(keepends=True)
     repaired: list[str] = []
@@ -51414,8 +51417,8 @@ def _quote_unquoted_source_scalars(*, rules_file: Path) -> list[str]:
             return []
 
         raw_line = candidate_lines[line_index]
-        newline = "\n" if raw_line.endswith("\n") else ""
-        line = raw_line[:-1] if newline else raw_line
+        line = raw_line.rstrip("\r\n")
+        newline = raw_line[len(line) :]
         match = re.match(
             r"^(?P<prefix>\s*(?P<key>source|excerpt):\s+)(?P<body>.*)$",
             line,
@@ -51425,16 +51428,14 @@ def _quote_unquoted_source_scalars(*, rules_file: Path) -> list[str]:
         prefix = match.group("prefix")
         key = match.group("key")
         body = match.group("body")
-        comment_match = re.search(r"[ \t]+#.*$", body)
-        if comment_match is not None:
-            value = body[: comment_match.start()]
-            suffix = body[comment_match.start() :]
-        else:
-            value = body.rstrip(" \t\r")
-            suffix = body[len(value) :]
+        value = body.rstrip(" \t")
+        suffix = body[len(value) :]
         if (
             not value
-            or value[0] in {"'", '"', "|", ">", "{", "[", "!", "&", "*"}
+            # Quoting would turn a YAML comment into text, or cut source text
+            # that holds a literal " #"; neither reading is safe to pick.
+            or re.search(r"[ \t]#", body) is not None
+            or value[0] in {"'", '"', "|", ">", "{", "[", "!", "&", "*", "#"}
             or not match.start("body")
             <= column_index
             < match.start("body") + len(value)
@@ -51454,7 +51455,7 @@ def _quote_unquoted_source_scalars(*, rules_file: Path) -> list[str]:
 
     if not repaired or not _quoted_source_scalars_match(candidate, expected_values):
         return []
-    rules_file.write_text(candidate)
+    rules_file.write_bytes(candidate.encode("utf-8"))
     return repaired
 
 
@@ -71152,6 +71153,13 @@ def _initial_encode_outcome(result, *, apply_requested: bool) -> dict:
         "apply_error": None,
         "applied_files": [],
     }
+    quoted_source_scalars = getattr(
+        result, "auto_repaired_unquoted_source_scalars", None
+    )
+    if isinstance(quoted_source_scalars, list) and quoted_source_scalars:
+        # The eval-time repair changed the model's bytes before validation.
+        outcome["auto_repaired_unquoted_source_scalars"] = list(quoted_source_scalars)
+        outcome["generated_output_repaired_by_encoder"] = True
     metrics = getattr(result, "metrics", None)
     if metrics is not None and not standalone_success:
         try:
