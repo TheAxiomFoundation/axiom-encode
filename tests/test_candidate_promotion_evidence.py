@@ -566,18 +566,20 @@ _IMPORT = (
     "    CANDIDATE_REF_FIELD,\n"
     "    is_v6_labelled,\n"
     ")\n"
+    "# Changed manifests admitted below as v6 promotion evidence.\n"
+    "v6_evidence_paths = set()\n"
 )
 _REF_NOW = (
     "            or evidence_manifest.get(\n"
     "                CANDIDATE_REF_FIELD\n"
-    "                if is_v6_labelled(evidence_manifest)\n"
+    "                if relative_path in v6_evidence_paths\n"
     '                else "reviewed_rulespec_ref"\n'
     "            )\n"
 )
 _REF_BEFORE = '            or evidence_manifest.get("reviewed_rulespec_ref")\n'
 _SCHEMA_NOW = (
     "                        CANDIDATE_PROMOTION_EVIDENCE_SCHEMA\n"
-    "                        if is_v6_labelled(evidence_manifest)\n"
+    "                        if relative_path in v6_evidence_paths\n"
     "                        else "
     '"axiom-encode/reviewed-candidate-promotion-evidence/v1"\n'
 )
@@ -588,14 +590,20 @@ _V6_BLOCK = re.compile(
     r"^    if is_v6_labelled\(payload\):\n(?:^        .*\n|^\n)*?^        continue\n",
     re.MULTILINE,
 )
+_NESTED_BLOCK = re.compile(
+    r"^    if effective is not payload and is_v6_labelled\(effective\):\n"
+    r"(?:^        .*\n)*?^        \)\n",
+    re.MULTILINE,
+)
 
 
 def _step_before_this_change(script: str) -> str:
     assert script.count(_IMPORT) == 1
     script = script.replace(_IMPORT, "")
-    blocks = _V6_BLOCK.findall(script)
-    assert len(blocks) == 1
-    script = script.replace(blocks[0], "")
+    for block in (_NESTED_BLOCK, _V6_BLOCK):
+        found = block.findall(script)
+        assert len(found) == 1
+        script = script.replace(found[0], "")
     for now, before in ((_REF_NOW, _REF_BEFORE), (_SCHEMA_NOW, _SCHEMA_BEFORE)):
         assert script.count(now) == 1
         script = script.replace(now, before)
@@ -606,6 +614,7 @@ def _step_before_this_change(script: str) -> str:
         "CANDIDATE_PROMOTION_EVIDENCE_SCHEMA",
         "applied_manifest_v6",
         "COUNTRY",
+        "v6_evidence_paths",
     ):
         assert name not in script, name
     return script
@@ -713,6 +722,21 @@ def run_step(
         **env_overrides,
     }
     env = {name: value for name, value in env.items() if value is not None}
+    # The workflow event and commit a real runner provides (current main reads
+    # them in this step before the manifest loop).
+    event = tmp_path / f"{artifact}-event.json"
+    event.write_text(
+        json.dumps(
+            {
+                "inputs": {
+                    "citation": env.get("CITATION", ""),
+                    "review_finding": env.get("REVIEW_FINDING", ""),
+                }
+            }
+        )
+    )
+    env.setdefault("GITHUB_EVENT_PATH", str(event))
+    env.setdefault("GITHUB_SHA", "a" * 40)
     arguments = [str(out / "context-manifest.json"), str(out / "apply-manifests.json")]
     reads = tmp_path / f"{artifact}-reads.txt"
     if locks is None:
@@ -781,6 +805,17 @@ def _inventory(manifest: Path) -> bytes:
     ).encode()
 
 
+def _legacy_wrapper(nested: dict, *, label=None) -> dict:
+    """A legacy-replacement manifest that nests ``nested``."""
+
+    return {
+        "schema_version": label or cli.APPLIED_ENCODING_MANIFEST_SCHEMA,
+        "tool": "axiom-encode encode --apply --replace-legacy-rulespec-path",
+        "replacement_manifest": nested,
+        "replacement": {"receipt_path": "x", "receipt_sha256": "0" * 64},
+    }
+
+
 def _v5_run(name: str, repo: Path, ref: str) -> dict[str, str]:
     """Write one v5 case into the checkout; return its environment overrides."""
 
@@ -821,6 +856,8 @@ def _v5_run(name: str, repo: Path, ref: str) -> dict[str, str]:
         write_manifest(repo, "[]")
     elif name == "promotion, manifest not json":
         write_manifest(repo, "{")
+    elif name == "promotion, legacy replacement nesting a v5 manifest":
+        write_manifest(repo, _legacy_wrapper(sign(payload)))
     elif name == "promotion, static lane":
         write_manifest(repo, sign(payload))
         return {"ATOMIC_SOURCE_JSON": json.dumps(TRANSACTION)}
@@ -853,6 +890,7 @@ V5_RUNS = (
     "promotion, no manifest",
     "promotion, manifest not an object",
     "promotion, manifest not json",
+    "promotion, legacy replacement nesting a v5 manifest",
     "promotion, static lane",
     "manifest-only refresh",
 )
@@ -895,8 +933,9 @@ def test_off_every_v5_run_is_the_same_as_before_this_change(tmp_path, name):
 def test_the_reverted_step_is_the_step_without_its_v6_names():
     script = _package_script()
     before = _step_before_this_change(script)
-    # The import (4 lines), the v6 block (29), the ref (+4), the schema (+2).
-    assert len(script.splitlines()) - len(before.splitlines()) == 4 + 29 + 4 + 2
+    # The import and the flag (6 lines), the nested refusal (8), the v6 block
+    # (30), the ref (+4), the schema (+2).
+    assert len(script.splitlines()) - len(before.splitlines()) == 6 + 8 + 30 + 4 + 2
     assert 'or evidence_manifest.get("reviewed_rulespec_ref")' in before
 
 
@@ -948,6 +987,7 @@ def test_on_the_hosted_step_accepts_the_written_v6_manifest(tmp_path):
     ("change", "error"),
     [
         ("drop a field", "does not match the exact unreviewed candidate"),
+        ("another citation", "is not for the requested citation"),
         ("extra field", "does not match the exact unreviewed candidate"),
         ("scope owner review", "attestation scope is invalid: owner_review"),
         ("another pull request", "another pull request than this run"),
@@ -964,6 +1004,10 @@ def test_on_the_hosted_step_refuses(tmp_path, change, error):
     overrides: dict[str, str | None] = {}
     if change == "drop a field":
         payload.pop("run_id")
+    elif change == "another citation":
+        payload.pop("signature")
+        payload["citation"] = "us/statute/7/2015/g"
+        payload = sign(payload)
     elif change == "extra field":
         payload["reviewed_rulespec_ref"] = ref
     elif change == "scope owner review":
@@ -987,6 +1031,51 @@ def test_on_the_hosted_step_refuses(tmp_path, change, error):
     assert result["returncode"] != 0
     assert error in result["stderr"], result["stderr"]
     assert "context-manifest.json" not in result["files"]
+
+
+NESTED = "is not promotion evidence: only a top-level manifest may carry the v6 label"
+
+
+@pytest.mark.parametrize("locks", [None, OPEN], ids=["locks shut", "locks open"])
+@pytest.mark.parametrize(
+    "outer", [None, "axiom-encode/applied-rulespec/v6"], ids=["v5 outer", "v6 outer"]
+)
+def test_a_v6_label_nested_in_a_legacy_replacement_is_refused(tmp_path, locks, outer):
+    """The decision is made once, on the top-level manifest; a nested v6 label
+    is refused by name, before any lock is read, as the reader's nested
+    readers refuse it."""
+
+    repo, ref = make_run(tmp_path)
+    write_manifest(repo, _legacy_wrapper(written_v6(ref), label=outer))
+    result = run_step(tmp_path, ref, locks=locks)
+    assert result["returncode"] != 0
+    assert f"v6 manifest nested in {MANIFEST} {NESTED}" in result["stderr"]
+    assert result["files"] == {} and result["reads"] == []
+
+
+@pytest.mark.parametrize("locks", [None, OPEN], ids=["locks shut", "locks open"])
+def test_a_v6_legacy_replacement_nesting_v5_is_not_evidence(tmp_path, locks):
+    repo, ref = make_run(tmp_path)
+    write_manifest(
+        repo,
+        _legacy_wrapper(
+            sign(v5_promotion(ref)), label="axiom-encode/applied-rulespec/v6"
+        ),
+    )
+    result = run_step(tmp_path, ref, locks=locks)
+    assert result["returncode"] != 0
+    assert f"v6 manifest {MANIFEST} is not promotion evidence" in result["stderr"]
+    assert result["files"] == {}
+
+
+def test_the_step_decides_v6_once_on_the_top_level_manifest():
+    script = _package_script()
+    # The ref field and the evidence record follow the gate's decision, not a
+    # second label test on another object.
+    assert script.count("is_v6_labelled(") == 2
+    assert "is_v6_labelled(evidence_manifest)" not in script
+    assert script.count("relative_path in v6_evidence_paths") == 2
+    assert script.count("v6_evidence_paths.add(relative_path)") == 1
 
 
 def test_the_step_hands_the_reader_its_inputs_and_no_seam():

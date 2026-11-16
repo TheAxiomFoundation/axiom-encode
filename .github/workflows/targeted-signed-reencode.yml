@@ -3653,6 +3653,8 @@ jobs:
               CANDIDATE_REF_FIELD,
               is_v6_labelled,
           )
+          # Changed manifests admitted below as v6 promotion evidence.
+          v6_evidence_paths = set()
 
           def git_paths(*args):
               output = subprocess.check_output(
@@ -3956,6 +3958,14 @@ jobs:
                           "legacy replacement omits nested model manifest"
                       )
               citation = effective.get("citation")
+              if effective is not payload and is_v6_labelled(effective):
+                  # As in the reader's nested readers, with the locks open
+                  # or shut: only a top-level manifest may carry v6.
+                  raise SystemExit(
+                      f"v6 manifest nested in {relative_path.as_posix()} "
+                      "is not promotion evidence: only a top-level "
+                      "manifest may carry the v6 label"
+                  )
               if is_v6_labelled(payload):
                   # The v6 promotion manifest (#2172, change 5b) is evidence
                   # only while every lock of the v6 writer is open. With the
@@ -3981,6 +3991,7 @@ jobs:
                           f"v6 manifest {relative_path.as_posix()} is not "
                           f"promotion evidence: {exc}"
                       ) from exc
+                  v6_evidence_paths.add(relative_path)
                   matches.setdefault(citation, []).append(
                       (relative_path, payload, effective)
                   )
@@ -4806,7 +4817,7 @@ jobs:
                       != "axiom-encode promote-reviewed-candidate"
                       or evidence_manifest.get(
                           CANDIDATE_REF_FIELD
-                          if is_v6_labelled(evidence_manifest)
+                          if relative_path in v6_evidence_paths
                           else "reviewed_rulespec_ref"
                       )
                       != os.environ["RULESPEC_REF"]
@@ -4820,7 +4831,7 @@ jobs:
                           {
                               "schema": (
                                   CANDIDATE_PROMOTION_EVIDENCE_SCHEMA
-                                  if is_v6_labelled(evidence_manifest)
+                                  if relative_path in v6_evidence_paths
                                   else "axiom-encode/reviewed-candidate-promotion-evidence/v1"
                                   if reviewed_candidate_promotion
                                   else "axiom-encode/manifest-only-refresh-evidence/v1"
