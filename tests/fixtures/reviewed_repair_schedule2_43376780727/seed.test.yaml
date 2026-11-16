@@ -1,0 +1,225 @@
+- name: continuing_claim_years_and_no_new_form
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_disability_amount_line_31600: 10138
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_eligible_in_fact_year: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_eligibility_fact_year: 2024
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_meets_requirements_in_fact_year: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_requirements_fact_year: 2025
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.previous_DTC_approval_has_fixed_end_year: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.previous_DTC_approval_end_year: 2025
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.CRA_requested_new_T2201: false
+  output:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#previous_DTC_approval_ended_before_2025: not_holds
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_continuing_claim_no_new_T2201: holds
+- name: continuing_claim_cra_request
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_disability_amount_line_31600: 10138
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_eligible_in_fact_year: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_eligibility_fact_year: 2024
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_meets_requirements_in_fact_year: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_requirements_fact_year: 2025
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.previous_DTC_approval_has_fixed_end_year: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.previous_DTC_approval_end_year: 2025
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.CRA_requested_new_T2201: true
+  output:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#previous_DTC_approval_ended_before_2025: not_holds
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_continuing_claim_no_new_T2201: not_holds
+- name: line12_floor
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.CRA_requested_new_T2201: false
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.disability_claim_is_new: false
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.filing_paper_return: false
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.relationship_breakdown_separation: false
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.separation_period_days: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.separation_period_includes_2025_12_31: false
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_eligibility_fact_year: 2024
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_eligible_in_fact_year: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_meets_requirements_in_fact_year: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_requirements_fact_year: 2025
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_age_amount_line_30100: 5000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_basic_personal_amount_line_30000: 16129
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_birth_year: 1960
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_caregiver_infirm_children_amount_line_30500: 2687
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_current_year_tuition_amount_used: 2000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_disability_amount_line_31600: 10138
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_filing_return: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_or_common_law_partner: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_pension_income_amount_line_31400: 2000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_raw_federal_tuition_designation_total: 3000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_raw_prior_year_tuition_designation: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_return_line_76_amount: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_return_line_96_amount: 1000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_taxable_income_line_26000: 10000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_tuition_amount_line_32300: 2000
+  output:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_spouse_adjusted_taxable_income_line_12: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_amounts_transferred_from_spouse_line_32600: 22825
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_spouse_tax_capacity_line_7: 10000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_spouse_base_line_8: 16129
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_spouse_base_line_9: 1000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_spouse_base_line_10: 2000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_spouse_non_refundable_base_line_11: 19129
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_age_amount_line_1: 5000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_caregiver_amount_line_2: 2687
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_transferable_pension_income_amount: 2000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_disability_amount_line_4: 10138
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_current_year_tuition_transfer_capacity: 3000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_raw_current_year_tuition_designation: 3000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_current_year_tuition_designation_line_5: 3000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_total_transferable_amounts_line_6: 22825
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#source_separation_blocks_transfer: not_holds
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#source_relationship_allows_transfer: holds
+- name: pension_negative_input_clamped
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_pension_income_amount_line_31400: -1
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_age_amount_line_30100: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_birth_year: 1961
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_caregiver_infirm_children_amount_line_30500: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_disability_amount_line_31600: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_raw_federal_tuition_designation_total: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_raw_prior_year_tuition_designation: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_current_year_tuition_amount_used: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_taxable_income_line_26000: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_basic_personal_amount_line_30000: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_return_line_96_amount: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_tuition_amount_line_32300: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_or_common_law_partner: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.relationship_breakdown_separation: false
+  output:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_transferable_pension_income_amount: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_age_amount_line_1: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_caregiver_amount_line_2: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_disability_amount_line_4: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_current_year_tuition_transfer_capacity: 5000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_raw_current_year_tuition_designation: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_current_year_tuition_designation_line_5: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_total_transferable_amounts_line_6: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_spouse_tax_capacity_line_7: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_spouse_base_line_8: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_spouse_base_line_9: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_spouse_base_line_10: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_spouse_non_refundable_base_line_11: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_spouse_adjusted_taxable_income_line_12: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#source_separation_blocks_transfer: not_holds
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#source_relationship_allows_transfer: holds
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_amounts_transferred_from_spouse_line_32600: 0
+- name: separation_90_includes_year_end
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_or_common_law_partner: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.relationship_breakdown_separation: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.separation_period_days: 90
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.separation_period_includes_2025_12_31: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_birth_year: 1961
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_age_amount_line_30100: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_caregiver_infirm_children_amount_line_30500: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_pension_income_amount_line_31400: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_disability_amount_line_31600: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_raw_federal_tuition_designation_total: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_raw_prior_year_tuition_designation: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_current_year_tuition_amount_used: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_taxable_income_line_26000: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_return_line_76_amount: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_basic_personal_amount_line_30000: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_return_line_96_amount: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_tuition_amount_line_32300: 0
+  output:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#source_separation_blocks_transfer: holds
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#source_relationship_allows_transfer: not_holds
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_amounts_transferred_from_spouse_line_32600: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_age_amount_line_1: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_caregiver_amount_line_2: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_transferable_pension_income_amount: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_disability_amount_line_4: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_current_year_tuition_transfer_capacity: 5000
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_raw_current_year_tuition_designation: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_current_year_tuition_designation_line_5: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_total_transferable_amounts_line_6: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_spouse_tax_capacity_line_7: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_spouse_base_line_8: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_spouse_base_line_9: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_spouse_base_line_10: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_spouse_non_refundable_base_line_11: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_spouse_adjusted_taxable_income_line_12: 0
+- name: threshold_above_stipulated_line76
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_taxable_income_line_26000: 57376
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_return_line_76_amount: 7250
+  output:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#federal_2025_schedule_2_spouse_tax_capacity_line_7: 50000
+- name: paperwork_and_nonfiling_instructions
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_filing_return: false
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.filing_paper_return: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.disability_claim_is_new: true
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.previous_DTC_approval_has_fixed_end_year: false
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.CRA_requested_new_T2201: false
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_eligible_in_fact_year: false
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_meets_requirements_in_fact_year: false
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_eligibility_fact_year: 2023
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_DTC_requirements_fact_year: 2026
+  output:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_use_hypothetical_spouse_return: holds
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_attach_spouse_information_slips: holds
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_attach_schedule_to_paper_return: holds
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_attach_completed_certified_T2201: holds
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#previous_DTC_approval_ended_before_2025: not_holds
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_send_new_T2201: not_holds
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_continuing_claim_no_new_T2201: not_holds
+- name: auto_positive_source_relationship_allows_transfer
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.relationship_breakdown_separation: false
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.spouse_or_common_law_partner: true
+  output:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#source_relationship_allows_transfer: holds
+- name: auto_positive_previous_dtc_approval_ended_before_2025
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.previous_DTC_approval_end_year: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.previous_DTC_approval_has_fixed_end_year: true
+  output:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#previous_DTC_approval_ended_before_2025: holds
+- name: auto_positive_schedule_2_send_new_t2201
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.previous_DTC_approval_end_year: 0
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#input.previous_DTC_approval_has_fixed_end_year: true
+  output:
+    ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#schedule_2_send_new_T2201: holds

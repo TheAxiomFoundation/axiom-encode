@@ -1,0 +1,895 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+    source_sha256: 9f23ae506a89ced93943948c7093ec06cc9a3878a8a3665fd6d1559770b47550
+  summary: “You must make estimated tax payments if your estimated Kansas income tax
+    after withholding and credits is $500 or more” and withholding and credits may
+    be less than the smaller stated percentage of current- or prior-year tax. The
+    worksheet subtracts deductions and exemptions from expected adjusted gross income,
+    applies the filing-status tax schedule, and divides estimated income tax among
+    payments. The form states due dates and exceptions to the estimated-tax penalty.
+  deferred_outputs:
+  - output: us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#tax_liability_for_filing_status
+    reason: The K-40ES Tax Computation Schedules require selection by filing status,
+      but no executable filing-status classification is supplied in the available
+      context.
+  - output: us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#standard_deduction_for_filing_status
+    reason: The K-40ES Standard Deduction Chart supplies four amounts, but no executable
+      filing-status classification is supplied in the available context.
+  - output: us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#electronic_payment_portal_choice
+    reason: K-40ES, “Visit the Kansas Department of Revenue Payment portal at www.kansas.gov/payment-portal/
+      or visit ksrevenue.gov and log in to the Kansas Customer Service Center.” This
+      is a choice of payment channels, not a tax computation; the runtime has no payment-channel
+      navigation output.
+rules:
+- name: farmer_fisher_return_filing_exception
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Year
+  source: K-40ES, When to File Your Estimated Tax Vouchers, Farmers and Fishers
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: Farmers and Fishers – Payment is due on or before January 15, 2027
+            unless your return for the 2026 tax year is filed and tax fully paid on
+            or before March 1, 2027.
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'taxpayer_is_farmer_or_fisher
+
+      and return_filed_by_farmer_fisher_exception_deadline
+
+      and tax_fully_paid_by_farmer_fisher_exception_deadline'
+- name: farmer_fisher_estimated_payment_due
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Year
+  source: K-40ES, When to File Your Estimated Tax Vouchers, Farmers and Fishers
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: Farmers and Fishers – Payment is due on or before January 15, 2027
+            unless your return for the 2026 tax year is filed and tax fully paid on
+            or before March 1, 2027.
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'taxpayer_is_farmer_or_fisher
+
+      and not farmer_fisher_return_filing_exception'
+- name: fiscal_year_estimated_payment_due
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Day
+  source: K-40ES, When to File Your Estimated Tax Vouchers, Fiscal Year Taxpayers
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: Fiscal Year Taxpayers – Payments are due on or before the 15th
+            day of the 4th, 6th and 9th months of the current fiscal year and the
+            1st month of the following fiscal year.
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'taxpayer_uses_fiscal_year
+
+      and day_is_applicable_fiscal_year_estimated_payment_deadline'
+- name: other_status_schedule_estimated_tax
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, Estimated Tax Worksheet line 6 and Tax Computation Schedule II
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: Estimated Kansas tax liability (use the Tax Computation Schedules
+            below) 7.
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 5.2% of line 5 $23,000 .................................................
+            $1,196 plus 5.58% of excess over $23,000
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'if kansas_taxable_income <= other_lower_bracket_ceiling: lower_bracket_rate
+      * kansas_taxable_income else: other_lower_bracket_tax + upper_bracket_rate *
+      (kansas_taxable_income - other_lower_bracket_ceiling)'
+- name: farmer_fisher_current_year_safe_harbor_rate
+  kind: parameter
+  dtype: Rate
+  period: Year
+  source: K-40ES, Estimated Tax Penalty, farmers and fishers
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'However, the penalty will not apply if each payment is timely
+            and your total payments and credits: • are at least 90% (66 2/3% for farmers
+            and fishers) of the tax shown on your return for tax year 2026, OR • equal
+            or exceed 100% of the tax shown on your 2025 return, (the return must
+            cover a 12-month period with a tax liability), OR • equal or exceed 90%
+            of the tax shown on your annualized income for the periods January 1,
+            2026 to March 31, May 31, August 31 and December 31, 2026.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 2 / 3
+- name: estimated_tax_payment_threshold
+  kind: parameter
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, “if ... estimated Kansas income tax after withholding and credits
+    is $500 or more”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'You must make estimated tax payments if your estimated Kansas
+            income tax after withholding and credits is $500 or more and your withholding
+            and credits may be less than the smaller of: a) 90% of the tax on your
+            tax return for tax year 2026; or b) 100% of the tax shown on your 2025
+            tax return.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '500'
+- name: current_year_tax_safe_harbor_rate
+  kind: parameter
+  dtype: Rate
+  period: Year
+  source: K-40ES, estimated-tax payment requirement
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'You must make estimated tax payments if your estimated Kansas
+            income tax after withholding and credits is $500 or more and your withholding
+            and credits may be less than the smaller of: a) 90% of the tax on your
+            tax return for tax year 2026; or b) 100% of the tax shown on your 2025
+            tax return.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0.90'
+- name: prior_year_tax_safe_harbor_rate
+  kind: parameter
+  dtype: Rate
+  period: Year
+  source: K-40ES, estimated-tax payment requirement
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'You must make estimated tax payments if your estimated Kansas
+            income tax after withholding and credits is $500 or more and your withholding
+            and credits may be less than the smaller of: a) 90% of the tax on your
+            tax return for tax year 2026; or b) 100% of the tax shown on your 2025
+            tax return.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '1'
+- name: joint_lower_bracket_ceiling
+  kind: parameter
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, Tax Computation Schedule I
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: '5.2% of line 5 $46,000 .................................................
+            $2,392 plus 5.58% of excess over $46,000 Schedule ll - SINGLE, HEAD OF
+            HOUSEHOLD, OR MARRIED FILING SEPARATE If line 5 is: Over But not over
+            Enter on line 6: $ 0.00 $23,000 ........................................'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '46000'
+- name: other_lower_bracket_ceiling
+  kind: parameter
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, Tax Computation Schedule II
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 5.2% of line 5 $23,000 .................................................
+            $1,196 plus 5.58% of excess over $23,000
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '23000'
+- name: lower_bracket_rate
+  kind: parameter
+  dtype: Rate
+  period: Year
+  source: K-40ES, Tax Computation Schedules I and II
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 5.2% of line 5 $23,000 .................................................
+            $1,196 plus 5.58% of excess over $23,000
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0.052'
+- name: upper_bracket_rate
+  kind: parameter
+  dtype: Rate
+  period: Year
+  source: K-40ES, Tax Computation Schedules I and II
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 5.2% of line 5 $23,000 .................................................
+            $1,196 plus 5.58% of excess over $23,000
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0.0558'
+- name: joint_lower_bracket_tax
+  kind: parameter
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, Tax Computation Schedule I
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: '5.2% of line 5 $46,000 .................................................
+            $2,392 plus 5.58% of excess over $46,000 Schedule ll - SINGLE, HEAD OF
+            HOUSEHOLD, OR MARRIED FILING SEPARATE If line 5 is: Over But not over
+            Enter on line 6: $ 0.00 $23,000 ........................................'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '2392'
+- name: other_lower_bracket_tax
+  kind: parameter
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, Tax Computation Schedule II
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 5.2% of line 5 $23,000 .................................................
+            $1,196 plus 5.58% of excess over $23,000
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '1196'
+- name: standard_deduction_single
+  kind: parameter
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, Standard Deduction Chart
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'STANDARD DEDUCTION CHART Single $3,605 Married Filing Joint $8,240
+            Married Filing Separate $4,120 Head of Household $6,180 ESTIMATED PAYMENT
+            RECORD Date Paid Amount 2025 Carryforward Total Payments TAX COMPUTATION
+            SCHEDULES IMPORTANT: Be sure to use the proper schedule for your filing
+            status.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '3605'
+- name: standard_deduction_joint
+  kind: parameter
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, Standard Deduction Chart
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'STANDARD DEDUCTION CHART Single $3,605 Married Filing Joint $8,240
+            Married Filing Separate $4,120 Head of Household $6,180 ESTIMATED PAYMENT
+            RECORD Date Paid Amount 2025 Carryforward Total Payments TAX COMPUTATION
+            SCHEDULES IMPORTANT: Be sure to use the proper schedule for your filing
+            status.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '8240'
+- name: standard_deduction_separate
+  kind: parameter
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, Standard Deduction Chart
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'STANDARD DEDUCTION CHART Single $3,605 Married Filing Joint $8,240
+            Married Filing Separate $4,120 Head of Household $6,180 ESTIMATED PAYMENT
+            RECORD Date Paid Amount 2025 Carryforward Total Payments TAX COMPUTATION
+            SCHEDULES IMPORTANT: Be sure to use the proper schedule for your filing
+            status.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '4120'
+- name: standard_deduction_head_of_household
+  kind: parameter
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, Standard Deduction Chart
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'STANDARD DEDUCTION CHART Single $3,605 Married Filing Joint $8,240
+            Married Filing Separate $4,120 Head of Household $6,180 ESTIMATED PAYMENT
+            RECORD Date Paid Amount 2025 Carryforward Total Payments TAX COMPUTATION
+            SCHEDULES IMPORTANT: Be sure to use the proper schedule for your filing
+            status.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '6180'
+- name: first_installment_fraction_scalar_limit
+  kind: parameter
+  dtype: Rate
+  source: K-40ES, Estimated Tax Worksheet line 9
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: Amount of each quarterly payment (enter 1/4 of line 8 here and
+            on Voucher 1) .....................................
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '4'
+- name: first_installment_fraction
+  kind: parameter
+  dtype: Rate
+  period: Year
+  source: K-40ES, Estimated Tax Worksheet line 9
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: Amount of each quarterly payment (enter 1/4 of line 8 here and
+            on Voucher 1) .....................................
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us-ks:policies/department-of-revenue/forms/2026/k-40es/document-1#first_installment_fraction_scalar_limit
+          output: first_installment_fraction_scalar_limit
+          hash: sha256:local
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 1 / first_installment_fraction_scalar_limit
+- name: late_start_june_fraction
+  kind: parameter
+  dtype: Rate
+  period: Year
+  source: K-40ES, Estimated Tax Worksheet line 9
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'If you are beginning estimated payments after April 15, but on
+            or before: June 15 enter 1/3 of line 8; September 15 enter 1/2 of line
+            8; January 15 enter the total amount on line 8.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 1 / 3
+- name: late_start_september_fraction
+  kind: parameter
+  dtype: Rate
+  period: Year
+  source: K-40ES, Estimated Tax Worksheet line 9
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'If you are beginning estimated payments after April 15, but on
+            or before: June 15 enter 1/3 of line 8; September 15 enter 1/2 of line
+            8; January 15 enter the total amount on line 8.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 1 / 2
+- name: penalty_current_year_safe_harbor_rate
+  kind: parameter
+  dtype: Rate
+  period: Year
+  source: K-40ES, Estimated Tax Penalty
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'However, the penalty will not apply if each payment is timely
+            and your total payments and credits: • are at least 90% (66 2/3% for farmers
+            and fishers) of the tax shown on your return for tax year 2026, OR • equal
+            or exceed 100% of the tax shown on your 2025 return, (the return must
+            cover a 12-month period with a tax liability), OR • equal or exceed 90%
+            of the tax shown on your annualized income for the periods January 1,
+            2026 to March 31, May 31, August 31 and December 31, 2026.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0.90'
+- name: penalty_prior_year_safe_harbor_rate
+  kind: parameter
+  dtype: Rate
+  period: Year
+  source: K-40ES, Estimated Tax Penalty
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'However, the penalty will not apply if each payment is timely
+            and your total payments and credits: • are at least 90% (66 2/3% for farmers
+            and fishers) of the tax shown on your return for tax year 2026, OR • equal
+            or exceed 100% of the tax shown on your 2025 return, (the return must
+            cover a 12-month period with a tax liability), OR • equal or exceed 90%
+            of the tax shown on your annualized income for the periods January 1,
+            2026 to March 31, May 31, August 31 and December 31, 2026.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '1'
+- name: annualized_income_safe_harbor_rate
+  kind: parameter
+  dtype: Rate
+  period: Year
+  source: K-40ES, Estimated Tax Penalty
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'However, the penalty will not apply if each payment is timely
+            and your total payments and credits: • are at least 90% (66 2/3% for farmers
+            and fishers) of the tax shown on your return for tax year 2026, OR • equal
+            or exceed 100% of the tax shown on your 2025 return, (the return must
+            cover a 12-month period with a tax liability), OR • equal or exceed 90%
+            of the tax shown on your annualized income for the periods January 1,
+            2026 to March 31, May 31, August 31 and December 31, 2026.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0.90'
+- name: quarterly_installment_count
+  kind: parameter
+  dtype: Count
+  period: Year
+  source: K-40ES, Estimated Tax Worksheet line 9
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: Amount of each quarterly payment (enter 1/4 of line 8 here and
+            on Voucher 1) .....................................
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '4'
+- name: kansas_taxable_income
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, Estimated Tax Worksheet lines 1–5.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: Kansas estimated income tax (subtract line 7 from line 6).
+  versions:
+  - effective_from: '2026-01-01'
+    formula: max(0, expected_kansas_adjusted_gross_income - estimated_deductions -
+      estimated_exemptions)
+- name: joint_schedule_estimated_tax
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, Tax Computation Schedule I.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: '5.2% of line 5 $46,000 .................................................
+            $2,392 plus 5.58% of excess over $46,000 Schedule ll - SINGLE, HEAD OF
+            HOUSEHOLD, OR MARRIED FILING SEPARATE If line 5 is: Over But not over
+            Enter on line 6: $ 0.00 $23,000 ........................................'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'if kansas_taxable_income <= joint_lower_bracket_ceiling: lower_bracket_rate
+      * kansas_taxable_income else: joint_lower_bracket_tax + upper_bracket_rate *
+      (kansas_taxable_income - joint_lower_bracket_ceiling)'
+- name: estimated_kansas_income_tax_after_credits
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, Estimated Tax Worksheet lines 6–8; filing-status schedule selection
+    is not supplied as an executable classification in this source unit.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: Estimated Kansas withholding and tax credits for the year 2026
+            .
+  versions:
+  - effective_from: '2026-01-01'
+    formula: max(0, estimated_kansas_tax_liability - estimated_kansas_withholding_and_credits)
+- name: estimated_payment_required
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Year
+  source: K-40ES, “You must make estimated tax payments if ...”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'You must make estimated tax payments if your estimated Kansas
+            income tax after withholding and credits is $500 or more and your withholding
+            and credits may be less than the smaller of: a) 90% of the tax on your
+            tax return for tax year 2026; or b) 100% of the tax shown on your 2025
+            tax return.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'estimated_kansas_income_tax_after_credits >= estimated_tax_payment_threshold
+
+      and estimated_kansas_withholding_and_credits < min(current_year_tax_safe_harbor_rate
+      * current_year_kansas_tax_liability, prior_year_tax_safe_harbor_rate * prior_year_kansas_tax_liability)'
+- name: first_quarter_installment_amount
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, Estimated Tax Worksheet line 9.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: Amount of each quarterly payment (enter 1/4 of line 8 here and
+            on Voucher 1) .....................................
+  versions:
+  - effective_from: '2026-01-01'
+    formula: first_installment_fraction * estimated_kansas_income_tax_after_credits
+- name: june_late_start_installment_amount
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, Estimated Tax Worksheet line 9.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'If you are beginning estimated payments after April 15, but on
+            or before: June 15 enter 1/3 of line 8; September 15 enter 1/2 of line
+            8; January 15 enter the total amount on line 8.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: late_start_june_fraction * estimated_kansas_income_tax_after_credits
+- name: september_late_start_installment_amount
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: K-40ES, Estimated Tax Worksheet line 9.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'If you are beginning estimated payments after April 15, but on
+            or before: June 15 enter 1/3 of line 8; September 15 enter 1/2 of line
+            8; January 15 enter the total amount on line 8.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: late_start_september_fraction * estimated_kansas_income_tax_after_credits
+- name: farmer_fisher_current_year_safe_harbor_met
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Year
+  source: K-40ES, Estimated Tax Penalty.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'However, the penalty will not apply if each payment is timely
+            and your total payments and credits: • are at least 90% (66 2/3% for farmers
+            and fishers) of the tax shown on your return for tax year 2026, OR • equal
+            or exceed 100% of the tax shown on your 2025 return, (the return must
+            cover a 12-month period with a tax liability), OR • equal or exceed 90%
+            of the tax shown on your annualized income for the periods January 1,
+            2026 to March 31, May 31, August 31 and December 31, 2026.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: total_estimated_payments_and_credits >= farmer_fisher_current_year_safe_harbor_rate
+      * current_year_kansas_tax_liability
+- name: ordinary_current_year_safe_harbor_met
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Year
+  source: K-40ES, Estimated Tax Penalty.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'However, the penalty will not apply if each payment is timely
+            and your total payments and credits: • are at least 90% (66 2/3% for farmers
+            and fishers) of the tax shown on your return for tax year 2026, OR • equal
+            or exceed 100% of the tax shown on your 2025 return, (the return must
+            cover a 12-month period with a tax liability), OR • equal or exceed 90%
+            of the tax shown on your annualized income for the periods January 1,
+            2026 to March 31, May 31, August 31 and December 31, 2026.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: total_estimated_payments_and_credits >= penalty_current_year_safe_harbor_rate
+      * current_year_kansas_tax_liability
+- name: qualifying_prior_year_safe_harbor_met
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Year
+  source: K-40ES, Estimated Tax Penalty.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'However, the penalty will not apply if each payment is timely
+            and your total payments and credits: • are at least 90% (66 2/3% for farmers
+            and fishers) of the tax shown on your return for tax year 2026, OR • equal
+            or exceed 100% of the tax shown on your 2025 return, (the return must
+            cover a 12-month period with a tax liability), OR • equal or exceed 90%
+            of the tax shown on your annualized income for the periods January 1,
+            2026 to March 31, May 31, August 31 and December 31, 2026.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'prior_year_return_covers_12_months
+
+      and prior_year_return_has_tax_liability
+
+      and total_estimated_payments_and_credits >= penalty_prior_year_safe_harbor_rate
+      * prior_year_kansas_tax_liability'
+- name: annualized_income_safe_harbor_met
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Year
+  source: K-40ES, Estimated Tax Penalty.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'However, the penalty will not apply if each payment is timely
+            and your total payments and credits: • are at least 90% (66 2/3% for farmers
+            and fishers) of the tax shown on your return for tax year 2026, OR • equal
+            or exceed 100% of the tax shown on your 2025 return, (the return must
+            cover a 12-month period with a tax liability), OR • equal or exceed 90%
+            of the tax shown on your annualized income for the periods January 1,
+            2026 to March 31, May 31, August 31 and December 31, 2026.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: total_estimated_payments_and_credits >= annualized_income_safe_harbor_rate
+      * annualized_income_tax_for_required_periods
+- name: estimated_tax_penalty_not_applicable
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Year
+  source: K-40ES, Estimated Tax Penalty.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1
+          excerpt: 'However, the penalty will not apply if each payment is timely
+            and your total payments and credits: • are at least 90% (66 2/3% for farmers
+            and fishers) of the tax shown on your return for tax year 2026, OR • equal
+            or exceed 100% of the tax shown on your 2025 return, (the return must
+            cover a 12-month period with a tax liability), OR • equal or exceed 90%
+            of the tax shown on your annualized income for the periods January 1,
+            2026 to March 31, May 31, August 31 and December 31, 2026.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'each_estimated_payment_is_timely
+
+      and (farmer_fisher_current_year_safe_harbor_met or ordinary_current_year_safe_harbor_met
+      or qualifying_prior_year_safe_harbor_met or annualized_income_safe_harbor_met)'
+inputs:
+- name: taxpayer_is_farmer_or_fisher
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year
+- name: return_filed_by_farmer_fisher_exception_deadline
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year
+- name: tax_fully_paid_by_farmer_fisher_exception_deadline
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year
+- name: taxpayer_uses_fiscal_year
+  entity: TaxUnit
+  dtype: Boolean
+  period: Day
+- name: day_is_applicable_fiscal_year_estimated_payment_deadline
+  entity: TaxUnit
+  dtype: Boolean
+  period: Day
+- name: expected_kansas_adjusted_gross_income
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+- name: estimated_deductions
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+- name: estimated_exemptions
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+- name: estimated_kansas_tax_liability
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+- name: estimated_kansas_withholding_and_credits
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+- name: current_year_kansas_tax_liability
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+- name: prior_year_kansas_tax_liability
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+- name: total_estimated_payments_and_credits
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+- name: prior_year_return_covers_12_months
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year
+- name: prior_year_return_has_tax_liability
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year
+- name: annualized_income_tax_for_required_periods
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+- name: each_estimated_payment_is_timely
+  entity: TaxUnit
+  dtype: Boolean
+  period: Year

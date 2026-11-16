@@ -1,0 +1,3907 @@
+{
+  "content": "format: rulespec/v1\nmodule:\n  summary: 'Complete Schedule M for interest paid in 2025 on a student loan granted\n\n    to you, or for unused interest carried forward. \u201cAdd lines 46 and 48.\u201d\n\n    \u201cSubtract line 60 from line 52.\u201d'\n  proof_validation:\n    required: true\n  source_verification:\n    corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n    source_sha256: e8a905d1a3e9dd708c46ffc0090fafeeeb5c840a0c708a8c80dff2674b78c90a\nunits:\n- name: CAD\n  kind: currency\n  minor_units: 2\ninputs:\n- name: schedule_m_carryforward_calculated_for_2024\n  entity: Person\n  dtype: Boolean\n  period: Year\n- name: schedule_m_unused_student_loan_interest_line_46\n  entity: Person\n  dtype: Money\n  unit: CAD\n  period: Year\n- name: schedule_m_student_loan_interest_paid_1998_through_2024\n  entity: Person\n  dtype: Money\n  unit: CAD\n  period: Year\n- name: schedule_m_student_loan_interest_used_for_previous_year_credits\n  entity: Person\n  dtype: Money\n  unit: CAD\n  period: Year\n- name: schedule_m_student_loan_interest_paid_2025_line_48\n  entity: Person\n  dtype: Money\n  unit: CAD\n  period: Year\n- name: schedule_m_student_loan_interest_claimed_line_60\n  entity: Person\n  dtype: Money\n  unit: CAD\n  period: Year\n- name: schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year\n  entity: Person\n  dtype: Boolean\n  period: Year\n  description: Explicit prior carry decision separate from whether2024 calculation\n    occurred; never inferred from positive money or treated alone as entitlement.\n- name: is_completing_student_loan_interest_schedule\n  entity: Person\n  dtype: Boolean\n  period: Year\n  description: Explicit claimant form-use context, not eligibility, filing completed\n    or enclosure compliance.\n- name: wants_to_keep_student_loan_interest_schedule_copy\n  entity: Person\n  dtype: Boolean\n  period: Year\n  description: Explicit wish to keep a copy of this schedule; not actual retention\n    or guide consultation.\nrules:\n- name: schedule_m_unused_student_loan_interest_for_2025_line_46\n  kind: derived\n  entity: Person\n  dtype: Money\n  unit: CAD\n  period: Year\n  source: Revenu Quebec Schedule M 2025, instructions for line 46\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: condition\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Also complete this schedule if, for 2024, you calculated an amount\n            for interest paid on a student loan and decided to carry the amount forward\n      - path: versions[0].formula\n        kind: definition\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: or the amount shown in this respect on your 2024 notice of assessment\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: interest paid for 1998 through 2024 minus the interest already\n            used to calculate a credit for interest paid on a student loan for previous\n            years.\n      - path: versions[0].formula\n        kind: unit\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: a student loan granted to you\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Interest paid in 2025 on a student loan\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: 'Also complete this schedule if, for 2024, you calculated an amount\n            for interest paid on a student loan and decided to carry the amount forward\n\n            to a future year.'\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: 'If interest was paid on your student loan after 1997, but in 2024\n            you did not calculate the amount that could be carried forward, enter\n            the result\n\n            of the following calculation on line 46: interest paid for 1998 through\n            2024 minus the interest already used to calculate a credit for interest\n            paid\n\n            on a student loan for previous years.'\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: 'Unused portion of the interest paid on a student loan (line 62\n            of Schedule M for 2024\n\n            or the amount shown in this respect on your 2024 notice of assessment)'\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: 'if schedule_m_carryforward_calculated_for_2024: schedule_m_unused_student_loan_interest_line_46\n      else: schedule_m_student_loan_interest_paid_1998_through_2024 - schedule_m_student_loan_interest_used_for_previous_year_credits'\n- name: schedule_m_student_loan_interest_available_line_52\n  kind: derived\n  entity: Person\n  dtype: Money\n  unit: CAD\n  period: Year\n  source: Revenu Quebec Schedule M 2025, line 52\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Add lines 46 and 48.\n      - path: versions[0].formula\n        kind: unit\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: a student loan granted to you\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Interest paid in 2025 on a student loan\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Complete this schedule if interest was paid in 2025 on a student\n            loan granted to you.\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Interest paid in 2025 on a student loan\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: schedule_m_unused_student_loan_interest_for_2025_line_46 + schedule_m_student_loan_interest_paid_2025_line_48\n- name: schedule_m_student_loan_interest_claim_line_385\n  kind: derived\n  entity: Person\n  dtype: Money\n  unit: CAD\n  period: Year\n  source: Revenu Quebec Schedule M 2025, amount carried to return line 385\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Carry all or part of this amount to line 385 of your return.\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Amount carried to line 385 of your 2025 return\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Amount carried to line 385 of your 2025 return\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: min(schedule_m_student_loan_interest_available_line_52, max(0, schedule_m_student_loan_interest_claimed_line_60))\n- name: schedule_m_student_loan_interest_carryforward_line_62\n  kind: derived\n  entity: Person\n  dtype: Money\n  unit: CAD\n  period: Year\n  source: Revenu Quebec Schedule M 2025, line 62\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: formula\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Subtract line 60 from line 52.\n      - path: versions[0].formula\n        kind: definition\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Amount that can be carried forward to a future year\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Interest paid in 2025 on a student loan\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: schedule_m_student_loan_interest_available_line_52 - schedule_m_student_loan_interest_claim_line_385\n- name: student_loan_interest_schedule_completion_required\n  kind: derived\n  entity: Person\n  dtype: Judgment\n  period: Year\n  source: Revenu Quebec Schedule M 2025 instructions\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: condition\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Complete this schedule if interest was paid in 2025 on a student\n            loan granted to you.\n      - path: versions[0].formula\n        kind: condition\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: 'Also complete this schedule if, for 2024, you calculated an amount\n            for interest paid on a student loan and decided to carry the amount forward\n\n            to a future year.'\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: (schedule_m_student_loan_interest_paid_2025_line_48 > 0) or (schedule_m_carryforward_calculated_for_2024\n      and schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year)\n- name: student_loan_interest_schedule_enclosure_required\n  kind: derived\n  entity: Person\n  dtype: Judgment\n  period: Year\n  source: Revenu Quebec Schedule M 2025 instructions\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: definition\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Enclose this schedule with your return.\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: is_completing_student_loan_interest_schedule\n- name: student_loan_interest_schedule_copy_guide_consultation_required\n  kind: derived\n  entity: Person\n  dtype: Judgment\n  period: Year\n  source: Revenu Quebec Schedule M 2025 instructions\n  metadata:\n    proof:\n      atoms:\n      - path: versions[0].formula\n        kind: condition\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: If you want to keep a copy for your records, see the guide.\n      - path: versions[0].effective_from\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan\n      - path: versions[0].effective_to\n        kind: effective_period\n        source:\n          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest\n          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan\n  versions:\n  - effective_from: '2025-01-01'\n    effective_to: '2025-12-31'\n    formula: wants_to_keep_student_loan_interest_schedule_copy\n",
+  "source": "Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan\n\nT P -1. D. M -V (2025-12)\nT\n\nInterest Paid on a Student Loan\n\nSCHEDULE\n\nM\n\nComplete this schedule if interest was paid in 2025 on a student loan granted to you.\nAlso complete this schedule if, for 2024, you calculated an amount for interest paid on a student loan and decided to carry the amount forward\nto a future year.\nIf interest was paid on your student loan after 1997, but in 2024 you did not calculate the amount that could be carried forward, enter the result\nof the following calculation on line 46: interest paid for 1998 through 2024 minus the interest already used to calculate a credit for interest paid\non a student loan for previous years.\nUnused portion of the interest paid on a student loan (line 62 of Schedule M for 2024\nor the amount shown in this respect on your 2024 notice of assessment)\nInterest paid in 2025 on a student loan\n+\nAdd lines 46 and 48.\nCarry all or part of this amount to line 385 of your return.\b\nInterest paid on a student loan =\nAmount carried to line 385 of your 2025 return\n\u2013\nSubtract line 60 from line 52.\n\b\nAmount that can be carried forward to a future year =\n\nEnclose this schedule with your return.\nIf you want to keep a copy for your records, see the guide.\n\nY4M1 ZZ 89527749\n\n46\n48\n52\n60\n62\n\nM",
+  "cases": [
+    {
+      "name": "schedule_m_partial_explicit_2024_calculation",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024": true,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46": 800,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48": 300,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60": 500
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": 800,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": 1100,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": 500,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": 600
+      }
+    },
+    {
+      "name": "schedule_m_full_explicit_2024_calculation",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024": true,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46": 100,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48": 50,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60": 150
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": 100,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": 150,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": 150,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": 0
+      }
+    },
+    {
+      "name": "schedule_m_zero_claim_explicit_2024_calculation",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024": true,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46": 100,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48": 50,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60": 0
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": 100,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": 150,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": 0,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": 150
+      }
+    },
+    {
+      "name": "schedule_m_current_only_explicit_2024_calculation",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024": true,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46": 0,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48": 300,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60": 200
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": 0,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": 300,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": 200,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": 100
+      }
+    },
+    {
+      "name": "schedule_m_prior_only_explicit_2024_calculation",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024": true,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46": 800,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48": 0,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60": 500
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": 800,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": 800,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": 500,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": 300
+      }
+    },
+    {
+      "name": "schedule_m_historical_interest_reconstruction",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024": false,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_1998_through_2024": 500,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_used_for_previous_year_credits": 200,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48": 50,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60": 100
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": 300,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": 350,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": 100,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": 250
+      }
+    },
+    {
+      "name": "schedule_m_bounded_request_500",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024": true,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46": 100,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48": 50,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60": 500
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": 100,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": 150,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": 150,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": 0
+      }
+    },
+    {
+      "name": "schedule_m_bounded_request_negative_10",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024": true,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46": 100,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48": 50,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60": -10
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": 100,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": 150,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": 0,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": 150
+      }
+    },
+    {
+      "name": "schedule_m_completion_0",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48": 10,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024": false,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year": true
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required": "holds"
+      }
+    },
+    {
+      "name": "schedule_m_completion_1",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48": 0,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024": false,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year": true
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required": "not_holds"
+      }
+    },
+    {
+      "name": "schedule_m_completion_2",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48": 0,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024": true,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year": true
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required": "holds"
+      }
+    },
+    {
+      "name": "schedule_m_completion_3",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48": 0,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024": true,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year": false
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required": "not_holds"
+      }
+    },
+    {
+      "name": "schedule_m_enclosure_false",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.is_completing_student_loan_interest_schedule": false
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_enclosure_required": "not_holds"
+      }
+    },
+    {
+      "name": "schedule_m_enclosure_true",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.is_completing_student_loan_interest_schedule": true
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_enclosure_required": "holds"
+      }
+    },
+    {
+      "name": "schedule_m_equal_history_provider_true",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024": true,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46": 300,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_1998_through_2024": 500,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_used_for_previous_year_credits": 200,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48": 50,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60": 100
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": 300,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": 350,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": 100,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": 250
+      }
+    },
+    {
+      "name": "schedule_m_equal_history_provider_false",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024": false,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46": 300,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_1998_through_2024": 500,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_used_for_previous_year_credits": 200,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48": 50,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60": 100
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": 300,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": 350,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": 100,
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": 250
+      }
+    },
+    {
+      "name": "schedule_m_guide_consultation_false",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.wants_to_keep_student_loan_interest_schedule_copy": false
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_copy_guide_consultation_required": "not_holds"
+      }
+    },
+    {
+      "name": "schedule_m_guide_consultation_true",
+      "period": {
+        "period_kind": "tax_year",
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "input": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.wants_to_keep_student_loan_interest_schedule_copy": true
+      },
+      "output": {
+        "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_copy_guide_consultation_required": "holds"
+      }
+    }
+  ],
+  "artifact": {
+    "artifact_format_version": 2,
+    "engine_version": "0.2.2",
+    "program": {
+      "module": {
+        "summary": "Complete Schedule M for interest paid in 2025 on a student loan granted\nto you, or for unused interest carried forward. \u201cAdd lines 46 and 48.\u201d\n\u201cSubtract line 60 from line 52.\u201d",
+        "source_verification": {
+          "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest",
+          "source_sha256": "e8a905d1a3e9dd708c46ffc0090fafeeeb5c840a0c708a8c80dff2674b78c90a"
+        }
+      },
+      "units": [
+        {
+          "name": "GBP",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "USD",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "EUR",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "CHF",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "NOK",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "GHS",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "GHp",
+          "kind": "currency",
+          "minor_units": 0
+        },
+        {
+          "name": "NGN",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "UGX",
+          "kind": "currency",
+          "minor_units": 0
+        },
+        {
+          "name": "ZMW",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "ETB",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "RWF",
+          "kind": "currency",
+          "minor_units": 0
+        },
+        {
+          "name": "TZS",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "DKK",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "AMD",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "ILS",
+          "kind": "currency",
+          "minor_units": 2
+        },
+        {
+          "name": "count",
+          "kind": "count"
+        },
+        {
+          "name": "person",
+          "kind": "count"
+        },
+        {
+          "name": "ratio",
+          "kind": "ratio"
+        },
+        {
+          "name": "status",
+          "kind": "custom",
+          "label": "judgment"
+        },
+        {
+          "name": "CAD",
+          "kind": "currency",
+          "minor_units": 2
+        }
+      ],
+      "relations": [],
+      "parameters": [],
+      "derived": [
+        {
+          "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+          "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+          "entity": "Person",
+          "dtype": "decimal",
+          "unit": "CAD",
+          "period": "Year",
+          "source": "Revenu Quebec Schedule M 2025, instructions for line 46",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest",
+          "semantics": "scalar",
+          "expr": {
+            "kind": "if",
+            "condition": {
+              "kind": "comparison",
+              "left": {
+                "kind": "input",
+                "name": "schedule_m_carryforward_calculated_for_2024"
+              },
+              "op": "eq",
+              "right": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": true
+                }
+              }
+            },
+            "then_expr": {
+              "kind": "input",
+              "name": "schedule_m_unused_student_loan_interest_line_46"
+            },
+            "else_expr": {
+              "kind": "sub",
+              "left": {
+                "kind": "input",
+                "name": "schedule_m_student_loan_interest_paid_1998_through_2024"
+              },
+              "right": {
+                "kind": "input",
+                "name": "schedule_m_student_loan_interest_used_for_previous_year_credits"
+              }
+            }
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "scalar",
+              "expr": {
+                "kind": "if",
+                "condition": {
+                  "kind": "comparison",
+                  "left": {
+                    "kind": "input",
+                    "name": "schedule_m_carryforward_calculated_for_2024"
+                  },
+                  "op": "eq",
+                  "right": {
+                    "kind": "literal",
+                    "value": {
+                      "kind": "bool",
+                      "value": true
+                    }
+                  }
+                },
+                "then_expr": {
+                  "kind": "input",
+                  "name": "schedule_m_unused_student_loan_interest_line_46"
+                },
+                "else_expr": {
+                  "kind": "sub",
+                  "left": {
+                    "kind": "input",
+                    "name": "schedule_m_student_loan_interest_paid_1998_through_2024"
+                  },
+                  "right": {
+                    "kind": "input",
+                    "name": "schedule_m_student_loan_interest_used_for_previous_year_credits"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+          "name": "schedule_m_student_loan_interest_available_line_52",
+          "entity": "Person",
+          "dtype": "decimal",
+          "unit": "CAD",
+          "period": "Year",
+          "source": "Revenu Quebec Schedule M 2025, line 52",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest",
+          "semantics": "scalar",
+          "expr": {
+            "kind": "add",
+            "items": [
+              {
+                "kind": "derived",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46"
+              },
+              {
+                "kind": "input",
+                "name": "schedule_m_student_loan_interest_paid_2025_line_48"
+              }
+            ]
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "scalar",
+              "expr": {
+                "kind": "add",
+                "items": [
+                  {
+                    "kind": "derived",
+                    "name": "schedule_m_unused_student_loan_interest_for_2025_line_46"
+                  },
+                  {
+                    "kind": "input",
+                    "name": "schedule_m_student_loan_interest_paid_2025_line_48"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+          "name": "schedule_m_student_loan_interest_claim_line_385",
+          "entity": "Person",
+          "dtype": "decimal",
+          "unit": "CAD",
+          "period": "Year",
+          "source": "Revenu Quebec Schedule M 2025, amount carried to return line 385",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest",
+          "semantics": "scalar",
+          "expr": {
+            "kind": "min",
+            "items": [
+              {
+                "kind": "derived",
+                "name": "schedule_m_student_loan_interest_available_line_52"
+              },
+              {
+                "kind": "max",
+                "items": [
+                  {
+                    "kind": "literal",
+                    "value": {
+                      "kind": "decimal",
+                      "value": "0"
+                    }
+                  },
+                  {
+                    "kind": "input",
+                    "name": "schedule_m_student_loan_interest_claimed_line_60"
+                  }
+                ]
+              }
+            ]
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "scalar",
+              "expr": {
+                "kind": "min",
+                "items": [
+                  {
+                    "kind": "derived",
+                    "name": "schedule_m_student_loan_interest_available_line_52"
+                  },
+                  {
+                    "kind": "max",
+                    "items": [
+                      {
+                        "kind": "literal",
+                        "value": {
+                          "kind": "decimal",
+                          "value": "0"
+                        }
+                      },
+                      {
+                        "kind": "input",
+                        "name": "schedule_m_student_loan_interest_claimed_line_60"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+          "name": "schedule_m_student_loan_interest_carryforward_line_62",
+          "entity": "Person",
+          "dtype": "decimal",
+          "unit": "CAD",
+          "period": "Year",
+          "source": "Revenu Quebec Schedule M 2025, line 62",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest",
+          "semantics": "scalar",
+          "expr": {
+            "kind": "sub",
+            "left": {
+              "kind": "derived",
+              "name": "schedule_m_student_loan_interest_available_line_52"
+            },
+            "right": {
+              "kind": "derived",
+              "name": "schedule_m_student_loan_interest_claim_line_385"
+            }
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "scalar",
+              "expr": {
+                "kind": "sub",
+                "left": {
+                  "kind": "derived",
+                  "name": "schedule_m_student_loan_interest_available_line_52"
+                },
+                "right": {
+                  "kind": "derived",
+                  "name": "schedule_m_student_loan_interest_claim_line_385"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required",
+          "name": "student_loan_interest_schedule_completion_required",
+          "entity": "Person",
+          "dtype": "judgment",
+          "unit": null,
+          "period": "Year",
+          "source": "Revenu Quebec Schedule M 2025 instructions",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest",
+          "semantics": "judgment",
+          "expr": {
+            "kind": "or",
+            "items": [
+              {
+                "kind": "comparison",
+                "left": {
+                  "kind": "input",
+                  "name": "schedule_m_student_loan_interest_paid_2025_line_48"
+                },
+                "op": "gt",
+                "right": {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "integer",
+                    "value": 0
+                  }
+                }
+              },
+              {
+                "kind": "and",
+                "items": [
+                  {
+                    "kind": "comparison",
+                    "left": {
+                      "kind": "input",
+                      "name": "schedule_m_carryforward_calculated_for_2024"
+                    },
+                    "op": "eq",
+                    "right": {
+                      "kind": "literal",
+                      "value": {
+                        "kind": "bool",
+                        "value": true
+                      }
+                    }
+                  },
+                  {
+                    "kind": "comparison",
+                    "left": {
+                      "kind": "input",
+                      "name": "schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year"
+                    },
+                    "op": "eq",
+                    "right": {
+                      "kind": "literal",
+                      "value": {
+                        "kind": "bool",
+                        "value": true
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "judgment",
+              "expr": {
+                "kind": "or",
+                "items": [
+                  {
+                    "kind": "comparison",
+                    "left": {
+                      "kind": "input",
+                      "name": "schedule_m_student_loan_interest_paid_2025_line_48"
+                    },
+                    "op": "gt",
+                    "right": {
+                      "kind": "literal",
+                      "value": {
+                        "kind": "integer",
+                        "value": 0
+                      }
+                    }
+                  },
+                  {
+                    "kind": "and",
+                    "items": [
+                      {
+                        "kind": "comparison",
+                        "left": {
+                          "kind": "input",
+                          "name": "schedule_m_carryforward_calculated_for_2024"
+                        },
+                        "op": "eq",
+                        "right": {
+                          "kind": "literal",
+                          "value": {
+                            "kind": "bool",
+                            "value": true
+                          }
+                        }
+                      },
+                      {
+                        "kind": "comparison",
+                        "left": {
+                          "kind": "input",
+                          "name": "schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year"
+                        },
+                        "op": "eq",
+                        "right": {
+                          "kind": "literal",
+                          "value": {
+                            "kind": "bool",
+                            "value": true
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_enclosure_required",
+          "name": "student_loan_interest_schedule_enclosure_required",
+          "entity": "Person",
+          "dtype": "judgment",
+          "unit": null,
+          "period": "Year",
+          "source": "Revenu Quebec Schedule M 2025 instructions",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest",
+          "semantics": "judgment",
+          "expr": {
+            "kind": "comparison",
+            "left": {
+              "kind": "input",
+              "name": "is_completing_student_loan_interest_schedule"
+            },
+            "op": "eq",
+            "right": {
+              "kind": "literal",
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            }
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "judgment",
+              "expr": {
+                "kind": "comparison",
+                "left": {
+                  "kind": "input",
+                  "name": "is_completing_student_loan_interest_schedule"
+                },
+                "op": "eq",
+                "right": {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "bool",
+                    "value": true
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_copy_guide_consultation_required",
+          "name": "student_loan_interest_schedule_copy_guide_consultation_required",
+          "entity": "Person",
+          "dtype": "judgment",
+          "unit": null,
+          "period": "Year",
+          "source": "Revenu Quebec Schedule M 2025 instructions",
+          "source_url": null,
+          "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest",
+          "semantics": "judgment",
+          "expr": {
+            "kind": "comparison",
+            "left": {
+              "kind": "input",
+              "name": "wants_to_keep_student_loan_interest_schedule_copy"
+            },
+            "op": "eq",
+            "right": {
+              "kind": "literal",
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            }
+          },
+          "versions": [
+            {
+              "effective_from": "2025-01-01",
+              "effective_to": "2025-12-31",
+              "semantics": "judgment",
+              "expr": {
+                "kind": "comparison",
+                "left": {
+                  "kind": "input",
+                  "name": "wants_to_keep_student_loan_interest_schedule_copy"
+                },
+                "op": "eq",
+                "right": {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "bool",
+                    "value": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "metadata": {
+      "evaluation_order": [
+        "schedule_m_unused_student_loan_interest_for_2025_line_46",
+        "schedule_m_student_loan_interest_available_line_52",
+        "schedule_m_student_loan_interest_claim_line_385",
+        "schedule_m_student_loan_interest_carryforward_line_62",
+        "student_loan_interest_schedule_completion_required",
+        "student_loan_interest_schedule_copy_guide_consultation_required",
+        "student_loan_interest_schedule_enclosure_required"
+      ],
+      "fast_path": {
+        "strategy": "generic_bulk",
+        "compatible": true,
+        "blockers": []
+      },
+      "input_catalog": [
+        {
+          "slot": "is_completing_student_loan_interest_schedule",
+          "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.is_completing_student_loan_interest_schedule",
+          "request_names": [
+            "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.is_completing_student_loan_interest_schedule"
+          ]
+        },
+        {
+          "slot": "schedule_m_carryforward_calculated_for_2024",
+          "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024",
+          "request_names": [
+            "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024"
+          ]
+        },
+        {
+          "slot": "schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year",
+          "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year",
+          "request_names": [
+            "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year"
+          ]
+        },
+        {
+          "slot": "schedule_m_student_loan_interest_claimed_line_60",
+          "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60",
+          "request_names": [
+            "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60"
+          ]
+        },
+        {
+          "slot": "schedule_m_student_loan_interest_paid_1998_through_2024",
+          "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_1998_through_2024",
+          "request_names": [
+            "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_1998_through_2024"
+          ]
+        },
+        {
+          "slot": "schedule_m_student_loan_interest_paid_2025_line_48",
+          "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48",
+          "request_names": [
+            "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48"
+          ]
+        },
+        {
+          "slot": "schedule_m_student_loan_interest_used_for_previous_year_credits",
+          "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_used_for_previous_year_credits",
+          "request_names": [
+            "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_used_for_previous_year_credits"
+          ]
+        },
+        {
+          "slot": "schedule_m_unused_student_loan_interest_line_46",
+          "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46",
+          "request_names": [
+            "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46"
+          ]
+        },
+        {
+          "slot": "wants_to_keep_student_loan_interest_schedule_copy",
+          "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.wants_to_keep_student_loan_interest_schedule_copy",
+          "request_names": [
+            "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.wants_to_keep_student_loan_interest_schedule_copy"
+          ]
+        }
+      ]
+    }
+  },
+  "records": [
+    {
+      "case_index": 1,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024",
+              "entity": "Person",
+              "entity_id": "case-1",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46",
+              "entity": "Person",
+              "entity_id": "case-1",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 800
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48",
+              "entity": "Person",
+              "entity_id": "case-1",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 300
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60",
+              "entity": "Person",
+              "entity_id": "case-1",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 500
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-1",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-1",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "1100"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "600"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "500"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 800
+                }
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "entity_id": "case-1",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "1100"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 52",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46 + input(\"schedule_m_student_loan_interest_paid_2025_line_48\"))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "entity_id": "case-1",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "600"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 62",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52 - ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385)",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "entity_id": "case-1",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "500"
+                },
+                "source": "Revenu Quebec Schedule M 2025, amount carried to return line 385",
+                "executed_expression": "min(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52, max(0, input(\"schedule_m_student_loan_interest_claimed_line_60\")))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "entity_id": "case-1",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 800
+                },
+                "source": "Revenu Quebec Schedule M 2025, instructions for line 46",
+                "executed_expression": "(if (input(\"schedule_m_carryforward_calculated_for_2024\") == true) then input(\"schedule_m_unused_student_loan_interest_line_46\") else (input(\"schedule_m_student_loan_interest_paid_1998_through_2024\") - input(\"schedule_m_student_loan_interest_used_for_previous_year_credits\")))",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "9268ea518612fe86a1d46134f48d5f2d4c1a95a0ba620b5ac790722e32311a5e"
+    },
+    {
+      "case_index": 2,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024",
+              "entity": "Person",
+              "entity_id": "case-2",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46",
+              "entity": "Person",
+              "entity_id": "case-2",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 100
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48",
+              "entity": "Person",
+              "entity_id": "case-2",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 50
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60",
+              "entity": "Person",
+              "entity_id": "case-2",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 150
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-2",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-2",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "0"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 100
+                }
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "entity_id": "case-2",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 52",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46 + input(\"schedule_m_student_loan_interest_paid_2025_line_48\"))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "entity_id": "case-2",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "0"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 62",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52 - ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385)",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "entity_id": "case-2",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                },
+                "source": "Revenu Quebec Schedule M 2025, amount carried to return line 385",
+                "executed_expression": "min(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52, max(0, input(\"schedule_m_student_loan_interest_claimed_line_60\")))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "entity_id": "case-2",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 100
+                },
+                "source": "Revenu Quebec Schedule M 2025, instructions for line 46",
+                "executed_expression": "(if (input(\"schedule_m_carryforward_calculated_for_2024\") == true) then input(\"schedule_m_unused_student_loan_interest_line_46\") else (input(\"schedule_m_student_loan_interest_paid_1998_through_2024\") - input(\"schedule_m_student_loan_interest_used_for_previous_year_credits\")))",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "b7a360a8996d6eada5aede841e3de408eabe8a71fa8e2cf83ca041972b965ff2"
+    },
+    {
+      "case_index": 3,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024",
+              "entity": "Person",
+              "entity_id": "case-3",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46",
+              "entity": "Person",
+              "entity_id": "case-3",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 100
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48",
+              "entity": "Person",
+              "entity_id": "case-3",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 50
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60",
+              "entity": "Person",
+              "entity_id": "case-3",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 0
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-3",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-3",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "0"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 100
+                }
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "entity_id": "case-3",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 52",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46 + input(\"schedule_m_student_loan_interest_paid_2025_line_48\"))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "entity_id": "case-3",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 62",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52 - ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385)",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "entity_id": "case-3",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "0"
+                },
+                "source": "Revenu Quebec Schedule M 2025, amount carried to return line 385",
+                "executed_expression": "min(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52, max(0, input(\"schedule_m_student_loan_interest_claimed_line_60\")))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "entity_id": "case-3",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 100
+                },
+                "source": "Revenu Quebec Schedule M 2025, instructions for line 46",
+                "executed_expression": "(if (input(\"schedule_m_carryforward_calculated_for_2024\") == true) then input(\"schedule_m_unused_student_loan_interest_line_46\") else (input(\"schedule_m_student_loan_interest_paid_1998_through_2024\") - input(\"schedule_m_student_loan_interest_used_for_previous_year_credits\")))",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "c93f2fdd498d1c8a46946917723ddcdc986e2db8a98d7764e8a401a54b310a4b"
+    },
+    {
+      "case_index": 4,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024",
+              "entity": "Person",
+              "entity_id": "case-4",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46",
+              "entity": "Person",
+              "entity_id": "case-4",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 0
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48",
+              "entity": "Person",
+              "entity_id": "case-4",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 300
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60",
+              "entity": "Person",
+              "entity_id": "case-4",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 200
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-4",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-4",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "300"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "100"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "200"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 0
+                }
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "entity_id": "case-4",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "300"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 52",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46 + input(\"schedule_m_student_loan_interest_paid_2025_line_48\"))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "entity_id": "case-4",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "100"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 62",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52 - ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385)",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "entity_id": "case-4",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "200"
+                },
+                "source": "Revenu Quebec Schedule M 2025, amount carried to return line 385",
+                "executed_expression": "min(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52, max(0, input(\"schedule_m_student_loan_interest_claimed_line_60\")))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "entity_id": "case-4",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 0
+                },
+                "source": "Revenu Quebec Schedule M 2025, instructions for line 46",
+                "executed_expression": "(if (input(\"schedule_m_carryforward_calculated_for_2024\") == true) then input(\"schedule_m_unused_student_loan_interest_line_46\") else (input(\"schedule_m_student_loan_interest_paid_1998_through_2024\") - input(\"schedule_m_student_loan_interest_used_for_previous_year_credits\")))",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "01f66fda1bdb73b937fef631d92be9ede32af9ac5e64453907f4a918a6a839ac"
+    },
+    {
+      "case_index": 5,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024",
+              "entity": "Person",
+              "entity_id": "case-5",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46",
+              "entity": "Person",
+              "entity_id": "case-5",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 800
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48",
+              "entity": "Person",
+              "entity_id": "case-5",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 0
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60",
+              "entity": "Person",
+              "entity_id": "case-5",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 500
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-5",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-5",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "800"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "300"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "500"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 800
+                }
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "entity_id": "case-5",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "800"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 52",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46 + input(\"schedule_m_student_loan_interest_paid_2025_line_48\"))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "entity_id": "case-5",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "300"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 62",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52 - ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385)",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "entity_id": "case-5",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "500"
+                },
+                "source": "Revenu Quebec Schedule M 2025, amount carried to return line 385",
+                "executed_expression": "min(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52, max(0, input(\"schedule_m_student_loan_interest_claimed_line_60\")))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "entity_id": "case-5",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 800
+                },
+                "source": "Revenu Quebec Schedule M 2025, instructions for line 46",
+                "executed_expression": "(if (input(\"schedule_m_carryforward_calculated_for_2024\") == true) then input(\"schedule_m_unused_student_loan_interest_line_46\") else (input(\"schedule_m_student_loan_interest_paid_1998_through_2024\") - input(\"schedule_m_student_loan_interest_used_for_previous_year_credits\")))",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "8900d2f31c921da9e8a045be7f047d28b3eb895b651e5442f3d056440998ba9b"
+    },
+    {
+      "case_index": 6,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024",
+              "entity": "Person",
+              "entity_id": "case-6",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": false
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_1998_through_2024",
+              "entity": "Person",
+              "entity_id": "case-6",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 500
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_used_for_previous_year_credits",
+              "entity": "Person",
+              "entity_id": "case-6",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 200
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48",
+              "entity": "Person",
+              "entity_id": "case-6",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 50
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60",
+              "entity": "Person",
+              "entity_id": "case-6",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 100
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-6",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-6",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "350"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "250"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "100"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "300"
+                }
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "entity_id": "case-6",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "350"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 52",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46 + input(\"schedule_m_student_loan_interest_paid_2025_line_48\"))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "entity_id": "case-6",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "250"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 62",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52 - ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385)",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "entity_id": "case-6",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "100"
+                },
+                "source": "Revenu Quebec Schedule M 2025, amount carried to return line 385",
+                "executed_expression": "min(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52, max(0, input(\"schedule_m_student_loan_interest_claimed_line_60\")))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "entity_id": "case-6",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "300"
+                },
+                "source": "Revenu Quebec Schedule M 2025, instructions for line 46",
+                "executed_expression": "(if (input(\"schedule_m_carryforward_calculated_for_2024\") == true) then input(\"schedule_m_unused_student_loan_interest_line_46\") else (input(\"schedule_m_student_loan_interest_paid_1998_through_2024\") - input(\"schedule_m_student_loan_interest_used_for_previous_year_credits\")))",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "c3e5e280e5f85b333ca805919c824ea0acb8b1d3cadeb6b8e1199592769d001b"
+    },
+    {
+      "case_index": 7,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024",
+              "entity": "Person",
+              "entity_id": "case-7",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46",
+              "entity": "Person",
+              "entity_id": "case-7",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 100
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48",
+              "entity": "Person",
+              "entity_id": "case-7",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 50
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60",
+              "entity": "Person",
+              "entity_id": "case-7",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 500
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-7",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-7",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "0"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 100
+                }
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "entity_id": "case-7",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 52",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46 + input(\"schedule_m_student_loan_interest_paid_2025_line_48\"))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "entity_id": "case-7",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "0"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 62",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52 - ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385)",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "entity_id": "case-7",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                },
+                "source": "Revenu Quebec Schedule M 2025, amount carried to return line 385",
+                "executed_expression": "min(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52, max(0, input(\"schedule_m_student_loan_interest_claimed_line_60\")))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "entity_id": "case-7",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 100
+                },
+                "source": "Revenu Quebec Schedule M 2025, instructions for line 46",
+                "executed_expression": "(if (input(\"schedule_m_carryforward_calculated_for_2024\") == true) then input(\"schedule_m_unused_student_loan_interest_line_46\") else (input(\"schedule_m_student_loan_interest_paid_1998_through_2024\") - input(\"schedule_m_student_loan_interest_used_for_previous_year_credits\")))",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "5b4c499f5edfc24a70b1f9bbba1f951e492cad6586c40d839b18f8f362fb346b"
+    },
+    {
+      "case_index": 8,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024",
+              "entity": "Person",
+              "entity_id": "case-8",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46",
+              "entity": "Person",
+              "entity_id": "case-8",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 100
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48",
+              "entity": "Person",
+              "entity_id": "case-8",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 50
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60",
+              "entity": "Person",
+              "entity_id": "case-8",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": -10
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-8",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-8",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "0"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 100
+                }
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "entity_id": "case-8",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 52",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46 + input(\"schedule_m_student_loan_interest_paid_2025_line_48\"))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "entity_id": "case-8",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "150"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 62",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52 - ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385)",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "entity_id": "case-8",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "0"
+                },
+                "source": "Revenu Quebec Schedule M 2025, amount carried to return line 385",
+                "executed_expression": "min(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52, max(0, input(\"schedule_m_student_loan_interest_claimed_line_60\")))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "entity_id": "case-8",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 100
+                },
+                "source": "Revenu Quebec Schedule M 2025, instructions for line 46",
+                "executed_expression": "(if (input(\"schedule_m_carryforward_calculated_for_2024\") == true) then input(\"schedule_m_unused_student_loan_interest_line_46\") else (input(\"schedule_m_student_loan_interest_paid_1998_through_2024\") - input(\"schedule_m_student_loan_interest_used_for_previous_year_credits\")))",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "9dc5bbc1f452635a8686393062e3457e4700aa7e0353cdf6283dda9857459072"
+    },
+    {
+      "case_index": 9,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48",
+              "entity": "Person",
+              "entity_id": "case-9",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 10
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024",
+              "entity": "Person",
+              "entity_id": "case-9",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": false
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year",
+              "entity": "Person",
+              "entity_id": "case-9",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-9",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-9",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_completion_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required",
+                "unit": null,
+                "outcome": "holds"
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_completion_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required",
+                "entity_id": "case-9",
+                "unit": null,
+                "outcome": "holds",
+                "source": "Revenu Quebec Schedule M 2025 instructions",
+                "executed_expression": "((input(\"schedule_m_student_loan_interest_paid_2025_line_48\") > 0) or ((input(\"schedule_m_carryforward_calculated_for_2024\") == true) and (input(\"schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year\") == true)))",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "dae0a895a78061f741d23247182aceca18cc59e9290c45de1c927e7728cd8904"
+    },
+    {
+      "case_index": 10,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48",
+              "entity": "Person",
+              "entity_id": "case-10",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 0
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024",
+              "entity": "Person",
+              "entity_id": "case-10",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": false
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year",
+              "entity": "Person",
+              "entity_id": "case-10",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-10",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-10",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_completion_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required",
+                "unit": null,
+                "outcome": "not_holds"
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_completion_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required",
+                "entity_id": "case-10",
+                "unit": null,
+                "outcome": "not_holds",
+                "source": "Revenu Quebec Schedule M 2025 instructions",
+                "executed_expression": "((input(\"schedule_m_student_loan_interest_paid_2025_line_48\") > 0) or ((input(\"schedule_m_carryforward_calculated_for_2024\") == true) and (input(\"schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year\") == true)))",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "3b92d4a4b98ea6ff57db1b3af46b467390e55446313ca01589188fd7fe38697c"
+    },
+    {
+      "case_index": 11,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48",
+              "entity": "Person",
+              "entity_id": "case-11",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 0
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024",
+              "entity": "Person",
+              "entity_id": "case-11",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year",
+              "entity": "Person",
+              "entity_id": "case-11",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-11",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-11",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_completion_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required",
+                "unit": null,
+                "outcome": "holds"
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_completion_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required",
+                "entity_id": "case-11",
+                "unit": null,
+                "outcome": "holds",
+                "source": "Revenu Quebec Schedule M 2025 instructions",
+                "executed_expression": "((input(\"schedule_m_student_loan_interest_paid_2025_line_48\") > 0) or ((input(\"schedule_m_carryforward_calculated_for_2024\") == true) and (input(\"schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year\") == true)))",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "d3ab12446810ef23e5e107ea4612482f9296973a66168aeaa16055e092b1fddf"
+    },
+    {
+      "case_index": 12,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48",
+              "entity": "Person",
+              "entity_id": "case-12",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 0
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024",
+              "entity": "Person",
+              "entity_id": "case-12",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year",
+              "entity": "Person",
+              "entity_id": "case-12",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": false
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-12",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-12",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_completion_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required",
+                "unit": null,
+                "outcome": "not_holds"
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_completion_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_completion_required",
+                "entity_id": "case-12",
+                "unit": null,
+                "outcome": "not_holds",
+                "source": "Revenu Quebec Schedule M 2025 instructions",
+                "executed_expression": "((input(\"schedule_m_student_loan_interest_paid_2025_line_48\") > 0) or ((input(\"schedule_m_carryforward_calculated_for_2024\") == true) and (input(\"schedule_m_decided_to_carry_2024_student_loan_interest_to_future_year\") == true)))",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "b80c5b1c9d44c5ac72cfab2132f56c3d4c305a9a20e8f7584ad52fed9412eb78"
+    },
+    {
+      "case_index": 13,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.is_completing_student_loan_interest_schedule",
+              "entity": "Person",
+              "entity_id": "case-13",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": false
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-13",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_enclosure_required"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-13",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_enclosure_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_enclosure_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_enclosure_required",
+                "unit": null,
+                "outcome": "not_holds"
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_enclosure_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_enclosure_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_enclosure_required",
+                "entity_id": "case-13",
+                "unit": null,
+                "outcome": "not_holds",
+                "source": "Revenu Quebec Schedule M 2025 instructions",
+                "executed_expression": "(input(\"is_completing_student_loan_interest_schedule\") == true)",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "9d4ffb5d4fbdf9ff9c8ffd7aa4121f37cb4e2c49e331a1dfe593bc44fe0434e7"
+    },
+    {
+      "case_index": 14,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.is_completing_student_loan_interest_schedule",
+              "entity": "Person",
+              "entity_id": "case-14",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-14",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_enclosure_required"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-14",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_enclosure_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_enclosure_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_enclosure_required",
+                "unit": null,
+                "outcome": "holds"
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_enclosure_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_enclosure_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_enclosure_required",
+                "entity_id": "case-14",
+                "unit": null,
+                "outcome": "holds",
+                "source": "Revenu Quebec Schedule M 2025 instructions",
+                "executed_expression": "(input(\"is_completing_student_loan_interest_schedule\") == true)",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "11f2801734ae015b0e190a0b6a0a93f79b64e77d153fbefda2d3e429333d9b71"
+    },
+    {
+      "case_index": 15,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024",
+              "entity": "Person",
+              "entity_id": "case-15",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46",
+              "entity": "Person",
+              "entity_id": "case-15",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 300
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_1998_through_2024",
+              "entity": "Person",
+              "entity_id": "case-15",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 500
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_used_for_previous_year_credits",
+              "entity": "Person",
+              "entity_id": "case-15",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 200
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48",
+              "entity": "Person",
+              "entity_id": "case-15",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 50
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60",
+              "entity": "Person",
+              "entity_id": "case-15",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 100
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-15",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-15",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "350"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "250"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "100"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 300
+                }
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "entity_id": "case-15",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "350"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 52",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46 + input(\"schedule_m_student_loan_interest_paid_2025_line_48\"))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "entity_id": "case-15",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "250"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 62",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52 - ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385)",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "entity_id": "case-15",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "100"
+                },
+                "source": "Revenu Quebec Schedule M 2025, amount carried to return line 385",
+                "executed_expression": "min(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52, max(0, input(\"schedule_m_student_loan_interest_claimed_line_60\")))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "entity_id": "case-15",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "integer",
+                  "value": 300
+                },
+                "source": "Revenu Quebec Schedule M 2025, instructions for line 46",
+                "executed_expression": "(if (input(\"schedule_m_carryforward_calculated_for_2024\") == true) then input(\"schedule_m_unused_student_loan_interest_line_46\") else (input(\"schedule_m_student_loan_interest_paid_1998_through_2024\") - input(\"schedule_m_student_loan_interest_used_for_previous_year_credits\")))",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "04129eff761254553b964a7fbc46186627739e2bc778dd19d4dd0d1cc8e6dbf3"
+    },
+    {
+      "case_index": 16,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024",
+              "entity": "Person",
+              "entity_id": "case-16",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": false
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46",
+              "entity": "Person",
+              "entity_id": "case-16",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 300
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_1998_through_2024",
+              "entity": "Person",
+              "entity_id": "case-16",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 500
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_used_for_previous_year_credits",
+              "entity": "Person",
+              "entity_id": "case-16",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 200
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48",
+              "entity": "Person",
+              "entity_id": "case-16",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 50
+              }
+            },
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60",
+              "entity": "Person",
+              "entity_id": "case-16",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "integer",
+                "value": 100
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-16",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-16",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "350"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "250"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "100"
+                }
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "300"
+                }
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_available_line_52",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                "entity_id": "case-16",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "350"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 52",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46 + input(\"schedule_m_student_loan_interest_paid_2025_line_48\"))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_carryforward_line_62",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62",
+                "entity_id": "case-16",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "250"
+                },
+                "source": "Revenu Quebec Schedule M 2025, line 62",
+                "executed_expression": "(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52 - ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385)",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52",
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385": {
+                "kind": "scalar",
+                "name": "schedule_m_student_loan_interest_claim_line_385",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385",
+                "entity_id": "case-16",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "100"
+                },
+                "source": "Revenu Quebec Schedule M 2025, amount carried to return line 385",
+                "executed_expression": "min(ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52, max(0, input(\"schedule_m_student_loan_interest_claimed_line_60\")))",
+                "dependencies": [
+                  "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52"
+                ]
+              },
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46": {
+                "kind": "scalar",
+                "name": "schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46",
+                "entity_id": "case-16",
+                "dtype": "decimal",
+                "unit": "CAD",
+                "value": {
+                  "kind": "decimal",
+                  "value": "300"
+                },
+                "source": "Revenu Quebec Schedule M 2025, instructions for line 46",
+                "executed_expression": "(if (input(\"schedule_m_carryforward_calculated_for_2024\") == true) then input(\"schedule_m_unused_student_loan_interest_line_46\") else (input(\"schedule_m_student_loan_interest_paid_1998_through_2024\") - input(\"schedule_m_student_loan_interest_used_for_previous_year_credits\")))",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "437d3928a97271fe1bf161ed19828a3cb9cf0c6dfa055254a1dcd7d3a7188011"
+    },
+    {
+      "case_index": 17,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.wants_to_keep_student_loan_interest_schedule_copy",
+              "entity": "Person",
+              "entity_id": "case-17",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": false
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-17",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_copy_guide_consultation_required"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-17",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_copy_guide_consultation_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_copy_guide_consultation_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_copy_guide_consultation_required",
+                "unit": null,
+                "outcome": "not_holds"
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_copy_guide_consultation_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_copy_guide_consultation_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_copy_guide_consultation_required",
+                "entity_id": "case-17",
+                "unit": null,
+                "outcome": "not_holds",
+                "source": "Revenu Quebec Schedule M 2025 instructions",
+                "executed_expression": "(input(\"wants_to_keep_student_loan_interest_schedule_copy\") == true)",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "a3cae72e16cf8810d01d1fc010fb26db91c587e76bc4bf5d36f44b2c1091baf4"
+    },
+    {
+      "case_index": 18,
+      "request": {
+        "mode": "explain",
+        "dataset": {
+          "inputs": [
+            {
+              "name": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.wants_to_keep_student_loan_interest_schedule_copy",
+              "entity": "Person",
+              "entity_id": "case-18",
+              "interval": {
+                "start": "2025-01-01",
+                "end": "2025-12-31"
+              },
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            }
+          ],
+          "relations": []
+        },
+        "queries": [
+          {
+            "entity_id": "case-18",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": [
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_copy_guide_consultation_required"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "metadata": {
+          "requested_mode": "explain",
+          "actual_mode": "explain",
+          "fallback_reason": null
+        },
+        "results": [
+          {
+            "entity_id": "case-18",
+            "period": {
+              "period_kind": "tax_year",
+              "start": "2025-01-01",
+              "end": "2025-12-31"
+            },
+            "outputs": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_copy_guide_consultation_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_copy_guide_consultation_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_copy_guide_consultation_required",
+                "unit": null,
+                "outcome": "holds"
+              }
+            },
+            "trace": {
+              "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_copy_guide_consultation_required": {
+                "kind": "judgment",
+                "name": "student_loan_interest_schedule_copy_guide_consultation_required",
+                "id": "ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#student_loan_interest_schedule_copy_guide_consultation_required",
+                "entity_id": "case-18",
+                "unit": null,
+                "outcome": "holds",
+                "source": "Revenu Quebec Schedule M 2025 instructions",
+                "executed_expression": "(input(\"wants_to_keep_student_loan_interest_schedule_copy\") == true)",
+                "dependencies": []
+              }
+            }
+          }
+        ]
+      },
+      "case_sha256": "5afa53ebd9522c1d4473378cb5b2fbcac6f11d685bbdc54ca5fda04e7359cad3"
+    }
+  ]
+}

@@ -289,6 +289,20 @@ def _repair_lane_for_atomic_source(
             }
             if metadata.get("repair_execution") != expected_execution:
                 raise ValueError("repair artifact v6 execution mode is not bound")
+        if prior.get("preserve_repair_companion") is True:
+            if metadata.get("repair_execution") != {
+                "requested_mode": "legacy_inference",
+                "mode": "full_artifact",
+                "tests_only": False,
+                "preserve_repair_companion": True,
+            }:
+                raise ValueError("repair artifact v7 preservation mode is not bound")
+            # Generated/rejected companions do not establish the originating
+            # preservation floor. Consumed hashes alone cannot recover its bytes.
+            raise ValueError(
+                "prior v7 repair replay cannot authenticate the originating "
+                "companion; select the originating failed run"
+            )
     has_atomic = "atomic_source_input" in metadata
     has_legacy_source = "source_bundle_input" in metadata
     has_legacy_refresh = "canonical_refresh_bundle_input" in metadata
@@ -414,35 +428,50 @@ def _source_repair_candidates(
     ):
         lane = f"source-{index:02d}"
         expected_module = _expected_module_path(country, rulespec_path)
-        candidate_pattern = re.compile(
-            rf"{re.escape(lane)}/({RUNNER_PATTERN.pattern})/"
-            rf"{re.escape(expected_module)}"
+        # A lane's verified retained export is the best rejected attempt. It
+        # wins over whatever live pair a later failed model call left behind;
+        # an invalid export fails closed rather than falling back to live files.
+        retained = _retained_candidate(
+            bundle,
+            members,
+            files,
+            repair_lane=lane,
+            expected_module=expected_module,
+            citation=citation,
         )
-        runners = sorted(
-            {
-                match.group(1)
-                for path in files
-                if (match := candidate_pattern.fullmatch(path)) is not None
-                and f"{lane}/{match.group(1)}/"
-                f"{expected_module.removesuffix('.yaml')}.test.yaml"
-                in files
-            }
-        )
-        escalated = [name for name in ESCALATION_RUNNERS if name in runners]
-        if escalated:
-            runner = escalated[0]
-        elif len(runners) == 1:
-            runner = runners[0]
+        if retained is not None:
+            candidate, tests = retained
+            runner = "retained-best"
         else:
-            raise ValueError(
-                f"repair artifact does not bind one final source candidate: {lane}"
+            candidate_pattern = re.compile(
+                rf"{re.escape(lane)}/({RUNNER_PATTERN.pattern})/"
+                rf"{re.escape(expected_module)}"
             )
-        candidate_path = f"{lane}/{runner}/{expected_module}"
-        tests_path = (
-            f"{lane}/{runner}/{expected_module.removesuffix('.yaml')}.test.yaml"
-        )
-        candidate = _verified_generated_file(bundle, members, files, candidate_path)
-        tests = _verified_generated_file(bundle, members, files, tests_path)
+            runners = sorted(
+                {
+                    match.group(1)
+                    for path in files
+                    if (match := candidate_pattern.fullmatch(path)) is not None
+                    and f"{lane}/{match.group(1)}/"
+                    f"{expected_module.removesuffix('.yaml')}.test.yaml"
+                    in files
+                }
+            )
+            escalated = [name for name in ESCALATION_RUNNERS if name in runners]
+            if escalated:
+                runner = escalated[0]
+            elif len(runners) == 1:
+                runner = runners[0]
+            else:
+                raise ValueError(
+                    f"repair artifact does not bind one final source candidate: {lane}"
+                )
+            candidate_path = f"{lane}/{runner}/{expected_module}"
+            tests_path = (
+                f"{lane}/{runner}/{expected_module.removesuffix('.yaml')}.test.yaml"
+            )
+            candidate = _verified_generated_file(bundle, members, files, candidate_path)
+            tests = _verified_generated_file(bundle, members, files, tests_path)
         root = destination / "source-candidates" / lane / runner
         _write_candidate_pair(root, expected_module, candidate, tests)
         extracted.append(
@@ -471,9 +500,10 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
         requested_wrapper = json.loads(args.atomic_source_json)
     except (TypeError, ValueError):
         requested_wrapper = None
-    if isinstance(requested_wrapper, dict) and requested_wrapper.get("schema") == (
-        "axiom-encode/atomic-source-transaction/v6"
-    ):
+    if isinstance(requested_wrapper, dict) and requested_wrapper.get("schema") in {
+        "axiom-encode/atomic-source-transaction/v6",
+        "axiom-encode/atomic-source-transaction/v7",
+    }:
         RESOLVE_ATOMIC_REPAIR_MODE(
             args.atomic_source_json,
             {

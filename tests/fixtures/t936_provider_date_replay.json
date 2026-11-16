@@ -1,0 +1,286 @@
+{
+  "scope": "Retained real record for pure regression; not capability",
+  "policy_sha256": "d28b5ce8622a8d64ac1b82d717c04ea927794a82b7227e56726937fd4458b517",
+  "case": {
+    "name": "ordinary_2021-12-31_-1",
+    "entity_id": "asset-ordinary",
+    "period": {
+      "period_kind": "tax_year",
+      "start": "2025-01-01",
+      "end": "2025-12-31"
+    },
+    "input": {
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_acquisition_date": "2021-12-31",
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_acquisition_cost": 29999,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_is_ordinary_passenger_vehicle": true,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_is_zero_emission_passenger_vehicle": false,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_is_timber_resource": false,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_uncollectible_portion": 100
+    },
+    "output": {
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_asset_included_uncollectible_portion": 100,
+      "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_ordinary_vehicle_cost_excluded": false
+    }
+  },
+  "request": {
+    "mode": "explain",
+    "dataset": {
+      "inputs": [
+        {
+          "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_acquisition_date",
+          "entity": "SourceEntry",
+          "entity_id": "asset-ordinary",
+          "interval": {
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "value": {
+            "kind": "date",
+            "value": "2021-12-31"
+          }
+        },
+        {
+          "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_acquisition_cost",
+          "entity": "SourceEntry",
+          "entity_id": "asset-ordinary",
+          "interval": {
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "value": {
+            "kind": "integer",
+            "value": 29999
+          }
+        },
+        {
+          "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_is_ordinary_passenger_vehicle",
+          "entity": "SourceEntry",
+          "entity_id": "asset-ordinary",
+          "interval": {
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "value": {
+            "kind": "bool",
+            "value": true
+          }
+        },
+        {
+          "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_is_zero_emission_passenger_vehicle",
+          "entity": "SourceEntry",
+          "entity_id": "asset-ordinary",
+          "interval": {
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "value": {
+            "kind": "bool",
+            "value": false
+          }
+        },
+        {
+          "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_is_timber_resource",
+          "entity": "SourceEntry",
+          "entity_id": "asset-ordinary",
+          "interval": {
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "value": {
+            "kind": "bool",
+            "value": false
+          }
+        },
+        {
+          "name": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#input.t936_asset_uncollectible_portion",
+          "entity": "SourceEntry",
+          "entity_id": "asset-ordinary",
+          "interval": {
+            "start": "2025-01-01",
+            "end": "2025-12-31"
+          },
+          "value": {
+            "kind": "integer",
+            "value": 100
+          }
+        }
+      ],
+      "relations": []
+    },
+    "queries": [
+      {
+        "entity_id": "asset-ordinary",
+        "period": {
+          "period_kind": "tax_year",
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+        },
+        "outputs": [
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_asset_included_uncollectible_portion",
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_ordinary_vehicle_cost_excluded"
+        ]
+      }
+    ]
+  },
+  "response": {
+    "metadata": {
+      "requested_mode": "explain",
+      "actual_mode": "explain",
+      "fallback_reason": null
+    },
+    "results": [
+      {
+        "entity_id": "asset-ordinary",
+        "period": {
+          "period_kind": "tax_year",
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+        },
+        "outputs": {
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_asset_included_uncollectible_portion": {
+            "kind": "scalar",
+            "name": "t936_asset_included_uncollectible_portion",
+            "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_asset_included_uncollectible_portion",
+            "dtype": "decimal",
+            "unit": "CAD",
+            "value": {
+              "kind": "integer",
+              "value": 100
+            }
+          },
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_ordinary_vehicle_cost_excluded": {
+            "kind": "scalar",
+            "name": "t936_ordinary_vehicle_cost_excluded",
+            "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_ordinary_vehicle_cost_excluded",
+            "dtype": "bool",
+            "unit": null,
+            "value": {
+              "kind": "bool",
+              "value": false
+            }
+          }
+        },
+        "trace": {
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_asset_included_uncollectible_portion": {
+            "kind": "scalar",
+            "name": "t936_asset_included_uncollectible_portion",
+            "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_asset_included_uncollectible_portion",
+            "entity_id": "asset-ordinary",
+            "dtype": "decimal",
+            "unit": "CAD",
+            "value": {
+              "kind": "integer",
+              "value": 100
+            },
+            "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+            "executed_expression": "(if (input(\"t936_asset_is_timber_resource\") == true) then 0 else (if ((input(\"t936_asset_is_zero_emission_passenger_vehicle\") == true) and (ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_zepv_cost_excluded == true)) then 0 else (if ((input(\"t936_asset_is_ordinary_passenger_vehicle\") == true) and (ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_ordinary_vehicle_cost_excluded == true)) then 0 else input(\"t936_asset_uncollectible_portion\"))))",
+            "dependencies": [
+              "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_ordinary_vehicle_cost_excluded"
+            ],
+            "not_evaluated_dependencies": [
+              {
+                "dependency": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_zepv_cost_excluded",
+                "reason": "short_circuit"
+              }
+            ]
+          },
+          "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_ordinary_vehicle_cost_excluded": {
+            "kind": "scalar",
+            "name": "t936_ordinary_vehicle_cost_excluded",
+            "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_ordinary_vehicle_cost_excluded",
+            "entity_id": "asset-ordinary",
+            "dtype": "bool",
+            "unit": null,
+            "value": {
+              "kind": "bool",
+              "value": false
+            },
+            "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss",
+            "executed_expression": "(if (input(\"t936_asset_acquisition_date\") < ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_start_2022[ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_source_year[0]]) then (if (input(\"t936_asset_acquisition_cost\") > ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_vehicle_cost_30000[0]) then true else false) else (if (input(\"t936_asset_acquisition_date\") < ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_start_2023[ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_source_year[0]]) then (if (input(\"t936_asset_acquisition_cost\") > ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_vehicle_cost_34000[0]) then true else false) else (if (input(\"t936_asset_acquisition_date\") < ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_start_2024[ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_source_year[0]]) then (if (input(\"t936_asset_acquisition_cost\") > ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_vehicle_cost_36000[0]) then true else false) else (if (input(\"t936_asset_acquisition_date\") < ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_start_2025[ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_source_year[0]]) then (if (input(\"t936_asset_acquisition_cost\") > ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_vehicle_cost_37000[0]) then true else false) else (if (input(\"t936_asset_acquisition_date\") < ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_start_2026[ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_source_year[0]]) then (if (input(\"t936_asset_acquisition_cost\") > ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_vehicle_cost_38000[0]) then true else false) else false)))))",
+            "parameter_reads": [
+              {
+                "parameter": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_source_year",
+                "name": "t936_source_year",
+                "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_source_year",
+                "index": 0,
+                "value": {
+                  "kind": "integer",
+                  "value": 2025
+                },
+                "effective_from": "2025-01-01",
+                "effective_to": "2025-12-31",
+                "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss"
+              },
+              {
+                "parameter": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_start_2022",
+                "name": "t936_start_2022",
+                "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_start_2022",
+                "index": 2025,
+                "value": {
+                  "kind": "date",
+                  "value": "2022-01-01"
+                },
+                "effective_from": "2025-01-01",
+                "effective_to": "2025-12-31",
+                "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss"
+              },
+              {
+                "parameter": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_vehicle_cost_30000",
+                "name": "t936_vehicle_cost_30000",
+                "id": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_vehicle_cost_30000",
+                "index": 0,
+                "value": {
+                  "kind": "integer",
+                  "value": 30000
+                },
+                "unit": "CAD",
+                "effective_from": "2025-01-01",
+                "effective_to": "2025-12-31",
+                "source": "CRA Form T936 2025 Calculation of Cumulative Net Investment Loss"
+              }
+            ],
+            "dependencies": [],
+            "not_evaluated_dependencies": [
+              {
+                "dependency": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_start_2023",
+                "reason": "branch_not_selected"
+              },
+              {
+                "dependency": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_source_year",
+                "reason": "branch_not_selected"
+              },
+              {
+                "dependency": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_vehicle_cost_34000",
+                "reason": "branch_not_selected"
+              },
+              {
+                "dependency": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_start_2024",
+                "reason": "branch_not_selected"
+              },
+              {
+                "dependency": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_vehicle_cost_36000",
+                "reason": "branch_not_selected"
+              },
+              {
+                "dependency": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_start_2025",
+                "reason": "branch_not_selected"
+              },
+              {
+                "dependency": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_vehicle_cost_37000",
+                "reason": "branch_not_selected"
+              },
+              {
+                "dependency": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_start_2026",
+                "reason": "branch_not_selected"
+              },
+              {
+                "dependency": "ca:policies/cra/t1-2025/cumulative-net-investment-loss#t936_vehicle_cost_38000",
+                "reason": "branch_not_selected"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

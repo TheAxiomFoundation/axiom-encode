@@ -67,6 +67,23 @@ PUBLIC_ENV_NAMES = (
 SIGNATURE_DOMAIN = b"axiom-encode/external-signer-sign/v2\0"
 
 
+def _run_targeted_inline_package(*args, **kwargs):
+    """Give legacy packaging fixtures the workflow event present on a real runner."""
+    env = dict(kwargs["env"])
+    event_path = Path(kwargs["cwd"]) / "original-inline-workflow-event.json"
+    inputs = {
+        "citation": env["CITATION"],
+        "review_finding": env.get("REVIEW_FINDING", ""),
+    }
+    assert not inputs["review_finding"].startswith(
+        "axiom-producer-review-guidance-ref:"
+    )
+    event_path.write_text(json.dumps({"inputs": inputs}), encoding="utf-8")
+    env["GITHUB_EVENT_PATH"] = str(event_path)
+    env["GITHUB_SHA"] = "a" * 40
+    return subprocess.run(*args, **{**kwargs, "env": env})
+
+
 def _keypair(seed: bytes) -> tuple[str, Ed25519PrivateKey]:
     private_key = Ed25519PrivateKey.from_private_bytes(seed)
     public_key = private_key.public_key().public_bytes(
@@ -873,6 +890,16 @@ def _invoke(
     )
 
 
+def _codex_host_config(codex: Path) -> dict[str, str]:
+    host = codex.parent / "codex-code-mode-host"
+    host.write_text("#!/bin/sh\nexit 0\n")
+    host.chmod(0o755)
+    return {
+        "code_mode_host_path": str(host),
+        "code_mode_host_sha256": hashlib.sha256(host.read_bytes()).hexdigest(),
+    }
+
+
 def test_subscription_auth_is_isolated_refreshed_and_wiped(
     signing_supervisor: Path,
     trusted_python_runtime: tuple[Path, Path, Path],
@@ -894,7 +921,8 @@ def test_subscription_auth_is_isolated_refreshed_and_wiped(
     config.write_text(
         json.dumps(
             {
-                "schema": "axiom-encode/trusted-codex-cli/v1",
+                "schema": "axiom-encode/trusted-codex-cli/v2",
+                **_codex_host_config(codex),
                 "version": "test",
                 "sha256": digest,
                 "path": str(codex),
@@ -963,7 +991,8 @@ def test_subscription_tampered_binary_hard_fails_before_child(
     config.write_text(
         json.dumps(
             {
-                "schema": "axiom-encode/trusted-codex-cli/v1",
+                "schema": "axiom-encode/trusted-codex-cli/v2",
+                **_codex_host_config(codex),
                 "version": "test",
                 "sha256": "0" * 64,
                 "path": str(codex),
@@ -996,6 +1025,86 @@ def test_subscription_tampered_binary_hard_fails_before_child(
 
 
 @pytest.mark.parametrize(
+    "fault",
+    [
+        "missing",
+        "digest",
+        "symlink",
+        "not-executable",
+        "writable",
+        "wrong-sibling",
+        "legacy",
+    ],
+)
+def test_subscription_host_fault_fails_before_auth_or_child(
+    signing_supervisor, trusted_python_runtime, tmp_path, fault
+):
+    apply_public, _ = _keypair(b"\xab" * 32)
+    eval_public, _ = _keypair(b"\xcd" * 32)
+    trust_config = _trust_config(tmp_path, apply_public, eval_public)
+    codex = tmp_path / "codex"
+    codex.write_text("#!/bin/sh\nexit 0\n")
+    codex.chmod(0o755)
+    payload = {
+        "schema": "axiom-encode/trusted-codex-cli/v2",
+        "version": "test",
+        "path": str(codex),
+        "sha256": hashlib.sha256(codex.read_bytes()).hexdigest(),
+        **_codex_host_config(codex),
+    }
+    host = Path(payload["code_mode_host_path"])
+    if fault == "missing":
+        host.unlink()
+    elif fault == "digest":
+        payload["code_mode_host_sha256"] = "0" * 64
+    elif fault == "symlink":
+        host.unlink()
+        host.symlink_to(codex)
+    elif fault == "not-executable":
+        host.chmod(0o644)
+    elif fault == "writable":
+        host.chmod(0o777)
+    elif fault == "wrong-sibling":
+        payload["code_mode_host_path"] = str(codex)
+    else:
+        payload["schema"] = "axiom-encode/trusted-codex-cli/v1"
+        del payload["code_mode_host_path"]
+        del payload["code_mode_host_sha256"]
+    config = tmp_path / "codex-cli.json"
+    config.write_text(json.dumps(payload))
+    config.chmod(0o444)
+    launcher = _launcher(
+        tmp_path, trusted_python_runtime, body="raise RuntimeError('must not execute')"
+    )
+    completed = _invoke(
+        signing_supervisor,
+        trusted_python_runtime,
+        launcher,
+        trust_config,
+        [],
+        supervisor_args=(
+            "--codex-subscription-auth",
+            str(tmp_path / "auth-does-not-exist.json"),
+            "--codex-auth-outbox",
+            str(tmp_path / "out.json"),
+            "--trusted-codex-cli-config",
+            str(config),
+        ),
+    )
+    assert completed.returncode == 2
+    expected = (
+        "config has invalid fields"
+        if fault in {"wrong-sibling", "legacy"}
+        else "Code Mode host"
+    )
+    assert expected in completed.stderr
+    assert "could not materialize Codex auth" not in completed.stderr
+    assert "auth-does-not-exist" not in completed.stderr
+    assert not (tmp_path / "out.json").exists()
+    assert "must not execute" not in completed.stderr
+
+
+@pytest.mark.parametrize(
     "outbox_kind",
     ["symlink", "fifo", "socket", "device", "writable-directory"],
 )
@@ -1015,7 +1124,8 @@ def test_subscription_refuses_unsafe_auth_outbox(
     config.write_text(
         json.dumps(
             {
-                "schema": "axiom-encode/trusted-codex-cli/v1",
+                "schema": "axiom-encode/trusted-codex-cli/v2",
+                **_codex_host_config(codex),
                 "version": "test",
                 "sha256": hashlib.sha256(codex.read_bytes()).hexdigest(),
                 "path": str(codex),
@@ -1179,6 +1289,7 @@ def test_compiled_supervisor_uses_isolated_direct_runtime_and_domain_signatures(
     launcher = _launcher(tmp_path, trusted_python_runtime)
     trust_config = _trust_config(tmp_path, apply_public, eval_public)
     sentinels = {
+        "AXIOM_ENCODE_WAIVER_AUDIT_WORKERS": "4",
         "OPENAI_API_KEY": "openai-sentinel",
         "ANTHROPIC_API_KEY": "anthropic-sentinel",
         "PATH": "/hostile/bin",
@@ -1218,6 +1329,7 @@ def test_compiled_supervisor_uses_isolated_direct_runtime_and_domain_signatures(
         for path in result["sys_path"]
     )
     parent_only = {
+        "AXIOM_ENCODE_WAIVER_AUDIT_WORKERS",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
         "AXIOM_ENCODE_SUPABASE_SECRET_KEY",
@@ -3290,11 +3402,75 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'repo="TheAxiomFoundation/rulespec-${COUNTRY}"' in publish_command
     assert '"$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"' in prepare_branch["run"]
     assert "core.hooksPath=/dev/null" in publish_command
-    assert "fetch --no-tags origin \\\n" in verify_base["run"]
-    assert "refs/remotes/origin/${PR_BASE_BRANCH}" in verify_base["run"]
-    assert '" = "$RULESPEC_REF"' in verify_base["run"]
+    verify_command = verify_base["run"]
+    prepare_command = prepare_branch["run"]
+    assert "fetch --no-tags origin \\\n" in verify_command
+    assert "refs/remotes/origin/${PR_BASE_BRANCH}" in verify_command
+    assert (
+        "merge-base --is-ancestor \\\n"
+        '  "$RULESPEC_REF" "refs/remotes/origin/${PR_BASE_BRANCH}"'
+    ) in verify_command
     assert steps.index(verify_base) < steps.index(prepare_branch)
     assert steps.index(prepare_branch) < steps.index(publish_step)
+    assert (
+        "axiom-encode/scripts/prepare_signed_backfill.py \\\n"
+        "  advance-publication-base \\\n"
+        '  "$RULESPEC_CHECKOUT" "$RULESPEC_REF" "$PR_BASE_BRANCH" \\\n'
+        '  > "$publication_base"'
+    ) in prepare_command
+    assert (
+        'publication_base="$RUNNER_TEMP/targeted-reencode/publication-base.json"'
+        in prepare_command
+    )
+    assert '" = "$published_base"' in prepare_command
+    assert '" = "$published_head"' in prepare_command
+    assert '"$RULESPEC_REF" "$published_base"' in prepare_command
+    assert ".base_advance_paths | length" in prepare_command
+    assert 'base_advance_paths" ' not in prepare_command
+    for output in (
+        "branch",
+        "published_base",
+        "published_head",
+        "base_advance_count",
+        "publication_base_sha256",
+    ):
+        assert f'echo "{output}=${output}"' in prepare_command
+        assert publish_step["env"][
+            output.upper() if output != "branch" else ("PREPARED_BRANCH")
+        ] == (f"${{{{ steps.reviewed_lane_pull_request_branch.outputs.{output} }}}}")
+    assert '" = "$PUBLISHED_HEAD"' in publish_command
+    assert "Base commit: \\`${RULESPEC_REF}\\`" in publish_command
+    assert "Published base commit: \\`${PUBLISHED_BASE}\\`" in publish_command
+    assert (
+        "Base advance paths: ${BASE_ADVANCE_COUNT} (publication-base.json sha256 "
+        "\\`${PUBLICATION_BASE_SHA256}\\`)"
+    ) in publish_command
+    identity_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Verify immutable checkout identities"
+    )
+    for env_name, input_name in (
+        ("REPLACE_LEGACY_RULESPEC_PATH", "replace_legacy_rulespec_path"),
+        (
+            "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+            "legacy_exact_dependent_rulespec_path",
+        ),
+        (
+            "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+            "second_legacy_exact_dependent_rulespec_path",
+        ),
+        (
+            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON",
+            "legacy_retained_successor_rulespec_paths_json",
+        ),
+    ):
+        assert identity_step["env"][env_name] == f"${{{{ inputs.{input_name} }}}}"
+        assert f"${env_name}" in identity_step["run"] or (
+            f"${{{env_name}" in identity_step["run"]
+        )
+    assert "base_args+=(--require-exact-tip)" in identity_step["run"]
+    assert '${base_args[@]+"${base_args[@]}"}' in identity_step["run"]
     assert '"HEAD:refs/heads/${branch}"' in publish_command
     assert publish_command.count('"HEAD:refs/heads/${branch}"') == 1
     assert "gh api --method POST" in publish_command
@@ -3303,7 +3479,12 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "Queue item:" in publish_command
     assert "Queue generation SHA-256:" in publish_command
     assert "Queue manifest SHA-256:" in publish_command
-    assert "'.base.ref == $branch and .base.sha == $sha'" in publish_command
+    assert '--arg sha "$PUBLISHED_BASE"' in publish_command
+    assert '--arg head "$PUBLISHED_HEAD"' in publish_command
+    assert (
+        "'.base.ref == $branch and .base.sha == $sha and .head.sha == $head'"
+        in publish_command
+    )
     assert "pulls/${pr_number}" in publish_command
     assert "-f state=closed" in publish_command
     assert '":refs/heads/${branch}"' in publish_command
@@ -6818,7 +6999,7 @@ def test_targeted_artifact_packages_signed_review_context(
     packaged_context = tmp_path / "artifact" / "context-manifest.json"
     packaged_inventory = tmp_path / "artifact" / "apply-manifests.json"
     packaged_context.parent.mkdir()
-    completed = subprocess.run(
+    completed = _run_targeted_inline_package(
         [sys.executable, "-", str(packaged_context), str(packaged_inventory)],
         cwd=tmp_path,
         input=script,
@@ -7168,7 +7349,7 @@ def test_targeted_artifact_enforces_exact_canonical_refresh_inventory(
     artifact.mkdir()
     packaged_context = artifact / "context-manifest.json"
     packaged_inventory = artifact / "apply-manifests.json"
-    completed = subprocess.run(
+    completed = _run_targeted_inline_package(
         [sys.executable, "-", str(packaged_context), str(packaged_inventory)],
         cwd=tmp_path,
         input=script,
@@ -7596,7 +7777,7 @@ def test_targeted_artifact_packages_replacement_closure(
     packaged_context = tmp_path / "artifact/context-manifest.json"
     packaged_inventory = tmp_path / "artifact/apply-manifests.json"
     packaged_context.parent.mkdir()
-    completed = subprocess.run(
+    completed = _run_targeted_inline_package(
         [sys.executable, "-", str(packaged_context), str(packaged_inventory)],
         cwd=tmp_path,
         input=script,
@@ -7722,7 +7903,7 @@ def test_targeted_artifact_preserves_pre_v4_replacement_receipts(
     (tmp_path / "canonical-refresh-bundle.json").write_text("[]\n")
     artifact = tmp_path / "artifact"
     artifact.mkdir()
-    completed = subprocess.run(
+    completed = _run_targeted_inline_package(
         [
             sys.executable,
             "-",
@@ -7874,7 +8055,7 @@ def test_targeted_artifact_packages_historical_in_place_owner(
     (tmp_path / "canonical-refresh-bundle.json").write_text("[]\n")
     artifact = tmp_path / "artifact"
     artifact.mkdir()
-    completed = subprocess.run(
+    completed = _run_targeted_inline_package(
         [
             sys.executable,
             "-",
@@ -8044,7 +8225,7 @@ def test_targeted_artifact_enforces_target_and_dependent_context_lanes(
     artifact.mkdir()
     packaged_target = artifact / "context-manifest.json"
     packaged_inventory = artifact / "apply-manifests.json"
-    completed = subprocess.run(
+    completed = _run_targeted_inline_package(
         [sys.executable, "-", str(packaged_target), str(packaged_inventory)],
         cwd=tmp_path,
         input=script,

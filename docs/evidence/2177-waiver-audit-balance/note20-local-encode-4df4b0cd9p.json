@@ -1,0 +1,124 @@
+{
+ "module": "us/policies/usitc/us-tariff-incidence/generated/note20-china-301.yaml",
+ "encoder": "0.2.2275",
+ "elapsed_seconds": 1759.4,
+ "finished": false,
+ "final": false,
+ "error": null,
+ "passed": null,
+ "fingerprint": null,
+ "counts": {
+  "subprocess_launches": 8,
+  "launch:git": 6,
+  "launch:axiom-rules-engine": 2,
+  "resolve_local_corpus_source_calls": 2582,
+  "read_corpus_artifact_calls": 59372
+ },
+ "read_corpus_artifact_bytes": 102174169448,
+ "samples_by_mode": {
+  "python": 3352,
+  "child_process_wait": 14
+ },
+ "top_innermost_axiom_encode_frames": [
+  [
+   "corpus_resolver.py:_read_corpus_artifact",
+   2201
+  ],
+  [
+   "corpus_resolver.py:_read_corpus_artifacts",
+   397
+  ],
+  [
+   "validator_pipeline.py:_cited_source_texts_for_rulespec_content",
+   213
+  ],
+  [
+   "corpus_resolver.py:read_bounded_regular_file",
+   213
+  ],
+  [
+   "corpus_resolver.py:_safe_directory",
+   123
+  ],
+  [
+   "validator_pipeline.py:_safe_load_unique_keys",
+   40
+  ],
+  [
+   "corpus_resolver.py:_read_matching_records",
+   35
+  ],
+  [
+   "validator_pipeline.py:extract_embedded_source_text",
+   34
+  ],
+  [
+   "corpus_resolver.py:_sha256_text",
+   26
+  ],
+  [
+   "corpus_resolver.py:_safe_file",
+   18
+  ],
+  [
+   "rules_engine_compat.py:run_rulespec_compile",
+   14
+  ],
+  [
+   "validator_pipeline.py:find_source_table_row_scalar_parameter_issues",
+   11
+  ],
+  [
+   "validator_pipeline.py:_collect_embedded_scalar_literals",
+   11
+  ],
+  [
+   "validator_pipeline.py:find_interval_table_reencoding_candidates",
+   10
+  ],
+  [
+   "validator_pipeline.py:_reject_rulespec_checkout_symlinks",
+   3
+  ],
+  [
+   "validator_pipeline.py:_construct_mapping_without_duplicate_keys",
+   3
+  ],
+  [
+   "corpus_resolver.py:<genexpr>",
+   3
+  ],
+  [
+   "repo_routing.py:_run_git_probe",
+   2
+  ],
+  [
+   "corpus_resolver.py:_candidate_provision_files",
+   2
+  ],
+  [
+   "repo_routing.py:_lexical_rulespec_path",
+   1
+  ],
+  [
+   "corpus_release.py:_canonical_json_bytes",
+   1
+  ],
+  [
+   "corpus_release.py:canonical_release_object_bytes",
+   1
+  ],
+  [
+   "validator_pipeline.py:__init__",
+   1
+  ],
+  [
+   "repo_routing.py:_path_mutation_stamp",
+   1
+  ],
+  [
+   "corpus_resolver.py:resolve_local_corpus_source",
+   1
+  ]
+ ]
+}

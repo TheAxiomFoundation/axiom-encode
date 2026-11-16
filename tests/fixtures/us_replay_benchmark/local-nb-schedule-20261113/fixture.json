@@ -1,0 +1,33 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "origin": "local-diagnostic",
+  "run_id": "local-nb-schedule-20261113",
+  "citation": "ca/policy/cra/t1-2025/nb-s12-seniors-home-renovation-credit",
+  "module_path": "ca/policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit.yaml",
+  "policy_prefix": "ca",
+  "split": "visible",
+  "recorded_verdict": "rejected",
+  "encoder_commit": "d662535e462fa7b62361a4aed9cc6522d7298fa7",
+  "encoder_tree": "8338bd5f322b13583be559ee35a4ce63bcdf7d1b",
+  "encoder_version": "0.2.2363",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --jobs 1 --out /Users/maxghenis/reviews/pavel-axiom-2026-11-12/runs/dm-followup-02/p5-2083-full-diagnostic-replay.json",
+  "input_origins": {
+    "candidate.yaml": "tests/fixtures/nb_schedule/diagnostic.yaml",
+    "candidate.test.yaml": "tests/fixtures/nb_schedule/diagnostic.test.yaml",
+    "source.txt": "tests/fixtures/nb_schedule/source.txt"
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "recorded_rules": [
+    "complete-source-unit:numeric-recall",
+    "complete-source-unit:source-explicit-conditions",
+    "complete-source-unit:tests"
+  ],
+  "files": {
+    "candidate.yaml": "408c3925e66a725e5d7e1403958ae77cecc84d789b817bdf45b620d3c0b33c3c",
+    "candidate.test.yaml": "1dd16bb8ca5046c7ac16da3ecab6c5b72cc3192e21e03aa83734a7006252cbc5",
+    "source.txt": "379be48dbb691c24d89f966c85bb3facd095ad59850f945bbf71e3dc9a92ffbe",
+    "issues.json": "d90b6a3411ec75ce2d48f4d8e0c3cff9b68ba3c1e6f70f7244771f4833a46a02"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "il-rulespec-2026-09-29",
+    "corpus_release_content_sha256": "28ecce4a009cc620ed38435a07bc4c50cf66410f30cecf919c9905e4503a2e5a",
+    "corpus_release_selector_sha256": "ae0cac591f6be5d5e7f09b6b025d369e4d89b74ed2ca8ba46967ab11a60a4d55",
+    "corpus_source": "local",
+    "expression_date": "2026-06-15",
+    "generation_input_sha256": "3b84f63343d9107c927b0767df9e0b586c444c7fdb97d8f83a11f9efd75dacb7",
+    "provision_file": "data/corpus/provisions/il/statute/2026-09-29-il-taxben-contributions.jsonl",
+    "provision_file_sha256": "fd5f1e4d6fb941c32cfbf2ef4f248146c29baf41906d1cdb3d6c7437b86d0ac1",
+    "requested_corpus_citation_path": "il/statute/national-insurance-law-1995/schedule-a1/sign-4",
+    "resolved_corpus_citation_path": "il/statute/national-insurance-law-1995/schedule-a1/sign-4",
+    "resolved_text_sha256": "3b84f63343d9107c927b0767df9e0b586c444c7fdb97d8f83a11f9efd75dacb7",
+    "row": {
+      "body_sha256": "3b84f63343d9107c927b0767df9e0b586c444c7fdb97d8f83a11f9efd75dacb7",
+      "citation_path": "il/statute/national-insurance-law-1995/schedule-a1/sign-4",
+      "document_class": "statute",
+      "expression_date": "2026-06-15",
+      "jurisdiction": "il",
+      "line_number": 1343,
+      "provision_file": "data/corpus/provisions/il/statute/2026-09-29-il-taxben-contributions.jsonl",
+      "provision_file_sha256": "fd5f1e4d6fb941c32cfbf2ef4f248146c29baf41906d1cdb3d6c7437b86d0ac1",
+      "record_id": "ac2695d3-b9ba-545f-b256-b7c81b741033",
+      "source_as_of": "2026-09-06",
+      "source_path": "sources/il/statute/2026-09-29-il-taxben-contributions/openlaw/nii-law-wikisource.html",
+      "version": "2026-09-29-il-taxben-contributions"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-il/il",
+    "source_as_of": "2026-09-06",
+    "source_sha256": "3b84f63343d9107c927b0767df9e0b586c444c7fdb97d8f83a11f9efd75dacb7"
+  }
+}

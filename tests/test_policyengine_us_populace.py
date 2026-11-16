@@ -430,7 +430,7 @@ def test_source_variables_for_adapters_excludes_target_variables():
     assert "mn_mfip_full_transitional_standard" in source_vars["spm_unit"]
 
 
-def test_configure_us_populace_parser_accepts_repeated_variables():
+def test_configure_us_microcosm_parser_accepts_repeated_variables():
     parser = argparse.ArgumentParser()
     us_populace.configure_parser(parser)
 

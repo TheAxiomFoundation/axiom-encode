@@ -1,0 +1,35 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "42022127722",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/42022127722",
+  "bundle_citation": "il/statute/national-insurance-law-1995/schedule-a1/sign-4",
+  "citation": "il/statute/national-insurance-law-1995/schedule-a1/sign-4",
+  "lane": "target",
+  "runner": "openai-gpt-6-sol",
+  "module_path": "statutes/national-insurance-law-1995/schedule-a1/sign-4.yaml",
+  "policy_prefix": "il",
+  "encoder_commit": "e638652beb4c2e62d81957752082d28df3b84c75",
+  "encoder_version": "0.2.2311",
+  "attempt_count": 4,
+  "corpus_ref": "6920fabd47f721ab2e18717bfb8fbb05d965be40",
+  "rulespec_ref": "9e0ac718ef2fa019096f122fb1946680c7b04026",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "grounding:literal": 1
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "files": {
+    "candidate.test.yaml": "be53cdc6714ecfc2d653e2f41787c9a4e2be2bd1aea3b55d91ff6be53a1f8091",
+    "candidate.yaml": "ef4cd2e5fd1a1aeba287694dbdf4037a0a2d0f4d5ae78b44409fc74062b8e6fd",
+    "issues.json": "ca6b1f8de21c12c12aa3ca5d78fd9993db4978fc90ddc613e0f5adde24e71b8f",
+    "source-metadata.json": "4671f3874984e7878b58405ecf48e3e9b17591a21663fbef5033b28f16b3946a",
+    "source.txt": "3b84f63343d9107c927b0767df9e0b586c444c7fdb97d8f83a11f9efd75dacb7"
+  }
+}

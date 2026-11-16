@@ -10,6 +10,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import types
@@ -56,6 +57,24 @@ PROCEDURE = (
     "When child care hours are requested due to schooling, verification of "
     "registration and current class schedule are required."
 )
+
+
+# The first numeric-recall issue carries a repair-context suffix (source
+# locations of every missing value) that the pinned baseline predates. It
+# describes demands and never changes them, so only that suffix is removed
+# before comparing with the baseline.
+_RECALL_HEAD = re.compile(
+    r"^\[complete-source-unit:numeric-recall\] Authoritative corpus numeric "
+    r"value \S+ has no named scalar representation\. `module\.summary` is not "
+    r"consulted\."
+)
+
+
+def _without_recall_context(issues):
+    return tuple(
+        head.group(0) if (head := _RECALL_HEAD.match(issue)) is not None else issue
+        for issue in issues
+    )
 
 
 def _analyze(module, content, source, citation, test_cases=()):
@@ -282,7 +301,8 @@ def test_generated_advice_does_not_change_main_blocking_issues(
     )
     after_advice = _analyze(completeness, candidate, source, citation)
 
-    assert before_advice.issues == after_advice.issues == baseline.issues
+    assert before_advice.issues == after_advice.issues
+    assert _without_recall_context(before_advice.issues) == baseline.issues
     assert (
         bool(before_advice.issues) == bool(after_advice.issues) == bool(baseline.issues)
     )

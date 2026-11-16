@@ -1,0 +1,25 @@
+{
+  "id": "local-nl479-form-20261113",
+  "run_id": "local-nl479-form-20261113",
+  "citation": "ca/policy/cra/t1-2025/nl479-credits/primary-document",
+  "module": "ca/policies/cra/t1-2025/nl479-credits/primary-document.yaml",
+  "imports_resolved": 0,
+  "imports_unresolved": [],
+  "deferral_providers_resolved": [],
+  "deferral_providers_unresolved": [],
+  "split": "visible",
+  "control": false,
+  "issues": [
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 2025 has no named scalar representation. `module.summary` is not consulted. First source location of 2025: character (code point) offsets 38:42 in source.txt, ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit]: `2025`. The displayed text is only a bounded locator; copy any proof excerpt verbatim from `source.txt`.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 12 at ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit]. Exact source computation (characters 1251:1299): `Line 3: Line 1 minus line 2 (maximum $2,000) = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 14 at ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit]. Exact source computation (characters 1375:1448): `Line 5 and line 62000: Line 3 minus line 4 Physical activity expenses = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 16 at ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit]. Exact source computation (characters 1481:1569): `Line 7: Line 5 multiplied by the percentage from line 6 Physical activity tax credit = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Companion tests do not demonstrate formula branch source unit formula clause 19 at ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit]. Exact source computation (characters 1693:1803): `Line 9: Line 7 plus line 8 Enter this amount online 47900of your return. Newfoundland and Labrador credits = ^`. The asserted principal formula must execute this source computation in its legally applicable companion-case period. Observed asserted candidate-case periods: 2025-01-01. Each formula branch needs distinct executed test evidence; an internal formula-clause ordinal is not a legal paragraph number.",
+    "[complete-source-unit:tests] Source-stated exceptions or applicability conditions require paired positive/blocking cases that assert the affected principal output and toggle its controlling formula selector. Each listed condition needs its own same-period case pair differing in exactly that one input; missing: ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit] [change]: `If the total of this credit is more than the amount of taxes you have to pay, you may get a refund for the difference.`; ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit] [change]: `Physical activity tax credit If applicable, complete the following table and include all of your family's eligible physical activity expenses.`; ca/policy/cra/t1-2025/nl479-credits/primary-document [source unit] [change]: `If you need more space, attach an additional sheet of paper.`."
+  ],
+  "rules": {
+    "complete-source-unit:numeric-recall": 1,
+    "complete-source-unit:tests": 5
+  },
+  "error": null
+}

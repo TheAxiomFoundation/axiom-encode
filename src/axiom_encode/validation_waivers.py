@@ -14,7 +14,7 @@ import re
 import stat
 import unicodedata
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
@@ -30,6 +30,7 @@ from yaml.events import (
     ScalarEvent,
 )
 
+from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check
 from axiom_encode.constants import RULESPEC_ATOMIC_MODULE_ROOTS, RULESPEC_FILE_SUFFIX
 
 MAX_WAIVER_DAYS = 90
@@ -52,6 +53,66 @@ METADATA_KEYS = frozenset({"fingerprint", "owner", "issue", "expires"})
 WAIVER_SECTION = "validate_failures"
 DEFAULT_WAIVER_PATH = "known-validation-gaps.yaml"
 OUTCOME_SCHEMA = "rulespec-validation-failure/v1"
+
+_VERIFIER_RESTATE_WHY = (
+    "A verifier switch may restate observed failures, but it cannot grant new "
+    "waiver authority or change the policy bytes covered by that authority."
+)
+_VERIFIER_RESTATE_FIX = (
+    "Restore the protected-base entries, owner, issue, expiry and pending "
+    "records. Change only active fingerprints or remove active-only entries; "
+    "submit other waiver or policy changes in a separate reviewed transaction."
+)
+_VERIFIER_RESTATE_SITE = (
+    "axiom_encode/validation_waivers.py:verifier_restate_transition_issues"
+)
+VERIFIER_RESTATE_NEW_ENTRY = declare_check(
+    "validation-waivers:verifier-restate/new-entry",
+    title="A verifier restate adds a waiver entry",
+    requires="Every head waiver entry already exists on the protected base.",
+    why=_VERIFIER_RESTATE_WHY,
+    fix=_VERIFIER_RESTATE_FIX,
+    cause="encoder_output",
+    gate="ci",
+    site=_VERIFIER_RESTATE_SITE,
+)
+VERIFIER_RESTATE_INVALID_REMOVAL = declare_check(
+    "validation-waivers:verifier-restate/invalid-removal",
+    title="A verifier restate removes an entry with pending or inactive state",
+    requires="A removed entry has an active record and no pending record.",
+    why=_VERIFIER_RESTATE_WHY,
+    fix=_VERIFIER_RESTATE_FIX,
+    cause="encoder_output",
+    gate="ci",
+    site=_VERIFIER_RESTATE_SITE,
+)
+VERIFIER_RESTATE_METADATA_CHANGED = declare_check(
+    "validation-waivers:verifier-restate/metadata-changed",
+    title="A verifier restate changes protected waiver metadata",
+    requires=(
+        "Only the active fingerprint may change; active state, owner, issue, "
+        "expiry and pending records stay as on the protected base."
+    ),
+    why=_VERIFIER_RESTATE_WHY,
+    fix=_VERIFIER_RESTATE_FIX,
+    cause="encoder_output",
+    gate="ci",
+    site=_VERIFIER_RESTATE_SITE,
+)
+VERIFIER_RESTATE_PROTECTED_FILES_CHANGED = declare_check(
+    "validation-waivers:verifier-restate/protected-files-changed",
+    title="A verifier restate includes policy or provenance changes",
+    requires="A verifier restate changes no RuleSpec files, apply manifests or receipts.",
+    why=_VERIFIER_RESTATE_WHY,
+    fix=(
+        "Remove the RuleSpec, apply-manifest and receipt changes from the "
+        "verifier restate. Submit those bytes through their separate reviewed "
+        "encoding or promotion transaction."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site="axiom_encode/cli.py:_guard_manifest_waiver_set_identity",
+)
 
 
 class ValidationWaiverError(ValueError):
@@ -190,11 +251,15 @@ def _load_strict_yaml(path: Path) -> object:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as error:
         raise WaiverSchemaError(f"cannot read {path}: {error}") from error
-    _scan_bounded_yaml(text, source=path)
+    return _load_strict_yaml_text(text, source=path)
+
+
+def _load_strict_yaml_text(text: str, *, source: Path) -> object:
+    _scan_bounded_yaml(text, source=source)
     try:
         return yaml.load(text, Loader=_UniqueKeyLoader)
     except yaml.YAMLError as error:
-        raise WaiverSchemaError(f"cannot parse {path}: {error}") from error
+        raise WaiverSchemaError(f"cannot parse {source}: {error}") from error
 
 
 def _contains_control_or_format(value: str) -> bool:
@@ -336,7 +401,54 @@ def load_validation_waivers(
     source = Path(path)
     if not source.exists():
         raise WaiverSchemaError(f"required validation waiver file is missing: {source}")
-    payload = _load_strict_yaml(source)
+    return _validation_waiver_set_from_payload(
+        _load_strict_yaml(source),
+        source=source,
+        repo_root=repo_root,
+        today=today,
+        allow_expired=allow_expired,
+        require_paths=require_paths,
+    )
+
+
+def load_validation_waivers_bytes(
+    raw: bytes,
+    *,
+    source: str | Path = DEFAULT_WAIVER_PATH,
+    repo_root: str | Path | None = None,
+    today: date | None = None,
+    allow_expired: bool = False,
+    require_paths: bool = True,
+) -> ValidationWaiverSet:
+    """Load exact waiver-file bytes with the same strict schema as the file."""
+    label = Path(source)
+    if not isinstance(raw, bytes):
+        raise WaiverSchemaError(f"{label}: waiver bytes are required")
+    if len(raw) > MAX_WAIVER_FILE_BYTES:
+        raise WaiverSchemaError(f"{label}: file exceeds {MAX_WAIVER_FILE_BYTES} bytes")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeError as error:
+        raise WaiverSchemaError(f"cannot read {label}: {error}") from error
+    return _validation_waiver_set_from_payload(
+        _load_strict_yaml_text(text, source=label),
+        source=label,
+        repo_root=repo_root,
+        today=today,
+        allow_expired=allow_expired,
+        require_paths=require_paths,
+    )
+
+
+def _validation_waiver_set_from_payload(
+    payload: object,
+    *,
+    source: Path,
+    repo_root: str | Path | None,
+    today: date | None,
+    allow_expired: bool,
+    require_paths: bool,
+) -> ValidationWaiverSet:
     if not isinstance(payload, Mapping):
         raise WaiverSchemaError(f"{source}: document root must be a mapping")
     root_keys = frozenset(payload)
@@ -401,6 +513,72 @@ def load_validation_waivers(
     return ValidationWaiverSet(MappingProxyType(dict(sorted(entries.items()))))
 
 
+def verifier_restate_transition_issues(
+    base: ValidationWaiverSet,
+    head: ValidationWaiverSet,
+) -> tuple[str, ...]:
+    """Return every ledger change that is not a mechanical verifier restate.
+
+    A change of the verifier (``encoder_verifier`` switching between the
+    pinned encoder and encoder main) can change the fingerprint of a waived
+    failure, or make a waived module pass. Such a change may carry the ledger
+    only to restate it for the new verifier:
+
+    * an active record may change its fingerprint, with owner, issue and
+      expiry exactly as on the protected base;
+    * an entry that has only an active record may be removed.
+
+    Every other entry, state and field must stay exactly as on the protected
+    base: no new entry, no new or changed pending record, no consumption, no
+    changed owner, issue or expiry. This function checks the shape only. The
+    audit that calls it then requires each restated fingerprint to equal the
+    failure the running verifier observes, and each removed module to pass.
+    """
+    issues: list[str] = []
+    for path in sorted(set(base.entries) | set(head.entries)):
+        base_entry = base.entries.get(path)
+        head_entry = head.entries.get(path)
+        if base_entry == head_entry:
+            continue
+        if base_entry is None:
+            issues.append(
+                ValidationIssue(
+                    f"{path}: a verifier restate cannot add a waiver entry",
+                    check=VERIFIER_RESTATE_NEW_ENTRY,
+                    subject=IssueSubject(module=path),
+                )
+            )
+            continue
+        if head_entry is None:
+            if base_entry.active is None or base_entry.pending is not None:
+                issues.append(
+                    ValidationIssue(
+                        f"{path}: a verifier restate can remove only an entry that "
+                        "has an active record and no pending record",
+                        check=VERIFIER_RESTATE_INVALID_REMOVAL,
+                        subject=IssueSubject(module=path),
+                    )
+                )
+            continue
+        if (
+            base_entry.active is None
+            or head_entry.active is None
+            or head_entry.pending != base_entry.pending
+            or replace(head_entry.active, fingerprint=base_entry.active.fingerprint)
+            != base_entry.active
+        ):
+            issues.append(
+                ValidationIssue(
+                    f"{path}: a verifier restate may change only the fingerprint of "
+                    "an active record; owner, issue, expiry and pending records must "
+                    "stay exactly as on the protected base",
+                    check=VERIFIER_RESTATE_METADATA_CHANGED,
+                    subject=IssueSubject(module=path),
+                )
+            )
+    return tuple(issues)
+
+
 def protected_base_transition_issues(
     base: ValidationWaiverSet,
     head: ValidationWaiverSet,
@@ -408,8 +586,16 @@ def protected_base_transition_issues(
     changed_paths: set[str] | frozenset[str],
     waiver_path: str = DEFAULT_WAIVER_PATH,
     today: date | None = None,
+    verifier_restate: bool = False,
 ) -> tuple[str, ...]:
-    """Return attempts to activate a waiver without protected-base approval."""
+    """Return attempts to activate a waiver without protected-base approval.
+
+    With ``verifier_restate`` the change is a verifier-mode switch, and the
+    ledger may only be restated for the new verifier (see
+    ``verifier_restate_transition_issues``); no other transition is allowed.
+    """
+    if verifier_restate:
+        return verifier_restate_transition_issues(base, head)
     issues: list[str] = []
     current_date = today or date.today()
     changed = frozenset(changed_paths)
@@ -466,6 +652,135 @@ def validate_protected_base_transition(
     )
     if issues:
         raise WaiverTransitionError("; ".join(issues))
+
+
+# Per-file waiver bindings (#2092). A signed manifest binds only the waiver
+# state of the files it covers, so a waiver change for another file does not
+# make the manifest stale. Only the active record is bound: a pending record
+# never waives a failure, so it cannot change what the signer validated.
+FILE_WAIVER_BINDINGS_SCHEMA = "axiom-encode/validation-waiver-bindings/v1"
+FILE_WAIVER_BINDINGS_KEYS = frozenset({"schema", "files"})
+FILE_WAIVER_BINDING_KEYS = frozenset({"path", "fingerprint", "record_sha256"})
+_RECORD_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def active_waiver_record_sha256(metadata: WaiverMetadata) -> str:
+    """Return the digest of one active record: fingerprint, owner, issue, expiry."""
+    canonical = json.dumps(
+        {
+            "fingerprint": metadata.fingerprint,
+            "owner": metadata.owner,
+            "issue": metadata.issue,
+            "expires": metadata.expires,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def file_waiver_binding(waivers: ValidationWaiverSet, path: str) -> dict[str, object]:
+    """Return the canonical waiver binding of one repository-relative file."""
+    entry = waivers.entries.get(path)
+    active = entry.active if entry is not None else None
+    return {
+        "path": path,
+        "fingerprint": active.fingerprint if active is not None else None,
+        "record_sha256": (
+            active_waiver_record_sha256(active) if active is not None else None
+        ),
+    }
+
+
+def build_file_waiver_bindings(
+    waivers: ValidationWaiverSet,
+    covered_paths: set[str] | frozenset[str] | list[str] | tuple[str, ...],
+) -> dict[str, object]:
+    """Bind the active waiver state of exactly the covered files."""
+    paths = sorted(set(covered_paths))
+    if not paths:
+        raise ValidationWaiverError("per-file waiver bindings need a covered file")
+    for path in paths:
+        if not isinstance(path, str) or not path:
+            raise ValidationWaiverError("covered waiver paths must be strings")
+    return {
+        "schema": FILE_WAIVER_BINDINGS_SCHEMA,
+        "files": [file_waiver_binding(waivers, path) for path in paths],
+    }
+
+
+def file_waiver_binding_issues(
+    bindings: object,
+    *,
+    covered_paths: set[str] | frozenset[str],
+    waivers: ValidationWaiverSet,
+    label: str,
+) -> list[str]:
+    """Return why per-file bindings are malformed or not current.
+
+    The bindings must name exactly the covered files, in path order, and each
+    file's bound active record must equal the record in ``waivers``. Records
+    of files outside ``covered_paths`` are never read.
+
+    These are manifest-admission messages for the generated guard, which
+    reports plain strings; they are not validator check issues, so they are
+    collected as ``problems`` rather than ``ValidationIssue`` records.
+    """
+    if not isinstance(bindings, Mapping) or frozenset(bindings) != (
+        FILE_WAIVER_BINDINGS_KEYS
+    ):
+        return [f"{label} is malformed"]
+    if bindings.get("schema") != FILE_WAIVER_BINDINGS_SCHEMA:
+        return [f"{label}.schema is not supported"]
+    files = bindings.get("files")
+    if not isinstance(files, list) or not files or len(files) > MAX_WAIVER_ENTRIES:
+        return [f"{label}.files is malformed"]
+    problems: list[str] = []
+    bound: dict[str, Mapping[str, object]] = {}
+    previous: str | None = None
+    for index, item in enumerate(files):
+        field = f"{label}.files[{index}]"
+        if not isinstance(item, Mapping) or frozenset(item) != (
+            FILE_WAIVER_BINDING_KEYS
+        ):
+            problems.append(f"{field} is malformed")
+            continue
+        path = item.get("path")
+        fingerprint = item.get("fingerprint")
+        record = item.get("record_sha256")
+        if not isinstance(path, str) or not path:
+            problems.append(f"{field}.path is invalid")
+            continue
+        if previous is not None and path <= previous:
+            problems.append(f"{field}.path is duplicated or out of order")
+            continue
+        previous = path
+        if fingerprint is None and record is None:
+            pass
+        elif (
+            not isinstance(fingerprint, str)
+            or FINGERPRINT_RE.fullmatch(fingerprint) is None
+            or not isinstance(record, str)
+            or _RECORD_SHA256_RE.fullmatch(record) is None
+        ):
+            problems.append(f"{field} waiver record identity is invalid")
+            continue
+        bound[path] = item
+    if problems:
+        return problems
+    covered = frozenset(covered_paths)
+    missing = sorted(covered - set(bound))
+    extra = sorted(set(bound) - covered)
+    if missing:
+        problems.append(f"{label} does not bind covered files: " + ", ".join(missing))
+    if extra:
+        problems.append(f"{label} binds files it does not cover: " + ", ".join(extra))
+    for path in sorted(covered & set(bound)):
+        expected = file_waiver_binding(waivers, path)
+        if dict(bound[path]) != expected:
+            problems.append(f"{label} waiver identity for {path} is not current")
+    return problems
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")

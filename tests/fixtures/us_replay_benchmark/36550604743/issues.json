@@ -1,0 +1,13 @@
+{
+  "attempt_count": 4,
+  "citation": "us/guidance/usda/fns/snap-fy2024-cola/page-2",
+  "encoder_version": "0.2.2065",
+  "issues": [
+    "policies/usda/snap/fy-2024-cola/income-eligibility-standards.yaml: compile: Axiom rules engine compile failed: failed to load RuleSpec module `/tmp/tmp896qg4k8/rulespec-us/us/policies/usda/snap/fy-2024-cola/income-eligibility-standards.yaml`: yaml parse error: rules[0]: expected scalar string-like value, got Sequence [String(\"household_size\")] at line 16 column 3",
+    "policies/usda/snap/fy-2024-cola/income-eligibility-standards.yaml: ci: Axiom rules engine compile failed: failed to load RuleSpec module `/tmp/tmp896qg4k8/rulespec-us/us/policies/usda/snap/fy-2024-cola/income-eligibility-standards.yaml`: yaml parse error: rules[0]: expected scalar string-like value, got Sequence [String(\"household_size\")] at line 16 column 3"
+  ],
+  "path": "policies/usda/snap/fy-2024-cola/income-eligibility-standards.yaml",
+  "rulespec_sha256": "23438dec0aaa00847665ee5413571856e02afe4f9961f83381fc56eed69d8649",
+  "schema": "axiom-encode/failed-encode-candidate/v1",
+  "tests_sha256": "ae6915709b63bdfe9d4354f8967d43befcc8d74d14ac0d17593d1ae8dffdfbb2"
+}

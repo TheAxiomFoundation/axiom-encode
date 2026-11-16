@@ -1,0 +1,169 @@
+- name: oldest_cohort_before_1939
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1938
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 12
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 0
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 65
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 0
+- name: may_to_december_1948
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1948
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 5
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 12
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 69
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 0
+- name: january_to_august_1947
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1947
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 1
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 10
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 68
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 4
+- name: later_births
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1951
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 1
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 15
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 70
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 0
+- name: oldest_cohort_through_june_1939
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1939
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 6
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 0
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 65
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 0
+- name: july_august_1939
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1939
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 7
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 1
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 65
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 4
+- name: september_1939_to_april_1940
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1940
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 4
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 2
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 65
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 8
+- name: may_to_december_1940
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1940
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 5
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 3
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 66
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 0
+- name: january_to_august_1941
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1941
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 1
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 4
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 66
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 4
+- name: september_1941_to_april_1942
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1942
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 4
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 5
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 66
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 8
+- name: may_1942_to_december_1944
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1944
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 12
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 6
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 67
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 0
+- name: january_to_august_1945
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1945
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 1
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 7
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 67
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 4
+- name: september_1945_to_april_1946
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1946
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 4
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 8
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 67
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 8
+- name: may_to_december_1946
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1946
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 5
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 9
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 68
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 0
+- name: september_1947_to_april_1948
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1948
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 4
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 11
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 68
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 8
+- name: january_to_august_1949
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1949
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 1
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 13
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 69
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 4
+- name: september_1949_to_april_1950
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1950
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 4
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 14
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 69
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 8
+- name: may_1950_and_later
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1950
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 5
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 15
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_years_result: 70
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_eligibility_age_additional_months_result: 0
+- name: may_to_december_1950
+  period: 2026-06
+  input:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_year: 1950
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#input.birth_month: 5
+  output:
+    il:statutes/national-insurance-law-1995/schedule-a1/sign-4#old_age_pension_woman_birth_cohort: 15

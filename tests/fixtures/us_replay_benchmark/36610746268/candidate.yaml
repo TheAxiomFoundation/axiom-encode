@@ -1,0 +1,256 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/regulation/42/435/927
+    source_sha256: 9f617d44d2f957d8369a41f2784f87d2d3d0bca345bcd70e72861b2a92bb4596
+  summary: 'For State activities from April 1, 2023, through June 30, 2024,
+
+    States must submit specified Medicaid and CHIP data to CMS. The data
+
+    must be timely, complete, and of sufficient quality.'
+  status: deferred
+  deferred_outputs:
+  - output: us:regulations/42-cfr/435/927/a#statutory_basis
+    reason: 42 CFR 435.927(a) identifies the statutory basis and states no independent
+      computation.
+  - output: us:regulations/42-cfr/435/927/b#reporting_definitions
+    reason: 42 CFR 435.927(b) defines reporting standards whose evaluation depends
+      on the applicable CMS processes, specifications, deadlines, and approvals.
+  - output: us:regulations/42-cfr/435/927/b/1#timely
+    reason: 42 CFR 435.927(b)(1) requires selecting the applicable submission process
+      and its governing deadline.
+  - output: us:regulations/42-cfr/435/927/b/1/i#existing_process_timely
+    reason: 42 CFR 435.927(b)(1)(i) depends on the deadline in the applicable CMS
+      regulation or guidance, which is not supplied.
+  - output: us:regulations/42-cfr/435/927/b/1/ii#t_msis_timely
+    reason: 42 CFR 435.927(b)(1)(ii) requires monthly T-MSIS submission dates and
+      the subsequent-month deadline; a submission-event relation is not supplied.
+  - output: us:regulations/42-cfr/435/927/b/1/iii#alternative_process_timely
+    reason: 42 CFR 435.927(b)(1)(iii) depends on the deadline CMS specified for the
+      approved alternative process or timeline, which is not supplied.
+  - output: us:regulations/42-cfr/435/927/b/2#complete
+    reason: 42 CFR 435.927(b)(2) requires comparison of reported elements with all
+      required elements; a submission-to-element relation is not supplied.
+  - output: us:regulations/42-cfr/435/927/b/3#sufficient_quality
+    reason: 42 CFR 435.927(b)(3) requires selecting and applying the specifications
+      governing the submission process.
+  - output: us:regulations/42-cfr/435/927/b/3/i#existing_process_quality
+    reason: 42 CFR 435.927(b)(3)(i) depends on specifications in the applicable CMS
+      regulation or guidance, which are not supplied.
+  - output: us:regulations/42-cfr/435/927/b/3/ii#alternative_process_quality
+    reason: 42 CFR 435.927(b)(3)(ii) depends on the specifications CMS approved for
+      the alternative process, which are not supplied.
+  - output: us:regulations/42-cfr/435/927/b/4#good_faith_effort
+    reason: 42 CFR 435.927(b)(4) requires linked State challenge, request, CMS approval,
+      and public-reporting-sufficiency facts.
+  - output: us:regulations/42-cfr/435/927/b/4/i#challenge_condition
+    reason: 42 CFR 435.927(b)(4)(i) requires State-specific challenge, remediation,
+      and additional-time facts that are not supplied.
+  - output: us:regulations/42-cfr/435/927/b/4/ii#alternative_requested_and_approved
+    reason: 42 CFR 435.927(b)(4)(ii) requires a State request and CMS approval for
+      the same alternative process or timeline; linked records are not supplied.
+  - output: us:regulations/42-cfr/435/927/b/4/iii#alternative_supports_public_reporting
+    reason: 42 CFR 435.927(b)(4)(iii) requires an approval-specific determination
+      that CMS can obtain and use the data for public reporting.
+  - output: us:regulations/42-cfr/435/927/c#reporting_requirement
+    reason: 42 CFR 435.927(c) requires submission and assessment of paragraph (d)
+      data for the specified activity period; submission and measure records are not
+      supplied.
+  - output: us:regulations/42-cfr/435/927/c/1#existing_process_submission
+    reason: 42 CFR 435.927(c)(1) requires a State submission-event record identifying
+      an existing CMS-approved process.
+  - output: us:regulations/42-cfr/435/927/c/2#alternative_process_submission
+    reason: 42 CFR 435.927(c)(2) requires linked alternative-approval and submission-event
+      records.
+  - output: us:regulations/42-cfr/435/927/d#required_data_elements
+    reason: 42 CFR 435.927(d) requires the listed measures to be submitted in accordance
+      with paragraph (c); a submission-to-measure relation is not supplied.
+  - output: us:regulations/42-cfr/435/927/d/1#renewals_initiated_count
+    reason: 42 CFR 435.927(d)(1) requires a beneficiary-renewal-initiation relation
+      for the total count.
+  - output: us:regulations/42-cfr/435/927/d/2#coverage_renewed_count
+    reason: 42 CFR 435.927(d)(2) requires a beneficiary-coverage-renewal relation
+      for the total count.
+  - output: us:regulations/42-cfr/435/927/d/3#ex_parte_renewal_count
+    reason: 42 CFR 435.927(d)(3) requires linked beneficiary renewal and ex parte
+      classifications.
+  - output: us:regulations/42-cfr/435/927/d/4#coverage_termination_count
+    reason: 42 CFR 435.927(d)(4) requires an individual-coverage-termination relation.
+  - output: us:regulations/42-cfr/435/927/d/5#procedural_termination_count
+    reason: 42 CFR 435.927(d)(5) requires linked individual termination and procedural-reason
+      records.
+  - output: us:regulations/42-cfr/435/927/d/6#separate_chip_enrollment_count
+    reason: 42 CFR 435.927(d)(6) requires beneficiary-enrollment records identifying
+      separate CHIP.
+  - output: us:regulations/42-cfr/435/927/d/7#call_center_volume
+    reason: 42 CFR 435.927(d)(7) requires call-event records grouped by each State
+      call center.
+  - output: us:regulations/42-cfr/435/927/d/8#average_call_center_wait_time
+    reason: 42 CFR 435.927(d)(8) requires wait-time observations and an averaging
+      denominator for each State call center.
+  - output: us:regulations/42-cfr/435/927/d/9#average_call_center_abandonment_rate
+    reason: 42 CFR 435.927(d)(9) requires abandonment observations and an averaging
+      denominator for each State call center.
+  - output: us:regulations/42-cfr/435/927/d/10#non_integrated_sbe_measures
+    reason: 42 CFR 435.927(d)(10) requires State-based Exchange eligibility-system
+      and Federal Exchange platform-use classifications.
+  - output: us:regulations/42-cfr/435/927/d/10/i#accounts_received_after_redetermination_count
+    reason: 42 CFR 435.927(d)(10)(i) requires the total number of individuals whose
+      accounts are received by the SBE or Basic Health Program (BHP) due to a Medicaid/CHIP
+      redetermination; a distinct-individual account-receipt relation covering both
+      destinations is not supplied.
+  - output: us:regulations/42-cfr/435/927/d/10/ii#non_integrated_sbe_eligible_applicants_count
+    reason: 42 CFR 435.927(d)(10)(ii) requires linked individual application, redetermination-cause,
+      and QHP-or-BHP eligibility records.
+  - output: us:regulations/42-cfr/435/927/d/10/iii#non_integrated_sbe_selection_or_enrollment_count
+    reason: 42 CFR 435.927(d)(10)(iii) requires linked individual application, eligibility,
+      and QHP-selection-or-BHP-enrollment records.
+  - output: us:regulations/42-cfr/435/927/d/11#integrated_sbe_measures
+    reason: 42 CFR 435.927(d)(11) requires State-based Exchange eligibility-system
+      and Federal Exchange platform-use classifications.
+  - output: us:regulations/42-cfr/435/927/d/11/i#integrated_sbe_eligible_applicants_count
+    reason: 42 CFR 435.927(d)(11)(i) requires linked individual application, redetermination-cause,
+      and QHP-or-BHP eligibility records.
+  - output: us:regulations/42-cfr/435/927/d/11/ii#integrated_sbe_selection_or_enrollment_count
+    reason: 42 CFR 435.927(d)(11)(ii) requires linked individual application, eligibility,
+      and QHP-selection-or-BHP-enrollment records.
+  - output: us:regulations/42-cfr/435/927/e#severability
+    reason: 42 CFR 435.927(e) addresses the legal effect of invalidity, unenforceability,
+      or a stay; it states no independent reporting computation.
+  - output: us:regulations/42-cfr/435/927#a
+    reason: 42 CFR 435.927(a) identifies the statutory basis for this section but
+      states no independently computable rule; the section-specific reporting data
+      and evaluation schema are not supplied.
+  - output: us:regulations/42-cfr/435/927#b
+    reason: 42 CFR 435.927(b) defines reporting standards by reference to applicable
+      CMS regulations, guidance, deadlines, specifications, and CMS approvals; those
+      operative external materials and facts are not supplied as executable context.
+  - output: us:regulations/42-cfr/435/927#b_1
+    reason: 42 CFR 435.927(b)(1) defines timeliness through applicable CMS processes,
+      deadlines, and approved alternatives; the referenced processes and deadlines
+      are not supplied as executable context.
+  - output: us:regulations/42-cfr/435/927#b_1_i
+    reason: 42 CFR 435.927(b)(1)(i) depends on the applicable CMS regulation or guidance
+      and its deadline, neither of which is supplied as executable context.
+  - output: us:regulations/42-cfr/435/927#b_1_ii
+    reason: 42 CFR 435.927(b)(1)(ii) depends on submission-frequency and submission-date
+      facts for T-MSIS data, which are not supplied in an executable reporting-data
+      schema.
+  - output: us:regulations/42-cfr/435/927#b_1_iii
+    reason: 42 CFR 435.927(b)(1)(iii) depends on a CMS-approved alternative process
+      or timeline and its specified deadline, which are not supplied as executable
+      context.
+  - output: us:regulations/42-cfr/435/927#b_2
+    reason: 42 CFR 435.927(b)(2) requires the applicable set of required reporting
+      elements, which is not supplied as executable reporting-schema context.
+  - output: us:regulations/42-cfr/435/927#b_3
+    reason: 42 CFR 435.927(b)(3) depends on CMS specifications governing the applicable
+      submission process or approved alternative, which are not supplied as executable
+      context.
+  - output: us:regulations/42-cfr/435/927#b_3_i
+    reason: 42 CFR 435.927(b)(3)(i) depends on specifications in the applicable CMS
+      regulation or guidance, which are not supplied as executable context.
+  - output: us:regulations/42-cfr/435/927#b_3_ii
+    reason: 42 CFR 435.927(b)(3)(ii) depends on specifications approved by CMS for
+      an alternative process, which are not supplied as executable context.
+  - output: us:regulations/42-cfr/435/927#b_4
+    reason: 42 CFR 435.927(b)(4) depends on State challenge circumstances, a State
+      request, CMS approval, and whether the approved alternative enables CMS to obtain
+      and use the data; those determinations and the underlying reporting schema are
+      not supplied as executable context.
+  - output: us:regulations/42-cfr/435/927#b_4_i
+    reason: 42 CFR 435.927(b)(4)(i) depends on State-specific challenge and remediation
+      facts, which are not supplied as executable inputs.
+  - output: us:regulations/42-cfr/435/927#b_4_ii
+    reason: 42 CFR 435.927(b)(4)(ii) depends on a State request and CMS approval of
+      an alternative, which are not supplied as executable inputs.
+  - output: us:regulations/42-cfr/435/927#b_4_iii
+    reason: 42 CFR 435.927(b)(4)(iii) depends on whether an approved alternative enables
+      CMS to obtain and use data for public reporting, which cannot be evaluated without
+      the reporting schema and CMS-use criteria.
+  - output: us:regulations/42-cfr/435/927#c
+    reason: 42 CFR 435.927(c) imposes a State reporting duty over specified activities
+      and reporting periods, but the reporting-data schema and submission evidence
+      needed to evaluate compliance are not supplied.
+  - output: us:regulations/42-cfr/435/927#c_1
+    reason: 42 CFR 435.927(c)(1) depends on State submissions through existing CMS-approved
+      processes and the applicable submission data, which are not supplied in an executable
+      schema.
+  - output: us:regulations/42-cfr/435/927#c_2
+    reason: 42 CFR 435.927(c)(2) depends on CMS approval of an alternative process
+      and the associated submission data, which are not supplied as executable context.
+  - output: us:regulations/42-cfr/435/927#d
+    reason: 42 CFR 435.927(d) enumerates administrative reporting measures, but the
+      State-level source data, call-center records, Exchange records, and submission
+      schema needed to encode those measures are not supplied.
+  - output: us:regulations/42-cfr/435/927#d_1
+    reason: 42 CFR 435.927(d)(1) depends on State renewal-initiation counts, which
+      are not supplied as reporting data.
+  - output: us:regulations/42-cfr/435/927#d_2
+    reason: 42 CFR 435.927(d)(2) depends on State renewal counts, which are not supplied
+      as reporting data.
+  - output: us:regulations/42-cfr/435/927#d_3
+    reason: 42 CFR 435.927(d)(3) depends on counts of renewed coverage on an ex parte
+      basis, which are not supplied as reporting data.
+  - output: us:regulations/42-cfr/435/927#d_4
+    reason: 42 CFR 435.927(d)(4) depends on State termination counts, which are not
+      supplied as reporting data.
+  - output: us:regulations/42-cfr/435/927#d_5
+    reason: 42 CFR 435.927(d)(5) depends on counts of procedural terminations, which
+      are not supplied as reporting data.
+  - output: us:regulations/42-cfr/435/927#d_6
+    reason: 42 CFR 435.927(d)(6) depends on separate CHIP enrollment counts, which
+      are not supplied as reporting data.
+  - output: us:regulations/42-cfr/435/927#d_7
+    reason: 42 CFR 435.927(d)(7) depends on call-center volume records for each State
+      call center, which are not supplied.
+  - output: us:regulations/42-cfr/435/927#d_8
+    reason: 42 CFR 435.927(d)(8) depends on average wait-time records for each State
+      call center, which are not supplied.
+  - output: us:regulations/42-cfr/435/927#d_9
+    reason: 42 CFR 435.927(d)(9) depends on average abandonment-rate records for each
+      State call center, which are not supplied.
+  - output: us:regulations/42-cfr/435/927#d_10
+    reason: 42 CFR 435.927(d)(10) depends on State Exchange type and platform-use
+      classifications and Exchange data, which are not supplied as executable context.
+  - output: us:regulations/42-cfr/435/927#d_10_i
+    reason: 42 CFR 435.927(d)(10)(i) depends on account-receipt counts for an SBE
+      or BHP due to Medicaid/CHIP redetermination, which are not supplied as reporting
+      data.
+  - output: us:regulations/42-cfr/435/927#d_10_ii
+    reason: 42 CFR 435.927(d)(10)(ii) depends on application and eligibility-determination
+      counts for QHP or BHP coverage, which are not supplied as reporting data.
+  - output: us:regulations/42-cfr/435/927#d_10_iii
+    reason: 42 CFR 435.927(d)(10)(iii) depends on application, eligibility, plan-selection,
+      and BHP-enrollment counts, which are not supplied as reporting data.
+  - output: us:regulations/42-cfr/435/927#d_11
+    reason: 42 CFR 435.927(d)(11) depends on State Exchange type and platform-use
+      classifications and Exchange data, which are not supplied as executable context.
+  - output: us:regulations/42-cfr/435/927#d_11_i
+    reason: 42 CFR 435.927(d)(11)(i) depends on application and eligibility-determination
+      counts for QHP or BHP coverage, which are not supplied as reporting data.
+  - output: us:regulations/42-cfr/435/927#d_11_ii
+    reason: 42 CFR 435.927(d)(11)(ii) depends on application, eligibility, plan-selection,
+      and BHP-enrollment counts, which are not supplied as reporting data.
+  - output: us:regulations/42-cfr/435/927#e
+    reason: 42 CFR 435.927(e) states a severability consequence contingent on a provision
+      being held invalid or unenforceable or stayed; it supplies no independently
+      computable rule for this artifact.
+  - output: us:regulations/42-cfr/435/927#definitions
+    reason: 42 CFR 435.927(b) defines timeliness and sufficient quality by reference
+      to applicable CMS regulations, guidance, and CMS-approved processes or deadlines,
+      and defines good faith effort through factual circumstances and CMS approval
+      not supplied as executable context. The reporting system, required fields, and
+      approved specifications needed to evaluate these definitions are unavailable.
+  - output: us:regulations/42-cfr/435/927#required_data_elements
+    reason: 42 CFR 435.927(d) imposes administrative reporting duties over State Medicaid,
+      CHIP, call-center, and Exchange data. The source enumerates required measures
+      but supplies neither the State reporting data nor a representable administrative
+      reporting schema for encoding their submission as executable outputs.
+  - output: us:regulations/42-cfr/435/927#deferred_output
+    reason: Generated module is marked `deferred`; the source definition for deferred
+      output cannot be encoded as an executable RuleSpec output until the target entity
+      or surface is supported.
+rules: []

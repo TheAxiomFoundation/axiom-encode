@@ -1,0 +1,129 @@
+- name: statutory_registration_exemption_at_sixty
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_age: 60
+  output:
+    us:regulations/7-cfr/273/7#snap_member_statutory_work_registration_exemption_applies: holds
+- name: statutory_registration_exemption_below_sixty
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_age: 59
+  output:
+    us:regulations/7-cfr/273/7#snap_member_statutory_work_registration_exemption_applies: not_holds
+- name: age_based_exemption_at_minimum_age
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_age: 15
+    us:regulations/7-cfr/273/7#input.member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time: false
+    us:regulations/7-cfr/273/7#input.member_physically_or_mentally_unfit_for_employment: false
+    us:regulations/7-cfr/273/7#input.member_subject_to_and_complying_with_title_iv_work_requirement: false
+    us:regulations/7-cfr/273/7#input.member_responsible_for_dependent_child_under_six_or_incapacitated_person: false
+    us:regulations/7-cfr/273/7#input.member_receiving_or_applying_for_unemployment_compensation_and_complying: false
+    us:regulations/7-cfr/273/7#input.member_regular_participant_in_drug_or_alcohol_treatment: false
+    us:regulations/7-cfr/273/7#input.member_weekly_work_hours: 0
+    us:regulations/7-cfr/273/7#input.member_weekly_wages: 0
+    us:regulations/7-cfr/273/7#input.federal_or_state_minimum_wage: 7.25
+    us:regulations/7-cfr/273/7#input.migrant_or_seasonal_farmworker_under_contract_to_begin_employment_within_30_days: false
+    us:regulations/7-cfr/273/7#input.alaska_subsistence_hunts_or_fishes_30_hours_weekly: false
+    us:regulations/7-cfr/273/7#input.member_student_enrolled_at_least_half_time_and_student_eligible: false
+  output:
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt: holds
+    us:regulations/7-cfr/273/7#snap_member_statutory_work_registration_exemption_applies: holds
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_eligible: holds
+- name: age_sixty_registration_exemption_boundary
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_age: 60
+    us:regulations/7-cfr/273/7#input.member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time: false
+    us:regulations/7-cfr/273/7#input.member_physically_or_mentally_unfit_for_employment: false
+    us:regulations/7-cfr/273/7#input.member_subject_to_and_complying_with_title_iv_work_requirement: false
+    us:regulations/7-cfr/273/7#input.member_responsible_for_dependent_child_under_six_or_incapacitated_person: false
+    us:regulations/7-cfr/273/7#input.member_receiving_or_applying_for_unemployment_compensation_and_complying: false
+    us:regulations/7-cfr/273/7#input.member_regular_participant_in_drug_or_alcohol_treatment: false
+    us:regulations/7-cfr/273/7#input.member_weekly_work_hours: 0
+    us:regulations/7-cfr/273/7#input.member_weekly_wages: 0
+    us:regulations/7-cfr/273/7#input.federal_or_state_minimum_wage: 7.25
+    us:regulations/7-cfr/273/7#input.migrant_or_seasonal_farmworker_under_contract_to_begin_employment_within_30_days: false
+    us:regulations/7-cfr/273/7#input.alaska_subsistence_hunts_or_fishes_30_hours_weekly: false
+    us:regulations/7-cfr/273/7#input.member_student_enrolled_at_least_half_time_and_student_eligible: false
+  output:
+    us:regulations/7-cfr/273/7#snap_member_statutory_work_registration_exemption_applies: holds
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt: holds
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_eligible: holds
+- name: nonexempt_compliant_member_meets_work_requirement
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_age: 30
+    us:regulations/7-cfr/273/7#input.member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time: false
+    us:regulations/7-cfr/273/7#input.member_physically_or_mentally_unfit_for_employment: false
+    us:regulations/7-cfr/273/7#input.member_subject_to_and_complying_with_title_iv_work_requirement: false
+    us:regulations/7-cfr/273/7#input.member_responsible_for_dependent_child_under_six_or_incapacitated_person: false
+    us:regulations/7-cfr/273/7#input.member_receiving_or_applying_for_unemployment_compensation_and_complying: false
+    us:regulations/7-cfr/273/7#input.member_regular_participant_in_drug_or_alcohol_treatment: false
+    us:regulations/7-cfr/273/7#input.member_weekly_work_hours: 0
+    us:regulations/7-cfr/273/7#input.member_weekly_wages: 0
+    us:regulations/7-cfr/273/7#input.federal_or_state_minimum_wage: 7.25
+    us:regulations/7-cfr/273/7#input.migrant_or_seasonal_farmworker_under_contract_to_begin_employment_within_30_days: false
+    us:regulations/7-cfr/273/7#input.alaska_subsistence_hunts_or_fishes_30_hours_weekly: false
+    us:regulations/7-cfr/273/7#input.member_student_enrolled_at_least_half_time_and_student_eligible: false
+    us:regulations/7-cfr/273/7#input.member_registered_for_work_or_registered_by_state: true
+    us:regulations/7-cfr/273/7#input.member_participated_in_snap_et_if_assigned: true
+    us:regulations/7-cfr/273/7#input.member_participated_in_workfare_if_assigned: true
+    us:regulations/7-cfr/273/7#input.member_provided_employment_status_or_availability_information: true
+    us:regulations/7-cfr/273/7#input.member_reported_to_referred_suitable_employer_if_referred: true
+    us:regulations/7-cfr/273/7#input.member_accepted_bona_fide_suitable_employment_offer_if_offered: true
+    us:regulations/7-cfr/273/7#input.member_voluntarily_quit_or_reduced_work_below_30_hours_without_good_cause: false
+    us:regulations/7-cfr/273/7#input.member_snap_work_requirements_waived_due_to_pending_ssi_joint_application: false
+  output:
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt: not_holds
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_compliant: holds
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_waived: not_holds
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_eligible: holds
+- name: voluntary_quit_without_good_cause_blocks_compliance
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_age: 30
+    us:regulations/7-cfr/273/7#input.member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time: false
+    us:regulations/7-cfr/273/7#input.member_physically_or_mentally_unfit_for_employment: false
+    us:regulations/7-cfr/273/7#input.member_subject_to_and_complying_with_title_iv_work_requirement: false
+    us:regulations/7-cfr/273/7#input.member_responsible_for_dependent_child_under_six_or_incapacitated_person: false
+    us:regulations/7-cfr/273/7#input.member_receiving_or_applying_for_unemployment_compensation_and_complying: false
+    us:regulations/7-cfr/273/7#input.member_regular_participant_in_drug_or_alcohol_treatment: false
+    us:regulations/7-cfr/273/7#input.member_weekly_work_hours: 0
+    us:regulations/7-cfr/273/7#input.member_weekly_wages: 0
+    us:regulations/7-cfr/273/7#input.federal_or_state_minimum_wage: 7.25
+    us:regulations/7-cfr/273/7#input.migrant_or_seasonal_farmworker_under_contract_to_begin_employment_within_30_days: false
+    us:regulations/7-cfr/273/7#input.alaska_subsistence_hunts_or_fishes_30_hours_weekly: false
+    us:regulations/7-cfr/273/7#input.member_student_enrolled_at_least_half_time_and_student_eligible: false
+    us:regulations/7-cfr/273/7#input.member_registered_for_work_or_registered_by_state: true
+    us:regulations/7-cfr/273/7#input.member_participated_in_snap_et_if_assigned: true
+    us:regulations/7-cfr/273/7#input.member_participated_in_workfare_if_assigned: true
+    us:regulations/7-cfr/273/7#input.member_provided_employment_status_or_availability_information: true
+    us:regulations/7-cfr/273/7#input.member_reported_to_referred_suitable_employer_if_referred: true
+    us:regulations/7-cfr/273/7#input.member_accepted_bona_fide_suitable_employment_offer_if_offered: true
+    us:regulations/7-cfr/273/7#input.member_voluntarily_quit_or_reduced_work_below_30_hours_without_good_cause: true
+    us:regulations/7-cfr/273/7#input.member_snap_work_requirements_waived_due_to_pending_ssi_joint_application: false
+  output:
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt: not_holds
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_compliant: not_holds
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_eligible: not_holds
+- name: older_age_registration_exemption_boundary
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_age: 60
+    us:regulations/7-cfr/273/7#input.member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time: false
+    us:regulations/7-cfr/273/7#input.member_physically_or_mentally_unfit_for_employment: false
+    us:regulations/7-cfr/273/7#input.member_subject_to_and_complying_with_title_iv_work_requirement: false
+    us:regulations/7-cfr/273/7#input.member_responsible_for_dependent_child_under_six_or_incapacitated_person: false
+    us:regulations/7-cfr/273/7#input.member_receiving_or_applying_for_unemployment_compensation_and_complying: false
+    us:regulations/7-cfr/273/7#input.member_regular_participant_in_drug_or_alcohol_treatment: false
+    us:regulations/7-cfr/273/7#input.member_weekly_work_hours: 0
+    us:regulations/7-cfr/273/7#input.member_weekly_wages: 0
+    us:regulations/7-cfr/273/7#input.federal_or_state_minimum_wage: 7.25
+    us:regulations/7-cfr/273/7#input.migrant_or_seasonal_farmworker_under_contract_to_begin_employment_within_30_days: false
+    us:regulations/7-cfr/273/7#input.alaska_subsistence_hunts_or_fishes_30_hours_weekly: false
+    us:regulations/7-cfr/273/7#input.member_student_enrolled_at_least_half_time_and_student_eligible: false
+  output:
+    us:regulations/7-cfr/273/7#snap_member_statutory_work_registration_exemption_applies: holds
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt: holds
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_eligible: holds

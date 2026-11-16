@@ -1,0 +1,37 @@
+{
+  "schema": "axiom-encode/public-proof-inputs/v1",
+  "candidate": {
+    "repository": "TheAxiomFoundation/rulespec-us",
+    "visibility": "public",
+    "commit": "a7c6d8058f67756150d92484dcb2afba258501f8",
+    "path": "us/statutes/26/219/g.yaml",
+    "git_blob_sha1": "600cc21117d9af802b73a3406313230c9c661fd9",
+    "sha256": "6c4e54a5eeb420d061f4423d5060253a2b794e58e00dade857d426091f268139"
+  },
+  "companion": {
+    "repository": "TheAxiomFoundation/rulespec-us",
+    "visibility": "public",
+    "commit": "a7c6d8058f67756150d92484dcb2afba258501f8",
+    "path": "us/statutes/26/219/g.test.yaml",
+    "git_blob_sha1": "4da3e3e5470c95852e1df04882c8efdbad737305",
+    "sha256": "d0d700c4b28981e2e7c5a11666aaec823e7e9ffdb5bf9a03ebdf39eb7da3ae6a"
+  },
+  "source": {
+    "repository": "TheAxiomFoundation/axiom-corpus",
+    "visibility": "public",
+    "commit": "bcf433c5af81810507402743d8b578ed4cee1792",
+    "path": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+    "git_blob_sha1": "626aa60d3c32898160ee54bf9b36ee18dc3589e5",
+    "file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+    "row_1based": 416,
+    "row_bytes_sha256": "5149410f9e4774925c0d840c465bce9e97b569108502a8fd0231e30290dfff61",
+    "body_utf8_sha256": "8f95a886a386e46b6967ed3f41512e8c2952cfb3f2779e2ad46045275f19018b",
+    "export_method": "Select unique exact citation_path us/statute/26/219/g from pinned public JSONL; retain raw row bytes and export decoded body as UTF-8 without adding newline."
+  },
+  "files": {
+    "candidate.yaml": "6c4e54a5eeb420d061f4423d5060253a2b794e58e00dade857d426091f268139",
+    "candidate.test.yaml": "d0d700c4b28981e2e7c5a11666aaec823e7e9ffdb5bf9a03ebdf39eb7da3ae6a",
+    "source.txt": "8f95a886a386e46b6967ed3f41512e8c2952cfb3f2779e2ad46045275f19018b",
+    "source-row.jsonl": "5149410f9e4774925c0d840c465bce9e97b569108502a8fd0231e30290dfff61"
+  }
+}

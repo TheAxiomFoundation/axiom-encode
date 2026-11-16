@@ -1,0 +1,890 @@
+format: rulespec/v1
+module:
+  summary: 'CRA Schedule 2 calculates 2025 federal amounts transferred from a spouse
+
+    or common-law partner. A breakdown separation of 90 days or more that
+
+    includes December 31, 2025 prevents the transfer.'
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+    source_sha256: e27a34b0cc3314a0260cb848cd2caf3fc56772812554db29ae5ddd013e41f845
+inputs:
+- name: spouse_DTC_eligibility_fact_year
+  entity: Person
+  dtype: Integer
+  period: Year
+  description: Calendar year to which the stipulated spouse disability-tax-credit
+    eligibility fact applies.
+- name: spouse_DTC_requirements_fact_year
+  entity: Person
+  dtype: Integer
+  period: Year
+  description: Calendar year to which the stipulated continuing-requirements fact
+    applies.
+- name: spouse_age_amount_line_30100
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Stipulated amount from the spouse's 2025 return or hypothetical return,
+    schedules, and worksheets.
+- name: spouse_caregiver_infirm_children_amount_line_30500
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Stipulated line 30500 amount; the under-18 label identifies the source
+    category.
+- name: spouse_pension_income_amount_line_31400
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Stipulated spouse line 31400 amount.
+- name: spouse_disability_amount_line_31600
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Stipulated spouse line 31600 amount.
+- name: spouse_taxable_income_line_26000
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Stipulated spouse taxable income from line 26000 or the amount that
+    would be entered on the hypothetical return.
+- name: spouse_return_line_76_amount
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Stipulated spouse line 76 amount or hypothetical return amount.
+- name: spouse_basic_personal_amount_line_30000
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Stipulated spouse line 30000 amount or hypothetical return amount.
+- name: spouse_return_line_96_amount
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Stipulated spouse line 96 amount or hypothetical return amount.
+- name: spouse_tuition_amount_line_32300
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Stipulated spouse line 32300 amount or hypothetical return amount.
+- name: spouse_or_common_law_partner
+  entity: Person
+  dtype: Judgment
+  period: Year
+  description: Whether the transferor is the claimant's spouse or common-law partner.
+- name: relationship_breakdown_separation
+  entity: Person
+  dtype: Judgment
+  period: Year
+  description: Whether the period of separation was because of a breakdown in the
+    relationship.
+- name: separation_period_days
+  entity: Person
+  dtype: Integer
+  period: Year
+  description: Number of days in the relevant separation period.
+- name: separation_period_includes_2025_12_31
+  entity: Person
+  dtype: Judgment
+  period: Year
+  description: Whether the relevant separation period includes December 31, 2025.
+- name: spouse_birth_year
+  entity: Person
+  dtype: Integer
+  period: Year
+  description: Calendar year in which the spouse or common-law partner was born.
+- name: spouse_filing_return
+  entity: Person
+  dtype: Judgment
+  period: Year
+  description: Whether the spouse or common-law partner is filing a return.
+- name: filing_paper_return
+  entity: Person
+  dtype: Judgment
+  period: Year
+  description: Whether the claimant is filing a paper return.
+- name: spouse_current_year_tuition_amount_used
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Spouse's current-year tuition amounts used.
+- name: disability_claim_is_new
+  entity: Person
+  dtype: Judgment
+  period: Year
+  description: Whether this is a new claim for the disability amount.
+- name: spouse_DTC_eligible_in_fact_year
+  entity: Person
+  dtype: Judgment
+  period: Year
+  description: Whether the spouse was eligible for the disability tax credit in the
+    stated fact year.
+- name: spouse_DTC_meets_requirements_in_fact_year
+  entity: Person
+  dtype: Judgment
+  period: Year
+  description: Whether the spouse still meets disability tax credit requirements in
+    the stated fact year.
+- name: CRA_requested_new_T2201
+  entity: Person
+  dtype: Judgment
+  period: Year
+  description: Whether CRA asked for a new Form T2201.
+- name: spouse_raw_federal_tuition_designation_total
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Stipulated raw federal tuition designation total, including any identified
+    prior-year component.
+- name: spouse_raw_prior_year_tuition_designation
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Stipulated prior-year carryforward component included in the raw designation
+    total.
+- name: previous_DTC_approval_has_fixed_end_year
+  entity: Person
+  dtype: Judgment
+  period: Year
+  description: Whether the previous disability tax credit approval has a fixed end
+    year.
+- name: previous_DTC_approval_end_year
+  entity: Person
+  dtype: Integer
+  period: Year
+  description: Calendar year in which a fixed previous approval period ends; supplied
+    only when a fixed end year exists.
+rules:
+- name: source_relationship_allows_transfer
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: Schedule 2 spouse-or-common-law-partner transfer and breakdown-separation
+    prohibition.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: your spouse or common-law partner cannot transfer any unused amounts
+            to you.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 'spouse_or_common_law_partner
+
+      and not source_separation_blocks_transfer'
+- name: schedule_2_current_year_tuition_designation_line_5
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: Schedule 2 line 5 and note (2), current-year federal tuition designation
+    and transfer limit.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: Enter the federal amount designated to you from their forms T2202,
+            TL11A, or TL11C.
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: cannot transfer to you their tuition amounts carried forward from
+            a previous year.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "min(\n  schedule_2_raw_current_year_tuition_designation,\n  schedule_2_current_year_tuition_transfer_capacity\n\
+      )"
+- name: federal_2025_schedule_2_total_transferable_amounts_line_6
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: Schedule 2 line 6 adds lines 1 to 5.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: Add lines 1 to 5.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 'schedule_2_age_amount_line_1
+
+      + schedule_2_caregiver_amount_line_2
+
+      + federal_2025_schedule_2_transferable_pension_income_amount
+
+      + schedule_2_disability_amount_line_4
+
+      + schedule_2_current_year_tuition_designation_line_5'
+- name: federal_2025_schedule_2_spouse_adjusted_taxable_income_line_12
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: Schedule 2 line 12 subtracts line 11 from line 7 and enters zero if negative.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: Line 7 minus line 11 (if negative, enter "0")
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "max(\n  0,\n  federal_2025_schedule_2_spouse_tax_capacity_line_7\n \
+      \ - federal_2025_schedule_2_spouse_non_refundable_base_line_11\n)"
+- name: federal_amounts_transferred_from_spouse_line_32600
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: Schedule 2 line 13, including the relationship and separation restriction.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: Line 6 minus line 12 (if negative, enter "0")
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: your spouse or common-law partner cannot transfer any unused amounts
+            to you.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 'if source_relationship_allows_transfer: max( 0, federal_2025_schedule_2_total_transferable_amounts_line_6
+      - federal_2025_schedule_2_spouse_adjusted_taxable_income_line_12 ) else: 0'
+- name: schedule_2_continuing_claim_no_new_T2201
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: Schedule 2 footnote (1), eligibility in 2024, continuing requirements in
+    2025, and exceptions requiring a new T2201.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: If they were eligible for 2024 and still meet the requirements
+            in 2025
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: if the previous period of approval ended before 2025 or if the
+            CRA asks you to.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 'spouse_disability_amount_line_31600 > 0
+
+      and spouse_DTC_eligible_in_fact_year
+
+      and spouse_DTC_eligibility_fact_year == schedule_2_DTC_prior_eligibility_year
+
+      and spouse_DTC_meets_requirements_in_fact_year
+
+      and spouse_DTC_requirements_fact_year == schedule_2_DTC_current_requirements_year
+
+      and not previous_DTC_approval_ended_before_2025
+
+      and not CRA_requested_new_T2201'
+- name: schedule_2_caregiver_child_age_limit
+  kind: parameter
+  dtype: Integer
+  source: Schedule 2 line 2 identifies the caregiver amount for infirm children under
+    18 years of age.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: Canada caregiver amount for infirm children under 18 years of age
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "18"
+- name: schedule_2_DTC_prior_eligibility_year
+  kind: parameter
+  dtype: Integer
+  source: Schedule 2 footnote (1) identifies eligibility for 2024 as part of the continuing-claim
+    instruction.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: If they were eligible for 2024
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "2024"
+- name: schedule_2_DTC_current_requirements_year
+  kind: parameter
+  dtype: Integer
+  source: Schedule 2 footnote (1) identifies continued satisfaction of the requirements
+    in 2025.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: in 2025, you do not need to send the CRA a new Form T2201
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "2025"
+- name: source_separation_blocks_transfer
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: Schedule 2 separation prohibition.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: separated because of a breakdown in your relationship for a period
+            of 90 days or more including December 31, 2025
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 'relationship_breakdown_separation
+
+      and separation_period_days >= federal_2025_schedule_2_separation_duration_days
+
+      and separation_period_includes_2025_12_31'
+- name: schedule_2_age_amount_line_1
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: Schedule 2 line 1, age amount.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: Age amount (if your spouse or common-law partner was born in 1960
+            or earlier)
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 'if spouse_birth_year <= federal_2025_schedule_2_latest_birth_year_for_age_amount:
+      spouse_age_amount_line_30100 else: 0'
+- name: federal_2025_schedule_2_transferable_pension_income_amount
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: Schedule 2 line 3, pension income amount, maximum $2,000.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: (maximum $2,000)
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: Enter the amount from line 31400 of their return.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "min(\n  federal_2025_schedule_2_pension_income_amount_maximum,\n  max(0,\
+      \ spouse_pension_income_amount_line_31400)\n)"
+- name: schedule_2_current_year_tuition_transfer_capacity
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: Schedule 2 footnote (2), maximum transferable tuition less current-year
+    amounts used.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: The maximum tuition amount your spouse or common-law partner can
+            transfer to you is $5,000 minus the current year
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: amounts they use, even if there is still an unused part for the
+            year.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "max(\n  0,\n  federal_2025_schedule_2_tuition_transfer_limit\n  - spouse_current_year_tuition_amount_used\n\
+      )"
+- name: federal_2025_schedule_2_spouse_tax_capacity_line_7
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: Schedule 2 line 7, taxable-income choice and line 76 divided by 14.5%.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: Enter the amount from line 26000 of their return on line 7 if it
+            is $57,375 or less.
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: amount from line 76 of their return
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 'if spouse_taxable_income_line_26000 <= federal_2025_schedule_2_taxable_income_threshold:
+      spouse_taxable_income_line_26000 else: spouse_return_line_76_amount / federal_2025_schedule_2_lowest_rate'
+- name: federal_2025_schedule_2_taxable_income_threshold
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: Schedule 2 line 7 uses taxable income directly if it is $57,375 or less.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: if it is $57,375 or less.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "57375"
+- name: federal_2025_schedule_2_lowest_rate
+  kind: parameter
+  dtype: Rate
+  source: Schedule 2 line 7 divides line 76 by 14.5% when taxable income is more than
+    $57,375.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: ÷ 14.5% =
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "0.145"
+- name: federal_2025_schedule_2_pension_income_amount_maximum
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: Schedule 2 line 3 caps the pension income amount at $2,000.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: (maximum $2,000)
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "2000"
+- name: federal_2025_schedule_2_tuition_transfer_limit
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: Schedule 2 note (2) sets the maximum tuition transfer at $5,000 minus current-year
+    amounts used.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: maximum tuition amount your spouse or common-law partner can transfer
+            to you is $5,000
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "5000"
+- name: federal_2025_schedule_2_separation_duration_days
+  kind: parameter
+  dtype: Integer
+  source: Schedule 2 bars transfer after separation for a period of 90 days or more
+    including December 31, 2025.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: for a period of 90 days or more
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "90"
+- name: federal_2025_schedule_2_latest_birth_year_for_age_amount
+  kind: parameter
+  dtype: Integer
+  source: Schedule 2 line 1 applies if the spouse or common-law partner was born in
+    1960 or earlier.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: born in 1960 or earlier
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "1960"
+- name: schedule_2_caregiver_amount_line_2
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: Schedule 2 line 2 uses the Canada caregiver amount for infirm children under
+    18 from line 30500.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: 'Canada caregiver amount for infirm children under 18 years of
+            age: Enter the amount from line 30500 of their return.'
+  versions:
+  - effective_from: '2025-01-01'
+    formula: spouse_caregiver_infirm_children_amount_line_30500
+- name: schedule_2_disability_amount_line_4
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: Schedule 2 line 4 uses the amount from line 31600 of the spouse’s return.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: 'Disability amount: Enter the amount from line 31600 of their return.'
+  versions:
+  - effective_from: '2025-01-01'
+    formula: spouse_disability_amount_line_31600
+- name: schedule_2_raw_current_year_tuition_designation
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: Schedule 2 note (2) excludes tuition amounts carried forward from a previous
+    year from transfer.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: cannot transfer to you their tuition amounts carried forward from
+            a previous year.
+  versions:
+  - effective_from: '2025-01-01'
+    formula: "max(\n  0,\n  spouse_raw_federal_tuition_designation_total\n  - spouse_raw_prior_year_tuition_designation\n\
+      )"
+- name: schedule_2_spouse_base_line_8
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: Schedule 2 line 8 uses the amount from line 30000 of the spouse’s return.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: Amount from line 30000 of their return
+  versions:
+  - effective_from: '2025-01-01'
+    formula: spouse_basic_personal_amount_line_30000
+- name: schedule_2_spouse_base_line_9
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: Schedule 2 line 9 uses the amount from line 96 of the spouse’s return.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: Amount from line 96 of their return
+  versions:
+  - effective_from: '2025-01-01'
+    formula: spouse_return_line_96_amount
+- name: schedule_2_spouse_base_line_10
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: Schedule 2 line 10 uses the amount from line 32300 of the spouse’s return.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: Amount from line 32300 of their return
+  versions:
+  - effective_from: '2025-01-01'
+    formula: spouse_tuition_amount_line_32300
+- name: federal_2025_schedule_2_spouse_non_refundable_base_line_11
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: Schedule 2 line 11 adds lines 8 to 10.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: Add lines 8 to 10.
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'schedule_2_spouse_base_line_8
+
+      + schedule_2_spouse_base_line_9
+
+      + schedule_2_spouse_base_line_10'
+- name: schedule_2_use_hypothetical_spouse_return
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: Schedule 2 instructs use of hypothetical return, schedule, and worksheet
+    amounts if the spouse is not filing.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: If your spouse or common-law partner is not filing a return, use
+            the amounts they would have entered on their return, schedules, and worksheets
+            as if they were filing a return
+  versions:
+  - effective_from: '2025-01-01'
+    formula: not spouse_filing_return
+- name: schedule_2_attach_spouse_information_slips
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: Schedule 2 instructs attaching the spouse’s information slips when using
+    hypothetical return amounts for a nonfiling spouse.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: and attach their information slips.
+  versions:
+  - effective_from: '2025-01-01'
+    formula: not spouse_filing_return
+- name: schedule_2_attach_schedule_to_paper_return
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: Schedule 2 instructs attaching a copy of the schedule to a paper return.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: Attach a copy of this schedule to your paper return.
+  versions:
+  - effective_from: '2025-01-01'
+    formula: filing_paper_return
+- name: schedule_2_attach_completed_certified_T2201
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: Schedule 2 footnote (1) requires a completed and certified T2201 for a new
+    disability claim attached to a paper return.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: If this is a new claim for the disability amount, attach a completed
+            and certified Form T2201
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'disability_claim_is_new
+
+      and filing_paper_return'
+- name: previous_DTC_approval_end_year_upper_threshold
+  kind: parameter
+  dtype: Integer
+  source: Schedule 2 footnote (1) requires a new T2201 if the previous approval period
+    ended before 2025.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: if the previous period of approval ended before 2025
+  versions:
+  - effective_from: '2025-01-01'
+    formula: "2025"
+- name: previous_DTC_approval_ended_before_2025
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: Schedule 2 footnote (1) requires a new T2201 if the previous approval period
+    ended before 2025.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: if the previous period of approval ended before 2025
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: ca:policies/cra/t1-2025/federal-spouse-transfer-amounts#previous_DTC_approval_end_year_upper_threshold
+          output: previous_DTC_approval_end_year_upper_threshold
+          hash: sha256:local
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'previous_DTC_approval_has_fixed_end_year
+
+      and previous_DTC_approval_end_year < previous_DTC_approval_end_year_upper_threshold'
+- name: schedule_2_send_new_T2201
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: Schedule 2 footnote (1) requires sending a new T2201 if the previous approval
+    ended before 2025 or CRA asks for one.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-spouse-transfer-amounts
+          excerpt: you must send the CRA a new Form T2201 if the previous period of
+            approval ended before 2025 or if the CRA asks you to.
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'previous_DTC_approval_ended_before_2025
+
+      or CRA_requested_new_T2201'
+units:
+- name: CAD
+  kind: currency
+  minor_units: 2

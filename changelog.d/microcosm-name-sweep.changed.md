@@ -1,0 +1,1 @@
+Prose, CLI help text, docstrings, private names and free-text YAML rationale now say Microcosm, the name PolicyEngine's microdata stack has carried since 2026-08-08. Published names keep the old word for now: CLI subcommands and flags, environment variables, importable aliases, configuration keys, serialized fields and dataset identifiers.

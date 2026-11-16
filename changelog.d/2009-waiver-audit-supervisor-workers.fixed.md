@@ -1,0 +1,1 @@
+Forward the validated waiver-audit worker setting through the signing supervisor, rejecting malformed values before broker or child startup. Make CI parity use each pinned workflow step's declared audit worker count.
