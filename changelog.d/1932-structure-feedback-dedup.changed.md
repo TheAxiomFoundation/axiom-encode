@@ -1,0 +1,2 @@
+List the branches that only a rejected (imprecise) deferral would cover inside that deferral's `[complete-source-unit:deferral]` finding instead of repeating one `[complete-source-unit:structure]` finding per branch; they are reported on their own again when the deferral is removed, and retry ranking and the dependent-regression check still count each one.
+Show U.S. encodes a U.S. example (26 U.S.C. 24(c)(1) citing 152(c)) in the deferral retry shape instead of the EStG example.
