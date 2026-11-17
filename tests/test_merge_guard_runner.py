@@ -559,6 +559,26 @@ def test_reader_sends_the_evaluators_compare_path():
         ROOT + f"/compare/{B}...{H}?x=..",
         ROOT + f"/compare/..{B}...{H}",
         ROOT + f"/compare/{B.upper()}...{H}",
+        # Review round 2, P3-A: the encoded dot in upper and mixed case.
+        ROOT + "/.%2E/pulls/1",
+        ROOT + "/%2E%2E/pulls/1",
+        ROOT + "/%2e%2E/pulls/1",
+        ROOT + "/%2E/pulls/1",
+        # P3-B: the compare exception is exactly 40 hex, three literal dots,
+        # 40 hex. Short ids and a non-dot character in place of a dot are
+        # refused.
+        ROOT + "/compare/abc...def",
+        ROOT + f"/compare/{B[:39]}...{H}",
+        ROOT + f"/compare/{B}...{H[:39]}",
+        ROOT + f"/compare/{B}x..{H}",
+        ROOT + f"/compare/{B}..x{H}",
+        # P3-C: a single-dot segment directly before a query or a ``;``
+        # parameter is still a dot segment.
+        ROOT + "/pulls/.?a",
+        ROOT + "/pulls/.?",
+        ROOT + "/.?a=1/pulls/1",
+        ROOT + "/pulls/.;a/1",
+        ROOT + "/pulls/.;",
     ],
 )
 def test_reader_refuses_dot_segments_plain_or_encoded(path):
@@ -1298,6 +1318,20 @@ def test_design_names_the_enforcing_runner_as_its_own_change_before_step_4():
 RUN_GATE_STEP = "Refuse again unless on main with the switch on"
 
 
+def assert_c_locale_before_the_first_match(script):
+    lines = [line.strip() for line in script.splitlines()]
+    assert lines.count("export LC_ALL=C") == 1
+    matches = [i for i, line in enumerate(lines) if "=~" in line]
+    assert len(matches) == 2
+    assert lines.index("export LC_ALL=C") < matches[0]
+    # Nothing between the export and the matches sets a locale again.
+    assert not any(
+        name in line
+        for line in lines[lines.index("export LC_ALL=C") + 1 :]
+        for name in ("LC_", "LANG")
+    )
+
+
 def test_run_job_repeats_the_ref_and_switch_checks_before_any_credential():
     # R2-P3-1. A rerun of the run job alone reuses the earlier gate result, so
     # the run job makes the two checks itself, first.
@@ -1317,6 +1351,12 @@ def test_run_job_repeats_the_ref_and_switch_checks_before_any_credential():
     assert '[ "$ENABLED" != "true" ]' in script
     # Review round 1, P3-1: the two input checks of the gate, repeated.
     assert script.count("exit 1") == 4
+    # Review round 2, P3-D: ``[a-z]`` and ``[0-9]`` are ranges of the
+    # locale's collation in bash; the C locale is set before the first
+    # pattern match, in the run job and in the gate step.
+    assert_c_locale_before_the_first_match(script)
+    (gate_step,) = workflow()["jobs"]["gate"]["steps"]
+    assert_c_locale_before_the_first_match(gate_step["run"])
     # No credential is named before the repeated checks, and no step that
     # names one runs when they fail.
     assert "secrets." not in json.dumps(first)
