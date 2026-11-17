@@ -1,3 +1,9 @@
+## 0.2.2382
+
+- Cut the evals import edge from the v6 lane path helper (prep for the stdlib guard bundle, #2257) (#2278)
+- Require code-owner review for all of .github/ (closes the unowned-workflow exposure, #2257) (#2277)
+- Quote trailing-colon source excerpts in the eval-time repair (#2266)
+
 ## 0.2.2381
 
 - Fix receipt verification during native reviewed-repair staging (#2270)
