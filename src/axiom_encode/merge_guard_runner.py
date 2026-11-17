@@ -205,6 +205,14 @@ def _request(
             or (".." in segment and _COMPARE_SEGMENT.fullmatch(segment) is None)
             for segment in path.split("/")
         )
+        # Review round 2, P3-C: the same test on the path part alone, so a
+        # query or a ``;`` parameter after a single dot does not hide the
+        # dot segment (``/x/.?a``, ``/x/.;a/y``). The whole-string test
+        # above stays: it also refuses ".." inside a query.
+        or any(
+            segment.partition(";")[0] == "."
+            for segment in path.partition("?")[0].split("/")
+        )
     ):
         raise RunnerError("invalid GitHub API path")
     if not isinstance(token, str) or _TOKEN.fullmatch(token) is None:
