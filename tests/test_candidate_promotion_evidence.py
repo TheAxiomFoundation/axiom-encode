@@ -877,6 +877,10 @@ def _v5_run(name: str, repo: Path, ref: str) -> dict[str, str]:
     return {}
 
 
+NESTED_TEXT = (
+    "is not promotion evidence: only a top-level manifest may carry the v6 label"
+)
+
 V5_RUNS = (
     "promotion",
     "promotion, another ref",
@@ -928,6 +932,84 @@ def test_off_every_v5_run_is_the_same_as_before_this_change(tmp_path, name):
         **overrides,
     )
     assert after == before
+
+
+EXTRA_MANIFEST = MANIFEST.replace("f.yaml", "g.yaml")
+
+
+def _extra_v6_manifest(name: str, ref: str) -> dict:
+    """A second changed manifest that carries the v6 label; not this run's."""
+
+    if name == "v6 shape, another citation":
+        payload = written_v6(ref)
+        payload.pop("signature")
+        payload["citation"] = "us/statute/7/2015/g"
+        return sign(payload)
+    if name == "v6 label only":
+        return {"schema_version": "axiom-encode/applied-rulespec/v6"}
+    if name == "legacy replacement nesting a v6 manifest":
+        return _legacy_wrapper(_extra_v6_manifest("v6 shape, another citation", ref))
+    if name == "legacy replacement nesting a v6 label only":
+        return _legacy_wrapper({"schema_version": "axiom-encode/applied-rulespec/v6"})
+    raise AssertionError(name)  # pragma: no cover
+
+
+@pytest.mark.parametrize(
+    ("name", "error"),
+    [
+        (
+            "v6 shape, another citation",
+            f"v6 manifest {EXTRA_MANIFEST} is not promotion evidence: "
+            "the applied-rulespec/v6 writer is switched off",
+        ),
+        (
+            "v6 label only",
+            f"v6 manifest {EXTRA_MANIFEST} is not promotion evidence: "
+            "the applied-rulespec/v6 writer is switched off",
+        ),
+        (
+            "legacy replacement nesting a v6 manifest",
+            f"v6 manifest nested in {EXTRA_MANIFEST} {NESTED_TEXT}",
+        ),
+        (
+            "legacy replacement nesting a v6 label only",
+            f"v6 manifest nested in {EXTRA_MANIFEST} {NESTED_TEXT}",
+        ),
+    ],
+)
+def test_off_an_extra_v6_labelled_manifest_refuses_a_valid_v5_promotion(
+    tmp_path, name, error
+):
+    """Review round 1, P3-1: stricter than before this change, not identical.
+
+    A valid v5 promotion plus one more changed manifest that carries the v6
+    label, at the top level or nested. Before this change the step ignored
+    the extra manifest and packaged the v5 evidence. Now it refuses the run.
+    The committed writer cannot produce such a file; only a hand-made
+    manifest among the run's changed manifests reaches this. The differential
+    test above covers runs without a v6 label, where nothing changed.
+    """
+
+    repo, ref = make_run(tmp_path)
+    write_manifest(repo, sign(v5_promotion(ref)))
+    script = _package_script()
+    alone = run_step(tmp_path, ref, script=script, artifact="alone")
+    assert alone["returncode"] == 0, alone["stderr"]
+    packaged = _evidence_file(REVIEWED_EVIDENCE)
+    assert alone["files"]["context-manifest.json"] == packaged
+
+    write_manifest(repo, _extra_v6_manifest(name, ref), EXTRA_MANIFEST)
+    after = run_step(tmp_path, ref, script=script, artifact="after")
+    assert after["returncode"] != 0
+    assert error in after["stderr"], after["stderr"]
+    assert after["files"] == {} and after["reads"] == []
+
+    # Was ignored before: the same run on the step with this change reverted.
+    before = run_step(
+        tmp_path, ref, script=_step_before_this_change(script), artifact="before"
+    )
+    assert before["returncode"] == 0, before["stderr"]
+    assert before["files"]["context-manifest.json"] == packaged
 
 
 def test_the_reverted_step_is_the_step_without_its_v6_names():
@@ -1033,7 +1115,7 @@ def test_on_the_hosted_step_refuses(tmp_path, change, error):
     assert "context-manifest.json" not in result["files"]
 
 
-NESTED = "is not promotion evidence: only a top-level manifest may carry the v6 label"
+NESTED = NESTED_TEXT
 
 
 @pytest.mark.parametrize("locks", [None, OPEN], ids=["locks shut", "locks open"])
@@ -1114,16 +1196,60 @@ def test_only_the_evidence_step_of_the_workflow_knows_v6():
     assert "applied-rulespec/v6" not in text
     for step in _steps():
         run = step.get("run", "")
-        knows_v6 = any(
-            name in run
-            for name in (
-                "applied_manifest_v6",
-                "candidate_promotion_evidence",
-                "is_v6_labelled",
-                "CANDIDATE_REF_FIELD",
-            )
-        )
+        knows_v6 = any(name in run for name in V6_NAMES)
         assert knows_v6 is (step.get("name") == STEP), step.get("name")
+
+
+V6_NAMES = (
+    "applied_manifest_v6",
+    "candidate_promotion_evidence",
+    "is_v6_labelled",
+    "CANDIDATE_REF_FIELD",
+    "CANDIDATE_PROMOTION_EVIDENCE_SCHEMA",
+    "v6_evidence_paths",
+)
+# A pinned action version such as ``# v6.0.2`` is not a manifest version.
+_ACTION_TAG = re.compile(r"@[0-9a-f]{40} # v6\.\d+\.\d+$")
+
+
+def _v6_lines(text: str) -> list[str]:
+    return [
+        line.strip()
+        for line in text.splitlines()
+        if (re.search(r"v6", line, re.IGNORECASE) or any(n in line for n in V6_NAMES))
+        and _ACTION_TAG.search(line) is None
+    ]
+
+
+def test_no_other_job_or_key_of_the_workflow_file_knows_v6():
+    """Review round 1, P3-2: the whole file, not the ``run`` blocks of one job.
+
+    The workflow has three jobs. Every occurrence of a v6 module or name in
+    the file text lies inside the script of the evidence step: no other job,
+    step, ``env``, ``with`` or expression carries one.
+    """
+
+    text = WORKFLOW.read_text()
+    workflow = yaml.safe_load(text)
+    assert list(workflow["jobs"]) == ["attempt_budget", "dispatch_record", "encode"]
+    owners = [
+        (job, step.get("name"))
+        for job, body in workflow["jobs"].items()
+        for step in body["steps"]
+        if step.get("name") == STEP
+    ]
+    assert owners == [("encode", STEP)]
+    script = _package_step()["run"]
+    for name in V6_NAMES:
+        assert script.count(name) > 0, name
+        assert text.count(name) == script.count(name), name
+    # Line by line: what the file says about v6 is what the step says, apart
+    # from the one input description that documents the transport wrapper.
+    described = [line for line in _v6_lines(text) if line.startswith("description:")]
+    assert len(described) == 1 and "v6 {transaction:" in described[0]
+    assert [line for line in _v6_lines(text) if line not in described] == _v6_lines(
+        script
+    )
 
 
 def test_after_the_evidence_step_nothing_reads_the_manifest_label_or_ref():

@@ -726,6 +726,13 @@ errors as before the lane existed, and the promotion writes v5.
   below.
 - The preflight step still runs inside the gated `encode` job.
 - The v5-only readers of the reader table above still do not read v6.
+- For change 6: with every lock open `verify_reviewed_pr` issues candidate
+  records only, so a live pull request promotion that reaches the evidence
+  step with a v5 manifest would be a signer fault, yet the step's v5 branch
+  does not know which lane admitted the run and still packages the
+  reviewed-candidate evidence; change 6 should make the step refuse that
+  (defence in depth: the CLI tests already pin that a candidate admission
+  never signs v5).
 
 **Not in change 5, and not decided.**
 
@@ -750,7 +757,13 @@ lock of the writer is open, checked first with the writer's own functions:
 `require_guard_enforced` for this run's repository (locks 2 and 3). It has no
 switch, environment variable, flag or dispatch input of its own. With the
 committed constants it refuses every v6 manifest before it reads anything else,
-and a run with no v6 manifest takes the same path as before.
+and a run with no v6 manifest takes the same path as before. For one input
+the step is stricter than before, not identical: a run whose changed
+manifests hold a valid v5 promotion and one more manifest that carries the v6
+label (at the top level or nested). The earlier step ignored the extra
+manifest and packaged the v5 evidence; this step refuses the run. The
+committed writer cannot produce such a file, so only a hand-made manifest
+reaches this; tests record both outcomes.
 
 With every lock open (tests only), the manifest must pass the reader's entry
 test, its exact v6 field sets and its attestation scope check, and the scope
