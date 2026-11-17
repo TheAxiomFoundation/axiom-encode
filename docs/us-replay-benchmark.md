@@ -65,7 +65,8 @@ reading bound to its exact text (`docs/reviewed-alternative-lists.md`).
 Each of these six fixtures also carries the `source-metadata.json` that its
 local run wrote into the run workspace. The date-silent start check reads
 `source_as_of` (2026-07-17) from it; without it, the `2026-08-01` starts of the
-candidates have no supported date and four of the six fixtures are refused. The
+candidates have no supported date, all six fixtures get an effective-date
+finding, and the four that are clean on `main` are refused. The
 file is the run's own bytes with one edit: `rulespec_root`, an absolute path on
 the machine that ran the batch, is replaced by `<local-run-root>/rulespec-us/us-az`.
 Its `resolved_text_sha256` equals the hash of the fixture's `source.txt`. It is
