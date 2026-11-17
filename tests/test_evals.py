@@ -11621,6 +11621,131 @@ rules:
             "definition(s) with that value were found."
         ]
 
+    @pytest.mark.parametrize(
+        ("import_item", "provider_rules", "expected_missing_values"),
+        [
+            pytest.param(
+                "us-az:policies/example/provider#expense_disregard",
+                (("expense_disregard", 35),),
+                (),
+                id="imported-symbol-with-source-value",
+            ),
+            pytest.param(
+                "us-az:policies/example/provider#expense_disregard",
+                (("expense_disregard", 36),),
+                (35,),
+                id="imported-symbol-with-different-value",
+            ),
+            pytest.param(
+                "us-az:policies/example/provider#expense_disregard",
+                (("expense_disregard", 36), ("unimported_amount", 35)),
+                (35,),
+                id="value-only-on-unimported-sibling",
+            ),
+            pytest.param(
+                "us-az:policies/example/provider#expense_disregard_limit",
+                (("expense_disregard", 35),),
+                (35,),
+                id="imported-symbol-is-not-a-prefix-match",
+            ),
+            pytest.param(
+                "us-az:policies/example/provider",
+                (("expense_disregard", 35),),
+                (35,),
+                id="file-level-import-without-symbol",
+            ),
+            pytest.param(
+                "us-az:policies/example/absent#expense_disregard",
+                (("expense_disregard", 35),),
+                (35,),
+                id="unresolved-import-target",
+            ),
+            pytest.param(
+                None,
+                (("expense_disregard", 35),),
+                (35,),
+                id="no-import-and-no-parameter",
+            ),
+        ],
+    )
+    def test_complete_mode_occurrences_credit_only_exact_imported_scalars(
+        self,
+        tmp_path,
+        import_item,
+        provider_rules,
+        expected_missing_values,
+    ):
+        citation_path = "us-az/manual/example/block-1"
+        source_text = "A $35 disregard applies to the combined expenses."
+        corpus_release = _write_test_corpus_provision(
+            tmp_path,
+            citation_path=citation_path,
+            body=source_text,
+        )
+        policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us-az")
+        provider = policy_repo_root / "policies/example/provider.yaml"
+        provider.parent.mkdir(parents=True)
+        provider.write_text(
+            "format: rulespec/v1\nrules:\n"
+            + "".join(
+                f"""  - name: {name}
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2020-01-01'
+        formula: {value}
+"""
+                for name, value in provider_rules
+            ),
+            encoding="utf-8",
+        )
+        imports_block = f"imports:\n  - {import_item}\n" if import_item else ""
+        rulespec_file = policy_repo_root / "policies/example/block-1.yaml"
+        rulespec_file.write_text(
+            f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {citation_path}
+{imports_block}rules:
+  - name: expense_is_claimed
+    kind: input
+    entity: Household
+    dtype: Judgment
+""",
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                return_value=ValidationResult("ci", passed=True),
+            ),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=policy_repo_root,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                source_text=source_text,
+                local_corpus_release=corpus_release,
+                source_citation_path=citation_path,
+                require_complete_source_unit=True,
+                skip_reviewers=True,
+            )
+
+        assert metrics.source_numeric_occurrence_count == 1
+        assert metrics.numeric_occurrence_issues == [
+            f"Source numeric value {value} appears 1 time(s), but only 0 named "
+            "scalar definition(s) with that value were found."
+            for value in expected_missing_values
+        ]
+
     def test_complete_mode_numeric_recall_is_summary_invariant(self, tmp_path):
         source_text = "If the 3rd digit is 5 or more, increase the 2nd digit by 1."
         citation_path = "ca/policy/cra/example/rounding"

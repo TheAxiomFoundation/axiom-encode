@@ -9746,10 +9746,16 @@ def _strict_imported_named_scalar_occurrences(
     """Count only direct scalar definitions for explicitly imported symbols."""
 
     occurrences: Counter[float] = Counter()
-    for import_target in _extract_import_targets(content):
-        if "#" not in import_target:
+    seen: set[tuple[str, str]] = set()
+    for import_item in _extract_import_items(content):
+        import_target, separator, imported_symbol = import_item.rpartition("#")
+        import_target = import_target.strip()
+        imported_symbol = imported_symbol.strip()
+        if not separator or not import_target or not imported_symbol:
             continue
-        imported_symbol = import_target.rsplit("#", 1)[1]
+        if (import_target, imported_symbol) in seen:
+            continue
+        seen.add((import_target, imported_symbol))
         for path in _candidate_import_rule_files(import_target, policy_repo_root):
             with contextlib.suppress(OSError):
                 imported_content = path.read_text()
@@ -16424,6 +16430,16 @@ def _resolve_context_imports(source_path: Path, policy_root: Path) -> list[Path]
 def _extract_import_targets(content: str) -> list[str]:
     """Extract file-level import targets from RuleSpec imports blocks."""
     targets: list[str] = []
+    for item in _extract_import_items(content):
+        import_target = item.split("#", 1)[0].strip()
+        if import_target:
+            targets.append(import_target)
+    return targets
+
+
+def _extract_import_items(content: str) -> list[str]:
+    """Extract RuleSpec import items verbatim, keeping any `#symbol` suffix."""
+    items: list[str] = []
     in_imports = False
     imports_indent = 0
 
@@ -16450,11 +16466,10 @@ def _extract_import_targets(content: str) -> list[str]:
             continue
 
         item = item_match.group(2).strip()
-        import_target = item.split("#", 1)[0].strip()
-        if import_target:
-            targets.append(import_target)
+        if item:
+            items.append(item)
 
-    return targets
+    return items
 
 
 def _import_target_to_path(import_target: str) -> Path:
