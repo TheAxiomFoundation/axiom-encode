@@ -38479,6 +38479,12 @@ def test_extract_json_object_refuses_a_fragment_after_a_decoded_prefix(
     assert _extract_json_object(verdict + " and no more.}")["passed"] is True
 
 
+# These inputs take about 0.3 s on a developer machine. A shared CI runner has
+# taken more than 1 s for the same work, so the bound leaves room for runner
+# variance. Without the caps and the linear scans the same inputs take minutes.
+_PARSER_TIME_BOUND_SECONDS = 5
+
+
 @pytest.mark.parametrize(
     "tail",
     [
@@ -38515,7 +38521,7 @@ def test_extract_json_object_refuses_a_fragment_after_a_decoded_prefix(
 def test_extract_json_object_raw_key_scan_does_not_backtrack(tail):
     started = time.perf_counter()
     assert _extract_json_object(_PASSING_VERDICT + "\n" + tail)["passed"] is True
-    assert time.perf_counter() - started < 1
+    assert time.perf_counter() - started < _PARSER_TIME_BOUND_SECONDS
 
 
 @pytest.mark.parametrize(
@@ -38533,7 +38539,7 @@ def test_extract_json_object_caps_failed_decode_attempts_and_fails_closed(output
     started = time.perf_counter()
     with pytest.raises(ValueError, match="Too many undecodable JSON object starts"):
         _extract_json_object(output)
-    assert time.perf_counter() - started < 1
+    assert time.perf_counter() - started < _PARSER_TIME_BOUND_SECONDS
 
 
 def test_extract_json_object_caps_failed_lexer_span_decodes_and_fails_closed():
@@ -38547,7 +38553,7 @@ def test_extract_json_object_caps_failed_lexer_span_decodes_and_fails_closed():
     started = time.perf_counter()
     with pytest.raises(ValueError, match="Too many undecodable JSON object starts"):
         _extract_json_object(output)
-    assert time.perf_counter() - started < 1
+    assert time.perf_counter() - started < _PARSER_TIME_BOUND_SECONDS
     # Under the shared budget the fallback still finds a plain object.
     assert _extract_json_object('see {"k": 1,\n' * 20 + '{"type": "note"}') == {
         "type": "note"
@@ -38569,7 +38575,7 @@ def test_extract_json_object_decode_attempt_cap_spares_long_legitimate_output():
 
     started = time.perf_counter()
     assert _extract_json_object(prose + json.dumps(payload) + prose) == payload
-    assert time.perf_counter() - started < 2
+    assert time.perf_counter() - started < _PARSER_TIME_BOUND_SECONDS
     with pytest.raises(ValueError, match="Too many undecodable JSON object starts"):
         _extract_json_object('see {"k": \n' * (cap + 1) + json.dumps(payload))
 
