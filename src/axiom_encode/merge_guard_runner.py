@@ -210,6 +210,16 @@ def open_pull_requests(repository: str, fetch: Fetch) -> list[int]:
 
 
 def _verdict_digest(verdict: guard.Verdict) -> str:
+    """The identity of a shadow check: verdict, reason and detail.
+
+    The evidence is not part of it. It names the ``main`` tip, so hashing it
+    would write a new check on every open pull request each time ``main``
+    moves, and every check counts toward the bound of ``_already_reported``.
+    Consequence: when only the evidence changes on one head (another
+    approving owner, a rerun of CI), the write is skipped and the summary of
+    the newest shadow check still shows the earlier evidence. The report the
+    command prints always carries the current evidence.
+    """
     core = json.dumps(
         [verdict.verdict, verdict.reason, verdict.detail],
         sort_keys=True,
@@ -261,17 +271,22 @@ def _already_reported(
     # "List check runs for a Git reference"
     # (https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference):
     # ``per_page`` is at most 100, ``page`` selects a page, the response
-    # carries ``total_count`` and ``check_runs``, and ``filter`` defaults to
-    # ``latest`` ("returns the most recent check runs"). The document does not
-    # say how ``latest`` groups runs, or that ``total_count`` counts the runs
-    # after that filter [check live], so more than 100 shadow-named runs on
-    # one head may be listed. The reader follows the pages up to
+    # carries ``total_count`` and ``check_runs``, and ``filter`` is ``latest``
+    # (the default, "returns the most recent check runs") or ``all``. The
+    # document does not say how ``latest`` groups runs. The reader asks for
+    # ``all``: every shadow-named run of the head is listed, ``total_count``
+    # has one meaning (the number of listed runs) and the newest run of the
+    # App is the one with the highest id. With ``latest`` the page arithmetic
+    # below would depend on whether ``total_count`` counts the runs before or
+    # after the filter for runs an App creates [check live].
+    # The price: every shadow-named run on the head counts toward the bound,
+    # the App's own earlier ones included. The reader follows the pages up to
     # ``MAX_CHECK_RUN_PAGES`` and refuses past that bound: a listing it did
     # not read whole never suppresses a verdict and never selects the
     # "newest" check.
     listing_path = (
         f"{root}/commits/{head}/check-runs"
-        f"?check_name={name}&filter=latest&per_page=100&page="
+        f"?check_name={name}&filter=all&per_page=100&page="
     )
     runs: list[dict] = []
     seen: set[int] = set()

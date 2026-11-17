@@ -9,9 +9,9 @@ ref, runner switch or credential provisioning.
 The workflow's ``gate`` job requires ``refs/heads/main`` and
 ``vars.MERGE_GUARD_RUNNER_ENABLED`` equal to ``true``. The ``vars`` context
 can supply organization values; the gate checks no repository-only origin.
-The ``run`` job checks the App client ID and private key, then relies on the
-earlier gate without rechecking the ref or switch. Its writer publishes only
-neutral shadow checks. Keep those checks out of required checks. The write
+The ``run`` job repeats the ref and switch checks and the checks of the
+``country`` and ``pr`` inputs in its first step, then checks the App client ID
+and private key. Its writer publishes only neutral shadow checks. Keep those checks out of required checks. The write
 filter constrains its caller, not other code in the same job.
 
 The design's checklist step 1 remains a precondition before anyone stores

@@ -63,7 +63,7 @@ PULLS = ROOT + "/pulls?state=open&base=main&per_page=100&page="
 SHADOW_LISTING_PAGES = (
     f"{ROOT}/commits/{H}/check-runs"
     "?check_name=content-bound-merge-guard%20%28shadow%29"
-    "&filter=latest&per_page=100&page="
+    "&filter=all&per_page=100&page="
 )
 SHADOW_LISTING = SHADOW_LISTING_PAGES + "1"
 
@@ -777,6 +777,32 @@ def test_command_fails_closed_without_the_app_token(capsys, environ):
     assert "guard GitHub App" in report["error"]
 
 
+@pytest.mark.parametrize(
+    "environ",
+    [
+        {"GITHUB_TOKEN": TOKEN},
+        {"GH_TOKEN": TOKEN},
+        {"GITHUB_TOKEN": TOKEN, "GH_TOKEN": TOKEN, runner.TOKEN_ENV: ""},
+        {"MERGE_GUARD_APP_KEY": TOKEN, "ACTIONS_RUNTIME_TOKEN": TOKEN},
+    ],
+)
+def test_command_takes_no_token_from_another_variable(capsys, monkeypatch, environ):
+    # Review round 1, P3-5: "the App token is read from TOKEN_ENV only". A
+    # well-formed token under another name does not start a run. It is set in
+    # the injected mapping and in the process environment.
+    for name, value in environ.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv(runner.TOKEN_ENV, raising=False)
+    for mapping in (environ, None):
+        code = runner.command(arguments(), environ=mapping, opener=Exploding())
+        out = capsys.readouterr()
+        report = json.loads(out.out)
+        assert code == runner.EXIT_RUN_ERROR
+        assert report["complete"] is False and report["results"] == []
+        assert runner.TOKEN_ENV in report["error"]
+        assert TOKEN not in out.out and TOKEN not in out.err
+
+
 def test_command_prints_one_json_line_and_never_the_token(capsys, monkeypatch):
     world = shadow_world(plain({"README.md": b"x\n"}))
     writer = Writer()
@@ -865,9 +891,26 @@ def test_workflow_gate_refuses_before_any_credential_is_in_reach():
     jobs = workflow()["jobs"]
     assert list(jobs) == ["gate", "run"]
     gate, run = jobs["gate"], jobs["run"]
+    # Review round 1, P3-1 and P3-4: the exact keys. No ``continue-on-error``
+    # (a refused gate must fail the job, or the run job starts) and no other
+    # key may appear on the job or on its one step.
+    assert set(gate) == {"name", "if", "runs-on", "timeout-minutes", "steps"}
+    assert gate["if"] == "github.repository == 'TheAxiomFoundation/axiom-encode'"
     assert "environment" not in gate
     assert "secrets." not in json.dumps(gate)
     (step,) = gate["steps"]
+    assert set(step) == {"name", "env", "run"}
+    assert set(run) == {
+        "name",
+        "needs",
+        "runs-on",
+        "timeout-minutes",
+        "environment",
+        "steps",
+    }
+    for job in (gate, run):
+        for any_step in job["steps"]:
+            assert "continue-on-error" not in any_step, any_step.get("name")
     assert step["env"]["ENABLED"] == "${{ vars.MERGE_GUARD_RUNNER_ENABLED }}"
     assert step["env"]["REF"] == "${{ github.ref }}"
     script = step["run"]
@@ -890,6 +933,22 @@ def test_workflow_reads_only_the_named_app_credentials_and_fails_closed():
     require = steps[1]
     assert require["name"] == "Require the guard App"
     assert "exit 1" in require["run"] and "::error::" in require["run"]
+    # Review round 1, P3-2: where the key is named. Twice in the file: as a
+    # boolean in "Require the guard App" (the value never enters that step)
+    # and as the input of the token action. No other step names a secret.
+    assert text.count("secrets.") == 2
+    assert text.count("secrets.MERGE_GUARD_APP_KEY") == 2
+    assert require["env"] == {
+        "APP_CLIENT_ID": "${{ vars.MERGE_GUARD_APP_CLIENT_ID }}",
+        "APP_KEY_SET": "${{ secrets.MERGE_GUARD_APP_KEY != '' }}",
+    }
+    assert [step.get("name") for step in steps if "secrets." in json.dumps(step)] == [
+        "Require the guard App",
+        "Create the guard App token",
+    ]
+    assert "secrets." not in json.dumps(
+        {key: value for key, value in workflow().items() if key != "jobs"}
+    )
     token = next(step for step in steps if step.get("id") == "app-token")
     assert steps.index(token) > 0
     assert token["with"] == {
@@ -924,6 +983,25 @@ def test_workflow_runs_the_dispatched_main_commit_with_pinned_actions():
     setup_uv = next(step for step in steps if "setup-uv" in step.get("uses", ""))
     assert setup_uv["with"] == {"version": "0.11.7", "enable-cache": "false"}
     assert not any("cache" in step.get("uses", "").lower() for step in steps)
+
+
+def test_workflow_installs_the_locked_encoder_without_dev_dependencies():
+    # Review round 1, P3-3. The job later holds the App key: the install takes
+    # the versions of the lock file and no development dependency.
+    steps = workflow()["jobs"]["run"]["steps"]
+    installs = [step for step in steps if "uv sync" in step.get("run", "")]
+    assert installs == [
+        {
+            "name": "Install the locked encoder",
+            "run": "uv sync --no-config --locked --python 3.13 --extra api --no-dev",
+        }
+    ]
+    token = next(step for step in steps if step.get("id") == "app-token")
+    assert steps.index(installs[0]) < steps.index(token)
+    # No other step installs anything.
+    for step in steps:
+        if step is not installs[0]:
+            assert not re.search(r"\b(uv|pip|npm|apt-get)\b", step.get("run", ""))
 
 
 def test_fixture_tree_and_modules_are_what_the_tests_assume():
@@ -962,6 +1040,65 @@ def _publication(world, existing, **kwargs):
         **kwargs,
     )
     return report["results"][0]["publication"], writer.calls
+
+
+def _detailed_world():
+    world = plain({".github/workflows/x.yml": b"x\n"})
+    verdict = world.evaluate()
+    assert verdict.verdict == "fail" and verdict.detail
+    return world, verdict
+
+
+def test_a_changed_detail_on_the_same_head_is_reported_again():
+    # Review round 1, P3-6. Same verdict and reason, another detail: the
+    # newest shadow check of ours no longer says what the guard decides.
+    world, verdict = _detailed_world()
+    earlier = guard.Verdict(
+        verdict.verdict, verdict.reason, verdict.detail + " (earlier)", verdict.evidence
+    )
+    earlier_digest = runner.shadow_check_body(earlier, H)["external_id"]
+    assert earlier_digest != runner.shadow_check_body(verdict, H)["external_id"]
+    publication, calls = _publication(world, [_check(earlier_digest)])
+    assert publication == "created" and len(calls) == 1
+    # No detail against an empty detail is a change as well.
+    bare = guard.Verdict(verdict.verdict, verdict.reason, "", verdict.evidence)
+    publication, calls = _publication(
+        world, [_check(runner.shadow_check_body(bare, H)["external_id"])]
+    )
+    assert publication == "created" and len(calls) == 1
+
+
+def test_changed_evidence_alone_is_not_reported_again():
+    # The documented limit of the digest (``_verdict_digest``): the evidence
+    # is not hashed, so the summary of the newest check can show earlier
+    # evidence. This test records that choice; it is not a guard.
+    world, verdict = _detailed_world()
+    earlier = guard.Verdict(
+        verdict.verdict,
+        verdict.reason,
+        verdict.detail,
+        verdict.evidence | {"base": "0" * 40, "reviewer_id": 1},
+    )
+    assert earlier.evidence != verdict.evidence
+    publication, calls = _publication(
+        world, [_check(runner.shadow_check_body(earlier, H)["external_id"])]
+    )
+    assert publication == "unchanged" and calls == []
+
+
+def test_the_listing_of_earlier_shadow_checks_asks_for_every_run():
+    # Review round 1, P3-7: ``filter=all``. Every shadow-named run is listed,
+    # so ``total_count`` is the number of listed runs and the highest id of
+    # ours is the newest. An older check of ours with this verdict and a
+    # newer one with another verdict: the verdict is written again.
+    world, digest = _digest_world()
+    publication, calls = _publication(
+        world, [_check(digest, id=5), _check("other", id=6)]
+    )
+    assert publication == "created" and len(calls) == 1
+    listings = [path for path in world.calls if "check-runs?check_name=content" in path]
+    assert listings == [SHADOW_LISTING]
+    assert "&filter=all&" in SHADOW_LISTING and "filter=latest" not in SHADOW_LISTING
 
 
 @pytest.mark.parametrize(
@@ -1171,12 +1308,15 @@ def test_run_job_repeats_the_ref_and_switch_checks_before_any_credential():
     assert first["env"] == {
         "REF": "${{ github.ref }}",
         "ENABLED": "${{ vars.MERGE_GUARD_RUNNER_ENABLED }}",
+        "COUNTRY": "${{ inputs.country }}",
+        "PR": "${{ inputs.pr }}",
     }
     script = first["run"]
     assert script.splitlines()[0] == "set -euo pipefail"
     assert '[ "$REF" != "refs/heads/main" ]' in script
     assert '[ "$ENABLED" != "true" ]' in script
-    assert script.count("exit 1") == 2
+    # Review round 1, P3-1: the two input checks of the gate, repeated.
+    assert script.count("exit 1") == 4
     # No credential is named before the repeated checks, and no step that
     # names one runs when they fail.
     assert "secrets." not in json.dumps(first)
@@ -1196,6 +1336,8 @@ def run_gate(**changes):
         "PATH": "/usr/bin:/bin:/usr/local/bin",
         "REF": "refs/heads/main",
         "ENABLED": "true",
+        "COUNTRY": "us",
+        "PR": "",
     } | changes
     return subprocess.run(
         ["bash", "-c", step["run"]], env=env, capture_output=True, text=True
@@ -1204,6 +1346,38 @@ def run_gate(**changes):
 
 def test_run_job_checks_admit_main_with_the_switch_on():
     assert run_gate() == 0
+    assert run_gate(PR="12") == 0
+    assert run_gate(COUNTRY="nz", PR="999999999") == 0
+
+
+# Review round 1, P3-1. The token step names ``rulespec-<country>`` and the
+# token action splits its repository list on newlines and commas. The run job
+# refuses these inputs itself; it does not rely on the gate job having run.
+INVALID_INPUTS = [
+    {"COUNTRY": "us\naxiom-encode"},
+    {"COUNTRY": "axiom-encode\nus"},
+    {"COUNTRY": "us\n"},
+    {"COUNTRY": "us,axiom-encode"},
+    {"COUNTRY": "US"},
+    {"COUNTRY": "usa"},
+    {"COUNTRY": "u"},
+    {"COUNTRY": ""},
+    {"COUNTRY": "u s"},
+    {"PR": "12\n--mode"},
+    {"PR": "--sweep\n12"},
+    {"PR": "12\n"},
+    {"PR": "0"},
+    {"PR": "012"},
+    {"PR": "abc"},
+    {"PR": "1234567890"},
+    {"PR": "-1"},
+]
+
+
+@pytest.mark.parametrize("changes", INVALID_INPUTS)
+def test_run_job_refuses_the_inputs_the_gate_refuses(changes):
+    assert gate(**changes) == 1
+    assert run_gate(**changes) == 1
 
 
 @pytest.mark.parametrize(
