@@ -381,6 +381,9 @@ def test_frame_observation_refusals(tmp_path, change):
         "minus other expenses",
         "after deducting assistance",
         "if eligible",
+        "or the amount on the previous line, whichever is greater",
+        "the greater of this amount and the previous amount",
+        "or the amount on the previous line",
     ],
 )
 def test_operative_display_suffix_keeps_analyzer_obligation(tail):

@@ -661,23 +661,77 @@ def test_v5_only_readers_do_not_know_v6(path):
     assert "applied_manifest_v6" not in source
 
 
-def test_enabled_telemetry_and_replacement_baseline_refuse_v6(enabled, promotion):
+def test_enabled_telemetry_and_replacement_baseline_refuse_v6(
+    enabled,
+    promotion,
+    manifest_fixture,  # noqa: F811
+):
     from axiom_encode import supabase_sync
+    from axiom_encode.harness.evals import resolve_corpus_source_unit
 
     repo, v5, _expected_identity = promotion
-    payload = _sign(_to_v6(v5))
     with pytest.raises(ValueError, match="not canonical"):
-        supabase_sync.run_from_apply_manifest(repo / MANIFEST, payload)
+        supabase_sync.run_from_apply_manifest(repo / MANIFEST, _sign(_to_v6(v5)))
+
+    # The replacement baseline. The checkout is ``repo`` (the manifest lives
+    # under ``repo/.axiom``), and the pair and the manifest are tracked at
+    # HEAD, so the manifest label is the only thing that differs between the
+    # v5 control (a baseline is captured) and the v6 manifest (none).
+    fixtures = manifest_fixture[0]
+    source_unit = resolve_corpus_source_unit("us/statute/26/1", fixtures.corpus_release)
+    rule = repo / "us/statutes/26/1.yaml"
+    companion = rule.with_name("1.test.yaml")
+    companion.write_text("[]\n")
+    v5 = copy.deepcopy(v5)
+    v5.pop("signature", None)
+    v5["applied_files"] = [
+        {"path": path.relative_to(repo).as_posix(), "sha256": cli._sha256_file(path)}
+        for path in (rule, companion)
+    ]
     path = repo / MANIFEST
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload) + "\n")
-    rule = repo / "us/statutes/26/1.yaml"
-    assert (
-        cli._canonical_replacement_baseline(
-            repo / "us", rule, rule.with_name("1.test.yaml"), source_unit=None
+
+    def baseline(payload):
+        path.write_text(json.dumps(_sign(payload)) + "\n")
+        _commit_all(repo)
+        return cli._canonical_replacement_baseline(
+            repo, rule, companion, source_unit=source_unit
         )
-        is None
+
+    control = baseline(copy.deepcopy(v5))
+    assert control is not None
+    assert control.context_role == "replacement_baseline"
+    assert (control.rulespec, control.tests) == (
+        rule.read_text(),
+        companion.read_text(),
     )
+    relabelled = _to_v6(v5)
+    assert v6.v6_admissible(relabelled) is True
+    assert baseline(relabelled) is None
+
+
+def _commit_all(repo):
+    import subprocess
+
+    def git(*arguments):
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                *arguments,
+            ],
+            check=True,
+        )
+
+    if not (repo / ".git").exists():
+        git("init", "-q")
+    git("add", "-A")
+    git("commit", "-qm", "fixture")
 
 
 @pytest.mark.parametrize(

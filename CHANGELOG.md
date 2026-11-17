@@ -1,3 +1,80 @@
+## 0.2.2384
+
+- Evidence floor for the start date of a date-silent unit (#2227)
+
+## 0.2.2383
+
+- Reviewed alternative-list readings for the gates-collapsed check (digest-bound registry) (#2216)
+
+## 0.2.2382
+
+- Cut the evals import edge from the v6 lane path helper (prep for the stdlib guard bundle, #2257) (#2278)
+- Require code-owner review for all of .github/ (closes the unowned-workflow exposure, #2257) (#2277)
+- Quote trailing-colon source excerpts in the eval-time repair (#2266)
+
+## 0.2.2381
+
+- Fix receipt verification during native reviewed-repair staging (#2270)
+
+## 0.2.2380
+
+- Fold structure findings behind an imprecise deferral into its finding and use a U.S. retry example (#1932)
+
+## 0.2.2379
+
+- Close the follow-up findings of the #2051 version-rule review (#2151)
+- Propose guard App key protection: stdlib bundle plus owner review of .github/ (needs Max's choice, #2257) (#2267)
+
+## 0.2.2378
+
+- Name the policies/ root for manual-unit deferrals and type the target refusal (#2260)
+
+## 0.2.2377
+
+- Bind large primary review guidance to immutable producer evidence (#2140)
+
+## 0.2.2376
+
+- Preserve authenticated policy bytes during manifest refresh (#2225)
+- Fix anonymous companion row identities across CLI relations (#2107)
+- fix: replace historical root ownership receipts through verified transactions (#2078)
+- Preserve verified engine and checkout origin for registered repairs (#2243)
+- Recommended three-class lane (content / control plane / infrastructure), off (#2172) (#2231)
+
+## 0.2.2375
+
+- Add a switched-off reader for applied-rulespec/v6 promotion manifests (inactive, #2172) (#2230)
+- State the unpaired (ii) limit in the roman-item changelog fragment (#2250)
+
+## 0.2.2374
+
+- Preserve authenticated companion assertions during constrained repairs (#2203)
+- Correct the promotion-order decision status (#2246)
+- Use constructed modules in declared-dtype and repair tests (#2247)
+
+## 0.2.2373
+
+- Read (i) under paragraph (h) as a roman item when (ii) follows at its level (#2115)
+
+## 0.2.2372
+
+- Register reviewed Nova Scotia NS479 repair (#2244)
+
+## 0.2.2371
+
+- Register reviewed T2036 full-artifact repair (#2241)
+
+## 0.2.2370
+
+- fix: scope T2036 country evidence to its asserted cases (#2232)
+- Register reviewed NL479 and NB Schedule 12 source-binding repairs (#2236)
+- fix: load reviewed repair packages through protected Git (#2233)
+
+## 0.2.2369
+
+- fix: validate complete retirement transfer execution (#2105)
+- Register the reviewed Schedule 2 repair with all original expectations (#2228)
+
 ## 0.2.2368
 
 - Register exact Schedule M repair preserving all companion cases (#2223)

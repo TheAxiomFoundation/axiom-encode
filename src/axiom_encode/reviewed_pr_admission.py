@@ -39,9 +39,16 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 #   the guard check not required, an enrolled dispatcher lands their own
 #   unreviewed candidate with no approval, and any account with write access
 #   re-lands signed v6 bytes from a closed pull request.
+# How to read "no v6 writer exists" since change 5: the writer exists and is
+# locked by the three locks below. For this rule a locked writer counts as
+# no writer; the rule's sentences are kept as written because a test pins
+# them to the design.
 #
-# Three locks, all on encoder main, none with an environment variable, CLI
-# flag, dispatch input or repository setting:
+# Three locks. Locks 1 and 2 are constants on encoder main: no encoder-side
+# environment variable, CLI flag, dispatch input or setting opens them. Lock
+# 3 is code on encoder main that separately reads the branch protection of
+# the RuleSpec repository, and refuses unless that protection requires the
+# guard check from the recorded guard App:
 #
 # 1. ``V6_WRITER_ENABLED``. While it is not exactly ``True`` this module
 #    behaves as before the lane existed: the same reads, results and errors.
@@ -59,7 +66,8 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 # remove a required check afterwards; that adversary is out of scope (design,
 # section 9). Do not turn lock 1 before activation checklist step 4 is done.
 #
-# RESIDUAL RISK the owners accept with lock 1. Lock 3 is read again, never
+# RESIDUAL RISK the owners would accept by opening lock 1 (a proposal: they
+# have not accepted it). Lock 3 is read again, never
 # cached, at five points: preflight (start and end), root provisioner (start
 # and end), before validation, immediately before signing, before
 # publication. AFTER publication only the GitHub setting protects the merge.
@@ -71,10 +79,12 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 # organisation audit log records the settings change, and the push to main
 # still runs validation. Neither prevents the merge or supplies a review.
 #
-# KNOWN LIMIT (availability only). Every read is anonymous. One run of this
-# lane makes 45 reads (7 of them the branch record; the reviewed lane makes
-# 38) against GitHub's 60 per hour per address, so a second run in the same
-# hour from the same address is refused. Follow-up: send the reads with the
+# KNOWN LIMIT (availability only). Every read is anonymous. One signing run
+# of this lane makes at least 45 reads (7 of them the branch record) and one
+# of the reviewed lane at least 38, counted by the reviewer at 880238c7 with
+# every list on one page; pagination adds reads. GitHub allows 60 per hour
+# per address, so a second run in the same hour from the same address is
+# refused. Follow-up: send the reads with the
 # workflow token when one is available. The record is public, so a token
 # only raises the limit; any error must still refuse.
 V6_WRITER_ENABLED: Final[bool] = False
@@ -672,8 +682,9 @@ def verify_reviewed_pr(
     if candidate_lane:
         if require_guard_enforced(selector.repository, fetch=fetch) != guard:
             raise AdmissionError("merge guard requirement changed during admission")
-        # No ``approvals`` key and another schema: nobody can read this as a
-        # reviewed admission.
+        # No ``approvals`` key and another outer ``schema``: nobody can read
+        # this as a reviewed admission. The nested ``record.schema`` is the
+        # same in both lanes.
         return {
             "schema": CANDIDATE_SCHEMA,
             "workflow_commit": run["head_sha"],

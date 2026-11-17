@@ -1,0 +1,24 @@
+{
+  "schema": "axiom-encode/rejected-candidate-fixture/v1",
+  "citation": "us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-10",
+  "run": "local:76e1c8f5",
+  "encoder_version": "0.2.2371",
+  "encoder_commit": "377b90e54529252d269e0369beeb39c6c1fb1852",
+  "recorded_issues": [
+    "module.deferred_outputs[0].output must use an absolute RuleSpec output target such as `us:statutes/26/63/f#additional_amount`.",
+    "[complete-source-unit:deferral] `module.deferred_outputs[0]` identifies source branch (private-vehicles) (`private-vehicles`) but its deferral does not name an exact missing dependency, input, or runtime capability."
+  ],
+  "candidate": {
+    "origin": "rejected/policies/des/faa5/na-medical-expenses-and-deduction/block-10.yaml",
+    "sha256": "9bc519c4eb0eb278006f55fc660d67414787c0e58caaa82d6df04bef03cd1760"
+  },
+  "companion": {
+    "origin": "rejected/policies/des/faa5/na-medical-expenses-and-deduction/block-10.test.yaml",
+    "sha256": "2029ead1791d6fcdf7a06baa1b35bcf77f4b572bbc0ad9d52e1430c79cabd756"
+  },
+  "source": {
+    "origin": "workspace/source.txt",
+    "corpus_release": "us-rulespec-2026-10-29-ecfr-section-text",
+    "sha256": "b1962a12aa206718e60284eeea8ac59f513cc867db1dd3ec70d1a3381a006cba"
+  }
+}

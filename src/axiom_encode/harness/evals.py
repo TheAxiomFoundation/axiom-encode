@@ -88,6 +88,10 @@ from axiom_encode.live_run_telemetry import (
     PHASE_VALIDATE,
     report_phase,
 )
+from axiom_encode.producer_review_guidance import (
+    MAX_GUIDANCE_BYTES,
+    ProducerReviewGuidance,
+)
 from axiom_encode.prompts.encoder import (
     INTERPRETATIONS_PROTOCOL,
     SOURCE_SCOPE_PROTOCOL,
@@ -109,10 +113,39 @@ from axiom_encode.retry_feedback import (
     VALIDATION_RETRY_FEEDBACK_MAX_TOTAL_CHARS,
     bounded_validation_retry_feedback_item,
 )
+
+# Re-exports. These path helpers lived in this module until
+# ``rulespec_citation_paths`` took them, so that the content-bound merge guard
+# can resolve a RuleSpec path without importing this module (axiom-encode#2257;
+# section 4, step 1 of the guard key-protection proposal). Callers keep
+# importing them from here; the objects are the same.
+from axiom_encode.rulespec_citation_paths import (  # noqa: F401
+    _CFR_CITATION_RE,
+    _RULEMAKING_OUTPUT_ROOT,
+    _RULEMAKING_SOURCE_TOKEN,
+    _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN,
+    _RULESPEC_SOURCE_ROOT_TOKENS,
+    _UK_LEGISLATION_DOMAIN_TOKEN,
+    _UK_LEGISLATION_SECTION_TOKENS,
+    _USC_CITATION_RE,
+    _canonical_uk_legislation_tail,
+    _canonical_us_regulation_tail,
+    _cfr_citation_to_corpus_citation_path,
+    _citation_to_corpus_citation_path,
+    _dotted_leaf_to_nested_yaml_path,
+    _expand_louisiana_title_section_tail,
+    _looks_like_corpus_citation_path,
+    _mapped_relative_rulespec_path,
+    _names_rulemaking_output,
+    _preserve_dotted_leaf_filename,
+    _preserve_state_statute_dotted_leaf,
+    _resolve_eval_output_path,
+    _source_identifier_to_relative_rulespec_path,
+)
 from axiom_encode.signing_broker import SigningBroker
 from axiom_encode.statute import (
     CitationParts,
-    citation_to_citation_path,
+    citation_to_citation_path,  # noqa: F401  (its caller moved; the name stays)
     citation_to_relative_rulespec_path,
     normalize_rulespec_path_segment,
     parse_usc_citation,
@@ -147,6 +180,7 @@ from .eval_evidence import (
 )
 from .eval_prompt_surface import (
     render_date_silent_scaffold_guidance,
+    render_date_silent_start_guidance,
     render_single_amount_row_guidance,
     render_uk_legislation_guidance,
 )
@@ -164,6 +198,10 @@ from .source_completeness import (
     _rulespec_target_base,
     collect_artifact_numeric_values,
     mask_armenian_amendment_history,
+)
+from .start_date_evidence import (
+    is_manual_citation,
+    start_date_evidence_from_metadata,
 )
 from .validator_pipeline import (
     ExistingTargetOracleContract,
@@ -343,19 +381,6 @@ _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     r"\b(?:if|where|unless|except|subject to|treated as paid)\b",
     re.IGNORECASE,
 )
-_RULESPEC_SOURCE_ROOT_TOKENS = {
-    "form",
-    "forms",
-    "guidance",
-    "manual",
-    "manuals",
-    "policies",
-    "policy",
-    "regulation",
-    "regulations",
-    "statute",
-    "statutes",
-}
 _CORPUS_DOCUMENT_CLASS_BY_SOURCE_TOKEN = {
     "form": "form",
     "forms": "form",
@@ -369,28 +394,6 @@ _CORPUS_DOCUMENT_CLASS_BY_SOURCE_TOKEN = {
     "statute": "statute",
     "statutes": "statute",
 }
-_RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN = {
-    "form": "policies",
-    "forms": "policies",
-    "guidance": "policies",
-    "manual": "policies",
-    "manuals": "policies",
-    "policies": "policies",
-    "policy": "policies",
-    "regulation": "regulations",
-    "regulations": "regulations",
-    "statute": "statutes",
-    "statutes": "statutes",
-}
-# Federal Register instruments live under <jurisdiction>/rulemaking/... in the
-# corpus. RuleSpec has no rulemaking filesystem root, so their outputs land in
-# a reserved ``policies/rulemaking/`` namespace. A dot-free tail maps back to
-# the same citation; a dotted leaf is written nested and maps back to the
-# nested path (cli._relative_output_to_child_corpus_citation_path,
-# validator_pipeline._corpus_citation_to_normalized_target and
-# dependency_stubs._corpus_kind_and_rest keep the same contract).
-_RULEMAKING_SOURCE_TOKEN = "rulemaking"
-_RULEMAKING_OUTPUT_ROOT = "policies"
 
 
 def is_rulemaking_source_identifier(identifier: str) -> bool:
@@ -497,8 +500,6 @@ def rulemaking_explicit_output_required_message(
     return message
 
 
-_UK_LEGISLATION_DOMAIN_TOKEN = "legislation.gov.uk"
-_UK_LEGISLATION_SECTION_TOKENS = {"article", "regulation", "section"}
 _CLAUDE_DEFAULT_TIMEOUT_SECONDS = 1800
 _CODEX_DEFAULT_TIMEOUT_SECONDS = 600
 _CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS = 300
@@ -1394,11 +1395,37 @@ class EvalResult:
     verdict_sha256: str | None = None
     require_complete_source_unit: bool = False
     amendment_request: str | None = None
+    # The record of the eval-time quote repair in this invocation. Each entry
+    # (`excerpt:102`) names one `source:` or `excerpt:` line whose value the
+    # encoder put in quotes after generation so the YAML parses. The number is
+    # the line in the file when the encoder quoted it.
+    # The two fields are set together, or both are absent. When they are set,
+    # the encoder changed the model's bytes in this invocation and
+    # generated_output_sha256 is the digest of the repaired file. Signed
+    # verdict evidence includes both fields.
+    # The record covers this invocation's edits only. It does not follow the
+    # file. A retry that keeps or overlays an earlier attempt's main file (a
+    # tests-only repair, an accepted retained candidate, a repair overlay)
+    # starts with no entries, although the file can hold quotes that the
+    # earlier attempt added. An eval suite never retains a candidate, so for a
+    # suite result the record covers every quote this repair added to the file.
+    # Absent fields mean only that this repair did not run. They do not mean
+    # that the file holds the model's bytes unchanged.
+    # The result keeps no copy of the pre-repair text. The `claude` and
+    # `openai` traces hold the model's response text and the `codex` trace
+    # holds its event stream. The `claude-api` trace is metadata only, so a
+    # `claude-api` run keeps no pre-repair text.
+    auto_repaired_unquoted_source_scalars: list[str] = field(default_factory=list)
+    generated_output_repaired_by_encoder: bool = False
 
     def to_dict(self) -> dict:
         data = asdict(self)
         if self.amendment_request is None:
             data.pop("amendment_request", None)
+        if not self.auto_repaired_unquoted_source_scalars:
+            data.pop("auto_repaired_unquoted_source_scalars", None)
+        if not self.generated_output_repaired_by_encoder:
+            data.pop("generated_output_repaired_by_encoder", None)
         if not self.require_complete_source_unit:
             data.pop("require_complete_source_unit", None)
         if self.admission_score is None:
@@ -1803,8 +1830,22 @@ def run_model_eval(
     accept_valid_retry_candidate: bool = False,
     codex_reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
     axiom_rules_engine_ref: str | None = None,
+    producer_review_guidance: ProducerReviewGuidance | None = None,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
+    if producer_review_guidance is not None:
+        if (
+            len(citations) != 1
+            or len(runner_specs) != 1
+            or review_findings_paths
+            or not require_complete_source_unit
+            or legacy_replacement is not None
+            or repair_candidate_tests_only
+            or accept_valid_retry_candidate
+        ):
+            raise ValueError(
+                "producer guidance requires a single ordinary full-source target"
+            )
     validate_codex_reasoning_effort(codex_reasoning_effort)
     _validate_eval_oracle_runtime(oracle, policyengine_runtime, policy_path)
     if target_relative_output is not None and len(citations) != 1:
@@ -1881,6 +1922,11 @@ def run_model_eval(
                         source_unit=source_unit,
                         rulespec_dependency_roots=rulespec_dependency_roots,
                         review_findings_paths=review_findings_paths or [],
+                        **(
+                            {"producer_review_guidance": producer_review_guidance}
+                            if producer_review_guidance is not None
+                            else {}
+                        ),
                         require_complete_source_unit=require_complete_source_unit,
                         target_relative_output=target_relative_output,
                         validation_retry_feedback=validation_retry_feedback,
@@ -4032,6 +4078,57 @@ def _validate_eval_result_payload_binding(
         )
 
 
+_ENCODER_QUOTE_REPAIR_LINES_FIELD = "auto_repaired_unquoted_source_scalars"
+_ENCODER_QUOTE_REPAIR_FLAG_FIELD = "generated_output_repaired_by_encoder"
+#: One entry of the record: the quoted key and its 1-based line number.
+_ENCODER_QUOTED_SOURCE_SCALAR_PATTERN = re.compile(r"(?:source|excerpt):[1-9][0-9]*")
+
+
+def _eval_result_encoder_quote_repair_record(
+    result_payload: Mapping[str, object],
+    *,
+    artifact_name: str = "Eval result",
+) -> dict[str, object]:
+    """Return the validated encoder quote-repair record, or an empty mapping.
+
+    A result payload has both fields or neither. With both, the lines are a
+    nonempty list of `source:<line>` or `excerpt:<line>` entries, the flag is
+    exactly true, and the result binds a generated RuleSpec. A payload with
+    neither field returns an empty mapping, so evidence that was signed before
+    these fields existed keeps the exact bytes that were signed.
+    """
+
+    has_lines = _ENCODER_QUOTE_REPAIR_LINES_FIELD in result_payload
+    has_flag = _ENCODER_QUOTE_REPAIR_FLAG_FIELD in result_payload
+    if not has_lines and not has_flag:
+        return {}
+    lines = result_payload.get(_ENCODER_QUOTE_REPAIR_LINES_FIELD)
+    if (
+        not has_lines
+        or not has_flag
+        or result_payload[_ENCODER_QUOTE_REPAIR_FLAG_FIELD] is not True
+        or not isinstance(lines, list)
+        or not lines
+        or any(
+            not isinstance(item, str)
+            or _ENCODER_QUOTED_SOURCE_SCALAR_PATTERN.fullmatch(item) is None
+            for item in lines
+        )
+        or not result_payload.get("generated_output_sha256")
+    ):
+        raise ValueError(
+            f"{artifact_name} has an inconsistent encoder quote-repair record: "
+            f"'{_ENCODER_QUOTE_REPAIR_LINES_FIELD}' must be a nonempty list of "
+            "`source:<line>` or `excerpt:<line>` entries, "
+            f"'{_ENCODER_QUOTE_REPAIR_FLAG_FIELD}' must be true, and the result "
+            "must bind a generated RuleSpec"
+        )
+    return {
+        _ENCODER_QUOTE_REPAIR_LINES_FIELD: list(lines),
+        _ENCODER_QUOTE_REPAIR_FLAG_FIELD: True,
+    }
+
+
 def _eval_result_verdict_evidence_payload(
     result: EvalResult,
     admission_context: dict[str, object],
@@ -4076,6 +4173,9 @@ def _eval_result_verdict_evidence_payload(
             "retry_count": result_payload.get("retry_count"),
             "retrieved_files": result_payload.get("retrieved_files"),
             "unexpected_accesses": result_payload.get("unexpected_accesses"),
+            # Present only when the encoder quoted source text in the output.
+            # A result without the record signs the same bytes as before.
+            **_eval_result_encoder_quote_repair_record(result_payload),
         },
         "source_attestation": result_payload.get("source_attestation"),
         "validation": {
@@ -4384,13 +4484,16 @@ def _read_only_git_environment() -> dict[str, str]:
         GIT_CONFIG_GLOBAL=os.devnull,
         GIT_CONFIG_SYSTEM=os.devnull,
         GIT_CONFIG_NOSYSTEM="1",
-        GIT_CONFIG_COUNT="2",
+        GIT_CONFIG_COUNT="3",
         GIT_CONFIG_KEY_0="core.commitGraph",
         GIT_CONFIG_VALUE_0="false",
         # GIT_GRAFT_FILE=/dev/null is itself a readable graft file, so without
         # this Git advises on stderr whenever a query here parses a commit.
         GIT_CONFIG_KEY_1="advice.graftFileDeprecated",
         GIT_CONFIG_VALUE_1="false",
+        # A repository's log.showSignature would run its gpg.program on a read.
+        GIT_CONFIG_KEY_2="log.showSignature",
+        GIT_CONFIG_VALUE_2="false",
         GIT_TERMINAL_PROMPT="0",
     )
     return environment
@@ -6344,6 +6447,10 @@ def _eval_result_from_payload(
         raise ValueError(
             f"{artifact_name} is missing its signed suite admission context"
         )
+    quote_repair_record = _eval_result_encoder_quote_repair_record(
+        payload,
+        artifact_name=artifact_name,
+    )
     metrics_payload = payload.get("metrics")
     metrics = None
     if isinstance(metrics_payload, dict):
@@ -6471,6 +6578,12 @@ def _eval_result_from_payload(
         timeout_attempts=int(payload.get("timeout_attempts", 0) or 0),
         retry_count=int(payload.get("retry_count", 0) or 0),
         amendment_request=payload.get("amendment_request"),
+        auto_repaired_unquoted_source_scalars=list(
+            quote_repair_record.get(_ENCODER_QUOTE_REPAIR_LINES_FIELD, [])
+        ),
+        generated_output_repaired_by_encoder=(
+            _ENCODER_QUOTE_REPAIR_FLAG_FIELD in quote_repair_record
+        ),
         source_attestation=(
             dict(payload["source_attestation"])
             if isinstance(payload.get("source_attestation"), dict)
@@ -7015,8 +7128,42 @@ def prepare_eval_workspace(
     review_findings_paths: list[Path] | None = None,
     target_relative_output: Path | None = None,
     review_contract: Mapping[str, object] | None = None,
+    producer_review_guidance: ProducerReviewGuidance | None = None,
 ) -> EvalWorkspace:
     """Create an isolated workspace bundle for a single eval."""
+    if producer_review_guidance is not None:
+        if review_findings_paths:
+            raise ValueError(
+                "producer guidance and review findings are mutually exclusive"
+            )
+        guidance = producer_review_guidance
+        if (
+            not isinstance(guidance.content, bytes)
+            or not 0 < len(guidance.content) <= MAX_GUIDANCE_BYTES
+        ):
+            raise ValueError("producer guidance content size is invalid")
+        try:
+            guidance_text = guidance.content.decode("utf-8", errors="strict")
+        except UnicodeError as exc:
+            raise ValueError("producer guidance content is not UTF-8") from exc
+        if (
+            guidance_text.startswith("\ufeff")
+            or not guidance_text.endswith("\n")
+            or guidance_text.endswith("\n\n")
+            or not guidance_text.strip()
+            or any(
+                (ord(c) < 32 and c not in "\n\t") or ord(c) == 127
+                for c in guidance_text
+            )
+        ):
+            raise ValueError("producer guidance content is not normalized")
+        source_digest = hashlib.sha256(
+            source_text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+        ).hexdigest()
+        if guidance.citation != citation or guidance.source_sha256 != source_digest:
+            raise ValueError("producer guidance does not match the workspace source")
+        if hashlib.sha256(guidance.content).hexdigest() != guidance.content_sha256:
+            raise ValueError("producer guidance content digest mismatch")
     slug = _slugify(citation)
     workspace_root = (
         Path(output_root) / "_eval_workspaces" / runner.name / slug / "workspace"
@@ -7108,6 +7255,28 @@ def prepare_eval_workspace(
                 "sha256": hashlib.sha256(
                     normalized_findings_text.encode("utf-8")
                 ).hexdigest(),
+            }
+        )
+
+    if producer_review_guidance is not None:
+        guidance = producer_review_guidance
+        workspace_relative_path = Path("review-findings/01-producer-guidance.txt")
+        workspace_path = workspace_root / workspace_relative_path
+        workspace_path.parent.mkdir(parents=True, exist_ok=True)
+        workspace_path.write_bytes(guidance.content)
+        context_file = EvalContextFile(
+            source_path=f"git:{guidance.producer_commit}:{guidance.path}",
+            workspace_path=str(workspace_relative_path),
+            import_path=str(workspace_relative_path),
+            kind="mandatory_review_findings",
+            label="producer-guidance.txt",
+        )
+        review_findings_files.append(context_file)
+        review_findings_evidence.append(
+            {
+                **asdict(context_file),
+                "content": guidance_text,
+                "sha256": guidance.content_sha256,
             }
         )
 
@@ -7248,6 +7417,17 @@ def prepare_eval_workspace(
         ],
         "review_findings_files": review_findings_evidence,
     }
+    if producer_review_guidance is not None:
+        guidance = producer_review_guidance
+        manifest_payload["producer_review_guidance"] = {
+            "producer_commit": guidance.producer_commit,
+            "path": guidance.path,
+            "blob_sha256": guidance.blob_sha256,
+            "size_bytes": guidance.size_bytes,
+            "citation": guidance.citation,
+            "source_sha256": guidance.source_sha256,
+            "content_sha256": guidance.content_sha256,
+        }
     if review_contract is not None:
         manifest_payload["review_contract"] = dict(review_contract)
     if rendered_context.dropped_amendment_documents:
@@ -7807,81 +7987,6 @@ def _normalize_rulespec_source_id_to_corpus_path(identifier: str) -> str:
     if not jurisdiction or document_class is None:
         return identifier
     return "/".join((jurisdiction, document_class, *parts[1:]))
-
-
-_CFR_CITATION_RE = re.compile(
-    r"^(?P<title>\d+)\s+C\.?\s*F\.?\s*R\.?\s+"
-    r"(?:(?:part|pt\.?)\s+)?(?:§+\s*)?"
-    r"(?P<section>[0-9A-Za-z.-]+)"
-    r"(?P<tail>(?:\([^)]+\))*)$",
-    re.IGNORECASE,
-)
-_USC_CITATION_RE = re.compile(
-    r"^\d+\s+U\.?\s*S\.?\s*C\.?\s+(?:§+\s*)?"
-    r"[0-9A-Za-z.-]+(?:\([^)]+\))*$",
-    re.IGNORECASE,
-)
-
-
-def _citation_to_corpus_citation_path(citation: str) -> str:
-    """Convert a bare legal citation to a corpus citation path."""
-    cfr_path = _cfr_citation_to_corpus_citation_path(citation)
-    if cfr_path is not None:
-        return cfr_path
-    if re.search(r"\bC\.?\s*F\.?\s*R\.?\b", citation, flags=re.IGNORECASE):
-        raise ValueError(f"Could not parse CFR citation: {citation}")
-    if _USC_CITATION_RE.fullmatch(citation.strip()) is None:
-        raise ValueError(f"Could not parse USC citation: {citation}")
-    return citation_to_citation_path(citation)
-
-
-def _cfr_citation_to_corpus_citation_path(citation: str) -> str | None:
-    match = _CFR_CITATION_RE.match(citation.strip().replace("§", "§ "))
-    if match is None:
-        return None
-    section_parts = [part for part in match.group("section").split(".") if part]
-    if not section_parts:
-        return None
-    fragments = re.findall(r"\(([^)]+)\)", match.group("tail"))
-    return "/".join(
-        (
-            "us",
-            "regulation",
-            match.group("title"),
-            *section_parts,
-            *fragments,
-        )
-    )
-
-
-def _looks_like_corpus_citation_path(identifier: str) -> bool:
-    parts = [part for part in identifier.strip().strip("/").split("/") if part]
-    if parts and ":" in parts[0]:
-        _jurisdiction, source_root = parts[0].split(":", 1)
-        if source_root in _RULESPEC_SOURCE_ROOT_TOKENS:
-            return True
-    if len(parts) >= 2 and parts[0] in _RULESPEC_SOURCE_ROOT_TOKENS:
-        return True
-    return len(parts) >= 3 and parts[1] in {
-        "form",
-        "forms",
-        "guidance",
-        "manual",
-        "manuals",
-        "policies",
-        "policy",
-        "regulation",
-        "regulations",
-        # Federal Register instruments (proclamations, executive orders,
-        # notices) live under us/rulemaking/... in the corpus; without this
-        # token the CLI mangles such citations via citation_to_citation_path
-        # into us/statute/us/rulemaking/... and the provisions lookup fails.
-        # Validate-time source verification already resolves these paths
-        # verbatim.
-        "rulemaking",
-        "statute",
-        "statutes",
-    }
 
 
 class _ResolvedCorpusText(str):
@@ -9204,6 +9309,7 @@ def _evaluate_generated_artifact_with_repairs(
     allow_artifact_repairs: bool = True,
     axiom_compose_path: Path | None = None,
     axiom_rules_engine_ref: str | None = None,
+    repair_log: list[str] | None = None,
 ) -> EvalArtifactMetrics | None:
     evaluated_states: set[tuple[bytes | None, bytes | None]] = set()
     for _repair_round in range(_GENERATED_EVAL_REPAIR_LIMIT + 1):
@@ -9257,6 +9363,15 @@ def _evaluate_generated_artifact_with_repairs(
         )
         if not repairs:
             return metrics
+        if repair_log is not None:
+            repair_log.extend(repairs)
+
+
+def _quoted_source_scalar_repairs(repairs: Sequence[str]) -> list[str]:
+    """Return the source-text lines an eval repair quoted (`excerpt:102`)."""
+
+    prefix = "source_scalar_quote:"
+    return [repair[len(prefix) :] for repair in repairs if repair.startswith(prefix)]
 
 
 def _rebind_retained_candidate_proof_import_hashes(
@@ -9384,13 +9499,28 @@ def _apply_generated_eval_repairs(
     rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[str]:
     """Apply deterministic generated-artifact repairs before final eval scoring."""
+    cli_helpers = None
+    unquoted_colon_issue = (
+        f"{rulespec_file.name} YAML parse failed: mapping values are not allowed here"
+    )
+    if any(str(issue).startswith(unquoted_colon_issue) for issue in issues):
+        # Import lazily to avoid the startup cycle: cli imports this module.
+        from axiom_encode import cli as cli_helpers
+
+        quoted_scalars = cli_helpers._quote_unquoted_source_scalars(
+            rules_file=rulespec_file
+        )
+        print("  auto_quoted_source_scalars:" + (",".join(quoted_scalars) or "none"))
+        if quoted_scalars:
+            # Score the now-parseable artifact before a repair that reads it.
+            return [f"source_scalar_quote:{item}" for item in quoted_scalars]
+
     repairs: list[str] = []
     proof_repairs = _remove_unreferenced_proof_import_atoms(rulespec_file, issues)
     repairs.extend(f"proof_import:{name}" for name in proof_repairs)
     unused_import_repairs = _prune_unused_imports_from_file(rulespec_file, issues)
     repairs.extend(f"unused_import:{name}" for name in unused_import_repairs)
 
-    cli_helpers = None
     if any("Proof source evidence not found:" in str(issue) for issue in issues):
         # Import lazily to avoid the startup cycle: cli imports this module.
         from axiom_encode import cli as cli_helpers
@@ -10264,6 +10394,7 @@ def _run_single_eval(
     accept_valid_retry_candidate: bool = False,
     axiom_compose_path: Path | None = None,
     axiom_rules_engine_ref: str | None = None,
+    producer_review_guidance: ProducerReviewGuidance | None = None,
 ) -> EvalResult:
     if (
         accept_valid_retry_candidate
@@ -10336,6 +10467,11 @@ def _run_single_eval(
         amendment_documents=source_unit.amendment_documents,
         extra_context_paths=extra_context_paths,
         review_findings_paths=review_findings_paths,
+        **(
+            {"producer_review_guidance": producer_review_guidance}
+            if producer_review_guidance is not None
+            else {}
+        ),
         target_relative_output=target_relative_output,
         review_contract=review_contract,
     )
@@ -10619,6 +10755,7 @@ def _run_single_eval(
     )
 
     metrics = retained_candidate_metrics if retained_candidate_accepted else None
+    eval_repairs: list[str] = []
     if wrote_artifact and not retained_candidate_accepted:
         mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
         metrics = _evaluate_generated_artifact_with_repairs(
@@ -10651,7 +10788,9 @@ def _run_single_eval(
             legacy_replacement=legacy_replacement,
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=not repair_candidate_tests_only,
+            repair_log=eval_repairs,
         )
+    quoted_source_scalars = _quoted_source_scalar_repairs(eval_repairs)
     mark_encode_phase(PHASE_RECORD_RESULT)
     if overlay_validation_issue is not None and metrics is not None:
         metrics.ci_pass = False
@@ -10725,6 +10864,8 @@ def _run_single_eval(
         retry_count=retry_count,
         source_attestation=_source_metadata_attestation(source_metadata_payload),
         require_complete_source_unit=require_complete_source_unit,
+        auto_repaired_unquoted_source_scalars=quoted_source_scalars,
+        generated_output_repaired_by_encoder=bool(quoted_source_scalars),
     )
     emit_eval_result(result, response.trace)
     return result
@@ -10868,6 +11009,7 @@ def _run_single_source_eval(
     )
 
     metrics = None
+    eval_repairs: list[str] = []
     if wrote_artifact:
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
@@ -10890,7 +11032,9 @@ def _run_single_source_eval(
             protected_review_excerpts=_workspace_quoted_review_finding_excerpts(
                 workspace
             ),
+            repair_log=eval_repairs,
         )
+    quoted_source_scalars = _quoted_source_scalar_repairs(eval_repairs)
     validation_error = _eval_artifact_validation_error(
         metrics,
         require_policyengine=oracle == "policyengine",
@@ -10955,35 +11099,11 @@ def _run_single_source_eval(
         retry_count=retry_count,
         source_attestation=_source_metadata_attestation(source_metadata_payload),
         require_complete_source_unit=require_complete_source_unit,
+        auto_repaired_unquoted_source_scalars=quoted_source_scalars,
+        generated_output_repaired_by_encoder=bool(quoted_source_scalars),
     )
     emit_eval_result(result, response.trace)
     return result
-
-
-def _resolve_eval_output_path(
-    citation: str,
-    *,
-    fallback: Callable[[str], Path] | None = None,
-) -> Path:
-    """Resolve the rulespec-relative output path for an encode target.
-
-    Corpus-backed source evals pass their canonical requested citation path.
-    Citation evals may additionally pass a strict citation parser as ``fallback``.
-    Arbitrary free-text identifiers are not translated into source identities.
-    """
-    if _looks_like_corpus_citation_path(citation):
-        return _source_identifier_to_relative_rulespec_path(citation)
-    try:
-        return _source_identifier_to_relative_rulespec_path(
-            _citation_to_corpus_citation_path(citation)
-        )
-    except ValueError:
-        pass
-    if fallback is not None:
-        return fallback(citation)
-    raise ValueError(
-        f"Eval source identity is not a canonical citation path: {citation}"
-    )
 
 
 def _contained_eval_output_file(
@@ -11216,226 +11336,6 @@ def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
     return _corpus_resolver.normalize_corpus_identifier(source_unit.requested)
 
 
-def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
-    """Map a canonical source identifier to its RuleSpec artifact path.
-
-    See ``_mapped_relative_rulespec_path``. Only a rulemaking source may land
-    in the reserved ``policies/rulemaking/`` namespace: a corpus
-    ``<j>/rulemaking/...`` path, or the output's own RuleSpec name
-    ``[<j>:]policies/rulemaking/...``. Anything else that maps there (a policy,
-    form, guidance or manual source whose tail or dotted leaf starts with
-    ``rulemaking``, in any letter case) would overwrite a rulemaking output
-    and is refused.
-    """
-    relative = _mapped_relative_rulespec_path(source_id)
-    out = relative.parts
-    if (
-        len(out) >= 3
-        and out[0] == _RULEMAKING_OUTPUT_ROOT
-        and out[1].casefold() == _RULEMAKING_SOURCE_TOKEN
-        and not _names_rulemaking_output(source_id)
-    ):
-        raise ValueError(
-            "Source collides with the reserved rulemaking output namespace: "
-            f"{source_id!r}"
-        )
-    return relative
-
-
-def _names_rulemaking_output(source_id: str) -> bool:
-    """Whether ``source_id`` is a rulemaking source or its output's own name."""
-    parts = [part for part in source_id.strip().strip("/").split("/") if part]
-    if len(parts) < 3 or parts[1] != _RULEMAKING_SOURCE_TOKEN:
-        return False
-    head = parts[0]
-    if ":" in head:
-        # RuleSpec form: only the policies root names the rulemaking output.
-        return head.split(":", 1)[1] in {"policies", "policy"}
-    if head in _RULESPEC_SOURCE_ROOT_TOKENS:
-        return head in {"policies", "policy"}
-    # Corpus form <jurisdiction>/rulemaking/...
-    return True
-
-
-def _mapped_relative_rulespec_path(source_id: str) -> Path:
-    """Map a canonical source identifier to its RuleSpec artifact path.
-
-    Unicode dash punctuation is normalized only in the returned filesystem
-    path; the authoritative source identifier remains unchanged. Each path
-    segment is treated as a directory and a dot inside the leaf segment is
-    treated as a further nesting separator (CDSS-style numbering like
-    ``63-503.132`` becomes ``63-503/132``). This avoids the pathlib
-    ``with_suffix`` pitfall where a dotted leaf would be silently truncated
-    to a section-level path and collide with sibling subsections at apply
-    time (issue #71).
-    """
-    parts = [
-        normalize_rulespec_path_segment(part)
-        for part in source_id.strip().strip("/").split("/")
-        if part
-    ]
-    if any(part in {".", ".."} for part in parts):
-        raise ValueError(
-            f"Unsafe RuleSpec path component in source identifier: {source_id!r}"
-        )
-    if parts and ":" in parts[0]:
-        jurisdiction, source_root = parts[0].split(":", 1)
-        if source_root in _RULESPEC_SOURCE_ROOT_TOKENS:
-            tail = parts[1:]
-            root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(source_root, source_root)
-            tail = _expand_louisiana_title_section_tail(jurisdiction, root, tail)
-            if (
-                tail
-                and jurisdiction == "us"
-                and source_root
-                in {
-                    "regulation",
-                    "regulations",
-                }
-            ):
-                tail = _canonical_us_regulation_tail(tail)
-            if tail and jurisdiction == "uk":
-                tail = _canonical_uk_legislation_tail(tail)
-            if tail:
-                if _preserve_state_statute_dotted_leaf(jurisdiction, root, tail):
-                    return Path(root) / Path(*tail[:-1]) / f"{tail[-1]}.yaml"
-                return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
-    if len(parts) >= 2 and parts[0] in _RULESPEC_SOURCE_ROOT_TOKENS:
-        tail = parts[1:]
-        if tail:
-            root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[0], parts[0])
-            if tail and tail[0] == _UK_LEGISLATION_DOMAIN_TOKEN:
-                tail = _canonical_uk_legislation_tail(tail)
-            return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
-    if len(parts) >= 3 and parts[1] == _RULEMAKING_SOURCE_TOKEN:
-        return Path(_RULEMAKING_OUTPUT_ROOT) / _dotted_leaf_to_nested_yaml_path(
-            [_RULEMAKING_SOURCE_TOKEN, *parts[2:]]
-        )
-    if len(parts) >= 3:
-        root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[1])
-        if root is not None:
-            tail = parts[2:]
-            tail = _expand_louisiana_title_section_tail(parts[0], root, tail)
-            if parts[0] == "us" and parts[1] in {"regulation", "regulations"}:
-                tail = _canonical_us_regulation_tail(tail)
-            if parts[0] == "uk":
-                tail = _canonical_uk_legislation_tail(tail)
-            if tail:
-                if _preserve_state_statute_dotted_leaf(parts[0], root, tail):
-                    return Path(root) / Path(*tail[:-1]) / f"{tail[-1]}.yaml"
-                return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
-    raise ValueError(f"Unsupported canonical source identifier: {source_id!r}")
-
-
-def _expand_louisiana_title_section_tail(
-    jurisdiction: str,
-    root: str,
-    tail: list[str],
-) -> list[str]:
-    """Expand Louisiana statute ``title:section`` labels into path components."""
-
-    if jurisdiction != "us-la" or root != "statutes" or not tail:
-        return tail
-    if any(
-        not component
-        or component.startswith(".")
-        or component.endswith(".")
-        or ".." in component
-        for component in tail
-    ):
-        raise ValueError(f"Invalid Louisiana statute path: {tail!r}")
-    title_section = tail[0]
-    if any(":" in component for component in tail[1:]):
-        raise ValueError(f"Invalid Louisiana statute path: {tail!r}")
-    if ":" not in title_section:
-        return tail
-    components = title_section.split(":")
-    expanded = [*components, *tail[1:]]
-    if len(components) != 2 or any(
-        not component
-        or component.startswith(".")
-        or component.endswith(".")
-        or ".." in component
-        for component in expanded
-    ):
-        raise ValueError(
-            f"Invalid Louisiana title:section statute segment: {title_section!r}"
-        )
-    return expanded
-
-
-def _dotted_leaf_to_nested_yaml_path(tail: list[str]) -> Path:
-    """Join tail segments, splitting the leaf on ``.`` into further nesting.
-
-    ``["mpp", "63-503"]`` → ``mpp/63-503.yaml``
-    ``["mpp", "63-503.132"]`` → ``mpp/63-503/132.yaml``
-    ``["mpp", "63-503.131.a"]`` → ``mpp/63-503/131/a.yaml``
-    ``["10-ccr-2506-1", "4.207.2"]`` → ``10-ccr-2506-1/4.207.2.yaml``
-    """
-    if _preserve_dotted_leaf_filename(tail):
-        return Path(*tail[:-1]) / f"{tail[-1]}.yaml"
-    leaf_segments = tail[-1].split(".")
-    directory_parts = list(tail[:-1]) + leaf_segments[:-1]
-    leaf_file = f"{leaf_segments[-1]}.yaml"
-    if directory_parts:
-        return Path(*directory_parts) / leaf_file
-    return Path(leaf_file)
-
-
-def _preserve_dotted_leaf_filename(tail: list[str]) -> bool:
-    """Return true for source families whose dotted section is the file stem."""
-    if len(tail) < 2:
-        return False
-    return bool(
-        re.fullmatch(r"\d+-ccr-\d+-\d+", tail[0], flags=re.IGNORECASE)
-        and re.fullmatch(r"\d+(?:\.\d+)+", tail[-1])
-    )
-
-
-def _preserve_state_statute_dotted_leaf(
-    jurisdiction: str,
-    root: str,
-    tail: list[str],
-) -> bool:
-    """Return true when a dotted state statute segment is a legal citation label."""
-    if jurisdiction != "us-co" or root != "statutes" or len(tail) < 2:
-        return False
-    if len(tail) == 2 and tail[0].isdigit():
-        # C.R.S. section labels are structured by hyphens as
-        # title-article-section. Dots are part of any one of those three
-        # segments, never subsection separators.
-        crs_segments = tail[-1].split("-")
-        return len(crs_segments) == 3 and all(
-            re.fullmatch(r"\d+(?:\.\d+)*", segment) for segment in crs_segments
-        )
-    if not re.fullmatch(r"\d+(?:\.\d+)+", tail[-1]):
-        return False
-    return bool(re.fullmatch(r"\d+(?:-\d+)+(?:\.\d+)?", tail[-2]))
-
-
-def _canonical_us_regulation_tail(tail: list[str]) -> list[str]:
-    """Map federal regulation corpus paths to canonical RuleSpec repo paths."""
-    if not tail:
-        return tail
-    title = tail[0].strip()
-    if title.isdigit():
-        return [f"{title}-cfr", *tail[1:]]
-    return tail
-
-
-def _canonical_uk_legislation_tail(tail: list[str]) -> list[str]:
-    """Map official legislation.gov.uk corpus paths to canonical UK RuleSpec paths."""
-    normalized = list(tail)
-    if normalized and normalized[0] == _UK_LEGISLATION_DOMAIN_TOKEN:
-        normalized = normalized[1:]
-    if (
-        len(normalized) >= 2
-        and normalized[-2].lower() in _UK_LEGISLATION_SECTION_TOKENS
-    ):
-        normalized = [*normalized[:-2], normalized[-1]]
-    return normalized
-
-
 def _canonical_target_ref_prefix(
     source_id: str,
     relative_path: Path,
@@ -11556,7 +11456,40 @@ def _complete_source_deferral_anchor(corpus_citation_path: str | None) -> str:
         anchors = _deferral_anchor_bases(corpus_citation_path)
     except Exception:  # pragma: no cover - guidance must never block a prompt
         return "<module path>"
-    return anchors[-1] if anchors else "<module path>"
+    if not anchors:
+        return "<module path>"
+    anchor = anchors[-1]
+    if not _is_manual_or_form_unit(corpus_citation_path):
+        return anchor
+    # A manual or form unit's corpus-shaped anchor (`us-az:manuals/...`) is no
+    # RuleSpec module root, and the target check refuses any output under it.
+    # Name the module's own target (`us-az:policies/...`) instead.
+    try:
+        relative = _source_identifier_to_relative_rulespec_path(corpus_citation_path)
+    except ValueError:
+        return anchor
+    jurisdiction = corpus_citation_path.strip("/").split("/", 1)[0]
+    return f"{jurisdiction}:{relative.with_suffix('').as_posix()}"
+
+
+def _is_manual_or_form_unit(corpus_citation_path: str | None) -> bool:
+    """Whether a corpus unit is a manual or form, encoded under `policies/`."""
+
+    parts = (corpus_citation_path or "").strip("/").split("/")
+    return len(parts) >= 3 and parts[1] in {"manual", "form"}
+
+
+def _unmarked_prose_deferral_note(corpus_citation_path: str | None) -> str:
+    """Tell a manual or form unit not to invent branch markers from prose."""
+
+    if not _is_manual_or_form_unit(corpus_citation_path):
+        return ""
+    anchor = _complete_source_deferral_anchor(corpus_citation_path)
+    return f"""- A manual or form paragraph without a printed marker is not a branch.
+  Defer its output at the module's own target `{anchor}#<name>` and quote its
+  source sentence and missing value in `reason`; never invent a marker from
+  its words, such as `/private-vehicles`.
+"""
 
 
 # Typed completeness checks whose declared fix offers "encode or defer" (or
@@ -12048,12 +11981,30 @@ def _build_rulespec_eval_prompt(
             "inline source and any inline context copies in this prompt.\n"
         )
     scaffold_dates = _collect_scaffold_dates(workspace, context_files)
+    # The start-date rule for a date-silent unit (#2212) covers corpus manual
+    # units without amendment context only, the scope of its check. Every
+    # other prompt keeps the earlier text byte for byte.
+    manual_start_date_rule = (
+        is_manual_citation(corpus_citation_path or citation)
+        and not workspace.amendment_documents
+    )
     scaffold_dates_section = ""
     if scaffold_dates:
+        scaffold_dates_note = (
+            "These dates belong to the copied files. A date copied from a "
+            "precedent or a sibling module is not evidence of this source "
+            "unit's own start date: do not write one into `effective_from` "
+            "because a neighbouring module carries it. When `./source.txt` "
+            "prints no effective date, follow the start-date rule for a "
+            "date-silent unit."
+            if manual_start_date_rule
+            else "Prefer the earliest scaffold date that is relevant to the "
+            "copied precedent when `./source.txt` lacks its own effective date."
+        )
         scaffold_dates_section = f"""
 Temporal scaffold dates visible in copied context:
 {", ".join(f"`{item}`" for item in scaffold_dates)}
-Prefer the earliest scaffold date that is relevant to the copied precedent when `./source.txt` lacks its own effective date.
+{scaffold_dates_note}
 """
 
     source_metadata_section = ""
@@ -12539,6 +12490,16 @@ Return ONLY raw RuleSpec YAML for `{target_file_name}`. Do not include fences or
                 rulespec_context_files,
             )
         )
+        # The start-date rule for a date-silent manual unit (#2212) puts every
+        # companion period on or after the chosen start, which can follow the
+        # example oracle periods. Other prompts keep the earlier text.
+        oracle_period_start_note = (
+            "\n  When the start-date rule for a date-silent unit applies, it "
+            "comes first: keep every such period on or after the start date "
+            "you choose, also when that start is later than these examples."
+            if manual_start_date_rule
+            else ""
+        )
         target_hint = f"""
 Preferred principal output:
 - Treat the PolicyEngine hint as an oracle-semantic hint, not as a license to
@@ -12597,7 +12558,7 @@ Preferred principal output:
   intended to supply PolicyEngine oracle evidence. Never replace or omit a
   source-required historical branch merely to make it oracle-comparable; keep
   its companion case at the legally applicable period even when it cannot
-  contribute oracle evidence.
+  contribute oracle evidence.{oracle_period_start_note}
 - If that output has a durable `jurisdiction:path#rule` id, key the test by that id rather than the friendly local name.
 - Key inputs by their resolving legal RuleSpec target too, e.g. `jurisdiction:path#input.fact`, `jurisdiction:path#relation.name`, or `jurisdiction:path#upstream_rule`.
 - If a copied downstream output with the oracle hint's local name is available, assert that canonical copied output rather than replacing it with a helper-only local test.
@@ -12608,7 +12569,23 @@ Preferred principal output:
         guidance_parts.append(render_rate_only_source_boundary_guidance())
     if _is_single_amount_table_slice(source_text):
         guidance_parts.append(render_single_amount_row_guidance())
-    if (
+    if manual_start_date_rule:
+        if not re.search(r"\b\d{4}-\d{2}-\d{2}\b", source_text):
+            guidance_parts.append(
+                render_date_silent_scaffold_guidance(precedent_dates=False)
+            )
+        start_date_evidence = start_date_evidence_from_metadata(
+            workspace.source_metadata
+        )
+        guidance_parts.append(
+            render_date_silent_start_guidance(
+                source_as_of=start_date_evidence.source_as_of,
+                expression_date=start_date_evidence.expression_date,
+                evidence_floor=start_date_evidence.evidence_floor,
+                preferred_start=start_date_evidence.preferred_start,
+            )
+        )
+    elif (
         not re.search(r"\b\d{4}-\d{2}-\d{2}\b", source_text)
         and not scaffold_dates
         and not workspace.amendment_documents
@@ -12743,6 +12720,7 @@ Complete-source-unit mode is enabled for this request:
   Never guess a blocker target.
 """
             + _format_branch_coverage_plan(deferral_anchor)
+            + _unmarked_prose_deferral_note(corpus_citation_path)
             + """- A child-branch `source:` citation does not cover a distinct parent chapeau.
   When a parent chapeau states applicability, temporal scope, or a shared
   computation, bind one consuming executable rule to that exact parent path

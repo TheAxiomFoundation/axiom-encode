@@ -1509,7 +1509,10 @@ def test_repair_candidate_overlay_normalizes_destination_root_deferrals(tmp_path
 
 
 def test_run_model_eval_appends_repair_parameters_after_existing_public_parameters():
-    parameters = list(inspect.signature(run_model_eval).parameters)
+    signature = inspect.signature(run_model_eval)
+    parameters = list(signature.parameters)
+    assert parameters.pop() == "producer_review_guidance"
+    assert signature.parameters["producer_review_guidance"].default is None
 
     assert parameters[-8:-1] == [
         "required_import_targets",
@@ -3255,6 +3258,515 @@ def test_model_eval_uses_output_override_for_prompt_and_artifact_path(tmp_path):
     assert mock_prompt.call_args.kwargs["target_ref_prefix"] == (
         "us-nc:policies/income_tax/pilot_liability_pipeline"
     )
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "expected_quotes"),
+    (
+        ("az_faa5_medical_block13_run2b708c06_rejected.yaml", ["excerpt:102"]),
+        (None, []),
+    ),
+)
+def test_model_eval_records_encoder_quoted_source_scalars(
+    fixture_name, expected_quotes, tmp_path
+):
+    corpus_release, _source_unit = _write_test_source_unit(
+        tmp_path,
+        "Authoritative source.",
+        citation_path="us-nc/statute/105/105-153.7",
+    )
+    policy_root = _canonical_rulespec_content_root(tmp_path, "us-nc")
+    target_relative = Path("policies/des/block-13.yaml")
+    original = (
+        (
+            Path(__file__).parent / "fixtures" / "generated_yaml_scanner" / fixture_name
+        ).read_text()
+        if fixture_name
+        else "format: rulespec/v1\nrules: []\n"
+    )
+
+    def generate(**kwargs):
+        output_file = kwargs["output_file"]
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(original)
+        return (
+            EvalPromptResponse(text="generated", duration_ms=1),
+            True,
+            0,
+            frozenset({output_file}),
+        )
+
+    def evaluate(**kwargs):
+        rulespec_file = kwargs["rulespec_file"]
+        try:
+            yaml.safe_load(rulespec_file.read_text())
+        except yaml.YAMLError as exc:
+            issues = [f"{rulespec_file.name} YAML parse failed: {exc}"]
+        else:
+            issues = []
+        return EvalArtifactMetrics(
+            compile_pass=not issues,
+            compile_issues=list(issues),
+            ci_pass=not issues,
+            ci_issues=list(issues),
+            embedded_source_present=False,
+            grounded_numeric_count=0,
+            ungrounded_numeric_count=0,
+            grounding=[],
+        )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval_with_empty_artifact_retry",
+            side_effect=generate,
+        ),
+        patch("axiom_encode.harness.evals.evaluate_artifact", side_effect=evaluate),
+    ):
+        result = run_model_eval(
+            citations=["us-nc/statute/105/105-153.7"],
+            runner_specs=["openai:model-a"],
+            output_root=tmp_path / "out",
+            policy_path=policy_root,
+            runtime_axiom_rules_path=tmp_path / "engine",
+            corpus_release=corpus_release,
+            mode="repo-augmented",
+            target_relative_output=target_relative,
+        )[0]
+
+    assert result.success is True
+    assert result.auto_repaired_unquoted_source_scalars == expected_quotes
+    assert result.generated_output_repaired_by_encoder is bool(expected_quotes)
+    written = Path(result.output_file).read_bytes()
+    # The digest is of the bytes on disk, which the encoder changed.
+    assert result.generated_output_sha256 == hashlib.sha256(written).hexdigest()
+    assert (written != original.encode()) is bool(expected_quotes)
+    payload = result.to_dict()
+    restored = _eval_result_from_payload(payload)
+    assert restored.auto_repaired_unquoted_source_scalars == expected_quotes
+    assert restored.generated_output_repaired_by_encoder is bool(expected_quotes)
+    if expected_quotes:
+        assert payload["auto_repaired_unquoted_source_scalars"] == expected_quotes
+        assert payload["generated_output_repaired_by_encoder"] is True
+    else:
+        # Results without a repair keep their former payload and digest.
+        assert "auto_repaired_unquoted_source_scalars" not in payload
+        assert "generated_output_repaired_by_encoder" not in payload
+
+
+_QUOTE_REPAIR_SUITE_FIXTURE = (
+    Path(__file__).parent
+    / "fixtures"
+    / "generated_yaml_scanner"
+    / "az_faa5_medical_block13_run2b708c06_rejected.yaml"
+)
+# The `generation` section of signed verdict evidence before the quote-repair
+# record existed. A result without the record must sign exactly these keys.
+_VERDICT_GENERATION_KEYS_BEFORE_QUOTE_REPAIR_RECORD = {
+    "duration_ms",
+    "generation_prompt_sha256",
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_creation_tokens",
+    "reasoning_output_tokens",
+    "estimated_cost_usd",
+    "actual_cost_usd",
+    "retry_count",
+    "retrieved_files",
+    "unexpected_accesses",
+}
+
+
+def _yaml_parse_only_metrics(**kwargs) -> EvalArtifactMetrics:
+    """Score one artifact on its YAML parse alone, as the preflight words it."""
+
+    rulespec_file = kwargs["rulespec_file"]
+    try:
+        yaml.safe_load(rulespec_file.read_text())
+    except yaml.YAMLError as exc:
+        issues = [f"{rulespec_file.name} YAML parse failed: {exc}"]
+    else:
+        issues = []
+    return EvalArtifactMetrics(
+        compile_pass=not issues,
+        compile_issues=list(issues),
+        ci_pass=not issues,
+        ci_issues=list(issues),
+        embedded_source_present=False,
+        grounded_numeric_count=0,
+        ungrounded_numeric_count=0,
+        grounding=[],
+    )
+
+
+def _quote_repair_eval_suite(tmp_path: Path, *, needs_repair: bool = True):
+    """Persist one signed suite result through the real eval-time repair.
+
+    Returns the result, the suite output root and a callable that resumes the
+    suite through normal admission without a new generation.
+    """
+
+    generated = (
+        _QUOTE_REPAIR_SUITE_FIXTURE.read_text()
+        if needs_repair
+        else "format: rulespec/v1\nrules: []\n"
+    )
+    output_root = tmp_path / "out"
+    run_kwargs = {
+        "manifest": EvalSuiteManifest(
+            name="Quote repair suite",
+            path=tmp_path / "suite.yaml",
+            runners=["openai:gpt-5.4"],
+            mode="cold",
+            allow_context=[],
+            gates=EvalReadinessGates(),
+            cases=[
+                EvalSuiteCase(
+                    kind="citation",
+                    name="quote-repair",
+                    mode="cold",
+                    citation="us/statute/7/2017",
+                )
+            ],
+        ),
+        "output_root": output_root,
+        "axiom_rules_path": tmp_path / "axiom-rules-engine",
+        "policy_repo_path": _canonical_rulespec_content_root(tmp_path, "us").parent,
+        "corpus_release": _write_test_corpus_provision(tmp_path),
+    }
+
+    def generate(**kwargs):
+        output_file = kwargs["output_file"]
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(generated)
+        return (
+            EvalPromptResponse(text="generated", duration_ms=1),
+            True,
+            0,
+            frozenset({output_file}),
+        )
+
+    def run(*, resume: bool) -> list[EvalResult]:
+        with (
+            patch(
+                "axiom_encode.harness.evals._run_prompt_eval_with_empty_artifact_retry",
+                side_effect=(
+                    AssertionError("resume must keep the completed generation")
+                    if resume
+                    else generate
+                ),
+            ),
+            patch(
+                "axiom_encode.harness.evals.evaluate_artifact",
+                side_effect=_yaml_parse_only_metrics,
+            ),
+        ):
+            return run_eval_suite(**run_kwargs, resume_existing=resume)
+
+    [result] = run(resume=False)
+    return result, output_root, lambda: run(resume=True)
+
+
+def test_quote_repair_record_covers_one_invocation_not_the_retained_file(tmp_path):
+    """A retry that keeps the repaired main file starts with an empty record.
+
+    The record names this invocation's edits. It is not the file's history:
+    the kept file still holds the quotes that the first attempt added.
+    """
+
+    corpus_release, _source_unit = _write_test_source_unit(
+        tmp_path,
+        "Authoritative source.",
+        citation_path="us-nc/statute/105/105-153.7",
+    )
+    run_kwargs = {
+        "citations": ["us-nc/statute/105/105-153.7"],
+        "runner_specs": ["openai:model-a"],
+        "policy_path": _canonical_rulespec_content_root(tmp_path, "us-nc"),
+        "runtime_axiom_rules_path": tmp_path / "engine",
+        "corpus_release": corpus_release,
+        "mode": "repo-augmented",
+        "target_relative_output": Path("policies/des/block-13.yaml"),
+    }
+
+    def generate(**kwargs):
+        output_file = kwargs["output_file"]
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(_QUOTE_REPAIR_SUITE_FIXTURE.read_text())
+        return (
+            EvalPromptResponse(text="generated", duration_ms=1),
+            True,
+            0,
+            frozenset({output_file}),
+        )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval_with_empty_artifact_retry",
+            side_effect=generate,
+        ),
+        patch(
+            "axiom_encode.harness.evals.evaluate_artifact",
+            side_effect=_yaml_parse_only_metrics,
+        ),
+    ):
+        [first] = run_model_eval(output_root=tmp_path / "first", **run_kwargs)
+    repaired = Path(first.output_file).read_bytes()
+    assert first.auto_repaired_unquoted_source_scalars == ["excerpt:102"]
+    assert first.generated_output_repaired_by_encoder is True
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval_with_empty_artifact_retry",
+            side_effect=AssertionError("an accepted candidate needs no generation"),
+        ),
+        patch(
+            "axiom_encode.harness.evals.evaluate_artifact",
+            side_effect=_yaml_parse_only_metrics,
+        ),
+    ):
+        [retry] = run_model_eval(
+            output_root=tmp_path / "retry",
+            validation_retry_candidate=ValidationRetryCandidate(
+                rulespec=repaired.decode("utf-8"),
+                tests="[]\n",
+            ),
+            accept_valid_retry_candidate=True,
+            **run_kwargs,
+        )
+
+    assert retry.success is True
+    assert Path(retry.output_file).read_bytes() == repaired
+    assert retry.generated_output_sha256 == first.generated_output_sha256
+    assert retry.auto_repaired_unquoted_source_scalars == []
+    assert retry.generated_output_repaired_by_encoder is False
+    payload = retry.to_dict()
+    assert "auto_repaired_unquoted_source_scalars" not in payload
+    assert "generated_output_repaired_by_encoder" not in payload
+
+
+def _rehash_quote_repair_suite_row(output_root: Path, mutate) -> None:
+    """Edit the persisted result and recompute its public `result_sha256`."""
+
+    ledger_path = output_root / "suite-results.jsonl"
+    row = json.loads(ledger_path.read_text())
+    mutate(row["result"])
+    row["result"] = _bind_eval_result_payload(row["result"])
+    ledger_path.write_text(json.dumps(row, sort_keys=True) + "\n")
+
+
+def test_eval_suite_signs_the_encoder_quote_repair_record(tmp_path):
+    result, output_root, resume = _quote_repair_eval_suite(tmp_path)
+
+    assert result.success is True
+    assert result.auto_repaired_unquoted_source_scalars == ["excerpt:102"]
+    assert result.generated_output_repaired_by_encoder is True
+    ledger = json.loads((output_root / "suite-results.jsonl").read_text())
+    assert ledger["result"]["auto_repaired_unquoted_source_scalars"] == ["excerpt:102"]
+    assert ledger["result"]["generated_output_repaired_by_encoder"] is True
+    signed = json.loads(Path(result.verdict_file).read_text())
+    assert signed["schema"] == "axiom-encode/eval-result-verdict/v6"
+    assert signed["generation"]["auto_repaired_unquoted_source_scalars"] == [
+        "excerpt:102"
+    ]
+    assert signed["generation"]["generated_output_repaired_by_encoder"] is True
+    assert set(signed["generation"]) == (
+        _VERDICT_GENERATION_KEYS_BEFORE_QUOTE_REPAIR_RECORD
+        | {
+            "auto_repaired_unquoted_source_scalars",
+            "generated_output_repaired_by_encoder",
+        }
+    )
+
+    [resumed] = resume()
+
+    assert resumed.to_dict() == result.to_dict()
+
+
+def test_eval_suite_result_without_a_quote_repair_keeps_its_signed_shape(tmp_path):
+    result, output_root, resume = _quote_repair_eval_suite(tmp_path, needs_repair=False)
+
+    assert result.success is True
+    ledger = json.loads((output_root / "suite-results.jsonl").read_text())
+    assert "auto_repaired_unquoted_source_scalars" not in ledger["result"]
+    assert "generated_output_repaired_by_encoder" not in ledger["result"]
+    signed = json.loads(Path(result.verdict_file).read_text())
+    assert signed["schema"] == "axiom-encode/eval-result-verdict/v6"
+    # Evidence signed before the record existed has exactly these keys, so a
+    # former signature still verifies against the payload rebuilt today.
+    assert set(signed["generation"]) == (
+        _VERDICT_GENERATION_KEYS_BEFORE_QUOTE_REPAIR_RECORD
+    )
+
+    [resumed] = resume()
+
+    assert resumed.to_dict() == result.to_dict()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    (
+        # Each edit also recomputes the public `result_sha256`.
+        (
+            lambda payload: (
+                payload.pop("auto_repaired_unquoted_source_scalars"),
+                payload.pop("generated_output_repaired_by_encoder"),
+            ),
+            "authenticated generation",
+        ),
+        (
+            lambda payload: payload.update(
+                auto_repaired_unquoted_source_scalars=["excerpt:103"]
+            ),
+            "authenticated generation",
+        ),
+        (
+            lambda payload: payload.update(
+                auto_repaired_unquoted_source_scalars=["excerpt:102", "excerpt:106"]
+            ),
+            "authenticated generation",
+        ),
+        (
+            lambda payload: payload.pop("auto_repaired_unquoted_source_scalars"),
+            "inconsistent encoder quote-repair record",
+        ),
+        (
+            lambda payload: payload.pop("generated_output_repaired_by_encoder"),
+            "inconsistent encoder quote-repair record",
+        ),
+        (
+            lambda payload: payload.update(generated_output_repaired_by_encoder=False),
+            "inconsistent encoder quote-repair record",
+        ),
+        (
+            lambda payload: payload.update(auto_repaired_unquoted_source_scalars=[]),
+            "inconsistent encoder quote-repair record",
+        ),
+    ),
+    ids=(
+        "delete-both",
+        "change-line",
+        "add-line",
+        "delete-lines",
+        "delete-flag",
+        "flag-false",
+        "lines-empty",
+    ),
+)
+def test_eval_suite_resume_rejects_a_rehashed_quote_repair_record(
+    mutation, expected_error, tmp_path
+):
+    _result, output_root, resume = _quote_repair_eval_suite(tmp_path)
+    _rehash_quote_repair_suite_row(output_root, mutation)
+
+    with pytest.raises(ValueError, match=expected_error):
+        resume()
+
+
+def test_eval_suite_resume_rejects_a_quote_repair_record_added_after_signing(
+    tmp_path,
+):
+    _result, output_root, resume = _quote_repair_eval_suite(
+        tmp_path, needs_repair=False
+    )
+    _rehash_quote_repair_suite_row(
+        output_root,
+        lambda payload: payload.update(
+            auto_repaired_unquoted_source_scalars=["excerpt:102"],
+            generated_output_repaired_by_encoder=True,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="authenticated generation"):
+        resume()
+
+
+@pytest.mark.parametrize(
+    "record",
+    (
+        {"auto_repaired_unquoted_source_scalars": ["excerpt:102"]},
+        {"generated_output_repaired_by_encoder": True},
+        {
+            "auto_repaired_unquoted_source_scalars": [],
+            "generated_output_repaired_by_encoder": True,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": ["excerpt:102"],
+            "generated_output_repaired_by_encoder": False,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": ["excerpt:102"],
+            "generated_output_repaired_by_encoder": "true",
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": ["excerpt:102"],
+            "generated_output_repaired_by_encoder": 1,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": "excerpt:102",
+            "generated_output_repaired_by_encoder": True,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": [102],
+            "generated_output_repaired_by_encoder": True,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": ["header:3"],
+            "generated_output_repaired_by_encoder": True,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": ["excerpt:0"],
+            "generated_output_repaired_by_encoder": True,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": ["excerpt:102\n"],
+            "generated_output_repaired_by_encoder": True,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": None,
+            "generated_output_repaired_by_encoder": None,
+        },
+    ),
+)
+def test_persisted_eval_result_rejects_a_malformed_quote_repair_record(record):
+    payload = _fake_eval_result("runner", "citation").to_dict()
+    payload.pop("result_sha256")
+    payload.update(record)
+
+    with pytest.raises(ValueError, match="inconsistent encoder quote-repair record"):
+        _eval_result_from_payload(_bind_eval_result_payload(payload))
+
+
+def test_persisted_quote_repair_record_requires_a_generated_rulespec():
+    payload = _fake_eval_result("runner", "citation").to_dict()
+    payload.pop("result_sha256")
+    payload.update(
+        success=False,
+        error="No RuleSpec content returned",
+        failure_kind="error",
+        metrics=None,
+        output_file="",
+        generated_output_sha256=None,
+        auto_repaired_unquoted_source_scalars=["excerpt:102"],
+        generated_output_repaired_by_encoder=True,
+    )
+
+    with pytest.raises(ValueError, match="inconsistent encoder quote-repair record"):
+        _eval_result_from_payload(_bind_eval_result_payload(payload))
+
+
+@pytest.mark.parametrize(
+    ("lines", "flag"),
+    ((["excerpt:102"], False), ([], True), (["header:3"], True)),
+)
+def test_verdict_evidence_refuses_an_inconsistent_quote_repair_record(lines, flag):
+    result = _fake_eval_result("runner", "citation")
+    result.admission = {"schema": "test-admission"}
+    result.auto_repaired_unquoted_source_scalars = lines
+    result.generated_output_repaired_by_encoder = flag
+
+    with pytest.raises(ValueError, match="inconsistent encoder quote-repair record"):
+        evals_module._eval_result_verdict_evidence_payload(result, result.admission)
 
 
 def test_model_eval_marks_each_encode_try_phase_in_order(tmp_path):
@@ -9899,6 +10411,130 @@ rules: []
             call.kwargs["protected_review_excerpts"] == protected_review_excerpts
             for call in mock_repair.call_args_list
         )
+
+    # Run 2b708c06 (encoder 0.2.2371) recorded this issue for its candidate.
+    _TRAILING_COLON_PARSE_ISSUE = (
+        "block-13.yaml YAML parse failed: mapping values are not allowed here\n"
+        '  in "<unicode string>", line 102, column 128:\n'
+        "     ... ll of the following requirements:\n"
+        "                                         ^"
+    )
+    _TRAILING_COLON_FIXTURE = (
+        Path(__file__).parent
+        / "fixtures"
+        / "generated_yaml_scanner"
+        / "az_faa5_medical_block13_run2b708c06_rejected.yaml"
+    )
+
+    def test_generated_eval_repairs_quote_a_trailing_colon_excerpt(self, tmp_path):
+        rulespec_file = tmp_path / "block-13.yaml"
+        original = self._TRAILING_COLON_FIXTURE.read_text()
+        rulespec_file.write_text(original)
+
+        repairs = evals_module._apply_generated_eval_repairs(
+            rulespec_file=rulespec_file,
+            policy_repo_root=tmp_path / "rulespec-us",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            issues=[self._TRAILING_COLON_PARSE_ISSUE],
+            local_corpus_release=object(),
+        )
+
+        assert repairs == ["source_scalar_quote:excerpt:102"]
+        repaired = rulespec_file.read_text()
+        assert repaired == original.replace(
+            "excerpt: Discuss and document the case file(g) whether the service "
+            "animal meets all of the following requirements:\n",
+            "excerpt: 'Discuss and document the case file(g) whether the service "
+            "animal meets all of the following requirements:'\n",
+        )
+        assert yaml.safe_load(repaired)["format"] == "rulespec/v1"
+
+    @pytest.mark.parametrize(
+        "issue",
+        (
+            # The parse issue of another file, here the companion tests.
+            _TRAILING_COLON_PARSE_ISSUE.replace("block-13.yaml", "block-13.test.yaml"),
+            # Another parse problem.
+            "block-13.yaml YAML parse failed: found duplicate key 'rules'",
+        ),
+    )
+    def test_generated_eval_repairs_quote_only_for_the_rulespec_colon_issue(
+        self, issue, tmp_path
+    ):
+        rulespec_file = tmp_path / "block-13.yaml"
+        original = self._TRAILING_COLON_FIXTURE.read_text()
+        rulespec_file.write_text(original)
+
+        repairs = evals_module._apply_generated_eval_repairs(
+            rulespec_file=rulespec_file,
+            policy_repo_root=tmp_path / "rulespec-us",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            issues=[issue],
+            local_corpus_release=object(),
+        )
+
+        assert repairs == []
+        assert rulespec_file.read_text() == original
+
+    def test_generated_eval_repairs_leave_a_refused_colon_line_unchanged(
+        self, tmp_path
+    ):
+        rulespec_file = tmp_path / "block-13.yaml"
+        original = "format: rulespec/v1\nrules:\n  - header: The tax is:\n"
+        rulespec_file.write_text(original)
+
+        repairs = evals_module._apply_generated_eval_repairs(
+            rulespec_file=rulespec_file,
+            policy_repo_root=tmp_path / "rulespec-us",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            issues=[
+                "block-13.yaml YAML parse failed: mapping values are not "
+                'allowed here\n  in "<unicode string>", line 3, column 25:'
+            ],
+            local_corpus_release=object(),
+        )
+
+        assert repairs == []
+        assert rulespec_file.read_text() == original
+
+    def test_generated_eval_rescores_after_quoting_a_trailing_colon_excerpt(
+        self, tmp_path
+    ):
+        rulespec_file = tmp_path / "block-13.yaml"
+        rulespec_file.write_text(self._TRAILING_COLON_FIXTURE.read_text())
+        rejected = SimpleNamespace(
+            compile_pass=False,
+            compile_issues=[self._TRAILING_COLON_PARSE_ISSUE],
+            ci_pass=False,
+            ci_issues=[self._TRAILING_COLON_PARSE_ISSUE],
+        )
+        parsed = SimpleNamespace(
+            compile_pass=True, compile_issues=[], ci_pass=True, ci_issues=[]
+        )
+        seen_parseable = []
+
+        def evaluate(**kwargs):
+            try:
+                yaml.safe_load(kwargs["rulespec_file"].read_text())
+            except yaml.YAMLError:
+                seen_parseable.append(False)
+                return rejected
+            seen_parseable.append(True)
+            return parsed
+
+        with patch(
+            "axiom_encode.harness.evals.evaluate_artifact", side_effect=evaluate
+        ):
+            result = _evaluate_generated_artifact_with_repairs(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path / "rulespec-us",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                source_text="Source body",
+                local_corpus_release=object(),
+            )
+
+        assert result is parsed
+        assert seen_parseable == [False, True]
 
     def test_generated_eval_repair_rounds_are_bounded(self, tmp_path):
         rulespec_file = tmp_path / "artifact.yaml"
