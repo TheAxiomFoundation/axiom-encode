@@ -2552,6 +2552,8 @@ OTHER_RUN = f"https://github.com/{REPO}/actions/runs/{GROUP_RUN}"
         ({"details_url": OTHER_RUN.replace(NAME, "rulespec-uk") + "/job/2"}, None),
         ({"details_url": OTHER_RUN.replace(GROUP_RUN, "0999") + "/job/2"}, None),
         ({"details_url": "x" + OTHER_RUN + "/job/2"}, None),
+        ({"details_url": GROUP_RUN + "/job/2"}, None),
+        ({"details_url": f"/{REPO}/actions/runs/{GROUP_RUN}/job/2"}, None),
         (None, {"id": 998}),
         (None, {"event": "pull_request"}),
         (None, {"event": "workflow_dispatch"}),
@@ -2576,6 +2578,7 @@ def test_a_group_run_that_is_not_an_object_fails_the_job_unevaluated():
     world.api[GROUP_RUN_PATH] = []
     report, code = judge_group(world)
     no_evaluation(world, report, code)
+    assert "not the merge group run of the required workflow" in report["error"]
 
 
 @pytest.mark.parametrize(
