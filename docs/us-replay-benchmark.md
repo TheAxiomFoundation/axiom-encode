@@ -70,7 +70,18 @@ finding, and the four that are clean on `main` are refused. The
 file is the run's own bytes with one edit: `rulespec_root`, an absolute path on
 the machine that ran the batch, is replaced by `<local-run-root>/rulespec-us/us-az`.
 Its `resolved_text_sha256` equals the hash of the fixture's `source.txt`. It is
-an unsigned local record, as the other files of these fixtures are.
+an unsigned local record, as the other files of these fixtures are. The run
+workspaces are not in this repository, so the statement that each file equals
+its run's bytes is the author's report of a local comparison on 2026-11-17,
+not a checked value; the citation, dates and source hash of each file can be
+checked against the fixture.
+
+A manual fixture needs a `source-metadata.json`. The replay is stricter than
+the validator here: for a fixture without one it still runs the date-silent
+start check, with the attestation read as missing, where a pipeline with
+neither `source_metadata` nor a corpus release skips the check. Such a fixture
+gets an effective-date finding that no validation run reports. Every manual
+fixture in the benchmark carries the file today.
 
 The `local-date-silent-merge-41088317595` fixture holds a syntax mutation of
 the public fixture `41088317595`, an Arizona manual unit that prints no date.

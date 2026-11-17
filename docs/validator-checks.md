@@ -387,7 +387,13 @@ The corpus dates reach the check this way:
 The check runs inside the complete-source analysis, which the pipeline applies
 only in `--require-complete-source-unit` mode. The targeted re-encode workflow
 adds that flag when its `require_complete_source_unit` setting holds `true`,
-and `axiom-encode validate` without the flag skips the check. The replay
+and `axiom-encode validate` without the flag skips the check. That setting
+is `true` by default: `prepare_signed_backfill.py` sets `true` for each
+payload form that has no such field, the later transaction schemas must state
+a boolean, and the workflow accepts `false` only for a scoped
+source-bundle replacement (one replaced RuleSpec path, with no legacy path,
+dependent citation or queue). A default signed re-encode of a date-silent
+manual unit therefore runs this check and can be refused by it. The replay
 benchmark passes each fixture's attestation dates and import providers, and
 no amendment context.
 
