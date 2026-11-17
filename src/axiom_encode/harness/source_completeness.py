@@ -23381,7 +23381,10 @@ CHECK_TESTS_BOUNDARY_UNEXERCISED = _declare_companion_test_check(
     requires="Every source-stated boundary value is exercised by a companion case.",
     fix=(
         "Add cases at each listed boundary value (and just across it) that "
-        "assert the affected principal output."
+        "assert the affected principal output. If the listed value is a cap "
+        "whose `min(...)` shares a formula with a comparison, move the clamp "
+        "into its own derived rule with no comparison and assert that rule in "
+        "every case that sets the capped amount."
     ),
 )
 CHECK_TESTS_EXCEPTION_PAIR_MISSING = _declare_companion_test_check(
