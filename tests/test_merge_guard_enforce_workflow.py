@@ -32,6 +32,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -48,13 +49,17 @@ from tests.test_content_merge_guard import (
     H,
     build,
     plain,
-    queue,
 )
 from tests.test_merge_guard_runner import (
+    GROUP_CHECK_LISTING,
+    LARGEST_EVALUATION,
     TOKEN,
     V5_LANE,
+    group_ci,
     group_event,
     pr_event,
+    queued,
+    source_event,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +79,9 @@ PERMISSIONS = {
     "actions": "read",
 }
 EVALUATE_SCRIPT = 'set -euo pipefail\npython3 -I -S "$RUNNER_TEMP/guard/launch.py"\n'
+# The longest a GitHub-hosted job may run.
+HOSTED_JOB_LIMIT_MINUTES = 360
+TIMEOUT_MINUTES = 330
 WORKFLOW_SHA = "${{ github.workflow_sha }}"
 JOB_TOKEN = "${{ github.token }}"
 
@@ -88,12 +96,90 @@ def _load_launcher():
 launch = _load_launcher()
 
 
+def build_script() -> str:
+    """The build step's script, word for word, from the launcher's lists.
+
+    The tripwire compares the workflow's script with this text whole. A
+    script that also writes a file, adds a directory to the ``PATH`` of later
+    steps, sets a variable for them, relaxes ``set -e`` or compares less than
+    the whole digest is another text.
+    """
+    source = "/".join(launch.LAUNCHER_SOURCE.split("/")[:-1])
+    package_source = f"src/{launch.PACKAGE}"
+    assert launch.LAUNCHER_SOURCE == f"{source}/merge_guard_launch.py"
+    assert launch.SOURCE_FILES[1:] == tuple(
+        f"{package_source}/{module}.py" for module in launch.BUNDLE_MODULES
+    )
+    assert launch.BUNDLE_FILES[:2] == (
+        launch.LAUNCHER_NAME,
+        f"{launch.PACKAGE}/__init__.py",
+    )
+    return "\n".join(
+        [
+            "set -euo pipefail",
+            'source_root="$GITHUB_WORKSPACE/guard-source"',
+            'bundle="$RUNNER_TEMP/guard"',
+            'if [ -e "$bundle" ]; then',
+            '  echo "::error::The bundle directory already exists."',
+            "  exit 1",
+            "fi",
+            f'mkdir -p "$bundle/{launch.PACKAGE}"',
+            f': > "$bundle/{launch.BUNDLE_FILES[1]}"',
+            f'cp "$source_root/{launch.LAUNCHER_SOURCE}" '
+            f'"$bundle/{launch.LAUNCHER_NAME}"',
+            f"for module in {' '.join(launch.BUNDLE_MODULES)}; do",
+            f'  cp "$source_root/{package_source}/$module.py" '
+            f'"$bundle/{launch.PACKAGE}/$module.py"',
+            "done",
+            'cd "$bundle"',
+            f'actual="$(sha256sum {" ".join(launch.BUNDLE_FILES)} '
+            "| sha256sum | cut -d ' ' -f 1)\"",
+            'if [ "$actual" != "$BUNDLE_SHA256" ]; then',
+            '  echo "::error::The guard bundle digest is $actual, not the '
+            'BUNDLE_SHA256 of this workflow file."',
+            "  exit 1",
+            "fi",
+            "",
+        ]
+    )
+
+
+BUILD_SCRIPT = build_script()
+
+
 def workflow_text() -> str:
     return WORKFLOW_PATH.read_text(encoding="utf-8")
 
 
+class DuplicateKey(yaml.YAMLError):
+    """A mapping of the workflow names one key twice."""
+
+
+class _StrictLoader(yaml.SafeLoader):
+    """``yaml.SafeLoader`` that refuses a mapping with a repeated key.
+
+    ``yaml.safe_load`` keeps the last value of a repeated key and says
+    nothing. A second ``steps:`` or ``on:`` would then hide from this file
+    whatever GitHub does with the first one.
+    """
+
+    def construct_mapping(self, node, deep=False):
+        seen = set()
+        for key_node, _value in node.value:
+            key = self.construct_object(key_node, deep=True)
+            if key in seen:
+                raise DuplicateKey(f"duplicate key: {key!r}")
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+
+def strict_load(text: str):
+    """Parse YAML; raise ``yaml.YAMLError`` also for a repeated mapping key."""
+    return yaml.load(text, Loader=_StrictLoader)  # noqa: S506 - a SafeLoader
+
+
 def workflow() -> dict:
-    return yaml.safe_load(workflow_text())
+    return strict_load(workflow_text())
 
 
 def other_workflows() -> dict[str, object]:
@@ -202,6 +288,11 @@ FORBIDDEN_TEXT = (
     "curl ",
     "wget ",
     "| tee",
+    # Files through which a step changes the steps after it: the PATH, the
+    # environment and the outputs.
+    "GITHUB_PATH",
+    "GITHUB_ENV",
+    "GITHUB_OUTPUT",
 )
 _EXPRESSION = re.compile(r"\$\{\{.*?\}\}", re.S)
 
@@ -223,11 +314,13 @@ def could_publish(name: object, check_name: str) -> bool:
 
 
 def workflow_problems(
-    text: str, others: dict[str, object], digest: str, *, wait_seconds: int
+    text: str, others: dict[str, object], digest: str, *, longest_run_seconds: int
 ) -> list[str]:
     """Every way the workflow text departs from the reviewed shape."""
     try:
-        document = yaml.safe_load(text)
+        document = strict_load(text)
+    except DuplicateKey:
+        return ["workflow: a mapping names a key twice"]
     except yaml.YAMLError:
         return ["workflow: not YAML"]
     if not isinstance(document, dict):
@@ -278,8 +371,10 @@ def workflow_problems(
     if job.get("runs-on") != "ubuntu-latest":
         problems.append("job: runs-on is not ubuntu-latest")
     timeout = job.get("timeout-minutes")
-    if type(timeout) is not int or timeout * 60 < wait_seconds + 600:
-        problems.append("job: timeout does not cover the CI wait and a margin")
+    if type(timeout) is not int or timeout * 60 < longest_run_seconds:
+        problems.append("job: timeout does not cover the longest run")
+    elif timeout >= HOSTED_JOB_LIMIT_MINUTES:
+        problems.append("job: timeout is not below the limit of a hosted job")
 
     steps = job.get("steps")
     if (
@@ -356,6 +451,9 @@ def workflow_problems(
             f"build: BUNDLE_SHA256 is {literal}, the bundle digest is {digest}"
         )
 
+    if build_step.get("run") != BUILD_SCRIPT:
+        problems.append("build: script is not exactly the reviewed build script")
+
     if set(evaluate) != {"name", "env", "run"}:
         problems.append("evaluate: keys are not name, env, run")
     if evaluate.get("env") != {runner.TOKEN_ENV: JOB_TOKEN}:
@@ -390,12 +488,31 @@ def workflow_problems(
     return problems
 
 
+def longest_run_seconds() -> dict[str, int]:
+    """The longest time each event's run can take, from the runner's constants.
+
+    Every request is counted at its socket timeout. That timeout bounds each
+    blocking operation, not a whole request, so a server that sends a
+    response very slowly can exceed these numbers; the job timeout then
+    cancels the job, which fails closed.
+    """
+    request = runner.REQUEST_TIMEOUT_SECONDS
+    evaluation = LARGEST_EVALUATION * request
+    return {
+        # An evaluation, the wait with its last poll, and the second
+        # evaluation.
+        "pull_request": evaluation + runner.CI_WAIT_SECONDS + request + evaluation,
+        # The wait with its last poll of two reads, and the one evaluation.
+        "merge_group": runner.MERGE_GROUP_WAIT_SECONDS + 2 * request + evaluation,
+    }
+
+
 def problems_of(text: str, others: dict | None = None, digest: str | None = None):
     return workflow_problems(
         text,
         other_workflows() if others is None else others,
         bundle_digest(bundle_sources()) if digest is None else digest,
-        wait_seconds=runner.CI_WAIT_SECONDS,
+        longest_run_seconds=max(longest_run_seconds().values()),
     )
 
 
@@ -417,8 +534,46 @@ def test_the_job_publishes_the_reserved_check_name_and_covers_the_wait():
     job = workflow()["jobs"]["guard"]
     assert job["name"] == runner.GUARD_CHECK_NAME == "content-bound-merge-guard"
     assert workflow()["name"] == runner.GUARD_CHECK_NAME
-    assert job["timeout-minutes"] == 75
-    assert job["timeout-minutes"] * 60 >= runner.CI_WAIT_SECONDS + 600
+    assert job["timeout-minutes"] == TIMEOUT_MINUTES == 330
+    # 30 requests of 30 seconds are 15 minutes for one evaluation.
+    assert longest_run_seconds() == {
+        "pull_request": 900 + 3600 + 30 + 900,  # 90.5 minutes
+        "merge_group": 18000 + 60 + 900,  # 316 minutes
+    }
+    assert max(longest_run_seconds().values()) <= TIMEOUT_MINUTES * 60
+    assert TIMEOUT_MINUTES < HOSTED_JOB_LIMIT_MINUTES
+
+
+@pytest.mark.parametrize(
+    ("minutes", "expected"),
+    [
+        (75, "job: timeout does not cover the longest run"),
+        (300, "job: timeout does not cover the longest run"),
+        (315, "job: timeout does not cover the longest run"),
+        (316, None),
+        (330, None),
+        (359, None),
+        (360, "job: timeout is not below the limit of a hosted job"),
+        (600, "job: timeout is not below the limit of a hosted job"),
+        ("330", "job: timeout does not cover the longest run"),
+        (330.0, "job: timeout does not cover the longest run"),
+        (True, "job: timeout does not cover the longest run"),
+    ],
+)
+def test_the_tripwire_pins_the_timeout_between_the_longest_run_and_the_job_limit(
+    minutes, expected
+):
+    problems = problems_of(edited(set_in(job_of, "timeout-minutes", minutes)))
+    assert problems == ([] if expected is None else [expected])
+
+
+def test_a_longer_merge_group_wait_needs_a_longer_timeout(monkeypatch):
+    # The timeout is pinned to the runner's constants, not to a number here.
+    assert problems_of(workflow_text()) == []
+    monkeypatch.setattr(runner, "MERGE_GROUP_WAIT_SECONDS", 6 * 3600)
+    assert problems_of(workflow_text()) == [
+        "job: timeout does not cover the longest run"
+    ]
 
 
 def test_the_header_states_what_is_off_and_what_is_unverified():
@@ -432,6 +587,15 @@ def test_the_header_states_what_is_off_and_what_is_unverified():
         "until an organization owner creates an organization ruleset",
         "No variable, key or repository setting switches it on.",
         '{"inert":"source_repository"}',
+        "The one assumption that would fail OPEN.",
+        "only when GITHUB_REPOSITORY is TheAxiomFoundation/axiom-encode AND the "
+        "event payload agrees",
+        "every pull request of that repository would pass with no evaluation",
+        "Activation hold: before the ruleset goes Active, a pull request with no "
+        "lane must show a FAILED job of this workflow under the ruleset in "
+        "Evaluate mode",
+        "waits, for at most 5 hours, until the group's own `validate / validate` "
+        "run has completed, and evaluates after that",
         "No live ruleset run has shown what `github.workflow_sha` is",
         "its digest differs from the BUNDLE_SHA256 literal of this file and the job fails",
         "a skipped job counts as passed",
@@ -443,6 +607,17 @@ def edited(change) -> str:
     document = workflow()
     change(document)
     return yaml.safe_dump(document, sort_keys=False)
+
+
+def build_edit(old: str, new: str):
+    """Replace ``old`` by ``new`` in the build step's script, exactly once."""
+
+    def change(document):
+        script = step_of(document, 2)["run"]
+        assert script.count(old) == 1, old
+        step_of(document, 2)["run"] = script.replace(old, new)
+
+    return change
 
 
 def job_of(document):
@@ -854,6 +1029,91 @@ NEGATIVE_CASES = {
         set_in(job_of, "timeout-minutes", 60),
         "job: timeout does not cover",
     ),
+    "timeout of the pull request wait only": (
+        set_in(job_of, "timeout-minutes", 75),
+        "job: timeout does not cover",
+    ),
+    "timeout above the hosted job limit": (
+        set_in(job_of, "timeout-minutes", 400),
+        "job: timeout is not below the limit",
+    ),
+    # Review round 1, F2: the build step's script is pinned whole.
+    "build adds a directory to the PATH of later steps (Y02)": (
+        build_edit(
+            'cd "$bundle"\n',
+            'echo "$RUNNER_TEMP/bin" >> "${GITHUB_PATH:-/dev/null}"\ncd "$bundle"\n',
+        ),
+        "forbidden text: GITHUB_PATH",
+    ),
+    "build sets a variable for later steps (Y07)": (
+        build_edit(
+            'cd "$bundle"\n',
+            'echo "PYTHONSAFEPATH=" >> "${GITHUB_ENV:-/dev/null}"\ncd "$bundle"\n',
+        ),
+        "forbidden text: GITHUB_ENV",
+    ),
+    "build writes a step output": (
+        build_edit('cd "$bundle"\n', 'echo "x=1" >> "$GITHUB_OUTPUT"\ncd "$bundle"\n'),
+        "forbidden text: GITHUB_OUTPUT",
+    ),
+    "build puts a fake python3 first on the PATH (Y25)": (
+        build_edit(
+            'cd "$bundle"\n',
+            "printf '#!/bin/sh\\nexit 0\\n' > \"$RUNNER_TEMP/python3\"\n"
+            'chmod +x "$RUNNER_TEMP/python3"\n'
+            'echo "$RUNNER_TEMP" >> "${GITHUB_PATH:-/dev/null}"\n'
+            'cd "$bundle"\n',
+        ),
+        "build: script is not exactly",
+    ),
+    "build writes one more file and nothing else": (
+        build_edit('cd "$bundle"\n', ': > "$RUNNER_TEMP/python3"\ncd "$bundle"\n'),
+        "build: script is not exactly",
+    ),
+    "build compares a prefix of the digest (Y05)": (
+        build_edit(
+            'if [ "$actual" != "$BUNDLE_SHA256" ]; then',
+            'if [ "${actual:0:8}" != "${BUNDLE_SHA256:0:8}" ]; then',
+        ),
+        "build: script is not exactly",
+    ),
+    "build switches set -e off on its second line (Y28)": (
+        build_edit("set -euo pipefail\n", "set -euo pipefail\nset +e\n"),
+        "build: script is not exactly",
+    ),
+    "build tolerates an existing bundle directory (Y03)": (
+        build_edit(
+            '  echo "::error::The bundle directory already exists."\n  exit 1\n',
+            '  echo "::error::The bundle directory already exists."\n',
+        ),
+        "build: script is not exactly",
+    ),
+    "build ignores a failed copy (Y06)": (
+        build_edit(
+            '"$bundle/axiom_encode/$module.py"\n',
+            '"$bundle/axiom_encode/$module.py" || true\n',
+        ),
+        "build: script is not exactly",
+    ),
+    "build does not fail on another digest": (
+        build_edit(
+            'BUNDLE_SHA256 of this workflow file."\n  exit 1\n',
+            'BUNDLE_SHA256 of this workflow file."\n',
+        ),
+        "build: script is not exactly",
+    ),
+    "build copies one module less": (
+        build_edit(" statute; do", "; do"),
+        "build: script is not exactly",
+    ),
+    "build digests one file less": (
+        build_edit(" axiom_encode/statute.py |", " |"),
+        "build: script is not exactly",
+    ),
+    "build with a trailing command": (
+        lambda d: step_of(d, 2).update(run=step_of(d, 2)["run"] + "true\n"),
+        "build: script is not exactly",
+    ),
     "no timeout": (
         lambda d: job_of(d).pop("timeout-minutes"),
         "job: keys are not",
@@ -887,6 +1147,79 @@ def test_the_unchanged_workflow_survives_the_round_trip_the_cases_use():
 @pytest.mark.parametrize("text", ["", "- a\n- b\n", "name: [unclosed\n", "x"])
 def test_the_tripwire_reports_a_workflow_that_is_not_a_mapping(text):
     assert problems_of(text) != []
+
+
+def test_the_build_script_is_generated_from_the_launcher_lists():
+    assert step_of(workflow(), 2)["run"] == BUILD_SCRIPT
+    for path in launch.BUNDLE_FILES:
+        assert f" {path} " in BUILD_SCRIPT, path
+    for module in launch.BUNDLE_MODULES:
+        assert f" {module}" in BUILD_SCRIPT, module
+    assert BUILD_SCRIPT.count("exit 1\n") == 2
+    assert BUILD_SCRIPT.count("\n") == 19
+
+
+# Review round 1, F8: a repeated key. ``yaml.safe_load`` keeps the last one.
+DUPLICATE_KEYS = {
+    "a second steps key before the real one (Y21)": (
+        "    timeout-minutes: 330\n    steps:\n",
+        "    timeout-minutes: 330\n    steps:\n      - run: exit 0\n    steps:\n",
+    ),
+    "a second on key": ("\non:\n", "\non:\n  push:\non:\n"),
+    "a second permissions key": (
+        "\npermissions:\n",
+        "\npermissions: write-all\npermissions:\n",
+    ),
+    "a second jobs key": (
+        "\njobs:\n",
+        "\njobs:\n  other:\n    runs-on: ubuntu-latest\njobs:\n",
+    ),
+    "a second run key in the evaluate step": (
+        "        run: |\n          set -euo pipefail\n          python3 -I -S",
+        "        run: exit 0\n        run: |\n          set -euo pipefail\n"
+        "          python3 -I -S",
+    ),
+    "a second env key in the build step": (
+        "        env:\n          BUNDLE_SHA256:",
+        "        env:\n          X: 1\n        env:\n          BUNDLE_SHA256:",
+    ),
+    "a second trigger of the same name": (
+        "  pull_request:\n",
+        "  pull_request:\n    paths: [docs/**]\n  pull_request:\n",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(DUPLICATE_KEYS))
+def test_the_tripwire_reports_a_repeated_key(case):
+    old, new = DUPLICATE_KEYS[case]
+    text = workflow_text()
+    assert text.count(old) == 1, case
+    changed = text.replace(old, new)
+    # PyYAML's own loader accepts the text and keeps the last value, which is
+    # the reviewed one: without the strict loader nothing is reported.
+    assert yaml.safe_load(changed) == yaml.safe_load(text)
+    assert problems_of(changed) == ["workflow: a mapping names a key twice"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["a: 1\na: 2\n", "a:\n  b: 1\n  b: 1\n", "- {a: 1, a: 1}\n", "on: 1\ntrue: 2\n"],
+)
+def test_the_strict_loader_refuses_a_repeated_key_at_any_depth(text):
+    with pytest.raises(DuplicateKey):
+        strict_load(text)
+
+
+def test_the_strict_loader_reads_what_the_safe_loader_reads():
+    text = workflow_text()
+    assert strict_load(text) == yaml.safe_load(text)
+    assert strict_load("a: 1\nb: {c: [1, 2], d: null}\n") == {
+        "a": 1,
+        "b": {"c": [1, 2], "d": None},
+    }
+    with pytest.raises(yaml.YAMLError):
+        strict_load("!!python/object/apply:os.system ['true']\n")
 
 
 def test_the_tripwire_reports_a_bundle_change_without_a_new_literal():
@@ -1206,7 +1539,7 @@ def test_loaded_outside_names_encoder_modules_of_this_process(tmp_path):
 # --- the build step and the launcher, as the job runs them -----------------------
 
 
-def build_script() -> tuple[str, dict]:
+def build_step() -> tuple[str, dict]:
     step = workflow()["jobs"]["guard"]["steps"][2]
     return step["run"], step["env"]
 
@@ -1218,7 +1551,7 @@ def run_build_step(tmp_path: Path, source_root: Path, **env):
     link = workspace / "guard-source"
     if not link.exists():
         link.symlink_to(source_root, target_is_directory=True)
-    script, step_env = build_script()
+    script, step_env = build_step()
     return subprocess.run(
         ["bash", "-c", script],
         env={
@@ -1291,17 +1624,44 @@ def test_the_build_step_refuses_a_bundle_with_one_changed_file(tmp_path, path):
 
 
 @needs_sha256sum
-def test_the_build_step_refuses_a_missing_file_and_an_existing_directory(tmp_path):
+@pytest.mark.parametrize("missing", launch.SOURCE_FILES)
+def test_the_build_step_refuses_a_checkout_with_one_file_less(tmp_path, missing):
     source = tmp_path / "partial-source"
-    for relative in launch.SOURCE_FILES[:-1]:
-        (source / relative).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(REPOSITORY_ROOT / relative, source / relative)
+    for relative in launch.SOURCE_FILES:
+        if relative != missing:
+            (source / relative).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(REPOSITORY_ROOT / relative, source / relative)
     (tmp_path / "runner-temp").mkdir()
-    assert run_build_step(tmp_path, source).returncode != 0
-    # The directory of the failed build is still there: a second build refuses.
-    again = run_build_step(tmp_path, REPOSITORY_ROOT)
-    assert again.returncode == 1
-    assert "already exists" in again.stdout
+    result = run_build_step(tmp_path, source)
+    assert result.returncode != 0
+    assert "already exists" not in result.stdout
+
+
+@needs_sha256sum
+@pytest.mark.parametrize("existing", ["directory", "file", "empty bundle"])
+def test_the_build_step_refuses_an_existing_bundle_directory(tmp_path, existing):
+    # Review round 1, F3. The source is complete and nothing else is wrong:
+    # the build of the same workspace without the existing path succeeds, so
+    # only the "already exists" branch can make this one fail.
+    (tmp_path / "runner-temp").mkdir()
+    bundle = tmp_path / "runner-temp" / "guard"
+    if existing == "file":
+        bundle.write_bytes(b"")
+    else:
+        bundle.mkdir()
+        if existing == "empty bundle":
+            (bundle / launch.PACKAGE).mkdir()
+    before = sorted(path.name for path in bundle.rglob("*")) if bundle.is_dir() else []
+    result = run_build_step(tmp_path, REPOSITORY_ROOT)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "::error::The bundle directory already exists." in result.stdout
+    # Nothing was built into it.
+    if bundle.is_dir():
+        assert sorted(path.name for path in bundle.rglob("*")) == before
+    else:
+        assert bundle.read_bytes() == b""
+    shutil.rmtree(bundle) if bundle.is_dir() else bundle.unlink()
+    assert run_build_step(tmp_path, REPOSITORY_ROOT).returncode == 0
 
 
 def launcher(bundle: Path, *flags: str, **env):
@@ -1315,14 +1675,23 @@ def launcher(bundle: Path, *flags: str, **env):
     )
 
 
-SOURCE_ENV = {
-    "GITHUB_REPOSITORY": "TheAxiomFoundation/axiom-encode",
-    "GITHUB_EVENT_NAME": "pull_request",
-}
+SOURCE_REPOSITORY = "TheAxiomFoundation/axiom-encode"
 
 
-def test_the_launcher_is_inert_in_the_source_repository(bundle):
-    result = launcher(bundle, "-I", "-S", **SOURCE_ENV)
+@pytest.fixture
+def source_env(tmp_path):
+    """The environment of a run in the source repository, with its event."""
+    event = tmp_path / "source-event.json"
+    event.write_text(json.dumps(source_event()))
+    return {
+        "GITHUB_REPOSITORY": SOURCE_REPOSITORY,
+        "GITHUB_EVENT_NAME": "pull_request",
+        "GITHUB_EVENT_PATH": str(event),
+    }
+
+
+def test_the_launcher_is_inert_in_the_source_repository(bundle, source_env):
+    result = launcher(bundle, "-I", "-S", **source_env)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {
         "schema": runner.ENFORCE_REPORT_SCHEMA,
@@ -1333,6 +1702,34 @@ def test_the_launcher_is_inert_in_the_source_repository(bundle):
         "inert": "source_repository",
     }
     assert listing(bundle) == sorted(launch.BUNDLE_FILES)  # no __pycache__
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        pr_event(),
+        source_event(repository=REPO),
+        source_event(base=REPO),
+        group_event(),
+        None,
+        "not json",
+    ],
+)
+def test_the_launcher_fails_when_the_event_is_not_the_source_repositorys(
+    bundle, tmp_path, event
+):
+    # Review round 1, F1, as the job runs it: GITHUB_REPOSITORY names the
+    # source repository; the event names a RuleSpec repository, or is absent
+    # or unreadable. Exit 1, with no ``inert`` report.
+    env = {"GITHUB_REPOSITORY": SOURCE_REPOSITORY, "GITHUB_EVENT_NAME": "pull_request"}
+    if event is not None:
+        path = tmp_path / "event.json"
+        path.write_text(event if isinstance(event, str) else json.dumps(event))
+        env["GITHUB_EVENT_PATH"] = str(path)
+    result = launcher(bundle, "-I", "-S", **env)
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    assert "inert" not in report and report["error"] and report["requests"] == 0
 
 
 @pytest.mark.parametrize(
@@ -1380,8 +1777,10 @@ def test_the_launcher_fails_on_a_malformed_event(bundle, tmp_path):
 
 
 @pytest.mark.parametrize("flags", [(), ("-I",), ("-S",), ("-E", "-s", "-S")])
-def test_the_launcher_refuses_an_interpreter_that_is_not_isolated(bundle, flags):
-    result = launcher(bundle, *flags, **SOURCE_ENV)
+def test_the_launcher_refuses_an_interpreter_that_is_not_isolated(
+    bundle, flags, source_env
+):
+    result = launcher(bundle, *flags, **source_env)
     assert result.returncode == 1
     assert result.stdout == ""
     assert "python -I -S only" in result.stderr
@@ -1399,47 +1798,172 @@ def test_the_launcher_refuses_an_interpreter_that_is_not_isolated(bundle, flags)
     ],
 )
 def test_the_launcher_refuses_a_bundle_directory_with_one_more_file(
-    bundle, path, content
+    bundle, path, content, source_env
 ):
     (bundle / path).parent.mkdir(parents=True, exist_ok=True)
     (bundle / path).write_bytes(content)
-    result = launcher(bundle, "-I", "-S", **SOURCE_ENV)
+    result = launcher(bundle, "-I", "-S", **source_env)
     assert result.returncode == 1 and result.stdout == ""
-    assert "does not hold exactly the bundle" in result.stderr
+    assert (
+        "does not hold exactly the bundle" in result.stderr
+        or "holds another directory" in result.stderr
+    )
 
 
-def test_the_launcher_refuses_a_bundle_directory_with_one_file_less(bundle):
+def test_the_launcher_refuses_a_bundle_directory_with_one_file_less(bundle, source_env):
     (bundle / "axiom_encode" / "statute.py").unlink()
-    result = launcher(bundle, "-I", "-S", **SOURCE_ENV)
+    result = launcher(bundle, "-I", "-S", **source_env)
     assert result.returncode == 1 and result.stdout == ""
     assert "does not hold exactly the bundle" in result.stderr
 
 
-def test_the_launcher_refuses_a_package_init_that_is_not_empty(bundle):
+def test_the_launcher_refuses_a_package_init_that_is_not_empty(bundle, source_env):
     (bundle / "axiom_encode" / "__init__.py").write_text("import os\n")
-    result = launcher(bundle, "-I", "-S", **SOURCE_ENV)
+    result = launcher(bundle, "-I", "-S", **source_env)
     assert result.returncode == 1 and result.stdout == ""
     assert "__init__.py is not empty" in result.stderr
 
 
-def test_the_launcher_refuses_a_link_in_the_bundle_directory(bundle, tmp_path):
+def test_the_launcher_refuses_a_link_in_the_bundle_directory(
+    bundle, tmp_path, source_env
+):
     target = bundle / "axiom_encode" / "statute.py"
     moved = tmp_path / "statute.py"
     shutil.move(target, moved)
     target.symlink_to(moved)
-    result = launcher(bundle, "-I", "-S", **SOURCE_ENV)
+    result = launcher(bundle, "-I", "-S", **source_env)
     assert result.returncode == 1 and result.stdout == ""
     assert "holds a link" in result.stderr
 
 
-def test_the_launcher_fails_closed_when_the_runner_raises(bundle):
+def test_the_launcher_fails_closed_when_the_runner_raises(bundle, source_env):
     # A bundle whose runner cannot be imported: the job fails, with no report.
     (bundle / "axiom_encode" / "merge_guard_runner.py").write_text(
         "raise RuntimeError('broken')\n"
     )
-    result = launcher(bundle, "-I", "-S", **SOURCE_ENV)
+    result = launcher(bundle, "-I", "-S", **source_env)
     assert result.returncode == 1 and result.stdout == ""
     assert "merge guard launcher failed: RuntimeError" in result.stderr
+
+
+# Review round 1, F7: every bundle file is a regular file, and the bundle
+# directory holds one directory.
+
+
+# launch.py itself is not a case: the interpreter must read it to start.
+@pytest.mark.parametrize("path", launch.BUNDLE_FILES[1:])
+def test_the_launcher_refuses_a_bundle_file_that_is_not_a_regular_file(
+    bundle, path, source_env
+):
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("no FIFO on this platform")
+    target = bundle / path
+    target.unlink()
+    os.mkfifo(target)
+    assert stat.S_ISFIFO(os.lstat(target).st_mode) and target.stat().st_size == 0
+    result = launcher(bundle, "-I", "-S", **source_env)
+    assert result.returncode == 1 and result.stdout == ""
+    assert "holds a file that is not regular" in result.stderr
+
+
+def test_the_bundle_listing_refuses_a_fifo_as_the_empty_package_init(bundle):
+    # The reviewer's case: a FIFO has size 0 and is not a link.
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("no FIFO on this platform")
+    init = bundle / launch.PACKAGE / "__init__.py"
+    assert launch._bundle_files(str(bundle)) == sorted(launch.BUNDLE_FILES)
+    init.unlink()
+    os.mkfifo(init)
+    assert os.path.getsize(init) == 0 and not os.path.islink(init)
+    with pytest.raises(launch.LaunchError, match="not regular"):
+        launch._bundle_files(str(bundle))
+
+
+@pytest.mark.parametrize(
+    "directory",
+    ["json", "axiom_encode/extra", "axiom_encode/harness", "axiom_encode2", ".git"],
+)
+def test_the_launcher_refuses_one_more_directory_even_when_it_is_empty(
+    bundle, directory, source_env
+):
+    (bundle / directory).mkdir()
+    result = launcher(bundle, "-I", "-S", **source_env)
+    assert result.returncode == 1 and result.stdout == ""
+    assert "holds another directory" in result.stderr
+
+
+# Review round 1, F5 and F6: what the runner raises or returns.
+
+RUNNER_STUB = "def enforce_command():\n    print('ran')\n    {}\n"
+
+
+@pytest.mark.parametrize(
+    ("statement", "expected"),
+    [
+        ("raise SystemExit(0)", "SystemExit"),
+        ("raise SystemExit()", "SystemExit"),
+        ("raise SystemExit(None)", "SystemExit"),
+        ("import sys; sys.exit(0)", "SystemExit"),
+        ("raise KeyboardInterrupt()", "KeyboardInterrupt"),
+        ("raise GeneratorExit()", "GeneratorExit"),
+        ("raise BaseException('x')", "BaseException"),
+        ("raise RuntimeError('x')", "RuntimeError"),
+    ],
+)
+def test_the_launcher_fails_closed_on_anything_the_runner_raises(
+    bundle, statement, expected, source_env
+):
+    # F5: ``SystemExit(0)`` is not an ``Exception``. Uncaught, it would end
+    # the job with success.
+    (bundle / "axiom_encode" / "merge_guard_runner.py").write_text(
+        RUNNER_STUB.format(statement)
+    )
+    result = launcher(bundle, "-I", "-S", **source_env)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout == "ran\n"
+    assert "merge guard launcher failed: " + expected in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("value", "code"),
+    [
+        ("0", 0),
+        ("1", 1),
+        ("None", 1),
+        ("False", 1),
+        ("True", 1),
+        ("0.0", 1),
+        ("''", 1),
+        ("[]", 1),
+        ("'0'", 1),
+        ("2", 1),
+        ("-1", 1),
+        ("256", 1),
+    ],
+)
+def test_the_launcher_exits_0_only_for_the_integer_0(bundle, value, code, source_env):
+    # F6: ``sys.exit(None)`` and ``sys.exit(False)`` end with success.
+    (bundle / "axiom_encode" / "merge_guard_runner.py").write_text(
+        RUNNER_STUB.format("return " + value)
+    )
+    result = launcher(bundle, "-I", "-S", **source_env)
+    assert result.returncode == code, (value, result.stderr)
+    assert result.stdout == "ran\n"
+
+
+def test_the_launcher_passes_its_own_result_to_sys_exit_and_nothing_else():
+    source = LAUNCHER_PATH.read_text(encoding="utf-8")
+    assert source.rstrip().endswith('if __name__ == "__main__":\n    sys.exit(main())')
+    main = ast.get_source_segment(
+        source,
+        next(
+            node
+            for node in ast.parse(source).body
+            if isinstance(node, ast.FunctionDef) and node.name == "main"
+        ),
+    )
+    returns = re.findall(r"^\s+return (.+)$", main, re.M)
+    assert returns == ["0 if type(code) is int and code == 0 else 1", "1", "1"]
 
 
 def driver(*arguments: str):
@@ -1502,6 +2026,12 @@ def sweep_cases(tmp_path: Path) -> list[dict]:
     green = copy.deepcopy(waited.api[listing_path])
     waited.ci(H, status="in_progress", conclusion=None)
     pending = copy.deepcopy(waited.api[listing_path])
+    group_green = copy.deepcopy(queued().api[GROUP_CHECK_LISTING])
+    group_pending = copy.deepcopy(
+        group_ci(build(), check={"status": "in_progress", "conclusion": None}).api[
+            GROUP_CHECK_LISTING
+        ]
+    )
     return [
         case("v6_pass", build(), pr_event(), "pull_request"),
         case("v5_lane", plain(V5_LANE), pr_event(), "pull_request"),
@@ -1520,12 +2050,19 @@ def sweep_cases(tmp_path: Path) -> list[dict]:
             "pull_request",
             {listing_path: [pending, pending, green]},
         ),
-        case("merge_group", queue(build()), group_event(), "merge_group"),
+        case("merge_group", queued(), group_event(), "merge_group"),
         case(
             "merge_group_two_units",
-            queue(build(), group_tree="f" * 40),
+            queued(group_tree="f" * 40),
             group_event(),
             "merge_group",
+        ),
+        case(
+            "merge_group_waited",
+            queued(),
+            group_event(),
+            "merge_group",
+            {GROUP_CHECK_LISTING: [group_pending, group_pending, group_green]},
         ),
         case("stale_head", build(), pr_event(head="a" * 40), "pull_request"),
         case("unreadable", plain({}), pr_event(number=43), "pull_request"),
@@ -1541,6 +2078,7 @@ EXPECTED_SWEEP = {
     "waited": (0, "pass", guard.R_PASS),
     "merge_group": (0, "pass", guard.R_PASS),
     "merge_group_two_units": (1, "fail", guard.R_MERGE_GROUP_TREE),
+    "merge_group_waited": (0, "pass", guard.R_PASS),
     "stale_head": (1, "fail", runner.R_EVENT_HEAD_STALE),
     "unreadable": (1, "fail", guard.R_READ_FAILED),
 }
@@ -1566,6 +2104,9 @@ def test_a_sweep_of_every_lane_under_the_launcher_loads_only_the_bundle(
     assert outcomes == EXPECTED_SWEEP
     waited = next(item for item in result["results"] if item["name"] == "waited")
     assert waited["report"]["evaluations"] == 2 and waited["report"]["ci_polls"] == 2
+    group = next(i for i in result["results"] if i["name"] == "merge_group_waited")
+    assert group["report"]["evaluations"] == 1 and group["report"]["ci_polls"] == 3
+    assert group["report"]["waited_seconds"] == 2 * runner.MERGE_GROUP_POLL_SECONDS
     # Reads only, through the real HTTP layer of the runner.
     for item in result["results"]:
         assert item["methods"] == ["GET"], item["name"]
@@ -1604,16 +2145,124 @@ def test_the_driver_is_a_stdlib_only_helper_outside_the_bundle():
     assert "tests/" + DRIVER_PATH.name not in launch.SOURCE_FILES
 
 
+GUARD_FILE_OWNERS = ("@PavelMakarchuk", "@MaxGhenis")
+GUARD_FILES = (
+    ".github/workflows/content-bound-merge-guard.yml",
+    "tests/test_merge_guard_enforce_workflow.py",
+    "tests/merge_guard_bundle_driver.py",
+    *launch.SOURCE_FILES,  # the launcher and the six modules
+)
+_OWNED_PATH = re.compile(r"/[A-Za-z0-9._/-]+")
+
+
+def last_owner_problems(codeowners: str, paths=GUARD_FILES) -> list[str]:
+    """Paths whose LAST matching ``CODEOWNERS`` entry is not both owners.
+
+    In ``CODEOWNERS`` the last matching pattern decides, so a later, broader
+    entry with other owners takes a file from an earlier exact entry. The
+    matcher reads the two pattern forms this file uses, both anchored at the
+    repository root and without a wildcard: a file path, and a directory with
+    a trailing ``/``. Any other pattern is a problem by itself: this test
+    cannot say what it matches, so it must not pass silently.
+    """
+    entries = []
+    problems = []
+    for number, line in enumerate(codeowners.splitlines(), 1):
+        text = line.split("#", 1)[0].strip()
+        if not text:
+            continue
+        pattern, *owners = text.split()
+        if _OWNED_PATH.fullmatch(pattern) is None or "//" in pattern:
+            problems.append(f"line {number}: a pattern this test cannot evaluate")
+            continue
+        entries.append((pattern, tuple(owners)))
+    for path in paths:
+        owners = None
+        for pattern, entry_owners in entries:
+            if (
+                "/" + path == pattern
+                if not pattern.endswith("/")
+                else ("/" + path).startswith(pattern)
+            ):
+                owners = entry_owners  # a later match replaces an earlier one
+        if owners is None:
+            problems.append(f"{path}: no entry")
+        elif sorted(owners) != sorted(GUARD_FILE_OWNERS):
+            problems.append(f"{path}: the last matching entry names {list(owners)}")
+    return problems
+
+
+def codeowners_text() -> str:
+    return (REPOSITORY_ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
+
+
 def test_the_guard_files_have_both_code_owners():
     # The workflow carries the digest of the bundle, so a bundle change needs
     # a change to a file under ``.github/``; these entries give the launcher,
     # the workflow and their tripwires an owner by name as well.
-    lines = (REPOSITORY_ROOT / ".github" / "CODEOWNERS").read_text().splitlines()
-    for path in (
-        "/.github/workflows/content-bound-merge-guard.yml",
-        "/scripts/merge_guard_launch.py",
-        "/tests/test_merge_guard_enforce_workflow.py",
-        "/tests/merge_guard_bundle_driver.py",
-        *("/" + source for source in launch.SOURCE_FILES),
-    ):
-        assert f"{path} @PavelMakarchuk @MaxGhenis" in lines, path
+    lines = codeowners_text().splitlines()
+    for path in GUARD_FILES:
+        assert f"/{path} @PavelMakarchuk @MaxGhenis" in lines, path
+    # Review round 1, F12: and that entry, or a later one with the same two
+    # owners, is the LAST one that matches the path.
+    assert last_owner_problems(codeowners_text()) == []
+
+
+@pytest.mark.parametrize(
+    ("line", "taken"),
+    [
+        ("/src/ @someone-else", [*launch.SOURCE_FILES[1:]]),
+        ("/src/axiom_encode/ @someone-else", [*launch.SOURCE_FILES[1:]]),
+        ("/scripts/ @PavelMakarchuk", ["scripts/merge_guard_launch.py"]),
+        ("/.github/ @MaxGhenis", [".github/workflows/content-bound-merge-guard.yml"]),
+        (
+            "/.github/workflows/content-bound-merge-guard.yml",
+            [".github/workflows/content-bound-merge-guard.yml"],
+        ),
+        (
+            "/tests/ @PavelMakarchuk @MaxGhenis @someone-else",
+            [
+                "tests/test_merge_guard_enforce_workflow.py",
+                "tests/merge_guard_bundle_driver.py",
+            ],
+        ),
+        ("/src/axiom_encode/statute.py @someone-else", ["src/axiom_encode/statute.py"]),
+    ],
+)
+def test_a_later_entry_with_other_owners_takes_the_guard_files(line, taken):
+    # Every exact entry is still a line of the file: the membership check
+    # alone stays green. The last match is what GitHub uses.
+    changed = codeowners_text() + line + "\n"
+    for path in GUARD_FILES:
+        assert f"/{path} @PavelMakarchuk @MaxGhenis" in changed.splitlines()
+    problems = last_owner_problems(changed)
+    assert sorted(problem.split(":")[0] for problem in problems) == sorted(taken)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "/src/ @MaxGhenis @PavelMakarchuk",
+        "/docs/ @someone-else",
+        "/src/axiom_encode/cli.py @someone-else",
+        "/src/axiom_encode/statute.pyc @someone-else",
+        "# /src/ @someone-else",
+    ],
+)
+def test_a_later_entry_that_keeps_both_owners_or_matches_nothing_is_accepted(line):
+    assert last_owner_problems(codeowners_text() + line + "\n") == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["* @someone-else", "*.py @someone-else", "src/ @someone-else", "/src/** @x"],
+)
+def test_a_later_pattern_the_matcher_cannot_read_is_reported(line):
+    problems = last_owner_problems(codeowners_text() + line + "\n")
+    assert any("cannot evaluate" in problem for problem in problems), problems
+
+
+def test_a_guard_file_without_an_entry_is_reported():
+    assert last_owner_problems("/docs/ @PavelMakarchuk @MaxGhenis\n") == [
+        f"{path}: no entry" for path in GUARD_FILES
+    ]

@@ -25,8 +25,9 @@ It fails closed (exit 1) when:
 
 - the interpreter was not started with ``-I`` and ``-S`` (an environment
   variable, the working directory or a site directory could add code);
-- the bundle directory holds anything except the files of ``BUNDLE_FILES``,
-  or one of them is not a regular file;
+- the bundle directory holds anything except the files of ``BUNDLE_FILES``
+  and the one directory ``axiom_encode``, or one of those files is not a
+  regular file (a link, a FIFO, a device);
 - an import asks for an ``axiom_encode`` module outside ``BUNDLE_MODULES``;
 - an ``axiom_encode`` module was loaded from outside the bundle directory.
 
@@ -35,6 +36,7 @@ so that no file of the bundle can replace a standard-library module.
 """
 
 import os
+import stat
 import sys
 
 BUNDLE_MODULES = (
@@ -78,15 +80,27 @@ class _RefuseUnlistedModules:
 
 
 def _bundle_files(directory):
+    """The files of the bundle directory, each one a regular file.
+
+    Refuses a link, a file that is not regular and every directory except
+    ``<bundle>/axiom_encode``.
+    """
     found = []
     for parent, directories, files in os.walk(directory):
         for name in directories + files:
             path = os.path.join(parent, name)
             if os.path.islink(path):
                 raise LaunchError("the bundle directory holds a link")
+        for name in directories:
+            if parent != directory or name != PACKAGE:
+                raise LaunchError("the bundle directory holds another directory")
         for name in files:
-            relative = os.path.relpath(os.path.join(parent, name), directory)
-            found.append(relative.replace(os.sep, "/"))
+            path = os.path.join(parent, name)
+            if not stat.S_ISREG(os.lstat(path).st_mode):
+                raise LaunchError(
+                    "the bundle directory holds a file that is not regular"
+                )
+            found.append(os.path.relpath(path, directory).replace(os.sep, "/"))
     return sorted(found)
 
 
@@ -135,11 +149,17 @@ def main():
 
         if loaded_outside(directory):
             raise LaunchError("a guard module was loaded from outside the bundle")
-        return merge_guard_runner.enforce_command()
+        code = merge_guard_runner.enforce_command()
+        # Success is the integer 0 and nothing else. ``sys.exit`` would also
+        # end with success for ``None`` and ``False``.
+        return 0 if type(code) is int and code == 0 else 1
     except LaunchError as exc:
         print("merge guard launcher refused to run: " + str(exc), file=sys.stderr)
         return 1
     except BaseException as exc:  # fail closed: any error is a failed job
+        # BaseException, not Exception: ``SystemExit(0)`` or a
+        # ``KeyboardInterrupt`` raised inside the runner must not end the job
+        # with success or with the interpreter's own exit code.
         # Only the type: a message can carry what the failing code handled.
         print("merge guard launcher failed: " + type(exc).__name__, file=sys.stderr)
         return 1

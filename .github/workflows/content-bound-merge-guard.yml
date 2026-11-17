@@ -21,11 +21,29 @@ name: content-bound-merge-guard
 #
 # In axiom-encode itself the triggers below fire on the encoder's own pull
 # requests and merge groups. There the launcher prints
-# {"inert":"source_repository"}, reads neither the event nor the network, and
-# exits 0. The job still builds the bundle and checks its digest, so a bundle
-# change that does not update BUNDLE_SHA256 fails here and in CI.
+# {"inert":"source_repository"}, makes no network read, and exits 0. The job
+# still builds the bundle and checks its digest, so a bundle change that does
+# not update BUNDLE_SHA256 fails here and in CI.
 #
-# Unverified, and why it fails closed. No live ruleset run has shown what
+# The one assumption that would fail OPEN. The inert path is the only way
+# this job ends with success without an evaluation. The launcher takes it
+# only when GITHUB_REPOSITORY is TheAxiomFoundation/axiom-encode AND the
+# event payload agrees: `repository.full_name`, and for a pull request also
+# `pull_request.base.repo.full_name`, name axiom-encode. Any disagreement, or
+# an event that cannot be read, fails the job. No live ruleset run has shown
+# what these values are when a ruleset runs this file for a RuleSpec
+# repository. If such a run carried axiom-encode in GITHUB_REPOSITORY and in
+# those payload fields, every pull request of that repository would pass with
+# no evaluation. Activation hold: before the ruleset goes Active, a pull
+# request with no lane must show a FAILED job of this workflow under the
+# ruleset in Evaluate mode (docs/content-bound-merge-guard.md section 8).
+#
+# Merge groups are judged late. For a `merge_group` event the launcher first
+# waits, for at most 5 hours, until the group's own `validate / validate` run
+# has completed, and evaluates after that. The job timeout below covers that
+# wait and the evaluation, and it is below the 6 hours a hosted job may run.
+#
+# Unverified, and why this one fails closed. No live ruleset run has shown what
 # `github.workflow_sha` is for a workflow that a ruleset runs in another
 # repository. The checkout below asks for that commit of axiom-encode. If the
 # value is not a commit of axiom-encode the checkout fails. If it is another
@@ -54,8 +72,9 @@ jobs:
   guard:
     name: content-bound-merge-guard
     runs-on: ubuntu-latest
-    # The launcher waits up to 60 minutes for `validate / validate`.
-    timeout-minutes: 75
+    # The launcher waits up to 60 minutes for `validate / validate` of a pull
+    # request and up to 300 minutes for that of a merge group.
+    timeout-minutes: 330
     steps:
       - name: Check out the guard bundle
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -81,7 +100,7 @@ jobs:
 
       - name: Build the bundle and check its digest
         env:
-          BUNDLE_SHA256: c2c4c230b89d6d0963c723cf44f692e4140d2164746f353da69f3d71532c628b
+          BUNDLE_SHA256: f24b5094ff9b36dc29966e17b327e20844c7f12ec333cfabcf39f4962c657b63
         run: |
           set -euo pipefail
           source_root="$GITHUB_WORKSPACE/guard-source"
