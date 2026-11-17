@@ -1471,7 +1471,7 @@ def _select_reviewer_json_object(output: str) -> tuple[dict[str, Any], int, int]
     spans = _review_json_object_spans(output)
     # Every object here decoded with unique keys (a repeated key refuses the
     # output), so an extent below never covers text that was not fully read.
-    well_formed, _failed_starts = _scan_well_formed_json_objects(output)
+    well_formed, failed_starts = _scan_well_formed_json_objects(output)
 
     def extent(span: _ReviewJsonObjectSpan, end: int) -> tuple[int, int]:
         # A well-formed object around the selection is decoded JSON too, and
@@ -1510,10 +1510,15 @@ def _select_reviewer_json_object(output: str) -> tuple[dict[str, Any], int, int]
             raise ValueError("Malformed reviewer JSON verdict object")
         return (data, *extent(span, review_end))
 
+    # No review key anywhere. Each failed span decode can cost time in
+    # proportion to the output, so these attempts share the budget of the
+    # well-formed scan.
     for span in spans:
         decoded = _decode_review_span(output, span)
         if decoded is not None:
             return (decoded[0], *extent(span, decoded[1]))
+        failed_starts += 1
+        _refuse_too_many_undecodable_starts(failed_starts)
 
     raise ValueError("No JSON found in output")
 

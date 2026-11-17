@@ -38536,6 +38536,24 @@ def test_extract_json_object_caps_failed_decode_attempts_and_fails_closed(output
     assert time.perf_counter() - started < 1
 
 
+def test_extract_json_object_caps_failed_lexer_span_decodes_and_fails_closed():
+    # No review key: every lexer span is decoded in turn. Those attempts
+    # share the budget of the well-formed scan, which this input leaves
+    # one short of the cap.
+    cap = validator_pipeline._MAX_UNDECODABLE_JSON_OBJECT_STARTS
+    output = '{"a":' * (cap - 1) + "[" + "1," * 10000 + "]x"
+    assert validator_pipeline._scan_well_formed_json_objects(output) == ([], cap - 1)
+
+    started = time.perf_counter()
+    with pytest.raises(ValueError, match="Too many undecodable JSON object starts"):
+        _extract_json_object(output)
+    assert time.perf_counter() - started < 1
+    # Under the shared budget the fallback still finds a plain object.
+    assert _extract_json_object('see {"k": 1,\n' * 20 + '{"type": "note"}') == {
+        "type": "note"
+    }
+
+
 def test_extract_json_object_decode_attempt_cap_spares_long_legitimate_output():
     cap = validator_pipeline._MAX_UNDECODABLE_JSON_OBJECT_STARTS
     payload = {
