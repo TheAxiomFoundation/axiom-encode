@@ -839,8 +839,18 @@ read 2026-11-17). Consequences that no load test has measured:
 every path that contains `..`. The evaluator's second read is
 `compare/<base>...<head>`, so with the real reader every evaluation failed
 with `github_read_failed`; the shadow tests had replaced the reader with a
-fake. The reader now refuses dot segments, plain or percent-encoded, and a
-test sends every path of every lane through it.
+fake. The reader still refuses every `..`, a `.` segment and a
+percent-encoded dot, with one exception: a path segment that is exactly
+`<40 hex>...<40 hex>`. A test sends every path of every lane through it.
+
+**Verified live, in axiom-encode only.** The pull request of this change
+started the workflow on `pull_request` in axiom-encode
+([run 44150203163](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/44150203163),
+2026-11-17). The checkout fetched `github.workflow_sha`, which was the pull
+request's merge commit; the hosted runner's `sha256sum` gave the digest of
+the literal; and the launcher under Python 3.13 printed
+`"inert":"source_repository"` and ended the job with success. That run
+exercised no RuleSpec repository, no ruleset and no evaluation.
 
 **Unverified live.** These need a maintainer's experiment with a throwaway
 ruleset; nothing here was run against a ruleset:

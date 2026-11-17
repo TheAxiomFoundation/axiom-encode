@@ -125,6 +125,7 @@ _SHA = re.compile(r"[0-9a-f]{40}")
 _QUEUE_REF = re.compile(
     r"refs/heads/gh-readonly-queue/main/pr-([1-9][0-9]{0,8})-[0-9a-f]{40}"
 )
+_COMPARE_SEGMENT = re.compile(r"[0-9a-f]{40}\.\.\.[0-9a-f]{40}")
 _CHECK_RUNS_PATH = re.compile(
     r"/repos/TheAxiomFoundation/rulespec-[a-z]{2}(-[a-z0-9]+)*/check-runs"
 )
@@ -155,16 +156,20 @@ def _request(
     opener,
     expected_status: int,
 ) -> object:
-    """One bounded request to the fixed GitHub API origin, as the App."""
+    """One bounded request to the fixed GitHub API origin, with ``token``."""
     if (
         not isinstance(path, str)
         or not path.startswith("/repos/TheAxiomFoundation/")
         or any(c in path for c in ("#", "\\", "\r", "\n", " "))
-        # A dot segment, plain or percent-encoded. Not every "..": the
-        # evaluator's ``compare/<base>...<head>`` path holds three dots inside
-        # one segment, and refusing it would fail every evaluation.
         or "%2e" in path.lower()
-        or any(segment in (".", "..") for segment in path.split("?", 1)[0].split("/"))
+        or any(
+            segment == "."
+            # No ".." anywhere, as before, with one exception: the
+            # evaluator's ``compare/<40 hex>...<40 hex>`` segment. Refusing
+            # it would fail every evaluation at its second read.
+            or (".." in segment and _COMPARE_SEGMENT.fullmatch(segment) is None)
+            for segment in path.split("/")
+        )
     ):
         raise RunnerError("invalid GitHub API path")
     if not isinstance(token, str) or _TOKEN.fullmatch(token) is None:
@@ -212,7 +217,7 @@ def _request(
 
 
 def token_reader(token: str, *, opener=None) -> Fetch:
-    """The evaluator's ``fetch``: bounded GET reads with the App token."""
+    """The evaluator's ``fetch``: bounded GET reads with the token."""
 
     def fetch(path: str) -> object:
         return _request("GET", path, token, None, opener, 200)

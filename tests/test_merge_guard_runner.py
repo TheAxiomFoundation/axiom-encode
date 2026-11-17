@@ -2640,8 +2640,17 @@ def test_reader_sends_the_evaluators_compare_path():
         ROOT + "/..",
         ROOT + "/./pulls/1",
         ROOT + "/pulls/..?x=1",
+        ROOT + "/pulls/1?x=..",
         ROOT + "/%2e%2e/%2E%2E/other/pulls/1",
         ROOT + "/.%2e/pulls/1",
+        ROOT + "/..%2f..%2fother/pulls/1",
+        ROOT + "/compare/main...head",
+        ROOT + f"/compare/{B}..{H}",
+        ROOT + f"/compare/{B}....{H}",
+        ROOT + f"/compare/{B}...{H}..",
+        ROOT + f"/compare/{B}...{H}?x=..",
+        ROOT + f"/compare/..{B}...{H}",
+        ROOT + f"/compare/{B.upper()}...{H}",
     ],
 )
 def test_reader_refuses_dot_segments_plain_or_encoded(path):
