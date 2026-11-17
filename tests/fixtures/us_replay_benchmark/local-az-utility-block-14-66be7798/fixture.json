@@ -28,6 +28,7 @@
     "candidate.yaml": "c6f46dc919919869309a11634a13de958694a10acc5d23c4adac60b1dd8cb65e",
     "candidate.test.yaml": "e8d5dcfe51c7dce3641313cdec7d2486c5683aef13b67e742889ea4b4e599ef0",
     "source.txt": "9bab68c4c8c38bbe78d9bcfdd0c94c28c249c4298b1af43d7e8145e3ceb8fade",
-    "issues.json": "1a0ea961f23b4b2371727f528de3291102e04e8e1dbde9fd1190ee03c56559d2"
+    "issues.json": "1a0ea961f23b4b2371727f528de3291102e04e8e1dbde9fd1190ee03c56559d2",
+    "source-metadata.json": "8822987d80c44ccfaae332658cad1f31dd2db5978143e5b098909ac0516701af"
   }
 }

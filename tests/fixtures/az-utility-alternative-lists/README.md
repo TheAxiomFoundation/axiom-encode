@@ -11,6 +11,12 @@ manual, public text).
   not hosted workflow artifacts.
 - `candidate.yaml` and `candidate.test.yaml` are the bytes that the run wrote.
   `source.txt` is the workspace source text of the unit. No file was edited.
+- The replay fixtures of the six rejected candidates
+  (`tests/fixtures/us_replay_benchmark/local-az-utility-block-*`) also hold the
+  `source-metadata.json` of the same run workspace. One field is edited there:
+  `rulespec_root`, an absolute path on the machine that ran the batch, is
+  replaced by `<local-run-root>/rulespec-us/us-az`. The directories here do not
+  hold that file.
 
 | Directory | Unit | Local run | Recorded verdict |
 |---|---|---|---|

@@ -72,6 +72,9 @@ PROOF_ATOM_KINDS = frozenset(
     }
 )
 POLICY_RULE_KINDS = frozenset({"derived", "derived_relation", "parameter"})
+#: The ``source`` fields of a proof atom whose text is authenticated against
+#: the cited corpus provision.
+PROOF_SOURCE_EVIDENCE_FIELDS = ("excerpt", "quote")
 _MISSING_INTERPRETATION_ID = object()
 
 
@@ -751,6 +754,36 @@ def _module_requires_proofs(module: Any) -> bool:
     return False
 
 
+def proof_source_evidence_texts(source: object) -> tuple[tuple[str, str], ...]:
+    """``(field, text)`` for each evidence text of a proof atom ``source``.
+
+    The one reader of the evidence spellings: proof validation authenticates
+    exactly these texts, and a check that reads proof evidence reads the same.
+    """
+    if not isinstance(source, Mapping):
+        return ()
+    return tuple(
+        (field, text.strip())
+        for field in PROOF_SOURCE_EVIDENCE_FIELDS
+        if isinstance(text := source.get(field), str) and text.strip()
+    )
+
+
+def rule_proof_atoms(rule: Mapping[str, Any]) -> tuple[dict[str, Any], ...]:
+    """The rule-level proof atoms that proof validation authenticates.
+
+    ``rules[].metadata.proof.atoms``, or ``rules[].proof.atoms`` when the rule
+    has no ``metadata.proof`` mapping (the precedence of ``_rule_proof``).
+    """
+    proof = _rule_proof(rule) if isinstance(rule, dict) else None
+    atoms = proof.get("atoms") if proof is not None else None
+    return tuple(
+        atom
+        for atom in (atoms if isinstance(atoms, list) else ())
+        if isinstance(atom, dict)
+    )
+
+
 def _rule_proof(rule: dict[str, Any]) -> dict[str, Any] | None:
     metadata = rule.get("metadata")
     if isinstance(metadata, dict) and isinstance(metadata.get("proof"), dict):
@@ -971,11 +1004,7 @@ def _validate_source_proof_atom(
                 "corpus.provisions."
             )
         else:
-            for field in ("excerpt", "quote"):
-                evidence_text = source.get(field)
-                if not isinstance(evidence_text, str) or not evidence_text.strip():
-                    continue
-                evidence_text = evidence_text.strip()
+            for field, evidence_text in proof_source_evidence_texts(source):
                 # The excerpt must quote the source as printed. A spelling
                 # that only matches typographically is not accepted here;
                 # the generated-artifact repair rewrites it to the printed
