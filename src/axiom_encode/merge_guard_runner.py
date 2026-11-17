@@ -158,7 +158,11 @@ def _request(
         not isinstance(path, str)
         or not path.startswith("/repos/TheAxiomFoundation/")
         or any(c in path for c in ("#", "\\", "\r", "\n", " "))
-        or ".." in path
+        # A dot segment, plain or percent-encoded. Not every "..": the
+        # evaluator's ``compare/<base>...<head>`` path holds three dots inside
+        # one segment, and refusing it would fail every evaluation.
+        or "%2e" in path.lower()
+        or any(segment in (".", "..") for segment in path.split("?", 1)[0].split("/"))
     ):
         raise RunnerError("invalid GitHub API path")
     if not isinstance(token, str) or _TOKEN.fullmatch(token) is None:
@@ -673,6 +677,11 @@ def _enforce_pull_request(
         except RunnerError as exc:
             # The verdict stays ``fail`` and the run says why it stopped.
             report["error"] = "waiting for the required check failed: " + str(exc)
+            return verdict
+        except Exception as exc:  # an injected reader's own error type
+            report["error"] = (
+                "waiting for the required check failed: " + type(exc).__name__
+            )
             return verdict
         report["waited_seconds"] = waited
         report["ci_polls"] = polls
