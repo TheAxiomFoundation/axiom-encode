@@ -28,11 +28,13 @@ from tests.test_content_merge_guard import (
     ROOT,
     B,
     H,
+    M,
     P,
     T,
     build,
     commit,
     plain,
+    v5_manifest,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -529,6 +531,132 @@ def test_reader_refuses_paths_outside_the_organisation(path):
     with pytest.raises(runner.RunnerError):
         runner.token_reader(TOKEN, opener=opener)(path)
     assert opener.requests == []
+
+
+def test_reader_sends_the_evaluators_compare_path():
+    # ``compare/<base>...<head>`` holds three dots in one segment. It is not a
+    # dot segment; a reader that refuses it fails every evaluation.
+    opener = Opener(raw=b'{"status": "ahead"}')
+    path = f"{ROOT}/compare/{B}...{H}"
+    assert runner.token_reader(TOKEN, opener=opener)(path) == {"status": "ahead"}
+    assert opener.requests[0].full_url == "https://api.github.com" + path
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ROOT + "/..",
+        ROOT + "/./pulls/1",
+        ROOT + "/pulls/..?x=1",
+        ROOT + "/pulls/1?x=..",
+        ROOT + "/%2e%2e/%2E%2E/other/pulls/1",
+        ROOT + "/.%2e/pulls/1",
+        ROOT + "/..%2f..%2fother/pulls/1",
+        ROOT + "/compare/main...head",
+        ROOT + f"/compare/{B}..{H}",
+        ROOT + f"/compare/{B}....{H}",
+        ROOT + f"/compare/{B}...{H}..",
+        ROOT + f"/compare/{B}...{H}?x=..",
+        ROOT + f"/compare/..{B}...{H}",
+        ROOT + f"/compare/{B.upper()}...{H}",
+    ],
+)
+def test_reader_refuses_dot_segments_plain_or_encoded(path):
+    opener = Opener()
+    with pytest.raises(runner.RunnerError, match="invalid GitHub API path"):
+        runner.token_reader(TOKEN, opener=opener)(path)
+    assert opener.requests == []
+
+
+class WorldOpener:
+    """A fake of the HTTP opener that answers from a ``World``.
+
+    A fake ``fetch`` replaces ``token_reader`` and with it the path filter of
+    ``_request``. This fake sits one layer lower: every read and the one write
+    pass the real ``token_reader``, ``check_writer`` and ``_request``.
+    """
+
+    ORIGIN = "https://api.github.com"
+
+    def __init__(self, world):
+        self.world = world
+        self.paths = []
+        self.posts = []
+
+    def open(self, request, timeout):
+        assert timeout == 30
+        assert request.full_url.startswith(self.ORIGIN + "/")
+        assert request.get_header("Authorization") == "Bearer " + TOKEN
+        path = request.full_url[len(self.ORIGIN) :]
+        if request.get_method() == "POST":
+            body = json.loads(request.data)
+            self.posts.append((path, body))
+            created = {
+                "id": 9001,
+                "name": body["name"],
+                "head_sha": body["head_sha"],
+                "conclusion": body["conclusion"],
+            }
+            return Response(201, json.dumps(created).encode())
+        assert request.get_method() == "GET" and request.data is None
+        self.paths.append(path)
+        try:
+            value = self.world.fetch(path)
+        except KeyError:
+            raise http_error(404) from None
+        return Response(200, json.dumps(value).encode())
+
+
+# One passing v6 evaluation and one evaluation of the earlier (v5) lane: the
+# two shapes of a pull request the guard lets through.
+WHOLE_EVALUATIONS = [
+    (build, ("pass", guard.R_PASS)),
+    (
+        lambda: plain({P: PRIMARY, T: COMPANION, M: v5_manifest(P, T)}),
+        ("not_applicable", guard.R_EARLIER_LANE),
+    ),
+]
+
+
+@pytest.mark.parametrize(("make", "expected"), WHOLE_EVALUATIONS)
+def test_the_real_reader_carries_a_whole_evaluation(make, expected):
+    # The class of fault "the real reader refuses a path the evaluator needs":
+    # with a fake ``fetch`` the path filter of ``_request`` never runs. Here
+    # the evaluator reads through ``token_reader`` and only the opener is fake.
+    reference = make()
+    wanted = reference.evaluate()
+    assert (wanted.verdict, wanted.reason) == expected
+    world = make()
+    opener = WorldOpener(world)
+    verdict = guard.evaluate(NAME, 42, fetch=runner.token_reader(TOKEN, opener=opener))
+    assert verdict.as_dict() == wanted.as_dict()
+    # Every path the evaluator asked for reached the opener, in order.
+    assert opener.paths == reference.calls
+    assert f"{ROOT}/compare/{B}...{H}" in opener.paths
+    assert opener.posts == []
+
+
+@pytest.mark.parametrize(("make", "expected"), WHOLE_EVALUATIONS)
+def test_the_command_evaluates_and_reports_through_the_real_reader(
+    capsys, make, expected
+):
+    # The whole command in shadow mode: the evaluator's reads, the listing of
+    # earlier shadow checks and the check-run write all pass ``_request``.
+    world = shadow_world(make())
+    opener = WorldOpener(world)
+    code = runner.command(
+        arguments(mode="shadow"),
+        environ={runner.TOKEN_ENV: TOKEN, runner.APP_CLIENT_ID_ENV: CLIENT},
+        opener=opener,
+    )
+    report = json.loads(capsys.readouterr().out)
+    assert code == 0 and report["complete"] is True
+    (entry,) = report["results"]
+    assert (entry["verdict"]["verdict"], entry["verdict"]["reason"]) == expected
+    assert entry["publication"] == "created"
+    assert SHADOW_LISTING in opener.paths
+    ((path, body),) = opener.posts
+    assert path == ROOT + "/check-runs" and body["head_sha"] == H
 
 
 @pytest.mark.parametrize("token", ["", "short", "has space " + "x" * 30, None])

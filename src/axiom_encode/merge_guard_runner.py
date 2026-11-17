@@ -68,6 +68,7 @@ _API: Final = "https://api.github.com"
 _REPOSITORY = re.compile(r"rulespec-[a-z]{2}(-[a-z0-9]+)*")
 _TOKEN = re.compile(r"[A-Za-z0-9_.-]{20,512}")
 _SHA = re.compile(r"[0-9a-f]{40}")
+_COMPARE_SEGMENT = re.compile(r"[0-9a-f]{40}\.\.\.[0-9a-f]{40}")
 _CHECK_RUNS_PATH = re.compile(
     r"/repos/TheAxiomFoundation/rulespec-[a-z]{2}(-[a-z0-9]+)*/check-runs"
 )
@@ -96,12 +97,20 @@ def _request(
     opener,
     expected_status: int,
 ) -> object:
-    """One bounded request to the fixed GitHub API origin, as the App."""
+    """One bounded request to the fixed GitHub API origin, with ``token``."""
     if (
         not isinstance(path, str)
         or not path.startswith("/repos/TheAxiomFoundation/")
         or any(c in path for c in ("#", "\\", "\r", "\n", " "))
-        or ".." in path
+        or "%2e" in path.lower()
+        or any(
+            segment == "."
+            # No ".." anywhere, as before, with one exception: the
+            # evaluator's ``compare/<40 hex>...<40 hex>`` segment. Refusing
+            # it would fail every evaluation at its second read.
+            or (".." in segment and _COMPARE_SEGMENT.fullmatch(segment) is None)
+            for segment in path.split("/")
+        )
     ):
         raise RunnerError("invalid GitHub API path")
     if not isinstance(token, str) or _TOKEN.fullmatch(token) is None:
@@ -149,7 +158,7 @@ def _request(
 
 
 def token_reader(token: str, *, opener=None) -> Fetch:
-    """The evaluator's ``fetch``: bounded GET reads with the App token."""
+    """The evaluator's ``fetch``: bounded GET reads with the token."""
 
     def fetch(path: str) -> object:
         return _request("GET", path, token, None, opener, 200)
