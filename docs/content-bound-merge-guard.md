@@ -645,7 +645,10 @@ one place in `cmd_promote_reviewed_candidate`).
 encoder-side environment variable, CLI flag, dispatch input or setting opens
 them. Lock 3 is code on encoder main that separately reads the branch
 protection of the RuleSpec repository. It refuses unless that protection
-requires the guard check from the recorded guard App.
+requires the guard check from the recorded guard App. Locks 2 and 3 have
+two accepted forms since change 5c: the App form of this paragraph and of
+the table, and the organization-ruleset form described under the table.
+Neither form is recorded, and at most one may be.
 
 | # | Lock | State today | Opened by |
 |---|---|---|---|
@@ -661,6 +664,58 @@ requires the guard check from the recorded guard App.
   legacy `contexts` list, the shadow check name, a read error, a rate limit
   and an unknown shape all refuse. A required check that comes from a
   repository ruleset is not in this record and does not count.
+- **Two accepted forms of locks 2 and 3 (change 5c, locked).** The rows
+  above are the App form. The mechanism recommended in
+  `docs/merge-guard-key-protection.md` (not accepted) has no guard App, so
+  the App form could never open under it. The second form:
+  - Lock 2 is `reviewed_pr_admission.GUARD_WORKFLOW`, `None` today. A
+    reviewed activation change records `GuardWorkflow(repository_id, path,
+    shas)`: the numeric id of the repository that holds the guard workflow,
+    the path `.github/workflows/content-bound-merge-guard.yml`, and a
+    non-empty `frozenset` of reviewed 40-hex commit SHAs. No environment
+    variable, flag, dispatch input or setting sets it.
+  - Exactly one of `GUARD_APP_ID` and `GUARD_WORKFLOW` may be recorded.
+    With neither recorded (today), and with both, `require_guard_enforced`
+    refuses before any read.
+  - Lock 3 then reads the active rules of the branch, anonymously:
+    `GET /repos/<repo>/rules/branches/main`, every page within a bound. It
+    passes only when the whole listing has exactly one rule of type
+    `workflows`; that rule is from a ruleset of the organization
+    (`ruleset_source_type: "Organization"`, `ruleset_source:
+    "TheAxiomFoundation"`, an integer `ruleset_id`); it names exactly one
+    workflow with the recorded repository id, the recorded path, a `sha` of
+    the recorded set and no `ref`; and the listing has a rule of type
+    `merge_queue`. A ruleset in `Evaluate` or `Disabled` mode is not in the
+    listing [docs: "Rules in rulesets with "evaluate" or "disabled"
+    enforcement statuses are not returned", REST "Get rules for a branch",
+    read 2026-11-17], so it refuses. A rule of a repository ruleset, a
+    second `workflows` rule, a second workflow, a `ref`, an unknown key in
+    the entry, a read error, a rate limit and an unknown shape all refuse.
+  - Why the merge queue is part of the lock: no event follows a review, so
+    a pass on the pull request stays green after a dismissal. Only the
+    merge-group run reads the reviews again at merge time. Admission
+    without the pre-sign approval must not open while a merge can go around
+    the queue. The `merge_queue` rule may come from any ruleset.
+  - The admission record's `guard` is then `{form:
+    "organization_ruleset_workflow", ruleset_id, repository_id, path,
+    sha}`; the App form's record is unchanged. Revalidation compares the
+    whole record, so a pin that moves between admission and signing
+    refuses, also to another recorded SHA.
+  - What this read cannot see: the ruleset's bypass list (the ruleset
+    endpoint returns `bypass_actors` only to a caller with write access to
+    the ruleset [docs: REST "Get a repository ruleset", read 2026-11-17]);
+    whether GitHub runs the file of exactly the pinned commit; any later
+    change by an organization owner.
+  - The response shape of a `workflows` rule on this endpoint has a
+    documented schema and no documented example. The test fixture
+    `tests/fixtures/merge_guard_requirement/rules_branches_main_workflows_SYNTHETIC.json`
+    is SYNTHETIC, built from that schema.
+    [experiment X14]: must be replaced by the recorded live response before
+    activation.
+    Recorded on 2026-11-17 (`rules_branches_main_recorded.json`): the
+    listing of `rulespec-us` `main` is empty, and the listing of
+    axiom-encode `main` holds one `merge_queue` rule of a repository
+    ruleset. Both refuse.
 - The read is anonymous, so the signing runtime still holds no repository
   credential. Verified on 2026-11-13: the record is public and carries
   `checks[].app_id`.
@@ -879,6 +934,7 @@ Implementation comes strictly before activation.
 | 4 | rulespec-us | Pin the encoder that verifies v6 | revert the pin |
 | 5 | axiom-encode | Emit v6 and admit without approval, behind a default-off switch. Built with three locks: `V6_WRITER_ENABLED = False`, `GUARD_APP_ID = None`, and a live read that the guard check is required (§5, "Encoder") | revert |
 | 5b | axiom-encode | Record the guard App's numeric App ID in `GUARD_APP_ID`, after checklist step 1. The other half, the hosted workflow's evidence step reading `candidate_rulespec_ref` behind the writer's locks, is present and switched off (§5, "Evidence step") | set it back to `None` |
+| 5c | axiom-encode | **Writer lock for the ruleset form (built, locked).** A second accepted form of locks 2 and 3: `GUARD_WORKFLOW = None`, and a live read that an organization ruleset requires the guard workflow at a recorded commit on `main`, with a merge queue (§5, "Encoder"). Exactly one of `GUARD_APP_ID` and `GUARD_WORKFLOW` may be recorded; with neither, as committed, the lane refuses before any read. Needed only if the maintainers accept the ruleset mechanism. The listing it is tested against is SYNTHETIC. [experiment X14]: must be replaced by the recorded live response before activation. | revert; the locks stay shut |
 | 6 | axiom-encode | **Activation**: turn the switch on; update `docs/reviewed-pr-promotion.md` | flip the switch back; the required check stays |
 
 ### Activation checklist
@@ -910,6 +966,23 @@ activation.
 
 Steps 4 and 7 are separate reviewed changes, and step 4 comes first. That
 preserves proposed constraint D2d.
+
+If the maintainers accept the ruleset mechanism instead of the guard App
+(change 5c), steps 1, 4 and 7 change as that proposal describes, and step 7
+gains these conditions before change 6 merges:
+
+- Record the live response of
+  `GET /repos/TheAxiomFoundation/rulespec-us/rules/branches/main` with the
+  ruleset `Active`, replace the SYNTHETIC fixture with it, and make the
+  ruleset-form tests pass against it unchanged or with a reviewed change of
+  the lock.
+  [experiment X14]: must be replaced by the recorded live response before
+  activation.
+- Record `GUARD_WORKFLOW` in one reviewed change: the repository id of
+  axiom-encode, the workflow path and the reviewed commit SHA or SHAs.
+  `GUARD_APP_ID` stays `None`.
+- A maintainer with access confirms that the ruleset's bypass list is empty;
+  the lock cannot read it.
 
 What fixes the order. D2d ("deployed and enforced before the pre-sign approval
 is removed") forces the guard App (step 1), the runner and the v6 reader pin
@@ -1008,6 +1081,23 @@ Not verified:
   refuses anyway.
 - Whether a required check with a non-Actions `app_id` is honoured on
   merge-group commits, and how to list a group's PRs.
+- Change 5c: the response of `GET /repos/<repo>/rules/branches/main` for a
+  rule of type `workflows`. No such ruleset exists. Read on 2026-11-17: the
+  REST schemas `repository-rule-workflows`,
+  `repository-rule-params-workflow-file-reference` (`path` and
+  `repository_id` required, `ref` and `sha` optional) and
+  `repository-rule-ruleset-info` (`ruleset_source_type`, `ruleset_source`,
+  `ruleset_id`) in `github/rest-api-description` at `c9c95fe3`; the only
+  documented example of the endpoint shows two pattern rules. Whether the
+  response carries `sha`, whether it also carries a `ref`, and the exact
+  `ruleset_source` of an organization ruleset are not verified. The fixture
+  is SYNTHETIC.
+  [experiment X14]: must be replaced by the recorded live response before
+  activation.
+- Change 5c: that an anonymous read of that endpoint works was verified
+  for `rulespec-us` and axiom-encode on 2026-11-17 (HTTP 200). That the
+  listing includes a rule of an organization ruleset for an anonymous
+  reader is not verified.
 - Which workflow file version `pull_request_review` and `merge_group` runs use.
 - Organisation plan and availability of required-workflow rulesets.
 - Whether the Go signer or supervisor inspects `schema_version` or field names.

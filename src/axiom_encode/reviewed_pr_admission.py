@@ -531,8 +531,9 @@ def _require_guard_workflow_ruleset(
       it. An actor on that list merges without the workflow.
     - Whether the response of this endpoint for a ``workflows`` rule has the
       shape assumed here. The schema is documented, an example is not; the
-      test fixture is SYNTHETIC. [experiment X14]: it must be replaced by the
-      recorded live response before activation.
+      test fixture is SYNTHETIC.
+      [experiment X14]: must be replaced by the recorded live response before
+      activation.
     - That GitHub runs the file of exactly the pinned commit (experiment X1),
       and everything after the read: an organization owner can change the
       ruleset afterwards (design, section 9).
@@ -584,8 +585,7 @@ def _require_guard_workflow_ruleset(
     if (
         type(entry.get("repository_id")) is not int
         or entry["repository_id"] != recorded.repository_id
-        or type(entry.get("path")) is not str
-        or entry["path"] != recorded.path
+        or entry.get("path") != recorded.path
     ):
         raise AdmissionError(
             "the required workflow is not the recorded merge guard workflow "
