@@ -185,6 +185,29 @@ def test_off_the_reviewed_admission_is_unchanged_and_never_reads_protection(api)
     assert BRANCH not in again.calls
 
 
+def test_off_the_reviewed_lane_still_admits_a_history_with_an_id_less_review(api):  # noqa: F811
+    """Review round 2, P3-1: the stricter identity rules are the candidate
+    lane's only. With the committed constants, a comment that has no review
+    id and whose reviewer has no id stands beside the valid approval, and the
+    reviewed lane admits and revalidates it as before. The test goes red if
+    ``_approved_reviews`` starts to refuse a reviewer without a numeric id, or
+    if the reviewed lane also runs ``_refuse_changes_requested``."""
+    assert admission.V6_WRITER_ENABLED is False
+    assert admission.GUARD_APP_ID is None
+    approval = api[REVIEWS][0]
+    api[REVIEWS] = [approval, {"state": "COMMENTED", "user": {"login": "x"}}]
+    fetch = Recorder(api)
+    result = admission.verify_reviewed_pr(SELECTOR, fetch=fetch)
+    assert set(result) == REVIEWED_KEYS
+    assert result["schema"] == admission.SCHEMA
+    assert result["approvals"] == [{"reviewer_id": 6076111, "review_id": 1}]
+    assert BRANCH not in fetch.calls
+    again = Recorder(api)
+    assert admission.revalidate_admission(result, fetch=again) == result
+    assert admission.is_candidate_admission(result) is False
+    assert BRANCH not in again.calls
+
+
 def test_off_a_candidate_admission_record_is_an_invalid_admission(
     world, on, monkeypatch
 ):
