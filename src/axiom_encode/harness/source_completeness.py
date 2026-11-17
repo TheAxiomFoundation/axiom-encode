@@ -33134,6 +33134,14 @@ def _branch_boundary_test_witnesses(
                     controller_rule is rule
                     and minimum_cap_boundary_span is not None
                     and minimum_cap_binding is not None
+                    # The source itself must state the boundary as a cap: an
+                    # inclusive upper bound with no lower bound ("Up to $40").
+                    and source_interval is not None
+                    and source_interval.lower is None
+                    and source_interval.upper is not None
+                    and source_interval.upper_inclusive
+                    and source_interval.upper.start == boundary.start
+                    and source_interval.upper.end == boundary.end
                     and extract_numeric_occurrences is not None
                     and _case_reaches_minimum_cap(
                         rule,
@@ -35577,6 +35585,16 @@ def _case_reaches_minimum_cap(
     value. That number must also be a cap obligation only: the cap parameter
     is not read by any condition, and no other parameter claims the same
     number. See `_minimum_cap_is_bound_to_source_span`.
+
+    The caller adds two source-side conditions. The source must state the
+    boundary as an inclusive upper bound with no lower bound, as in ``Up to
+    $40``; a lower bound or a strict threshold such as ``more than 40 miles``
+    or ``at least 40`` is never credited by this path. The unit must also
+    state the boundary's number as a boundary only once.
+
+    Known residual: a source threshold that is itself an inclusive upper
+    bound on another quantity, stated once, and reused as a cost cap with a
+    computed wrong gate, is not detected.
     """
 
     inputs = case.get("input")

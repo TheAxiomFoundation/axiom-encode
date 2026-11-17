@@ -1073,6 +1073,184 @@ def test_a_literal_condition_value_equal_to_the_cap_is_refused(monkeypatch):
     assert _refusals(monkeypatch, candidate, cases, source) == REFUSED_BY_EACH_GUARD
 
 
+def _one_forty_with_a_computed_gate(
+    gate: str,
+    *,
+    threshold_formula: str,
+    keep_threshold_proof: bool,
+    helper: tuple[str, str] | None = None,
+    threshold_sentence: str = MORE_THAN_40_MILES,
+    distances: dict[int, int] = UNTESTED_LOWER_GATE,
+):
+    """The only 40 is the travel threshold, and a second branch caps with it.
+
+    The lodging cap is $70. A parameter `alt_cap` of 40, proved by the
+    threshold sentence, caps the `alt` branch, which has cases below, at and
+    above 40. The gate reaches 40 by arithmetic on `threshold_formula`, so
+    no condition value is 40. No case sets the travel distance to 40.
+    """
+
+    candidate, cases, source = _second_forty(
+        threshold_sentence, gate=">=", distances=distances
+    )
+    source = source.replace("Up to $40 per day", "Up to $70 per day")
+    assert source.count("40") == 1
+    cap_rule = "        formula: |-\n          40\n  - name: medical_lodging_travel"
+    threshold_rule = "        formula: |-\n          40\n  - name: allowable"
+    assert candidate.count(cap_rule) == 1 and candidate.count(threshold_rule) == 1
+    candidate = (
+        candidate.replace("Up to $40 per day", "Up to $70 per day")
+        .replace(cap_rule, cap_rule.replace("          40\n", "          70\n"))
+        .replace(
+            threshold_rule,
+            threshold_rule.replace(
+                "          40\n", f"          {threshold_formula}\n"
+            ),
+        )
+    )
+    candidate = candidate.replace(
+        hashlib.sha256(
+            SOURCE.replace(
+                CAP_AND_GATE_SENTENCE, f"{CAP_SENTENCE} {threshold_sentence}"
+            ).encode()
+        ).hexdigest(),
+        hashlib.sha256(source.encode()).hexdigest(),
+    )
+    assert hashlib.sha256(source.encode()).hexdigest() in candidate
+    if not keep_threshold_proof:
+        candidate = _gate_proof_moved_off_the_formula(candidate)
+    branch = f"if {INCLUSIVE_GATES}:\n            {CAP_FORMULA}\n          else: 0"
+    gates = INCLUSIVE_GATES.replace(GATE_COMPARISON, gate)
+    assert candidate.count(branch) == 1 and gates != INCLUSIVE_GATES
+    candidate = (
+        _with_input(candidate, "alt", "Boolean")
+        .replace(
+            branch,
+            f"if {gates} and alt:\n"
+            "            min(max(0, daily_lodging_cost), alt_cap)\n"
+            f"          elif {gates}:\n            {CAP_FORMULA}\n"
+            "          else: 0",
+        )
+        .replace(
+            PRINCIPAL_RULE,
+            _alt_cap_parameter(threshold_sentence.rstrip("."))
+            + (_helper_rule(helper[0], "Decimal", helper[1]) if helper else "")
+            + PRINCIPAL_RULE,
+            1,
+        )
+    )
+    cases = copy.deepcopy(cases)
+    for case in cases:
+        if case["name"] == CAP_CASE:
+            case["input"][COST] = case["output"][OUTPUT] = 70
+        if case["name"] == "qualifying_lodging_above_daily_cap":
+            case["input"][COST], case["output"][OUTPUT] = 90, 70
+        if COST in case["input"]:
+            case["input"][ALT] = False
+    for name, cost, output in (("below", 30, 30), ("at", 40, 40), ("above", 60, 40)):
+        alternate = copy.deepcopy(_cap_case_of(cases))
+        alternate["name"] = f"alt_{name}"
+        alternate["input"][ALT] = True
+        alternate["input"][COST], alternate["output"][OUTPUT] = cost, output
+        cases.append(alternate)
+    if helper:
+        for case in cases:
+            if DISTANCE in case["input"]:
+                case["output"][f"{PREFIX}#{helper[0]}"] = case["input"][DISTANCE] - 40
+    assert _distance_inputs(cases) == set(distances.values())
+    return candidate, cases, source
+
+
+@pytest.mark.parametrize(
+    ("gate", "threshold_formula", "keep_threshold_proof", "helper"),
+    [
+        pytest.param(
+            f"travel_distance_miles >= {TRAVEL_THRESHOLD} / 2",
+            "80",
+            False,
+            None,
+            id="half-of-80",
+        ),
+        pytest.param(
+            f"travel_distance_miles >= {TRAVEL_THRESHOLD} / 2",
+            "80",
+            True,
+            None,
+            id="half-of-80-with-formula-proof",
+        ),
+        pytest.param(
+            f"travel_distance_miles >= {TRAVEL_THRESHOLD} - 1",
+            "41",
+            False,
+            None,
+            id="41-minus-1",
+        ),
+        pytest.param(
+            "excess_miles >= 0",
+            "80",
+            False,
+            ("excess_miles", f"travel_distance_miles - {TRAVEL_THRESHOLD} / 2"),
+            id="helper-rule",
+        ),
+    ],
+)
+def test_a_strict_source_threshold_is_never_credited_as_a_cap(
+    gate, threshold_formula, keep_threshold_proof, helper
+):
+    """The source says "more than 40 miles", which is not an "up to" cap.
+
+    The lodging "$70" is an inclusive upper bound and stays credited.
+    """
+
+    candidate, cases, source = _one_forty_with_a_computed_gate(
+        gate,
+        threshold_formula=threshold_formula,
+        keep_threshold_proof=keep_threshold_proof,
+        helper=helper,
+    )
+    assert _issues(candidate, cases, source) == MISSING_40
+
+
+UPPER_GATE_DISTANCES = {49: 45, 50: 41, 51: 30}
+
+
+def test_a_strict_upper_source_threshold_is_never_credited_as_a_cap():
+    """ "Less than 40 miles" is an upper bound, but not an inclusive one."""
+
+    candidate, cases, source = _one_forty_with_a_computed_gate(
+        f"travel_distance_miles <= {TRAVEL_THRESHOLD} / 2",
+        threshold_formula="80",
+        keep_threshold_proof=False,
+        threshold_sentence=(
+            "Travel distance is less than 40 miles for lodging to be allowable."
+        ),
+        distances=UPPER_GATE_DISTANCES,
+    )
+    assert _issues(candidate, cases, source) == MISSING_40
+
+
+def test_known_residual_an_inclusive_upper_threshold_reused_as_a_cost_cap():
+    """Pins a disclosed residual of the min-cap path.
+
+    The source states "at most 40 miles" once, so the 40 reads as a cap. The
+    candidate reuses it as a cost cap in a second branch and gates on a
+    computed, wrong strict comparison. No case sets the distance to 40, and
+    the case at the cost cap is still credited for the travel threshold. A
+    fix must make this result the one missing-40 finding.
+    """
+
+    candidate, cases, source = _one_forty_with_a_computed_gate(
+        f"travel_distance_miles < {TRAVEL_THRESHOLD} / 2",
+        threshold_formula="80",
+        keep_threshold_proof=False,
+        threshold_sentence=(
+            "Travel distance is at most 40 miles for lodging to be allowable."
+        ),
+        distances=UPPER_GATE_DISTANCES,
+    )
+    assert _issues(candidate, cases, source) == []
+
+
 def test_the_whole_sentence_as_the_proof_of_both_parameters_is_credited():
     """The natural encoding: the cap and the threshold both quote the sentence."""
 
@@ -1288,12 +1466,21 @@ def test_a_second_boundary_with_the_same_number_is_not_stated_once():
         source_text=UNIT,
         numeric_value_is_grounded=numeric_value_is_grounded,
     )
+    # An equal boundary at a place that cannot be certified is a second one.
+    assert not sc._boundary_value_is_stated_once(
+        branch,
+        forties[0],
+        [(branch, forties[0]), (moved, forties[0])],
+        source_text=UNIT,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
 
 
 def test_known_gap_a_gate_case_at_40_is_credited_for_the_cap_with_the_same_number():
     """Pins the older selector path, which this change leaves as it is.
 
-    Known gap of the selector path, tracked in a follow-up issue. That path
+    Known gap of the selector path, tracked in
+    TheAxiomFoundation/axiom-encode#2274. That path
     grounds a comparison case by its number only. So a travel-distance case
     at 40 is credited for the lodging $40 cap too, and the candidate passes
     with no case at the cap. When the selector path binds occurrences, this
@@ -1314,7 +1501,8 @@ def test_known_gap_a_gate_case_at_40_is_credited_for_the_cap_with_the_same_numbe
 def test_known_gap_a_gate_behind_a_helper_rule_is_not_asked_for_its_boundary():
     """Pins the older selector path, which this change leaves as it is.
 
-    Known gap of the selector path, tracked in a follow-up issue. The gate
+    Known gap of the selector path, tracked in
+    TheAxiomFoundation/axiom-encode#2274. The gate
     `travel_distance_miles >= threshold` is in a Boolean helper rule, and the
     principal rule reads the helper. The source says "more than 40 miles", no
     case sets the distance to 40, and the wrong inclusive gate still passes.
