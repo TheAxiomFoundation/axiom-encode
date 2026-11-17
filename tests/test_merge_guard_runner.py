@@ -2143,11 +2143,33 @@ def test_a_required_check_that_stays_pending_times_out_and_fails():
     assert (reason_of(report), code) == (("fail", guard.R_CI), 1)
     assert report["evaluations"] == 2
     # One poll at the start and one after each sleep, until the wait is over.
-    assert report["ci_polls"] == runner.MAX_CI_POLLS == 121
-    assert report["waited_seconds"] == runner.CI_WAIT_SECONDS == 3600
+    assert report["ci_polls"] == runner.MAX_CI_POLLS == 101
+    assert report["waited_seconds"] == runner.CI_WAIT_SECONDS == 18000
     assert sum(time.sleeps) == runner.CI_WAIT_SECONDS
+    assert set(time.sleeps) == {runner.CI_POLL_SECONDS} == {180}
     assert report["requests"] <= runner.MAX_ENFORCE_REQUESTS
     assert "error" not in report
+
+
+def test_a_full_pull_request_wait_and_both_evaluations_fit_under_the_request_cap():
+    # The worst honest pull-request run (review round 2, P2-1 and P3-3): the
+    # required check is pending at the first evaluation and at 100 polls, and
+    # completed at the last poll the wait allows. Then the second evaluation
+    # runs whole. A poll of this wait is one read.
+    world = build()
+    reads = pending_then(world, polls=runner.MAX_CI_POLLS)
+    time = Time()
+    report, code = judge(world, time=time)
+    assert (reason_of(report), code) == (("pass", guard.R_PASS), 0)
+    assert report["evaluations"] == 2
+    assert report["ci_polls"] == runner.MAX_CI_POLLS == 101
+    assert report["waited_seconds"] == runner.CI_WAIT_SECONDS
+    # The listing is read once by the first evaluation, once by each poll
+    # and twice by the second evaluation (its check and its recheck).
+    assert len(reads) == 1 + 101 * runner.CI_POLL_READS + 2
+    first = FIRST_EVALUATION_READS_UNTIL_CI
+    assert report["requests"] == first + 101 * runner.CI_POLL_READS + 29 == 142
+    assert report["requests"] <= 2 * 30 + 101 == 161 <= runner.MAX_ENFORCE_REQUESTS
 
 
 def test_the_wait_is_bounded_by_polls_when_the_clock_does_not_move():
@@ -2521,9 +2543,93 @@ def test_a_completed_group_check_whose_run_is_not_completed_is_waited_for():
     assert report["requests"] <= runner.MAX_ENFORCE_REQUESTS
 
 
+SECOND_GROUP_RUN = "44150203164"
+SECOND_GROUP_RUN_PATH = f"{ROOT}/actions/runs/{SECOND_GROUP_RUN}"
+
+
+def two_group_checks(world, *, second_run=None):
+    """Two listed checks on the group head, each with its own workflow run."""
+    group_ci(world)
+    first = world.api[GROUP_CHECK_LISTING]["check_runs"][0]
+    second = first | {
+        "id": 3,
+        "details_url": (
+            f"https://github.com/{REPO}/actions/runs/{SECOND_GROUP_RUN}/job/3"
+        ),
+    }
+    world.api[GROUP_CHECK_LISTING] = {"total_count": 2, "check_runs": [first, second]}
+    world.api[SECOND_GROUP_RUN_PATH] = (
+        world.api[GROUP_RUN_PATH] | {"id": int(SECOND_GROUP_RUN)} | (second_run or {})
+    )
+    return world
+
+
+def test_the_costliest_merge_group_wait_and_the_evaluation_fit_under_the_request_cap():
+    # Review round 2, P3-3. The costliest poll: two listed checks, both
+    # completed; the first one's workflow run is completed and green, the
+    # second one's is in progress. That is three reads: the listing and two
+    # workflow runs. Every poll of a full wait costs that, the last poll finds
+    # the second run completed, and the evaluation follows.
+    world = two_group_checks(queued())
+    done = world.api[SECOND_GROUP_RUN_PATH]
+    pending = done | {"status": "in_progress", "conclusion": None}
+    reads = []
+
+    def run():
+        reads.append(1)
+        return pending if len(reads) < runner.MAX_MERGE_GROUP_POLLS else done
+
+    world.api[SECOND_GROUP_RUN_PATH] = run
+    time = Time()
+    report, code = judge_group(world, time)
+    assert (reason_of(report), code) == (("pass", guard.R_PASS), 0)
+    assert report["evaluations"] == 1
+    assert report["ci_polls"] == runner.MAX_MERGE_GROUP_POLLS == 101
+    assert report["waited_seconds"] == runner.MERGE_GROUP_WAIT_SECONDS
+    assert runner.MERGE_GROUP_POLL_READS == 3
+    assert world.calls.count(GROUP_CHECK_LISTING) == 101
+    assert world.calls.count(GROUP_RUN_PATH) == 101
+    assert len(reads) == 101
+    assert report["requests"] == 3 * 101 + 29 == 332
+    assert report["requests"] <= 3 * 101 + 30 == 333 <= runner.MAX_ENFORCE_REQUESTS
+
+
+def test_the_costliest_merge_group_wait_that_never_completes_stays_under_the_cap():
+    world = two_group_checks(
+        queued(), second_run={"status": "in_progress", "conclusion": None}
+    )
+    report, code = judge_group(world)
+    no_evaluation(world, report, code)
+    assert "did not complete within the wait" in report["error"]
+    assert report["ci_polls"] == runner.MAX_MERGE_GROUP_POLLS
+    assert report["requests"] == 3 * 101 == 303 <= runner.MAX_ENFORCE_REQUESTS
+
+
+@pytest.mark.parametrize("pending", [False, True])
+def test_more_listed_group_checks_than_one_poll_reads_is_an_error(pending):
+    # The bound that makes three reads the most one poll can cost. Three
+    # listed checks are an error of the run at the first poll, completed or
+    # not, with no workflow run read and no evaluation.
+    world = two_group_checks(queued())
+    listing = world.api[GROUP_CHECK_LISTING]
+    third = listing["check_runs"][1] | {"id": 4}
+    if pending:
+        third |= {"status": "in_progress", "conclusion": None}
+    world.api[GROUP_CHECK_LISTING] = {
+        "total_count": 3,
+        "check_runs": [*listing["check_runs"], third],
+    }
+    assert len(listing["check_runs"]) == runner.MAX_GROUP_CHECK_RUNS == 2
+    report, code = judge_group(world)
+    no_evaluation(world, report, code)
+    assert "more checks with the required name" in report["error"]
+    assert (report["ci_polls"], report["requests"]) == (1, 1)
+    assert GROUP_RUN_PATH not in world.calls
+
+
 def test_a_full_merge_group_wait_and_the_evaluation_fit_under_the_request_cap():
-    # The worst honest run: every poll makes two reads, the last poll finds
-    # the run completed, and the evaluation follows.
+    # The usual full run: one listed check, so every poll makes two reads,
+    # the last poll finds the run completed, and the evaluation follows.
     world = queued()
     group_ci(world, run={"status": "in_progress", "conclusion": None})
     pending = world.api[GROUP_RUN_PATH]
@@ -2829,6 +2935,9 @@ MERGE_GROUP_LABEL = "merge group of a v6 unit, pass (2 reads of one poll, then 2
 # The largest evaluation any fixture makes. MAX_ENFORCE_REQUESTS leaves room
 # for two of them and every poll of one full wait.
 LARGEST_EVALUATION = 30
+# Reads of the first evaluation of the v6 fixture until it finds the required
+# check pending and stops with ``ci_not_green``.
+FIRST_EVALUATION_READS_UNTIL_CI = 12
 
 
 def five_v5_units():
@@ -2884,18 +2993,29 @@ def test_request_volume_per_evaluation_is_measured_and_bounded(monkeypatch):
     evaluations = measured | {MERGE_GROUP_LABEL: measured[MERGE_GROUP_LABEL] - 2}
     assert max(evaluations.values()) == 29 <= LARGEST_EVALUATION
     # Pull request: two evaluations and every poll of one full wait fit under
-    # the cap. Merge group: every poll of one full wait at two reads each and
-    # the one evaluation fit under it. The cap is well under the documented
-    # 1,000 requests per hour.
-    assert 2 * LARGEST_EVALUATION + runner.MAX_CI_POLLS <= runner.MAX_ENFORCE_REQUESTS
-    assert (
-        2 * runner.MAX_MERGE_GROUP_POLLS + LARGEST_EVALUATION
-        <= runner.MAX_ENFORCE_REQUESTS
+    # the cap. Merge group: every poll of one full wait at its highest cost
+    # (three reads, review round 2 P3-3) and the one evaluation fit under it.
+    # The cap is well under the documented 1,000 requests per hour.
+    pull_request_worst = (
+        2 * LARGEST_EVALUATION + runner.MAX_CI_POLLS * runner.CI_POLL_READS
     )
-    assert runner.MAX_MERGE_GROUP_POLLS == 101 and runner.MAX_CI_POLLS == 121
-    assert runner.MAX_ENFORCE_REQUESTS == 250
-    # The polls of one merge group run in any one hour: 20, or 40 reads.
+    merge_group_worst = (
+        runner.MAX_MERGE_GROUP_POLLS * runner.MERGE_GROUP_POLL_READS
+        + LARGEST_EVALUATION
+    )
+    assert (pull_request_worst, merge_group_worst) == (161, 333)
+    assert max(pull_request_worst, merge_group_worst) <= runner.MAX_ENFORCE_REQUESTS
+    assert runner.MAX_MERGE_GROUP_POLLS == 101 and runner.MAX_CI_POLLS == 101
+    assert (runner.CI_POLL_READS, runner.MERGE_GROUP_POLL_READS) == (1, 3)
+    assert runner.MERGE_GROUP_POLL_READS == 1 + runner.MAX_GROUP_CHECK_RUNS
+    assert runner.MAX_ENFORCE_REQUESTS == 350
+    # The polls of one run in any one hour: 20 for either event. With an
+    # evaluation in the same hour that is at most 50 requests for a pull
+    # request and 90 for a merge group (design section 8).
     assert 3600 // runner.MERGE_GROUP_POLL_SECONDS == 20
+    assert 3600 // runner.CI_POLL_SECONDS == 20
+    assert 20 * runner.CI_POLL_READS + LARGEST_EVALUATION == 50
+    assert 20 * runner.MERGE_GROUP_POLL_READS + LARGEST_EVALUATION == 90
     # A v5 lane costs three reads per unit: its manifest and two module files.
     assert (26 - 14) / 4 == 3
 

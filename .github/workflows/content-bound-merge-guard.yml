@@ -38,10 +38,15 @@ name: content-bound-merge-guard
 # request with no lane must show a FAILED job of this workflow under the
 # ruleset in Evaluate mode (docs/content-bound-merge-guard.md section 8).
 #
-# Merge groups are judged late. For a `merge_group` event the launcher first
-# waits, for at most 5 hours, until the group's own `validate / validate` run
-# has completed, and evaluates after that. The job timeout below covers that
-# wait and the evaluation, and it is below the 6 hours a hosted job may run.
+# The job waits for the repository's CI. A pull request whose first verdict
+# is `ci_not_green` waits, for at most 5 hours, until `validate / validate`
+# on its head has completed, and is then judged once more. Merge groups are
+# judged late: for a `merge_group` event the launcher first waits, for at
+# most 5 hours, until the group's own `validate / validate` run has
+# completed, and evaluates after that. A waiting job holds one hosted runner
+# for the time of that CI (about 3 to 4 hours on rulespec-us, measured
+# 2026-11-17). The job timeout below covers the longest run of either event,
+# and it is below the 6 hours a hosted job may run.
 #
 # Unverified, and why this one fails closed. No live ruleset run has shown what
 # `github.workflow_sha` is for a workflow that a ruleset runs in another
@@ -72,9 +77,12 @@ jobs:
   guard:
     name: content-bound-merge-guard
     runs-on: ubuntu-latest
-    # The launcher waits up to 60 minutes for `validate / validate` of a pull
-    # request and up to 300 minutes for that of a merge group.
-    timeout-minutes: 330
+    # The launcher waits up to 300 minutes for `validate / validate` of a
+    # pull request and up to 300 minutes for that of a merge group. The
+    # longest run is a pull request's: an evaluation, the wait, its last poll
+    # interval and poll, and the second evaluation, 333.5 minutes with every
+    # request at its timeout.
+    timeout-minutes: 345
     steps:
       - name: Check out the guard bundle
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -100,7 +108,7 @@ jobs:
 
       - name: Build the bundle and check its digest
         env:
-          BUNDLE_SHA256: f24b5094ff9b36dc29966e17b327e20844c7f12ec333cfabcf39f4962c657b63
+          BUNDLE_SHA256: 2f7b568edea650a85426bb8fd3d86209e75186bb1a2c7b77e27114d16f010d8f
         run: |
           set -euo pipefail
           source_root="$GITHUB_WORKSPACE/guard-source"
