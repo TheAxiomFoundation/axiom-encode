@@ -693,7 +693,12 @@ errors as before the lane existed, and the promotion writes v5.
 
 - Admission keeps every scope check of `verify_reviewed_pr` and drops the
   requirement for an approval. An effective `CHANGES_REQUESTED` from any
-  account still refuses, as today.
+  account still refuses, as today. One account's approval does not cancel
+  another account's request for changes; reviews are ordered by their id,
+  not by the listing. Stricter than the reviewed lane, in this lane only:
+  a review whose id, or whose reviewer's id, is not an integer refuses the
+  candidate, because reviewers without a numeric id would share one key.
+  The reviewed lane's `_approved_reviews` is unchanged.
 - `triggering_actor` must be enrolled by numeric id, with the enrolled login
   and `type == "User"` (D3). The id is recorded.
 - The admission record has another outer `schema`,
