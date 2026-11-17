@@ -1335,29 +1335,50 @@ def _review_json_object_spans(output: str) -> list[_ReviewJsonObjectSpan]:
 
 # A quote that an even number of backslashes precedes is not escaped.
 _UNESCAPED = r"(?<!\\)(?:\\\\)*"
-# Each alternative is linear: no nested unbounded repeat, and a comment
-# cannot span a comment end.
+# Each piece is linear: no nested unbounded repeat, a comment cannot span a
+# comment end, and a line comment cannot span a line end.
+# Space as lenient parsers skip it: U+FEFF is not whitespace for `\s`.
+_LENIENT_SPACE = r"[\s﻿]*"
+_BLOCK_COMMENT = r"/\*(?:[^*]|\*(?!/)){0,200}\*/"
+_LINE_COMMENT = r"(?:\#|//)[^\n]{0,200}\n"
+# Between a key and its colon: space and block comments.
+_KEY_COLON = _LENIENT_SPACE + "(?:" + _BLOCK_COMMENT + _LENIENT_SPACE + "){0,8}:"
 _REVIEW_KEY_TOKEN_OUTSIDE_VERDICT = re.compile(
     "|".join(
         (
             # A JSON key. An escaped example inside a string does not count.
-            _UNESCAPED + '"(?:' + "|".join(sorted(_REVIEW_JSON_KEYS)) + r')"\s*:',
+            _UNESCAPED
+            + '"(?:'
+            + "|".join(sorted(_REVIEW_JSON_KEYS))
+            + ')"'
+            + _KEY_COLON,
             # `passed` in spellings that neither the lexer nor the decoder
             # reads: another case, single or curly quotes, or no quotes.
-            _UNESCAPED + r'(?i:"passed")\s*:',
-            _UNESCAPED + r"(?i:'passed')\s*:",
-            r"[‘’“”](?i:passed)[‘’“”]\s*:",
+            _UNESCAPED + '(?i:"passed")' + _KEY_COLON,
+            _UNESCAPED + "(?i:'passed')" + _KEY_COLON,
+            "[‘’“”](?i:passed)[‘’“”]" + _KEY_COLON,
             # Unquoted: first in its object, or first on its line after a
-            # comma, with optional block comments before it.
-            r"(?:\{|,[^\S\n]*\n)\s*"
-            r"(?:/\*(?:[^*]|\*(?!/)){0,200}\*/\s*){0,8}(?i:passed)\s*:",
+            # comma (a line comment may end that line), with optional block
+            # and line comments before it.
+            r"(?:\{|,[^\S\n]*(?:\n|"
+            + _LINE_COMMENT
+            + "))"
+            + _LENIENT_SPACE
+            + "(?:(?:"
+            + _BLOCK_COMMENT
+            + "|"
+            + _LINE_COMMENT
+            + ")"
+            + _LENIENT_SPACE
+            + "){0,8}(?i:passed)"
+            + _KEY_COLON,
         )
     )
 )
 # A key spelled with backslash escapes: up to 160 characters or escapes, more
 # than the longest review key written as \uXXXX throughout.
 _ESCAPED_KEY_TOKEN = re.compile(
-    _UNESCAPED + r'("(?:[^"\\\n]|\\.){0,160}")\s*:', re.DOTALL
+    _UNESCAPED + r'("(?:[^"\\\n]|\\.){0,160}")' + _KEY_COLON, re.DOTALL
 )
 
 
@@ -1397,10 +1418,16 @@ def _refuse_review_keys_outside_verdict(output: str, start: int, end: int) -> No
     `Schema: { passed: <boolean> }`, or `checks run: 4,` then a line
     `passed: 4`. The scan cannot tell such prose from a second verdict.
 
-    Known limits: an unquoted `passed:` after a comma on the same line is not
-    detected, and neither is a pseudo-JSON fragment without a counted
-    spelling (for example single-quoted or unquoted keys other than
-    `passed`).
+    Between a counted key and its colon the scan skips whitespace, U+FEFF
+    and `/* */` comments. Before an unquoted `passed` it also skips `#` and
+    `//` line comments.
+
+    Known limits, not detected: a key whose quotes are backslash-escaped
+    outside any string (`{\\"passed\\": false}`); an unquoted `passed:` after
+    a comma on the same line; single-quoted or unquoted keys other than
+    `passed`; a comment longer than 200 characters, more than eight comments
+    in a row, or a line comment between a quoted key and its colon; an
+    invisible character other than U+FEFF between a key and its colon.
     """
     if _has_review_key_token(output[:start]) or _has_review_key_token(output[end:]):
         # Its own message: the output may hold one object and a key in prose.

@@ -38272,6 +38272,17 @@ _DAMAGED_FAILING_VERDICTS = [
     ('{"p\\u0061ssed":false,"score":1}', "\n"),
     ('{"P\\u0061ssed":false}', "\n"),
     ('{"note":"\\","sc\\u006fre":1}', "\n"),
+    # Comments and U+FEFF as lenient parsers skip them.
+    ("{ # final answer\n  passed: false }", "\n"),
+    ('{"x": 1, // c\n passed: false}', "\n"),
+    ("{ // a\n # b\n /* c */ Passed /* d */ \ufeff: false}", "\n"),
+    ('{"passed" /* final */ : false}', "\n"),
+    ('{"passed"\ufeff: false}', "\n"),
+    ('{"score" /**/ : 2}', "\n"),
+    ("{\ufeffpassed: false}", "\n"),
+    ("{'passed' /* c */ /* d */: false}", "\n"),
+    ('{"p\\u0061ssed" /* c */\ufeff: false}', "\n"),
+    ('{"note":"\\","blocking_issues"/**/\ufeff:["x"]}', "\n"),
 ]
 _DAMAGED_VERDICTS_THE_LEXER_READS = {
     '{"reasoning":"the 5" rule","passed":false,"score":1}',
@@ -38378,6 +38389,30 @@ def test_extract_json_object_refuses_review_keys_in_prose_outside_the_verdict(
     assert _extract_json_object(json.dumps(payload)) == payload
 
 
+@pytest.mark.parametrize(
+    "prose",
+    [
+        "Checked rules #1, #2 // both fine\nAll tests passed.",
+        "Steps: a, b, # of cases is 4\nresult: passed",
+        "The flag /* see note */ : is described above; passed /* yes */.",
+        "{ # a map\n  status: passed }",
+        "See \ufeff: and 'passed' \ufeff here, also {// c\n failed: 0}",
+        # Disclosed limits of the raw scan: these spellings are not counted.
+        '{\\"passed\\": false}',
+        '{"x": 1, passed: false}',
+        "{'score': 1}",
+        '{"passed" // c\n : false}',
+        '{"passed"\u200b: false}',
+    ],
+)
+@pytest.mark.parametrize("prose_first", [True, False])
+def test_extract_json_object_raw_key_scan_passes_uncounted_text_outside_the_verdict(
+    prose, prose_first
+):
+    values = [prose, _PASSING_VERDICT] if prose_first else [_PASSING_VERDICT, prose]
+    assert _extract_json_object("\n".join(values)) == {"passed": True, "score": 9}
+
+
 @pytest.mark.parametrize("key", ["blocking_issues", "non_blocking_issues", "passed"])
 @pytest.mark.parametrize("fragment_first", [True, False])
 def test_extract_json_object_escaped_nested_key_cannot_absorb_a_hidden_fragment(
@@ -38454,6 +38489,12 @@ def test_extract_json_object_refuses_a_fragment_after_a_decoded_prefix(
         '"a' * 50000,
         ",\n" * 50000,
         'word "quoted": thing, {x}\n' * 20000,
+        '"passed" /*' * 20000,
+        '"passed" ' + "/**/ " * 20000,
+        '"k" /* ' * 20000,
+        "{ # c\n" * 20000,
+        ", // c\n# d\n/* e */" * 20000,
+        "\ufeff" * 50000 + '"passed" ' + "\ufeff " * 50000,
     ],
     ids=[
         "closed-comments",
@@ -38463,6 +38504,12 @@ def test_extract_json_object_refuses_a_fragment_after_a_decoded_prefix(
         "quotes",
         "comma-lines",
         "prose-braces",
+        "key-open-comments",
+        "key-closed-comments",
+        "any-key-open-comments",
+        "brace-line-comments",
+        "comma-line-comments",
+        "byte-order-marks",
     ],
 )
 def test_extract_json_object_raw_key_scan_does_not_backtrack(tail):
