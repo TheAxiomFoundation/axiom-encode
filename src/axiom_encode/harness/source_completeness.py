@@ -97,6 +97,10 @@ from axiom_encode.harness.reviewed_alternative_lists import (
     ReviewedAlternativeList,
     reviewed_alternative_lists_for,
 )
+from axiom_encode.harness.start_date_evidence import (
+    StartDateEvidence,
+    date_silent_start_issues,
+)
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.printed_source_rows import (
     PrintedRowStructure,
@@ -6646,8 +6650,15 @@ def analyze_complete_source_unit(
     execution_evidence: SameCaseEvidence | None = None,
     local_relation_context: object | None = None,
     referral_context: Any = None,
+    start_date_evidence: StartDateEvidence | None = None,
 ) -> CompleteSourceUnitAnalysis:
-    """Analyze one artifact against its authoritative, resolver-owned body."""
+    """Analyze one artifact against its authoritative, resolver-owned body.
+
+    ``start_date_evidence`` turns on the date-silent start-date check (#2212).
+    A caller that resolves the unit from the corpus passes it, also when the
+    corpus dates are missing; ``None`` means the caller holds no corpus
+    metadata channel at all, and the check does not run.
+    """
 
     with (
         _us_manual_prose_scope(corpus_citation_path),
@@ -6676,7 +6687,7 @@ def analyze_complete_source_unit(
         if shape_problem is not None:
             return _unanalyzable_complete_source_unit(None, reason=shape_problem)
         try:
-            return _analyze_rulespec_payload(
+            analysis = _analyze_rulespec_payload(
                 payload,
                 content=content,
                 execution_evidence=execution_evidence,
@@ -6700,6 +6711,21 @@ def analyze_complete_source_unit(
                 imported_proof_source_context=imported_proof_source_context,
                 resolved_dependency_outputs=resolved_dependency_outputs,
                 source_context=source_context,
+            )
+            if start_date_evidence is None:
+                return analysis
+            start_issues = date_silent_start_issues(
+                payload,
+                source_text,
+                corpus_citation_path=corpus_citation_path,
+                evidence=start_date_evidence,
+                imported_symbol_contents=imported_symbol_contents,
+                raw_content=content,
+            )
+            return (
+                replace(analysis, issues=(*analysis.issues, *start_issues))
+                if start_issues
+                else analysis
             )
         except (yaml.YAMLError, TypeError, ValueError) as exc:
             # A gate that cannot read its input must report it, never pass it.
