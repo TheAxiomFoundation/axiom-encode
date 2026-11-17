@@ -1,0 +1,14 @@
+{
+  "origin": "unsigned-local-diagnostic",
+  "input_history": {
+    "candidate.yaml": "issue233 retained registered-repair reconstruction, unchanged45-case diagnostic policy e857b1b9; local unsigned diagnostic, not hosted output",
+    "candidate.test.yaml": "issue233 retained44cases plus explicit existing-child output projection,45cases402 scalar comparisons",
+    "source.txt": "public corpus d24cbde7e6d125a6f859f43c188b0ffbd115b835, authenticated source retained from native39337066830"
+  },
+  "files": {
+    "candidate.yaml": "e857b1b909cf7546b7366f0a235349bac58d8f40d5c34083d894178659a5c830",
+    "candidate.test.yaml": "1f071c6763514db637daf525892af23476703dc16be30def3715239938470157",
+    "source.txt": "7637ab494fc385b938e9e3ce4d5f3b1af8bc331ad644fe3cedefaee8434028ee"
+  },
+  "limits": "Unchanged local45-case repair diagnostic. No native receipt or production claim."
+}

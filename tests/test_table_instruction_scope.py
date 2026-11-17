@@ -57,6 +57,14 @@ def test_person_and_mixed_scope_are_not_reassigned():
         CLAUSE + "\n\nunless another instruction applies.",
         CLAUSE + "\r\n\r\nExcept where otherwise stated.",
         CLAUSE + "\n\nProvided that the family is eligible.",
+        CLAUSE + "\n\nOnly if eligible.",
+        CLAUSE + "\n\nOn condition that the expenses qualify.",
+        CLAUSE + "\n\nAssuming the family is eligible.",
+        CLAUSE + "\n\nProviding that the expenses qualify.",
+        CLAUSE + "\n\nOnce the expenses qualify.",
+        CLAUSE + "\n\nUntil the family is eligible.",
+        CLAUSE + "\n\nIf the family is eligible.",
+        CLAUSE + "\n\nAs long as the expenses qualify.",
         CLAUSE.replace("include", "exclude"),
         CLAUSE.replace("eligible physical activity expenses", "income"),
         CLAUSE.replace("family's\n", "family's\n\n"),
@@ -67,8 +75,20 @@ def test_qualified_negated_or_different_instruction_is_not_masked(text):
     assert v._mask_family_expense_table_instruction(text) == text
 
 
-def test_original_source_remains_immutable():
-    text = CLAUSE
-    assert v._classify_source_scope(text) is None
-    assert v._classify_source_unit_entity(text) is None
-    assert text == CLAUSE
+def test_mask_blanks_only_the_family_modifier_and_keeps_other_evidence():
+    person = "The individual is eligible for a credit."
+    text = CLAUSE + "\n\n" + person
+    masked = v._mask_family_expense_table_instruction(text)
+    start = text.index("family")
+    assert masked == text[:start] + " " * 6 + text[start + 6 :]
+    assert "eligible physical activity expenses." in masked
+    assert masked.endswith(person)
+    # The retained sentence, not the masked modifier, decides the scope.
+    assert v._classify_source_scope(text) == "person"
+
+
+def test_unqualified_following_paragraph_still_masks():
+    text = CLAUSE + "\n\nDo not include your receipts but keep them."
+    masked = v._mask_family_expense_table_instruction(text)
+    start = text.index("family")
+    assert masked == text[:start] + " " * 6 + text[start + 6 :]

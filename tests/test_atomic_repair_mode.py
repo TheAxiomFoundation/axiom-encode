@@ -205,6 +205,7 @@ def test_actual_resolve_shell_selects_mode_before_artifact_access(tmp_path, mode
     assert selected == {
         "mode": expected,
         "tests_only": str(expected == "tests_only").lower(),
+        "preserve_companion": "false",
     }
     from axiom_encode.harness.evals import (
         EvalWorkspace,

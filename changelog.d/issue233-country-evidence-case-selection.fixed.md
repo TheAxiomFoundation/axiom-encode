@@ -1,0 +1,1 @@
+Keep unrelated table-output cases from disabling T2036 country-condition evidence. Selected country cases still require the original context, identity, proof, period and boundary checks, and the evidence remains bound to the complete companion.

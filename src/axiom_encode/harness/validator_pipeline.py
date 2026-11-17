@@ -206,6 +206,10 @@ from .source_completeness import (
     manual_outcome_exception_advice,
     source_states_stated_conversion_result,
 )
+from .start_date_evidence import (
+    StartDateEvidence,
+    start_date_evidence_from_metadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24277,15 +24281,21 @@ _FAMILY_EXPENSE_TABLE_INSTRUCTION = re.compile(
 def _mask_family_expense_table_instruction(text: str) -> str:
     """Distinguish the expenses' family from an eligibility test's subject.
 
-    Only a complete unqualified instruction paragraph is recognized. This
-    removes a false scope inference; it does not assign a Person actor or
-    establish applicability, eligibility, or compliance with the instruction.
+    Only the complete instruction paragraph is recognized, and only when it is
+    not colon-led and the following text does not open with a listed
+    qualifier or condition word. Qualifying prose that opens otherwise is not
+    detected here; it stays in the text for condition analysis. This removes a
+    false scope inference; it does not assign a Person actor or establish
+    applicability, eligibility, or compliance with the instruction.
     """
     characters = list(text)
     for match in _FAMILY_EXPENSE_TABLE_INSTRUCTION.finditer(text):
         # Blank lines do not sever a colon-led instruction or its qualification.
         if text[: match.start()].rstrip().endswith(":") or re.match(
-            r"(?:unless|except|provided|subject\s+to|but|however)\b",
+            r"(?:unless|except|provided|providing|subject\s+to|but|however|only|if|when"
+            r"|once|until|assuming"
+            r"|where|on\s+condition|conditional|as\s+long\s+as|so\s+long\s+as"
+            r"|in\s+the\s+event|to\s+the\s+extent)\b",
             text[match.end() :].lstrip(),
             flags=re.IGNORECASE,
         ):
@@ -25659,6 +25669,78 @@ _NUMERIC_DERIVED_DTYPES = {
     "number",
     "rate",
 }
+# Corpus document class names that a deferral can copy into its target root
+# (`us-az:manuals/...` for `us-az/manual/...`); none is a RuleSpec module root.
+_CORPUS_CLASS_ROOT_TOKENS = frozenset(
+    {
+        "form",
+        "forms",
+        "guidance",
+        "manual",
+        "manuals",
+        "policy",
+        "regulation",
+        "statute",
+    }
+)
+CHECK_DEFERRED_OUTPUT_TARGET_NOT_ABSOLUTE = declare_check(
+    "deferred-outputs/target-not-absolute",
+    title="Deferred output is not an absolute RuleSpec output target",
+    requires=(
+        "Each `module.deferred_outputs[].output` is "
+        "`<jurisdiction>:<root>/<path>#<output>` with the root `legislation`, "
+        "`policies`, `regulations` or `statutes`."
+    ),
+    why=(
+        "A deferral records which output is still missing so that a later "
+        "encode can supply it. A target outside the RuleSpec module roots names "
+        "no module, so nobody can find or close the gap."
+    ),
+    fix=(
+        "Write the deferred output under the module's own RuleSpec target, the "
+        "prefix that its companion tests use, and add `#<output>`. Manual, "
+        "guidance, policy and form sources are encoded under `policies/`, not "
+        "`manuals/` or `forms/`."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site="axiom_encode/harness/validator_pipeline.py:find_deferred_output_issues",
+)
+
+
+def _deferred_output_module_target(
+    output: str,
+    module: Mapping[str, Any],
+) -> tuple[str, str] | None:
+    """Return the copied corpus class root and this module's own deferral target.
+
+    The target comes from `module.source_verification.corpus_citation_path`,
+    as the complete-source prompt renders it, so it carries no branch segment
+    that the source does not print.
+    """
+
+    root = output.partition(":")[2].partition("/")[0]
+    symbol = output.partition("#")[2].strip()
+    source_verification = module.get("source_verification")
+    corpus_citation_path = (
+        source_verification.get("corpus_citation_path")
+        if isinstance(source_verification, dict)
+        else None
+    )
+    if (
+        root not in _CORPUS_CLASS_ROOT_TOKENS
+        or not symbol
+        or not isinstance(corpus_citation_path, str)
+    ):
+        return None
+    # Imported here: evals imports this module.
+    from axiom_encode.harness.evals import _complete_source_deferral_anchor
+
+    target = f"{_complete_source_deferral_anchor(corpus_citation_path)}#{symbol}"
+    target_ref = _parse_rulespec_target(target)
+    if target_ref is None or target_ref.symbol is None:
+        return None
+    return root, target
 
 
 def find_deferred_output_issues(content: str) -> list[str]:
@@ -25692,9 +25774,27 @@ def find_deferred_output_issues(content: str) -> list[str]:
         output = str(record.get("output") or "").strip()
         output_ref = _parse_rulespec_target(output) if output else None
         if output_ref is None or output_ref.symbol is None:
+            corrected = _deferred_output_module_target(output, module)
+            root_hint = (
+                f" `{corrected[0]}/` is a corpus document class, not a RuleSpec "
+                f"module root. Use this module's own target `{corrected[1]}`, and "
+                "add a branch segment only for a marker that the source prints."
+                if corrected
+                else ""
+            )
             issues.append(
-                f"{label}.output must use an absolute RuleSpec output target "
-                "such as `us:statutes/26/63/f#additional_amount`."
+                ValidationIssue(
+                    f"{label}.output must use an absolute RuleSpec output target "
+                    f"such as `us:statutes/26/63/f#additional_amount`.{root_hint}",
+                    check=CHECK_DEFERRED_OUTPUT_TARGET_NOT_ABSOLUTE,
+                    subject=IssueSubject(field=f"{label}.output"),
+                    expected=(
+                        corrected[1]
+                        if corrected
+                        else "<jurisdiction>:<root>/<path>#<output>"
+                    ),
+                    found=output or "<empty output>",
+                )
             )
 
         reason = str(record.get("reason") or "").strip()
@@ -37175,6 +37275,9 @@ class ValidatorPipeline:
             authenticated_same_act_aliases=(
                 _authenticated_same_act_aliases_from_metadata(self.source_metadata)
             ),
+            start_date_evidence=self._complete_source_start_date_evidence(
+                corpus_citation_path
+            ),
         )
         # Reported beside the CI result for the admission score; a result that
         # carries no counts (a stubbed analyzer) records none.
@@ -37189,6 +37292,45 @@ class ValidatorPipeline:
         if all(type(value) is int for value in recall.values()):
             self._complete_source_unit_recall = recall
         return list(completeness.issues)
+
+    def _complete_source_start_date_evidence(
+        self, corpus_citation_path: str
+    ) -> StartDateEvidence | None:
+        """Corpus dates for the date-silent start-date check, or ``None``.
+
+        An encode supplies the resolver attestation in ``source_metadata``.
+        ``validate`` supplies none; the dates then come from the unit's row in
+        the bound corpus release. With neither a metadata object nor a bound
+        release the caller gave no corpus date channel, and the check does not
+        run. Metadata that is supplied but has no readable dates, and a
+        citation the bound release does not resolve, still reach the check as
+        evidence with problems, which supports nothing.
+        """
+
+        amendment_context = bool(
+            self.amendment_documents or self.amendment_source_texts
+        )
+        if self.source_metadata is not None:
+            return start_date_evidence_from_metadata(
+                self.source_metadata, amendment_context=amendment_context
+            )
+        if not isinstance(self.local_corpus_release, LocalCorpusRelease):
+            return None
+        try:
+            attestation = resolve_local_corpus_source(
+                corpus_citation_path, self.local_corpus_release
+            ).to_attestation()
+        except (CorpusResolutionError, OSError, TypeError, ValueError):
+            return StartDateEvidence(
+                None,
+                None,
+                ("the bound corpus release does not resolve the citation",),
+                amendment_context,
+            )
+        return start_date_evidence_from_metadata(
+            {"source_attestation": attestation},
+            amendment_context=amendment_context,
+        )
 
     def _complete_source_unit_deferred_outputs(
         self,
