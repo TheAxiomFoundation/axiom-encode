@@ -1,3 +1,7 @@
+## 0.2.2385
+
+- Let a sole table row witness a direct nonnegative clamp (#2288)
+
 ## 0.2.2384
 
 - Evidence floor for the start date of a date-silent unit (#2227)
